@@ -32,8 +32,11 @@ same result whenever no time budget binds (a time-bound stage stops at the clock
 """
 from __future__ import annotations
 
+import os
+
 from kae.budget import now as clock_now
 import time
+from pathlib import Path
 
 from .feedback import CongestionHistory, error_spots, physics_spots, plan_windows, unrouted_spots
 from .scorecard import accept
@@ -141,6 +144,17 @@ class JointLoop:
             except Exception as e:  # noqa: BLE001 - the history still has the failures
                 self.log(f"rudy map failed: {type(e).__name__}: {e}")
 
+    def _save_history(self, hist, seed):
+        """Publish this attempt's failed corridors for the placements of later attempts
+        (`place_history` directory, kae.joint.stages.KaeStages.place). A run without it, or one
+        whose first route left nothing open, leaves no file."""
+        d = self.opts.get("place_history")
+        if d and hist.h.any():
+            try:
+                hist.save(Path(d) / f"h-{seed}-{os.getpid()}.npz")
+            except OSError as e:
+                self.log(f"place history not saved: {type(e).__name__}: {e}")
+
     def _save(self, st, lay, output, rep):
         """Write the incumbent to OUTPUT now: a run killed later (an external timeout, a
         stage overrunning its budget) still leaves its best board."""
@@ -234,6 +248,7 @@ class JointLoop:
         self._geom = st.geometry(lay)
         hist = CongestionHistory(self._geom[1], bin_mm=1.0)
         self._history(hist, lay, fb)
+        self._save_history(hist, seed)
         best, best_card, best_fb, best_it = lay, card, fb, 0
         self._save(st, best, output, rep)
         tries = {}
@@ -314,6 +329,7 @@ class JointLoop:
                                  seconds=round(clock_now() - t, 1), repair=rrep))
                 continue
             self._history(hist, cand, fb)
+            self._save_history(hist, seed)
             keep, why = accept(best_card, card, phys_slack=o["phys_slack"], eff_tiebreak=bool(o["eff_tiebreak"]))
             dt = clock_now() - t
             est = max(float(o["min_iter_s"]), 0.5 * est + 0.5 * dt)
