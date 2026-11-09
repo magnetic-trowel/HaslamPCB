@@ -224,6 +224,9 @@ DEFAULTS = dict(
                                    # merit boards, k=2) found 0 / 10 / 30 equal (cp1 0.305 / 0.310 / 0.305,
                                    # completion 0.941-0.943), so the simpler setting wins; RUDY also ranks PCB
                                    # routability near chance (docs/research/placement/haslam-routability-estimators.md)
+    place_w_chan=0.0,              # placement: weight of the annealer's routing-channel term (pad halos of
+                                   # two parts overlapping / mean part area; haslam.place.exact.channel_grid). Off
+                                   # until its A/B: one board's evidence so far (paw3395)
     place_untangle=0,              # placement: 1 runs haslam.place.crossings.untangle after legalization (swaps of
                                    # equal parts and half turns that remove ratsnest crossings). Off until its A/B
                                    # (docs/research/placement/placement-routability-2611.md) says otherwise
