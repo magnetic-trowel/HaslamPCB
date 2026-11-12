@@ -42,8 +42,16 @@ RATES = {
     "anneal_move": 1.74e-5,     # one compiled annealer move
     "anneal_move_py": 1.36e-4,  # one Python-priced annealer move (physics terms, macros)
     "cpsat_dtime": 4.0,         # one unit of CP-SAT deterministic time (measured 3.8-4.5 s)
-    "fr_pass_pin2": 9e-5,       # one Freerouting pass, per pin^2 of the board (7-9.8e-5 over the three boards;
-                                # per MB of .dsn it varied 9x, and the largest board had a smaller .dsn)
+    "fr_work": 1.02e-5,         # one Freerouting work unit (fork autorouter.max_work: search steps plus
+                                # FR_PASS_WEIGHT x pins and FR_UNROUTED_WEIGHT x unrouted x pins per pass);
+                                # 8 boards, 76-1,987 pins, 386 passes: each board's time within 0.64-1.25x
+                                # (one small board 0.34x), tools/research/budget/fr_calibrate.py
+    "fr_run": 3.9,              # one Freerouting run's start-up and teardown (JVM, loading the .dsn)
+    "fr_dsn_kb": 0.009,         # ... per kB of .dsn
+    "fr_pass_pin2": 9e-5,       # builds without max_work: one Freerouting pass per pin^2 (fitted on 65-328 pins;
+                                # a fresh board's first pass costs 10-30x a later one, so this undercounts it)
+    "fr_opt_pass_pin2": 9e-5,   # one optimizer pass per pin^2 (uncalibrated: no calibration run reached the
+                                # optimizer, which runs only on a fully routed board)
     "drc_mb": 4.27,             # one KiCad DRC (with zone refill) per MB of board file
     "lastmile_try": 0.054,      # one last-mile path search (exact grid, one connection)
     # the critical-copper grid router (kae.route.critical_grid; the joint module stage, kae.route.critical),
