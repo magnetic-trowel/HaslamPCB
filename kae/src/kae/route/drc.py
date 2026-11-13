@@ -9,11 +9,14 @@ rule severities and custom rules from them.
 """
 from kae import budget
 import functools
+import hashlib
 import json
+import re
 import os
 import shlex
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from . import stepcache
@@ -59,8 +62,24 @@ def run(board, out_json, timeout=900, cache=True):
         out_json.unlink()
     timeout = budget.wall_timeout(timeout)
     mb = board.stat().st_size / 1e6
+    back, judged = {}, board
     if budget.work_mode():
         canonical_copper_order(board)
+        judged, back = _judged_copy(board)
+    try:
+        rep = _run(judged, out_json, timeout, cache, mb)
+        if len(rep.get("unconnected_items") or []) >= DRC_UNCONNECTED_CAP or unconnected_ignored(board):
+            n = uncapped_unconnected(judged, timeout)
+            if n is not None:
+                rep["unconnected_count"] = n
+    finally:
+        if judged != board:
+            shutil.rmtree(judged.parent, ignore_errors=True)
+    _map_uuids(rep, back)
+    return rep
+
+
+def _run(board, out_json, timeout, cache, mb):
     cmd = [*kicad_cli(), "pcb", "drc", "--format", "json", "--refill-zones", "--severity-all",
            "--units", "mm", "-o", str(out_json), str(board)]
     try:
@@ -82,10 +101,6 @@ def run(board, out_json, timeout=900, cache=True):
         for k in ("violations", "unconnected_items", "schematic_parity"):
             if rep.get(k):
                 rep[k].sort(key=_content_key)
-    if len(rep.get("unconnected_items") or []) >= DRC_UNCONNECTED_CAP or unconnected_ignored(board):
-        n = uncapped_unconnected(board, timeout)
-        if n is not None:
-            rep["unconnected_count"] = n
     return rep
 
 
@@ -101,10 +116,13 @@ def unconnected_ignored(board):
         return False
 
 
-def canonical_copper_order(board):
+def canonical_copper_order(board, uuids=False):
     """Rewrite `board` with its top-level (segment), (arc) and (via) blocks in the order of their content.
     KiCad writes copper in UUID order, new on every import of a routed board, and its ratsnest breaks ties
-    between equally near copper by load order: the same board then reports other unconnected items."""
+    between equally near copper by load order: the same board then reports other unconnected items.
+    With `uuids`, the copper's UUIDs are also derived from that content (KiCad's counts depend on them
+    too: two copies of one board with other UUIDs judged 96 and 97 open), and the result is
+    {new uuid: old uuid}."""
     lines = Path(board).read_text(errors="replace").split("\n")
     blocks, first, out, i = [], None, [], 0
     while i < len(lines):
@@ -125,8 +143,42 @@ def canonical_copper_order(board):
         i += 1
     if blocks:
         blocks.sort(key=lambda b: [x for x in b if "(uuid" not in x and "(tstamp" not in x])
+        back = {}
+        if uuids:
+            for k, blk in enumerate(blocks):
+                h = hashlib.sha1(("%d\n" % k + "\n".join(x for x in blk if "(uuid" not in x)).encode()).hexdigest()
+                u = f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
+                for x in blk:
+                    m = _UUID.search(x)
+                    if m:
+                        back[u] = m.group(1)
+                blocks[k] = [_UUID.sub(f'(uuid "{u}")', x) for x in blk]
         out[first:first] = [x for b in blocks for x in b]
         Path(board).write_text("\n".join(out))
+        return back
+    return {}
+
+
+_UUID = re.compile(r'\(uuid "?([0-9a-fA-F-]+)"?\)')
+
+
+def _judged_copy(board):
+    """A temporary copy of `board` (with its project files) in canonical copper order with content UUIDs,
+    and {new uuid: old uuid} to read its report against `board`."""
+    d = Path(tempfile.mkdtemp(prefix="drc-canon-", dir=board.parent))
+    for f in board.parent.glob(board.stem + ".kicad_*"):
+        if f.suffix in (".kicad_pcb", ".kicad_pro", ".kicad_dru", ".kicad_prl"):
+            shutil.copy2(f, d / f.name)
+    c = d / board.name
+    return c, canonical_copper_order(c, uuids=True)
+
+
+def _map_uuids(rep, back):
+    for k in ("violations", "unconnected_items"):
+        for v in rep.get(k) or []:
+            for it in v.get("items") or []:
+                if it.get("uuid") in back:
+                    it["uuid"] = back[it["uuid"]]
 
 
 def _content_key(v):
