@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """kae.route.freerouting under counted budgets: a build with autorouter.max_work gets the budget as its
 own work budget (a counted stop) and the optimizer a pass cap; a run is charged by the work units it
-logs, its start-up and its optimizer passes; an older build keeps the pass cap."""
+logs (only when the build takes the budget), its start-up and its optimizer passes; an older build keeps the pass cap."""
 from pathlib import Path
 
 import pytest
@@ -56,12 +56,15 @@ def test_an_older_build_keeps_the_pass_cap(fake, monkeypatch):
     F.route(dsn, dsn.with_suffix(".ses"), dsn.parent, budget_s=100.0)
     assert "autorouter.max_work" not in calls[0]["settings"]
     assert calls[0]["passes"] >= 1
-    assert c.units["fr_work"] == 20000                   # the log says what it did: charged by that
+    # charged as an old build even if it logs work units (KAE_FR_WORK_BUDGET=0 on a new build must
+    # leave every count as d137fd1 gives it)
+    assert c.units["fr_pass_pin2"] > 0 and "fr_work" not in c.units
     budget.set_mode("time")
 
 
-def test_time_mode_only_counts(fake):
+def test_time_mode_only_counts(fake, monkeypatch):
     calls, dsn = fake
+    monkeypatch.setattr(F, "has_work_budget", lambda cmd=None: True)
     c = budget.set_mode("time")
     F.route(dsn, dsn.with_suffix(".ses"), dsn.parent, budget_s=100.0)
     assert "autorouter.max_work" not in (calls[0]["settings"] or {})

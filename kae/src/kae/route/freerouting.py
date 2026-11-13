@@ -284,8 +284,11 @@ _HOOK = {}
 
 
 def has_work_budget(cmd=None):
-    """Whether the Freerouting build takes autorouter.max_work (the jar holds its setting name)."""
+    """Whether the Freerouting build takes autorouter.max_work (the jar holds its setting name).
+    KAE_FR_WORK_BUDGET=0 says no for any build (to compare builds on the same arguments)."""
     import zipfile
+    if os.environ.get("KAE_FR_WORK_BUDGET") == "0":
+        return False
     argv = cmd or command()
     jar = next((a for a in argv if a.endswith(".jar")), None)
     if jar is None and argv:
@@ -317,7 +320,7 @@ def _charge(run, dsn, size):
     budget.charge("fr_run", 1)
     budget.charge("fr_dsn_kb", kb)
     w = _WORK_LINE.findall(run.log or "")
-    if w:
+    if w and has_work_budget():
         budget.charge("fr_work", int(w[-1]))
     else:
         budget.charge("fr_pass_pin2", max(1, len(PASS_DONE.findall(run.log or ""))) * size)
