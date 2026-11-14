@@ -196,7 +196,8 @@ def keepout_plan(s, mods, margin, log=_log):
                     continue
                 reg = unary_union(pads).convex_hull
             esc = escapes(s, m, reg, loop, net)
-            plan.append(dict(cell=m.id, net=net, layer=layer, h=h, region=reg, escapes=esc))
+            plan.append(dict(cell=m.id, net=net, layer=layer, h=h, region=reg, escapes=esc,
+                             plane=(net, layer) == (pn, pl)))
             rows.append(dict(cell=m.id, layer=layer, net=net, h_mm=round(h, 3) if pl is not None else None,
                              region_mm2=round(reg.area, 2),
                              pins=len(esc), plane=(net, layer) == (pn, pl)))
@@ -300,15 +301,23 @@ def escape_round(input_path, output_path, wd, plan, info, opts, hl, final_rep, d
                             set(opts.get("fixed_uuids") or ()), log, base=base)
     rep = rep or final_rep
     still = open_cell_pads(rep, ko["plan"])
-    dropped = []
-    if still and deadline - clock_now() > 30:
-        # the corridor was not enough (the cell's own locked copper or vias in the way): the keep-out of
-        # those cells is lifted for one more last mile, so the cell's part is never left walled in
-        dropped = sorted({e["cell"] for e in ko["plan"] for x in e["escapes"] if x["pad"] in still})
-        log(f"hotloop: {len(still)} cell pin(s) still open; keep-out lifted for {', '.join(dropped)}")
-        zones = zones_for(ko["board"], [e for e in ko["plan"] if e["cell"] not in dropped], pads)
-        # the cell stage's copper becomes ordinary routing the last mile may rip and re-lay there
-        cell = set(ko.get("cell_uuids") or ())
+    dropped, lifted = [], []
+    cell = set(ko.get("cell_uuids") or ())
+    keep = list(ko["plan"])
+    # two steps, each only while a pin of a cell's part is still open: first the cell's pour keep-outs
+    # (all but the return plane, the one with the largest share: bq25306 E1), then the return plane too;
+    # the cell stage's copper becomes ordinary routing the last mile may rip and re-lay
+    for level in ("pours", "plane"):
+        if not still or deadline - clock_now() < 30:
+            break
+        cells = sorted({e["cell"] for e in keep for x in e["escapes"] if x["pad"] in still})
+        if not cells:
+            break
+        keep = [e for e in keep if e["cell"] not in cells or (level == "pours" and e.get("plane"))]
+        lifted.append(dict(level=level, cells=cells, pins=sorted(still)))
+        dropped = sorted(set(dropped) | set(cells)) if level == "plane" else dropped
+        log(f"hotloop: {len(still)} cell pin(s) still open; {level} keep-outs lifted for {', '.join(cells)}")
+        zones = zones_for(ko["board"], keep, pads | still)
         W.edit(output_path, tmp, drop_guards=True, unlock=sorted(cell) or None)
         W.append_items(tmp, output_path, zones=zones)
         opts["crit_zones"] = [z for z in pcbnew_io.zone_fills(output_path)["zones"] if hard_zone(z.get("name"))]
@@ -319,17 +328,21 @@ def escape_round(input_path, output_path, wd, plan, info, opts, hl, final_rep, d
         best = drc.summary(rep)
         rep = repair._last_mile(input_path, output_path, wd, p2, info, opts, deadline, rounds, best, rep,
                                 set(opts.get("fixed_uuids") or ()) - cell, log, base=base) or rep
+        still = open_cell_pads(rep, ko["plan"])
+    if lifted:
         from kae import hazards as H
+        last = lifted[-1]
         hl.setdefault("hazards", []).append(H.make(
             "hotloop_keepout_lifted", "info", "electrical",
-            f"The return-plane keep-out of {', '.join(dropped)} walled in pins of the cell's own parts "
-            f"({', '.join(sorted(still))}) even with escape corridors; it was lifted, and the cell's copper unlocked, "
-            f"for the last mile, so other copper may cross the return plane under that loop.",
-            objects=dropped + sorted(still), evidence=dict(pins=sorted(still), cells=dropped),
+            f"Keep-outs of {', '.join(last['cells'])} walled in pins of the cells' own parts "
+            f"({', '.join(last['pins'])}) even with escape corridors; "
+            f"{'the return plane and pours' if last['level'] == 'plane' else 'the loop-net pours (the return plane kept)'}"
+            f" were lifted and the cell's copper unlocked for the last mile, so other copper may cut them there.",
+            objects=last["cells"] + last["pins"], evidence=dict(steps=lifted),
             fix="Room for those pins to fan out on the cell's side (move a neighbour, or the input capacitor), "
                 "so the keep-out can stay."))
     hl["guards"] = [dict(net=g[0], layer=g[1], ring=g[2][0], name=g[3]) for g in zones]
-    hl["keepout_lifted"] = dropped
+    hl["keepout_lifted"] = [f"{x['level']}:{c}" for x in lifted for c in x["cells"]]
     return rep, drc.summary(rep), p2, sorted(pads)
 
 
