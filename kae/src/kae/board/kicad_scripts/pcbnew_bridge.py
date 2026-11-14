@@ -12,6 +12,7 @@ and prints one status line ({"ok": ...}) on stdout.
     python pcbnew_bridge.py edit-routing BOARD EDITS OUT_JSON DEST
     python pcbnew_bridge.py zone-fills BOARD OUT_JSON
     python pcbnew_bridge.py text-shapes BOARD OUT_JSON
+    python pcbnew_bridge.py copper-items BOARD OUT_JSON
     python pcbnew_bridge.py worker
 
 export-dsn: KiCad's Specctra export of BOARD (loaded with its project, so net classes and
@@ -1038,6 +1039,45 @@ def text_shapes(path, out):
     _status(dict(ok=True, texts=len(texts)))
 
 
+def copper_items(path, out):
+    """Every pad with copper, track, arc and via of BOARD (loaded as kicad-cli's DRC loads it) as
+    KiCad's DRC report names it: uuid, kind, net, description (GetItemDescription, the report's
+    text), pos (GetPosition, the report's position) and its connectivity anchors (pad: the shape
+    position on each of its copper layers; track and arc: both ends; via: its centre), all in nm."""
+    board = _load(path)
+    up = pcbnew.UNITS_PROVIDER(pcbnew.pcbIUScale, pcbnew.EDA_UNITS_MM)
+
+    def nm(p):
+        return [int(p.x), int(p.y)]
+    items = []
+    for fp in board.GetFootprints():
+        for pad in fp.Pads():
+            cu = [l for l in pad.GetLayerSet().CuStack()]
+            if not cu:
+                continue
+            anchors = []
+            for l in cu:
+                try:
+                    a = nm(pad.ShapePos(l))
+                except TypeError:            # a KiCad without padstacks: one shape position
+                    a = nm(pad.ShapePos())
+                if a not in anchors:
+                    anchors.append(a)
+            items.append(dict(uuid=pad.m_Uuid.AsString(), kind="pad", net=pad.GetNetname(),
+                              description=pad.GetItemDescription(up, True), pos=nm(pad.GetPosition()),
+                              anchors=anchors))
+    for t in board.GetTracks():
+        cls = t.GetClass()
+        if cls == "PCB_VIA":
+            kind, anchors = "via", [nm(t.GetPosition())]
+        else:
+            kind, anchors = ("arc" if cls == "PCB_ARC" else "track"), [nm(t.GetStart()), nm(t.GetEnd())]
+        items.append(dict(uuid=t.m_Uuid.AsString(), kind=kind, net=t.GetNetname(),
+                          description=t.GetItemDescription(up, True), pos=nm(t.GetPosition()), anchors=anchors))
+    _write(out, dict(ok=True, items=items))
+    _status(dict(ok=True, items=len(items)))
+
+
 def _serve_one(req):
     """Run one request in a forked child; returns its exit status (negative: signal)."""
     parent = os.getpid()
@@ -1112,6 +1152,8 @@ def main(argv):
             zone_fills(args[0], args[1])
         elif op == "text-shapes":
             text_shapes(args[0], args[1])
+        elif op == "copper-items":
+            copper_items(args[0], args[1])
         else:
             raise SystemExit(f"unknown op {op}")
     except Exception as e:  # report failures as JSON

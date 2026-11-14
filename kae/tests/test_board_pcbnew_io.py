@@ -285,3 +285,28 @@ def test_write_check_reports_merged_duplicate_drawings(tmp_path):
     res = pcbnew_io.resave(src, tmp_path / "out.kicad_pcb")
     assert res["write_check"]["drawings_merged"] == 1 and res["write_check"]["drawings_lost"] == 0
     assert [h["code"] for h in res["hazards"]] == ["kicad_write_merged_duplicate_drawings"]
+
+
+def test_copper_items_name_copper_as_kicads_drc_does(tmp_path):
+    """copper_items' descriptions and positions are the DRC report's: canonical_unconnected matches the
+    report's items against them, and leaves a pair alone when they differ."""
+    import subprocess
+    from kae.route import drc
+    p = _copy(tmp_path)
+    items = pcbnew_io.copper_items(p)["items"]
+    tracks = [i for i in items if i["kind"] in ("track", "arc")]
+    assert tracks and all(len(t["anchors"]) == 2 for t in tracks)
+    assert all(i["kind"] != "pad" or i["anchors"] for i in items)
+    by = {i["uuid"]: i for i in items}
+    out = tmp_path / "drc.json"
+    subprocess.run([*drc.kicad_cli(), "pcb", "drc", "--format", "json", "--severity-all", "--units", "mm",
+                    "-o", str(out), str(p)], capture_output=True, cwd=tmp_path, timeout=300)
+    rep = json.loads(out.read_text())
+    named = [i for k in ("violations", "unconnected_items") for v in rep.get(k) or [] for i in v.get("items") or []
+             if i.get("uuid") in by]
+    assert named
+    for i in named:
+        it = by[i["uuid"]]
+        assert i["description"] == it["description"]
+        assert math.isclose(i["pos"]["x"], it["pos"][0] / 1e6, abs_tol=1e-6)
+        assert math.isclose(i["pos"]["y"], it["pos"][1] / 1e6, abs_tol=1e-6)

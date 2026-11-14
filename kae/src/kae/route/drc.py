@@ -68,6 +68,8 @@ def run(board, out_json, timeout=900, cache=True):
         judged, back = _judged_copy(board)
     try:
         rep = _run(judged, out_json, timeout, cache, mb)
+        if budget.work_mode() and rep.get("unconnected_items"):
+            canonical_unconnected(rep, _copper_items(judged, timeout))
         if len(rep.get("unconnected_items") or []) >= DRC_UNCONNECTED_CAP or unconnected_ignored(board):
             n = uncapped_unconnected(judged, timeout)
             if n is not None:
@@ -186,6 +188,54 @@ def _map_uuids(rep, back):
             for it in v.get("items") or []:
                 if it.get("uuid") in back:
                     it["uuid"] = back[it["uuid"]]
+
+
+def _copper_items(board, timeout):
+    """pcbnew_io.copper_items of `board`, None when KiCad's Python cannot give them."""
+    from kae.board.pcbnew_io import PcbnewError, copper_items
+    try:
+        return copper_items(board, timeout=timeout)["items"]
+    except (PcbnewError, OSError, KeyError, TypeError):
+        return None
+
+
+def canonical_unconnected(rep, items):
+    """Name each unconnected item of `rep` (in place) by a choice of KiCad's that does not vary from run to run.
+
+    kicad-cli's DRC of one and the same file names other items in a few unconnected pairs on every run: of
+    the copper meeting at the anchor the ratsnest joins (two tracks sharing an end, a connector's front and
+    back pads at one position) it names whichever its threads came to first (a 341-track board, five DRCs of
+    one file: 1-9 of 182 pairs named otherwise each time, the count the same). The joint loop's congestion
+    history and the repair loop's pad choice read those names and positions. Here each side of a pair is the
+    item, among those of its net with an anchor at the pair's nearest anchors, first by description and
+    position, and the pair's items are in that order too. `items`: pcbnew_io.copper_items of the board the
+    report is of (None: the report is left as it is). A pair naming an item `items` does not hold as KiCad
+    describes it (a zone, another KiCad) keeps KiCad's names."""
+    if not items:
+        return rep
+    by_uuid = {it["uuid"]: it for it in items}
+    at = {}
+    for it in items:
+        for a in it["anchors"]:
+            at.setdefault((it["net"], tuple(a)), []).append(it)
+
+    def rec(it):
+        return dict(description=it["description"], pos=dict(x=it["pos"][0] / 1e6, y=it["pos"][1] / 1e6), uuid=it["uuid"])
+
+    def first(cands):
+        return min(cands, key=lambda c: (c["description"], tuple(c["pos"]), c["uuid"]))
+
+    for u in rep.get("unconnected_items") or []:
+        its = u.get("items") or []
+        known = [by_uuid.get(i.get("uuid")) for i in its]
+        if len(its) != 2 or any(k is None or k["description"] != i.get("description") for k, i in zip(known, its)):
+            continue
+        x, y = known
+        _, ax, ay = min(((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2, tuple(a), tuple(b)) for a in x["anchors"] for b in y["anchors"])
+        cx, cy = first(at.get((x["net"], ax)) or [x]), first(at.get((y["net"], ay)) or [y])
+        u["items"] = sorted((rec(cx), rec(cy)), key=lambda r: (r["description"], r["pos"]["x"], r["pos"]["y"], r["uuid"]))
+    rep["unconnected_items"].sort(key=_content_key)
+    return rep
 
 
 def _content_key(v):

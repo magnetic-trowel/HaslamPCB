@@ -124,6 +124,7 @@ def test_work_mode_report_names_the_boards_items_and_is_written_as_returned(monk
         monkeypatch.setattr(drc, "kicad_cli", lambda: ("kicad-cli",))
         monkeypatch.setattr(drc.subprocess, "run", fake_run)
         monkeypatch.setattr(drc, "uncapped_unconnected", lambda board, timeout=900: 777)
+        monkeypatch.setattr(drc, "_copper_items", lambda board, timeout: None)     # no KiCad Python here
         reps = []
         for name, text in (("a", _BOARD.format(u1=U1, u2=U2, u3=U3)), ("b", _shuffled(U1, U2, U3))):
             d = tmp_path / name

@@ -575,6 +575,12 @@ def text_shapes(path, timeout=300):
     return _run("text-shapes", lambda out: [_abs(path), out], timeout)
 
 
+def copper_items(path, timeout=300):
+    """Every pad with copper, track, arc and via of `path` as KiCad's DRC report names it (pcbnew_bridge
+    copper_items): {items: [{uuid, kind, net, description, pos, anchors}]}, positions in nm."""
+    return _run("copper-items", lambda out: [_abs(path), out], timeout)
+
+
 # ----------------------------------------------------------------------------- verify
 def _polys(rings_list):
     out = []
