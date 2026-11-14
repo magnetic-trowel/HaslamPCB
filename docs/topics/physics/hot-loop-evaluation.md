@@ -35,6 +35,7 @@ Now (`evaluate.open_cell_observations`), an open cell has explicit observations 
 - ev.json lists the cell under `open_cells` (with the open islands); its other harms (supply, pickup, cable) stay not computed.
 - `kae.intent` prices terms on `overshoot.peak`, `loss.loop`, `loss.loop_ac`, `loss.swnode` with these values instead of marking them incomplete (`objective._gap`, `OPEN_KINDS`); the status lists `open_cells` with the terms that priced them. A hard overshoot term is violated: an open hot loop is a broken converter.
 - In a paired comparison (`hotloop.paired`) a cell open in one arm only ranks worst for that arm (ratio ∞ or 0); open in both, it is counted, not compared. Medians keep every cell.
+- **DRC-unconnected loop members.** The remaining copper can still close a loop when one loop pad is unrouted (hdmi2rgb U11's ground pin in arms A and C, priced at 3.1 and 7.4 nH). When a KiCad DRC report of the board is at hand (`--drc FILE`, or the scorer's `drc.json` / `score/drc.json` beside the board; `--no-drc` ignores it), a cell any of whose loop pads (brief `loop`, switch pins) it lists as unconnected is an open cell, priced the same way (`evaluate.drc_open_cells`; ev.json `drc` names the report).
 - A cell whose pads are not in the copper model (`pads outside the copper model`) is `not_computed`, reported, not priced: that is the evaluator's gap, not the layout's.
 
 ## 3. The window solve
@@ -96,6 +97,10 @@ Two-pad parts are lumped branches between their pads' terminals (`mesh.Lumped`):
 ## 6. Absolute loss scale: ½·L·I²·f understates
 
 `loss.loop = ½·L·I²·f_sw` is the energy of the loop's inductance at turn-off. EPC measures more than 4 % efficiency over 0.4 → 2.9 nH at 12 → 1.2 V, 1 MHz, about 0.4 W/nH at an assumed 20 A against ½·L·I²·f's 0.2 W/nH: the rest is slower commutation and the overshoot's own loss [P, I] ([kae-hot-loops](../../research/routing/kae-hot-loops.md#what-experts-do-and-why-quantified)). The factor depends on the cell (integrated vs discrete switches, gate drive), not on the layout, so for one cell it is a constant: layout ratios and rankings hold; watts across cells of different classes do not compare. Not retuned: a per-class switching model is an open question.
+
+## Use the solver, not the routed-copper estimator, for comparisons
+
+`kae.route.critical_recheck` (what the critical router optimizes: closed-form strips over image planes, one brief loop through the brief's chosen input cap) disagrees with the field solve: over 68 cell/arm pairs of the hot-loop diagnosis it reads a median 1.85× the solver's L (0.31× to 7.5×), orders two layouts of a cell the same way only 41 of 55 times (75 %), and gives −0.24 nH on the human bq25306 board (a strip with no plane under it mixed with imaged strips) [C, diagnosis `estimator_vs_solver.csv`]. Compare layouts with the solver's cell rows (§ 3), never with the estimator.
 
 ## Open questions
 

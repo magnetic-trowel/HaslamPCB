@@ -142,7 +142,8 @@ def coarsen_pitch(window, pitch, n_layers, max_cells):
 
 
 def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=None, log=print, lumped=True,
-             intent=None, n_corners=16, seed=0, dc=True, max_cells=None, cells=True, cell_pitch=None, cell_skin=True):
+             intent=None, n_corners=16, seed=0, dc=True, max_cells=None, cells=True, cell_pitch=None, cell_skin=True,
+             drc=None):
     """Every harm of a laid-out board, across the parameters' intervals.
 
     Each aggressor's pattern is solved in two bands: its switching fundamental (current split by the
@@ -151,7 +152,9 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     ideal copper). Harm sizes (kae.excite.harm) are evaluated at the typical point and at seeded
     corners of the intervals (kae.excite.beliefs). lumped: two-pad parts are branches of the copper
     model and only the other parts' pads are injected. cells: each switching cell's hot loop solved again in a
-    window at cell_pitch (default kae.excite.hotloop.CELL_PITCH), its primaries in the result's `cells`."""
+    window at cell_pitch (default kae.excite.hotloop.CELL_PITCH), its primaries in the result's `cells`. drc: a
+    KiCad DRC report of this board (path or dict; None: drc.json or score/drc.json beside the board if present;
+    False: none): a cell whose loop member it lists as unconnected is an open cell."""
     from kae.board.kicad_file import load
     from kae.circuit import brief as B
     from kae.em import solve as ES
@@ -283,6 +286,15 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         if out_:
             notes.append(f"{s.name}: pads outside the copper model ({', '.join(out_[:6])}): its harms are not computed")
             uncomputed.append(s.name)
+    # a cell whose loop member KiCad's DRC lists as unconnected: open, whatever loop the remaining copper closes
+    drc_rep, drc_src = load_drc(path, drc)
+    for name, where in drc_open_cells(drc_rep, brief, srcs).items():
+        if name in uncomputed:
+            continue
+        notes.append(f"{name}: loop member unconnected in KiCad's DRC ({drc_src}): {where}: its harms are not computed; "
+                     f"its hot loop is priced open, at its caps")
+        uncomputed.append(name)
+        open_cells[name] = f"DRC unconnected: {where}"
     pairs = []
     for s in srcs:
         if s.name in uncomputed:
@@ -469,7 +481,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 ledger=ledger.rows(), questions=[dict(subject=p.subject, name=p.name, lo=p.lo, hi=p.hi, unit=p.unit,
                                                       basis=p.basis) for p in ledger.flagged()],
                 bands={k: v for k, v in bands.items()}, rings=rings,
-                open_cells=[dict(source=k, why=v) for k, v in sorted(open_cells.items())], cells=cell_rows,
+                open_cells=[dict(source=k, why=v) for k, v in sorted(open_cells.items())], cells=cell_rows, drc=drc_src,
                 observers=[dict(name=o.name, kind=o.kind, bound=o.bound, basis=o.basis) for o in obs],
                 harms=harms, observations=observations, hazards=hazards, mesh=mesh_rep,
                 part_power_W={k: round(v, 6) for k, v in sorted(part_power.items())},
@@ -662,6 +674,56 @@ def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes,
 THIN_SHARE = 0.25         # a priced net with this share of its copper in features under 3 cells is reported
 
 
+def load_drc(path, drc=None):
+    """(report dict or None, its source) of a KiCad DRC report (kicad-cli pcb drc --format json): `drc` a path or a
+    dict; None looks for the scorer's drc.json beside the board (or in score/ there); False: none."""
+    import os
+    if drc is False:
+        return None, None
+    if isinstance(drc, dict):
+        return drc, "given"
+    cands = [drc] if drc else ([os.path.join(os.path.dirname(os.path.abspath(path)), n)
+                                for n in ("drc.json", os.path.join("score", "drc.json"))] if path else [])
+    for c in cands:
+        if c and os.path.isfile(c):
+            with open(c) as f:
+                return json.load(f), os.path.basename(c) if not drc else c
+    if drc:
+        raise FileNotFoundError(f"DRC report {drc} not found")
+    return None, None
+
+
+def drc_open_cells(rep, brief, srcs):
+    """{cell source: the DRC item} for each cell one of whose loop pads (its brief structure's `loop`, and its
+    switch pins) the report lists among the unconnected items ("Pad N [NET] of REF ...")."""
+    import re
+    if not rep:
+        return {}
+    pads = set()
+    for u in rep.get("unconnected_items") or []:
+        for it in u.get("items") or []:
+            m = re.match(r"Pad (\S+) \[[^\]]*\] of (\S+)", it.get("description") or "")
+            if m:
+                pads.add((f"{m.group(2)}.{m.group(1)}", it.get("description")))
+    if not pads:
+        return {}
+    ref = {u: p["ref"] for u, p in brief["parts"].items()}
+    out = {}
+    for s in srcs:
+        if s.kind != "cell":
+            continue
+        st = next((x for x in brief.get("structures") or [] if x.get("id") == s.meta.get("cell")), {})
+        mine = {t for t in (s.pa, s.pb) if t}
+        for u, pin in st.get("loop") or []:
+            for n in (pin if isinstance(pin, list) else [pin]):
+                if ref.get(u):
+                    mine.add(f"{ref[u]}.{n}")
+        hit = sorted(d for t, d in pads if t in mine)
+        if hit:
+            out[s.name] = "; ".join(hit[:3])
+    return out
+
+
 # what an open cell is priced in, each at its cap (kae.intent counts them; its other harms stay not computed)
 OPEN_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac")
 
@@ -822,6 +884,9 @@ def main(argv=None):
     ap.add_argument("--cell-pitch", type=float, default=None,
                     help="pitch (mm) of each switching cell's window solve (default kae.excite.hotloop.CELL_PITCH)")
     ap.add_argument("--no-cells", action="store_true", help="skip the cells' window solves")
+    ap.add_argument("--drc", help="KiCad DRC report (JSON) of this board: a cell with a loop member it lists as "
+                    "unconnected is open (default: drc.json or score/drc.json beside the board, if present)")
+    ap.add_argument("--no-drc", action="store_true", help="ignore any DRC report")
     ap.add_argument("--no-cell-skin", action="store_true", help="the window solves without the skin correction")
     ap.add_argument("--max-cells", type=float, default=None,
                     help="raster budget (cells x copper layers): the pitch doubles until the board's window fits it")
@@ -830,7 +895,7 @@ def main(argv=None):
     r = evaluate(a.board, a.pitch, tuple(a.window) if a.window else None, nsub=a.nsub, log=lambda m: print(m, file=sys.stderr),
                  lumped=not a.no_lumped, intent=load_intent(a.intent), seed=a.seed,
                  max_cells=int(a.max_cells) if a.max_cells else None, cells=not a.no_cells, cell_pitch=a.cell_pitch,
-                 cell_skin=not a.no_cell_skin)
+                 cell_skin=not a.no_cell_skin, drc=False if a.no_drc else a.drc)
     print_total(r["total"])
     print("assumptions:")
     for p in r["ledger"]:

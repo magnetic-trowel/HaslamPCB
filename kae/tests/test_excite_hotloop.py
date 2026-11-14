@@ -147,3 +147,28 @@ def test_a_window_over_its_budget_keeps_the_board_values(tmp, monkeypatch):
     assert c["state"] == "ok" and c["window"]["refined"] is False
     assert c["L_loop_nH"] == c["global"]["L_loop_nH"] and c["R_loop_mohm"] == c["global"]["R_loop_mohm"]
     assert HL.summary([c])[0].count("board values") == 1
+
+
+def _drc(*descs):
+    return {"unconnected_items": [{"items": [{"description": d}, {"description": "Zone [GND] on B.Cu"}]} for d in descs]}
+
+
+def test_a_loop_member_drc_lists_unconnected_makes_the_cell_open(tmp):
+    """The copper may still close a loop (through whatever is left); KiCad says a loop pad is unconnected: open."""
+    import json
+    from kae.excite.evaluate import drc_open_cells
+    p = write_hotloop_board(f"{tmp}/drc", "closed")
+    (p.parent / "drc.json").write_text(json.dumps(_drc("Pad 4 [GND] of U1 on F.Cu")))   # found beside the board
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cells=False)
+    assert [c["source"] for c in ev["open_cells"]] == [CELL] and "DRC" in ev["open_cells"][0]["why"]
+    assert ev["drc"] == "drc.json" and _obs(ev, "loss.loop")[0]["open"]
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cells=False, drc=False)
+    assert ev["open_cells"] == []
+    from kae.board.kicad_file import load
+    from kae.circuit import brief as B
+    from kae.excite import models as M, sources as S
+    b = load(p)
+    br = B.build(b)
+    srcs = S.add_all(M.build(b, br), br)
+    assert drc_open_cells(_drc("Pad 2 [GND] of U2 on F.Cu"), br, srcs) == {}     # not a loop member
+    assert CELL in drc_open_cells(_drc("Pad 1 [VIN] of C1 on F.Cu"), br, srcs)
