@@ -22,7 +22,8 @@ output (critical_write.edit drop_guards) and keeps the pours, which score v10+ a
 zones. `last_mile_crit_zones` gives the same obstacles to the restart portfolio's final last mile.
 
 The keep-out (R5) covers the return plane and every pour or plane of a loop net (input rail, ground,
-switch node) under the cell's hull, on any layer, for every cell whose loop terminals are found
+switch node) under the cell's hull on any other layer, and on the parts' own layer the bridge between
+the cell's own pads of that net (so the IC's fan-out stays free), for every cell whose loop terminals are found
 (routed, partly routed or failed alike): a pour the loop needs, cut by another net, was the largest
 cause in the board diagnosis (~24 of 37.6 nH: hdmi2rgb, nekoink, gecko5, bq25306). On the bq25306 charger, foreign tracks on the return layer under the loop
 were 82 % of arm A's L gap (5.04 -> 2.19 nH, R 13.1 -> 5.3 mOhm; diagnosis what-if E1). Region:
@@ -182,11 +183,22 @@ def keepout_plan(s, mods, margin, log=_log):
         # +5V pour cut by a GND track; ~24 of the 37.6 nH gap)
         nets = {t.net for t in T if t.net} | {n for n in (m.spec.get("sw"), m.spec.get("rail")) if n}
         layers = ({(pn, pl)} if pl is not None else set()) | {(n, l) for n in nets for l, g in s.space.zones_of(n) if g.intersects(region)}
+        side = s.ctx.side_layer(T[0].fp)
         for net, layer in sorted(layers):
-            esc = escapes(s, m, region, loop, net)
-            plan.append(dict(cell=m.id, net=net, layer=layer, h=h, region=region, escapes=esc))
+            reg = region
+            if layer == side:
+                # on the parts' own layer a hull-wide keep-out walls in the IC's fan-out (bq25306: 17 opens
+                # after the first route, a GND and an SW pour on F.Cu): there it covers only the bridge the
+                # loop needs, the hull of the cell's own pads of that net (cap pad to IC pins)
+                pads = [it.geom for u in m.parts for it in s.space.pads_by_fp.get(u, [])
+                        if it.net == net and layer in it.layers]
+                if len(pads) < 2:
+                    continue
+                reg = unary_union(pads).convex_hull
+            esc = escapes(s, m, reg, loop, net)
+            plan.append(dict(cell=m.id, net=net, layer=layer, h=h, region=reg, escapes=esc))
             rows.append(dict(cell=m.id, layer=layer, net=net, h_mm=round(h, 3) if pl is not None else None,
-                             region_mm2=round(region.area, 2),
+                             region_mm2=round(reg.area, 2),
                              pins=len(esc), plane=(net, layer) == (pn, pl)))
     return plan, rows, hz
 
