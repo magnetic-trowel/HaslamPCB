@@ -186,6 +186,8 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
             win = (max(board_window[0], box_[0] - margin), max(board_window[1], box_[1] - margin),
                    min(board_window[2], box_[2] + margin), min(board_window[3], box_[3] + margin))
             pc, _ = coarsen_pitch(win, pitch, n_cu, MAX_CELLS)
+            if global_pitch and pc >= global_pitch:
+                break                        # no finer than the board solve: nothing to refine
             z, info, m = _solve_window(path, b, bd, s, o, win, pc, nsub, bm.fills, freqs, skin, log)
             whole = win == tuple(board_window)
             zc = None
@@ -198,6 +200,21 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
                 break
             margin *= 2
             grown += 1
+        if global_pitch and pc >= global_pitch:
+            # the window over its cell budget (many layers, far parts) at the board's pitch: the board solve's values
+            # stand, with no harmonics (reported, layout-independent like the window)
+            R0 = round(max(g[1].real, 0.0) * 1e3, 4)
+            peaks = [HA.peak(g[1], g[0], v["I_A"], v.get("D", 0.5), v["t_i_s"])[0]
+                     for v in ({k[1]: x for k, x in cp.items()} for cp in cps[s.name])]
+            rows.append(dict(row, state="ok", L_loop_nH=round(g[0] * 1e9, 4), R_loop_mohm=R0,
+                             R_harmonics=[dict(n=1, f_MHz=round(f_fund / 1e6, 4), R_mohm=R0)],
+                             overshoot_V=dict(typ=round(peaks[0], 4), worst=round(max(peaks), 4)),
+                             f_edge_MHz=round(f_edge / 1e6, 4),
+                             window=dict(box=[round(x, 3) for x in win], pitch=pc, refined=False,
+                                         why=f"over the budget of {MAX_CELLS:.3g} cells x layers below the board's pitch",
+                                         seconds=round(time.time() - t0, 1))))
+            log(f"cell {s.name}: window {win[2] - win[0]:.1f} x {win[3] - win[1]:.1f} mm over budget: board values")
+            continue
         if z is None:
             rows.append(dict(row, state="open_in_window", why="the loop closes in the board solve but not in its "
                              f"window grown {grown} times to {margin:g} mm"))
@@ -226,7 +243,7 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
                          window=dict(box=[round(x, 3) for x in win], pitch=pc, margin_mm=margin, grown=grown,
                                      L_raw_nH=round(z[f_edge].imag / w_e * 1e9, 4), trunc_L_nH=round(dLe * 1e9, 4),
                                      R_raw_mohm=round(max(z[f_fund].real, 0.0) * 1e3, 4),
-                                     trunc_R_mohm=round(dZf.real * 1e3, 4), corrected=zc is not None,
+                                     trunc_R_mohm=round(dZf.real * 1e3, 4), corrected=zc is not None, refined=True,
                                      cells=int(m.nx * m.ny * len(m.layers)), dropped_injection=round(info["dropped"], 5),
                                      skin=bool(skin), seconds=round(time.time() - t0, 1))))
         log(f"cell {s.name}: window {win[2] - win[0]:.1f} x {win[3] - win[1]:.1f} mm at {pc:g} mm: L_loop "
@@ -240,9 +257,10 @@ def summary(rows):
     out = []
     for r in rows:
         if r["state"] == "ok":
+            hs = r["R_harmonics"][1:]
             out.append(f"{r['source']}: L_loop {r['L_loop_nH']:.3f} nH, R_loop {r['R_loop_mohm']:.3f} mOhm at f_sw "
-                       f"({', '.join(str(x['R_mohm']) for x in r['R_harmonics'][1:])} at "
-                       f"{', '.join(str(x['n']) for x in r['R_harmonics'][1:])} f_sw), overshoot "
+                       + (f"({', '.join(str(x['R_mohm']) for x in hs)} at {', '.join(str(x['n']) for x in hs)} f_sw)"
+                          if hs else "(no harmonics: board values)") + ", overshoot "
                        f"{r['overshoot_V']['typ']:.3g} V typ, {r['overshoot_V']['worst']:.3g} V worst"
                        + (f" [window {r['window']['pitch']:g} mm, {r['window']['seconds']}s]" if r.get("window") else ""))
         else:

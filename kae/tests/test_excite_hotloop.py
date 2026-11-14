@@ -137,3 +137,13 @@ def test_the_cells_are_identical_at_any_thread_count(tmp):
         assert r.returncode == 0, r.stderr[-2000:]
         outs.append(r.stdout.strip().splitlines()[-1])
     assert outs[0] == outs[1]
+
+
+def test_a_window_over_its_budget_keeps_the_board_values(tmp, monkeypatch):
+    from kae.excite import hotloop as HL
+    monkeypatch.setattr(HL, "MAX_CELLS", 1000)
+    p = write_hotloop_board(f"{tmp}/budget", "closed")
+    c = _cell(evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False))
+    assert c["state"] == "ok" and c["window"]["refined"] is False
+    assert c["L_loop_nH"] == c["global"]["L_loop_nH"] and c["R_loop_mohm"] == c["global"]["R_loop_mohm"]
+    assert HL.summary([c])[0].count("board values") == 1
