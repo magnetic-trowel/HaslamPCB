@@ -195,7 +195,10 @@ def test_lastmile_ignores_copper_order_and_uuids(partial, tmp_path):
 
 
 def test_joint_ignores_copper_order_and_uuids(partial, tmp_path):
+    # smaller finishing and per-window reserves than the defaults, so this short budget still runs
+    # windows after iteration 0 (the congestion history and unrouted spots read KiCad's DRC)
     _twins(tmp_path, partial,
-           lambda i, o, w: ["kae.joint.cli", "run", i, o, "--start", i, "--time", 120 * SCALE, "--seed", 1,
+           lambda i, o, w: ["kae.joint.cli", "run", i, o, "--start", i, "--time", 150 * SCALE, "--seed", 1,
+                            "--set", "finish_min_s=20", "--set", "min_iter_s=15",
                             "--workdir", w, "--keep"],
-           timeout=1200 * SCALE)
+           timeout=1800 * SCALE)
