@@ -254,6 +254,8 @@ def _try(gr, sp, net, src, others, win, widths):
             continue
         for vc in VIA_COSTS:
             rt = gr.connect(net, src, dst, w, cu, via=len(cu) > 1, window=grid, via_cost=vc)
+            # one search's rasters (each layer's costs over the window) cost by the window's cells
+            charge("lastmile_cells", grid.nx * grid.ny * len(cu))
             if rt is None or not (rt.segs or rt.vias):
                 break
             new = _commit(sp, rt)

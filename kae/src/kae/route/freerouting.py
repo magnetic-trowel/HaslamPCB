@@ -275,8 +275,20 @@ def _record(run, dsn, pins, budget_s, passes, settings):
             f.write(json.dumps(rec) + "\n")
 
 
-FR_PASS_WEIGHT = 423.0       # work units per pass started and board pin (fork autorouter.work_pass_weight)
-FR_UNROUTED_WEIGHT = 3.2     # ... per unrouted connection and board pin (autorouter.work_unrouted_weight)
+# Freerouting's pass loop under counted budgets (fork autorouter.max_work, work_pass_weight,
+# work_unrouted_weight): a pass costs, in nominal seconds,
+#     RATES["fr_work"] x work_scale(pins) x search steps + FR_PASS_S x pins + FR_UNROUTED_S x unrouted x pins
+# A search step costs more on a larger board, (pins / FR_SCALE_REF_PINS) ** FR_SCALE_EXP up to FR_SCALE_MAX:
+# per-pass fits over 76-1,484 pins (tools/research/budget/fr_fit.py, 2026-11-14) put a step at 3e-6 s on
+# 148 pins, 7e-6 s on 430, 2.2e-5 s on 821 and 1.4-3e-5 s on 1,184-1,484 (hence the cap). One rate per
+# work unit for all boards (the model before) charged a 821-pin board's routing at under half its time and
+# a 148-pin board's at three times it. The fork counts work units = steps + weights x pins per pass, so a
+# run's weights are these seconds over its board's step (pass_weights).
+FR_SCALE_REF_PINS = 430.0
+FR_SCALE_EXP = 1.43
+FR_SCALE_MIN, FR_SCALE_MAX = 0.05, 3.0
+FR_PASS_S = 0.012            # nominal seconds per pass started and board pin
+FR_UNROUTED_S = 6.7e-5       # ... per unrouted connection (at the pass's start) and board pin
 FR_OPT_MAX_PASSES = 10       # work mode: the optimizer's pass cap (it otherwise stops on its improvement
                              # threshold, or on the wall-clock ceiling: not deterministic)
 _WORK_LINE = re.compile(r"Auto-routing pass #\d+: \d+ search steps and (\d+) work units so far")
@@ -313,15 +325,43 @@ def _overhead(dsn):
     return kb
 
 
-def _charge(run, dsn, size):
+def job_work(counts):
+    """The work units a job logged: its last count, or with a build that counted each pass loop from
+    zero (kae-fr-maxwork-9cf145d: the fallback loops), the sum of each loop's last count."""
+    total, prev = 0, 0
+    for c in map(int, counts):
+        if c < prev:
+            total += prev
+        prev = c
+    return total + prev
+
+
+def work_scale(pins):
+    """A search step's nominal seconds on a board of `pins` pins relative to RATES["fr_work"] (the
+    step on FR_SCALE_REF_PINS pins)."""
+    return min(FR_SCALE_MAX, max(FR_SCALE_MIN, (pins / FR_SCALE_REF_PINS) ** FR_SCALE_EXP))
+
+
+def pass_weights(pins, rate):
+    """The fork's work_pass_weight and work_unrouted_weight on this board (work units, each a search
+    step of rate x work_scale(pins) nominal seconds), for FR_PASS_S and FR_UNROUTED_S."""
+    step = rate * work_scale(pins)
+    return FR_PASS_S / step, FR_UNROUTED_S / step
+
+
+def _charge(run, dsn, pins):
     """Charge a finished run by what it did: its start-up, its pass loop's work units (a build with
-    the work budget logs them) or else its passes x pins^2, and its optimizer passes."""
+    the work budget logs them; scaled to the board, work_scale) or else its passes x pins^2, and its
+    optimizer passes."""
+    size = pins ** 2
     kb = _overhead(dsn)
     budget.charge("fr_run", 1)
     budget.charge("fr_dsn_kb", kb)
     w = _WORK_LINE.findall(run.log or "")
     if w and has_work_budget():
-        budget.charge("fr_work", int(w[-1]))
+        # in search steps of the reference board (RATES["fr_work"] nominal seconds each); in time mode
+        # (counted only) the fork's own default weights, so a calibration reads the steps from the log
+        budget.charge("fr_work", job_work(w) * work_scale(pins))
     else:
         budget.charge("fr_pass_pin2", max(1, len(PASS_DONE.findall(run.log or ""))) * size)
     opt = (run.report.get("phases") or {}).get("opt_passes") or 0
@@ -342,15 +382,16 @@ def route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin_
         run = _route(dsn, ses, workdir, passes=passes, settings=settings, budget_s=budget_s, margin_s=margin_s,
                      hard_s=hard_s, log_path=log_path)
         _record(run, dsn, pins, budget_s, passes, settings)
-        _charge(run, dsn, size)               # counted only
+        _charge(run, dsn, pins)               # counted only
         return run
     rates = budget.clock().rates
     settings = dict(settings or {})
     if has_work_budget():
         left = budget_s - rates["fr_run"] - rates["fr_dsn_kb"] * _overhead(dsn)
-        settings.update({"autorouter.max_work": str(max(1, int(left / rates["fr_work"]))),
-                         "autorouter.work_pass_weight": str(FR_PASS_WEIGHT),
-                         "autorouter.work_unrouted_weight": str(FR_UNROUTED_WEIGHT)})
+        pw, uw = pass_weights(pins, rates["fr_work"])
+        settings.update({"autorouter.max_work": str(max(1, int(left / (rates["fr_work"] * work_scale(pins))))),
+                         "autorouter.work_pass_weight": f"{pw:.6g}",
+                         "autorouter.work_unrouted_weight": f"{uw:.6g}"})
         cap = passes
     else:
         cap = max(1, int(budget_s / max(1e-9, rates["fr_pass_pin2"] * size)))
@@ -363,7 +404,7 @@ def route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin_
     if settings.get("autorouter.max_work"):
         run.report["max_work"] = int(settings["autorouter.max_work"])
     _record(run, dsn, pins, budget_s, cap, settings)
-    _charge(run, dsn, size)
+    _charge(run, dsn, pins)
     return run
 
 
