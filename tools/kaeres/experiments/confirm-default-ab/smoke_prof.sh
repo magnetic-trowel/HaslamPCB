@@ -6,7 +6,7 @@
 # arm's budget and wrapper flags), with py-spy over every Python process (--subprocesses --idle, raw) and Java
 # Flight Recorder on Freerouting. Writes PROF/<BOARD>.<ARM>/: meta (wall, budget, peak RSS), log, summary.json,
 # report.json, prof.txt (py-spy raw) and jfr/*.jfr. Time per stage: stage_prof.py prof.txt.
-#   SHA=... ARM=A|N  (PROF default /var/tmp/$USER/cab-prof; PYSPY, JDK as below)
+#   SHA=... ARM=A|N|K|H|HP (hotloop-ab's arms take their KAE_HOTLOOP_* settings)  (PROF default /var/tmp/$USER/cab-prof; PYSPY, JDK as below)
 set -u
 arm=$1 b=$2
 . "$(dirname "$0")/../route-finish-ab/common.sh"
@@ -36,7 +36,10 @@ FN="$E -m kae.route.cli finish @IN@ @BEST@ @OUT@ --time @TIME@ --input-drc @DRC@
 case "$arm" in
   A) export KAE_PAD_ENTRY=centre KAE_FR_PIN_ENTRIES=off; RF="--no-finish"; FIN=() ;;
   N) RF=""; FIN=(--finish "$FN") ;;
-  *) echo "ARM: A or N" >&2; exit 2 ;;
+  K) export KAE_HOTLOOP_KEEPOUT=1; RF=""; FIN=(--finish "$FN") ;;
+  H) export KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_CELLS=1 KAE_HOTLOOP_VIAS=1; RF=""; FIN=(--finish "$FN") ;;
+  HP) export KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_CELLS=1 KAE_HOTLOOP_VIAS=1 KAE_HOTLOOP_POURS=1; RF=""; FIN=(--finish "$FN") ;;
+  *) echo "ARM: A, N, K, H or HP" >&2; exit 2 ;;
 esac
 INNER="if [ \"\$KAE_RESUME\" = 1 ]; then $E -m kae.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@ --set operating=$OP $RF; else $E -m kae.route.cli route @IN@ @OUT@ --seed @SEED@ --time @TIME@ --set operating=$OP $RF; fi"
 cd "$D/work"

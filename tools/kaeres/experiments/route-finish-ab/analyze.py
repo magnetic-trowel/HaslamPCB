@@ -50,6 +50,10 @@ def jl(p):
 
 def arm_of(name):
     n = name.lower()
+    for pre, arm in (("hl default twin", "N2"), ("hl default", "N"), ("hl keepout", "K"), ("hl cells pours", "HP"),
+                     ("hl cells", "H")):
+        if n.startswith(pre):
+            return arm
     if n.startswith("cab legacy twin"):
         return "A2"
     if n.startswith("cab legacy"):
@@ -78,7 +82,7 @@ class Data:
         self.boards = (STORE / "experiments" / exp / "boards.txt").read_text().split()
         self.ids = {arm_of(m["name"]): m["id"] for m in self.e["methods"] if arm_of(m["name"])}
         self.drc_eval = self.e["evaluators"]["drc"]
-        self.arms = [a for a in ("A0", "A0r", "A", "A2", "B", "C", "D", "E", "N") if a in ("A0", "A0r", "B") or a in self.ids]
+        self.arms = [a for a in ("A0", "A0r", "A", "A2", "B", "C", "D", "E", "N", "N2", "K", "H", "HP") if a in ("A0", "A0r", "B") or a in self.ids]
         self._a0 = None
         if only_arms:
             self.arms = [a for a in self.arms if a in only_arms]
@@ -95,7 +99,7 @@ class Data:
         if twin:
             e = jl(STORE / "experiments" / twin / "experiment.json") or {}
             self.ids.update({arm_of(m["name"]): m["id"] for m in e.get("methods", []) if arm_of(m["name"])})
-            self.arms = [a for a in ("A0", "A0r", "A", "A2", "B", "C", "D", "E", "N") if a in ("A0", "A0r", "B") or a in self.ids]
+            self.arms = [a for a in ("A0", "A0r", "A", "A2", "B", "C", "D", "E", "N", "N2", "K", "H", "HP") if a in ("A0", "A0r", "B") or a in self.ids]
 
     def run_dir(self, arm, b):
         if arm == "A0":
@@ -675,6 +679,9 @@ def sec_gates(D):
     """The pre-registered verdicts of PLAN.md sections 4, 9 and 10, computed."""
     arms = set(D.arms)
     out = ["## Pre-registered gates\n"]
+    if {"N", "N2", "H"} <= arms:
+        out.append(hotloop_gates(D))
+        return "\n".join(out)
     if "N" in arms:
         out.append(confirm_gates(D))
         return "\n".join(out)
@@ -711,6 +718,136 @@ def sec_gates(D):
             ("supply.peak or loss.loop_ac: signal-better at least twice signal-worse", hit if better else None, str(better)),
             ("ADOPT escape_ground_vias", all(x[1] for x in nw[:3]) and hit if better else None, f"{len(ground_via_boards(D))} boards")]))
     return "\n".join(out)
+
+
+CELL_EXCLUDE = ("heypcb-kestrel-esc",)   # hotloop-ab/PLAN.md: its half-bridge cells are open in every arm
+
+
+def cells(D, arm, b):
+    """{cell source: row} of the board's base evaluation (ev.json 'cells', kae.excite.hotloop)."""
+    j = jl(D.out / "measure" / b / "phys" / f"{_tag(D, arm)}.ev.json")
+    return {r["source"]: r for r in (j or {}).get("cells") or []} if j else None
+
+
+def _cell_val(r, k):
+    if not r or r.get("state") != "ok":
+        return None
+    return r["overshoot_V"]["worst"] if k == "overshoot_V" else r.get(k)
+
+
+def cell_compare(D, arm, ref, k, twin=("N", "N2")):
+    """Per cell (boards outside CELL_EXCLUDE, cells valued in both): arm/ref ratio of primary k, and a verdict against
+    the twin's noise on that cell (|N2/N - 1|; where the twin has no value, the median of the twin's cells)."""
+    rows, noise = [], {}
+    for b in D.boards:
+        if any(b.startswith(x) for x in CELL_EXCLUDE):
+            continue
+        ca, cb = cells(D, twin[0], b), cells(D, twin[1], b)
+        for src in (ca or {}):
+            x, y = _cell_val((ca or {}).get(src), k), _cell_val((cb or {}).get(src), k)
+            if x and y:
+                noise[(b, src)] = abs(y / x - 1)
+    med = st.median(noise.values()) if noise else 0.0
+    for b in D.boards:
+        if any(b.startswith(x) for x in CELL_EXCLUDE):
+            continue
+        cx, cr = cells(D, arm, b), cells(D, ref, b)
+        if cx is None or cr is None:
+            continue
+        for src in sorted(set(cx) | set(cr)):
+            x, y = _cell_val(cx.get(src), k), _cell_val(cr.get(src), k)
+            if x is None or not y:
+                continue
+            r = x / y
+            e = noise.get((b, src), med)
+            rows.append(dict(board=b, cell=src, ratio=r, noise=e, verdict="better" if r < 1 - e else "worse" if r > 1 + e else "noise"))
+    return rows, med
+
+
+def open_cells(D, arm):
+    n = 0
+    for b in D.boards:
+        if any(b.startswith(x) for x in CELL_EXCLUDE):
+            continue
+        c = cells(D, arm, b) or {}
+        n += sum(1 for r in c.values() if r.get("state") not in ("ok", "not_computed"))
+    return n
+
+
+def term_twin(D, arm, observables, ref="N", twin="N2"):
+    """Per observable: terms of `arm` against `ref` judged beyond the twin's own change on that term (|twin/ref - 1|;
+    the median of the twin's terms where it has none). The evaluator is deterministic, so the only noise is routing's."""
+    noise, rows = {}, defaultdict(list)
+    for b in D.boards:
+        r_, t_ = phys_terms(D, ref, b)[0], phys_terms(D, twin, b)[0]
+        for k, x in (r_ or {}).items():
+            y = (t_ or {}).get(k)
+            if y:
+                a_, b_ = _cmp(y, x)
+                if b_:
+                    noise[(b, k)] = abs(a_ / b_ - 1)
+    med = st.median(noise.values()) if noise else 0.0
+    for b in D.boards:
+        r_, x_ = phys_terms(D, ref, b)[0], phys_terms(D, arm, b)[0]
+        for k, x in (x_ or {}).items():
+            y = (r_ or {}).get(k)
+            if not y or x[0] not in observables:
+                continue
+            a_, b_ = _cmp(x, y)
+            if b_:
+                rows[x[0]].append((a_ / b_, noise.get((b, k), med)))
+    out = {}
+    for o in observables:
+        v = rows.get(o, [])
+        out[o] = dict(n=len(v), better=sum(r < 1 - e for r, e in v), worse=sum(r > 1 + e for r, e in v),
+                      noise=sum(1 - e <= r <= 1 + e for r, e in v), median=st.median(r for r, _ in v) if v else None)
+    return out
+
+
+def hotloop_gates(D):
+    """hotloop-ab/PLAN.md: K, H and HP against N, N2 the twin; secondary against the human layout."""
+    out = []
+    S = _stats(D)
+    tw = cell_compare(D, "N2", "N", "R_loop_mohm")[0]
+    out.append(f"Twin N2 against N, per cell: R_loop ratio median {f3(st.median([r['ratio'] for r in tw])) if tw else '-'}, "
+               f"cells differing {sum(1 for r in tw if abs(r['ratio'] - 1) > 1e-9)} of {len(tw)}; open cells N {open_cells(D, 'N')}, N2 {open_cells(D, 'N2')}\n")
+    for arm in [a for a in ("K", "H", "HP") if a in D.arms]:
+        rows = []
+        for k, lim in (("R_loop_mohm", 0.75), ("L_loop_nH", 0.90)):
+            cr, med = cell_compare(D, arm, "N", k)
+            if not cr:
+                rows.append((f"{k}: median {arm}/N at most {lim}, better at least 2x worse", None, "no cells"))
+                continue
+            m = st.median(r["ratio"] for r in cr)
+            nb, nw = sum(r["verdict"] == "better" for r in cr), sum(r["verdict"] == "worse" for r in cr)
+            rows.append((f"{k}: median {arm}/N at most {lim}, better at least 2x worse (beyond the twin's noise)",
+                         m <= lim and nb >= 2 * nw and nb > 0,
+                         f"median {m:.3f}, better {nb}, worse {nw}, noise {len(cr) - nb - nw}; {len(cr)} cells; twin noise median {med:.4f}"))
+        oa, on = open_cells(D, arm), open_cells(D, "N")
+        rows.append((f"open cells: {arm} not more than N", oa <= on, f"{arm} {oa}, N {on}"))
+        for name, ok, det in not_worse(D, "N", arm):
+            rows.append((name, ok, det))
+        rows.append(new_types(D, "N", arm))
+        rows.append(validity(D, "N", arm))
+        for k, lim in (("L_loop_nH", 1.0), ("R_loop_mohm", 1.2)):
+            cr, _ = cell_compare(D, arm, "human", k)
+            m = st.median(r["ratio"] for r in cr) if cr else None
+            rows.append((f"secondary: {k} median {arm}/human at most {lim}", (m <= lim) if m is not None else None,
+                         f"median {f3(m)} on {len(cr)} cells"))
+        tv = term_twin(D, arm, ("overshoot.peak", "supply.peak", "pickup.peak", "loss.swnode"))
+        for o, c in tv.items():
+            judged = c["better"] + c["worse"]
+            rows.append((f"secondary: {o} not worse than N beyond the twin's noise", (c["worse"] <= c["better"]) if judged else None,
+                         f"better {c['better']}, worse {c['worse']}, noise {c['noise']}; median {f3(c['median'])}" if c["n"] else "no terms"))
+        if arm == "HP":
+            cr, _ = cell_compare(D, "HP", "H", "R_loop_mohm")
+            m = st.median(r["ratio"] for r in cr) if cr else None
+            sh = sum((D.score("H", b) or {}).get("errors_by_type", {}).get("starved_thermal", 0) for b in D.boards)
+            sp = sum((D.score("HP", b) or {}).get("errors_by_type", {}).get("starved_thermal", 0) for b in D.boards)
+            rows.append(("HP over H: R_loop median HP/H at most 0.85 and starved_thermal not up",
+                         (m is not None and m <= 0.85 and sp <= sh), f"median {f3(m)} on {len(cr)} cells; starved_thermal H {sh}, HP {sp}"))
+        out.append(_gtable(f"{arm} against N", rows))
+    return "### Hot-loop A/B\n\n" + "\n".join(out)
 
 
 def confirm_gates(D):
