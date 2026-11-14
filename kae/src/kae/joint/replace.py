@@ -34,6 +34,9 @@ The placer's own machinery does the work (kae.place: Problem, State, make_anneal
    window's parts grid-illegal at their incumbent poses). With `legal_exact` the exact model
    decides instead: a window still grid-illegal after greedy goes to the exact closed loop and
    stands if the exact check is clean (KiCad's DRC judges the board after routing anyway).
+   Findings the incumbent already had between the same parts do not count against the window
+   (a part the input leaves overlapping fixed parts, with no spot free of them, made every
+   window holding it illegal).
 """
 from __future__ import annotations
 
@@ -69,6 +72,11 @@ def net_kinds(brief):
 def _right(rot):
     a = rot % 90.0
     return min(a, 90.0 - a) < 1e-6
+
+
+def _sig(e):
+    """An exact finding's identity: its type and the parts it names."""
+    return e.get("type"), tuple(sorted(e.get("refs") or ()))
 
 
 def window_board(board, parts):
@@ -145,6 +153,9 @@ def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, term
             rep["kicad_feedback"] = exactmod.kicad_feedback(P, st, drc_report)
         except Exception as e:  # noqa: BLE001 - the bumps still carry KiCad's verdict
             log(f"kicad feedback failed ({type(e).__name__}: {e})")
+    home_ex = set()
+    if legal_exact:   # the incumbent's own exact findings (e.g. a part the input overlaps with fixed parts)
+        home_ex = {_sig(e) for e in exact_check(P, st, parts=sub, max_items=500)}
     x0, y0, x1, y1 = window.rect
     gwin = (int(math.floor((x0 - P.ox) / P.g)), int(math.ceil((x1 - P.ox) / P.g)),
             int(math.floor((y0 - P.oy) / P.g)), int(math.ceil((y1 - P.oy) / P.g)))
@@ -197,8 +208,14 @@ def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, term
         cl.pop("findings", None)
         rep["closed_loop"] = cl
         ex = exact_check(P, st, parts=sub) if (legal_exact or not grid_violations(st, parts=sub)) else ["grid"]
+    if legal_exact and ex and home_ex:
+        # findings the incumbent already had, between the same parts, are not the window's doing
+        rep["exact_inherited"] = sum(1 for e in ex if _sig(e) in home_ex)
+        ex = [e for e in ex if _sig(e) not in home_ex]
+        if not ex:
+            rep["legal_by"] = "exact, as the incumbent"
     if bad and not ex:
-        rep["legal_by"] = "exact"       # grid-illegal, exactly clean: the exact model decides
+        rep.setdefault("legal_by", "exact")   # grid-illegal, exactly clean: the exact model decides
     elif bad:
         rep["rejected"] = "illegal after repair"
         rep["exact"] = ex

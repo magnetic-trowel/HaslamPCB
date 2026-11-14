@@ -215,3 +215,18 @@ def test_legal_exact_lets_the_exact_model_overrule_a_conservative_grid(monkeypat
     assert off.report["home_grid_illegal"] == ["U1"]          # the incumbent is grid-illegal too
     on = replace_window(b, win, brief, seed=3, time_s=10.0, physics=False, legal_exact=True)
     assert "rejected" not in on.report and on.report["legal_by"] == "exact" and not on.report["exact"]
+
+
+def test_legal_exact_does_not_count_the_incumbents_own_findings(monkeypatch):
+    import kae.place.legalize as LG
+    b = load(FIXTURE)
+    u1 = _uuid(b, "U1")
+    win = Window(rect=(4.0, 4.0, 26.0, 18.0), parts=(u1,), refs=("U1",))
+    brief = {"nets": {}, "structures": []}
+    real = LG.exact_check
+    inherited = dict(type="courtyards_overlap", refs=["U1", "J9"], parts=[0], detail="from the input")
+    monkeypatch.setattr(LG, "exact_check", lambda P, st, parts=None, max_items=60: real(P, st, parts, max_items) + [inherited])
+    off = replace_window(b, win, brief, seed=3, time_s=10.0, physics=False)
+    assert off.report.get("rejected") and not off.poses
+    on = replace_window(b, win, brief, seed=3, time_s=10.0, physics=False, legal_exact=True)
+    assert "rejected" not in on.report and on.report["exact_inherited"] >= 1 and on.report["exact"] == []
