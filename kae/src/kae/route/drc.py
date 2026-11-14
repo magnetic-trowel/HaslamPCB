@@ -76,6 +76,13 @@ def run(board, out_json, timeout=900, cache=True):
         if judged != board:
             shutil.rmtree(judged.parent, ignore_errors=True)
     _map_uuids(rep, back)
+    if budget.work_mode():
+        # the file holds the report as returned (content order, the board's UUIDs, the uncapped count):
+        # callers that read it back (repair's reroute rounds) see what this call's caller saw, not
+        # KiCad's raw report of the temporary copy, whose UUIDs name nothing on `board`
+        tmp = out_json.with_name(out_json.name + ".tmp")
+        tmp.write_text(json.dumps(rep, indent=2))
+        os.replace(tmp, out_json)
     return rep
 
 
