@@ -80,7 +80,8 @@ def errors(r):
 
 
 def placement_errors(r):
-    return r["s"].get("placement_errors", 0) or 0
+    pe = r["s"].get("placement_errors") or 0
+    return sum(pe.values()) if isinstance(pe, dict) else pe
 
 
 def window_facts(rep):
