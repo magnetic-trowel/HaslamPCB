@@ -14,6 +14,11 @@ first differences.
     acceptance.py --cpus 2 --hogs 2 --workdir W -- python -m kae.joint.cli run IN {out} --seed 0 --time 300
 
 `{out}` in COMMAND is replaced by each run's output board. Exit 0: identical; 1: different.
+
+With --shuffle BOARD the second run is not loaded but gets a copy of BOARD whose copper blocks are
+shuffled and re-UUIDed (shuffle.py); `{in}` in COMMAND is replaced by each run's input board:
+
+    acceptance.py --shuffle IN --workdir W -- python -m kae.route.cli route {in} {out} --time 120
 """
 from __future__ import annotations
 
@@ -22,6 +27,7 @@ import hashlib
 import multiprocessing as mp
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -62,13 +68,15 @@ def _items(text):
     return sorted(out)
 
 
-def run(cmd, out, cpus, hogs, env, timeout):
+def run(cmd, out, cpus, hogs, env, timeout, inp=None):
     procs = [mp.Process(target=_spin, args=(cpus,), daemon=True) for _ in range(hogs)]
     for p in procs:
         p.start()
     try:
         t0 = time.monotonic()
         argv = [a.replace("{out}", str(out)) for a in cmd]
+        if inp is not None:
+            argv = [a.replace("{in}", str(inp)) for a in argv]
         r = subprocess.run(argv, env=env, timeout=timeout, preexec_fn=lambda: os.sched_setaffinity(0, cpus),
                            capture_output=True, text=True)
         dt = time.monotonic() - t0
@@ -87,6 +95,9 @@ def main():
     ap.add_argument("--warmup", type=int, default=1,
                     help="discarded runs first (numba compiles its cache on the first run: without one, "
                          "the first measured run pays the compile and the second does not)")
+    ap.add_argument("--shuffle", metavar="BOARD",
+                    help="second run: BOARD with shuffled, re-UUIDed copper instead of busy loops ({in} in COMMAND)")
+    ap.add_argument("--shuffle-seed", type=int, default=1)
     ap.add_argument("cmd", nargs=argparse.REMAINDER)
     a = ap.parse_args()
     cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
@@ -100,33 +111,47 @@ def main():
     wd.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, KAE_BUDGET="work", OMP_NUM_THREADS="1", KAE_WORKERS="1", PYTHONHASHSEED="0")
     res = {}
+    inputs = {}
+    second = "loaded"
+    if a.shuffle:
+        from shuffle import shuffle_copper
+        src, second = Path(a.shuffle), "shuffled"
+        inputs["alone"] = wd / "in-alone" / src.name
+        inputs["alone"].parent.mkdir(exist_ok=True)
+        for f in src.parent.glob(src.stem + ".kicad_*"):
+            if f.suffix in (".kicad_pcb", ".kicad_pro", ".kicad_dru", ".kicad_prl"):
+                shutil.copy2(f, inputs["alone"].parent / f.name)
+        inputs[second] = wd / "in-shuffled" / src.name
+        n = shuffle_copper(src, inputs[second], a.shuffle_seed)
+        print(f"{n} copper blocks shuffled and re-UUIDed", flush=True)
     for k in range(a.warmup):
-        r, dt = run(cmd, wd / f"warmup{k}.kicad_pcb", cpus, 0, env, a.timeout)
+        r, dt = run(cmd, wd / f"warmup{k}.kicad_pcb", cpus, 0, env, a.timeout, inputs.get("alone"))
         print(f"warm-up {k}: rc {r.returncode}, {dt:.0f} s wall", flush=True)
-    for name, hogs in (("alone", 0), ("loaded", a.hogs)):
+    for name, hogs in (("alone", 0), (second, 0 if a.shuffle else a.hogs)):
         out = wd / f"{name}.kicad_pcb"
-        r, dt = run(cmd, out, cpus, hogs, env, a.timeout)
+        r, dt = run(cmd, out, cpus, hogs, env, a.timeout, inputs.get(name))
         (wd / f"{name}.log").write_text(r.stdout + r.stderr)
         res[name] = (r.returncode, dt, out)
         print(f"{name}: rc {r.returncode}, {dt:.0f} s wall, log {wd / (name + '.log')}", flush=True)
-    a_items, b_items = (_items(res[n][2].read_text()) if res[n][2].exists() else None for n in ("alone", "loaded"))
+    a_items, b_items = (_items(res[n][2].read_text()) if res[n][2].exists() else None for n in ("alone", second))
     if a_items is None or b_items is None:
         print("FAIL: an output is missing")
         return 1
     ha = hashlib.sha256("\n".join(a_items).encode()).hexdigest()[:12]
     hb = hashlib.sha256("\n".join(b_items).encode()).hexdigest()[:12]
-    slow = res["loaded"][1] / max(1e-9, res["alone"][1])
-    print(f"alone {len(a_items)} items {ha}; loaded {len(b_items)} items {hb}; loaded run took {slow:.2f}x the wall time")
+    slow = res[second][1] / max(1e-9, res["alone"][1])
+    print(f"alone {len(a_items)} items {ha}; {second} {len(b_items)} items {hb}; "
+          f"{second} run took {slow:.2f}x the wall time")
     if ha == hb:
         print("PASS: identical placement and copper")
         return 0
     sa, sb = set(a_items), set(b_items)
     only_a, only_b = sorted(sa - sb), sorted(sb - sa)
-    print(f"FAIL: {len(only_a)} items only alone, {len(only_b)} only loaded")
+    print(f"FAIL: {len(only_a)} items only alone, {len(only_b)} only {second}")
     for s in only_a[:5]:
         print("  alone :", s[:160])
     for s in only_b[:5]:
-        print("  loaded:", s[:160])
+        print(f"  {second}:", s[:160])
     return 1
 
 
