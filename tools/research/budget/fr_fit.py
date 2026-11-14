@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Fit Freerouting's pass-time model for counted budgets (kae.route.freerouting, RATES["fr_work"]):
 
-    seconds of a pass = r x (pins / 430) ** alpha x search steps + beta x pins + gamma x unrouted x pins
+    seconds of a pass = r x min(CAP, (pins / 430) ** alpha) x search steps + beta x pins + gamma x unrouted x pins
 
 from the fork's own logs (a build with autorouter.max_work logs, per pass, "Auto-routing pass #N: S
 search steps and W work units so far" and "... completed in T seconds ... (U unrouted ...)"). Logs are
@@ -11,11 +11,11 @@ the runs' raw logs (KAE_FR_RAW_DIR, restart.py's fr-telemetry.tar unpacked: *.lo
 next to its result file (*.result.json[.gz], for the board's pin count). A directory's first path part
 below each DIR names the group a ratio is reported for (one board and stage, say).
 
-    fr_fit.py [--load DIR ...] DIR [DIR ...]
+    fr_fit.py [--cap 3.0] [--load DIR ...] DIR [DIR ...]
 
 --load: runs from a busier host; their time gets one shared factor (reported) so they inform the shape
 of the model without biasing its level. Prints the fit and each group's actual / predicted pass time.
-Paste r into RATES["fr_work"], alpha into FR_SCALE_EXP, beta and gamma into FR_PASS_S and FR_UNROUTED_S.
+Paste r into RATES["fr_work"], alpha into FR_SCALE_EXP (--cap is FR_SCALE_MAX), beta and gamma into FR_PASS_S and FR_UNROUTED_S.
 """
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ PASS = re.compile(r"Auto-routing pass #(\d+) on board .* completed in ([\d.]+) s
                   r"\((\d+) unrouted")
 START = re.compile(r"Auto-routing stage started .* for (\d+) unrouted items")
 REF_PINS = 430.0
+CAP = [3.0]                       # kae.route.freerouting FR_SCALE_MAX
 
 
 def _open(path):
@@ -72,7 +73,7 @@ def passes(root, src):
 def predict(x, r):
     lr, a, b, c, lf = x
     f = np.exp(lf) if r["src"] == "load" else 1.0
-    return f * (np.exp(lr) * (r["pins"] / REF_PINS) ** a * r["steps"] + b * 1e-3 * r["pins"]
+    return f * (np.exp(lr) * min(CAP[0], (r["pins"] / REF_PINS) ** a) * r["steps"] + b * 1e-3 * r["pins"]
                 + c * 1e-6 * r["u"] * r["pins"])
 
 
@@ -80,7 +81,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("dirs", nargs="+")
     ap.add_argument("--load", nargs="*", default=[])
+    ap.add_argument("--cap", type=float, default=CAP[0], help="the step's scale at most (FR_SCALE_MAX)")
     a = ap.parse_args()
+    CAP[0] = a.cap
     rows = [r for d in a.dirs for r in passes(d, "quiet")] + [r for d in a.load for r in passes(d, "load")]
     groups = collections.defaultdict(list)
     for r in rows:
