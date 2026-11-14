@@ -76,3 +76,29 @@ All six arms of a board and seed run side by side in one kaeq job (timed class).
 A direct plumbing check (Wall's flags, 41-part board, `--time 150`) ran end to end, and the evidence kept a window with a blamed part. It also showed a fault: the W arms' work-mode wall ceiling was 4 × `--time` (4 B). Their windows run to about 3.15 B of nominal work, so the slack was 1.3 ×, against 4 × for R. On that board, Freerouting's first route ran 176 s of wall time for about 40 s charged, and the run hit the ceiling.
 
 The fix: `window_budget_factor` now raises the ceiling to 4 × the extended budget (`loop-win-base`). The methods move to the commit with this fix. The smoke and profile jobs queued at 48ffd89 were cancelled before they ran. Arms and rules are unchanged.
+
+## Addendum after the smoke (2026-11-14, before batch 1)
+Smoke `loop-win-smoke2` at ed3f815: 9 of 12 runs scored. The medium board's R, Wt and Wall were still queued or running; one job was requeued three times for memory. Plumbing works: KiCad scored every finished run, there was no `ceiling_hit`, and iteration 0 is identical across the W arms (same seed, counted work).
+
+| board | arm | opens | windows | kept | repeats | illegal (of them, incumbent grid-illegal) | CPU h |
+|---|---|---|---|---|---|---|---|
+| bestelampe (41 parts) | R | 6 | - | - | - | - | 1.58 |
+| | W0 | 3 | 26 | 1 | 16 | 8 (8) | 1.94 |
+| | We | 3 | 33 | 1 | 14 | 10 (10) | 1.99 |
+| | Wt | 3 | 6 | 0 | 0 | 2 (2) | 1.42 |
+| | Wx | 3 | 12 | 0 | 6 | 4 (4) | 1.80 |
+| | Wall | 3 | 9 | 1 | 0 | 3 (3) | 1.85 |
+| dasduino coreplus | W0 | 20 | 54 | 0 | 12 | 1 (0) | 3.61 |
+| | We | 20 | 49 | 0 | 17 | 1 (0) | 3.64 |
+| | Wx | 21 | 53 | 0 | 11 | 0 (exact-legal 1) | 3.75 |
+
+What the smoke shows:
+- **The flags act.**
+  - Tabu cuts repeats to 0 and windows by about 4×.
+  - The evidence diagnosed every open connection, all as congestion, and blamed parts on 26 of 33 and 34 of 49 windows. It dropped none.
+- **Every illegal window held a grid-illegal incumbent.** The exact model rejected those windows too. Part A1 overlaps fixed J6 and J7 in the input, and the placer's anchoring found no spot for it.
+  - Fix (`loop-win-exact` c2dae6f, combo aee3f5e): with `legal_exact`, findings the incumbent already had between the same parts no longer count.
+  - This changes the Wx and Wall arms before any batch-1 data.
+- **Window time is undercharged against R.** At the same nominal allowance, W0 used 1.94 measured CPU-h on the small board against R's 1.58 (+23 %). Wall time per charged second was 2.85× for W0 and 1.87× for R.
+  - The coordinator holds batch 1 until `fr-budget-calibration` is merged (2026-11-14). The methods are then re-registered on main plus these branches, and both seeds run with the CPU guard as written.
+- **The joint loop's wall ceiling.** When the ceiling was hit, the window deadline became NaN, and a profiled run went on to 58 windows. Fixed in `loop-win-base` ea7a63c; it changes nothing below the ceiling.

@@ -34,4 +34,10 @@ Pre-registered in `tools/kaeres/experiments/loop-win/PLAN.md`.
 - **Analysis:** `analyze.py`.
 
 ## Results
-Pending.
+**Smoke** (2 boards, plumbing only; `tools/kaeres/experiments/loop-win/PLAN.md`, addendum after the smoke):
+- tabu cuts repeated windows to 0 and windows by about 4×;
+- the evidence diagnosed every open connection, all as congestion, and blamed parts on most windows;
+- every window that ended illegal held a grid-illegal incumbent. The exact model rejected it too, because one part overlaps fixed parts in the input with no free spot anywhere. `legal_exact` now ignores findings the incumbent already had.
+- At the same nominal allowance, the W arms used up to 23 % more measured CPU than restarts: counted work undercharges Freerouting and the window stage.
+
+**Batch 1** waits for `fr-budget-calibration`.
