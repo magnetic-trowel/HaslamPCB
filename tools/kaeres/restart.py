@@ -218,7 +218,8 @@ def canonical_copper_order(board, uuids=False):
     (the same rule as kae.route.drc.canonical_copper_order; this wrapper is stdlib only), and with `uuids`
     their UUIDs derived from that content. KiCad writes copper in UUID order, new on every import of a
     routed board, and its DRC counts depend on both: two copies of one board (same copper, other UUIDs)
-    judged 13 and 15 errors, and the schedule then promoted different attempts."""
+    judged 13 and 15 errors, and the schedule then promoted different attempts. Returns {new uuid: old
+    uuid} (empty without `uuids`)."""
     lines = Path(board).read_text(errors="replace").split("\n")
     blocks, first, out, i = [], None, [], 0
     while i < len(lines):
@@ -237,6 +238,7 @@ def canonical_copper_order(board, uuids=False):
             continue
         out.append(ln)
         i += 1
+    back = {}
     if blocks:
         blocks.sort(key=lambda b: [x for x in b if "(uuid" not in x and "(tstamp" not in x])
         if uuids:
@@ -244,9 +246,14 @@ def canonical_copper_order(board, uuids=False):
             for k, blk in enumerate(blocks):
                 h = hashlib.sha1(("%d\n" % k + "\n".join(x for x in blk if "(uuid" not in x)).encode()).hexdigest()
                 u = f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
+                for x in blk:
+                    m = re.search(r'\(uuid "?([0-9a-fA-F-]+)"?\)', x)
+                    if m:
+                        back[u] = m.group(1)
                 blocks[k] = [re.sub(r'\(uuid "?[0-9a-fA-F-]+"?\)', f'(uuid "{u}")', x) for x in blk]
         out[first:first] = [x for b in blocks for x in b]
         Path(board).write_text("\n".join(out))
+    return back
 
 
 def drc(board, inp, timeout):
@@ -258,10 +265,32 @@ def drc(board, inp, timeout):
     try:
         c = d / "board.kicad_pcb"
         shutil.copy2(board, c)
-        canonical_copper_order(c, uuids=True)
-        return _drc(c, inp, timeout)
+        back = canonical_copper_order(c, uuids=True)
+        r = _drc(c, inp, timeout)
+        _keep_report(c.with_name("drc.json"), board.with_name("drc.json"), back)
+        return r
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+
+def _keep_report(src, dst, back):
+    """The judge's DRC report of the canonical copy `src` as `dst` (where time mode's judge leaves it, beside
+    the attempt's board), its UUIDs mapped back to the board's (`back`: {copy's uuid: board's}). record_open
+    reads it for the open-net history, and --finish gets it as @DRC@ (the finish gate's identity diff names
+    copper by UUID). Without it the history stayed empty in work mode and finish judged its input again."""
+    try:
+        r = json.loads(src.read_text())
+    except (OSError, ValueError):
+        dst.unlink(missing_ok=True)
+        return
+    for k in ("violations", "unconnected_items"):
+        for v in r.get(k) or []:
+            for it in v.get("items") or []:
+                if it.get("uuid") in back:
+                    it["uuid"] = back[it["uuid"]]
+    tmp = dst.with_name(dst.name + ".tmp")
+    tmp.write_text(json.dumps(r, indent=2))
+    os.replace(tmp, dst)
 
 
 def _drc(board, inp, timeout):

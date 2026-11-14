@@ -575,6 +575,15 @@ def text_shapes(path, timeout=300):
     return _run("text-shapes", lambda out: [_abs(path), out], timeout)
 
 
+def copper_items(path, clusters=False, timeout=300):
+    """Every pad with copper, track, arc, via and copper graphic on a net of `path` as KiCad's DRC report
+    names it (pcbnew_bridge copper_items): {items: [{uuid, kind, net, description, pos, anchors}]},
+    positions in nm. `clusters`: the zones refilled, each item's `cluster` (items KiCad's connectivity
+    joins share one), and `unconnected`, the board's unconnected count."""
+    flags = ["--clusters"] if clusters else []
+    return _run("copper-items", lambda out: [_abs(path), out, *flags], timeout)
+
+
 # ----------------------------------------------------------------------------- verify
 def _polys(rings_list):
     out = []
