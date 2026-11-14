@@ -23,7 +23,7 @@ board's bounding box, so those load with on_board=False. Board.outline adds the 
 graphics of on-board footprints (as pcbnew does); off-board footprints keep theirs in
 `Footprint.edge_cuts`.
 """
-from kae.budget import work_mode
+from kae.budget import charge, work_mode
 import functools
 import json
 import math
@@ -1179,6 +1179,7 @@ def load(path, *, arc_tol=geom.ARC_TOL, rules=True):
 
     gen = value(tree, "generator", "") or ""
     gv = value(tree, "generator_version")
+    charge("board_mb", len(text) / 1e6)    # counted work: parsing, footprints' silk and pads into shapes
     return Board(path=str(path), version=rd.version, footprints=fps, nets=nets, outline=outline,
                  keepouts=rd.keepouts, zones=rd.zones, tracks=tracks, vias=vias, stackup=rd.stackup,
                  rules=rules_obj, generator=f"{gen} {gv}".strip() if gv else gen,

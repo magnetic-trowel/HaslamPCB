@@ -92,6 +92,7 @@ def _run(board, out_json, timeout, cache, mb):
     except subprocess.TimeoutExpired:
         raise DrcError(f"DRC timed out after {timeout}s")
     finally:
+        budget.charge("drc_run", 1)
         budget.charge("drc_mb", mb)
     if not out_json.exists():
         raise DrcError(f"DRC failed (rc={r.returncode}): {(r.stdout + r.stderr)[-600:]}")
