@@ -244,3 +244,51 @@ def test_cell_pin_corridors_open_only_for_open_pins(tmp_path):
     rep = dict(unconnected_items=[dict(items=[dict(description="Pad 6 [Net-(U1-BST)] of U1 on F.Cu"),
                                               dict(description="Pad 1 [x] of R7 on F.Cu")])])
     assert hotloop.open_cell_pads(rep, plan) == {"U1.6"}
+
+
+def test_keepout_covers_loop_net_pours_on_every_layer(tmp_path):
+    """A pour of a loop net (here VIN on F.Cu) under the cell gets its own keep-out, as the return plane does."""
+    from kae.route import critical_write as W
+    src = F.write_board(tmp_path / "a")
+    ring = [(114.0, 107.0), (124.0, 107.0), (124.0, 113.0), (114.0, 113.0), (114.0, 107.0)]
+    p = tmp_path / "b" / "board.kicad_pcb"
+    p.parent.mkdir()
+    W.append_items(src, p, zones=[("VIN", "F.Cu", [ring], "vin-pour", 0)])
+    (tmp_path / "b" / "board.kicad_pro").write_text((tmp_path / "a" / "board.kicad_pro").read_text())
+    b = load(p)
+    s = hotloop._session(p, F.synth_info(b), hotloop.settings(None, {"hotloop_keepout": 1}), {}, lambda *a: None)
+    plan, rows, _ = hotloop.keepout_plan(s, hotloop._plan_cells(s), 1.0)
+    assert {("GND", "B.Cu"), ("VIN", "F.Cu")} <= {(e["net"], e["layer"]) for e in plan}
+    zs = hotloop.zones_for(s.board, plan)
+    vin = [z for z in zs if z[0] == "VIN" and z[1] == "F.Cu"]
+    assert vin and all(z[3].startswith(hotloop.GUARD_PREFIX) for z in vin)
+    # inside the VIN pour only
+    assert all(Polygon(ring).buffer(1e-6).contains(Polygon(z[2][0])) for z in vin)
+
+
+def test_failed_cell_keeps_its_keepout(tmp_path):
+    p = F.write_board(tmp_path / "in")
+    s = hotloop._session(p, F.synth_info(load(p)), hotloop.settings(None, {"hotloop_keepout": 1}), {},
+                         lambda *a: None)
+    mods = hotloop._plan_cells(s)
+    for m in mods:
+        m.status = "failed"
+    plan, _, _ = hotloop.keepout_plan(s, mods, 1.0)
+    assert hotloop.zones_for(s.board, plan)
+
+
+def test_widest_fit_routes_a_hop_with_no_room_at_its_ipc_width(tmp_path):
+    big = {"cells": {"cell:buck:U1": {"I_A": [40.0, 40.0]}}}        # an 8 mm hop (rail_max_mm) asked by the current
+    off = F.session(tmp_path / "off", kinds=("cell",), rails="none", place_allocs=False, intent=big, rail_max_mm=8.0)
+    off.route()
+    on = F.session(tmp_path / "on", kinds=("cell",), rails="none", place_allocs=False, intent=big, rail_max_mm=8.0,
+                   cell_widest_fit=True)
+    on.route()
+    mo = next(x for x in off.modules if x.kind == "cell")
+    mn = next(x for x in on.modules if x.kind == "cell")
+    left = {f["hop"] for f in mo.flags if f["flag"] == "ipc_floor_unroutable"}
+    fit = {f["hop"]: f for f in mn.flags if f["flag"] == "widest_fit"}
+    assert left and left <= set(fit)
+    for k, f in fit.items():
+        assert f["width_mm"] < f["floor_mm"] and mn.hops[f"hop{k}"] is not None
+    assert not [f for f in mn.flags if f["flag"] == "ipc_floor_unroutable"]

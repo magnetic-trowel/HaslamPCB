@@ -21,7 +21,10 @@ obstacles for other nets (constraints.plan's crit_zones: a pin of the zone's net
 output (critical_write.edit drop_guards) and keeps the pours, which score v10+ allows as added
 zones. `last_mile_crit_zones` gives the same obstacles to the restart portfolio's final last mile.
 
-The keep-out (R5). On the bq25306 charger, foreign tracks on the return layer under the loop
+The keep-out (R5) covers the return plane and every pour or plane of a loop net (input rail, ground,
+switch node) under the cell's hull, on any layer, for every cell whose loop terminals are found
+(routed, partly routed or failed alike): a pour the loop needs, cut by another net, was the largest
+cause in the board diagnosis (~24 of 37.6 nH: hdmi2rgb, nekoink, gecko5, bq25306). On the bq25306 charger, foreign tracks on the return layer under the loop
 were 82 % of arm A's L gap (5.04 -> 2.19 nH, R 13.1 -> 5.3 mOhm; diagnosis what-if E1). Region:
 the convex hull of the cell's loop terminals and laid copper, grown by hotloop_keepout_mm,
 clipped to the ground plane's own zone on that layer (critical_recheck.guard_zones). Margin
@@ -117,7 +120,7 @@ def _session(board_path, info, st, opts, log):
     # brief finds no cell (govish, powerboost)
     PF.apply(board, (intent or {}).get("pins"))
     copts = dict(kinds=("cell",), rails="none", complete_mm=0.0, island_mm=0.0, thermal_spokes=False,
-                 place_allocs=False, guards=(), cell_price="W", cell_via_array=bool(st["vias"]),
+                 place_allocs=False, guards=(), cell_price="W", cell_via_array=bool(st["vias"]), cell_widest_fit=True,
                  intent=intent, **intent_opts(intent))
     return Session(board_path, info=info, opts=copts, log=log, board=board)
 
@@ -172,14 +175,48 @@ def keepout_plan(s, mods, margin, log=_log):
                 fix="A ground pour on the layer next to the cell (the cell's return plane) would let the loop "
                     "close vertically (TI SNVA803: 2 mm2 < 0.5 nH)."))
             rows.append(dict(cell=m.id, layer=None, area_mm2=0.0))
-            continue
         loop = unary_union([t.geom for t in T]).convex_hull
-        esc = escapes(s, m, region, loop, pn)
-        m.spec["_escapes"] = esc
-        plan.append(dict(cell=m.id, net=pn, layer=pl, h=h, region=region, escapes=esc))
-        rows.append(dict(cell=m.id, layer=pl, net=pn, h_mm=round(h, 3), region_mm2=round(region.area, 2),
-                         pins=len(esc)))
+        # the return plane, and every pour or plane of a loop net (input rail, ground, switch node) the loop
+        # itself needs on any layer under the hull: other nets' copper that cuts any of them breaks the loop
+        # (diagnosis: hdmi2rgb U10 GND pour islanded by a SYSPWR ring, nekoink U2 SW pour split, gecko5 U13
+        # +5V pour cut by a GND track; ~24 of the 37.6 nH gap)
+        nets = {t.net for t in T if t.net} | {n for n in (m.spec.get("sw"), m.spec.get("rail")) if n}
+        layers = ({(pn, pl)} if pl is not None else set()) | {(n, l) for n in nets for l, g in s.space.zones_of(n) if g.intersects(region)}
+        for net, layer in sorted(layers):
+            esc = escapes(s, m, region, loop, net)
+            plan.append(dict(cell=m.id, net=net, layer=layer, h=h, region=region, escapes=esc))
+            rows.append(dict(cell=m.id, layer=layer, net=net, h_mm=round(h, 3) if pl is not None else None,
+                             region_mm2=round(region.area, 2),
+                             pins=len(esc), plane=(net, layer) == (pn, pl)))
     return plan, rows, hz
+
+
+def loop_guard(board, region, net, layer, name, min_area=0.5):
+    """A keep-out of `net` on `layer` over `region`: inside the net's own zones there, outside every
+    other net's zone that fills before them (priority at least theirs), one priority above every zone
+    on the layer (critical_recheck.guard_zones, which also clears lower-priority zones of other nets:
+    a VBUS pour drawn over a GND pour would leave the VBUS keep-out empty)."""
+    from shapely.geometry import Polygon as _Poly
+    from .critical_recheck import _hole_free
+    own = [z for z in board.zones if z.net == net and layer in z.layers and z.outline is not None
+           and not (z.name or "").startswith(GUARD_PREFIX)]
+    if not own or region is None or region.is_empty:
+        return []
+    from shapely.ops import unary_union
+    g = region.intersection(unary_union([z.outline for z in own]))
+    p_own = max(int(z.priority or 0) for z in own)
+    other = [z.outline for z in board.zones if z.net and z.net != net and layer in z.layers and z.outline is not None
+             and int(z.priority or 0) >= p_own and not (z.name or "").startswith(GUARD_PREFIX)]
+    if other:
+        g = g.difference(unary_union(other).buffer(0.05))
+    prio = 1 + max([int(z.priority or 0) for z in board.zones if layer in z.layers] or [0])
+    out = []
+    for part in getattr(g, "geoms", [g]):
+        if isinstance(part, _Poly) and part.area > min_area:
+            for piece in _hole_free(part):
+                if piece.area > min_area:
+                    out.append((net, layer, [list(piece.exterior.coords)], name, prio))
+    return out
 
 
 def zones_for(board, plan, open_pads=()):
@@ -192,7 +229,7 @@ def zones_for(board, plan, open_pads=()):
     for e in plan:
         cor = [x["geom"] for x in e["escapes"] if x["pad"] in want]
         cut = e["region"].difference(unary_union(cor)) if cor else e["region"]
-        out += guard_zones(board, cut, e["net"], e["layer"], f"{GUARD_PREFIX}hotloop:{e['cell']}")
+        out += loop_guard(board, cut, e["net"], e["layer"], f"{GUARD_PREFIX}hotloop:{e['cell']}:{e['net']}")
     return merge_guards(out)
 
 
@@ -302,8 +339,11 @@ def escapes(s, m, region, loop, plane_net):
     out = []
     reach = math.sqrt(region.area) * 2 + 2.0
     bnd = region.boundary
-    for u in m.parts:
-        for it in sp.pads_by_fp.get(u, []):
+    # every pad the keep-out covers (the cell's own parts' and any neighbour's): a corridor costs nothing
+    # until the repair rounds leave that pad open
+    for it in sp.pads:
+        u = it.fp
+        if True:
             if it.kind != "pad" or not it.net or it.net == plane_net or it.pos is None:
                 continue
             if not it.geom.intersects(region):
@@ -543,7 +583,7 @@ def blocked_by_keepout(drc_report, guards, gnd=(), max_n=8):
         for p, g in polys:
             if seg.intersects(p):
                 e = hit.setdefault(net, dict(cells=set(), layers=set(), n=0))
-                e["cells"].add(g["name"].split("hotloop:")[-1])
+                e["cells"].add(g["name"].split("hotloop:")[-1].split("+")[0].rsplit(":", 1)[0])
                 e["layers"].add(g["layer"])
                 e["n"] += 1
                 break

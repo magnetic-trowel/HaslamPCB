@@ -660,6 +660,23 @@ def route_cell(ctx, m):
             outer = [ctx.sp.cu[0], ctx.sp.cu[-1]]
             rt = route_hop(ctx, m, f"hop{k}", net, [anchor(ta)], [anchor(tb)], widths[-3:], outer, via=True,
                            via_cost=4.0)
+        narrowed = None
+        if rt is None and _opt(ctx, "cell_widest_fit") and floor > mn + 1e-6:
+            # no room at the width the current asks: the widest width that fits, down to the class minimum,
+            # rather than the bridge's class width (bq25306: a 1.7 mm VIN hop with no room went to Freerouting
+            # at 0.2 mm). The shortfall stays a heat hazard below (copper_below_ipc_width).
+            below = [w for w in sorted(set(round(w, 4) for w in width_ladder(floor, max(mn, 1e-3), 6)), reverse=True)
+                     if w < floor - 1e-6]
+            rt = route_hop(ctx, m, f"hop{k}", net, [anchor(ta)], [anchor(tb)], below, [L0], via=False)
+            if rt is None and len(ctx.sp.cu) > 1:
+                rt = route_hop(ctx, m, f"hop{k}", net, [anchor(ta)], [anchor(tb)], below[-3:],
+                               [ctx.sp.cu[0], ctx.sp.cu[-1]], via=True, via_cost=4.0)
+            if rt is not None:
+                narrowed = rt.width
+                m.notes.append(f"hop {k} ({net}): no room at {floor:.2f} mm; widest fit {rt.width:.2f} mm")
+                m.flags.append(dict(flag="widest_fit", hop=k, net=net, floor_mm=round(floor, 3),
+                                    width_mm=round(rt.width, 3)))
+                m.spec.setdefault("_floor", {})[f"hop{k}"] = rt.width     # trim_widths keeps it
         t_l0 = ctx.sp.tcu.get(L0, 0.035)
         refs = [getattr(ctx.fp.get(t_.fp), "ref", t_.fp) for t_ in (ta, tb)]
         where = f"{m.id} hop {k} ({refs[0]} to {refs[1]})"
