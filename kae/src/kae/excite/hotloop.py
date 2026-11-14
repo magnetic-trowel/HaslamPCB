@@ -188,7 +188,13 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
             pc, _ = coarsen_pitch(win, pitch, n_cu, MAX_CELLS)
             z, info, m = _solve_window(path, b, bd, s, o, win, pc, nsub, bm.fills, freqs, skin, log)
             whole = win == tuple(board_window)
-            if z is not None or whole or grown >= MAX_GROW:
+            zc = None
+            if z is not None and global_pitch:
+                # the same window at the board's pitch, for the truncation correction below; it must close too (a
+                # neck the fine raster resolves and the coarse one loses: the board solve then closes outside)
+                zc, _, _ = _solve_window(path, b, bd, s, o, win, global_pitch, nsub, bm.fills, [f_fund, f_edge], False,
+                                         log)
+            if (z is not None and (zc is not None or not global_pitch)) or whole or grown >= MAX_GROW:
                 break
             margin *= 2
             grown += 1
@@ -201,11 +207,9 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
         # (no skin correction in either, as the board solve has none). Added to the fine solve, it leaves the fine
         # pitch's correction of the board solve (two-grid: truncation and pitch errors add to first order)
         dLe, dZf = 0.0, 0j
-        if global_pitch:
-            zc, _, _ = _solve_window(path, b, bd, s, o, win, global_pitch, nsub, bm.fills, [f_fund, f_edge], False, log)
-            if zc is not None:
-                dLe = g[0] - zc[f_edge].imag / w_e
-                dZf = g[1] - zc[f_fund]
+        if zc is not None:
+            dLe = g[0] - zc[f_edge].imag / w_e
+            dZf = g[1] - zc[f_fund]
         Le = z[f_edge].imag / w_e + dLe
         Zf = z[f_fund] + dZf
         R = [dict(n=n, f_MHz=round(f / 1e6, 4), R_mohm=round(max((z[f] + dZf).real, 0.0) * 1e3, 4))
@@ -222,7 +226,7 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
                          window=dict(box=[round(x, 3) for x in win], pitch=pc, margin_mm=margin, grown=grown,
                                      L_raw_nH=round(z[f_edge].imag / w_e * 1e9, 4), trunc_L_nH=round(dLe * 1e9, 4),
                                      R_raw_mohm=round(max(z[f_fund].real, 0.0) * 1e3, 4),
-                                     trunc_R_mohm=round(dZf.real * 1e3, 4),
+                                     trunc_R_mohm=round(dZf.real * 1e3, 4), corrected=zc is not None,
                                      cells=int(m.nx * m.ny * len(m.layers)), dropped_injection=round(info["dropped"], 5),
                                      skin=bool(skin), seconds=round(time.time() - t0, 1))))
         log(f"cell {s.name}: window {win[2] - win[0]:.1f} x {win[3] - win[1]:.1f} mm at {pc:g} mm: L_loop "
