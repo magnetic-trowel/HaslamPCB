@@ -553,7 +553,7 @@ def add_arguments(ap):
 def finish(report, output=None, project_board=None, kind="route", mode="auto", deadline=None, brief=None,
            board=None, log=None):
     """Close `report` for the LLM: static project hazards, the forced-severity recheck of
-    `output` (mode on|auto|off; within `deadline`, a time.monotonic() value), then
+    `output` (mode on|auto|off; within `deadline`, a kae.budget.now() value), then
     kae.hazards.finalize (nested lists hoisted, flags derived, capped, summary). The
     recheck's meta goes to report["recheck"]. Never raises: a report is always written."""
     extra = []
@@ -570,7 +570,8 @@ def finish(report, output=None, project_board=None, kind="route", mode="auto", d
         elif not Path(output).exists():
             meta["skipped"] = "no output board"
         else:
-            left = None if deadline is None else deadline - time.monotonic()
+            from kae.budget import now as clock_now
+            left = None if deadline is None else deadline - clock_now()
             if left is not None and left < MIN_RECHECK_S and mode != "on":
                 meta["skipped"] = f"time ({left:.0f} s left)"
                 hidden = {k: v for k, v in downgraded(project_severities(project_board)).items()
