@@ -313,3 +313,44 @@ def test_work_mode_gives_the_finish_its_finish_s(tmp_path, monkeypatch):
     assert log[0]["budget"] <= 1000 - 300 - 20
     a = SimpleNamespace(time=1000.0, final="x", final_s=0.0, finish="y", finish_s=0.0)
     assert restart.work_final_s(a) == 150.0 and restart.work_finish_s(a) == 100.0
+
+
+# a kicad-cli that reports one unconnected item per routing item of the board, naming it by UUID
+UUID_CLI = """#!/usr/bin/env python3
+import json, re, sys
+args = sys.argv[1:]
+out = args[args.index("--output") + 1]
+us = re.findall(r'\\(uuid "([^"]+)"\\)', open(args[-1]).read())
+json.dump(dict(violations=[], unconnected_items=[dict(items=[dict(description=f"Track [N{i}]", uuid=u)])
+                                                for i, u in enumerate(us)]), open(out, "w"))
+"""
+_TRACKS = ('(kicad_pcb\n\t(segment\n\t\t(start 0 0)\n\t\t(end 1 0)\n\t\t(uuid "{a}")\n\t)\n'
+           '\t(segment\n\t\t(start 2 0)\n\t\t(end 3 0)\n\t\t(uuid "{b}")\n\t)\n)\n')
+
+
+def test_work_mode_judge_keeps_its_report_beside_the_board_with_the_boards_uuids(tmp_path, monkeypatch):
+    """Work mode judges a canonical copy in a temporary directory; its report must still be left beside
+    the attempt's board, as in time mode (record_open's open-net history, --finish's @DRC@), naming the
+    board's own copper (the copy's UUIDs are derived from content)."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "kicad-cli").write_text(UUID_CLI.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1))
+    (bin_ / "kicad-cli").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}:{os.environ['PATH']}")
+    monkeypatch.setenv("KAE_KICAD_WRAP", "")
+    monkeypatch.setattr(restart, "WORK", True)
+    monkeypatch.setattr(restart, "SC", None)
+    inp = tmp_path / "in" / "board.kicad_pcb"
+    inp.parent.mkdir()
+    inp.write_text("(kicad_pcb)\n")
+    a, b = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+    board = tmp_path / "a0" / "board.kicad_pcb"
+    board.parent.mkdir()
+    board.write_text(_TRACKS.format(a=b, b=a))
+    assert restart.drc(board, inp, 60)["unconnected"] == 2
+    rep = json.loads(board.with_name("drc.json").read_text())
+    assert sorted(it["uuid"] for u in rep["unconnected_items"] for it in u["items"]) == [a, b]
+    assert sorted(p.name for p in board.parent.iterdir()) == ["board.kicad_pcb", "drc.json"]   # copy removed
+    info, hist = dict(out=str(board)), {}
+    restart.record_open(info, hist, tmp_path / "history.json")
+    assert info["open_nets"] == ["N0", "N1"] and hist == {"N0": 1, "N1": 1}
