@@ -42,10 +42,12 @@ RATES = {
     "anneal_move": 1.74e-5,     # one compiled annealer move
     "anneal_move_py": 1.36e-4,  # one Python-priced annealer move (physics terms, macros)
     "cpsat_dtime": 4.0,         # one unit of CP-SAT deterministic time (measured 3.8-4.5 s)
-    "fr_work": 1.02e-5,         # one Freerouting work unit (fork autorouter.max_work: search steps plus
-                                # FR_PASS_WEIGHT x pins and FR_UNROUTED_WEIGHT x unrouted x pins per pass);
-                                # 8 boards, 76-1,987 pins, 386 passes: each board's time within 0.64-1.25x
-                                # (one small board 0.34x), tools/research/budget/fr_calibrate.py
+    "fr_work": 7.1e-6,          # one Freerouting search step on a 430-pin board (fork autorouter.max_work);
+                                # kae.route.freerouting scales it with the board (work_scale: pins^1.43, at most
+                                # 3x) and charges its passes by pins (FR_PASS_S, FR_UNROUTED_S). Fitted
+                                # 2026-11-14 on 596 passes, 76-1,484 pins (tools/research/budget/fr_fit.py);
+                                # 1.02e-5 per work unit before, one rate for all boards: a 821-pin board's
+                                # routing took 2.2x its charge, a 148-pin board's 0.3x
     "fr_run": 3.9,              # one Freerouting run's start-up and teardown (JVM, loading the .dsn)
     "fr_dsn_kb": 0.009,         # ... per kB of .dsn
     "fr_pass_pin2": 9e-5,       # builds without max_work: one Freerouting pass per pin^2 (fitted on 65-328 pins;
