@@ -189,11 +189,22 @@ def keepout_plan(s, mods, margin, log=_log):
             if layer == side:
                 # on the parts' own layer a hull-wide keep-out walls in the IC's fan-out (bq25306: 17 opens
                 # after the first route, a GND and an SW pour on F.Cu): there it covers only the bridge the
-                # loop needs, the hull of the cell's own pads of that net (cap pad to IC pins)
-                pads = [it.geom for u in m.parts for it in s.space.pads_by_fp.get(u, [])
-                        if it.net == net and layer in it.layers]
+                # loop needs, the hull of the loop's own pads of that net (cap pad to IC pins; hdmi2rgb: the hull
+                # of all the cell's GND pads, output caps included, left SYSPWR and +3V3 open)
+                # the loop's own terminals of that net (input cap pad, IC pins); for a net with no two
+                # terminals (the switch node) the IC's pins of it and the nearest other pad of it (inductor)
+                pads = [t.geom_on(layer) for t in T if t.net == net and layer in t.layers]
                 if len(pads) < 2:
-                    continue
+                    own = [it for u in m.parts for it in s.space.pads_by_fp.get(u, [])
+                           if it.net == net and layer in it.layers]
+                    if len(own) < 2:
+                        continue
+                    a = min(own, key=lambda it: it.geom.distance(loop))
+                    b = min((it for it in own if it.fp != a.fp), key=lambda it: it.geom.distance(a.geom),
+                            default=None)
+                    if b is None:
+                        continue
+                    pads = [a.geom, b.geom]
                 reg = unary_union(pads).convex_hull
             esc = escapes(s, m, reg, loop, net)
             plan.append(dict(cell=m.id, net=net, layer=layer, h=h, region=reg, escapes=esc,
@@ -252,13 +263,18 @@ _PAD_OF = re.compile(r"Pad (\S+) \[[^\]]*\] of (\S+)")
 def open_cell_pads(drc_report, plan):
     """The pads of the cells' parts ("REF.NUMBER") named by an open connection of a DRC report: the pins
     the keep-out walls in, whose corridors the escape round opens."""
-    have = {x["pad"] for e in plan for x in e["escapes"]}
-    out = set()
+    have = {x["pad"]: x["net"] for e in plan for x in e["escapes"]}
+    out, nets = set(), set()
     for v in (drc_report or {}).get("unconnected_items") or []:
         for it in v.get("items") or []:
-            mm = _PAD_OF.search(it.get("description") or "")
+            d = it.get("description") or ""
+            mm = _PAD_OF.search(d)
             if mm and f"{mm.group(2)}.{mm.group(1)}" in have:
                 out.add(f"{mm.group(2)}.{mm.group(1)}")
+            nets.update(_NET_IN.findall(d))
+    # an open connection of a net whose pads the keep-outs cover (a track or via end, not the pad, may be
+    # what DRC names: hdmi2rgb's SYSPWR, the cell's own rail): those pads' corridors too
+    out |= {p for p, n in have.items() if n in nets}
     return out
 
 
