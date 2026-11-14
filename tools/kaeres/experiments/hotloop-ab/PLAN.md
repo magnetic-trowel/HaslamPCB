@@ -70,3 +70,23 @@ The noise reference is the twin.
 | physics, 6 arms (human, N, N2, K, H, HP) | about 120 | about 950 |
 
 The routing alone is about 3–5 times the design doc's 30–50 core-hours: each portfolio uses 4 cores for most of its budget. The physics is dominated by a few boards: ecp5 2.7 h, arvsom 2.5 h, aifryz 1.6 h and the large untimed ones. A cheaper physics plan, for approval: skip N2's physics on the 6 slowest boards and use the median twin noise there instead (saves about 100 CPU-hours). The evaluator has no cells-only mode: a cell's value includes the board solve's truncation correction.
+
+## Smoke (ee2e273f, bq25306 charger, budget 900 s, seed 0; before the final SHA)
+
+Test suites at ee2e273f: kae 1,271 passed (12 skipped), bench 230 passed, kaeres 57 passed.
+
+| arm | completion, DRC errors | wall s | attempts' s | cell buck:U1 L_loop / R_loop |
+|---|---|---|---|---|
+| N | 1.0, 1 (the input's own) | 265 | 950 | 3.92 nH / 9.84 mΩ |
+| N2 | 1.0, 1 | 262 | 953 | - |
+| K | 1.0, 1 | 125 | 385 | - |
+| H | 1.0, 1 | 151 | 489 | 1.47 nH / 3.85 mΩ |
+| HP | 1.0, 1 | 306 | 1,081 | - |
+| human | | | | 1.42 nH / 3.21 mΩ |
+
+- **All five methods run end to end in kaeres.** Finish ran its three parts in every arm (17–19 s). The kaeq jobs peaked at 4.2–4.4 GB (two methods each) with no freezes.
+- **Profile** (py-spy and JFR): N is 26 % repair loop and 9 % Freerouting. H is 11 % repair, 10 % Freerouting and 10 % the cell stage (critical_grid); it reached a complete board sooner (151 s against 265).
+- **Physics:** human, N and H took 202–219 s each, of which the cell window was 186–201 s (pitch 0.0625 mm), at a 3.0 GB peak.
+- **On this one board, H is at the human level** for the cell: L 0.37× N, R 0.39× N. That is a single seed, not a result.
+
+**Right-sizing:** routing `--cpus 4`, `--mem` 0.75 × the kaeres estimate (the smoke peaked at about half of it). Physics `--cpus` and `--mem` come from each board's history (submit.py), with 0.0625 mm windows adding about 190 s per board here.
