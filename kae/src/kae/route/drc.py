@@ -68,10 +68,13 @@ def run(board, out_json, timeout=900, cache=True):
         judged, back = _judged_copy(board)
     try:
         rep = _run(judged, out_json, timeout, cache, mb)
+        got = None
         if budget.work_mode() and rep.get("unconnected_items"):
-            canonical_unconnected(rep, _copper_items(judged, timeout))
+            got = _copper_items(judged, timeout)
+            canonical_unconnected(rep, (got or {}).get("items"))
         if len(rep.get("unconnected_items") or []) >= DRC_UNCONNECTED_CAP or unconnected_ignored(board):
-            n = uncapped_unconnected(judged, timeout)
+            # the count copper_items took on the same refill, else pcbnew's own run
+            n = got["unconnected"] if got and got.get("unconnected") is not None else uncapped_unconnected(judged, timeout)
             if n is not None:
                 rep["unconnected_count"] = n
     finally:
@@ -191,51 +194,206 @@ def _map_uuids(rep, back):
 
 
 def _copper_items(board, timeout):
-    """pcbnew_io.copper_items of `board`, None when KiCad's Python cannot give them."""
+    """pcbnew_io.copper_items of `board` with clusters ({items, unconnected}), None when KiCad's Python
+    cannot give them."""
     from kae.board.pcbnew_io import PcbnewError, copper_items
     try:
-        return copper_items(board, timeout=timeout)["items"]
-    except (PcbnewError, OSError, KeyError, TypeError):
+        got = copper_items(board, clusters=True, timeout=timeout)
+        return got if isinstance(got.get("items"), list) else None
+    except (PcbnewError, OSError, KeyError, TypeError, AttributeError):
         return None
 
 
 def canonical_unconnected(rep, items):
-    """Name each unconnected item of `rep` (in place) by a choice of KiCad's that does not vary from run to run.
+    """Name the unconnected pairs of `rep` (in place) by choices that do not vary from run to run.
 
-    kicad-cli's DRC of one and the same file names other items in a few unconnected pairs on every run: of
-    the copper meeting at the anchor the ratsnest joins (two tracks sharing an end, a connector's front and
-    back pads at one position) it names whichever its threads came to first (a 341-track board, five DRCs of
-    one file: 1-9 of 182 pairs named otherwise each time, the count the same). The joint loop's congestion
-    history and the repair loop's pad choice read those names and positions. Here each side of a pair is the
-    item, among those of its net with an anchor at the pair's nearest anchors, first by description and
-    position, and the pair's items are in that order too. `items`: pcbnew_io.copper_items of the board the
-    report is of (None: the report is left as it is). A pair naming an item `items` does not hold as KiCad
-    describes it (a zone, another KiCad) keeps KiCad's names."""
+    kicad-cli's DRC of one and the same file names other pairs on every run (a 341-track board, five DRCs of
+    one file: 1-9 of 182 pairs named otherwise each time, the count the same). Of the copper at the anchor
+    the ratsnest joins (two tracks sharing an end, a connector's front and back pads at one position) it
+    names whichever it came to first, and of equally long connections between clusters (copper laid out
+    symmetrically, two clusters at one position) whichever its sort left first. The joint loop's congestion
+    history and the repair loop's pad choice read those names and positions.
+
+    For each net whose pairs all name pads, tracks, arcs, vias and copper graphics, the pairs are the
+    connections of a minimum spanning tree between the net's clusters (`cluster` of `items`; without it, copper
+    joined where anchors meet), equally long ones taken in the order of their anchors' positions, as long as
+    there are as many as KiCad lists (else, e.g. past its cap, each pair is renamed alone: the nearest anchors
+    of its two clusters, those with an anchor at one position taken as one). Each side of a connection is the
+    first item (by description, position) of its cluster with an anchor there, and the pair's items are in that
+    order. In a net with a pair that names a zone, or an item `items` does not hold as KiCad describes it, those
+    pairs keep KiCad's names and the others are renamed one by one. `items`: pcbnew_io.copper_items of the board
+    the report is of (None: the report is left as it is)."""
     if not items:
         return rep
-    by_uuid = {it["uuid"]: it for it in items}
-    at = {}
+    n = {}
     for it in items:
-        for a in it["anchors"]:
-            at.setdefault((it["net"], tuple(a)), []).append(it)
+        n[it["uuid"]] = n.get(it["uuid"], 0) + 1
+    items = [it for it in items if n[it["uuid"]] == 1]          # a uuid two items share names neither
+    if any("cluster" not in it for it in items):
+        items = _anchor_clusters(items)
+    by_uuid = {it["uuid"]: it for it in items}
+    at = {}                                       # (net, cluster) -> {anchor: [items]}
+    for it in items:
+        for p in it["anchors"]:
+            at.setdefault((it["net"], it["cluster"]), {}).setdefault(tuple(p), []).append(it)
+
+    # clusters with an anchor at one position (0 apart: a connector's front and back pads) as one, for
+    # pairs renamed one by one: KiCad joins a third cluster to either
+    sup = {k: k for k in at}
+
+    def find(k):
+        while sup[k] != k:
+            sup[k] = sup[sup[k]]
+            k = sup[k]
+        return k
+    meet = {}
+    for (net, c), a in at.items():
+        for p in a:
+            k = meet.setdefault((net, p), (net, c))
+            ra, rb = find(k), find((net, c))
+            if ra != rb:
+                sup[max(ra, rb, key=repr)] = min(ra, rb, key=repr)
+    at_sup = {}
+    for k, a in at.items():
+        for p, its in a.items():
+            at_sup.setdefault(find(k), {}).setdefault(p, []).extend(its)
 
     def rec(it):
-        return dict(description=it["description"], pos=dict(x=it["pos"][0] / 1e6, y=it["pos"][1] / 1e6), uuid=it["uuid"])
+        x, y = it["pos"]
+        return dict(description=it["description"], pos=dict(x=x / 1e6, y=y / 1e6), uuid=it["uuid"])
 
-    def first(cands):
-        return min(cands, key=lambda c: (c["description"], tuple(c["pos"]), c["uuid"]))
+    def pair(ka, pa, kb, pb, of=at):
+        first = [min(of[k][p], key=lambda i: (i["description"], tuple(i["pos"]), i["uuid"]))
+                 for k, p in ((ka, pa), (kb, pb))]
+        return sorted(map(rec, first), key=lambda r: (r["description"], r["pos"]["x"], r["pos"]["y"], r["uuid"]))
 
+    def alone(u, x, y):
+        """One pair renamed by itself: the nearest anchors of its two (merged) clusters."""
+        ka, kb = find((x["net"], x["cluster"])), find((y["net"], y["cluster"]))
+        if ka != kb:
+            pa, pb = _nearest(list(at_sup[ka]), list(at_sup[kb]))
+            u["items"] = pair(ka, pa, kb, pb, at_sup)
+
+    per_net, raw = {}, set()
     for u in rep.get("unconnected_items") or []:
         its = u.get("items") or []
         known = [by_uuid.get(i.get("uuid")) for i in its]
-        if len(its) != 2 or any(k is None or k["description"] != i.get("description") for k, i in zip(known, its)):
+        nets = {k["net"] for k in known if k is not None}
+        if len(its) != 2 or len(nets) != 1 or any(k is None or k["description"] != i.get("description")
+                                                   for k, i in zip(known, its)):
+            raw |= nets | {x for i in its for x in _NET_IN.findall(i.get("description") or "")}
             continue
-        x, y = known
-        _, ax, ay = min(((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2, tuple(a), tuple(b)) for a in x["anchors"] for b in y["anchors"])
-        cx, cy = first(at.get((x["net"], ax)) or [x]), first(at.get((y["net"], ay)) or [y])
-        u["items"] = sorted((rec(cx), rec(cy)), key=lambda r: (r["description"], r["pos"]["x"], r["pos"]["y"], r["uuid"]))
+        per_net.setdefault(nets.pop(), []).append((u, known))
+    for net in sorted(per_net):
+        got = per_net[net]
+        tree = None if net in raw else _cluster_tree({c: list(a) for (nt, c), a in at.items() if nt == net})
+        if tree is not None and len(tree) == len(got):
+            for (u, _), (ca, pa, cb, pb) in zip(got, tree):
+                u["items"] = pair((net, ca), pa, (net, cb), pb)
+            continue
+        for u, (x, y) in got:      # a net with zone pairs, past KiCad's cap, or a count that differs: one by one
+            alone(u, x, y)
+    for u in rep.get("unconnected_items") or []:
+        if u.get("items"):
+            u["items"].sort(key=lambda r: (r.get("description") or "", str(r.get("pos")), r.get("uuid") or ""))
     rep["unconnected_items"].sort(key=_content_key)
     return rep
+
+
+_NET_IN = re.compile(r"\[([^\]]*)\]")
+
+
+def _cluster_tree(anchors):
+    """A minimum spanning tree between clusters ({cluster: [anchor (x, y) nm]}): [(cluster a, anchor a,
+    cluster b, anchor b)], each connection between the nearest anchors of what it joins, equally long ones
+    in the order of their anchors; None when it cannot be computed (a degenerate large net)."""
+    import numpy as np
+    owners = {}
+    for c, ps in anchors.items():
+        for p in ps:
+            owners.setdefault(p, set()).add(c)
+    pts = sorted(owners)
+    if len(anchors) < 2:
+        return []
+    cand = []
+    for p in pts:                                 # clusters with an anchor at one position: 0 apart
+        cs = sorted(owners[p], key=repr)
+        cand += [(0, p, p, a, b) for i, a in enumerate(cs) for b in cs[i + 1:]]
+    if len(pts) <= 400:
+        pairs = [(i, j) for i in range(len(pts)) for j in range(i + 1, len(pts))]
+    else:
+        try:
+            from scipy.spatial import Delaunay
+            tri = Delaunay(np.array(pts, dtype=float))
+        except Exception:                          # noqa: BLE001 - collinear or degenerate points
+            return None
+        ind, nb = tri.vertex_neighbor_vertices
+        pairs = sorted({(min(i, j), max(i, j)) for i in range(len(pts)) for j in nb[ind[i]:ind[i + 1]]})
+    for i, j in pairs:
+        p, q = pts[i], pts[j]
+        d = (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2
+        for a in owners[p]:
+            for b in owners[q]:
+                if a != b:
+                    cand.append((d, p, q, a, b))
+    cand.sort(key=lambda e: (e[0], e[1], e[2], repr(e[3]), repr(e[4])))
+    parent = {c: c for c in anchors}
+
+    def find(c):
+        while parent[c] != c:
+            parent[c] = parent[parent[c]]
+            c = parent[c]
+        return c
+    out = []
+    for d, p, q, a, b in cand:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+            out.append((a, p, b, q))
+            if len(out) == len(anchors) - 1:
+                break
+    return out
+
+
+def _anchor_clusters(items):
+    """Copies of `items` with `cluster`: those of a net that share an anchor, directly or through others."""
+    parent = list(range(len(items)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    first = {}
+    for i, it in enumerate(items):
+        for a in it["anchors"]:
+            j = first.setdefault((it["net"], tuple(a)), i)
+            parent[find(j)] = find(i)
+    return [dict(it, cluster=find(i)) for i, it in enumerate(items)]
+
+
+def _nearest(a, b):
+    """The pair (p, q), p of `a` and q of `b` (integer points), nearest each other; of equally near pairs the
+    first (p, q) in order."""
+    if len(a) * len(b) <= 4096:
+        return min(((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2, p, q) for p in a for q in b)[1:]
+    import numpy as np
+    from scipy.spatial import cKDTree
+    if len(a) > len(b):
+        q, p = _nearest(b, a)
+        return p, q
+    tb = cKDTree(np.array(b, dtype=float))
+    d, _ = tb.query(np.array(a, dtype=float), k=1)
+    r = float(d.min()) + 2.0                     # float error; the exact choice is made in integers below
+    best = None
+    for i in np.flatnonzero(d <= r):
+        p = a[i]
+        for j in tb.query_ball_point(np.array(p, dtype=float), r):
+            q = b[j]
+            c = ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2, p, q)
+            if best is None or c < best:
+                best = c
+    return best[1:]
 
 
 def _content_key(v):

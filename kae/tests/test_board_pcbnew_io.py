@@ -297,6 +297,12 @@ def test_copper_items_name_copper_as_kicads_drc_does(tmp_path):
     tracks = [i for i in items if i["kind"] in ("track", "arc")]
     assert tracks and all(len(t["anchors"]) == 2 for t in tracks)
     assert all(i["kind"] != "pad" or i["anchors"] for i in items)
+    got = pcbnew_io.copper_items(p, clusters=True)
+    clustered = got["items"]
+    assert got["unconnected"] == drc.uncapped_unconnected(p)        # the same count on the same refill
+    assert [{k: v for k, v in i.items() if k != "cluster"} for i in clustered] == items
+    assert all(isinstance(i["cluster"], int) for i in clustered)
+    assert len({i["cluster"] for i in clustered}) < len(clustered)      # copper joins
     by = {i["uuid"]: i for i in items}
     out = tmp_path / "drc.json"
     subprocess.run([*drc.kicad_cli(), "pcb", "drc", "--format", "json", "--severity-all", "--units", "mm",

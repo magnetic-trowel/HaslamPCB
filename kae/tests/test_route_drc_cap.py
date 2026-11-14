@@ -141,3 +141,25 @@ def test_work_mode_report_names_the_boards_items_and_is_written_as_returned(monk
         assert reps[0] == reps[1]
     finally:
         budget.set_mode("time")
+
+
+def test_work_mode_takes_the_uncapped_count_from_the_copper_items_refill(monkeypatch, tmp_path):
+    from kae import budget
+    budget.set_mode("work")
+    try:
+        def fake_run(cmd, **kw):
+            items = [dict(items=[dict(description=f"Pad 1 [N{i}] of U1")]) for i in range(499)]
+            json.dump(dict(violations=[], unconnected_items=items), open(cmd[cmd.index("-o") + 1], "w"))
+            return type("R", (), dict(returncode=0, stdout="", stderr=""))
+        monkeypatch.setattr(drc, "kicad_cli", lambda: ("kicad-cli",))
+        monkeypatch.setattr(drc.subprocess, "run", fake_run)
+        monkeypatch.setattr(drc, "_copper_items", lambda board, timeout: dict(items=[], unconnected=1234))
+
+        def no(*a, **k):
+            raise AssertionError("a second refill")
+        monkeypatch.setattr(drc, "uncapped_unconnected", no)
+        b = tmp_path / "board.kicad_pcb"
+        b.write_text("(kicad_pcb)\n")
+        assert drc.summary(drc.run(b, tmp_path / "drc.json", cache=False))["unconnected"] == 1234
+    finally:
+        budget.set_mode("time")
