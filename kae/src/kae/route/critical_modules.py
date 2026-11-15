@@ -1090,11 +1090,43 @@ def _cell_value(ctx, m):
     extra = dict(h_mm=round(h, 3) if h != INF else None, plane=pl, plane_net=pn, variants=len(vals),
                  R_mohm=round(R * 1e3, 4))
     if m.kind == "cell":
+        from .critical_physics import ac_loss
         I, f, D, _basis = cell_operating(ctx, m)
+        t_r = float((m.spec.get("excite") or {}).get("t_sw_ns") or 2.0) * 1e-9
+        hh = h if h != INF else 1.5
         w_l = 0.5 * val * 1e-9 * I * I * f          # loss.loop: 1/2 L I^2 f_sw
-        w_r = I * I * D * (1.0 - D) * R             # loss.loop_ac: I^2 D (1 - D) R_loop
-        extra.update(W=w_l + w_r, W_loop=round(w_l, 9), W_loop_ac=round(w_r, 9))
+        # loss.loop_ac at f_sw and its harmonics, skin and proximity included (critical_physics.ac_loss;
+        # I^2 D (1 - D) R_loop, the evaluator's DC-resistance term, is its rac = 1 limit)
+        key = f"_acK{hh:.4f}"                      # ac_loss is linear in R: its factor once per cell and height
+        acK = m.spec.get(key)
+        if acK is None:
+            acK = m.spec[key] = ac_loss(I, D, f, 1.0, hh, t_r)
+        w_r = acK * R
+        w_s = _swnode_watts(ctx, m, hh, f)          # loss.swnode: the switch-node copper's 1/2 C V^2 f_sw
+        extra.update(W=w_l + w_r + w_s, W_loop=round(w_l, 9), W_loop_ac=round(w_r, 9),
+                     W_loop_ac_dc=round(I * I * D * (1.0 - D) * R, 9), W_swnode=round(w_s, 9))
     return val, extra
+
+
+def _swnode_watts(ctx, m, h, f):
+    """loss.swnode of the cell's routed switch-node copper: 1/2 C V^2 f_sw with C the parallel-plate
+    capacitance of its hop strips to the plane below (eps0 er A / h). Only what routing changes: the
+    pads' share is a constant of the placement."""
+    sw = m.spec.get("sw")
+    if not sw or h in (None, INF) or h <= 0:
+        return 0.0
+    area = 0.0
+    for rt in m.hops.values():
+        if rt is None or rt.net != sw:
+            continue
+        for i, (_l, a, b) in enumerate(rt.segs):
+            area += math.dist(a, b) * rt.seg_w(i)
+    if area <= 0:
+        return 0.0
+    er = (ctx.sp.er[0] if getattr(ctx.sp, "er", None) else 4.5)
+    C = 8.854e-15 * er * area / h                       # F (mm units)
+    V = ctx.volts(m.spec.get("rail") or "") or 5.0
+    return 0.5 * C * V * V * f
 
 
 # ----------------------------------------------------------------------------- allocations

@@ -77,7 +77,7 @@ GUARD_PREFIX = "kae-crit:"     # keep-outs (critical_write.GUARD_PREFIX; dropped
 MARGIN_WHY = ("a return at height h spreads as h / (x^2 + h^2): a 1 mm band holds 94 % (h 0.1 mm) "
               "to 86 % (h 0.2 mm) of an edge conductor's return; the hull covers the loop's interior")
 SETTINGS = ("hotloop_keepout", "hotloop_keepout_mm", "hotloop_cells", "hotloop_vias", "hotloop_pours",
-            "hotloop_budget_s")
+            "hotloop_budget_s", "hotloop_keepout_pours", "hotloop_lift")
 
 
 def _log(msg):
@@ -91,6 +91,8 @@ def settings(board_path=None, opts=None):
     out = dict(keepout=bool(float(g["hotloop_keepout"] or 0)), keepout_mm=float(g["hotloop_keepout_mm"]),
                cells=bool(float(g["hotloop_cells"] or 0)), vias=bool(float(g["hotloop_vias"] or 0)),
                pours=bool(float(g["hotloop_pours"] or 0)), budget_s=float(g["hotloop_budget_s"]))
+    out["keepout_pours"] = bool(float(g["hotloop_keepout_pours"] or 0))
+    out["lift"] = g["hotloop_lift"] if g["hotloop_lift"] in LIFT_LEVELS else "plane"
     out["cells"] = out["cells"] or out["vias"] or out["pours"]
     return out
 
@@ -182,7 +184,8 @@ def keepout_plan(s, mods, margin, log=_log):
         # (diagnosis: hdmi2rgb U10 GND pour islanded by a SYSPWR ring, nekoink U2 SW pour split, gecko5 U13
         # +5V pour cut by a GND track; ~24 of the 37.6 nH gap)
         nets = {t.net for t in T if t.net} | {n for n in (m.spec.get("sw"), m.spec.get("rail")) if n}
-        layers = ({(pn, pl)} if pl is not None else set()) | {(n, l) for n in nets for l, g in s.space.zones_of(n) if g.intersects(region)}
+        pours_on = getattr(s, "hotloop_pours_on", True)
+        layers = ({(pn, pl)} if pl is not None else set()) | {(n, l) for n in (nets if pours_on else ()) for l, g in s.space.zones_of(n) if g.intersects(region)}
         side = s.ctx.side_layer(T[0].fp)
         for net, layer in sorted(layers):
             reg = region
@@ -208,14 +211,32 @@ def keepout_plan(s, mods, margin, log=_log):
                 reg = unary_union(pads).convex_hull
             esc = escapes(s, m, reg, loop, net)
             plan.append(dict(cell=m.id, net=net, layer=layer, h=h, region=reg, escapes=esc,
-                             plane=(net, layer) == (pn, pl)))
+                             plane=(net, layer) == (pn, pl), conn=_connection(s.info, net, layer), loop=loop))
             rows.append(dict(cell=m.id, layer=layer, net=net, h_mm=round(h, 3) if pl is not None else None,
                              region_mm2=round(reg.area, 2),
                              pins=len(esc), plane=(net, layer) == (pn, pl)))
     return plan, rows, hz
 
 
-def loop_guard(board, region, net, layer, name, min_area=0.5):
+def _connection(info, net, layer):
+    """The pad connection of `net`'s zone on `layer` (export info): {connect, thermal_gap, spoke_width},
+    so a keep-out over a plane joins pads as that plane does (nekoink: solid guards over U1's thermal-pad
+    vias hid their starved spokes from the repair rounds, three starved_thermal errors once dropped)."""
+    zs = [z for z in (info or {}).get("zones") or [] if z.get("net") == net and layer in (z.get("layers") or [])
+          and not z.get("rule_area") and not (z.get("name") or "").startswith(GUARD_PREFIX)]
+    if not zs:
+        return {}
+    z = max(zs, key=lambda z: int(z.get("priority") or 0))
+    conn = z.get("pad_connection") or "thermal"
+    out = dict(connect=conn if conn in ("solid", "thermal", "none", "thru_hole_only") else "thermal")
+    if z.get("thermal_gap"):
+        out["thermal_gap"] = float(z["thermal_gap"])
+    if z.get("spoke_width"):
+        out["spoke_width"] = float(z["spoke_width"])
+    return out
+
+
+def loop_guard(board, region, net, layer, name, min_area=0.5, conn=None):
     """A keep-out of `net` on `layer` over `region`: inside the net's own zones there, outside every
     other net's zone that fills before them (priority at least theirs), one priority above every zone
     on the layer (critical_recheck.guard_zones, which also clears lower-priority zones of other nets:
@@ -239,22 +260,38 @@ def loop_guard(board, region, net, layer, name, min_area=0.5):
         if isinstance(part, _Poly) and part.area > min_area:
             for piece in _hole_free(part):
                 if piece.area > min_area:
-                    out.append((net, layer, [list(piece.exterior.coords)], name, prio))
+                    out.append((net, layer, [list(piece.exterior.coords)], name, prio, 0.0, conn or {}))
     return out
 
 
 def zones_for(board, plan, open_pads=()):
     """The keep-out zones of `plan` with the escape corridors of the pads named in `open_pads`
-    ("REF.NUMBER") cut out: [(net, layer, rings, name, priority)], merged."""
+    ("REF.NUMBER") and each entry's own `cuts` (lift corridors) cut out; entries marked `lifted` give
+    none. [(net, layer, rings, name, priority, 0, connection)], merged per net and layer."""
+    from shapely.geometry import Polygon as _Poly
     from shapely.ops import unary_union
-    from .critical_recheck import guard_zones, merge_guards
-    out = []
+    from .critical_recheck import _hole_free
     want = set(open_pads or ())
+    groups = {}
     for e in plan:
-        cor = [x["geom"] for x in e["escapes"] if x["pad"] in want]
+        if e.get("lifted"):
+            continue
+        cor = [x["geom"] for x in e["escapes"] if x["pad"] in want] + list(e.get("cuts") or [])
         cut = e["region"].difference(unary_union(cor)) if cor else e["region"]
-        out += loop_guard(board, cut, e["net"], e["layer"], f"{GUARD_PREFIX}hotloop:{e['cell']}:{e['net']}")
-    return merge_guards(out)
+        for z in loop_guard(board, cut, e["net"], e["layer"], f"{GUARD_PREFIX}hotloop:{e['cell']}:{e['net']}",
+                            conn=e.get("conn")):
+            g = groups.setdefault((z[0], z[1]), dict(polys=[], prio=z[4], name=z[3], conn=z[6]))
+            g["polys"].append(_Poly(z[2][0]))
+            g["prio"] = max(g["prio"], z[4])
+    out = []
+    for (net, layer), g in groups.items():
+        u = unary_union(g["polys"])
+        for part in getattr(u, "geoms", [u]):
+            if isinstance(part, _Poly) and part.area > 0.5:
+                for piece in _hole_free(part):
+                    if piece.area > 0.5:
+                        out.append((net, layer, [list(piece.exterior.coords)], g["name"], g["prio"], 0.0, g["conn"]))
+    return out
 
 
 _PAD_OF = re.compile(r"Pad (\S+) \[[^\]]*\] of (\S+)")
@@ -287,54 +324,121 @@ def keepout_zones(s, mods, margin, log=_log):
     return zones, rows, hz
 
 
+def _open_pairs(rep):
+    """[(net, LineString)] of the open connections of a DRC report (item positions)."""
+    from shapely.geometry import LineString
+    out = []
+    for v in (rep or {}).get("unconnected_items") or []:
+        its = v.get("items") or []
+        pos = [it.get("pos") or {} for it in its]
+        pos = [(p["x"], p["y"]) for p in pos if "x" in p]
+        if len(pos) < 2:
+            continue
+        nets = [n for it in its for n in _NET_IN.findall(it.get("description") or "")]
+        seg = LineString(pos[:2]) if pos[0] != pos[1] else LineString([pos[0], (pos[0][0] + 1e-3, pos[0][1])])
+        out.append((nets[0] if nets else "", seg))
+    return out
+
+
+LIFT_LEVELS = ("corridors", "pours", "crossing", "plane")
+CROSS_HALF_MM = 0.45     # half width of a crossing corridor: a track and its clearances on both sides
+
+
 def escape_round(input_path, output_path, wd, plan, info, opts, hl, final_rep, deadline, log=_log):
-    """After the repair rounds: when an open connection names a pin of a cell's parts, the keep-out walled
-    in the cell's own part, which is a flaw, not a trade-off. Those pins' corridors are cut out of the
-    keep-outs on the routed board and in the plan, and the last mile runs again. Returns
-    (DRC report, summary, plan, opened pads) or None when no cell pin is open."""
+    """After the repair rounds and the last mile: the keep-outs must never cost a connection the
+    default makes. While an open connection's direct path crosses a keep-out (or names a pad it
+    covers), the keep-outs it meets are lifted step by step, only there, with the last mile again
+    after each step:
+      corridors  the escape corridors of the covered pads of the open nets;
+      pours      the loop-net pour keep-outs (all but the return plane) of the cells it crosses;
+      crossing   a corridor through the return-plane keep-out along the open connection, priced by its
+                 length under the loop (between the loop terminals, the cap-to-IC strip): the array
+                 vias in its way are removed;
+      plane      the return-plane keep-out of that cell, its copper unlocked for the last mile.
+    Every lift is a hotloop_keepout_lifted hazard (info); a crossing or plane lift a foreign net needs
+    under the loop is the design trade-off (hotloop_keepout_blocks_route, a decision naming the
+    setting). Returns (DRC report, summary, plan, opened pads) or None when nothing crossed."""
+    from shapely.ops import unary_union
     from . import constraints, critical_write as W, drc, repair
     from kae.board import pcbnew_io
+    from kae import hazards as H
     ko = hl.get("_ko") or {}
-    pads = open_cell_pads(final_rep, ko.get("plan") or [])
-    if not pads:
+    kplan = [dict(e) for e in ko.get("plan") or []]
+    if not kplan:
         return None
+    rep = final_rep
     wd = Path(wd)
     wd.mkdir(parents=True, exist_ok=True)
-    zones = zones_for(ko["board"], ko["plan"], pads)
+    base = None
+    rounds, lifts, pads = [], [], set()
+    cell_cu = set(ko.get("cell_uuids") or ())
+    unlocked = False
+    p2 = plan
     tmp = wd / "noguard.kicad_pcb"
-    W.edit(output_path, tmp, drop_guards=True)
-    W.append_items(tmp, output_path, zones=zones)
-    opts["crit_zones"] = [z for z in pcbnew_io.zone_fills(output_path)["zones"] if hard_zone(z.get("name"))]
-    p2 = constraints.plan(info, input_path, opts)
-    for k in ("plane_policy", "plane_cost", "strict_planes", "outer_surcharge", "pad_shapes"):
-        if hasattr(plan, k):
-            setattr(p2, k, getattr(plan, k))
-    best = drc.summary(final_rep)
-    base = repair.input_errors(input_path, wd, deadline) if best["errors"] else {}
-    rounds = []
-    log(f"hotloop: escape round for {len(pads)} cell pin(s): {', '.join(sorted(pads))}")
-    rep = repair._last_mile(input_path, output_path, wd, p2, info, opts, deadline, rounds, best, final_rep,
-                            set(opts.get("fixed_uuids") or ()), log, base=base)
-    rep = rep or final_rep
-    still = open_cell_pads(rep, ko["plan"])
-    dropped, lifted = [], []
-    cell = set(ko.get("cell_uuids") or ())
-    keep = list(ko["plan"])
-    # two steps, each only while a pin of a cell's part is still open: first the cell's pour keep-outs
-    # (all but the return plane, the one with the largest share: bq25306 E1), then the return plane too;
-    # the cell stage's copper becomes ordinary routing the last mile may rip and re-lay
-    for level in ("pours", "plane"):
-        if not still or deadline - clock_now() < 30:
+
+    def implicated(rep):
+        pairs = _open_pairs(rep)
+        hit = []
+        for net, seg in pairs:
+            es = [e for e in kplan if not e.get("lifted") and e["net"] != net and seg.intersects(e["region"])]
+            if es:
+                hit.append((net, seg, es))
+        return hit, open_cell_pads(rep, kplan)
+
+    allowed = LIFT_LEVELS[:LIFT_LEVELS.index(settings(input_path, opts)["lift"]) + 1]
+    for level in allowed:
+        hit, opads = implicated(rep)
+        if not hit and not (level == "corridors" and opads):
             break
-        cells = sorted({e["cell"] for e in keep for x in e["escapes"] if x["pad"] in still})
-        if not cells:
+        if deadline - clock_now() < 30:
             break
-        keep = [e for e in keep if e["cell"] not in cells or (level == "pours" and e.get("plane"))]
-        lifted.append(dict(level=level, cells=cells, pins=sorted(still)))
-        dropped = sorted(set(dropped) | set(cells)) if level == "plane" else dropped
-        log(f"hotloop: {len(still)} cell pin(s) still open; {level} keep-outs lifted for {', '.join(cells)}")
-        zones = zones_for(ko["board"], keep, pads | still)
-        W.edit(output_path, tmp, drop_guards=True, unlock=sorted(cell) or None)
+        nets = sorted({n for n, _s, _e in hit})
+        if level == "corridors":
+            new = opads | {x["pad"] for _n, _s, es in hit for e in es for x in e["escapes"] if x["net"] in nets}
+            if not new - pads:
+                continue
+            pads |= new
+            did = sorted(new)
+        elif level == "pours":
+            cells = {e["cell"] for _n, _s, es in hit for e in es}
+            did = sorted({f"{e['cell']}:{e['net']}@{e['layer']}" for e in kplan
+                          if e["cell"] in cells and not e.get("plane") and not e.get("lifted")})
+            for e in kplan:
+                if e["cell"] in cells and not e.get("plane"):
+                    e["lifted"] = True
+            if not did:
+                continue
+        elif level == "crossing":
+            did = []
+            for net, seg, es in hit:
+                for e in es:
+                    if not e.get("plane"):
+                        continue
+                    cor = seg.buffer(CROSS_HALF_MM, cap_style=2)
+                    e.setdefault("cuts", []).append(cor)
+                    cut = round(seg.intersection(e["loop"]).length, 2)
+                    did.append(dict(net=net, cell=e["cell"], layer=e["layer"], under_loop_mm=cut))
+            # array vias where those corridors run: the foreign path needs their sites
+            cors = unary_union([c for e in kplan for c in e.get("cuts") or []]) if did else None
+            gone = [a for a in ko.get("array") or [] if cors is not None and cors.distance(a["pt"]) < a["r"]]
+            if gone:
+                W.edit(output_path, output_path, remove=[u for a in gone for u in a["uuids"]])
+                ko["array"] = [a for a in ko.get("array") or [] if a not in gone]
+            if not did:
+                continue
+        else:
+            did = sorted({e["cell"] for _n, _s, es in hit for e in es if e.get("plane")})
+            for e in kplan:
+                if e["cell"] in did:
+                    e["lifted"] = True
+            if not did:
+                continue
+        lifts.append(dict(level=level, nets=nets, what=did))
+        log(f"hotloop: lift {level} for {', '.join(nets) or 'cell pins'}: {did if level != 'crossing' else len(did)}")
+        zones = zones_for(ko["board"], kplan, pads)
+        unlock = sorted(cell_cu) if level == "plane" and cell_cu and not unlocked else None
+        unlocked = unlocked or bool(unlock)
+        W.edit(output_path, tmp, drop_guards=True, unlock=unlock)
         W.append_items(tmp, output_path, zones=zones)
         opts["crit_zones"] = [z for z in pcbnew_io.zone_fills(output_path)["zones"] if hard_zone(z.get("name"))]
         p2 = constraints.plan(info, input_path, opts)
@@ -342,23 +446,34 @@ def escape_round(input_path, output_path, wd, plan, info, opts, hl, final_rep, d
             if hasattr(plan, k):
                 setattr(p2, k, getattr(plan, k))
         best = drc.summary(rep)
+        if base is None:
+            base = repair.input_errors(input_path, wd, deadline) if best["errors"] else {}
+        fixed = set(opts.get("fixed_uuids") or ()) - (cell_cu if unlocked else set())
         rep = repair._last_mile(input_path, output_path, wd, p2, info, opts, deadline, rounds, best, rep,
-                                set(opts.get("fixed_uuids") or ()) - cell, log, base=base) or rep
-        still = open_cell_pads(rep, ko["plan"])
-    if lifted:
-        from kae import hazards as H
-        last = lifted[-1]
+                                fixed, log, base=base) or rep
+    if not lifts:
+        return None
+    for lf in lifts:
         hl.setdefault("hazards", []).append(H.make(
             "hotloop_keepout_lifted", "info", "electrical",
-            f"Keep-outs of {', '.join(last['cells'])} walled in pins of the cells' own parts "
-            f"({', '.join(last['pins'])}) even with escape corridors; "
-            f"{'the return plane and pours' if last['level'] == 'plane' else 'the loop-net pours (the return plane kept)'}"
-            f" were lifted and the cell's copper unlocked for the last mile, so other copper may cut them there.",
-            objects=last["cells"] + last["pins"], evidence=dict(steps=lifted),
-            fix="Room for those pins to fan out on the cell's side (move a neighbour, or the input capacitor), "
-                "so the keep-out can stay."))
-    hl["guards"] = [dict(net=g[0], layer=g[1], ring=g[2][0], name=g[3]) for g in zones]
-    hl["keepout_lifted"] = [f"{x['level']}:{c}" for x in lifted for c in x["cells"]]
+            f"Hot-loop keep-outs lifted ({lf['level']}) for {', '.join(lf['nets']) or 'the cells own pins'} so the "
+            f"last mile could reach them: {str(lf['what'])[:160]}",
+            objects=list(lf["nets"])[:8], evidence=dict(level=lf["level"], what=lf["what"])))
+        trade = [d for d in lf["what"] if isinstance(d, dict) and d.get("under_loop_mm", 0) > 0] \
+            if lf["level"] == "crossing" else ([] if lf["level"] != "plane" else lf["what"])
+        if trade:
+            hl["hazards"].append(H.make(
+                "hotloop_keepout_blocks_route", "warn", "electrical",
+                f"{', '.join(lf['nets'][:6])} needed a way through the return plane under the hot loop "
+                f"({lf['level']}); that cut costs the loop part of what the keep-out saves.",
+                objects=list(lf["nets"])[:8], evidence=dict(level=lf["level"], what=trade),
+                fix=("A design trade-off: accept the cut, or forbid it (KAE_HOTLOOP_LIFT=pours keeps the return plane "
+                     "whole and leaves the net open) and give the net another way (move a part, another layer)."),
+                decision=dict(options=["let the net cut the return plane", "keep the plane whole"],
+                              setting="hotloop_lift")))
+    hl["guards"] = [dict(net=g[0], layer=g[1], ring=g[2][0], name=g[3]) for g in zones_for(ko["board"], kplan, pads)]
+    hl["keepout_lifted"] = [f"{x['level']}:{len(x['what'])}" for x in lifts]
+    ko["plan"] = kplan
     return rep, drc.summary(rep), p2, sorted(pads)
 
 
@@ -508,6 +623,23 @@ def _zone_prio(info, layers):
                 if set(z.get("layers") or []) & set(layers)] or [0])
 
 
+def _array_items(s, mods):
+    """The return-via array's vias (critical_modules._via_array) with their stubs: [{pt, r, uuids}], so the
+    escape round can take out a site a foreign net's path needs."""
+    from shapely.geometry import Point
+    out = []
+    for m in mods:
+        for (x, y, _w) in m.spec.get("_array_vias") or []:
+            v = next((it for it in s.space.routed if it.kind == "via" and it.owner and it.owner[0] == m.id
+                      and math.dist((it.geom.x, it.geom.y), (x, y)) < 1e-6), None)
+            if v is None or not v.uuid:
+                continue
+            stubs = [it.uuid for it in s.space.routed if it.kind == "track" and it.owner == v.owner and it.uuid
+                     and min(math.dist(it.geom.coords[0], (x, y)), math.dist(it.geom.coords[-1], (x, y))) < 1e-6]
+            out.append(dict(pt=Point(x, y), r=v.r + CROSS_HALF_MM, uuids=[v.uuid] + stubs))
+    return out
+
+
 def cell_hazards(mods):
     from kae import hazards as H
     out = []
@@ -555,6 +687,7 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
                                      W_loop_ac=ph.get("W_loop_ac"), notes=m.notes[:4]))
         zones = []
         if st["keepout"]:
+            s.hotloop_pours_on = st["keepout_pours"]
             guards, rows, hz = keepout_zones(s, mods, st["keepout_mm"], log=log)
             rep["_ko"] = dict(plan=s.hotloop_plan, board=s.board)
             rep["keepout"] = dict(margin_mm=st["keepout_mm"], margin_basis=MARGIN_WHY, cells=rows,
@@ -572,6 +705,7 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
         rep.update(tracks=len(tracks), vias=len(vias), zones=len(zones))
         if rep.get("_ko") is not None:
             rep["_ko"]["cell_uuids"] = sorted({t.uuid for t in tracks} | {v.uuid for v in vias})
+            rep["_ko"]["array"] = _array_items(s, mods)
         if tracks or vias or zones:
             dst = wd / "hotloop.kicad_pcb"
             s.write(dst, guards=zones)

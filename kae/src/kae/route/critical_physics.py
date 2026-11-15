@@ -187,6 +187,51 @@ def r_via(height, drill, plating=T_PLATE):
     return RHO_CU * height / (math.pi * (drill + plating) * plating)
 
 
+# R_ac / R_dc of a 35 um trace over its plane, solved cross-sections (docs/topics/physics/power-copper.md
+# section 5, pw_xsec.py [C]): (Hz, ratio) at h = 0.1 mm and at h = 1.5 mm; skin and proximity together
+_RAC = {0.1: ((1e4, 1.0), (1e5, 1.31), (1e6, 1.59), (1e7, 2.27), (1e8, 7.0)),
+        1.5: ((1e4, 1.0), (1e5, 1.08), (1e6, 1.27), (1e7, 1.67), (1e8, 4.0))}
+
+
+def rac_ratio(f_hz, h_mm=0.1):
+    """R_ac / R_dc of board copper over its plane at f_hz: the solved table, log-log in f, linear in log h
+    between its two heights (clamped); 1 below 10 kHz."""
+    def at(tab):
+        if f_hz <= tab[0][0]:
+            return tab[0][1]
+        for (f0, r0), (f1, r1) in zip(tab[:-1], tab[1:]):
+            if f_hz <= f1:
+                a = math.log(f_hz / f0) / math.log(f1 / f0)
+                return math.exp(math.log(r0) + a * (math.log(r1) - math.log(r0)))
+        f0, r0 = tab[-2]
+        f1, r1 = tab[-1]
+        return r1 * (f_hz / f1) ** (math.log(r1 / r0) / math.log(f1 / f0))
+    lo, hi = at(_RAC[0.1]), at(_RAC[1.5])
+    h = min(max(h_mm if h_mm not in (None, INF) else 1.5, 0.1), 1.5)
+    a = math.log(h / 0.1) / math.log(1.5 / 0.1)
+    return lo + a * (hi - lo)
+
+
+def ac_loss(I, D, f, R, h_mm=0.1, t_r=2e-9, n_max=400):
+    """Copper loss (W) of a pulsed current I at duty D and f (a trapezoid with edge t_r) in a loop of DC
+    resistance R: the sum over harmonics n of (I_n^2 / 2) R rac_ratio(n f), I_n = (2 I / (n pi))
+    |sin(n pi D)| sinc(n f t_r). With rac_ratio = 1 it is I^2 D (1 - D) R, the evaluator's loss.loop_ac
+    (fundamental-free: the DC share I D carries no switching loss), so the quote is the evaluator's term
+    plus skin and proximity at f_sw and its harmonics."""
+    if I <= 0 or R <= 0 or f <= 0:
+        return 0.0
+    out = 0.0
+    for n in range(1, n_max + 1):
+        x = math.pi * n * f * t_r
+        sinc = 1.0 if x < 1e-9 else abs(math.sin(x) / x)
+        env = 2.0 * I / (n * math.pi) * sinc
+        if env < 1e-3 * I and n > 20:            # the envelope, not a zero of sin(n pi D)
+            break
+        In = env * abs(math.sin(n * math.pi * D))
+        out += 0.5 * In * In * R * rac_ratio(n * f, h_mm)
+    return out
+
+
 def r_strip(length, width, h, t_mm=0.035, t_plane_mm=0.035):
     """Resistance (ohm) of a strip and, at height h over a plane, of its return in the plane: the
     return of a line current at h spreads as J(x) = I h / (pi (x^2 + h^2)) (the image law), whose

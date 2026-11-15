@@ -272,6 +272,11 @@ DEFAULTS = dict(
                                    # (turns the cell stage on)
     hotloop_pours=0,               # R3: 1 writes the cells' VIN and PGND hops as zones of their nets (kae-hl:,
                                    # kept in the output; turns the cell stage on)
+    hotloop_keepout_pours=1,       # with hotloop_keepout: 1 also keeps other nets off the loop nets' pours (rail,
+                                   # ground, switch node; the return plane always); 0: the return plane only
+    hotloop_lift="plane",          # how far the escape round may lift a keep-out for a net left open (in order
+                                   # corridors, pours, crossing, plane): the last level allowed; "corridors" never
+                                   # lets a foreign net through the return plane (it stays open, a decision hazard)
     hotloop_budget_s=120.0,        # s: the cell stage stops starting cells after this (and after 15 % of the budget)
 )
 
