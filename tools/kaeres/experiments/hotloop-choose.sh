@@ -63,6 +63,8 @@ case "$STAGE" in
           --env KAE_STEP_CACHE=$STEP_CACHE --description "$desc" >/dev/null ;;
   smoke) $K exp create hotloop-choose-smoke-$S7 "${M[@]}" --boards "${BOARD:?BOARD}" --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "smoke (${BOARD}) of the $desc" >/dev/null ;;
-  *) echo "STAGE: full or smoke" >&2; exit 2 ;;
+  rerun) $K exp create hotloop-choose-rerun-$S7 --method "$C" --method "$CV" --boards @$D/hotloop-choose/rerun-boards.txt \
+          --harness $SHA --kae $SHA --env KAE_STEP_CACHE=$STEP_CACHE --description "rerun of C and CV (final tie-break) on the boards where both arms finished clean: $desc" >/dev/null ;;
+  *) echo "STAGE: full, smoke or rerun" >&2; exit 2 ;;
 esac
 echo "experiment created (STAGE=$STAGE); nothing submitted"
