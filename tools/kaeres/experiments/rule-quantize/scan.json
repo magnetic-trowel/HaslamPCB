@@ -1,0 +1,70 @@
+{
+ "usable": 14199,
+ "boards": [
+  {
+   "id": "eevengers-thunderscope-thunderscope-rev5-3",
+   "hits": [
+    {
+     "ctype": "track_width",
+     "min": 0.14789,
+     "opt": 0.14789,
+     "max": 0.14789,
+     "main": 0.148,
+     "crosses": true,
+     "grid_point_inside": false
+    },
+    {
+     "ctype": "track_width",
+     "min": 0.19079,
+     "opt": 0.19079,
+     "max": 0.19079,
+     "main": 0.1908,
+     "crosses": true,
+     "grid_point_inside": false
+    }
+   ]
+  },
+  {
+   "id": "ewoudvv-ducktop2-ducktop2-center",
+   "hits": [
+    {
+     "ctype": "track_width",
+     "min": 0.1521,
+     "opt": 0.1521,
+     "max": 0.1521,
+     "main": 0.1522,
+     "crosses": true,
+     "grid_point_inside": false
+    }
+   ]
+  },
+  {
+   "id": "ewoudvv-ducktop2-left-io",
+   "hits": [
+    {
+     "ctype": "track_width",
+     "min": 0.1521,
+     "opt": 0.1521,
+     "max": 0.1521,
+     "main": 0.1522,
+     "crosses": true,
+     "grid_point_inside": false
+    }
+   ]
+  },
+  {
+   "id": "ewoudvv-ducktop2-right-io",
+   "hits": [
+    {
+     "ctype": "track_width",
+     "min": 0.1521,
+     "opt": 0.1521,
+     "max": 0.1521,
+     "main": 0.1522,
+     "crosses": true,
+     "grid_point_inside": false
+    }
+   ]
+  }
+ ]
+}
