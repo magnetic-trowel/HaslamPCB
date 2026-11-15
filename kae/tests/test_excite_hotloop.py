@@ -244,3 +244,29 @@ def test_the_ripple_loss_is_deterministic_across_file_order(tmp):
     p = write_hotloop_board(f"{tmp}/long-rev2", "long", reverse=True)
     ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.125)
     assert _obs(ev, "loss.copper_ac")[0]["values"] == a
+
+
+def test_loss_loop_ac_always_carries_skin_effect_per_harmonic(tmp):
+    """With a window (cell R) and without one (--no-cells: the board solve at each harmonic, skin-corrected), the
+    priced loss.loop_ac is the harmonic sum, never the fundamental-only, skin-free I^2 D (1 - D) R."""
+    (win,) = _obs(_ev("closed", tmp), "loss.loop_ac")
+    p = write_hotloop_board(f"{tmp}/nocells", "closed")
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cells=False)
+    (brd,) = _obs(ev, "loss.loop_ac")
+    for ob, frm in ((win, "cell window"), (brd, "board solve")):
+        assert ob["scope"]["R_from"] == frm and "skin" in ob["label"] and "no skin" not in ob["label"]
+        hs = ob["scope"]["R_harmonics_mohm"]
+        assert len(hs) == 3 and hs[2] > hs[0]                    # crowding raises R with frequency
+    # skin on: the board-solve fallback's R at 5 f_sw exceeds the same solve without the correction
+    from kae.excite import evaluate as EV
+    from kae.excite import hotloop as HL
+    import numpy as np
+    orig = HL._skin_R
+    try:
+        HL._skin_R = lambda net, f, nsub: net.R.copy()
+        ev0 = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cells=False)
+    finally:
+        HL._skin_R = orig
+    (b0,) = _obs(ev0, "loss.loop_ac")
+    assert brd["scope"]["R_harmonics_mohm"][2] > b0["scope"]["R_harmonics_mohm"][2]
+    assert brd["values"][0] > b0["values"][0]
