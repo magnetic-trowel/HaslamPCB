@@ -1,0 +1,4164 @@
+[
+ {
+  "id": "absmach-s0-sim7080g",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/absmach/s0::sim7080g"
+ },
+ {
+  "id": "acliad-nifty-numpad-nifty-numpad",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.242824
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.242824
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/acliad/nifty-numpad::nifty_numpad"
+ },
+ {
+  "id": "acubesat-su-hardware-su-pcb-eqm-su-pcb",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1151
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1931
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1931
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://gitlab.com/acubesat/su/hardware/su-pcb::eqm_su_pcb"
+ },
+ {
+  "id": "adrienkohlbecker-atf1508-plcc84-breakout-atf1508-plcc84-breakout",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.1397
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/adrienkohlbecker/atf1508_plcc84_breakout::atf1508_plcc84_breakout"
+ },
+ {
+  "id": "adrienkohlbecker-bb816-breakout",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.146812
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/adrienkohlbecker/bb816::breakout"
+ },
+ {
+  "id": "adwranovsky-hdmi-pmod-hdmi-pmod",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.0955
+   ],
+   [
+    "netclass",
+    "trace_width",
+    0.0955
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/adwranovsky/hdmi_pmod::hdmi_pmod"
+ },
+ {
+  "id": "alexander-armitage-aura-fpga-fpga-aura",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1031
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1161
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.2281
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/alexander-armitage/aura-fpga::fpga_aura"
+ },
+ {
+  "id": "alexian79-simplecarrier-simplecarrier",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1059
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1275
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/alexian79/simplecarrier::simplecarrier"
+ },
+ {
+  "id": "alphaonex86-fpgamotherboard-socket370-ti180",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/alphaonex86/fpgamotherboard::socket370_ti180"
+ },
+ {
+  "id": "alphaonex86-fpgamotherboard-socket7-ti180",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/alphaonex86/fpgamotherboard::socket7_ti180"
+ },
+ {
+  "id": "anthony-bernaert-ftdi-jtag-programmer-jtagprogrammer",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.158242
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/anthony-bernaert/ftdi-jtag-programmer::jtagprogrammer"
+ },
+ {
+  "id": "anttikes-usb-fm-radio-radio-circuit",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.3493
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/anttikes/usb-fm-radio::radio_circuit"
+ },
+ {
+  "id": "apotheotech-aper-oculus-apt-kria-fmc",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.10668
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.13208
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.10668
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.13208
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/apotheotech/aper-oculus::apt_kria_fmc"
+ },
+ {
+  "id": "arjenhiemstra-ithowifi-hardware-ithowifi-4l",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.37084
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/arjenhiemstra/ithowifi_hardware::ithowifi"
+ },
+ {
+  "id": "arnarg-f3-backplane-f3-backplane",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.3493
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/arnarg/f3_backplane::f3_backplane"
+ },
+ {
+  "id": "artixzhang-rock-module-rock-screen",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.121666
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.121666
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/artixzhang/rock-module::rock_screen"
+ },
+ {
+  "id": "aslak3-mdfpga-mdfpga",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.1905
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/aslak3/mdfpga::mdfpga"
+ },
+ {
+  "id": "baochip-dabao-dabao-v3c",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1275
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/baochip/dabao::dabao"
+ },
+ {
+  "id": "beagleboard-beaglebone-ai-beaglebone-ai-rev-a2",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.08128
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.08128
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.10008
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.10922
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.08128
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.10008
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.10922
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/beagleboard/beaglebone-ai::beaglebone_ai_a2"
+ },
+ {
+  "id": "ben5049-jabr-cm5-carrier-jabr-control-v1",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.1565
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ben5049/jabr-cm5-carrier::jabr_control"
+ },
+ {
+  "id": "benvonhandorf-minstro-minstro-combined-board",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.34925
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/benvonhandorf/minstro::minstro_combined_board"
+ },
+ {
+  "id": "bhoppe-dev-shortcut-keyboard-shortcut-keyboard",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.1565
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/bhoppe-dev/shortcut_keyboard::shortcut_keyboard"
+ },
+ {
+  "id": "blaze-pascal-masters-multi-channel-daq-afe",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1217
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1217
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1565
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/blaze-pascal/masters-multi-channel_daq::afe"
+ },
+ {
+  "id": "bluepylons-open-switch-curve-meter-adc-board-hx711",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.199898
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/bluepylons/open-switch-curve-meter::adc_board_hx711"
+ },
+ {
+  "id": "bluepylons-open-switch-curve-meter-main-board-arduinonano",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.199898
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/bluepylons/open-switch-curve-meter::main_board_arduinonano"
+ },
+ {
+  "id": "bluepylons-open-switch-curve-meter-main-board-featherrp2040",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.199898
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/bluepylons/open-switch-curve-meter::main_board_featherrp2040"
+ },
+ {
+  "id": "bluepylons-open-switch-curve-meter-main-pcb",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.199898
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/bluepylons/open-switch-curve-meter::main_pcb"
+ },
+ {
+  "id": "bogdan8266-h616-board-h616-devboard",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.0975
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/bogdan8266/h616-board::h616_devboard"
+ },
+ {
+  "id": "bson-stm32simh-stm32simh",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/bson/stm32simh::stm32simh"
+ },
+ {
+  "id": "btb-80columncard-softswitch",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.3175
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/btb/80columncard::softswitch"
+ },
+ {
+  "id": "byrantech-laptop-power",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.121666
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/byrantech/laptop::power"
+ },
+ {
+  "id": "capablerobot-capable-jetson-carrier-capable-jetson-carrier",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1397
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1905
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/capablerobot/capable_jetson_carrier::capable_jetson_carrier"
+ },
+ {
+  "id": "carloscraveiro-einstein-boltzmann-amplifiers",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/carloscraveiro/einstein-boltzmann::amplifiers"
+ },
+ {
+  "id": "carloscraveiro-einstein-boltzmann-main-board",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/carloscraveiro/einstein-boltzmann::main_board"
+ },
+ {
+  "id": "carloscraveiro-einstein-boltzmann-tension-multiplier",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/carloscraveiro/einstein-boltzmann::tension_multiplier"
+ },
+ {
+  "id": "cdfer-auckland-led-train-map-auckland-led-train-map",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.8887
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/cdfer/auckland-led-train-map::auckland_led_train_map"
+ },
+ {
+  "id": "charlieh0tel-ee-stuff-lora-nicerf-hat",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.156464
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/charlieh0tel/ee_stuff::lora_nicerf_hat"
+ },
+ {
+  "id": "churrosoft-openefi-pcb-openefi-rev4",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/churrosoft/openefi-pcb::openefi"
+ },
+ {
+  "id": "churrosoft-openefi-wideband-7-segment-led-v1",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/churrosoft/openefi-wideband::segment_led"
+ },
+ {
+  "id": "churrosoft-openefi-wideband-wideband-v3",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/churrosoft/openefi-wideband::wideband"
+ },
+ {
+  "id": "ciaa-hardware-ciaa-acc",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ciaa/hardware::ciaa_acc"
+ },
+ {
+  "id": "ciaa-hardware-edu-ciaa-nxp",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.3175
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ciaa/hardware::edu_ciaa_nxp"
+ },
+ {
+  "id": "ciniml-tangfpgaextensions-pmod-displayport",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1661
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1661
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ciniml/tangfpgaextensions::pmod_displayport"
+ },
+ {
+  "id": "circuitdojo-nrf9151-feather-nrf9151-feather",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.253672
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.258891
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/circuitdojo/nrf9151-feather::nrf9151_feather"
+ },
+ {
+  "id": "ckoern-sojournerst-hardware-sojournerst",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.175006
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ckoern/sojournerst-hardware::sojournerst"
+ },
+ {
+  "id": "cl3m3nt0n1-bridge-canyon-on-hardware-carrier-board",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    1.36703
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/cl3m3nt0n1/bridge---canyon-on-hardware::carrier_board"
+ },
+ {
+  "id": "cmcquinn-replicookie-replicookie",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.146812
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/cmcquinn/replicookie::replicookie"
+ },
+ {
+  "id": "cmgeldenhuys-kleinvoet-kleinvoet",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.205232
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/cmgeldenhuys/kleinvoet::kleinvoet"
+ },
+ {
+  "id": "cnes-argos-demo-board-argos-demo",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.267208
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.267208
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/cnes/argos-demo-board::argos_demo"
+ },
+ {
+  "id": "crsknr-hw-udsp-card-udsp-card",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1273
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/crsknr/hw_udsp-card::udsp_card"
+ },
+ {
+  "id": "ctag-fh-kiel-esp32-eurorack-audio-esp32-eurorack-audio",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.0889
+   ],
+   [
+    "netclass",
+    "trace_width",
+    0.1905
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ctag-fh-kiel/esp32-eurorack-audio::esp32_eurorack_audio"
+ },
+ {
+  "id": "d3vf1x-msn-msn",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/d3vf1x/msn::msn"
+ },
+ {
+  "id": "daedalus-ind-icarus-hardware-icarus-flight-computer",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.2939
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/daedalus-ind/icarus-hardware::icarus_flight_computer"
+ },
+ {
+  "id": "decktrix-lab-decktrix-mpu-mod",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1019
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/decktrix-lab/decktrix::mpu_mod"
+ },
+ {
+  "id": "desanv01-flight-controller-v2-flight-controller",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1537
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1537
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/desanv01/flight-controller-v2::flight_controller"
+ },
+ {
+  "id": "dimitrivlachos-galaxy-light-projector-mod-galaxymodpcb",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/dimitrivlachos/galaxy-light-projector-mod::galaxymodpcb"
+ },
+ {
+  "id": "dimoustroufis-librewave-ecp5-librewave-ecp5",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1041
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1041
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://gitlab.com/dimoustroufis/librewave-ecp5::librewave_ecp5"
+ },
+ {
+  "id": "diode663-usbc-m2e-halow-adapter-usbc-m2e-halow-adapter",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.3345
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.3345
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/diode663/usbc_m2e_halow_adapter::usbc_m2e_halow_adapter"
+ },
+ {
+  "id": "diodes-delight-piunora-hardware-piunora",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.146812
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/diodes-delight/piunora-hardware::piunora"
+ },
+ {
+  "id": "dominik-workshop-wifi-ble-antenna-wifi-ble-antenna",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.3493
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/dominik-workshop/wifi-ble-antenna::wifi_ble_antenna"
+ },
+ {
+  "id": "drandyhaas-haasoscopepro-haasoscope-pro-adc-fpga-board",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/drandyhaas/haasoscopepro::haasoscope_pro_adc_fpga_board"
+ },
+ {
+  "id": "duet3d-duet-2-hardware-duet2-2",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.4455
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/duet3d/duet-2-hardware::duet2"
+ },
+ {
+  "id": "duet3d-duet-2-hardware-duex5",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.4455
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/duet3d/duet-2-hardware::duex5"
+ },
+ {
+  "id": "duet3d-duet-2-hardware-duex5-4",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.4455
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/duet3d/duet-2-hardware::duex5"
+ },
+ {
+  "id": "duet3d-duet-2-hardware-expbreakout",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.4455
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/duet3d/duet-2-hardware::expbreakout"
+ },
+ {
+  "id": "dynamicgoose-mu-micro-deck-mu-carrier-board",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1161
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1161
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://codeberg.org/dynamicgoose/mu-micro-deck::mu_carrier_board"
+ },
+ {
+  "id": "ebastler-isometria-75-isometria-75-pcb-iso",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1905
+   ],
+   [
+    "netclass",
+    "trace_width",
+    0.1905
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ebastler/isometria-75::isometria_pcb_iso"
+ },
+ {
+  "id": "ebastler-unified-usb-pcb-unified-usb-pcb-batt",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1905
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1905
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ebastler/unified-usb-pcb::unified_usb_pcb_batt"
+ },
+ {
+  "id": "ebastler-unified-usb-pcb-unified-usb-pcb-simple",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1905
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1905
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ebastler/unified-usb-pcb::unified_usb_pcb_simple"
+ },
+ {
+  "id": "eduardocasino-kim-1-programmable-memory-card-kim-1-programmable-memory",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/eduardocasino/kim-1-programmable-memory-card::kim_programmable_memory"
+ },
+ {
+  "id": "eevengers-thunderscope-thunderscope-rev5-3",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.14789
+   ]
+  ],
+  "bind": [
+   {
+    "min": 0.14789,
+    "opt": 0.14789,
+    "max": 0.14789
+   }
+  ],
+  "disallow": [
+   [
+    "track"
+   ],
+   [
+    "track"
+   ],
+   [
+    "track"
+   ]
+  ],
+  "family": "https://github.com/eevengers/thunderscope::thunderscope"
+ },
+ {
+  "id": "einrainerzufall-smart-curtain-smart-curtain",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1547
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1547
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://codeberg.org/einrainerzufall/smart-curtain::smart_curtain"
+ },
+ {
+  "id": "el-luhb-nvme-carrier-for-lattepanda-mu-nvme-carrier-all-m2",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1161
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1161
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/el-luhb/nvme-carrier-for-lattepanda-mu::nvme_carrier_all_m2"
+ },
+ {
+  "id": "el-luhb-nvme-carrier-for-lattepanda-mu-nvme-carrier-for-lattepanda-mu",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1161
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1161
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/el-luhb/nvme-carrier-for-lattepanda-mu::nvme_carrier_for_lattepanda_mu"
+ },
+ {
+  "id": "electron271-tuxkeychain-tuxkeychain",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/electron271/tuxkeychain::tuxkeychain"
+ },
+ {
+  "id": "embeddedalpha-pcb-design-roprop",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.386274
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/embeddedalpha/pcb-design::roprop"
+ },
+ {
+  "id": "ewoudvv-ducktop2-12-keyboard-daughterboard",
+  "odd": [],
+  "bind": [],
+  "disallow": [
+   [
+    "track"
+   ]
+  ],
+  "family": "https://github.com/ewoudvv/ducktop2::keyboard_daughterboard"
+ },
+ {
+  "id": "ewoudvv-ducktop2-bms",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1521
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1521
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ewoudvv/ducktop2::bms"
+ },
+ {
+  "id": "ewoudvv-ducktop2-ducktop2-center",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.1521
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1521
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1521
+   ]
+  ],
+  "bind": [
+   {
+    "min": 0.1521,
+    "opt": 0.1521,
+    "max": 0.1521
+   }
+  ],
+  "disallow": [
+   [
+    "track"
+   ],
+   [
+    "track"
+   ]
+  ],
+  "family": "https://github.com/ewoudvv/ducktop2::ducktop2_center"
+ },
+ {
+  "id": "ewoudvv-ducktop2-left-io",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.1521
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1521
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1521
+   ]
+  ],
+  "bind": [
+   {
+    "min": 0.1521,
+    "opt": 0.1521,
+    "max": 0.1521
+   }
+  ],
+  "disallow": [
+   [
+    "track"
+   ],
+   [
+    "track"
+   ]
+  ],
+  "family": "https://github.com/ewoudvv/ducktop2::left_io"
+ },
+ {
+  "id": "ewoudvv-ducktop2-radio-daughterboard",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1521
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1521
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ewoudvv/ducktop2::radio_daughterboard"
+ },
+ {
+  "id": "ewoudvv-ducktop2-right-io",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.1521
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1521
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1521
+   ]
+  ],
+  "bind": [
+   {
+    "min": 0.1521,
+    "opt": 0.1521,
+    "max": 0.1521
+   }
+  ],
+  "disallow": [
+   [
+    "track"
+   ],
+   [
+    "track"
+   ]
+  ],
+  "family": "https://github.com/ewoudvv/ducktop2::right_io"
+ },
+ {
+  "id": "fedekau-butia-i2c-sensor-ir",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.80264
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/fedekau/butia_i2c::sensor_ir"
+ },
+ {
+  "id": "fifty-nine-wavegen-rev3",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.3429
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/fifty-nine/wavegen::root"
+ },
+ {
+  "id": "fortytwosystems-mega-mega",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2033
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/fortytwosystems/mega::mega"
+ },
+ {
+  "id": "fpv-drone-stm32f411-dronecontroller-dronecontroller",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.146812
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/fpv-drone-stm32f411/dronecontroller::dronecontroller"
+ },
+ {
+  "id": "frindaddy-digichiver-digichiver",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/frindaddy/digichiver::digichiver"
+ },
+ {
+  "id": "genoswitch-software-tools-judging-genoswitch-rp2040",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.295656
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/genoswitch/software-tools-judging::genoswitch_rp2040"
+ },
+ {
+  "id": "giorossi91-livello-serbatoio-livello-serbatoio-definitiva",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.20584
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/giorossi91/livello_serbatoio::livello_serbatoio_definitiva"
+ },
+ {
+  "id": "giorossi91-livello-serbatoio-livello-serbatoio-definitiva-2",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.20584
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/giorossi91/livello_serbatoio::livello_serbatoio_definitiva"
+ },
+ {
+  "id": "greatscottgadgets-misc-dc1722j5005ahf",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.3429
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/greatscottgadgets/misc::dc1722j5005ahf"
+ },
+ {
+  "id": "greatscottgadgets-misc-si5351a",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/greatscottgadgets/misc::si5351a"
+ },
+ {
+  "id": "greatscottgadgets-urti-mainboard-mainboard",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.1651
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/greatscottgadgets/urti-mainboard::mainboard"
+ },
+ {
+  "id": "gregdavill-d20-hardware-d20-r0-1",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.1143
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/gregdavill/d20-hardware::d20"
+ },
+ {
+  "id": "gregdavill-orangecrab-orangecrab",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/gregdavill/orangecrab::orangecrab"
+ },
+ {
+  "id": "groboards-giant-board-design-files-atsama5d27-1g",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.1143
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/groboards/giant-board-design-files::atsama5d27"
+ },
+ {
+  "id": "groupgets-kimchi-micro-kimchi-micro",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.121666
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/groupgets/kimchi-micro::kimchi_micro"
+ },
+ {
+  "id": "hackclub-hackpad-grove-vision-ai-module-v2",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/hackclub/hackpad::grove_vision_ai_module"
+ },
+ {
+  "id": "handheldlegend-latte-jr-hw-lattejr-main-board",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.3425
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/handheldlegend/latte-jr-hw::lattejr_main_board"
+ },
+ {
+  "id": "hatlabs-halpi2-hardware-halpi2",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.1575
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/hatlabs/halpi2-hardware::halpi2"
+ },
+ {
+  "id": "hdlguy-kicad-pcie-fpga",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.0889
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1905
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/hdlguy/kicad::pcie_fpga"
+ },
+ {
+  "id": "hdlguy-kicad-pciexpress-x1-low",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.0889
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/hdlguy/kicad::pciexpress_x1_low"
+ },
+ {
+  "id": "husqvarnagroup-smart-garden-testing-hardware-dongle",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.228854
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/husqvarnagroup/smart-garden-testing-hardware::dongle"
+ },
+ {
+  "id": "imike78-home-mini-v1-drop-in-pcb-home-mini-v1-drop-in-pcb",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.156464
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/imike78/home-mini-v1-drop-in-pcb::home_mini_drop_in_pcb"
+ },
+ {
+  "id": "imike78-nest-mini-drop-in-pcb-nest-mini-v2-drop-in-pcb",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.156464
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/imike78/nest-mini-drop-in-pcb::nest_mini_drop_in_pcb"
+ },
+ {
+  "id": "imseanconroy-macro-keyboard-1x2",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.16764
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/imseanconroy/macro-keyboard::1x2"
+ },
+ {
+  "id": "imseanconroy-macro-keyboard-1x4",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.16764
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/imseanconroy/macro-keyboard::1x4"
+ },
+ {
+  "id": "imseanconroy-macro-keyboard-3x3",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.16764
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/imseanconroy/macro-keyboard::3x3"
+ },
+ {
+  "id": "inti-cmnb-spora-spora",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/inti-cmnb/spora::spora"
+ },
+ {
+  "id": "itsebuka-pcb-design-core-smart-nrp-makerspace",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.204407
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.204407
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/itsebuka/pcb-design-core::smart_nrp_makerspace"
+ },
+ {
+  "id": "itsnotdaan-liberboard-esp32s3-m-2-board",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/itsnotdaan/liberboard::esp32s3_m_board"
+ },
+ {
+  "id": "ivanxblue-ivan-wavephoenix-mini-receiver",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://hub.allspice.io/ivanxblue/ivan_wavephoenix::mini_receiver"
+ },
+ {
+  "id": "jamesb-wood-uniqhw-uq-phone-2",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.21082
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/jamesb-wood/uniqhw::uq_phone"
+ },
+ {
+  "id": "jamesb-wood-uniqhw-uq-phone-cellular",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.1847
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/jamesb-wood/uniqhw::uq_phone_cellular"
+ },
+ {
+  "id": "jaxc-magna-magna",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.3493
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/jaxc/magna::magna"
+ },
+ {
+  "id": "jfrede-electronics-marconi-2955-step-attenuator",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.1483
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/jfrede/electronics::marconi_step_attenuator"
+ },
+ {
+  "id": "jlywxy-slimarm-slimarm-almond-b",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.170434
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.170434
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/jlywxy/slimarm::slimarm_almond_b"
+ },
+ {
+  "id": "jlywxy-slimarm-slimarm-carambola",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.10922
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/jlywxy/slimarm::slimarm_carambola"
+ },
+ {
+  "id": "jlywxy-slimarm-slimarm-hypericum",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.10922
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/jlywxy/slimarm::slimarm_hypericum"
+ },
+ {
+  "id": "jlywxy-slimarm-ublaster-jtag",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.170434
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.170434
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/jlywxy/slimarm::ublaster_jtag"
+ },
+ {
+  "id": "joeycastillo-sensor-watch-oso-swat-c1",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.0889
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/joeycastillo/sensor-watch::oso_swat_c1"
+ },
+ {
+  "id": "johnnygox17-4ch-rf-fe-4ch-rf-fe-kicad",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.3175
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/johnnygox17/4ch-rf-fe::4ch_rf_fe_kicad"
+ },
+ {
+  "id": "kaitallaoua-capstone-pcb-mcu-integration",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/kaitallaoua/capstone-pcb::mcu_integration"
+ },
+ {
+  "id": "karlcswanson-catpatch-tscbreakoutboard",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.64008
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/karlcswanson/catpatch::tscbreakoutboard"
+ },
+ {
+  "id": "karlcswanson-catpatch-tscsnakedi",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.64008
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/karlcswanson/catpatch::tscsnakedi"
+ },
+ {
+  "id": "kbeckmann-kilsyth-kilsyth",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/kbeckmann/kilsyth::kilsyth"
+ },
+ {
+  "id": "kcores-kcores-flexiblelom-adapter-kcores-flexiblelom-adapter",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.20828
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/kcores/kcores-flexiblelom-adapter::kcores_flexiblelom_adapter"
+ },
+ {
+  "id": "laenzlinger-granit-granit",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2205
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/laenzlinger/granit::granit"
+ },
+ {
+  "id": "lambdakb-keyboard-lk16c-lk16c-pcb",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/lambdakb/keyboard-lk16c::lk16c_pcb"
+ },
+ {
+  "id": "lambdakb-keyboard-lk23m-lk23m-pcb",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/lambdakb/keyboard-lk23m::lk23m_pcb"
+ },
+ {
+  "id": "lambdakb-keyboard-lk7d-lk7d-pcb",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/lambdakb/keyboard-lk7d::lk7d_pcb"
+ },
+ {
+  "id": "lambdakb-trackball-lt7dk-lt7dk-pcb",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/lambdakb/trackball-lt7dk::lt7dk_pcb"
+ },
+ {
+  "id": "lfscruuz-keypad-design-osu-keypad-version-4-0",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.3871
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/lfscruuz/keypad-design::osu_keypad_version"
+ },
+ {
+  "id": "librem-key-libremkey-hardware-cryptostick",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.20066
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://source.puri.sm/librem-key/libremkey-hardware::cryptostick"
+ },
+ {
+  "id": "librem5-dvk-mx8m-bsb-dvk-mx8m-bsb",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.13462
+   ],
+   [
+    "netclass",
+    "trace_width",
+    0.13462
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://source.puri.sm/librem5/dvk-mx8m-bsb::dvk_mx8m_bsb"
+ },
+ {
+  "id": "librespacefoundation-pq9ish-pq9ish-comms-vu-hw-pq9ish-main-hw",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.368482
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://gitlab.com/librespacefoundation/pq9ish/pq9ish-comms-vu-hw::pq9ish_main_hw"
+ },
+ {
+  "id": "librespacefoundation-satnogs-comms-satnogs-comms-misc-fpga-emmc-test-board",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.1515
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://gitlab.com/librespacefoundation/satnogs-comms/satnogs-comms-misc::fpga_emmc_board"
+ },
+ {
+  "id": "lichen-community-systems-lichen-eurorack-hardware-rp2350-dual-usb",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1575
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/lichen-community-systems/lichen-eurorack-hardware::rp2350_dual_usb"
+ },
+ {
+  "id": "loganrf-compactpi-compactpi",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1191
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1537
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1191
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1509
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1537
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/loganrf/compactpi::compactpi"
+ },
+ {
+  "id": "logitiles-hexberry-v-20q100-0-91-hexberry-v-20q100",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.13684
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/logitiles/hexberry-v-20q100-0.91::hexberry_20q100"
+ },
+ {
+  "id": "m17-project-openht-hw-openht-rf",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.3493
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/m17-project/openht-hw::openht_rf"
+ },
+ {
+  "id": "m1geo-pi5-pcie-pi5-m2-hat",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2205
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.2205
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/m1geo/pi5_pcie::pi5_m2_hat"
+ },
+ {
+  "id": "machdyne-noir-noir",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.14622
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.14622
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/machdyne/noir::noir"
+ },
+ {
+  "id": "mackieks-nandflex-nandflex",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/mackieks/nandflex::nandflex"
+ },
+ {
+  "id": "matgla-mspc-fpga-extension",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.156464
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/matgla/mspc::fpga_extension"
+ },
+ {
+  "id": "matgla-mspc-gpu-dvi-card",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.175006
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.156464
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/matgla/mspc::gpu_dvi_card"
+ },
+ {
+  "id": "matgla-mspc-gpu-vga-extension",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.175006
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.203454
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.3175
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/matgla/mspc::gpu_vga_extension"
+ },
+ {
+  "id": "matgla-mspc-mainboard",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.155448
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.155448
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/matgla/mspc::mainboard"
+ },
+ {
+  "id": "micro-henry-tallytime-hardware-tallytime",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2395
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.2395
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/micro-henry/tallytime-hardware::tallytime"
+ },
+ {
+  "id": "mjbots-fdcanusb-fdcanusb",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.2159
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/mjbots/fdcanusb::fdcanusb"
+ },
+ {
+  "id": "mjbots-moteus-moteus-c1",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2159
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/mjbots/moteus::moteus_c1"
+ },
+ {
+  "id": "mjbots-moteus-moteus-x1",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2159
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/mjbots/moteus::moteus_x1"
+ },
+ {
+  "id": "mlab-modules-heatbedmag01-heatbed",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.7115
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/mlab-modules/heatbedmag01::heatbed"
+ },
+ {
+  "id": "mossmann-daisho-main-board",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.1651
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/mossmann/daisho::main_board"
+ },
+ {
+  "id": "mossmann-daisho-usb",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.1651
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/mossmann/daisho::usb"
+ },
+ {
+  "id": "mstrocketdesignteam-avionics-pyro-charge-controller-pcb-charges-kicad-project",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.228854
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/mstrocketdesignteam/avionics-pyro-charge-controller-pcb::charges_kicad_project"
+ },
+ {
+  "id": "mwrnd-qsfp-breakout-qsfp-breakout",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2329
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/mwrnd/qsfp_breakout::qsfp_breakout"
+ },
+ {
+  "id": "natchpai-lqrx-interleavedbuck-2phase-synchbuck",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1511
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1511
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1565
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/natchpai/lqrx-interleavedbuck::2phase_synchbuck"
+ },
+ {
+  "id": "neggles-cfxsx-cfxsx",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.13422
+   ],
+   [
+    "netclass",
+    "trace_width",
+    0.13422
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/neggles/cfxsx::cfxsx"
+ },
+ {
+  "id": "neggles-cfxsx-cfxsx-2280",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.13422
+   ],
+   [
+    "netclass",
+    "trace_width",
+    0.13422
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/neggles/cfxsx::cfxsx"
+ },
+ {
+  "id": "neggles-mpcie-lea-m8t-mpcie-gnss",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1615
+   ],
+   [
+    "netclass",
+    "trace_width",
+    0.1615
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/neggles/mpcie-lea-m8t::mpcie_gnss"
+ },
+ {
+  "id": "netlist-studio-dut-hub-hw-dut-hub",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.205232
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/netlist-studio/dut_hub_hw::dut_hub"
+ },
+ {
+  "id": "noctalabs-sh-nocta-one-hardware-openvault",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2223
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/noctalabs-sh/nocta-one-hardware::openvault"
+ },
+ {
+  "id": "nvntlabs-switch2-sdex2m2-microsd-express-sniffer",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.205232
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/nvntlabs/switch2-sdex2m2::microsd_express_sniffer"
+ },
+ {
+  "id": "nvntlabs-switch2-sdex2m2-microsd-express-to-fpc",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.205232
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/nvntlabs/switch2-sdex2m2::microsd_express_to_fpc"
+ },
+ {
+  "id": "nvntlabs-switch2-sdex2m2-sdex2m2-breakout-board",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.205232
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/nvntlabs/switch2-sdex2m2::sdex2m2_breakout_board"
+ },
+ {
+  "id": "nvntlabs-switch2-sdex2m2-sdex2m2-m-2-nvme-ssd-breakout-board",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.205232
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/nvntlabs/switch2-sdex2m2::sdex2m2_m_nvme_ssd_breakout_board"
+ },
+ {
+  "id": "nvntlabs-switch2-sdex2m2-sdex2m2-microsd-express-to-sd-express-adapter",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.205232
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/nvntlabs/switch2-sdex2m2::sdex2m2_microsd_express_to_sd_express_adapter"
+ },
+ {
+  "id": "olimex-esp32-h2-devkit-lipo-esp32-h2-devkit-lipo-rev-a",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1651
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1651
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/olimex/esp32-h2-devkit-lipo::esp32_h2_devkit_lipo_a"
+ },
+ {
+  "id": "olimex-esp32-poe-esp32-poe-rev-m2",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.20066
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/olimex/esp32-poe::esp32_poe_m2"
+ },
+ {
+  "id": "olimex-esp32-poe-iso-esp32-poe-iso-rev-o",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.15748
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.15748
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/olimex/esp32-poe-iso::esp32_poe_iso_o"
+ },
+ {
+  "id": "olimex-esp32-poe2-esp32-poe2-rev-b",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1651
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1651
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/olimex/esp32-poe2::esp32_poe2_b"
+ },
+ {
+  "id": "olimex-gatematea1-evb-gatematea1-evb-rev-c",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1651
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1651
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/olimex/gatematea1-evb::gatematea1_evb_c"
+ },
+ {
+  "id": "olimex-imx8mp-som-imx8mplus-som-rev-b",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.10668
+   ],
+   [
+    "netclass",
+    "trace_width",
+    0.08128
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/olimex/imx8mp-som::imx8mplus_som_b"
+ },
+ {
+  "id": "olimex-nb-iot-nb-iot-devkit-rev-d",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.15748
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/olimex/nb-iot::nb_iot_devkit_d"
+ },
+ {
+  "id": "olimex-poev3-poev3-rev-a",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1651
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1651
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/olimex/poev3::poev3_a"
+ },
+ {
+  "id": "olimex-rp2350pc-rp2350pc-rev-a",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1651
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1651
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/olimex/rp2350pc::rp2350pc_a"
+ },
+ {
+  "id": "olimex-s3-olinuxino-s3-olinuxino-rev-a",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.15748
+   ],
+   [
+    "netclass",
+    "trace_width",
+    0.15748
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/olimex/s3-olinuxino::s3_olinuxino_a"
+ },
+ {
+  "id": "olimex-usb-glink-usb-glink-rev-d",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.15748
+   ],
+   [
+    "netclass",
+    "trace_width",
+    0.15748
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/olimex/usb-glink::usb_glink_d"
+ },
+ {
+  "id": "open-ephys-onix-fmc-host-fmc-host",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/open-ephys/onix-fmc-host::fmc_host"
+ },
+ {
+  "id": "opendrone-hw-openaio-whoop-openaio-whoop",
+  "odd": [],
+  "bind": [],
+  "disallow": [
+   [
+    "track"
+   ],
+   [
+    "track",
+    "zone"
+   ],
+   [
+    "track",
+    "zone"
+   ],
+   [
+    "track",
+    "zone"
+   ],
+   [
+    "track",
+    "via"
+   ],
+   [
+    "track",
+    "via"
+   ],
+   [
+    "track",
+    "via"
+   ],
+   [
+    "track",
+    "via"
+   ]
+  ],
+  "family": "https://github.com/opendrone-hw/openaio-whoop::openaio_whoop"
+ },
+ {
+  "id": "openinput-fw-russian-woodpecker-russian-woodpecker",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.228854
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/openinput-fw/russian-woodpecker::russian_woodpecker"
+ },
+ {
+  "id": "openshock-hardware-core-v2",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.719836
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/openshock/hardware::core"
+ },
+ {
+  "id": "orangecrab-fpga-orangecrab-hardware-orangecrab",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/orangecrab-fpga/orangecrab-hardware::orangecrab"
+ },
+ {
+  "id": "oro-os-link-link",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1339
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1707
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1339
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1707
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1725
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/oro-os/link::link"
+ },
+ {
+  "id": "osusat-cubesat-obc",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.2941
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/osusat/cubesat::obc"
+ },
+ {
+  "id": "osusat-cubesat-payload",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1519
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2097
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/osusat/cubesat::payload"
+ },
+ {
+  "id": "overscore-media-luxigrid-luxigrid",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/overscore-media/luxigrid::luxigrid"
+ },
+ {
+  "id": "pcbcorpus-0rax-esphome-xiao-base-pcb",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/0rax/esphome-xiao-base::pcb"
+ },
+ {
+  "id": "pcbcorpus-brenocq-bldc-motor-bldcm-mcu",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2507
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.2507
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/brenocq/bldc-motor::bldcm_mcu"
+ },
+ {
+  "id": "pcbcorpus-brenocq-bldc-motor-bldcm-power",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1329
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2507
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1329
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.2507
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/brenocq/bldc-motor::bldcm_power"
+ },
+ {
+  "id": "pcbcorpus-lambdakb-trackball-lt6c-lt6c-pcb",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/lambdakb/trackball-lt6c::lt6c_pcb"
+ },
+ {
+  "id": "pcbcorpus-m1geo-pi5-pcie-pi5-pcie",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2205
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.2205
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/m1geo/pi5_pcie::pi5_pcie"
+ },
+ {
+  "id": "pcbcorpus-ravinrabbid-doncon2040-donconio",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ravinrabbid/doncon2040::donconio"
+ },
+ {
+  "id": "pcbcorpus-ravinrabbid-doncon2040-donconiomini",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ravinrabbid/doncon2040::donconiomini"
+ },
+ {
+  "id": "pcbcorpus-swyter-psdaptwor-psvr2-pc",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2205
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.2205
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/swyter/psdaptwor::psvr2_pc"
+ },
+ {
+  "id": "plane-watch-hardware-adsboost",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.34544
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/plane-watch/hardware::adsboost"
+ },
+ {
+  "id": "plane-watch-hardware-planewatcher",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.34544
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/plane-watch/hardware::planewatcher"
+ },
+ {
+  "id": "polpo-picogus-picogus-chipdown",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.267208
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.267208
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/polpo/picogus::picogus_chipdown"
+ },
+ {
+  "id": "qfreiman-qsbc-zero-qsbc-zero",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.11049
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1397
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1397
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/qfreiman/qsbc-zero::qsbc_zero"
+ },
+ {
+  "id": "rainbowlabsde-usb2speakon-usb2speakon-pcb",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/rainbowlabsde/usb2speakon::usb2speakon_pcb"
+ },
+ {
+  "id": "ravinrabbid-dancecon2040-danceconio",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ravinrabbid/dancecon2040::danceconio"
+ },
+ {
+  "id": "ravinrabbid-dancecon2040-loadcelladapter",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ravinrabbid/dancecon2040::loadcelladapter"
+ },
+ {
+  "id": "ravinrabbid-doncon2040-donconpad",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://codeberg.org/ravinrabbid/doncon2040::donconpad"
+ },
+ {
+  "id": "reform-pocket-reform-pocket-reform-keyboard-kailh-ortho",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1547
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://source.mnt.re/reform/pocket-reform::pocket_reform_keyboard_kailh_ortho"
+ },
+ {
+  "id": "reform-pocket-reform-pocket-reform-motherboard",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1295
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://source.mnt.re/reform/pocket-reform::pocket_reform_motherboard"
+ },
+ {
+  "id": "regymm-pcie-dma-ddr3-accelerator-tentalab",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1143
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/regymm/pcie-dma-ddr3-accelerator::tentalab"
+ },
+ {
+  "id": "remifm-usb-lidar-vl53l9-usb-lidar-vl53l9",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1537
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/remifm/usb-lidar-vl53l9::usb_lidar_vl53l9"
+ },
+ {
+  "id": "ripclap-rm520n-carrier-carrier",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.4483
+   ]
+  ],
+  "bind": [],
+  "disallow": [
+   [
+    "track"
+   ]
+  ],
+  "family": "https://github.com/ripclap/rm520n-carrier::carrier"
+ },
+ {
+  "id": "rjhelms-compe6502-video-ribbons",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.2159
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/rjhelms/compe6502::video_ribbons"
+ },
+ {
+  "id": "rkarl2-zynqinator-zynqinator",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.11303
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1105
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1359
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/rkarl2/zynqinator::zynqinator"
+ },
+ {
+  "id": "robertrico-project-byte-hamr-project-byte-hamr",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.1525
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/robertrico/project_byte_hamr::project_byte_hamr"
+ },
+ {
+  "id": "russeree-nyan-keys-hardware-project",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    1.00584
+   ],
+   [
+    "netclass",
+    "track_width",
+    1.00584
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/russeree/nyan-keys-hardware::nyan_keys"
+ },
+ {
+  "id": "ryzee119-hawk-hawk",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ryzee119/hawk::hawk"
+ },
+ {
+  "id": "seeed-studio-oshw-recamera-series-recamera-2002-poe-board",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.156464
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/seeed-studio/oshw-recamera-series::recamera_poe_board"
+ },
+ {
+  "id": "seeed-studio-oshw-recamera-series-recamera-gimbal",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.182626
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.156464
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/seeed-studio/oshw-recamera-series::recamera_gimbal"
+ },
+ {
+  "id": "sfunderbots-electrical-chicker",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/sfunderbots/electrical::chicker"
+ },
+ {
+  "id": "siguls-siguls-hardware-siguls",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://gitlab.com/siguls/siguls-hardware::siguls"
+ },
+ {
+  "id": "sini6a-internet-radio-speaker-internet-radio-speaker",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.242062
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/sini6a/internet-radio-speaker::internet_radio_speaker"
+ },
+ {
+  "id": "skiselev-isa8-eth-isa8-ethernet",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.3683
+   ],
+   [
+    "netclass",
+    "trace_width",
+    0.63246
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/skiselev/isa8_eth::isa8_ethernet"
+ },
+ {
+  "id": "sprhawk-leaf-rv1126-leaf",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.08382
+   ],
+   [
+    "dru",
+    "track_width",
+    0.1143
+   ],
+   [
+    "dru",
+    "track_width",
+    0.116078
+   ],
+   [
+    "dru",
+    "track_width",
+    0.129286
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/sprhawk/leaf-rv1126::leaf"
+ },
+ {
+  "id": "spyopensource-esp32-pcb-solar",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/spyopensource/esp32-pcb::solar"
+ },
+ {
+  "id": "stab-rabbit-coding-serenity-uav-pilot",
+  "odd": [],
+  "bind": [],
+  "disallow": [
+   [
+    "track",
+    "via"
+   ],
+   [
+    "track",
+    "via"
+   ],
+   [
+    "track",
+    "via",
+    "pad"
+   ],
+   [
+    "track",
+    "via",
+    "pad"
+   ]
+  ],
+  "family": "https://github.com/stab-rabbit-coding/serenity-uav::pilot"
+ },
+ {
+  "id": "stab-rabbit-coding-serenity-uav-tacco",
+  "odd": [],
+  "bind": [],
+  "disallow": [
+   [
+    "track",
+    "via"
+   ],
+   [
+    "track",
+    "via"
+   ]
+  ],
+  "family": "https://github.com/stab-rabbit-coding/serenity-uav::tacco"
+ },
+ {
+  "id": "summa-cogni-mathpad-mathpad",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1575
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/summa-cogni/mathpad::mathpad"
+ },
+ {
+  "id": "supermanuu-batteryswitcher-batteryswitcher",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/supermanuu/batteryswitcher::batteryswitcher"
+ },
+ {
+  "id": "techmiguel-stillpoint-stillpoint",
+  "odd": [],
+  "bind": [],
+  "disallow": [
+   [
+    "track",
+    "via"
+   ]
+  ],
+  "family": "https://github.com/techmiguel/stillpoint::stillpoint"
+ },
+ {
+  "id": "tengigabytes-mokyalora-mokyalora",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1417
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1199
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tengigabytes/mokyalora::mokyalora"
+ },
+ {
+  "id": "tessel-t2-hardware-tessel-v2",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.2667
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tessel/t2-hardware::tessel"
+ },
+ {
+  "id": "thejamesrhodes-imu-quantisation-research-project-imu-array-icm-42688-p",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1643
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/thejamesrhodes/imu-quantisation-research-project::imu_array_icm_p"
+ },
+ {
+  "id": "thomasshanks-copico-board-copico",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.3175
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/thomasshanks/copico-board::copico"
+ },
+ {
+  "id": "tigard-tools-tigard-tigard",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.205232
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tigard-tools/tigard::tigard"
+ },
+ {
+  "id": "tinkerforge-analog-out-v2-bricklet-analog-out-v2",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/analog-out-v2-bricklet::analog_out"
+ },
+ {
+  "id": "tinkerforge-analog-out-v3-bricklet-analog-out-v3",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/analog-out-v3-bricklet::analog_out"
+ },
+ {
+  "id": "tinkerforge-dc-brick-dc",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/dc-brick::dc"
+ },
+ {
+  "id": "tinkerforge-imu-v2-brick-imu",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/imu-v2-brick::imu"
+ },
+ {
+  "id": "tinkerforge-imu-v2-brick-imu-2",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/imu-v2-brick::imu"
+ },
+ {
+  "id": "tinkerforge-industrial-counter-bricklet-industrial-counter",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/industrial-counter-bricklet::industrial_counter"
+ },
+ {
+  "id": "tinkerforge-industrial-digital-in-4-bricklet-industrial-digital-in-4",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/industrial-digital-in-4-bricklet::industrial_digital_in"
+ },
+ {
+  "id": "tinkerforge-industrial-digital-in-4-v2-bricklet-industrial-digital-in-4-v2",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/industrial-digital-in-4-v2-bricklet::industrial_digital_in"
+ },
+ {
+  "id": "tinkerforge-industrial-digital-out-4-bricklet-industrial-digital-out-4",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/industrial-digital-out-4-bricklet::industrial_digital_out"
+ },
+ {
+  "id": "tinkerforge-industrial-digital-out-4-v2-bricklet-industrial-digital-out-4-v2",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/industrial-digital-out-4-v2-bricklet::industrial_digital_out"
+ },
+ {
+  "id": "tinkerforge-industrial-dual-0-20ma-bricklet-industrial-dual-0-20ma",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/industrial-dual-0-20ma-bricklet::industrial_dual_20ma"
+ },
+ {
+  "id": "tinkerforge-industrial-dual-0-20ma-v2-bricklet-industrial-dual-0-20ma-v2",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/industrial-dual-0-20ma-v2-bricklet::industrial_dual_20ma"
+ },
+ {
+  "id": "tinkerforge-industrial-dual-ac-relay-bricklet-industrial-dual-ac-relay",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/industrial-dual-ac-relay-bricklet::industrial_dual_ac_relay"
+ },
+ {
+  "id": "tinkerforge-industrial-quad-relay-bricklet-industrial-quad-relay",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/industrial-quad-relay-bricklet::industrial_quad_relay"
+ },
+ {
+  "id": "tinkerforge-industrial-quad-relay-v2-bricklet-industrial-quad-relay-v2",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/industrial-quad-relay-v2-bricklet::industrial_quad_relay"
+ },
+ {
+  "id": "tinkerforge-load-cell-bricklet-load-cell",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/load-cell-bricklet::load_cell"
+ },
+ {
+  "id": "tinkerforge-load-cell-v2-bricklet-load-cell-v2",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/load-cell-v2-bricklet::load_cell"
+ },
+ {
+  "id": "tinkerforge-master-brick-master",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/master-brick::master"
+ },
+ {
+  "id": "tinkerforge-master-brick-master-2",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/master-brick::master"
+ },
+ {
+  "id": "tinkerforge-master-brick-master-3",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/master-brick::master"
+ },
+ {
+  "id": "tinkerforge-rs485-extension-rs485-extension",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/rs485-extension::rs485_extension"
+ },
+ {
+  "id": "tinkerforge-servo-brick-servo",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/servo-brick::servo"
+ },
+ {
+  "id": "tinkerforge-stepper-brick-stepper",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.14986
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/stepper-brick::stepper"
+ },
+ {
+  "id": "tinkerforge-wifi-v2-extension-wifi-extension",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.20066
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tinkerforge/wifi-v2-extension::wifi_extension"
+ },
+ {
+  "id": "tobias-dg3yev-ra-sentinel-rasbb",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1387
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1857
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tobias-dg3yev/ra-sentinel::rasbb"
+ },
+ {
+  "id": "tobias-dg3yev-ra-sentinel-rasrf2400wbmc",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2159
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.2159
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tobias-dg3yev/ra-sentinel::rasrf2400wbmc"
+ },
+ {
+  "id": "tobycm-skibidi-thinkbook-14-hub-skibidi-thinkbook-14-hub",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.116078
+   ],
+   [
+    "netclass",
+    "diff_pair_width",
+    0.170434
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.116078
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.170434
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tobycm/skibidi-thinkbook-14-hub::skibidi_thinkbook_hub"
+ },
+ {
+  "id": "tobycm-skibidi-usb-charger-hub-skibidi-usb-charger-hub",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.211074
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.211074
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tobycm/skibidi-usb-charger-hub::skibidi_usb_charger_hub"
+ },
+ {
+  "id": "tobycm-smol-audio-pad-smol-audio-pad",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.211074
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.211074
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tobycm/smol-audio-pad::smol_audio_pad"
+ },
+ {
+  "id": "tornyol-lesonar2-lesonar2-beamforming-rx-hardware",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1547
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1547
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/tornyol/lesonar2::lesonar2_beamforming_rx_hardware"
+ },
+ {
+  "id": "ubcoaerospaceclub-ltelink-ltelink",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.2223
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/ubcoaerospaceclub/ltelink::ltelink"
+ },
+ {
+  "id": "udayvssharda-at86rf215-breakout-board-at86rf215-breakout-board",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.4557
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1565
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/udayvssharda/at86rf215-breakout-board::at86rf215_breakout_board"
+ },
+ {
+  "id": "variegated-coffee-open-lcc-debug-board-smart-lcc",
+  "odd": [
+   [
+    "dru",
+    "track_width",
+    0.0889
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/variegated-coffee/open-lcc-debug-board::smart_lcc"
+ },
+ {
+  "id": "vinaebizs-fst-01-fst-01",
+  "odd": [
+   [
+    "netclass",
+    "trace_width",
+    0.20066
+   ],
+   [
+    "netclass",
+    "trace_width",
+    0.59944
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://github.com/vinaebizs/fst-01::fst"
+ },
+ {
+  "id": "yannsionneau-sucrela-hydrasucrela",
+  "odd": [
+   [
+    "netclass",
+    "track_width",
+    0.1565
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://gitlab.com/yannsionneau/sucrela::hydrasucrela"
+ },
+ {
+  "id": "yannsionneau-sucrela-sucrela",
+  "odd": [
+   [
+    "netclass",
+    "diff_pair_width",
+    0.1575
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1565
+   ],
+   [
+    "netclass",
+    "track_width",
+    0.1575
+   ]
+  ],
+  "bind": [],
+  "disallow": [],
+  "family": "https://gitlab.com/yannsionneau/sucrela::sucrela"
+ }
+]

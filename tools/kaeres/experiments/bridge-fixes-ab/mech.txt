@@ -1,0 +1,7 @@
+eevengers-thunderscope-thunderscope-rev5-3
+ewoudvv-ducktop2-12-keyboard-daughterboard
+ewoudvv-ducktop2-ducktop2-center
+ewoudvv-ducktop2-left-io
+ewoudvv-ducktop2-right-io
+opendrone-hw-openaio-whoop-openaio-whoop
+ripclap-rm520n-carrier-carrier
