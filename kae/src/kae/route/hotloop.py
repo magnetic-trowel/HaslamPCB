@@ -557,8 +557,12 @@ def escapes(s, m, region, loop, plane_net):
                 hit = ray.intersection(bnd)
                 if hit.is_empty:
                     continue
-                pts = [hit] if hit.geom_type == "Point" else list(getattr(hit, "geoms", []))
-                d = max(Point(x, y).distance(q) for q in pts if q.geom_type == "Point") + 0.2
+                # the farthest boundary crossing along the ray (a ray along an edge meets it as a segment;
+                # a region cut into pieces has several crossings: hdmi2rgb, "max() of an empty sequence")
+                ds = [math.dist((x, y), c) for g in getattr(hit, "geoms", [hit]) for c in g.coords]
+                if not ds:
+                    continue
+                d = max(ds) + 0.2
                 seg = LineString([(x, y), (x + d * math.cos(th), y + d * math.sin(th))])
                 inside = seg.intersection(loop).length
                 cost = d + ESCAPE_CUT_COST * inside
