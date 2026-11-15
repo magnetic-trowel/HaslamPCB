@@ -47,6 +47,11 @@ MARGIN_H = 3.0               # x the outer layers' depth to their next layer, if
 HARMONICS = (1, 3, 5)        # R_loop at these multiples of f_sw
 MAX_CELLS = 1.2e6            # raster budget of one window (cells x copper layers): the pitch doubles past it (5 min)
 MAX_GROW = 4                 # margin doublings when the loop closes only outside the window
+TRUNC_MAX = 0.5              # the window's truncation (board solve minus the window at the board's pitch) may be
+                             # at most this share of the board's L_loop and R_loop: beyond it the window misses where
+                             # the loop closes on the board, the two-grid correction is no longer small, and the margin
+                             # doubles (nekoink's boost: window 21.7 nH against the board's 2.6, corrected to -0.17)
+TRUNC_FLOOR = (0.1e-9, 0.5e-3)  # H, ohm: truncations below these never count as too large (near-zero loops)
 
 
 def _pad_box(bm, tokens):
@@ -144,6 +149,22 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log):
     return out, dict(dropped=dropped), bm.m
 
 
+def _truncation_too_large(g, zc, f_fund, f_edge):
+    """True when the window at the board's pitch (zc) differs from the board solve (g = (Le, Zf)) by more than
+    TRUNC_MAX of the board's L_loop or R_loop: the window's copper then closes the loop elsewhere than the board's."""
+    Lc = zc[f_edge].imag / (2 * math.pi * f_edge)
+    Rg, Rc = g[1].real, zc[f_fund].real
+    return (abs(g[0] - Lc) > max(TRUNC_MAX * abs(g[0]), TRUNC_FLOOR[0])
+            or abs(Rg - Rc) > max(TRUNC_MAX * abs(Rg), TRUNC_FLOOR[1]))
+
+
+def _corrected_L(g, z, zc, f_edge):
+    """The window's L_loop (H) at f_edge with its truncation (board solve minus the window at the board's pitch)
+    removed: the two-grid value cell_rows reports."""
+    w_e = 2 * math.pi * f_edge
+    return z[f_edge].imag / w_e + (g[0] - zc[f_edge].imag / w_e if zc is not None else 0.0)
+
+
 def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2, pitch=CELL_PITCH,
               global_pairs=None, global_pitch=None, open_cells=None, uncomputed=(), skin=True, log=print):
     """One row per switching cell: its primaries from the window solve (state "ok"), or state "open" (the loop is
@@ -196,13 +217,23 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
                 # neck the fine raster resolves and the coarse one loses: the board solve then closes outside)
                 zc, _, _ = _solve_window(path, b, bd, s, o, win, global_pitch, nsub, bm.fills, [f_fund, f_edge], False,
                                          log)
-            if (z is not None and (zc is not None or not global_pitch)) or whole or grown >= MAX_GROW:
+            bad = zc is not None and _truncation_too_large(g, zc, f_fund, f_edge)
+            if (z is not None and (zc is not None or not global_pitch) and not bad) or whole or grown >= MAX_GROW:
                 break
             margin *= 2
             grown += 1
+        why = None
         if global_pitch and pc >= global_pitch:
-            # the window over its cell budget (many layers, far parts) at the board's pitch: the board solve's values
-            # stand, with no harmonics (reported, layout-independent like the window)
+            why = f"over the budget of {MAX_CELLS:.3g} cells x layers below the board's pitch"
+        elif z is not None and zc is not None and _truncation_too_large(g, zc, f_fund, f_edge):
+            why = (f"the window's truncation exceeds {TRUNC_MAX:g} of the board's value (window grown {grown} times "
+                   f"to {margin:g} mm): it misses where the loop closes")
+        elif z is not None and _corrected_L(g, z, zc, f_edge) <= 0 < g[0]:
+            why = "the corrected window L_loop is not positive"
+        if why:
+            # the window over its cell budget (many layers, far parts) at the board's pitch, or a window whose
+            # correction cannot be trusted: the board solve's values stand, with no harmonics (reported,
+            # layout-independent like the window)
             R0 = round(max(g[1].real, 0.0) * 1e3, 4)
             peaks = [HA.peak(g[1], g[0], v["I_A"], v.get("D", 0.5), v["t_i_s"])[0]
                      for v in ({k[1]: x for k, x in cp.items()} for cp in cps[s.name])]
@@ -210,10 +241,9 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
                              R_harmonics=[dict(n=1, f_MHz=round(f_fund / 1e6, 4), R_mohm=R0)],
                              overshoot_V=dict(typ=round(peaks[0], 4), worst=round(max(peaks), 4)),
                              f_edge_MHz=round(f_edge / 1e6, 4),
-                             window=dict(box=[round(x, 3) for x in win], pitch=pc, refined=False,
-                                         why=f"over the budget of {MAX_CELLS:.3g} cells x layers below the board's pitch",
-                                         seconds=round(time.time() - t0, 1))))
-            log(f"cell {s.name}: window {win[2] - win[0]:.1f} x {win[3] - win[1]:.1f} mm over budget: board values")
+                             window=dict(box=[round(x, 3) for x in win], pitch=pc, refined=False, why=why,
+                                         grown=grown, seconds=round(time.time() - t0, 1))))
+            log(f"cell {s.name}: window {win[2] - win[0]:.1f} x {win[3] - win[1]:.1f} mm: {why}: board values")
             continue
         if z is None:
             rows.append(dict(row, state="open_in_window", why="the loop closes in the board solve but not in its "

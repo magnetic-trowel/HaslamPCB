@@ -149,6 +149,44 @@ def test_a_window_over_its_budget_keeps_the_board_values(tmp, monkeypatch):
     assert HL.summary([c])[0].count("board values") == 1
 
 
+def _misplaced_window(monkeypatch, always):
+    """Make the cell's first window (or every window, `always`) close the loop on a long path the board does not
+    use, 20 nH at the board's pitch and 14 nH at the fine one: the naive two-grid correction then comes out
+    negative (nekoink's boost read -0.17 nH this way)."""
+    import math
+    from kae.excite import hotloop as HL
+    real, first = HL._solve_window, []
+
+    def fake(path, b, bd, s, o, win, pitch, *a, **k):
+        z, info, m = real(path, b, bd, s, o, win, pitch, *a, **k)
+        first.append(first[0] if first else win)
+        if z is not None and (always or win == first[0]):
+            extra = 20e-9 if pitch == 0.25 else 14e-9
+            z = {f: v + 2j * math.pi * f * extra + 0.2 for f, v in z.items()}
+        return z, info, m
+    monkeypatch.setattr(HL, "_solve_window", fake)
+
+
+def test_a_window_that_misses_the_loops_path_grows(tmp, monkeypatch):
+    _misplaced_window(monkeypatch, always=False)
+    p = write_hotloop_board(f"{tmp}/trunc-grow", "closed")
+    c = _cell(evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.125))
+    ref = _cell(_ev("closed", tmp))
+    assert c["state"] == "ok" and c["window"]["refined"] and c["window"]["grown"] >= 1
+    assert c["L_loop_nH"] > 0 and abs(c["window"]["trunc_L_nH"]) <= 0.5 * c["global"]["L_loop_nH"]
+    assert c["L_loop_nH"] == pytest.approx(ref["L_loop_nH"], rel=0.1)
+
+
+def test_a_window_whose_truncation_stays_large_keeps_the_board_values(tmp, monkeypatch):
+    from kae.excite import hotloop as HL
+    _misplaced_window(monkeypatch, always=True)
+    p = write_hotloop_board(f"{tmp}/trunc-bad", "closed")
+    c = _cell(evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.125))
+    assert c["state"] == "ok" and c["window"]["refined"] is False and "truncation" in c["window"]["why"]
+    assert c["L_loop_nH"] == c["global"]["L_loop_nH"] > 0 and c["R_loop_mohm"] == c["global"]["R_loop_mohm"]
+    assert HL.summary([c])[0].count("board values") == 1
+
+
 def _drc(*descs):
     return {"unconnected_items": [{"items": [{"description": d}, {"description": "Zone [GND] on B.Cu"}]} for d in descs]}
 
