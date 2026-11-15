@@ -122,21 +122,41 @@ def compare(a, b, tol=0.1):
     return out, sum(out.values())
 
 
+OPEN_PENALTY = 5.0            # an open cell's score: e^5 ~ 150 x a closed one's L and R
+
+
+def score(rows):
+    """One number per board, lower better, for a portfolio's tie-break between layouts of one placement: the sum
+    over its cells of ln L_nH + ln R_mohm, OPEN_PENALTY per open cell (cells not computed count 0). Two boards'
+    difference is the sum of their cells' log ratios: 0.1 is about a 10 % change of one cell's L or R."""
+    t = 0.0
+    for r in rows:
+        if r["state"] == "open":
+            t += 2 * OPEN_PENALTY
+        elif r["state"] == "ok":
+            t += math.log(max(r["L_nH"], 1e-3)) + math.log(max(r["R_mohm"], 1e-3))
+    return round(t, 4)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m kae.excite.cellquote", description=__doc__.split("\n\n")[0])
     ap.add_argument("board")
     ap.add_argument("--intent", help="operating facts JSON (its pin facts and the cells' f_sw)")
     ap.add_argument("--pitch", type=float, default=PITCH)
     ap.add_argument("--no-skin", action="store_true")
-    ap.add_argument("--drc", help="KiCad DRC report of this board (a loop member unconnected: the cell is open)")
+    ap.add_argument("--drc", help="KiCad DRC report of this board (a loop member unconnected: the cell is open; "
+                                  "default: drc.json beside the board, if any)")
     ap.add_argument("-o", "--out")
+    ap.add_argument("--score-out", help="also write {score, rows} here (score(): a portfolio's tie-break)")
     a = ap.parse_args(argv)
     intent = json.load(open(a.intent)) if a.intent else None
-    rows = quote_cells(a.board, intent, pitch=a.pitch, skin=not a.no_skin, drc=a.drc or False,
+    rows = quote_cells(a.board, intent, pitch=a.pitch, skin=not a.no_skin, drc=a.drc or None,
                        log=lambda *x: print(*x, file=sys.stderr))
     txt = json.dumps(rows, indent=1)
     if a.out:
         open(a.out, "w").write(txt)
+    if a.score_out:
+        open(a.score_out, "w").write(json.dumps(dict(score=score(rows), rows=rows)))
     print(txt)
     return 0
 

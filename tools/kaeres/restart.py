@@ -40,6 +40,17 @@ history (restarts/history.json, {net: attempts that left it open}; record_open),
 gets its path in KAE_ROUTE_HISTORY: a router may route those nets first (kae.route.bridge does).
 Each attempt's record in summary.json lists the nets it left open.
 
+With --alt-env "K=V ...", two settings of the method run side by side and the better board is kept (the
+choose-better portfolio): fresh attempts alternate between the method as given (arm A, even k) and the
+method with those variables (arm B, odd k); a resumed attempt continues from the best board of its own
+arm (A for even k, B for odd), so both arms keep their lineages, and the final and finish passes run with the
+kept board's arm. The kept board is ranked by KiCad first, as always; among attempts of equal rank,
+--tiebreak COMMAND (@BOARD@, @OUT@: a JSON file with "score", lower better; for kae `python -m
+kae.excite.cellquote @BOARD@ --score-out @OUT@`, the hot loops' quote) decides, when the scores differ by
+more than --tiebreak-margin. A clean board does not end the run at once: attempts already running finish
+(no new ones start), so the other arm can offer a clean board of its own to compare. The summary lists the
+arm of every attempt and each tie-break.
+
 Work is measured, since a sandboxed method's processes are invisible to the harness: every
 attempt's processes (its process tree and session, so a router started in a session of its own
 counts too) are sampled from /proc each second (CPU seconds summed over all of them, peak RSS);
@@ -563,7 +574,9 @@ def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, s
     if SC:
         info["charge"] = str(d / "charge.jsonl")
     p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
-                         start_new_session=True, env=dict(os.environ, KAE_RESUME="1", **charge_env(info), **fr_raw_env(d)))
+                         start_new_session=True, env=dict(os.environ, KAE_RESUME="1", **charge_env(info), **fr_raw_env(d),
+                                                          **(best.get("env") or {})))
+    info["arm"], info["env"] = best.get("arm"), best.get("env")
     while reap(p, info) is None:
         if time.monotonic() + saved(info) > min(t + (WORK_CEILING if WORK else 1.0) * b + GRACE_S, end - judge_est - 5):
             stop(p, info)
@@ -698,6 +711,53 @@ class Halving:
                                 for c in self.cands])
 
 
+def parse_env(text):
+    """{K: V} of "K=V K2=V2"."""
+    out = {}
+    for tok in shlex.split(text or ""):
+        k, _, v = tok.partition("=")
+        if k:
+            out[k] = v
+    return out
+
+
+def tiebreak_score(a, info, cache):
+    """The --tiebreak score of an attempt's board (cached by its path), None when the command gives none."""
+    key = str(info["out"])
+    if key in cache:
+        return cache[key]
+    o = Path(info["out"]).with_name("tiebreak.json")
+    c = a.tiebreak.replace("@BOARD@", shlex.quote(key)).replace("@OUT@", shlex.quote(str(o)))
+    t = time.monotonic()
+    try:
+        subprocess.run(["sh", "-c", c], cwd=Path(info["out"]).parent, stdout=open(Path(info["out"]).with_name("tiebreak.log"), "w"),
+                       stderr=subprocess.STDOUT, timeout=a.tiebreak_s, env=dict(os.environ, **(info.get("env") or {})))
+        score = json.loads(o.read_text()).get("score")
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        score = None
+    cache[key] = score
+    log(f"tie-break score of #{info['k']} (arm {info.get('arm')}): {score} ({time.monotonic() - t:.0f}s)")
+    return score
+
+
+def better(a, new, best, cache, ties):
+    """Whether attempt `new` replaces `best`: a better KiCad rank; with --alt-env and --tiebreak, an equal rank
+    and a tie-break score lower by more than --tiebreak-margin (each comparison goes to `ties`)."""
+    if new.get("rank") is None:
+        return False
+    if best is None or best.get("rank") is None:
+        return True
+    if tuple(new["rank"]) != tuple(best["rank"]) or not (a.alt_env and a.tiebreak):
+        return tuple(new["rank"]) < tuple(best["rank"])
+    if new.get("arm") == best.get("arm"):
+        return False
+    sb, sn = tiebreak_score(a, best, cache), tiebreak_score(a, new, cache)
+    win = sb is not None and sn is not None and sn < sb - a.tiebreak_margin
+    ties.append(dict(rank=list(new["rank"]), kept=best["k"], kept_arm=best.get("arm"), kept_score=sb,
+                     other=new["k"], other_arm=new.get("arm"), other_score=sn, switched=win))
+    return win
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True)
@@ -743,6 +803,15 @@ def main():
                     help="rung-0 budget (0: first-s; kae staged at half of it overran its budget: placing alone "
                          "takes 60-100 s)")
     ap.add_argument("--eta", type=int, default=2)
+    ap.add_argument("--alt-env", default="",
+                    help='choose-better portfolio: "K=V ..." for arm B (odd attempts; resumed attempts continue '
+                         "their own arm's best board); the final and finish passes run with the kept board's arm")
+    ap.add_argument("--tiebreak", default="",
+                    help="command scoring a board (@BOARD@, @OUT@: JSON with 'score', lower better) to choose "
+                         "between the arms' boards of equal KiCad rank")
+    ap.add_argument("--tiebreak-margin", type=float, default=0.1,
+                    help="a score must be lower by more than this to win a tie-break")
+    ap.add_argument("--tiebreak-s", type=float, default=600.0, help="time limit of one tie-break command")
     ap.add_argument("command", nargs=argparse.REMAINDER)
     a = ap.parse_args()
     cmd = " ".join(a.command[1:] if a.command[:1] == ["--"] else a.command)
@@ -785,6 +854,8 @@ def main():
     log(f"input DRC errors by type: {base}")
     running, done, k = {}, [], 0
     best = None
+    alt = parse_env(a.alt_env)
+    arm_best, tb_cache, ties, no_new = {}, {}, [], [False]   # per-arm best; tie-break scores; comparisons
     meter, judge_cpu, judge_wall = Meter(), 0.0, 0.0
     fast_fails = 0  # attempts in a row that died within seconds without a board: a broken command
 
@@ -798,10 +869,13 @@ def main():
             frm = next(x for x in done if x["k"] == src_k) if src_k is not None else None
         else:
             b = min(a.first_s * a.growth ** (k // a.parallel), left())
-            frm = best if (a.resume > 0 and k >= a.parallel and best is not None and best["rank"] is not None
-                           and k % a.parallel < round(a.resume * a.parallel)) else None
-        if b < 20 or (a.max_attempts and k >= a.max_attempts):
+            src_best = (arm_best.get("B" if k % 2 else "A") or best) if alt else best
+            frm = src_best if (a.resume > 0 and k >= a.parallel and src_best is not None and src_best["rank"] is not None
+                               and k % a.parallel < round(a.resume * a.parallel)) else None
+        if b < 20 or (a.max_attempts and k >= a.max_attempts) or no_new[0]:
             return False
+        arm = (frm.get("arm") if frm is not None else ("B" if k % 2 else "A")) if alt else None
+        env_k = alt if arm == "B" else {}
         d = wd / f"a{k}"
         d.mkdir(exist_ok=True)
         o = d / "board.kicad_pcb"
@@ -820,12 +894,14 @@ def main():
         p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
                              start_new_session=True, env=dict(os.environ, KAE_RESUME="1" if resume else "0",
                                                               **({"KAE_FINISH_KEPT": "1"} if a.finish else {}),
-                                                              **charge_env(ch), **fr_raw_env(d)))
+                                                              **charge_env(ch), **fr_raw_env(d), **env_k))
         running[p] = dict(k=k, seed=s, budget=round(b), out=o, t=time.monotonic(),
                           resumed_from=frm["k"] if resume else None, **ch)
+        if alt:
+            running[p].update(arm=arm, env=env_k)
         if sh is not None:
             running[p].update(cand=sh.started(cand, k, s), rung=rung)
-        log(f"start #{k} seed {s} budget {b:.0f}s" + (f" from #{frm['k']}'s board" if resume else "")
+        log(f"start #{k} seed {s} budget {b:.0f}s" + (f" arm {arm}" if alt else "") + (f" from #{frm['k']}'s board" if resume else "")
             + (f" (candidate {running[p]['cand']['id']}, rung {rung})" if sh is not None else ""))
         k += 1
         return True
@@ -916,11 +992,21 @@ def main():
             fast_fails = fast_fails + 1 if rank is None and info["wall_s"] < 10 else 0
             done.append(info)
             log(f"end #{info['k']} rc {p.returncode} (illegal, not clean, unconnected, new errors, outside) {rank}")
-            if rank is not None and (best is None or rank < best["rank"]):
+            if alt and rank is not None:
+                ab = arm_best.get(info["arm"])
+                if ab is None or rank < ab["rank"]:
+                    arm_best[info["arm"]] = info
+            if rank is not None and better(a, info, best, tb_cache, ties):
                 best = info
                 out.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(best["out"], out)  # at once: a kill at the deadline keeps the best so far
-        if best and best["rank"][:2] == (0, 0):
+        if alt and a.tiebreak and best and best["rank"][:2] == (0, 0) and \
+                any("hold" in i or alive(p.pid) for p, i in running.items() if i.get("arm") != best.get("arm")):
+            if not no_new[0]:
+                log(f"#{best['k']} (arm {best.get('arm')}) is clean: no new attempts; the other arm's running "
+                    f"attempts finish for the tie-break")
+            no_new[0] = True
+        elif best and best["rank"][:2] == (0, 0):
             log(f"#{best['k']} is clean: stopping the rest")
             meter.sample([p.pid for p in running])
             for p, info in list(running.items()):
@@ -987,6 +1073,9 @@ def main():
                                       for d in done])
     if sh is not None:
         summary["halving"] = sh.summary()
+    if alt:
+        summary["choose_better"] = dict(alt_env=alt, kept_arm=best and best.get("arm"), ties=ties,
+                                        arm_best={k_: dict(k=v["k"], rank=list(v["rank"])) for k_, v in arm_best.items()})
     if (fr_raw := keep_fr_raw(wd, summary)):
         summary["fr_raw"] = fr_raw
     (wd / "summary.json").write_text(json.dumps(summary, indent=1))

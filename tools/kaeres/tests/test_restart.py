@@ -336,3 +336,41 @@ def test_a_kept_fresh_attempt_has_no_origin_report(tmp_path):
     wd = tmp_path / "work" / "restarts"
     assert json.loads((wd / "report.json").read_text())["stop"] == "no improvement"
     assert not (wd / "report-origin.json").exists()
+
+
+# ------------------------------------------------------------------ choose-better portfolio (--alt-env)
+# each arm writes its board with a marker of its setting; the tie-break scores it (arm B's loop is the better)
+ARM_ATTEMPT = "echo \"(kicad_pcb OPEN=${OPENS:-0} arm=${HL:-A})\" > @OUT@"
+TIEBREAK = ("python3 -c \"import json,sys; b=open(sys.argv[1]).read(); "
+            "json.dump(dict(score=1.0 if 'arm=B' in b else 2.0), open(sys.argv[2], 'w'))\" @BOARD@ @OUT@")
+
+
+def test_choose_better_keeps_the_arm_with_the_better_quote_among_equal_ranks(tmp_path):
+    r, out, summary = _run(tmp_path, ARM_ATTEMPT, "", extra=[
+        "--parallel", "2", "--max-attempts", "2", "--alt-env", "HL=B", "--tiebreak", TIEBREAK])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "arm=B" in out.read_text()
+    cb = summary["choose_better"]
+    assert cb["kept_arm"] == "B" and cb["alt_env"] == {"HL": "B"}
+    assert [d["arm"] for d in summary["attempt_log"]] == ["A", "B"]
+    (t,) = cb["ties"]
+    assert t["rank"] == [0, 0, 0, 0, 0] and t["switched"] == (t["kept_arm"] == "A")
+
+
+def test_choose_better_never_trades_rank_for_the_quote(tmp_path):
+    """Arm B's quote is better but its board leaves a connection open: KiCad's rank decides."""
+    r, out, summary = _run(tmp_path, ARM_ATTEMPT, "", extra=[
+        "--parallel", "2", "--max-attempts", "2", "--alt-env", "HL=B OPENS=1", "--tiebreak", TIEBREAK])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "arm=A" in out.read_text() and summary["choose_better"]["kept_arm"] == "A"
+    assert summary["choose_better"]["ties"] == []
+
+
+def test_the_final_pass_runs_with_the_kept_boards_arm(tmp_path):
+    """Arm A leaves 3 connections open, arm B 1: B is kept and its final pass runs with B's setting."""
+    r, out, summary = _run(tmp_path, "echo \"(kicad_pcb OPEN=${OPENS:-3} arm=${HL:-A})\" > @OUT@",
+                           "echo \"(kicad_pcb OPEN=0 final=${HL:-A})\" > @OUT@", extra=[
+                               "--parallel", "2", "--max-attempts", "2", "--alt-env", "HL=B OPENS=1"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    fin = summary["attempt_log"][-1]
+    assert fin["k"] == "final" and fin["arm"] == "B" and "final=B" in out.read_text()
