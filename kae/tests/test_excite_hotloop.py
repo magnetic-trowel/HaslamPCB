@@ -200,3 +200,25 @@ def test_scope_losses_gives_the_full_evaluations_values_and_nothing_else(tmp):
     st = OB.evaluate(lp, {"terms": TERMS["terms"]})
     rows = {r["id"]: r for r in st["terms"]}
     assert rows["S0"]["incomplete"] and not rows["P3"].get("incomplete")
+
+
+def test_the_ac_loop_loss_sums_harmonics_and_reduces_to_the_flat_formula():
+    import numpy as np
+    from kae.excite import hotloop as HL
+    flat = lambda f: np.full(np.shape(f), 0.01)
+    for D in (0.2, 0.5, 0.74):
+        assert HL.ac_loop_loss(2.0, D, 1e6, 0.0, flat) == pytest.approx(4.0 * D * (1 - D) * 0.01, rel=0.01)
+    row = {"R_harmonics": [dict(n=1, f_MHz=1.0, R_mohm=10.0), dict(n=3, f_MHz=3.0, R_mohm=14.0),
+                           dict(n=5, f_MHz=5.0, R_mohm=18.0)]}
+    R = HL.r_of_f(row)
+    assert R(np.array([1e6, 3e6, 20e6])) == pytest.approx([0.010, 0.014, 0.018 * 2.0])
+    rising = HL.ac_loop_loss(2.0, 0.5, 1e6, 5e-9, R)
+    assert rising > HL.ac_loop_loss(2.0, 0.5, 1e6, 5e-9, flat)          # crowding raises it
+
+
+def test_the_ac_loop_loss_observation_uses_the_windows_harmonics(tmp):
+    from kae.excite import hotloop as HL
+    ev = _ev("closed", tmp)
+    c, (ob,) = _cell(ev), _obs(ev, "loss.loop_ac")
+    assert ob["scope"]["R_harmonics_mohm"] == [h["R_mohm"] for h in c["R_harmonics"]]
+    assert ob["values"][0] > 0 and "harmonics" in ob["label"]

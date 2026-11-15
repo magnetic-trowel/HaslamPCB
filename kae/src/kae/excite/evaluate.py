@@ -473,6 +473,24 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                                  pitch=cell_pitch or HL.CELL_PITCH, global_pairs=gp, global_pitch=pitch,
                                  open_cells=open_cells, uncomputed=uncomputed, skin=cell_skin, log=log)
         log(f"cells: {len(cell_rows)} hot loops in {time.time() - t_c:.1f}s")
+        # the AC loop loss from the window's R(f) (skin and proximity crowding, per harmonic) where a cell has one
+        for row in cell_rows:
+            Rf = HL.r_of_f(row) if row.get("state") == "ok" and (row.get("window") or {}).get("refined") else None
+            ob = next((x for x in observations if x["id"] == "loss.loop_ac" and x["scope"].get("source") == row["source"]
+                       and not x.get("open")), None)
+            if Rf is None or ob is None:
+                continue
+            vals = []
+            for c in range(ncp):
+                val = {k[1]: v for k, v in cps[row["source"]][c].items()}
+                vals.append(HL.ac_loop_loss(val.get("I_A", 0.0), min(max(val.get("D", 0.5), 0.0), 1.0),
+                                            val.get("f_sw_Hz", 0.0), val.get("t_i_s", 0.0), Rf) if val.get("f_sw_Hz") else 0.0)
+            ob["values"] = vals
+            ob["scope"]["R_loop_ohm"] = row["R_loop_mohm"] * 1e-3
+            ob["scope"]["R_harmonics_mohm"] = [h["R_mohm"] for h in row["R_harmonics"]]
+            ob["label"] = (f"hot-loop AC conduction loss of {row['source']}: sum over harmonics of I_n^2 R_loop(n f_sw), "
+                           f"R_loop {row['R_loop_mohm']:.3g} mOhm at f_sw, "
+                           f"{row['R_harmonics'][-1]['R_mohm']:.3g} at {row['R_harmonics'][-1]['n']} f_sw (cell window, skin)")
     # each cell's parasitic ring: its copper loop with the switch node's capacitance
     rings = []
     for pr in pairs:

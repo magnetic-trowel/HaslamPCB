@@ -78,9 +78,10 @@ KINDS = {
                   "without a cell model at its efficiency. Loads' own consumption is not a loss and is left out."),
     "loss.loop": ("W", "Energy a switching cell's commutation loop inductance (the copper's share) dumps into the "
                   "switch at every turn-off, 1/2 L_loop I^2 f_sw: the hot loop's layout cost in efficiency."),
-    "loss.loop_ac": ("W", "A switching cell's hot loop's copper resistance at the switching frequency (the layout's "
-                     "share) carrying the loop's pulsed current, I^2 D (1 - D) R: a lower bound above a few MHz "
-                     "(no skin or proximity effect in the raster)."),
+    "loss.loop_ac": ("W", "A switching cell's hot loop's copper resistance (the layout's share) carrying the loop's "
+                     "pulsed current: with a cell window, the sum over harmonics of I_n^2 R_loop(n f_sw), R from the "
+                     "window solve with skin and proximity crowding (kae.excite.hotloop); without one, "
+                     "I^2 D (1 - D) R(f_sw) of the board solve, which has none (a lower bound)."),
     "loss.swnode": ("W", "The layout's capacitance of a switch node (its copper to every other net and the world, "
                     "in the board's stackup) charged through the switch every cycle, 1/2 C V^2 f_sw."),
     "temp.junction": ("C", "A dissipating part's junction temperature: the board's heat flow (copper I^2 R, every "
