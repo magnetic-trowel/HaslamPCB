@@ -13,7 +13,7 @@ from .consts import GB, MEM_BINS, TICK
 from .cpu import adapt_runq_q, burst_fits, quantile
 from .gitsnap import drop_worktree, git, ref
 from .host import Host, TICK_HZ, at_high, cg_anon_refaults, cg_freeze, cg_frozen, cg_high_mb, cg_mem, cg_mem_pressure, cg_pressure, cg_set_high, cg_swap_mb, compress, compress_room_mb, job_cgroup, job_cpus, job_usage, kill_tree, pid_alive, shutil_which, uncompress
-from .leases import expected_size, keep_flags, adapt_hold, adapt_z, lease_plan, max_rise, mem_hist, owner_correlation, pooled_headroom, warm_headroom
+from .leases import expected_size, timed_share, keep_flags, adapt_hold, adapt_z, lease_plan, max_rise, mem_hist, owner_correlation, pooled_headroom, warm_headroom
 from .store import BEAT, CONF, DB, HOME, HOST, LOCK, OVERCOMMIT, RISE_HIST, backup_db, close_trace, config, db, deployed, digest, dlog, drop_scratch, du_mb, event, jobdir, load_overcommit, load_rise_hist, pinned_host, rc_path, scratchdir, write_trace
 from .units import active_for, fdur, fgb, frozen_for, times
 
@@ -382,7 +382,7 @@ class Daemon:
             self.oc_done += sum(max(1.0, j["cpus"]) for j in running if (j["qos"] or "timed") == "timed") * (now - self.oc_t)
         self.oc_t = now
         hold = self.oc.get("hold", cfg["timed_hold_frac"]) if cfg["timed_hold_auto"] else cfg["timed_hold_frac"]
-        z = self.oc.get("z", cfg["timed_z"])
+        z = min(self.oc.get("z", cfg["timed_z"]), cfg["timed_z_max"])
         hist = self.oc.setdefault("hist", [])
         if not hist or now - hist[-1][0] >= cfg["overcommit_every_s"]:
             hist.append((now, self.oc_done, self.oc_lost))
@@ -469,7 +469,7 @@ class Daemon:
         if ev is not None and now - self.evict_ts >= cfg["evict_every_s"]:
             self.evict_ts = now
             v = by[ev]
-            self.oc_lost += active_for(v, now) * max(1.0, v["cpus"])
+            self.oc_lost += active_for(v, now) * max(1.0, v["cpus"]) * timed_share(jobs, plan["grants"], room, buffer)
             self.preempt(v, now, f"requeued: memory ran short (free {fgb(room)} beyond the reserve, under half the "
                                  f"{fgb(buffer)} buffer); it lost the least work per GB freed and restarts from "
                                  f"scratch, so its results are unaffected")
