@@ -660,6 +660,23 @@ def route_cell(ctx, m):
             outer = [ctx.sp.cu[0], ctx.sp.cu[-1]]
             rt = route_hop(ctx, m, f"hop{k}", net, [anchor(ta)], [anchor(tb)], widths[-3:], outer, via=True,
                            via_cost=4.0)
+        narrowed = None
+        if rt is None and _opt(ctx, "cell_widest_fit") and floor > mn + 1e-6:
+            # no room at the width the current asks: the widest width that fits, down to the class minimum,
+            # rather than the bridge's class width (bq25306: a 1.7 mm VIN hop with no room went to Freerouting
+            # at 0.2 mm). The shortfall stays a heat hazard below (copper_below_ipc_width).
+            below = [w for w in sorted(set(round(w, 4) for w in width_ladder(floor, max(mn, 1e-3), 6)), reverse=True)
+                     if w < floor - 1e-6]
+            rt = route_hop(ctx, m, f"hop{k}", net, [anchor(ta)], [anchor(tb)], below, [L0], via=False)
+            if rt is None and len(ctx.sp.cu) > 1:
+                rt = route_hop(ctx, m, f"hop{k}", net, [anchor(ta)], [anchor(tb)], below[-3:],
+                               [ctx.sp.cu[0], ctx.sp.cu[-1]], via=True, via_cost=4.0)
+            if rt is not None:
+                narrowed = rt.width
+                m.notes.append(f"hop {k} ({net}): no room at {floor:.2f} mm; widest fit {rt.width:.2f} mm")
+                m.flags.append(dict(flag="widest_fit", hop=k, net=net, floor_mm=round(floor, 3),
+                                    width_mm=round(rt.width, 3)))
+                m.spec.setdefault("_floor", {})[f"hop{k}"] = rt.width     # trim_widths keeps it
         t_l0 = ctx.sp.tcu.get(L0, 0.035)
         refs = [getattr(ctx.fp.get(t_.fp), "ref", t_.fp) for t_ in (ta, tb)]
         where = f"{m.id} hop {k} ({refs[0]} to {refs[1]})"
@@ -1073,11 +1090,43 @@ def _cell_value(ctx, m):
     extra = dict(h_mm=round(h, 3) if h != INF else None, plane=pl, plane_net=pn, variants=len(vals),
                  R_mohm=round(R * 1e3, 4))
     if m.kind == "cell":
+        from .critical_physics import ac_loss
         I, f, D, _basis = cell_operating(ctx, m)
+        t_r = float((m.spec.get("excite") or {}).get("t_sw_ns") or 2.0) * 1e-9
+        hh = h if h != INF else 1.5
         w_l = 0.5 * val * 1e-9 * I * I * f          # loss.loop: 1/2 L I^2 f_sw
-        w_r = I * I * D * (1.0 - D) * R             # loss.loop_ac: I^2 D (1 - D) R_loop
-        extra.update(W=w_l + w_r, W_loop=round(w_l, 9), W_loop_ac=round(w_r, 9))
+        # loss.loop_ac at f_sw and its harmonics, skin and proximity included (critical_physics.ac_loss;
+        # I^2 D (1 - D) R_loop, the evaluator's DC-resistance term, is its rac = 1 limit)
+        key = f"_acK{hh:.4f}"                      # ac_loss is linear in R: its factor once per cell and height
+        acK = m.spec.get(key)
+        if acK is None:
+            acK = m.spec[key] = ac_loss(I, D, f, 1.0, hh, t_r)
+        w_r = acK * R
+        w_s = _swnode_watts(ctx, m, hh, f)          # loss.swnode: the switch-node copper's 1/2 C V^2 f_sw
+        extra.update(W=w_l + w_r + w_s, W_loop=round(w_l, 9), W_loop_ac=round(w_r, 9),
+                     W_loop_ac_dc=round(I * I * D * (1.0 - D) * R, 9), W_swnode=round(w_s, 9))
     return val, extra
+
+
+def _swnode_watts(ctx, m, h, f):
+    """loss.swnode of the cell's routed switch-node copper: 1/2 C V^2 f_sw with C the parallel-plate
+    capacitance of its hop strips to the plane below (eps0 er A / h). Only what routing changes: the
+    pads' share is a constant of the placement."""
+    sw = m.spec.get("sw")
+    if not sw or h in (None, INF) or h <= 0:
+        return 0.0
+    area = 0.0
+    for rt in m.hops.values():
+        if rt is None or rt.net != sw:
+            continue
+        for i, (_l, a, b) in enumerate(rt.segs):
+            area += math.dist(a, b) * rt.seg_w(i)
+    if area <= 0:
+        return 0.0
+    er = (ctx.sp.er[0] if getattr(ctx.sp, "er", None) else 4.5)
+    C = 8.854e-15 * er * area / h                       # F (mm units)
+    V = ctx.volts(m.spec.get("rail") or "") or 5.0
+    return 0.5 * C * V * V * f
 
 
 # ----------------------------------------------------------------------------- allocations

@@ -72,8 +72,24 @@ def test_watts_quote_is_loss_loop_plus_loop_ac(tmp_path):
     I, f, D, basis = CM.cell_operating(s.ctx, m)
     w = CM.quote(s.ctx, m, store=False)
     L, R = m.physics["value"], m.physics["R_mohm"] * 1e-3
-    assert w == pytest.approx(0.5 * L * 1e-9 * I * I * f + I * I * D * (1 - D) * R, rel=1e-3)
+    ph = m.physics
+    assert w == pytest.approx(0.5 * L * 1e-9 * I * I * f + ph["W_loop_ac"] + ph["W_swnode"], rel=1e-3)
+    # the AC term is the evaluator's I^2 D (1 - D) R plus skin and proximity at f_sw and its harmonics
+    assert ph["W_loop_ac"] > ph["W_loop_ac_dc"] == pytest.approx(I * I * D * (1 - D) * R, rel=1e-3)
+    assert ph["W_swnode"] >= 0       # the fixture's loop has no switch-node hop (SW runs U1 -> L1 outside it)
     assert 0 < D < 1 and basis
+
+
+def test_ac_loss_reduces_to_rms_without_skin(monkeypatch):
+    monkeypatch.setattr(P, "rac_ratio", lambda f, h=0.1: 1.0)
+    for D in (0.2, 0.5, 0.66):
+        assert P.ac_loss(2.0, D, 1e6, 0.01, t_r=0.0, n_max=20000) == pytest.approx(4 * D * (1 - D) * 0.01, rel=5e-3)
+
+
+def test_rac_ratio_follows_the_solved_table():
+    assert P.rac_ratio(1e6, 0.1) == pytest.approx(1.59)
+    assert P.rac_ratio(1e7, 1.5) == pytest.approx(1.67)
+    assert P.rac_ratio(1e3, 0.1) == 1.0 and P.rac_ratio(3e6, 0.1) > P.rac_ratio(1e6, 0.1)
 
 
 def test_watts_trim_never_narrows_more_than_nh_trim(tmp_path):
@@ -244,3 +260,81 @@ def test_cell_pin_corridors_open_only_for_open_pins(tmp_path):
     rep = dict(unconnected_items=[dict(items=[dict(description="Pad 6 [Net-(U1-BST)] of U1 on F.Cu"),
                                               dict(description="Pad 1 [x] of R7 on F.Cu")])])
     assert hotloop.open_cell_pads(rep, plan) == {"U1.6"}
+
+
+def test_keepout_covers_loop_net_pours_on_every_layer(tmp_path):
+    """A pour of a loop net (here VIN on F.Cu) under the cell gets its own keep-out, as the return plane does."""
+    from kae.route import critical_write as W
+    src = F.write_board(tmp_path / "a")
+    ring = [(114.0, 107.0), (124.0, 107.0), (124.0, 113.0), (114.0, 113.0), (114.0, 107.0)]
+    p = tmp_path / "b" / "board.kicad_pcb"
+    p.parent.mkdir()
+    W.append_items(src, p, zones=[("VIN", "F.Cu", [ring], "vin-pour", 0)])
+    (tmp_path / "b" / "board.kicad_pro").write_text((tmp_path / "a" / "board.kicad_pro").read_text())
+    b = load(p)
+    s = hotloop._session(p, F.synth_info(b), hotloop.settings(None, {"hotloop_keepout": 1}), {}, lambda *a: None)
+    plan, rows, _ = hotloop.keepout_plan(s, hotloop._plan_cells(s), 1.0)
+    assert {("GND", "B.Cu"), ("VIN", "F.Cu")} <= {(e["net"], e["layer"]) for e in plan}
+    zs = hotloop.zones_for(s.board, plan)
+    vin = [z for z in zs if z[0] == "VIN" and z[1] == "F.Cu"]
+    assert vin and all(z[3].startswith(hotloop.GUARD_PREFIX) for z in vin)
+    # inside the VIN pour only
+    assert all(Polygon(ring).buffer(1e-6).contains(Polygon(z[2][0])) for z in vin)
+
+
+def test_failed_cell_keeps_its_keepout(tmp_path):
+    p = F.write_board(tmp_path / "in")
+    s = hotloop._session(p, F.synth_info(load(p)), hotloop.settings(None, {"hotloop_keepout": 1}), {},
+                         lambda *a: None)
+    mods = hotloop._plan_cells(s)
+    for m in mods:
+        m.status = "failed"
+    plan, _, _ = hotloop.keepout_plan(s, mods, 1.0)
+    assert hotloop.zones_for(s.board, plan)
+
+
+def test_widest_fit_routes_a_hop_with_no_room_at_its_ipc_width(tmp_path):
+    big = {"cells": {"cell:buck:U1": {"I_A": [40.0, 40.0]}}}        # an 8 mm hop (rail_max_mm) asked by the current
+    off = F.session(tmp_path / "off", kinds=("cell",), rails="none", place_allocs=False, intent=big, rail_max_mm=8.0)
+    off.route()
+    on = F.session(tmp_path / "on", kinds=("cell",), rails="none", place_allocs=False, intent=big, rail_max_mm=8.0,
+                   cell_widest_fit=True)
+    on.route()
+    mo = next(x for x in off.modules if x.kind == "cell")
+    mn = next(x for x in on.modules if x.kind == "cell")
+    left = {f["hop"] for f in mo.flags if f["flag"] == "ipc_floor_unroutable"}
+    fit = {f["hop"]: f for f in mn.flags if f["flag"] == "widest_fit"}
+    assert left and left <= set(fit)
+    for k, f in fit.items():
+        assert f["width_mm"] < f["floor_mm"] and mn.hops[f"hop{k}"] is not None
+    assert not [f for f in mn.flags if f["flag"] == "ipc_floor_unroutable"]
+
+
+def test_guards_copy_the_planes_pad_connection_and_lift_locally(tmp_path):
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+    p = F.write_board(tmp_path / "in")
+    s = hotloop._session(p, F.synth_info(load(p)), hotloop.settings(None, {"hotloop_keepout": 1}), {},
+                         lambda *a: None)
+    plan, _, _ = hotloop.keepout_plan(s, hotloop._plan_cells(s), 1.0)
+    full = hotloop.zones_for(s.board, plan)
+    assert full and full[0][6].get("connect") == "thermal"     # the fixture's GND pour: thermal reliefs
+    e = next(e for e in plan if e["plane"])
+    seg = LineString([(e["region"].bounds[0] - 1, e["region"].centroid.y),
+                      (e["region"].bounds[2] + 1, e["region"].centroid.y)])
+    e["cuts"] = [seg.buffer(hotloop.CROSS_HALF_MM, cap_style=2)]
+    crossed = unary_union([Polygon(z[2][0]) for z in hotloop.zones_for(s.board, plan)])
+    assert not crossed.intersects(seg.buffer(0.1)) and crossed.area > 0
+    e["lifted"] = True
+    assert not [z for z in hotloop.zones_for(s.board, plan) if z[1] == e["layer"] and z[0] == e["net"]]
+
+
+def test_open_pairs_and_lift_setting(monkeypatch):
+    rep = dict(unconnected_items=[dict(items=[dict(description="Pad 1 [A] of R1", pos=dict(x=0, y=0)),
+                                              dict(description="Pad 2 [A] of R2", pos=dict(x=3, y=4))])])
+    (net, seg), = hotloop._open_pairs(rep)
+    assert net == "A" and seg.length == pytest.approx(5.0)
+    monkeypatch.delenv("KAE_HOTLOOP_LIFT", raising=False)
+    assert hotloop.settings(None, {})["lift"] == "plane"
+    assert hotloop.settings(None, {"hotloop_lift": "corridors"})["lift"] == "corridors"
+    assert hotloop.settings(None, {"hotloop_lift": "bogus"})["lift"] == "plane"
