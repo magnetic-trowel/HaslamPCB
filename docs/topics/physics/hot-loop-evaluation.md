@@ -1,7 +1,7 @@
 # Hot-loop evaluation: per-cell primaries, open cells, the window solve
 
 Scope: how `kae.excite.evaluate` measures a switching cell's commutation (hot) loop and how `kae.intent` prices it: open cells, the per-cell window solve, its pitch, what it leaves out. Not here: the loop physics and expert layouts -> [pdn-and-commutation](pdn-and-commutation.md#1-commutation-loop-geometry); the router's own loop quote -> [critical-net-routing](../routing/critical-net-routing.md); the hot-loop routing design and A/B -> [kae-hot-loops](../../research/routing/kae-hot-loops.md).
-Keys: hot loop, commutation cell, L_loop, R_loop, overshoot.peak, loss.loop, loss.loop_ac, loss.swnode, open cell, open_cells, cells, window solve, CELL_PITCH, MARGIN_H, kae.excite.hotloop, skin correction, cap body, ESL, ½·L·I²·f, EPC
+Keys: hot loop, commutation cell, L_loop, R_loop, overshoot.peak, loss.loop, loss.loop_ac, loss.swnode, open cell, open_cells, cells, window solve, CELL_PITCH, MARGIN_H, kae.excite.hotloop, skin correction, cap body, ESL, ½·L·I²·f, EPC, loss.copper_ac, inductor ripple, kae.excite.ripple, scope losses, AC copper loss
 
 Tags: [C] computed by the scripts named; [I] inference; [P] primary source.
 
@@ -16,6 +16,7 @@ A cell (`kae.excite.sources._cell`) is a unit current source across its switch; 
 | overshoot peak | `|Z(f_sw)|·(2/π)·|sin πD|·I + L_loop·I/t_i` per corner (`harm.peak`) | `cells[].overshoot_V` {typ, worst}; board solve: `overshoot.peak` |
 | `loss.loop` | `½·L_loop·I²·f_sw` per corner (max(L_loop, 0): a negative copper share costs nothing, the cell stays) | observation |
 | `loss.loop_ac` | with a refined window: `Σₙ |cₙ|²/2 · R_loop(n·f_sw)`, `cₙ = (2I/nπ)·|sin nπD|·sinc(n·f_sw·t_i)` (199 harmonics), R_loop(f) from the window's solves at f_sw, 3 f_sw, 5 f_sw (lateral crowding toward the return in the field solve, crowding through the thickness by `kae.em.skin`), log-log between them and `∝ √f` above 5 f_sw; it reduces to `I²·D·(1−D)·R` for flat R. Without a window: `I²·D·(1−D)·R_loop(f_sw)` of the board solve, no skin (a lower bound) | observation (`scope.R_harmonics_mohm`) |
+| `loss.copper_ac` | the inductor's ripple (§ 7): `Σₙ cₙ²·P₁(n·f_sw)` | observation |
 | `loss.swnode` | `½·C_sw·V²·f_sw`, C_sw from the electrostatic solve | observation |
 
 The board solve (0.25 mm) gives the observations the intent prices; the window solve (§3) gives the per-cell primaries, reported beside the board solve's values (`cells[].global`) for cell-by-cell comparison of layouts. `kae.intent` copies the rows into `status.cells`; `python -m kae.excite.hotloop A.ev.json B.ev.json ...` pairs two arms cell by cell.
@@ -121,6 +122,37 @@ Two-pad parts are lumped branches between their pads' terminals (`mesh.Lumped`):
 ## 6. Absolute loss scale: ½·L·I²·f understates
 
 `loss.loop = ½·L·I²·f_sw` is the energy of the loop's inductance at turn-off. EPC measures more than 4 % efficiency over 0.4 → 2.9 nH at 12 → 1.2 V, 1 MHz, about 0.4 W/nH at an assumed 20 A against ½·L·I²·f's 0.2 W/nH: the rest is slower commutation and the overshoot's own loss [P, I] ([kae-hot-loops](../../research/routing/kae-hot-loops.md#what-experts-do-and-why-quantified)). The factor depends on the cell (integrated vs discrete switches, gate drive), not on the layout, so for one cell it is a constant: layout ratios and rankings hold; watts across cells of different classes do not compare. Not retuned: a per-class switching model is an open question.
+
+## 7. Board-level AC copper loss: the split between loss.loop_ac and loss.copper_ac
+
+A converter carries two AC currents besides its DC: the commutated (pulsed) current between the input capacitors and the switches, and the inductor's triangular ripple through the switch node, inductor, output capacitors and ground. The split is by current, not by region:
+
+| Term | Current | Where it is counted |
+|---|---|---|
+| `loss.copper` | DC load and source currents | whole board (DC band) |
+| `loss.loop_ac` | the commutated current, its harmonics | whole board: `R_loop = Re Jᵀ Z J` at the switch port is, by Tellegen, that pattern's dissipation in all copper it reaches (bulk caps, input traces, planes), less the parts' ESR redistribution; the window refines it near the cell, the truncation correction keeps the rest of the board |
+| `loss.copper_ac` | the inductor ripple, its harmonics | whole board (`kae.excite.ripple`) |
+
+No region is counted twice. Left out: the cross term where both AC currents share copper (the switch's ground pins), cells without an inductor in their structure, and non-converter AC currents (clocks, IC cores), which `kae.excite.wideband` includes.
+
+**Model** (`kae.excite.ripple`). A Norton source across the inductor's pads, solved on the board solve's network at f_sw, 3 f_sw, 5 f_sw; per unit amplitude `P₁(f) = ½ Σ_b R_b(f)·|I_b|²` over the copper branches (filaments, via barrels; not parts), each layer's R × `kae.em.skin.correction(f)`. Triangle of `ΔI = V·D·(1−D)/(L·f_sw)` peak to peak (V the switch's bus; CCM, capped at 2 I), `cₙ = ΔI·|sin nπD| / (π²n²·D(1−D))`, `Σ cₙ²/2 = ΔI²/12`. L from the inductor's circuit model. A path open beyond a 1 % leak marks `ripple:<cell>` not computed; only `loss.copper_ac` terms see it.
+
+**Pricing.** An intent that prices `loss.copper` (cost, unscoped) and says nothing of `loss.copper_ac` prices it the same (term `<id>ac`); `neutral/1` adds `D1ac`. Evaluations without the kind price as before.
+
+**Hand check** (fixture buck, 12 V, D 0.275, 4.7 µH, 1.1 MHz): ΔI = 0.462 A; R_eff at f_sw 9.8 mΩ against ~8.8 mΩ by hand (5.8 mm of 0.5 mm track outside the pads at 0.98 mΩ/mm, two 0.3 mm barrels at ~1.05 mΩ, ~1 mΩ of plane); loss = ΔI²/12·R_eff within 3 % (`test_the_inductor_ripple_copper_loss_matches_a_hand_estimate`).
+
+**On the converter boards** (human layouts, `--scope losses`; 11 of 24 boards finished when written) [C]:
+- `loss.copper_ac / loss.copper` (typical corner, boards with both): median 0.00056, 0.00022–0.0019 (3 boards: powerboost, govish, it8951). Most of these boards have no DC flow modelled (`DC: no rail with a source and a load`), so the ratio rests on few boards.
+- `loss.copper_ac / loss.loop_ac` per cell: median 0.019, 0.003–2.25 (7 cells); above 1 only on chip-lcd's boost, whose loop losses are 0.1–0.2 µW.
+- Class-D and filterless bridges (max98357, circuitmonkey, noggin) have no inductor in their structure: no ripple term, noted.
+- Physics agrees: ripple RMS is ΔI/√12, ~10 % of a CCM load current, through mΩ of output copper, against the full pulsed current RMS I·√(D(1−D)) in the input loop.
+
+**Against `kae.excite.wideband`** (its `ac_loss.copper_W`: every AC source's harmonics through the reduced model at 0.25 mm, skin on; no ripple source either):
+| Board | wideband | `loss.loop_ac` + `loss.copper_ac` | Why they differ |
+|---|---|---|---|
+| bq25306 human | 0.235 mW | 0.230 + 0.018 = 0.248 mW | the cell's term agrees within 2 %; wideband adds the cores' currents, has no ripple |
+| qubik-bmps human | 0.210 mW | 0.141 + 0.003 = 0.144 mW | wideband builds its circuit without the operating facts' pin facts (a different brief), solves every harmonic to 172 MHz where `loss.loop_ac` extrapolates √f above 5 f_sw, and stays at 0.25 mm (the window reads R 8 % lower here) |
+| powerboost human | — | 0.086 + 0.011 mW | wideband fails with no sources (no pin facts: no cell found) |
 
 ## Use the solver, not the routed-copper estimator, for comparisons
 
