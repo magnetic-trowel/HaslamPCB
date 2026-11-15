@@ -70,3 +70,7 @@ Every run was scored. No rule changes.
 **Verdict:** pooled with the first 160 boards, the same primary (opens on the boards open after phase 1, paired `d`, sign-flip), the same p < 0.05 and 3 % rule, and the same guards.
 - If it is still undecided, another batch is drawn the same way (from moderate, hard and extreme boards not yet used) and pooled again, until decided.
 - Smoke: 2 boards, then priority 2.
+- **Extension smoke (2026-11-15):** plumbing only.
+  - adafruit ds2482s-800: open after phase 1 (6 opens) in both arms, with the same phase 1. CF ran R' and CF-W ran `open-alt`; both ended at 6.
+  - acruxcz trx055 carrier was still running when the full run was submitted (peak 15 GB). It stays in the experiment.
+  - No rule changes.
