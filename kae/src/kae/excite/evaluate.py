@@ -143,7 +143,7 @@ def coarsen_pitch(window, pitch, n_layers, max_cells):
 
 def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=None, log=print, lumped=True,
              intent=None, n_corners=16, seed=0, dc=True, max_cells=None, cells=True, cell_pitch=None, cell_skin=True,
-             drc=None):
+             drc=None, scope=None):
     """Every harm of a laid-out board, across the parameters' intervals.
 
     Each aggressor's pattern is solved in two bands: its switching fundamental (current split by the
@@ -154,7 +154,14 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     model and only the other parts' pads are injected. cells: each switching cell's hot loop solved again in a
     window at cell_pitch (default kae.excite.hotloop.CELL_PITCH), its primaries in the result's `cells`. drc: a
     KiCad DRC report of this board (path or dict; None: drc.json or score/drc.json beside the board if present;
-    False: none): a cell whose loop member it lists as unconnected is an open cell."""
+    False: none): a cell whose loop member it lists as unconnected is an open cell. scope "losses": only what the
+    loss terms need (the cells' own bands, their overshoot observers, the switch-node capacitance, the DC and heat
+    bands, the windows); every other source and observer is set up as in the full evaluation (the same mesh and network,
+    so the values computed are the full evaluation's) but not solved, and only the SCOPE_KINDS observations are
+    reported (ev["scope"]; kae.intent marks terms on other kinds incomplete)."""
+    if scope not in (None, "losses"):
+        raise ValueError(f"scope {scope!r}: None or 'losses'")
+    loops = scope == "losses"
     from kae.board.kicad_file import load
     from kae.circuit import brief as B
     from kae.em import solve as ES
@@ -242,9 +249,10 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         f"{len(srcs)} sources, {len(obs)} observers, {len(pads)} pads ({len(missing)} outside or unresolved), "
         f"bands {[round(f / 1e6, 3) for f in freqs]} MHz, setup {time.time() - t0:.1f}s")
     solved, solver_stats = {}, []
+    cell_names = {s.name for s in srcs if s.kind == "cell"}
     last = {}            # source -> (f, injections, solution): the start of its next band's solve
     for f in freqs:
-        keys = [k for k, (ff, _) in pats.items() if ff == f]
+        keys = [k for k, (ff, _) in pats.items() if ff == f and (not loops or k[0] in cell_names)]
         injs = [{p: j for p, j in pats[k][1].items() if p in bm.m.terminals} for k in keys]
         # a pattern whose every injection is the circuit's leak (G_LEAK): the source's current closes inside
         # its part (a core current from a rail no other part is on): none of it reaches the copper
@@ -282,6 +290,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     # from its solve: its harms are not computed (a dropped contribution is not a zero one)
     miss = set(missing)
     for s in srcs:
+        if loops and s.kind != "cell":
+            continue
         out_ = sorted({p for band in bands[s.name] for p, j in pats[(s.name, band)][1].items() if p in miss and abs(j) > 1e-9})
         if out_:
             notes.append(f"{s.name}: pads outside the copper model ({', '.join(out_[:6])}): its harms are not computed")
@@ -297,7 +307,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         open_cells[name] = f"DRC unconnected: {where}"
     pairs = []
     for s in srcs:
-        if s.name in uncomputed:
+        if s.name in uncomputed or (loops and s.kind != "cell"):
             continue
         res = {}
         for band, f in bands[s.name].items():
@@ -320,6 +330,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                          f"harms are zero")
         for o in obs:
             if o.kind == "overshoot" and o.meta.get("source") != s.name:
+                continue
+            if loops and o.kind != "overshoot":
                 continue
             z = {}
             for band, (f, v) in res.items():
@@ -471,6 +483,10 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 fr = [1 / (2 * math.pi * math.sqrt(pr["Le"] * c)) for c in (C.hi, C.typ, C.lo)]
                 rings.append(dict(cell=pr["s"].name, L_copper_nH=round(pr["Le"] * 1e9, 3),
                                   f_ring_MHz=[round(x / 1e6) for x in fr]))
+    if loops:
+        observations = [ob for ob in observations if ob["id"] in SCOPE_KINDS]
+        notes.append(f"scope losses: only {', '.join(SCOPE_KINDS)} are evaluated; other sources and observers are "
+                     f"not solved")
     bad = [ob for ob in observations if ob.get("implausible")]
     if bad:
         notes.append(f"{len(bad)} observation(s) implausible, left for kae.intent to report unpriced: "
@@ -483,6 +499,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                                                       basis=p.basis) for p in ledger.flagged()],
                 bands={k: v for k, v in bands.items()}, rings=rings,
                 open_cells=[dict(source=k, why=v) for k, v in sorted(open_cells.items())], cells=cell_rows, drc=drc_src,
+                scope=scope,
                 observers=[dict(name=o.name, kind=o.kind, bound=o.bound, basis=o.basis) for o in obs],
                 harms=harms, observations=observations, hazards=hazards, mesh=mesh_rep,
                 part_power_W={k: round(v, 6) for k, v in sorted(part_power.items())},
@@ -673,6 +690,15 @@ def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes,
 
 
 THIN_SHARE = 0.25         # a priced net with this share of its copper in features under 3 cells is reported
+
+
+# the observations scope "losses" reports: every loss term (the cells' loop, AC loop and switch-node losses, the DC
+# band's copper loss, the heat band's part losses) and what the same bands give at no extra solve (overshoot from the
+# cells' own solve, rail drop, track heating, junction temperatures). Dropped: the noise and EMI observers
+# (supply.peak, pickup.peak, cable_cm.v) and every non-cell source's solves. No board-level AC copper loss outside
+# the cells exists in this evaluator (kae.excite.wideband has it), so none is kept or dropped.
+SCOPE_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac", "loss.swnode", "loss.copper", "loss.part", "drop.rail",
+               "heat.track", "temp.junction")
 
 
 def load_drc(path, drc=None):
@@ -888,6 +914,9 @@ def main(argv=None):
     ap.add_argument("--drc", help="KiCad DRC report (JSON) of this board: a cell with a loop member it lists as "
                     "unconnected is open (default: drc.json or score/drc.json beside the board, if present)")
     ap.add_argument("--no-drc", action="store_true", help="ignore any DRC report")
+    ap.add_argument("--scope", choices=["losses"], help="losses: only the loss terms (cells' loop, AC loop and "
+                    "switch-node losses with their primaries; DC copper loss, part losses) and what their bands give "
+                    "free (overshoot, drop, heat); no noise or EMI observers. Same values as the full evaluation")
     ap.add_argument("--no-cell-skin", action="store_true", help="the window solves without the skin correction")
     ap.add_argument("--max-cells", type=float, default=None,
                     help="raster budget (cells x copper layers): the pitch doubles until the board's window fits it")
@@ -896,7 +925,7 @@ def main(argv=None):
     r = evaluate(a.board, a.pitch, tuple(a.window) if a.window else None, nsub=a.nsub, log=lambda m: print(m, file=sys.stderr),
                  lumped=not a.no_lumped, intent=load_intent(a.intent), seed=a.seed,
                  max_cells=int(a.max_cells) if a.max_cells else None, cells=not a.no_cells, cell_pitch=a.cell_pitch,
-                 cell_skin=not a.no_cell_skin, drc=False if a.no_drc else a.drc)
+                 cell_skin=not a.no_cell_skin, drc=False if a.no_drc else a.drc, scope=a.scope)
     print_total(r["total"])
     print("assumptions:")
     for p in r["ledger"]:

@@ -353,6 +353,10 @@ def evaluate(ev, intent=None, brief=None):
         if t["id"] in lost:
             row["overridden_by"] = sorted(lost[t["id"]])          # more specific terms price those observations
         gap = _gap(t, missing, opened)
+        if ev.get("scope") == "losses":
+            out_ = [k for k in KINDS if fnmatch.fnmatch(k, t["obs"]) and k not in SCOPE_LOSSES]
+            if out_:
+                gap = gap + [f"scope losses: {k}" for k in out_]      # not evaluated in this scope: never a zero
         if gap:
             # a source this term could see was not computed (open copper): the value below covers only the
             # sources that were; it is reported, never priced, and never read as zero
@@ -484,6 +488,10 @@ def _legacy(ev, status):
 
 DC_KINDS = ("loss.copper", "drop.rail", "heat.track", "loss.part", "temp.junction")      # the DC band's observations
 
+
+# what an evaluation of scope "losses" observes (kae.excite.evaluate.SCOPE_KINDS)
+SCOPE_LOSSES = ("overshoot.peak", "loss.loop", "loss.loop_ac", "loss.swnode", "loss.copper", "loss.part", "drop.rail",
+                "heat.track", "temp.junction")
 
 # the kinds an open cell is observed in (at their caps), and loss.swnode, which needs no closed loop: a term on
 # these alone is complete for an open cell

@@ -172,3 +172,31 @@ def test_a_loop_member_drc_lists_unconnected_makes_the_cell_open(tmp):
     srcs = S.add_all(M.build(b, br), br)
     assert drc_open_cells(_drc("Pad 2 [GND] of U2 on F.Cu"), br, srcs) == {}     # not a loop member
     assert CELL in drc_open_cells(_drc("Pad 1 [VIN] of C1 on F.Cu"), br, srcs)
+
+
+def _strip(rows):
+    out = []
+    for r in rows:
+        r = dict(r)
+        if "window" in r:
+            r["window"] = {k: v for k, v in r["window"].items() if k != "seconds"}
+        out.append(r)
+    return out
+
+
+def test_scope_losses_gives_the_full_evaluations_values_and_nothing_else(tmp):
+    from kae.excite.evaluate import SCOPE_KINDS
+    p = write_hotloop_board(f"{tmp}/scope", "long")
+    kw = dict(pitch=0.25, fills=plane_fills(), log=lambda *a: None, cell_pitch=0.125)
+    full = evaluate(str(p), **kw)
+    lp = evaluate(str(p), scope="losses", **kw)
+    assert lp["scope"] == "losses" and {o["id"] for o in lp["observations"]} <= set(SCOPE_KINDS)
+    assert {o["id"] for o in lp["observations"]} >= {"loss.loop", "loss.loop_ac", "loss.swnode"}
+    key = lambda o: (o["id"], o["label"])
+    want = sorted(((key(o), o["values"]) for o in full["observations"] if o["id"] in SCOPE_KINDS))
+    got = sorted(((key(o), o["values"]) for o in lp["observations"]))
+    assert got == want                                          # bit for bit
+    assert _strip(lp["cells"]) == _strip(full["cells"])
+    st = OB.evaluate(lp, {"terms": TERMS["terms"]})
+    rows = {r["id"]: r for r in st["terms"]}
+    assert rows["S0"]["incomplete"] and not rows["P3"].get("incomplete")
