@@ -408,6 +408,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             ob["scope"]["kind"] = "loop_ac_loss"
             ob["scope"]["R_loop_ohm"] = R
             observations.append(ob)
+    observations += _ripple_observations(bd, brief, bm, net, op, srcs, obs, bands, cps, ncp, uncomputed, notes, key, nsub,
+                                         log)
     for name, where in open_cells.items():
         s = next(x for x in srcs if x.name == name)
         o = next((x for x in obs if x.kind == "overshoot" and x.meta.get("source") == name), None)
@@ -709,13 +711,84 @@ def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes,
 THIN_SHARE = 0.25         # a priced net with this share of its copper in features under 3 cells is reported
 
 
+def _ripple_observations(bd, brief, bm, net, op, srcs, obs, bands, cps, ncp, uncomputed, notes, key, nsub, log):
+    """loss.copper_ac per switching cell (kae.excite.ripple): its inductor's ripple current through the board's copper,
+    solved on the board solve's network at f_sw, 3 f_sw, 5 f_sw (one batch per frequency for all cells). A cell
+    whose ripple path is open adds "ripple:<cell>" to `uncomputed`; one without an inductor gets a note."""
+    from kae.em import solve as ES
+    from . import ripple as RP
+    t0 = time.time()
+    todo = []
+    for s in srcs:
+        if s.kind != "cell" or s.name in uncomputed:
+            continue
+        o = next((x for x in obs if x.kind == "overshoot" and x.meta.get("source") == s.name), None)
+        e, ref = RP.inductor_elem(bd, brief, s)
+        if e is None or o is None:
+            notes.append(f"{s.name}: no inductor{' ' + ref if ref else ''} in the circuit: its ripple's copper loss "
+                         f"(loss.copper_ac) is not modelled")
+            continue
+        f0 = bands[s.name]["fund"]
+        L = (e.z(2 * math.pi * f0)).imag / (2 * math.pi * f0)
+        rs = bd.circuit.src(f"ripple:{s.meta.get('cell')}", bd.net_of[e.pa], bd.net_of[e.pb], pa=e.pa, pb=e.pb,
+                            kind="ripple")
+        bd.circuit.sources.remove(rs)
+        todo.append(dict(s=s, o=o, rs=rs, L=L, f0=f0, P=[]))
+    for n in RP.HARMONICS:
+        live = [t for t in todo if t["P"] is not None]
+        if not live:
+            break
+        injs = []
+        for t in live:
+            Ja = bd.circuit.solve(n * t["f0"], [t["rs"]])[t["rs"].name][key]
+            injs.append({p: j for p, j in Ja.items() if p in bm.m.terminals and abs(j) > 1e-12})
+        # one frequency per cell set: cells of one board share f_sw only when their intents do; solve per frequency
+        for f in sorted({n * t["f0"] for t in live}):
+            grp = [(t, i) for t, i in zip(live, injs) if n * t["f0"] == f]
+            # a load island the ripple reaches with under 1 % of it (an unrouted MCU on the output rail) changes its
+            # loss by under 2 %: taken up, not called open
+            res = ES.potentials_many(bm.m, [i for _, i in grp], f, net=net, op=op, light=True, leak=RP.LEAK)
+            for (t, _), (v, info) in zip(grp, res):
+                if info["unbalanced"]:
+                    notes.append(f"{t['s'].name}: the inductor ripple's path is open ({open_note(info, bd.net_of)}): "
+                                 f"loss.copper_ac is not computed")
+                    uncomputed.append(t["rs"].name)
+                    t["P"] = None
+                    continue
+                t["P"].append(RP.p1(net, info["I"], f, nsub))
+                info.pop("x", None), info.pop("I", None)
+    out = []
+    for t in todo:
+        if t["P"] is None:
+            continue
+        s, Pf = t["s"], RP.p1_of_f([n * t["f0"] for n in RP.HARMONICS], t["P"])
+        vals = []
+        for c in range(ncp):
+            val = {k[1]: v for k, v in cps[s.name][c].items()}
+            dI = RP.ripple_amplitude(val, t["L"])
+            vals.append(RP.loss(dI, val.get("D", 0.5), val.get("f_sw_Hz", 0.0), Pf) if val.get("f_sw_Hz") else 0.0)
+        ob = O.observation(bd, t["o"], s, vals, [0.0] * ncp)
+        val0 = {k[1]: v for k, v in cps[s.name][0].items()}
+        ob.update(id="loss.copper_ac", unit="W", reference=dict(value=None, basis="none: a loss is priced, not bounded"),
+                  label=f"inductor ripple copper loss of {s.name}: dI {RP.ripple_amplitude(val0, t['L']):.3g} A p-p "
+                        f"(L {t['L'] * 1e6:.3g} uH) through the board's copper, R_eff "
+                        f"{2 * t['P'][0] * 1e3:.3g} mOhm at f_sw (skin)")
+        ob["scope"]["kind"] = "copper_ac_loss"
+        ob["scope"]["R_eff_ohm"] = [2 * x for x in t["P"]]
+        ob["scope"]["L_H"] = t["L"]
+        out.append(ob)
+    if todo:
+        log(f"ripple: {len(out)} cells' inductor ripple through the copper in {time.time() - t0:.1f}s")
+    return out
+
+
 # the observations scope "losses" reports: every loss term (the cells' loop, AC loop and switch-node losses, the DC
 # band's copper loss, the heat band's part losses) and what the same bands give at no extra solve (overshoot from the
 # cells' own solve, rail drop, track heating, junction temperatures). Dropped: the noise and EMI observers
 # (supply.peak, pickup.peak, cable_cm.v) and every non-cell source's solves. No board-level AC copper loss outside
 # the cells exists in this evaluator (kae.excite.wideband has it), so none is kept or dropped.
-SCOPE_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac", "loss.swnode", "loss.copper", "loss.part", "drop.rail",
-               "heat.track", "temp.junction")
+SCOPE_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac", "loss.swnode", "loss.copper", "loss.copper_ac",
+               "loss.part", "drop.rail", "heat.track", "temp.junction")
 
 
 def load_drc(path, drc=None):

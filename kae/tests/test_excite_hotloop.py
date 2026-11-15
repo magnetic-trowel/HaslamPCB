@@ -222,3 +222,25 @@ def test_the_ac_loop_loss_observation_uses_the_windows_harmonics(tmp):
     c, (ob,) = _cell(ev), _obs(ev, "loss.loop_ac")
     assert ob["scope"]["R_harmonics_mohm"] == [h["R_mohm"] for h in c["R_harmonics"]]
     assert ob["values"][0] > 0 and "harmonics" in ob["label"]
+
+
+def test_the_inductor_ripple_copper_loss_matches_a_hand_estimate(tmp):
+    """Buck of the fixture: dI = V D (1 - D) / (L f) through SW trace, inductor, output trace, C2, its via, the plane
+    and U1's ground via. By hand (0.5 mm tracks at 0.98 mOhm/mm outside the pads, ~5.8 mm; two 0.3 mm barrels
+    ~1.05 mOhm each; ~1 mOhm of plane) R ~ 8.8 mOhm, so dI^2 / 12 R."""
+    ev = _ev("closed", tmp)
+    (ob,) = _obs(ev, "loss.copper_ac")
+    R1 = ob["scope"]["R_eff_ohm"][0]
+    assert 7e-3 < R1 < 12e-3
+    dI = 12.0 * 0.275 * 0.725 / (ob["scope"]["L_H"] * 1.1e6)
+    assert ob["values"][0] == pytest.approx(dI ** 2 / 12 * R1, rel=0.03)       # the harmonics add a little
+    st = OB.evaluate(ev, {"terms": [{"id": "P1", "tier": "cost", "obs": "loss.copper", "rate": "1 mW_eq/mW", "why": "dc"}]})
+    row = next(r for r in st["terms"] if r["id"] == "P1ac")
+    assert row["obs"] == "loss.copper_ac" and row["contribution"] > 0             # priced like loss.copper
+
+
+def test_the_ripple_loss_is_deterministic_across_file_order(tmp):
+    a = _obs(_ev("long", tmp), "loss.copper_ac")[0]["values"]
+    p = write_hotloop_board(f"{tmp}/long-rev2", "long", reverse=True)
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.125)
+    assert _obs(ev, "loss.copper_ac")[0]["values"] == a
