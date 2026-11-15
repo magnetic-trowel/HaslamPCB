@@ -325,7 +325,11 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
         tv_s = min(float(opts.get("thermal_via_s") or 0.0), 0.1 * time_s) if hot else 0.0
         # the hot-loop escape round's time is kept from the repair rounds (hdmi2rgb H: the rounds used it all,
         # so no keep-out was lifted for the 12 connections it held open)
-        esc_s = min(max(60.0, 0.08 * time_s), 0.2 * time_s) if hl is not None and hl.get("_ko") else 0.0
+        esc_s = 0.0
+        if hl is not None and hl.get("_ko"):
+            # with the cell stage the round may end in Freerouting repair rounds (hotloop.escape_round)
+            cells = (hl.get("settings") or {}).get("cells")
+            esc_s = min(max(120.0, 0.15 * time_s), 0.25 * time_s) if cells else min(max(60.0, 0.08 * time_s), 0.2 * time_s)
         if opts.get("repair") and left() > 30:
             from . import repair
             report["repair"] = repair.loop(input_path, output_path, wd, p, info, opts,

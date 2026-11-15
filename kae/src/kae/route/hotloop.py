@@ -209,6 +209,19 @@ def keepout_plan(s, mods, margin, log=_log):
                         continue
                     pads = [a.geom, b.geom]
                 reg = unary_union(pads).convex_hull
+                # never over another loop net's own hop: the strip between its terminals stays free for it
+                # (govish K: the GND bridge lay across the VBUS hop C1 -> U1, which then went round it:
+                # 2.31 nH / 12.6 mOhm against 1.80 / 3.9 without the pour keep-outs)
+                hops = []
+                for k_ in range(len(T)):
+                    ta, tb = T[k_], T[(k_ + 1) % len(T)]
+                    if ta.fp != tb.fp and ta.net == tb.net and ta.net != net and layer in ta.layers:
+                        hops.append(unary_union([ta.geom_on(layer), tb.geom_on(layer)]).convex_hull
+                                    .buffer(s.space.max_need))
+                if hops:
+                    reg = reg.difference(unary_union(hops))
+                if reg.is_empty or reg.area < 0.5:
+                    continue
             esc = escapes(s, m, reg, loop, net)
             plan.append(dict(cell=m.id, net=net, layer=layer, h=h, region=reg, escapes=esc,
                              plane=(net, layer) == (pn, pl), conn=_connection(s.info, net, layer), loop=loop))
@@ -442,7 +455,8 @@ def escape_round(input_path, output_path, wd, plan, info, opts, hl, final_rep, d
         lifts.append(dict(level=level, nets=nets, what=did))
         log(f"hotloop: lift {level} for {', '.join(nets) or 'cell pins'}: {did if level != 'crossing' else len(did)}")
         zones = zones_for(ko["board"], kplan, pads)
-        unlock = sorted(cell_cu) if level == "plane" and cell_cu and not unlocked else None
+        core = set(ko.get("core_uuids") or ())
+        unlock = sorted(cell_cu - core) if level == "plane" and cell_cu - core and not unlocked else None
         unlocked = unlocked or bool(unlock)
         W.edit(output_path, tmp, drop_guards=True, unlock=unlock)
         W.append_items(tmp, output_path, zones=zones)
@@ -454,11 +468,29 @@ def escape_round(input_path, output_path, wd, plan, info, opts, hl, final_rep, d
         best = drc.summary(rep)
         if base is None:
             base = repair.input_errors(input_path, wd, deadline) if best["errors"] else {}
-        fixed = set(opts.get("fixed_uuids") or ()) - (cell_cu if unlocked else set())
+        fixed = set(opts.get("fixed_uuids") or ()) - ((cell_cu - core) if unlocked else set())
         rep = repair._last_mile(input_path, output_path, wd, p2, info, opts, deadline, rounds, best, rep,
                                 fixed, log, base=base) or rep
     if not lifts:
         return None
+    left_open = drc.summary(rep)["unconnected"] if rep else 0
+    if left_open and deadline - clock_now() > 60 and any(lf["level"] in ("crossing", "plane") for lf in lifts):
+        # the last mile alone cannot undo what the locked cell copper blocked during Freerouting's repair
+        # rounds (bq25306 and hdmi2rgb H): Freerouting repair rounds on the lifted board, the lifted cells'
+        # copper but the core loop ripable, inside the escape round's own time
+        import shutil
+        rwd = wd / "repair"
+        rwd.mkdir(parents=True, exist_ok=True)
+        if (wd.parent / "kicad.dsn").exists():
+            shutil.copy2(wd.parent / "kicad.dsn", rwd / "kicad.dsn")
+        core = set(ko.get("core_uuids") or ())
+        o2 = dict(opts, fixed_uuids=sorted(set(opts.get("fixed_uuids") or ()) - (cell_cu - core)))
+        log(f"hotloop: Freerouting repair after the lifts ({left_open} open, {deadline - clock_now():.0f} s)")
+        rr = repair.loop(input_path, output_path, rwd, p2, info, o2, deadline=deadline, log=log)
+        got = rr.pop("_report", None)
+        if got is not None:
+            rep = got
+        lifts.append(dict(level="repair", nets=[], what=[dict(before=left_open, after=drc.summary(rep)["unconnected"])]))
     for lf in lifts:
         hl.setdefault("hazards", []).append(H.make(
             "hotloop_keepout_lifted", "info", "electrical",
@@ -712,6 +744,9 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
         if rep.get("_ko") is not None:
             rep["_ko"]["cell_uuids"] = sorted({t.uuid for t in tracks} | {v.uuid for v in vias})
             rep["_ko"]["array"] = _array_items(s, mods)
+            # the core loop: the cell's hop tracks (cap to IC), kept locked through every lift
+            rep["_ko"]["core_uuids"] = sorted(it.uuid for it in s.space.routed if it.kind == "track" and it.uuid
+                                              and it.owner and str(it.owner[1]).startswith("hop"))
         if tracks or vias or zones:
             dst = wd / "hotloop.kicad_pcb"
             s.write(dst, guards=zones)
