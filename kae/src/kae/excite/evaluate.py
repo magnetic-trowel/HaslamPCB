@@ -404,7 +404,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             ob = O.observation(bd, o, s, rv, [0.0] * ncp)
             ob.update(id="loss.loop_ac", unit="W", reference=dict(value=None, basis="none: a loss is priced, not bounded"),
                       label=f"hot-loop AC conduction loss of {s.name}: I_ac,rms^2 R_loop, R_loop {R * 1e3:.3g} mOhm "
-                            f"at f_sw (copper, no skin effect)")
+                            f"at f_sw (board solve, fundamental; replaced per harmonic below)")
             ob["scope"]["kind"] = "loop_ac_loss"
             ob["scope"]["R_loop_ohm"] = R
             observations.append(ob)
@@ -420,16 +420,16 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     # board's own stackup: kae.excite.capacitive), charged and discharged through the switch every cycle:
     # 1/2 C V^2 f_sw lost at each hard turn-on
     # (an open cell too: its switch node's capacitance is electrostatic and needs no closed loop)
-    cells = {pr["s"].name: pr["s"] for pr in pairs if pr["o"].kind == "overshoot" and pr["s"].meta.get("sw")}
-    cells.update({s.name: s for s in srcs if s.name in open_cells and s.meta.get("sw")})
-    if cells:
+    sw_cells = {pr["s"].name: pr["s"] for pr in pairs if pr["o"].kind == "overshoot" and pr["s"].meta.get("sw")}
+    sw_cells.update({s.name: s for s in srcs if s.name in open_cells and s.meta.get("sw")})
+    if sw_cells:
         from . import capacitive as CAP
         try:
             cpl, cworld = CAP.couplings(b, bm, bd, brief, [], log=log)
         except Exception as e:                                   # the electrostatic solve is optional here
             cpl, cworld = [], {}
             notes.append(f"switch-node capacitance not computed ({type(e).__name__}: {e})")
-        for name, s in cells.items():
+        for name, s in sw_cells.items():
             sw = s.meta["sw"]
             # the node's whole capacitance: to the world (the Maxwell row sum) plus to every other net
             C = (cworld.get(sw) or 0.0) + sum(c for a, _, c in cpl if a == sw)
@@ -475,24 +475,37 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                                  pitch=cell_pitch or HL.CELL_PITCH, global_pairs=gp, global_pitch=pitch,
                                  open_cells=open_cells, uncomputed=uncomputed, skin=cell_skin, log=log)
         log(f"cells: {len(cell_rows)} hot loops in {time.time() - t_c:.1f}s")
-        # the AC loop loss from the window's R(f) (skin and proximity crowding, per harmonic) where a cell has one
-        for row in cell_rows:
-            Rf = HL.r_of_f(row) if row.get("state") == "ok" and (row.get("window") or {}).get("refined") else None
-            ob = next((x for x in observations if x["id"] == "loss.loop_ac" and x["scope"].get("source") == row["source"]
-                       and not x.get("open")), None)
-            if Rf is None or ob is None:
-                continue
-            vals = []
-            for c in range(ncp):
-                val = {k[1]: v for k, v in cps[row["source"]][c].items()}
-                vals.append(HL.ac_loop_loss(val.get("I_A", 0.0), min(max(val.get("D", 0.5), 0.0), 1.0),
-                                            val.get("f_sw_Hz", 0.0), val.get("t_i_s", 0.0), Rf) if val.get("f_sw_Hz") else 0.0)
-            ob["values"] = vals
-            ob["scope"]["R_loop_ohm"] = row["R_loop_mohm"] * 1e-3
-            ob["scope"]["R_harmonics_mohm"] = [h["R_mohm"] for h in row["R_harmonics"]]
-            ob["label"] = (f"hot-loop AC conduction loss of {row['source']}: sum over harmonics of I_n^2 R_loop(n f_sw), "
-                           f"R_loop {row['R_loop_mohm']:.3g} mOhm at f_sw, "
-                           f"{row['R_harmonics'][-1]['R_mohm']:.3g} at {row['R_harmonics'][-1]['n']} f_sw (cell window, skin)")
+    # every cell's AC loop loss as a sum over harmonics with skin and proximity crowding: R(f) from its window where it
+    # has a refined one, else from the board solve at f_sw, 3 f_sw, 5 f_sw with the skin correction (_board_R_rows)
+    from . import hotloop as HL
+    rows_by = {r["source"]: r for r in cell_rows}
+    for ob in [x for x in observations if x["id"] == "loss.loop_ac" and not x.get("open")]:
+        name = ob["scope"].get("source")
+        row = rows_by.get(name)
+        if row and row.get("state") == "ok" and (row.get("window") or {}).get("refined"):
+            hs, where = row["R_harmonics"], "cell window"
+        else:
+            s_ = next(x for x in srcs if x.name == name)
+            o_ = next(x for x in obs if x.kind == "overshoot" and x.meta.get("source") == name)
+            hs, where = _board_R_rows(bd, bm, net, op, s_, o_, bands[name]["fund"], key, nsub, lumped), "board solve"
+        Rf = HL.r_of_f(dict(R_harmonics=hs)) if hs else None
+        if Rf is None:
+            notes.append(f"{name}: loss.loop_ac per harmonic not computed (the harmonic solves are open); the "
+                         f"fundamental's R without skin stands (a lower bound)")
+            ob["label"] += " [fundamental only, no skin: harmonic solves open]"
+            continue
+        vals = []
+        for c in range(ncp):
+            val = {k[1]: v for k, v in cps[name][c].items()}
+            vals.append(HL.ac_loop_loss(val.get("I_A", 0.0), min(max(val.get("D", 0.5), 0.0), 1.0),
+                                        val.get("f_sw_Hz", 0.0), val.get("t_i_s", 0.0), Rf) if val.get("f_sw_Hz") else 0.0)
+        ob["values"] = vals
+        ob["scope"]["R_loop_ohm"] = hs[0]["R_mohm"] * 1e-3
+        ob["scope"]["R_harmonics_mohm"] = [h["R_mohm"] for h in hs]
+        ob["scope"]["R_from"] = where
+        ob["label"] = (f"hot-loop AC conduction loss of {name}: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and "
+                       f"proximity crowding, R_loop {hs[0]['R_mohm']:.3g} mOhm at f_sw, {hs[-1]['R_mohm']:.3g} at "
+                       f"{hs[-1]['n']} f_sw ({where})")
     # each cell's parasitic ring: its copper loop with the switch node's capacitance
     rings = []
     for pr in pairs:
@@ -709,6 +722,31 @@ def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes,
 
 
 THIN_SHARE = 0.25         # a priced net with this share of its copper in features under 3 cells is reported
+
+
+def _board_R_rows(bd, bm, net, op, s, o, f0, key, nsub, lumped):
+    """A cell's R_loop at f_sw, 3 f_sw, 5 f_sw from the board solve's network with each layer's R corrected for skin
+    (kae.em.skin, as the window's): [{n, f_MHz, R_mohm}], or None if a solve is open. The fallback where the cell
+    has no refined window (--no-cells, a window over its budget or open)."""
+    from kae.em import solve as ES
+    from .hotloop import HARMONICS, _skin_R
+    out = []
+    R0 = net.R
+    for n in HARMONICS:
+        f = n * f0
+        sol = bd.circuit.solve(f, [s])[s.name]
+        inj = {p: j for p, j in sol[key].items() if p in bm.m.terminals and abs(j) > 1e-12}
+        net.R = _skin_R(net, f, nsub)
+        try:
+            (v, info), = ES.potentials_many(bm.m, [inj], f, net=net, op=op, light=True)
+        finally:
+            net.R = R0
+        if info["unbalanced"]:
+            return None
+        z = O.bilinear(O.pattern(bd, o, f, active=lumped), v) - (O.bilinear(O.pattern(bd, o, f, active=lumped),
+                                                                             O.ideal(bd, sol)) if lumped else 0.0)
+        out.append(dict(n=n, f_MHz=round(f / 1e6, 4), R_mohm=round(max(z.real, 0.0) * 1e3, 4)))
+    return out
 
 
 def _ripple_observations(bd, brief, bm, net, op, srcs, obs, bands, cps, ncp, uncomputed, notes, key, nsub, log):
