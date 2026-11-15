@@ -1,7 +1,7 @@
 # Hot-loop evaluation: per-cell primaries, open cells, the window solve
 
 Scope: how `kae.excite.evaluate` measures a switching cell's commutation (hot) loop and how `kae.intent` prices it: open cells, the per-cell window solve, its pitch, what it leaves out. Not here: the loop physics and expert layouts -> [pdn-and-commutation](pdn-and-commutation.md#1-commutation-loop-geometry); the router's own loop quote -> [critical-net-routing](../routing/critical-net-routing.md); the hot-loop routing design and A/B -> [kae-hot-loops](../../research/routing/kae-hot-loops.md).
-Keys: hot loop, commutation cell, L_loop, R_loop, overshoot.peak, loss.loop, loss.loop_ac, loss.swnode, open cell, open_cells, cells, window solve, CELL_PITCH, MARGIN_H, kae.excite.hotloop, skin correction, cap body, ESL, ½·L·I²·f, EPC
+Keys: hot loop, commutation cell, L_loop, R_loop, overshoot.peak, loss.loop, loss.loop_ac, loss.swnode, open cell, open_cells, cells, window solve, CELL_PITCH, MARGIN_H, kae.excite.hotloop, skin correction, cap body, ESL, ½·L·I²·f, EPC, loss.copper_ac, inductor ripple, kae.excite.ripple, scope losses, AC copper loss
 
 Tags: [C] computed by the scripts named; [I] inference; [P] primary source.
 
@@ -15,7 +15,8 @@ A cell (`kae.excite.sources._cell`) is a unit current source across its switch; 
 | `R_loop(f)` | `Re z(f)` at f_sw, 3·f_sw, 5·f_sw (a trapezoid's odd harmonics) | `cells[].R_loop_mohm` (f_sw), `cells[].R_harmonics` |
 | overshoot peak | `|Z(f_sw)|·(2/π)·|sin πD|·I + L_loop·I/t_i` per corner (`harm.peak`) | `cells[].overshoot_V` {typ, worst}; board solve: `overshoot.peak` |
 | `loss.loop` | `½·L_loop·I²·f_sw` per corner (max(L_loop, 0): a negative copper share costs nothing, the cell stays) | observation |
-| `loss.loop_ac` | `I²·D·(1−D)·R_loop(f_sw)`, fundamental only | observation |
+| `loss.loop_ac` | with a refined window: `Σₙ |cₙ|²/2 · R_loop(n·f_sw)`, `cₙ = (2I/nπ)·|sin nπD|·sinc(n·f_sw·t_i)` (199 harmonics), R_loop(f) from the window's solves at f_sw, 3 f_sw, 5 f_sw (lateral crowding toward the return in the field solve, crowding through the thickness by `kae.em.skin`), log-log between them and `∝ √f` above 5 f_sw; it reduces to `I²·D·(1−D)·R` for flat R. Without a window: `I²·D·(1−D)·R_loop(f_sw)` of the board solve, no skin (a lower bound) | observation (`scope.R_harmonics_mohm`) |
+| `loss.copper_ac` | the inductor's ripple (§ 7): `Σₙ cₙ²·P₁(n·f_sw)` | observation |
 | `loss.swnode` | `½·C_sw·V²·f_sw`, C_sw from the electrostatic solve | observation |
 
 The board solve (0.25 mm) gives the observations the intent prices; the window solve (§3) gives the per-cell primaries, reported beside the board solve's values (`cells[].global`) for cell-by-cell comparison of layouts. `kae.intent` copies the rows into `status.cells`; `python -m kae.excite.hotloop A.ev.json B.ev.json ...` pairs two arms cell by cell.
@@ -35,6 +36,7 @@ Now (`evaluate.open_cell_observations`), an open cell has explicit observations 
 - ev.json lists the cell under `open_cells` (with the open islands); its other harms (supply, pickup, cable) stay not computed.
 - `kae.intent` prices terms on `overshoot.peak`, `loss.loop`, `loss.loop_ac`, `loss.swnode` with these values instead of marking them incomplete (`objective._gap`, `OPEN_KINDS`); the status lists `open_cells` with the terms that priced them. A hard overshoot term is violated: an open hot loop is a broken converter.
 - In a paired comparison (`hotloop.paired`) a cell open in one arm only ranks worst for that arm (ratio ∞ or 0); open in both, it is counted, not compared. Medians keep every cell.
+- **DRC-unconnected loop members.** The remaining copper can still close a loop when one loop pad is unrouted (hdmi2rgb U11's ground pin in arms A and C, priced at 3.1 and 7.4 nH). When a KiCad DRC report of the board is at hand (`--drc FILE`, or the scorer's `drc.json` / `score/drc.json` beside the board; `--no-drc` ignores it), a cell any of whose loop pads (brief `loop`, switch pins) it lists as unconnected is an open cell, priced the same way (`evaluate.drc_open_cells`; ev.json `drc` names the report).
 - A cell whose pads are not in the copper model (`pads outside the copper model`) is `not_computed`, reported, not priced: that is the evaluator's gap, not the layout's.
 
 ## 3. The window solve
@@ -60,6 +62,28 @@ Now (`evaluate.open_cell_observations`), an open cell has explicit observations 
 
 **Run time** (8 threads; 69 evaluations of 23 boards, human and two routed arms): the windows take a median 104 s per board (0–72 min), 49 % of the evaluation's time (up to 92 %); a 1-cell 31 × 31 mm 2-layer board (bq25306, the window is the whole board because module J1 takes 16 % of the loop's current) spends 400 s in the window against 25 s in the board solve. Profile of that run (py-spy): 90 % in the window solves, of it COCG preconditioner 21 %, sparse products 15 %, FFT operator 25 %, factorization 12 %. Windows over 1.2 M cells × layers coarsen; one that would coarsen to the board's own pitch keeps the board's values (`window.refined = false`, no harmonics: 12-layer arvsom). `--cell-pitch 0.125` cuts the window time about 4× at up to 11 % L error; `--no-cells` skips it.
 
+**Window cap tried and reverted.** Windows on the loop's own pads (brief `loop` plus margin, 25 % leak allowed) instead of every part carrying 5 % of the cell's current moved L_loop by up to 16 % (circuitmonkey human −16 %, noggin C −12 %; median 2.4 %) on 16 cells for 18 % less window time: the truncation correction is first order, so parts that carry a share of the current stay inside.
+
+**Scope `losses`** (`--scope losses`, `evaluate(scope="losses")`) solves only what the loss terms need: the cells' own bands (f_sw and the edge band) with their overshoot observers, the switch-node capacitance, the DC and heat bands (the heat band's copper temperatures scale the DC loss, TCR) and the cell windows. Every other source and observer is still set up, so the mesh, terminals and network are the full evaluation's and the values computed are bit-identical to it.
+
+| Kept | Dropped |
+|---|---|
+| overshoot.peak, loss.loop, loss.loop_ac, the cells' rows (L_loop, R_loop at f_sw, 3 f_sw, 5 f_sw), loss.swnode, loss.copper, loss.part, drop.rail, heat.track, temp.junction | supply.peak, pickup.peak, cable_cm.v (every non-cell source's solves, every noise and EMI observer) |
+
+This evaluator has no board-level AC copper loss outside the cells (ripple in caps, inductor ripple in rails): `loss.copper` is the DC band's; only `kae.excite.wideband` adds switching harmonics to it. kae.intent marks terms on dropped kinds incomplete (`scope losses: …`), never zero.
+
+Equivalence and time [C, 8 threads, full against `--scope losses`]: every kept observation and every cell row bit-identical (max relative difference 0) on five boards.
+
+| Board | Kept observations | Full | losses |
+|---|---|---|---|
+| librewave-ecp5 human (8 layers, 25 sources, 3 cells) | 12 | 6,192 s | 1,140 s (cells 786 s) |
+| bq25306 human | 7 | 217 s | 184 s |
+| qubik-bmps C | 4 | 74 s | 70 s |
+| max98357 A | 9 | 55 s | 66 s |
+| powerboost human | 24 | 45 s | 49 s |
+
+On small boards the windows dominate and both modes take the same time; the saving is on boards with many sources and observers, whose 25–100 MHz bands are skipped.
+
 ## 4. Validation on human layouts
 
 Human layouts of the 24 converter boards of the hot-loop diagnosis, with arms A (rf-legacy) and C (rf-finish) of route-finish-ab; intents compiled-9867d0b; evaluator at this branch [C, run 2026-11-14; boards still running are left out].
@@ -84,6 +108,8 @@ Paired against human (`hotloop.paired`, open cells ranked worst):
 
 Counting open cells moves C from 1.10× to 1.38× human: the arm that left more hot loops open had looked better.
 
+**Effect of the harmonic sum on `loss.loop_ac`** (typical corner, 76 valued cells of 23 boards, against the old fundamental formula on the board solve's R): median ×1.06, ×0.54 to ×2.71 [C]. Up: gecko5 U13/U14 ×2.0–2.7, noggin ×1.3–1.8, qubik ×1.4–1.5, bq25306 ×1.3–1.6. Down: arvsom and audio-latency ×0.7–0.9, where the layout's R share falls with frequency as the current moves to the nearest capacitor.
+
 ## 5. Capacitor bodies: not modelled, and why
 
 Two-pad parts are lumped branches between their pads' terminals (`mesh.Lumped`): the capacitor's ESL is a number with no field, so cap orientation and alternating paralleled caps (0.38–0.46× vs 0.54–0.62× of a single cap, [pdn § 3](pdn-and-commutation.md#3-decoupling-capacitors-mounting-orientation-spreading)) are invisible. A body bar (the cap's internal path as a strip at body height between its terminations, as the router's `critical_physics.Loop.body`) was considered and not added [I]:
@@ -97,10 +123,45 @@ Two-pad parts are lumped branches between their pads' terminals (`mesh.Lumped`):
 
 `loss.loop = ½·L·I²·f_sw` is the energy of the loop's inductance at turn-off. EPC measures more than 4 % efficiency over 0.4 → 2.9 nH at 12 → 1.2 V, 1 MHz, about 0.4 W/nH at an assumed 20 A against ½·L·I²·f's 0.2 W/nH: the rest is slower commutation and the overshoot's own loss [P, I] ([kae-hot-loops](../../research/routing/kae-hot-loops.md#what-experts-do-and-why-quantified)). The factor depends on the cell (integrated vs discrete switches, gate drive), not on the layout, so for one cell it is a constant: layout ratios and rankings hold; watts across cells of different classes do not compare. Not retuned: a per-class switching model is an open question.
 
+## 7. Board-level AC copper loss: the split between loss.loop_ac and loss.copper_ac
+
+A converter carries two AC currents besides its DC: the commutated (pulsed) current between the input capacitors and the switches, and the inductor's triangular ripple through the switch node, inductor, output capacitors and ground. The split is by current, not by region:
+
+| Term | Current | Where it is counted |
+|---|---|---|
+| `loss.copper` | DC load and source currents | whole board (DC band) |
+| `loss.loop_ac` | the commutated current, its harmonics | whole board: `R_loop = Re Jᵀ Z J` at the switch port is, by Tellegen, that pattern's dissipation in all copper it reaches (bulk caps, input traces, planes), less the parts' ESR redistribution; the window refines it near the cell, the truncation correction keeps the rest of the board |
+| `loss.copper_ac` | the inductor ripple, its harmonics | whole board (`kae.excite.ripple`) |
+
+No region is counted twice. Left out: the cross term where both AC currents share copper (the switch's ground pins), cells without an inductor in their structure, and non-converter AC currents (clocks, IC cores), which `kae.excite.wideband` includes.
+
+**Model** (`kae.excite.ripple`). A Norton source across the inductor's pads, solved on the board solve's network at f_sw, 3 f_sw, 5 f_sw; per unit amplitude `P₁(f) = ½ Σ_b R_b(f)·|I_b|²` over the copper branches (filaments, via barrels; not parts), each layer's R × `kae.em.skin.correction(f)`. Triangle of `ΔI = V·D·(1−D)/(L·f_sw)` peak to peak (V the switch's bus; CCM, capped at 2 I), `cₙ = ΔI·|sin nπD| / (π²n²·D(1−D))`, `Σ cₙ²/2 = ΔI²/12`. L from the inductor's circuit model. A path open beyond a 1 % leak marks `ripple:<cell>` not computed; only `loss.copper_ac` terms see it.
+
+**Pricing.** An intent that prices `loss.copper` (cost, unscoped) and says nothing of `loss.copper_ac` prices it the same (term `<id>ac`); `neutral/1` adds `D1ac`. Evaluations without the kind price as before.
+
+**Hand check** (fixture buck, 12 V, D 0.275, 4.7 µH, 1.1 MHz): ΔI = 0.462 A; R_eff at f_sw 9.8 mΩ against ~8.8 mΩ by hand (5.8 mm of 0.5 mm track outside the pads at 0.98 mΩ/mm, two 0.3 mm barrels at ~1.05 mΩ, ~1 mΩ of plane); loss = ΔI²/12·R_eff within 3 % (`test_the_inductor_ripple_copper_loss_matches_a_hand_estimate`).
+
+**On the converter boards** (human layouts, `--scope losses`; 11 of 24 boards finished when written) [C]:
+- `loss.copper_ac / loss.copper` (typical corner, boards with both): median 0.00056, 0.00022–0.0019 (3 boards: powerboost, govish, it8951). Most of these boards have no DC flow modelled (`DC: no rail with a source and a load`), so the ratio rests on few boards.
+- `loss.copper_ac / loss.loop_ac` per cell: median 0.019, 0.003–2.25 (7 cells); above 1 only on chip-lcd's boost, whose loop losses are 0.1–0.2 µW.
+- Class-D and filterless bridges (max98357, circuitmonkey, noggin) have no inductor in their structure: no ripple term, noted.
+- Physics agrees: ripple RMS is ΔI/√12, ~10 % of a CCM load current, through mΩ of output copper, against the full pulsed current RMS I·√(D(1−D)) in the input loop.
+
+**Against `kae.excite.wideband`** (its `ac_loss.copper_W`: every AC source's harmonics through the reduced model at 0.25 mm, skin on; no ripple source either):
+| Board | wideband | `loss.loop_ac` + `loss.copper_ac` | Why they differ |
+|---|---|---|---|
+| bq25306 human | 0.235 mW | 0.230 + 0.018 = 0.248 mW | the cell's term agrees within 2 %; wideband adds the cores' currents, has no ripple |
+| qubik-bmps human | 0.210 mW | 0.141 + 0.003 = 0.144 mW | wideband builds its circuit without the operating facts' pin facts (a different brief), solves every harmonic to 172 MHz where `loss.loop_ac` extrapolates √f above 5 f_sw, and stays at 0.25 mm (the window reads R 8 % lower here) |
+| powerboost human | — | 0.086 + 0.011 mW | wideband fails with no sources (no pin facts: no cell found) |
+
+## Use the solver, not the routed-copper estimator, for comparisons
+
+`kae.route.critical_recheck` (what the critical router optimizes: closed-form strips over image planes, one brief loop through the brief's chosen input cap) disagrees with the field solve: over 68 cell/arm pairs of the hot-loop diagnosis it reads a median 1.85× the solver's L (0.31× to 7.5×), orders two layouts of a cell the same way only 41 of 55 times (75 %), and gives −0.24 nH on the human bq25306 board (a strip with no plane under it mixed with imaged strips) [C, diagnosis `estimator_vs_solver.csv`]. Compare layouts with the solver's cell rows (§ 3), never with the estimator.
+
 ## Open questions
 
 - Does the router's quote (fastloop, image plane) rank cells as the window solve does? Spearman ρ on the hotloop A/B's cells.
-- R_loop's harmonics are reported, not priced: `loss.loop_ac` stays fundamental-only, a lower bound.
+- R_loop at even harmonics and above 5 f_sw is interpolated and extrapolated (√f), not solved; a resonance near a harmonic (gecko5 U13: 15, 24, 136 mΩ at 1, 3, 5 f_sw) then weighs on everything above it.
 
 ## Sources
 

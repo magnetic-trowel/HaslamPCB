@@ -6,7 +6,7 @@ L_loop, R_loop at f_sw and its odd harmonics, and the switch node's overshoot pe
 The board solve (kae.excite.evaluate) runs at 0.25 mm, where hot loops read 5-12 % high and tracks narrower than
 three cells are under-resolved (docs/research/physics/field-solver-accuracy.md, E7). A cell's loop current
 closes within a few millimetres of its parts, so its window is solved at CELL_PITCH (chosen by the convergence
-test in tools/research/physics/hl_cell_convergence.py; docs/topics/physics/pdn-and-commutation.md section 7).
+test in tools/research/physics/hl_cell_convergence.py; docs/topics/physics/hot-loop-evaluation.md section 3).
 
 The window is the bounding box of the parts that carry at least SHARE of the cell's peak pad current in the
 copper-free circuit solve (input caps, switches, the pads of the overshoot observer), grown by
@@ -250,6 +250,39 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
             f"{Le * 1e9:.3f} nH (board {g[0] * 1e9:.3f}), R_loop {R[0]['R_mohm']:.3f} mOhm at f_sw, "
             f"{time.time() - t0:.1f}s")
     return rows
+
+
+N_HARM = 199                 # harmonics summed in the AC loop loss (their weight falls as 1/n^2, faster past the edge)
+
+
+def r_of_f(row):
+    """R_loop(f) (ohm) from a refined cell row's R at f_sw, 3 f_sw, 5 f_sw: log-log interpolation between them, R(f_sw)
+    below, and beyond 5 f_sw R(5 f_sw) sqrt(f / 5 f_sw) (the skin regime: delta < t above ~5 MHz in 35 um copper,
+    where R grows as sqrt(f) for conductor and return plane alike). None for a row without harmonics."""
+    hs = [h for h in row.get("R_harmonics") or [] if h.get("R_mohm") is not None]
+    if len(hs) < 2:
+        return None
+    fs = np.array([h["f_MHz"] * 1e6 for h in hs])
+    rs = np.maximum(np.array([h["R_mohm"] * 1e-3 for h in hs]), 1e-12)
+
+    def R(f):
+        f = np.asarray(f, float)
+        lo = np.interp(np.log(np.clip(f, fs[0], fs[-1])), np.log(fs), np.log(rs))
+        out = np.exp(lo)
+        hi = f > fs[-1]
+        out[hi] = rs[-1] * np.sqrt(f[hi] / fs[-1])
+        return out
+    return R
+
+
+def ac_loop_loss(I, D, f_sw, t_i, R):
+    """The hot loop's AC conduction loss (W) of a pulsed current of height I, duty D at f_sw with edges t_i through a
+    loop of resistance R(f): sum over harmonics n of |c_n|^2 / 2 R(n f_sw), c_n = (2 I / (n pi)) |sin(n pi D)|
+    sinc(n f_sw t_i) (the trapezoid's spectrum). With R flat it is I^2 D (1 - D) R (Parseval), the old formula."""
+    n = np.arange(1, N_HARM + 1)
+    x = n * f_sw * t_i
+    c = 2 * I / (n * np.pi) * np.abs(np.sin(n * np.pi * D)) * np.abs(np.sinc(x))
+    return float(np.sum(c ** 2 / 2 * R(n * f_sw)))
 
 
 def summary(rows):

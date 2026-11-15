@@ -147,3 +147,100 @@ def test_a_window_over_its_budget_keeps_the_board_values(tmp, monkeypatch):
     assert c["state"] == "ok" and c["window"]["refined"] is False
     assert c["L_loop_nH"] == c["global"]["L_loop_nH"] and c["R_loop_mohm"] == c["global"]["R_loop_mohm"]
     assert HL.summary([c])[0].count("board values") == 1
+
+
+def _drc(*descs):
+    return {"unconnected_items": [{"items": [{"description": d}, {"description": "Zone [GND] on B.Cu"}]} for d in descs]}
+
+
+def test_a_loop_member_drc_lists_unconnected_makes_the_cell_open(tmp):
+    """The copper may still close a loop (through whatever is left); KiCad says a loop pad is unconnected: open."""
+    import json
+    from kae.excite.evaluate import drc_open_cells
+    p = write_hotloop_board(f"{tmp}/drc", "closed")
+    (p.parent / "drc.json").write_text(json.dumps(_drc("Pad 4 [GND] of U1 on F.Cu")))   # found beside the board
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cells=False)
+    assert [c["source"] for c in ev["open_cells"]] == [CELL] and "DRC" in ev["open_cells"][0]["why"]
+    assert ev["drc"] == "drc.json" and _obs(ev, "loss.loop")[0]["open"]
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cells=False, drc=False)
+    assert ev["open_cells"] == []
+    from kae.board.kicad_file import load
+    from kae.circuit import brief as B
+    from kae.excite import models as M, sources as S
+    b = load(p)
+    br = B.build(b)
+    srcs = S.add_all(M.build(b, br), br)
+    assert drc_open_cells(_drc("Pad 2 [GND] of U2 on F.Cu"), br, srcs) == {}     # not a loop member
+    assert CELL in drc_open_cells(_drc("Pad 1 [VIN] of C1 on F.Cu"), br, srcs)
+
+
+def _strip(rows):
+    out = []
+    for r in rows:
+        r = dict(r)
+        if "window" in r:
+            r["window"] = {k: v for k, v in r["window"].items() if k != "seconds"}
+        out.append(r)
+    return out
+
+
+def test_scope_losses_gives_the_full_evaluations_values_and_nothing_else(tmp):
+    from kae.excite.evaluate import SCOPE_KINDS
+    p = write_hotloop_board(f"{tmp}/scope", "long")
+    kw = dict(pitch=0.25, fills=plane_fills(), log=lambda *a: None, cell_pitch=0.125)
+    full = evaluate(str(p), **kw)
+    lp = evaluate(str(p), scope="losses", **kw)
+    assert lp["scope"] == "losses" and {o["id"] for o in lp["observations"]} <= set(SCOPE_KINDS)
+    assert {o["id"] for o in lp["observations"]} >= {"loss.loop", "loss.loop_ac", "loss.swnode"}
+    key = lambda o: (o["id"], o["label"])
+    want = sorted(((key(o), o["values"]) for o in full["observations"] if o["id"] in SCOPE_KINDS))
+    got = sorted(((key(o), o["values"]) for o in lp["observations"]))
+    assert got == want                                          # bit for bit
+    assert _strip(lp["cells"]) == _strip(full["cells"])
+    st = OB.evaluate(lp, {"terms": TERMS["terms"]})
+    rows = {r["id"]: r for r in st["terms"]}
+    assert rows["S0"]["incomplete"] and not rows["P3"].get("incomplete")
+
+
+def test_the_ac_loop_loss_sums_harmonics_and_reduces_to_the_flat_formula():
+    import numpy as np
+    from kae.excite import hotloop as HL
+    flat = lambda f: np.full(np.shape(f), 0.01)
+    for D in (0.2, 0.5, 0.74):
+        assert HL.ac_loop_loss(2.0, D, 1e6, 0.0, flat) == pytest.approx(4.0 * D * (1 - D) * 0.01, rel=0.01)
+    row = {"R_harmonics": [dict(n=1, f_MHz=1.0, R_mohm=10.0), dict(n=3, f_MHz=3.0, R_mohm=14.0),
+                           dict(n=5, f_MHz=5.0, R_mohm=18.0)]}
+    R = HL.r_of_f(row)
+    assert R(np.array([1e6, 3e6, 20e6])) == pytest.approx([0.010, 0.014, 0.018 * 2.0])
+    rising = HL.ac_loop_loss(2.0, 0.5, 1e6, 5e-9, R)
+    assert rising > HL.ac_loop_loss(2.0, 0.5, 1e6, 5e-9, flat)          # crowding raises it
+
+
+def test_the_ac_loop_loss_observation_uses_the_windows_harmonics(tmp):
+    from kae.excite import hotloop as HL
+    ev = _ev("closed", tmp)
+    c, (ob,) = _cell(ev), _obs(ev, "loss.loop_ac")
+    assert ob["scope"]["R_harmonics_mohm"] == [h["R_mohm"] for h in c["R_harmonics"]]
+    assert ob["values"][0] > 0 and "harmonics" in ob["label"]
+
+
+def test_the_inductor_ripple_copper_loss_matches_a_hand_estimate(tmp):
+    """Buck of the fixture: dI = V D (1 - D) / (L f) through SW trace, inductor, output trace, C2, its via, the plane
+    and U1's ground via. By hand (0.5 mm tracks at 0.98 mOhm/mm outside the pads, ~5.8 mm; two 0.3 mm barrels
+    ~1.05 mOhm each; ~1 mOhm of plane) R ~ 8.8 mOhm, so dI^2 / 12 R."""
+    ev = _ev("closed", tmp)
+    (ob,) = _obs(ev, "loss.copper_ac")
+    R1 = ob["scope"]["R_eff_ohm"][0]
+    assert 7e-3 < R1 < 12e-3
+    dI = 12.0 * 0.275 * 0.725 / (ob["scope"]["L_H"] * 1.1e6)
+    assert ob["values"][0] == pytest.approx(dI ** 2 / 12 * R1, rel=0.03)       # the harmonics add a little
+    st = OB.evaluate(ev, {"terms": [{"id": "P1", "tier": "cost", "obs": "loss.copper", "rate": "1 mW_eq/mW", "why": "dc"}]})
+    row = next(r for r in st["terms"] if r["id"] == "P1ac")
+    assert row["obs"] == "loss.copper_ac" and row["contribution"] > 0             # priced like loss.copper
+
+
+def test_the_ripple_loss_is_deterministic_across_file_order(tmp):
+    a = _obs(_ev("long", tmp), "loss.copper_ac")[0]["values"]
+    p = write_hotloop_board(f"{tmp}/long-rev2", "long", reverse=True)
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.125)
+    assert _obs(ev, "loss.copper_ac")[0]["values"] == a

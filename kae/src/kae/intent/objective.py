@@ -78,9 +78,14 @@ KINDS = {
                   "without a cell model at its efficiency. Loads' own consumption is not a loss and is left out."),
     "loss.loop": ("W", "Energy a switching cell's commutation loop inductance (the copper's share) dumps into the "
                   "switch at every turn-off, 1/2 L_loop I^2 f_sw: the hot loop's layout cost in efficiency."),
-    "loss.loop_ac": ("W", "A switching cell's hot loop's copper resistance at the switching frequency (the layout's "
-                     "share) carrying the loop's pulsed current, I^2 D (1 - D) R: a lower bound above a few MHz "
-                     "(no skin or proximity effect in the raster)."),
+    "loss.loop_ac": ("W", "A switching cell's hot loop's copper resistance (the layout's share) carrying the loop's "
+                     "pulsed current: with a cell window, the sum over harmonics of I_n^2 R_loop(n f_sw), R from the "
+                     "window solve with skin and proximity crowding (kae.excite.hotloop); without one, "
+                     "I^2 D (1 - D) R(f_sw) of the board solve, which has none (a lower bound)."),
+    "loss.copper_ac": ("W", "A switching cell's inductor ripple current (a triangle of dI = V D (1 - D) / (L f_sw) "
+                       "peak to peak) through the board's copper, summed over its harmonics with skin crowding "
+                       "(kae.excite.ripple): the AC copper loss neither loss.copper (DC) nor loss.loop_ac (the "
+                       "commutated current) prices. Priced like loss.copper when the intent says nothing else."),
     "loss.swnode": ("W", "The layout's capacitance of a switch node (its copper to every other net and the world, "
                     "in the board's stackup) charged through the switch every cycle, 1/2 C V^2 f_sw."),
     "temp.junction": ("C", "A dissipating part's junction temperature: the board's heat flow (copper I^2 R, every "
@@ -266,9 +271,20 @@ def _in(ob, dim):
 
 def _defaults(intent, obs, terms):
     out = []
+    # AC copper loss is copper loss: an intent that prices loss.copper and says nothing of loss.copper_ac prices it alike
+    has_ac = any(o["id"] == "loss.copper_ac" for o in obs)      # an evaluation from before the kind prices as before
+    if has_ac and not any(fnmatch.fnmatch("loss.copper_ac", t["obs"]) for t in terms):
+        for t in terms:
+            if t["obs"] == "loss.copper" and t["tier"] == "cost" and not t.get("where"):
+                out.append(dict(t, id=t["id"] + "ac", obs="loss.copper_ac",
+                                why=f"AC copper loss priced as {t['id']} prices the DC copper loss: {t.get('why') or ''}"))
+                break
     if intent["defaults"] == "neutral/1" and not any(fnmatch.fnmatch("loss.copper", t["obs"]) for t in terms):
         out.append(dict(id="D1", tier="cost", obs="loss.copper", rate="1 mW_eq/mW", agg="cvar20",
                         why="neutral/1: energy needs no assumed bound; every other quantity waits for intent"))
+        if has_ac and not any(fnmatch.fnmatch("loss.copper_ac", t["obs"]) for t in terms + out):
+            out.append(dict(id="D1ac", tier="cost", obs="loss.copper_ac", rate="1 mW_eq/mW", agg="cvar20",
+                            why="neutral/1: AC copper loss is copper loss, priced as D1"))
     return out
 
 
@@ -353,6 +369,10 @@ def evaluate(ev, intent=None, brief=None):
         if t["id"] in lost:
             row["overridden_by"] = sorted(lost[t["id"]])          # more specific terms price those observations
         gap = _gap(t, missing, opened)
+        if ev.get("scope") == "losses":
+            out_ = [k for k in KINDS if fnmatch.fnmatch(k, t["obs"]) and k not in SCOPE_LOSSES]
+            if out_:
+                gap = gap + [f"scope losses: {k}" for k in out_]      # not evaluated in this scope: never a zero
         if gap:
             # a source this term could see was not computed (open copper): the value below covers only the
             # sources that were; it is reported, never priced, and never read as zero
@@ -485,6 +505,10 @@ def _legacy(ev, status):
 DC_KINDS = ("loss.copper", "drop.rail", "heat.track", "loss.part", "temp.junction")      # the DC band's observations
 
 
+# what an evaluation of scope "losses" observes (kae.excite.evaluate.SCOPE_KINDS)
+SCOPE_LOSSES = ("overshoot.peak", "loss.loop", "loss.loop_ac", "loss.swnode", "loss.copper", "loss.copper_ac",
+                "loss.part", "drop.rail", "heat.track", "temp.junction")
+
 # the kinds an open cell is observed in (at their caps), and loss.swnode, which needs no closed loop: a term on
 # these alone is complete for an open cell
 OPEN_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac", "loss.swnode")
@@ -496,9 +520,13 @@ def _gap(t, missing, opened=()):
     if not missing:
         return []
     kinds = [k for k in KINDS if fnmatch.fnmatch(k, t["obs"])]
-    if all(k in OPEN_KINDS for k in kinds if k not in DC_KINDS):
-        # only a switching cell (a source named cell:...) has these observations
-        missing = [s for s in missing if s == "dc" or (s.startswith("cell:") and s not in opened)]
+    if all(k in OPEN_KINDS or k == "loss.copper_ac" for k in kinds if k not in DC_KINDS):
+        # only a switching cell (a source named cell:..., its ripple ripple:...) has these observations
+        cell_only = [k for k in kinds if k not in DC_KINDS]
+        missing = [s for s in missing if s == "dc" or (s.startswith("cell:") and s not in opened)
+                   or (s.startswith("ripple:") and "loss.copper_ac" in cell_only)]
+    else:
+        missing = [s for s in missing if not s.startswith("ripple:") or "loss.copper_ac" in kinds]
     out = []
     if "dc" in missing and any(k in DC_KINDS for k in kinds):
         out.append("dc")
