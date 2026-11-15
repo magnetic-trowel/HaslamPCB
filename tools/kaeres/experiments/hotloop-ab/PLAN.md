@@ -66,7 +66,7 @@ The noise reference is the twin.
 
 ## Process
 
-1. **Test suites at b8703501** (kae, bench, kaeres) through kaeq; stop on any failure.
+1. **Test suites at b8703501** (kae, bench, kaeres) through kaeq; stop on any failure. Result: bench and kaeres passed; kae had 1 failure, `test_route_kicad.py::test_router_killed_at_its_deadline_still_yields_a_board` (`KeyError: 'router_quick'`). The test depends on timing and failed before this code too: 2 of 3 runs at ee2e273f, 3 of 3 passes at b8703501 under the same conditions (2 of 3 failed in a separate rerun). Submitted with it noted.
 2. **Smoke** on bq25306 (the design's what-if board), one board per arm:
    - the kaeres methods end to end;
    - profiled runs of N and H (`confirm-default-ab/smoke_prof.sh` with the arm's environment);
