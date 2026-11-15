@@ -274,6 +274,8 @@ DEFAULTS = dict(
                                    # kept in the output; turns the cell stage on)
     hotloop_keepout_pours=1,       # with hotloop_keepout: 1 also keeps other nets off the loop nets' pours (rail,
                                    # ground, switch node; the return plane always); 0: the return plane only
+    hotloop_keepout_loopvias=0,    # with hotloop_keepout: 1 leaves room in each keep-out for the loop's own vias of
+                                   # its other nets beside their terminals (a ground keep-out bans rail vias otherwise)
     hotloop_lift="plane",          # how far the escape round may lift a keep-out for a net left open (in order
                                    # corridors, pours, crossing, plane): the last level allowed; "corridors" never
                                    # lets a foreign net through the return plane (it stays open, a decision hazard)

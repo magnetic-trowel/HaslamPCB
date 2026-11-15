@@ -77,7 +77,7 @@ GUARD_PREFIX = "kae-crit:"     # keep-outs (critical_write.GUARD_PREFIX; dropped
 MARGIN_WHY = ("a return at height h spreads as h / (x^2 + h^2): a 1 mm band holds 94 % (h 0.1 mm) "
               "to 86 % (h 0.2 mm) of an edge conductor's return; the hull covers the loop's interior")
 SETTINGS = ("hotloop_keepout", "hotloop_keepout_mm", "hotloop_cells", "hotloop_vias", "hotloop_pours",
-            "hotloop_budget_s", "hotloop_keepout_pours", "hotloop_lift")
+            "hotloop_budget_s", "hotloop_keepout_pours", "hotloop_lift", "hotloop_keepout_loopvias")
 
 
 def _log(msg):
@@ -92,6 +92,7 @@ def settings(board_path=None, opts=None):
                cells=bool(float(g["hotloop_cells"] or 0)), vias=bool(float(g["hotloop_vias"] or 0)),
                pours=bool(float(g["hotloop_pours"] or 0)), budget_s=float(g["hotloop_budget_s"]))
     out["keepout_pours"] = bool(float(g["hotloop_keepout_pours"] or 0))
+    out["keepout_loopvias"] = bool(float(g["hotloop_keepout_loopvias"] or 0))
     out["lift"] = g["hotloop_lift"] if g["hotloop_lift"] in LIFT_LEVELS else "plane"
     out["cells"] = out["cells"] or out["vias"] or out["pours"]
     return out
@@ -203,6 +204,7 @@ def keepout_plan(s, mods, margin, log=_log):
         # +5V pour cut by a GND track; ~24 of the 37.6 nH gap)
         nets = {t.net for t in T if t.net} | {n for n in (m.spec.get("sw"), m.spec.get("rail")) if n}
         pours_on = getattr(s, "hotloop_pours_on", True)
+        loopvias = getattr(s, "hotloop_loopvias_on", False)
         layers = ({(pn, pl)} if pl is not None else set()) | {(n, l) for n in (nets if pours_on else ()) for l, g in s.space.zones_of(n) if g.intersects(region)}
         side = s.ctx.side_layer(T[0].fp)
         for net, layer in sorted(layers):
@@ -241,12 +243,42 @@ def keepout_plan(s, mods, margin, log=_log):
                 if reg.is_empty or reg.area < 0.5:
                     continue
             esc = escapes(s, m, reg, loop, net)
-            plan.append(dict(cell=m.id, net=net, layer=layer, h=h, region=reg, escapes=esc,
+            holes = loop_via_holes(s, T, nets, net) if loopvias else []
+            plan.append(dict(cell=m.id, net=net, layer=layer, h=h, region=reg, escapes=esc, holes=holes,
                              plane=(net, layer) == (pn, pl), conn=_connection(s.info, net, layer), loop=loop))
             rows.append(dict(cell=m.id, layer=layer, net=net, h_mm=round(h, 3) if pl is not None else None,
                              region_mm2=round(reg.area, 2),
                              pins=len(esc), plane=(net, layer) == (pn, pl)))
     return plan, rows, hz
+
+
+def loop_via_holes(s, T, nets, net):
+    """With hotloop_keepout_loopvias: room for the loop's own vias in a keep-out of `net`. A keep-out is a zone of
+    one net and a via crosses every layer, so without it a keep-out of the ground plane bans the input rail's vias
+    under the cell and a keep-out of the rail's pour bans the ground vias: the cap's and the IC's vias into their
+    planes then sit outside the hull, on long thin surface stubs (hotloop-ab K: none of the loop nets' vias within
+    1 mm of the hull on arvsom, the sstv boost or gecko5 U13, where N had 2-7 per cell; arvsom U4's rail hop
+    6.0 -> 15.2 mm). Each loop terminal of another loop net gets four via sites, one touching the middle of each
+    side of its pad's box, each a hole of the via's radius plus the clearance: room for one via there, no corridor
+    another net could run a track through. [Polygon]"""
+    from shapely.geometry import Point
+    out = []
+    for t in T:
+        if not t.net or t.net == net or t.net not in nets:
+            continue
+        try:
+            d = s.space.via_size(t.net)[0]
+        except Exception:  # noqa: BLE001 - no rule for the net: the board's default via
+            d = 0.6
+        try:
+            c = s.space._generic_need(t.net, "via", t.layers[0]) or 0.2
+        except Exception:  # noqa: BLE001 - no rule: a common class clearance
+            c = 0.2
+        x0, y0, x1, y1 = t.geom.bounds
+        cx, cy, r = (x0 + x1) / 2, (y0 + y1) / 2, d / 2
+        for x, y in ((x0 - r, cy), (x1 + r, cy), (cx, y0 - r), (cx, y1 + r)):
+            out.append(Point(x, y).buffer(r + c + 0.02))
+    return out
 
 
 def _connection(info, net, layer):
@@ -307,7 +339,8 @@ def zones_for(board, plan, open_pads=()):
     for e in plan:
         if e.get("lifted"):
             continue
-        cor = [x["geom"] for x in e["escapes"] if x["pad"] in want] + list(e.get("cuts") or [])
+        cor = ([x["geom"] for x in e["escapes"] if x["pad"] in want] + list(e.get("cuts") or [])
+               + list(e.get("holes") or []))
         cut = e["region"].difference(unary_union(cor)) if cor else e["region"]
         for z in loop_guard(board, cut, e["net"], e["layer"], f"{GUARD_PREFIX}hotloop:{e['cell']}:{e['net']}",
                             conn=e.get("conn")):
@@ -748,6 +781,7 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
         zones = []
         if st["keepout"]:
             s.hotloop_pours_on = st["keepout_pours"]
+            s.hotloop_loopvias_on = st["keepout_loopvias"]
             guards, rows, hz = keepout_zones(s, mods, st["keepout_mm"], log=log)
             rep["_ko"] = dict(plan=s.hotloop_plan, board=s.board)
             rep["keepout"] = dict(margin_mm=st["keepout_mm"], margin_basis=MARGIN_WHY, cells=rows,
@@ -861,6 +895,8 @@ def last_mile_crit_zones(input_path, board_path, info, workdir, opts=None, log=_
         filled = board_path
         if st["keepout"]:
             s = _session(input_path, info, dict(st, vias=False), opts, log)
+            s.hotloop_pours_on = st["keepout_pours"]          # as the stage laid them (was: always with pours)
+            s.hotloop_loopvias_on = st["keepout_loopvias"]
             plan, _rows, _hz = keepout_plan(s, _plan_cells(s), st["keepout_mm"], log=log)
             guards = zones_for(s.board, plan, open_cell_pads(drc_report, plan))
             if guards:

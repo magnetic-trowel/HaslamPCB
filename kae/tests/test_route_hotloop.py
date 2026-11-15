@@ -338,3 +338,28 @@ def test_open_pairs_and_lift_setting(monkeypatch):
     assert hotloop.settings(None, {})["lift"] == "plane"
     assert hotloop.settings(None, {"hotloop_lift": "corridors"})["lift"] == "corridors"
     assert hotloop.settings(None, {"hotloop_lift": "bogus"})["lift"] == "plane"
+
+
+def test_loopvias_leave_room_for_the_loops_own_vias_beside_their_pads(tmp_path):
+    """hotloop_keepout_loopvias: the ground plane's keep-out gets via-sized holes beside the loop's VIN pads (C1.1,
+    U1.3), so the loop's own vias can drop there; nothing else changes, and without the setting there are none."""
+    from shapely.ops import unary_union
+    p = F.write_board(tmp_path / "in")
+    b = load(p)
+    on = hotloop.settings(None, {"hotloop_keepout": 1, "hotloop_keepout_loopvias": 1})
+    assert on["keepout_loopvias"] and not hotloop.settings(None, {"hotloop_keepout": 1})["keepout_loopvias"]
+    s = hotloop._session(p, F.synth_info(b), on, {}, lambda *a: None)
+    s.hotloop_loopvias_on = True
+    plan, _, _ = hotloop.keepout_plan(s, hotloop._plan_cells(s), 1.0)
+    gnd = next(e for e in plan if e["net"] == "GND" and e["plane"])
+    assert len(gnd["holes"]) == 8                               # 4 sites at each of the two VIN terminals
+    shut = unary_union([Polygon(z[2][0]) for z in hotloop.zones_for(s.board, [dict(gnd, holes=[])])])
+    holed = unary_union([Polygon(z[2][0]) for z in hotloop.zones_for(s.board, [gnd])])
+    assert 0 < holed.area < shut.area and shut.area - holed.area < 0.35 * shut.area
+    from kae.board import transform
+    c1 = next(f for f in b.footprints if f.ref == "C1")
+    vin = Point(transform.pad_xy(c1, next(q for q in c1.pads if q.number == "1")))
+    assert any(h.distance(vin) < 1.0 for h in gnd["holes"])
+    s2 = hotloop._session(p, F.synth_info(b), hotloop.settings(None, {"hotloop_keepout": 1}), {}, lambda *a: None)
+    plan2, _, _ = hotloop.keepout_plan(s2, hotloop._plan_cells(s2), 1.0)
+    assert all(not e["holes"] for e in plan2)
