@@ -459,7 +459,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         gp = {pr["s"].name: (pr["Le"], pr["Zf"]) for pr in pairs if pr["o"].kind == "overshoot"}
         cell_rows = HL.cell_rows(path, b, bd, bm, srcs, obs, cps, bands, window, n_cu, nsub=nsub,
                                  pitch=cell_pitch or HL.CELL_PITCH, global_pairs=gp, global_pitch=pitch,
-                                 open_cells=open_cells, uncomputed=uncomputed, skin=cell_skin, log=log)
+                                 open_cells=open_cells, uncomputed=uncomputed, skin=cell_skin, log=log,
+                                 brief=brief)
         log(f"cells: {len(cell_rows)} hot loops in {time.time() - t_c:.1f}s")
     # each cell's parasitic ring: its copper loop with the switch node's capacitance
     rings = []

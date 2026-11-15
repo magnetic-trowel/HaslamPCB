@@ -6,10 +6,11 @@ L_loop, R_loop at f_sw and its odd harmonics, and the switch node's overshoot pe
 The board solve (kae.excite.evaluate) runs at 0.25 mm, where hot loops read 5-12 % high and tracks narrower than
 three cells are under-resolved (docs/research/physics/field-solver-accuracy.md, E7). A cell's loop current
 closes within a few millimetres of its parts, so its window is solved at CELL_PITCH (chosen by the convergence
-test in tools/research/physics/hl_cell_convergence.py; docs/topics/physics/pdn-and-commutation.md section 7).
+test in tools/research/physics/hl_cell_convergence.py; docs/topics/physics/hot-loop-evaluation.md section 3).
 
-The window is the bounding box of the parts that carry at least SHARE of the cell's peak pad current in the
-copper-free circuit solve (input caps, switches, the pads of the overshoot observer), grown by
+The window is the bounding box of the cell's hot-loop pads (its brief structure's `loop`: input cap, switch and
+rectifier pins; without a brief, the parts that carry SHARE of the cell's peak pad current in the copper-free
+circuit solve), grown by
 max(MARGIN_MM, MARGIN_H x h), h the outer layers' depth to their next layer, so the return current spreading in the
 planes is mostly held (a loop at height h over its plane returns 1 - (2/pi) atan(x/h) of its current beyond x; on
 2-layer boards the raw window reads up to +36 % at 3 mm: the truncation correction below removes it). It
@@ -57,6 +58,19 @@ def _pad_box(bm, tokens):
             xs += [x0, x1]
             ys += [y0, y1]
     return (min(xs), min(ys), max(xs), max(ys)) if xs else None
+
+
+def loop_pads(brief, s):
+    """The cell's hot-loop pads: its brief structure's `loop` (input cap, switch and rectifier pins) and the
+    source's own switch pads."""
+    ref = {u: p["ref"] for u, p in brief["parts"].items()}
+    st = next((x for x in brief.get("structures") or [] if x.get("id") == s.meta.get("cell")), {})
+    out = {t for t in (s.pa, s.pb) if t}
+    for u, pin in st.get("loop") or []:
+        for n in (pin if isinstance(pin, list) else [pin]):
+            if ref.get(u):
+                out.add(f"{ref[u]}.{n}")
+    return out
 
 
 def window_pads(bd, s, o, freqs):
@@ -145,7 +159,7 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log):
 
 
 def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2, pitch=CELL_PITCH,
-              global_pairs=None, global_pitch=None, open_cells=None, uncomputed=(), skin=True, log=print):
+              global_pairs=None, global_pitch=None, open_cells=None, uncomputed=(), skin=True, log=print, brief=None):
     """One row per switching cell: its primaries from the window solve (state "ok"), or state "open" (the loop is
     open on the whole board: priced at its caps by kae.excite.evaluate) or "not_computed" (its pads are not in the
     board's copper model). bm: the board solve's BoardMesh (its pads' shapes and KiCad's zone fills). global_pairs:
@@ -177,7 +191,9 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
         f_fund, f_edge = bands[s.name]["fund"], bands[s.name]["edge"]
         fh = [n * f_fund for n in HARMONICS]
         freqs = sorted(set(fh) | {f_edge})
-        box_ = _pad_box(bm, window_pads(bd, s, o, [f_fund, f_edge]))
+        # the loop's own pads (the truncation correction below covers what the loop's current uses beyond them);
+        # without a brief, the parts carrying SHARE of the current
+        box_ = _pad_box(bm, loop_pads(brief, s) if brief else window_pads(bd, s, o, [f_fund, f_edge]))
         if box_ is None:
             rows.append(dict(row, state="not_computed", why="no pad of the cell in the copper model"))
             continue
