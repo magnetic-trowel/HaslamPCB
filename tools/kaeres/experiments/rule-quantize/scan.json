@@ -21,6 +21,34 @@
      "main": 0.1908,
      "crosses": true,
      "grid_point_inside": false
+    },
+    {
+     "ctype": "annular_width",
+     "min": 0.1016,
+     "opt": null,
+     "max": null,
+     "main": 0.1015,
+     "crosses": true,
+     "grid_point_inside": true,
+     "via": [
+      0.4064,
+      0.2032
+     ],
+     "netclass": "Default"
+    },
+    {
+     "ctype": "annular_width",
+     "min": 0.1016,
+     "opt": null,
+     "max": null,
+     "main": 0.1015,
+     "crosses": true,
+     "grid_point_inside": true,
+     "via": [
+      0.4064,
+      0.2032
+     ],
+     "netclass": "PWR"
     }
    ]
   },
@@ -63,6 +91,39 @@
      "main": 0.1522,
      "crosses": true,
      "grid_point_inside": false
+    }
+   ]
+  },
+  {
+   "id": "regymm-pynqsdr-ebaz-sdr",
+   "hits": [
+    {
+     "ctype": "annular_width",
+     "min": 0.09906,
+     "opt": null,
+     "max": null,
+     "main": 0.099,
+     "crosses": true,
+     "grid_point_inside": true,
+     "via": [
+      0.50038,
+      0.30226
+     ],
+     "netclass": "Default"
+    },
+    {
+     "ctype": "annular_width",
+     "min": 0.09906,
+     "opt": null,
+     "max": null,
+     "main": 0.099,
+     "crosses": true,
+     "grid_point_inside": true,
+     "via": [
+      0.50038,
+      0.30226
+     ],
+     "netclass": "POWERS"
     }
    ]
   }

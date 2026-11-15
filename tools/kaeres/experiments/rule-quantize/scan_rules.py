@@ -8,7 +8,9 @@ KiCad judges in integer nm. On main, kae rounds class widths up to 0.1 um (const
 1 um (_via_size); Freerouting keeps half widths in whole 0.1 um units, so a routed width lands on a 0.2 um grid
 (nearest). For every (constraint ...) with a max, or min = max, this reports whether the value kae would pick
 (opt, else min, clamped into [min, max]) leaves the interval after those roundings, and whether the interval
-holds any point of the grid at all.
+holds any point of the grid at all. It also reports net-class vias whose drill and diameter, each rounded up to 1 um
+on its own (main's _via_size), leave a ring below the board's minimum annular width (0.4064/0.2032 mm with a
+0.1016 mm ring becomes 0.407/0.204, ring 0.1015).
 """
 import json, math, re, sys
 
@@ -41,13 +43,34 @@ def chain(ctype, v):
     return w
 
 
+def annular(boards, bid):
+    try:
+        d = json.load(open(f"{boards}/{bid}/board.kicad_pro"))
+    except (OSError, ValueError):
+        return []
+    r = (d.get("board", {}).get("design_settings", {}) or {}).get("rules", {}) or {}
+    a, mD, md = (r.get(k) or 0.0 for k in ("min_via_annular_width", "min_via_diameter", "min_through_hole_diameter"))
+    out = []
+    for nc in (d.get("net_settings", {}) or {}).get("classes", []) or []:
+        D, dr = nc.get("via_diameter"), nc.get("via_drill")
+        if not (a and D and dr):
+            continue
+        dr = max(dr, md)
+        D = max(D, mD, dr + 2 * a)
+        D2, d2 = (math.ceil(v * 1000 - 1e-6) / 1000 for v in (D, dr))
+        if (D2 - d2) / 2 < a - 5e-7:
+            out.append(dict(ctype="annular_width", min=a, opt=None, max=None, main=round((D2 - d2) / 2, 6),
+                            crosses=True, grid_point_inside=True, via=[D, dr], netclass=nc.get("name")))
+    return out
+
+
 def scan(boards, usable):
     out = []
     for bid in usable:
         try:
             t = open(f"{boards}/{bid}/board.kicad_dru", errors="replace").read()
         except OSError:
-            continue
+            t = ""
         t = "\n".join(x for x in t.splitlines() if not x.strip().startswith("#"))
         hits = []
         for ctype, body in bodies(t):
@@ -63,6 +86,7 @@ def scan(boards, usable):
             if got > hi + 1e-9 or got < lo - 1e-9 or not fits:
                 hits.append(dict(ctype=ctype, min=lo, opt=v.get("opt"), max=hi, main=round(got, 6),
                                  crosses=got > hi + 1e-9 or got < lo - 1e-9, grid_point_inside=fits))
+        hits += annular(boards, bid)
         if hits:
             out.append(dict(id=bid, hits=hits))
     return out
