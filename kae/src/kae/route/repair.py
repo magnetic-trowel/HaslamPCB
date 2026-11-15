@@ -42,6 +42,7 @@ from pathlib import Path
 from kae.board import pcbnew_io
 
 from . import constraints, drc, freerouting, specctra, translate
+from .quantize import DSN, fit
 from .specctra import Q, find, findall
 
 _NET = re.compile(r"\[([^\]]*)\]")
@@ -70,6 +71,15 @@ def _routed_geom(r, grow=0.0):
     if r["kind"] == "via":
         return Point(r["pos"]).buffer(r["size"] / 2 + grow, quad_segs=16)
     return LineString([r["a"], r["b"]]).buffer(r["width"] / 2 + grow, quad_segs=8)
+
+
+def _widened(plan, r, shown_min):
+    """Width for a routed track KiCad found narrower than its minimum: the message's minimum
+    (shown to 0.1 um) plus one 0.1 um step, kept inside the class's [min, max] on that layer,
+    so a min = max rule (0.19079 mm) is met instead of overshot to 0.1909."""
+    rc = plan.classes.get(plan.net_class.get(r.get("net"))) if plan is not None else None
+    lo, hi = (getattr(rc, "limits", None) or {}).get(r.get("layer"), (None, None))
+    return fit(shown_min + DSN, lo, hi, DSN, "up")
 
 
 class _Space:
@@ -308,7 +318,7 @@ def analyse(report, routed, info=None, plan=None, fills=None, layer_map=None, co
             m = _MIN.search(v.get("description", ""))
             for it in ours:
                 r = routed[it["uuid"]]
-                w = float(m.group(1)) + 1e-4 if m else None
+                w = _widened(plan, r, float(m.group(1))) if m else None
                 if w and r["kind"] in ("track", "arc") and info is not None and plan is not None:
                     if get_space().fits(it["uuid"], w):
                         widen[it["uuid"]] = w
