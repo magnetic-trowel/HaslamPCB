@@ -54,6 +54,7 @@ from shapely.geometry import MultiPolygon, Polygon
 
 from . import specctra as S
 from .constraints import via_name
+from .quantize import FR_WIDTH, fit, outside
 from .specctra import Q, find, findall, fmt
 
 PLANE_SHARE = 0.30         # an inner layer is a plane when one net's zones cover this share of the board
@@ -123,7 +124,10 @@ def _class_rule_nodes(widths, clearances, copper, lname=lambda l: l):
     def rule(l, base=None):
         r = ["rule"]
         if widths and (base is None or abs(widths[l] - widths[base]) > 1e-9):
-            r.append(["width", _um(widths[l])])
+            # Freerouting keeps half widths in whole session units: give it a width on that grid,
+            # rounded outward (its clearances then hold for the board's narrower width), which
+            # fix_session brings back inside the board's limits
+            r.append(["width", _um(fit(widths[l], q=FR_WIDTH, side="up"))])
         if clearances:
             c = clearances[l]
             cb = clearances[base] if base is not None else None
@@ -672,6 +676,7 @@ def apply(tree, plan, info):
     if len(dsn_names) != len(cu):
         raise ValueError(f"DSN has {len(dsn_names)} copper layers, the board {len(cu)}")
     names_of = dict(zip(cu, dsn_names))
+    plan.dsn_layer_names = dict(names_of)   # the session names layers as the DSN does (fit_widths)
 
     def lname(l):
         return names_of.get(l, l)
@@ -925,7 +930,41 @@ def fix_session(ses_tree, plan):
     zl = drop_repeated_points(net_out)
     if zl:
         out["zero_length_points"] = zl
+    fw = fit_widths(net_out, plan, scale)
+    if fw:
+        out["widths_fitted"] = fw
     return out
+
+
+def fit_widths(net_out, plan, scale):
+    """Bring session wires back inside their class's width limits where Freerouting's grid put
+    them outside: it keeps half widths in whole session units, so a width comes back on a 0.2 um
+    grid (0.1521 mm as 0.1522, the DSN's 0.1908 for a 0.19079 mm class), past a max that equals
+    the width (controlled-impedance rules with min = opt = max: ducktop2, thunderscope rev5-3).
+    Only a wire within one such step of its limits changes, to the nearest width inside them;
+    narrowing keeps every clearance Freerouting kept. Returns the number of wires changed."""
+    n = 0
+    classes, net_class = getattr(plan, "classes", None) or {}, getattr(plan, "net_class", None) or {}
+    # the session names layers as the DSN does: In2.Cu may be "Int2 (Sign)" (thunderscope rev5-3)
+    canon = {d: c for c, d in (getattr(plan, "dsn_layer_names", None) or {}).items()}
+    for net in findall(net_out or [], "net"):
+        cls = classes.get(net_class.get(str(net[1]))) if len(net) > 1 else None
+        if cls is None or not cls.limits:
+            continue
+        for w in findall(net, "wire"):
+            for p in findall(w, "path"):
+                lim = cls.limits.get(canon.get(str(p[1]), str(p[1]))) if len(p) > 2 else None
+                try:
+                    have = float(p[2]) / scale
+                except (TypeError, ValueError):
+                    continue
+                if lim is None or not outside(have, *lim):
+                    continue
+                want = fit(have, *lim)
+                if want is not None and abs(want - have) <= FR_WIDTH + 1e-9:
+                    p[2] = fmt(want * scale)
+                    n += 1
+    return n
 
 
 def drop_repeated_points(net_out):
