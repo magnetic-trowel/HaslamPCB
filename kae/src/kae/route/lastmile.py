@@ -47,6 +47,7 @@ from kae.board.kicad_file import load
 from . import critical_write as W
 from .critical_grid import Anchor, GridRouter
 from .critical_space import Space
+from .quantize import fit
 
 MARGINS = (1.0, 3.0, 8.0)       # mm around a part and the nearest other part: search windows
 WIDE = 15.0                     # mm around a part: the last window, before any rip-up
@@ -273,9 +274,13 @@ def _width_ok(sp, net, layer, w):
     return w >= (mn or 0.0) - 1e-6 and (mx is None or w <= mx + 1e-6)
 
 
-def widths_of(sp, net):
-    """The track widths to try for `net`, widest first: each layer's opt and min."""
-    ws = {round(w, 4) for l in sp.cu for w in sp.width_limits(net, l)[:2] if w and w > 0}
+def widths_of(sp, net, layers=None):
+    """The track widths to try for `net`, widest first: each layer's opt and min (of `layers`,
+    default all), in whole nm inside that layer's [min, max]."""
+    ws = set()
+    for l in layers or sp.cu:
+        mn, opt, mx = sp.width_limits(net, l)
+        ws.update(fit(w, mn, mx) or w for w in (opt, mn) if w and w > 0)
     return sorted(ws, reverse=True) or [0.2]
 
 
@@ -710,8 +715,7 @@ def plane_escapes(board, info, plan, fills, out, sev=None, log=print, deadline=N
             break
         if not any(it.net == net and it.kind == "pad" for it in sp.pads):
             continue
-        mn, opt, _mx = sp.width_limits(net, sp.cu[0])
-        widths = sorted({round(w, 4) for w in (opt, mn) if w and w > 0}, reverse=True) or [0.2]
+        widths = widths_of(sp, net, sp.cu[:1])
         st = rep["nets"].setdefault(net, [0, 0])
         ps = parts(sp, fp, net)
         planes = [p for p in ps if any(n.kind == "fill" for n in p)]
