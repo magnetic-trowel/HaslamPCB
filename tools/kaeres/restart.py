@@ -44,7 +44,7 @@ With --alt-env "K=V ...", two settings of the method run side by side and the be
 choose-better portfolio): fresh attempts alternate between the method as given (arm A, even k) and the
 method with those variables (arm B, odd k); a resumed attempt continues from the best board of its own
 arm (A for even k, B for odd), so both arms keep their lineages, and the final and finish passes run with the
-kept board's arm. The kept board is ranked by KiCad first, as always; among attempts of equal rank,
+kept board's arm. The kept board is ranked by KiCad first, as always; among clean attempts of different arms,
 --tiebreak COMMAND (@BOARD@, @OUT@: a JSON file with "score", lower better; for kae `python -m
 kae.excite.cellquote @BOARD@ --score-out @OUT@`, the hot loops' quote) decides, when the scores differ by
 more than --tiebreak-margin. A clean board does not end the run at once: attempts already running finish
@@ -741,13 +741,15 @@ def tiebreak_score(a, info, cache):
 
 
 def better(a, new, best, cache, ties):
-    """Whether attempt `new` replaces `best`: a better KiCad rank; with --alt-env and --tiebreak, an equal rank
-    and a tie-break score lower by more than --tiebreak-margin (each comparison goes to `ties`)."""
+    """Whether attempt `new` replaces `best`: a better KiCad rank; with --alt-env and --tiebreak, both clean, of
+    different arms, and a tie-break score lower by more than --tiebreak-margin (each comparison goes to `ties`)."""
     if new.get("rank") is None:
         return False
     if best is None or best.get("rank") is None:
         return True
-    if tuple(new["rank"]) != tuple(best["rank"]) or not (a.alt_env and a.tiebreak):
+    if tuple(new["rank"]) != tuple(best["rank"]) or not (a.alt_env and a.tiebreak) or tuple(new["rank"][:2]) != (0, 0):
+        # only clean boards are compared by the tie-break: an open board's lineage and final pass still change
+        # its copper, and a quote of a big board can take minutes (the loop waits for it)
         return tuple(new["rank"]) < tuple(best["rank"])
     if new.get("arm") == best.get("arm"):
         return False

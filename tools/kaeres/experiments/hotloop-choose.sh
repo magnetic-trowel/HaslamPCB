@@ -8,7 +8,7 @@
 # own vias (hotloop_keepout_loopvias).
 #
 #   C   choose N/K    restart.py --alt-env KAE_HOTLOOP_KEEPOUT=1 --tiebreak (kae.excite.cellquote score): odd
-#                     attempts with K's keep-out; KiCad's rank first, the cells' quote among equal ranks
+#                     attempts with K's keep-out; KiCad's rank first, the cells' quote between clean boards
 #   KV  keepout vias  K + KAE_HOTLOOP_KEEPOUT_LOOPVIAS=1
 #   CV  choose N/KV   as C with KV's setting as arm B
 # N and K are hotloop-ab's runs (b8703501: the routing code here differs only by these options, off by default).
@@ -54,8 +54,8 @@ TB="env OMP_NUM_THREADS=2 KAE_EM_THREADS=2 OPENBLAS_NUM_THREADS=2 NUMBA_CACHE_DI
 C="hl choose N/K $S7 (restarts)"; KV="hl keepout vias $S7 (restarts)"; CV="hl choose N/KV $S7 (restarts)"
 add "$KV" "as hotloop-ab's K plus KAE_HOTLOOP_KEEPOUT_LOOPVIAS=1 (room for the loop's own vias in the keep-outs)" \
   "KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_KEEPOUT_LOOPVIAS=1" "" 1
-ALT="KAE_HOTLOOP_KEEPOUT=1" add "$C" "choose-better: odd attempts with KAE_HOTLOOP_KEEPOUT=1 (K), KiCad's rank first, the cells' quote (kae.excite.cellquote) among equal ranks" "" "" 1
-ALT="KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_KEEPOUT_LOOPVIAS=1" add "$CV" "choose-better: odd attempts with KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_KEEPOUT_LOOPVIAS=1 (KV), KiCad's rank first, the cells' quote among equal ranks" "" "" 1
+ALT="KAE_HOTLOOP_KEEPOUT=1" add "$C" "choose-better: odd attempts with KAE_HOTLOOP_KEEPOUT=1 (K), KiCad's rank first, the cells' quote (kae.excite.cellquote) between clean boards" "" "" 1
+ALT="KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_KEEPOUT_LOOPVIAS=1" add "$CV" "choose-better: odd attempts with KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_KEEPOUT_LOOPVIAS=1 (KV), KiCad's rank first, the cells' quote between clean boards" "" "" 1
 desc="hot-loop choose-better at $S7: C (N/K side by side, the better board kept), KV (keep-out with room for the loop's vias), CV (N/KV). Recipe: tools/kaeres/experiments/hotloop-choose.sh; plan hotloop-choose/PLAN.md. Operating facts rf-ab-operating-$OPH"
 M=(--method "$C" --method "$KV" --method "$CV")
 case "$STAGE" in

@@ -20,7 +20,7 @@ gecko5 U13 R 1.73x) and cost completion (0.950 -> 0.930). Registration: [`../hot
 
 | arm | what |
 |---|---|
-| C | N and K side by side in one portfolio (`restart.py --alt-env KAE_HOTLOOP_KEEPOUT=1 --tiebreak`): odd attempts with K's keep-out, each arm resumes its own best; KiCad's rank first, `kae.excite.cellquote`'s score among equal ranks (margin 0.1); a clean board lets the other arm's running attempts finish |
+| C | N and K side by side in one portfolio (`restart.py --alt-env KAE_HOTLOOP_KEEPOUT=1 --tiebreak`): odd attempts with K's keep-out, each arm resumes its own best; KiCad's rank first, `kae.excite.cellquote`'s score between the arms' clean boards (margin 0.1); a clean board lets the other arm's running attempts finish |
 | KV | K with `KAE_HOTLOOP_KEEPOUT_LOOPVIAS=1`: four via-sized holes beside each loop terminal of another loop net |
 | CV | as C with KV as arm B |
 
@@ -34,3 +34,11 @@ truncation fix (hotloop-eval 077dd4f5), `--scope losses`, per cell L_loop and R_
   10 % on the boards where both are complete; completion not below N's.
 - **KV:** cells better than K on arvsom, sstv and gecko5 U13; completion not below K's.
 - The quote's own ranking quality is measured on hotloop-ab's boards (N, K, Kp, human) against the evaluator.
+
+## Smoke (5538b26, bq25306, one run per arm)
+
+All three arms complete the board cleanly (C 302 s, CV 270 s, KV 157 s wall of a 900 s budget). The tie-break
+quote took 19-29 s per board here; at 5538b26 it also ran on tied open boards (C: twice, both arms' cells open,
+equal scores). Changed before the full run: only clean boards of different arms are compared (an open board's
+copper still changes, and a big board's quote can take minutes while the loop waits), and a non-physical quote
+gives no score. CV kept arm A (N) over a clean KV board on the quote (score 3.19 against 3.64).
