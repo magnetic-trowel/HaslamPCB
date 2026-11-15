@@ -672,6 +672,7 @@ def apply(tree, plan, info):
     if len(dsn_names) != len(cu):
         raise ValueError(f"DSN has {len(dsn_names)} copper layers, the board {len(cu)}")
     names_of = dict(zip(cu, dsn_names))
+    plan.dsn_layer_names = dict(names_of)   # the session names layers as the DSN does (restore_widths)
 
     def lname(l):
         return names_of.get(l, l)
@@ -999,6 +1000,8 @@ def restore_widths(net_out, plan, scale):
     their class's width on that layer change. Returns the wires changed."""
     n = 0
     classes, net_class = getattr(plan, "classes", None) or {}, getattr(plan, "net_class", None) or {}
+    # the session names layers by the DSN's (user) names: In2.Cu may be "Int2 (Sign)" (thunderscope rev5-3)
+    canon = {d: c for c, d in (getattr(plan, "dsn_layer_names", None) or {}).items()}
     for net in findall(net_out or [], "net"):
         if len(net) < 2:
             continue
@@ -1009,7 +1012,7 @@ def restore_widths(net_out, plan, scale):
             for p in findall(w, "path"):
                 if len(p) < 3:
                     continue
-                target = cls.widths.get(str(p[1]))
+                target = cls.widths.get(canon.get(str(p[1]), str(p[1])))
                 try:
                     have = float(p[2])
                 except (TypeError, ValueError):
