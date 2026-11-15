@@ -8,12 +8,13 @@
 Reads each experiment's results.csv (every attempt; run `kaeres exp report NAME` first) and each run's scorer
 drc.json. Arms by method name: bfix-control (C), bfix-seswidth (W), bfix-layers (L).
 
-Primaries (PLAN.md):
+Primaries (PLAN.md, with the smoke addendum): each measured after the first Freerouting route (repair round 0 in
+the bridge's report, r0_*) and on the scorer's final board.
 - W: track_width violations whose actual width is above the rule's max by at most 0.15 um (Freerouting's
   one-unit rounding: the bug's signature), and all track_width violations, per board (mean over attempts).
 - L: items_not_allowed violations on a track, per board (mean over attempts), and all items_not_allowed.
 Guards: per board the mean over attempts of log(x + 1), arm minus C, for x = opens (unconnected), the errors other
-than the primary's type, and all errors; the geometric-mean ratio with a bootstrap interval over boards
+than track_width and items_not_allowed (each arm keeps the other fix's bug), all errors, and defects (opens + errors), and all errors; the geometric-mean ratio with a bootstrap interval over boards
 (B = 4000, fixed seed), and the change in totals. Also cp1 (attempt 0 clean), cpk (any attempt clean), completion
 and CPU per arm on the boards both arms have.
 """
@@ -33,7 +34,6 @@ STORE = Path(os.environ.get("KAE_RESULTS") or Path.home() / "kae-baselines")
 HERE = Path(__file__).resolve().parent
 B, SEED = 4000, 20261114
 ARMS = (("C", "bfix-control"), ("W", "bfix-seswidth"), ("L", "bfix-layers"))
-PRIMARY_TYPE = {"W": "track_width", "L": "items_not_allowed"}
 MARGIN = {"W": math.log(1.05), "L": math.log(1.10)}       # guards (PLAN.md)
 WIDTH_RE = re.compile(r"max width ([0-9.]+) mm; actual ([0-9.]+) mm")
 
@@ -49,7 +49,7 @@ def drc_counts(board, run, eid):
     """(width signature, track_width, tracks not allowed, items_not_allowed) from the scorer's drc.json."""
     f = STORE / "boards" / board / "runs" / run / "evals" / f"{eid}.drc.json.gz"
     if not f.exists():
-        return None
+        return {}
     with gzip.open(f, "rt") as fh:
         d = json.load(fh)
     sig = tw = tna = ina = 0
@@ -68,6 +68,26 @@ def drc_counts(board, run, eid):
     return dict(sig=sig, tw=tw, tna=tna, ina=ina)
 
 
+def round0(board, run):
+    """The bridge's DRC after its first Freerouting route, by type (repair round 0 in the route report): the
+    mechanism before the repair rounds and the last mile rip or reroute erroring items."""
+    f = STORE / "boards" / board / "runs" / run / "adapter.log.gz"
+    if not f.exists():
+        return {}
+    with gzip.open(f, "rt", errors="replace") as fh:
+        for line in fh:
+            if line.startswith('{"input"'):
+                try:
+                    rounds = json.loads(line).get("repair", {}).get("rounds", [])
+                except ValueError:
+                    return {}
+                r0 = next((r for r in rounds if r.get("round") == 0), {})
+                bt = r0.get("by_type") or {}
+                return dict(r0_tw=bt.get("track_width", 0), r0_ina=bt.get("items_not_allowed", 0),
+                            r0_errors=r0.get("errors"), r0_opens=r0.get("unconnected"))
+    return {}
+
+
 def load(names):
     arm_of, runs = {}, defaultdict(dict)       # (board, arm) -> attempt -> row
     for name in names:
@@ -83,17 +103,20 @@ def load(names):
             row = dict(opens=float(r["unconnected"]), errors=float(r["errors"]), clean=r["clean"] == "True",
                        completion=float(r["completion"] or 0), cpu=float(r["cpu_s"] or 0),
                        by_type=json.loads(r["errors_by_type"] or "{}"))
-            row.update(drc_counts(r["board"], r["run"], r["evaluator_drc"]) or {})
+            row.update(drc_counts(r["board"], r["run"], r["evaluator_drc"]))
+            row.update(round0(r["board"], r["run"]))
+            row["defects"] = row["opens"] + row["errors"]
             runs[(r["board"], k)][int(r["attempt"])] = row
     return runs
 
 
 def guards(runs, arm, boards, level):
-    ptype = PRIMARY_TYPE[arm]
     out = {}
-    for field in ("opens", "other_errors", "errors"):
+    for field in ("opens", "other_errors", "errors", "defects"):
         def val(x):
-            return x["errors"] - x["by_type"].get(ptype, 0) if field == "other_errors" else x[field]
+            if field == "other_errors":     # neither fix's type: on the mech boards each arm keeps the other bug
+                return x["errors"] - x["by_type"].get("track_width", 0) - x["by_type"].get("items_not_allowed", 0)
+            return x[field]
         rows = []
         for b in boards:
             ra, rc = runs.get((b, arm), {}), runs.get((b, "C"), {})
@@ -151,19 +174,21 @@ def main():
     m1 = (HERE / "mech-width.txt").read_text().split()       # binding odd-unit width rules (fix W)
     boards = sorted({b for b, _ in runs})
     out = dict(experiments=a.names, level=a.level)
-    out["W"] = dict(primary=primary(runs, "W", m1, ("sig", "tw")), guards=guards(runs, "W", boards, a.level),
+    out["W"] = dict(primary=primary(runs, "W", m1, ("r0_tw", "sig", "tw")), guards=guards(runs, "W", boards, a.level),
                     guards_mech=guards(runs, "W", [b for b in boards if b in mech], a.level),
                     summary=summary(runs, "W", boards))
     pw = out["W"]["primary"]
     out["W"]["primary_verdict"] = (
-        "fixed" if pw["totals"].get("sig_W", 1) == 0 and sum(v["sig_C"] > 0 for v in pw["boards"].values()) >= 3
+        "fixed" if pw["totals"].get("r0_tw_W", 1) <= 0.2 * pw["totals"].get("r0_tw_C", 0)
+        and pw["totals"].get("sig_W", 1) == 0 and sum(v["r0_tw_C"] > 0 for v in pw["boards"].values()) >= 3
         else "not shown")
     lb = [b for b in boards if b in mech]
-    out["L"] = dict(primary=primary(runs, "L", lb, ("tna", "ina")), guards=guards(runs, "L", lb, a.level),
+    out["L"] = dict(primary=primary(runs, "L", lb, ("r0_ina", "tna", "ina")), guards=guards(runs, "L", lb, a.level),
                     summary=summary(runs, "L", lb))
     pl = out["L"]["primary"]
-    ok = (pl["totals"].get("tna_C", 0) > 0 and pl["totals"]["tna_L"] <= 0.2 * pl["totals"]["tna_C"] and
-          all(v["tna_L"] <= v["tna_C"] for v in pl["boards"].values() if v["tna_C"] > 0))
+    ok = (pl["totals"].get("r0_ina_C", 0) > 0 and pl["totals"]["r0_ina_L"] <= 0.2 * pl["totals"]["r0_ina_C"] and
+          all(v["r0_ina_L"] <= v["r0_ina_C"] for v in pl["boards"].values() if v["r0_ina_C"] > 0) and
+          pl["totals"]["tna_L"] <= pl["totals"]["tna_C"])
     out["L"]["primary_verdict"] = "fixed" if ok else "not shown"
     text = json.dumps(out, indent=1)
     if a.out:

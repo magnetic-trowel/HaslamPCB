@@ -83,5 +83,33 @@ Per arm against C: the primaries per board, guards with intervals, totals, cp1, 
 errors (read before any verdict), the boards whose opens moved most and why. `analyze.py bridge-fixes-mech
 bridge-fixes-odd`.
 
+## Smoke (2026-11-14, before the full run; experiment `bridge-fixes-smoke`, methods without REP)
+ducktop2 right_io and tigard, C/W/L, 1 attempt.
+- **Mechanisms seen at the first route** (the bridge's repair round 0, DRC after the first Freerouting session):
+  C 78 track_width + 44 items_not_allowed; W 0 track_width (50 widths restored) + 52 items_not_allowed;
+  L 88 track_width + 0 items_not_allowed (the DSN carries 6 `use_layer` circuits, classes 6 -> 7).
+- **Final boards hide part of it:** C's last mile ripped every erroring item ("rip errors": 64 errors -> 0, opens
+  111 -> 136, final 133 opens / 0 errors); W ended 85 opens / 68 errors (59 items_not_allowed: L's bug), L 102 / 49
+  (44 track_width: W's bug). So the bug's errors can turn into opens, and on these boards each arm keeps the other
+  fix's bug. **Addendum to the outcomes (written before the full run):** each primary is measured at round 0 (from
+  the run's route report) as well as on the scorer's final board, and decided on round 0: W fixes it when its round-0
+  track_width total on the 4 width boards is at most 20 % of C's, C has some on at least 3 of them, and W has no
+  signature error on any final board; L when its round-0 items_not_allowed total on the 7 boards is at most 20 % of
+  C's, no higher than C on any board where C has some, and its final tracks-not-allowed total is no higher than C's.
+  Guards gain `defects` (opens + errors), and "other errors" leave out both track_width and items_not_allowed.
+- tigard (odd widths, no binding rule): C, W and L gave the same board result (3 opens, 24 errors, the same types).
+- **DSN identity (L acts nowhere else):** the bridge's DSN from C and L is byte-identical except the header's path on
+  tigard, olimex nb-iot, matgla gpu-vga, ducktop2 bms and techmiguel stillpoint (a courtyard-conditioned disallow
+  rule); it differs, with `use_layer`, on right_io (6) and the keyboard daughterboard (5). The two stab-rabbit boards
+  could not be exported from the raw corpus file (KiCad 9 format; prepared tasks are upgraded).
+- **Profile** (C, right_io, py-spy on the python process, JFR on Freerouting d137fd1): 867 s wall, 1,010 s CPU,
+  peak RSS 1.7 GB. Freerouting 79 % (wall-budgeted; JFR: MinAreaTree overlaps, maze priority queue, search-tree
+  completion), last mile and repair 12 %, KiCad DRC 3.6 %, pcbnew calls 2 %, rule evaluation 1.3 %, numba compile
+  0.8 % (cold; warm caches made for the three commits), imports 0.7 %. The run is budget-bound, so no speedup shortens
+  a job; W and L add no measurable time. Job sizing: kaeres' estimate (2 CPUs, ~2 GB) matched the measured peak.
+
 ## Expected cost (information, not a limit)
-See "Smoke" for the measured per-run cost.
+About 0.3-0.5 CPU-h per run (900 s budget, ~1,000 CPU-s routing, plus scoring and physics). `bridge-fixes-mech`
+7 x 3 x 5 = 105 runs on 800-3,600-pad boards, ~50 CPU-h; `bridge-fixes-odd` 85 x 2 x 2 = 340 runs, ~120 CPU-h.
+Extensions if needed: W +65 boards x 2 x 2 (~90 CPU-h) and a third attempt (~75 CPU-h); L attempts 5-9
+(7 x 2 x 5 = 70 runs, ~35 CPU-h).
