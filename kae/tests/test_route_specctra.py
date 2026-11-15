@@ -88,6 +88,30 @@ def test_fix_session_strips_placement_quotes_nets_restores_vias():
     assert "(circle F.Cu 7000 0 0)" in text  # 0.7 mm in SES units (0.1 um)
 
 
+def test_fix_session_gives_odd_unit_widths_back():
+    """Freerouting keeps half widths in whole units: a 0.1521 mm class (1521 units) comes back 1522, past a
+    rule whose max is 0.1521. Only a wire one unit above its class's width on that layer changes."""
+    hs = RoutingClass("kae_HS", ["ADD|SUB"], "HS", {"F.Cu": 0.1521, "B.Cu": 0.091}, (0.6, 0.3))
+    plan = SimpleNamespace(classes={"kae_HS": hs}, copper=["F.Cu", "B.Cu"], net_class={"ADD|SUB": "kae_HS"})
+    t = S.parse(SES.replace("(path F.Cu 2000 0 0 1000 0)", "(path F.Cu 1522 0 0 1000 0)) (wire (path B.Cu 912 0 0 9 9)"
+                            ") (wire (path F.Cu 3000 0 0 5 5)"))
+    out = translate.fix_session(t, plan)
+    assert out["widths_restored"] == 1
+    text = S.dumps(t)
+    assert "(path F.Cu 1521 0 0 1000 0)" in text and "(path B.Cu 912 0 0 9 9)" in text and "(path F.Cu 3000 0 0 5 5)" in text
+
+
+def test_fix_session_gives_widths_back_on_renamed_layers():
+    """KiCad writes DSN layers by their user names (In2.Cu as "Int2 (Sign)"); the session uses them too."""
+    hs = RoutingClass("kae_HS", ["ADD|SUB"], "HS", {"F.Cu": 0.1521, "B.Cu": 0.1479}, (0.6, 0.3))
+    plan = SimpleNamespace(classes={"kae_HS": hs}, copper=["F.Cu", "B.Cu"], net_class={"ADD|SUB": "kae_HS"},
+                           dsn_layer_names={"F.Cu": "F.Cu", "B.Cu": "Bottom"})
+    t = S.parse(SES.replace("(path F.Cu 2000 0 0 1000 0)", "(path Bottom 1480 0 0 1000 0)"))
+    out = translate.fix_session(t, plan)
+    assert out["widths_restored"] == 1
+    assert "(path Bottom 1479 0 0 1000 0)" in S.dumps(t)
+
+
 SNAP_DSN = '''(pcb "/tmp/x.dsn"
   (resolution um 10)
   (unit um)
