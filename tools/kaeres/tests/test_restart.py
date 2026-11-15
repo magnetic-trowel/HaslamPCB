@@ -374,3 +374,12 @@ def test_the_final_pass_runs_with_the_kept_boards_arm(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     fin = summary["attempt_log"][-1]
     assert fin["k"] == "final" and fin["arm"] == "B" and "final=B" in out.read_text()
+
+
+def test_choose_better_keeps_arm_a_when_the_tiebreak_cannot_decide(tmp_path):
+    """Arm B's board cannot be scored (the command writes no score): arm A, the method as given, is kept."""
+    none = "python3 -c \"import json,sys; json.dump(dict(score=None), open(sys.argv[1], 'w'))\" @OUT@"
+    r, out, summary = _run(tmp_path, ARM_ATTEMPT, "", extra=[
+        "--parallel", "2", "--max-attempts", "2", "--alt-env", "HL=B", "--tiebreak", none])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "arm=A" in out.read_text() and summary["choose_better"]["kept_arm"] == "A"

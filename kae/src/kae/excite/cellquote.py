@@ -30,6 +30,12 @@ PITCH = 0.125                # mm: the quote's raster (4x fewer cells than the e
 MAX_CELLS = 6e5              # raster budget of one quote window (cells x copper layers): the pitch doubles past it
 
 
+def _physical(z, f_fund, f_edge):
+    """A window value a loop can have: 0 < L < 1 uH and 0 < R < 100 ohm."""
+    L = z[f_edge].imag / (2 * math.pi * f_edge)
+    return 0 < L < 1e-6 and 0 < z[f_fund].real < 100
+
+
 def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max_cells=MAX_CELLS, log=print):
     """One row per switching cell of the board at `path` (see the module doc)."""
     from kae.board import pinfacts as PF
@@ -87,14 +93,16 @@ def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max
                    min(bw[2], box[2] + margin), min(bw[3], box[3] + margin))
             pc, _ = coarsen_pitch(win, pitch, n_cu, max_cells)
             z, _, _ = HL._solve_window(path, b, bd, s, o, win, pc, nsub, fills, [f_fund, f_edge], skin, lambda *a: None)
-            if z is not None or win == tuple(bw) or grown >= HL.MAX_GROW:
+            # a window that leaves the loop open, or reads a non-physical share (the return it cut off carried
+            # part of the pattern: esp32's U6 read R = -61 mOhm in a 29 x 20 mm window), grows like the evaluator's
+            if (z is not None and _physical(z, f_fund, f_edge)) or win == tuple(bw) or grown >= HL.MAX_GROW:
                 break
             margin, grown = margin * 2, grown + 1
         if z is None:
             rows.append(dict(row, state="open", why=f"the loop does not close in its window grown {grown} times"))
             continue
         L = z[f_edge].imag / (2 * math.pi * f_edge)
-        if not (0 < L < 1e-6 and 0 < z[f_fund].real < 100):
+        if not _physical(z, f_fund, f_edge):
             # an ill-conditioned window (a loop closing through a sliver, a piece left floating): no ranking value
             rows.append(dict(row, state="invalid", why=f"non-physical L {L * 1e9:.4g} nH, R {z[f_fund].real * 1e3:.4g} mOhm"))
             continue

@@ -47,7 +47,8 @@ arm (A for even k, B for odd), so both arms keep their lineages, and the final a
 kept board's arm. The kept board is ranked by KiCad first, as always; among clean attempts of different arms,
 --tiebreak COMMAND (@BOARD@, @OUT@: a JSON file with "score", lower better; for kae `python -m
 kae.excite.cellquote @BOARD@ --score-out @OUT@`, the hot loops' quote) decides, when the scores differ by
-more than --tiebreak-margin. A clean board does not end the run at once: attempts already running finish
+more than --tiebreak-margin; otherwise (closer, or a board it cannot score) arm A, the method as given, is kept.
+A clean board does not end the run at once: attempts already running finish
 (no new ones start), so the other arm can offer a clean board of its own to compare. The summary lists the
 arm of every attempt and each tie-break.
 
@@ -742,7 +743,8 @@ def tiebreak_score(a, info, cache):
 
 def better(a, new, best, cache, ties):
     """Whether attempt `new` replaces `best`: a better KiCad rank; with --alt-env and --tiebreak, both clean, of
-    different arms, and a tie-break score lower by more than --tiebreak-margin (each comparison goes to `ties`)."""
+    different arms, and a tie-break score lower by more than --tiebreak-margin, or, when the scores do not decide
+    (closer than the margin, or one missing), `new` being arm A (each comparison goes to `ties`)."""
     if new.get("rank") is None:
         return False
     if best is None or best.get("rank") is None:
@@ -754,7 +756,11 @@ def better(a, new, best, cache, ties):
     if new.get("arm") == best.get("arm"):
         return False
     sb, sn = tiebreak_score(a, best, cache), tiebreak_score(a, new, cache)
-    win = sb is not None and sn is not None and sn < sb - a.tiebreak_margin
+    if sb is not None and sn is not None and abs(sn - sb) > a.tiebreak_margin:
+        win = sn < sb
+    else:
+        # no clear difference, or a board the tie-break could not score: the method as given (arm A) is kept
+        win = new.get("arm") == "A"
     ties.append(dict(rank=list(new["rank"]), kept=best["k"], kept_arm=best.get("arm"), kept_score=sb,
                      other=new["k"], other_arm=new.get("arm"), other_score=sn, switched=win))
     return win
