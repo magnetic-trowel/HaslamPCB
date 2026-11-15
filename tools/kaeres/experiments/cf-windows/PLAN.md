@@ -54,3 +54,19 @@ Both boards were open after phase 1, and phase 1 was identical in both arms.
 - **gos2022:** CF's R' was worse and phase 1 was kept. CF-W's windows tied phase 1 and were kept.
 
 Every run was scored. No rule changes.
+
+## Addendum: first read and the extension `cf-windows-ext` (2026-11-15, before any run of the extension)
+**First read (160 boards):** undecided.
+- On the 46 boards open after phase 1: CF-W 254 vs CF 356 opens (−28.7 %), 20 boards fewer and 6 more, p 0.083.
+- The guards hold, and CF-W used less real CPU.
+
+**Extension:** the same arms, methods (ids) and code (828d8f9), on boards likely to be open after phase 1. The boards were chosen without any outcome from this test (`boards-ext1.txt`, 92 boards):
+- corpus boards with `route_demand` moderate or hard (board-tags suites);
+- that a stored staged-restart run left with at least one open connection. The runs counted are those of the methods `kae staged (restarts)`, `kae cm staged restarts`, `kae polish restarts`, `kae pmerit restarts`, and `s2 staged` with its twins;
+- not among the 160;
+- one per repo family (`repo_family2.json`), keeping the board with the most stored runs, ties by name.
+- The result is 56 hard and 36 moderate boards.
+
+**Verdict:** pooled with the first 160 boards, the same primary (opens on the boards open after phase 1, paired `d`, sign-flip), the same p < 0.05 and 3 % rule, and the same guards.
+- If it is still undecided, another batch is drawn the same way (from moderate, hard and extreme boards not yet used) and pooled again, until decided.
+- Smoke: 2 boards, then priority 2.
