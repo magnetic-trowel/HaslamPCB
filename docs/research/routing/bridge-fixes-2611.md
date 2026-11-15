@@ -40,4 +40,13 @@ therefore read at repair round 0 and on the final board. The end-to-end guard is
 which has odd widths but no binding rule, all three arms gave the same board result.
 
 ## Results
-Pending: numbers and verdict go here when `analyze.py bridge-fixes-mech bridge-fixes-odd` is run.
+**bridge-fixes-odd (2026-11-15, 83 of 85 boards, k = 2, W vs C):** W gave widths back on 95 of 154 runs. Both arms
+had 0 track_width errors, because no binding rule is in this set. Guards, as geometric-mean ratio W/C [95 % CI]:
+- opens 1.001 [0.969, 1.034], totals -0.3 %;
+- other errors 1.002 [0.990, 1.012], +0.6 %;
+- defects 1.006 [0.992, 1.020], -0.1 %;
+- cp1 4 vs 4, cpk 5 vs 5, completion 0.849 vs 0.849.
+
+All are under the +5 % margin, so the guard passes without the extension. Per-type errors are the same within a
+few counts. This shows W is harmless where it acts without a binding rule. It cannot show the primary (errors
+removed); that needs `bridge-fixes-mech`, still running (8 of 14 jobs retried at a 10 h timeout).
