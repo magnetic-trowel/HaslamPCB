@@ -8,7 +8,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "completion-first"))
 import analyze as C  # noqa: E402
 
-D = C.load(sys.argv[1] if len(sys.argv) > 1 else "cf-windows", lambda n: n.split()[2])
+D = {}
+for exp in (sys.argv[1:] or ["cf-windows"]):           # pooled over the experiments given (cf-windows, cf-windows-ext)
+    for b, v in C.load(exp, lambda n: n.split()[2]).items():
+        D.setdefault(b, {}).update(v)
 B = sorted(b for b in D if "CF" in D[b] and "CFW" in D[b])
 
 
