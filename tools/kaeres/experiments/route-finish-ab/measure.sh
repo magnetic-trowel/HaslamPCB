@@ -50,12 +50,18 @@ t0=$(date +%s)
 # unconnected is open): RFAB_DRC_EVAL's report of the stored run, else its newest; the human run's for human
 drcsrc=
 case "$arm" in
-  human) rd=$(ls -d "$STORE"/boards/"$b"/runs/human.* 2>/dev/null | head -1) ;;
+  human) rd=; for d in "$STORE"/boards/"$b"/runs/human.*; do [ -d "$d" ] && { rd=$d; break; }; done ;;
   B) rd= ;;
   *) rd=${d:-} ;;
 esac
 if [ -n "$rd" ]; then
-  drcsrc=$( { [ -n "${RFAB_DRC_EVAL:-}" ] && ls "$rd/evals/$RFAB_DRC_EVAL.drc.json.gz" 2>/dev/null; ls -t "$rd"/evals/*.drc.json.gz 2>/dev/null; } | head -1)
+  # (no head -1 in a pipe: with pipefail its SIGPIPE to ls ended the script, rc 141)
+  drcsrc=
+  if [ -n "${RFAB_DRC_EVAL:-}" ] && [ -f "$rd/evals/$RFAB_DRC_EVAL.drc.json.gz" ]; then
+    drcsrc=$rd/evals/$RFAB_DRC_EVAL.drc.json.gz
+  else
+    for f in $(ls -t "$rd"/evals/*.drc.json.gz 2>/dev/null); do drcsrc=$f; break; done
+  fi
 fi
 if [ -n "$drcsrc" ]; then zcat "$drcsrc" > "$ws/drc.json"; DRCARG=(--drc "$ws/drc.json"); else DRCARG=(--no-drc); fi
 if [ -z "$dx" ] && [ -n "${RFAB_EVAL_ARGS:-}" ]; then
