@@ -50,7 +50,7 @@ def jl(p):
 
 def arm_of(name):
     n = name.lower()
-    for pre, arm in (("hl default twin", "N2"), ("hl default", "N"), ("hl keepout", "K"), ("hl cells pours", "HP"),
+    for pre, arm in (("hl default twin", "N2"), ("hl default", "N"), ("hl keepout nopours", "Kp"), ("hl keepout", "K"), ("hl cells pours", "HP"),
                      ("hl cells", "H")):
         if n.startswith(pre):
             return arm
@@ -82,7 +82,7 @@ class Data:
         self.boards = (STORE / "experiments" / exp / "boards.txt").read_text().split()
         self.ids = {arm_of(m["name"]): m["id"] for m in self.e["methods"] if arm_of(m["name"])}
         self.drc_eval = self.e["evaluators"]["drc"]
-        self.arms = [a for a in ("A0", "A0r", "A", "A2", "B", "C", "D", "E", "N", "N2", "K", "H", "HP") if a in ("A0", "A0r", "B") or a in self.ids]
+        self.arms = [a for a in ("A0", "A0r", "A", "A2", "B", "C", "D", "E", "N", "N2", "K", "Kp", "H", "HP") if a in ("A0", "A0r", "B") or a in self.ids]
         self._a0 = None
         if only_arms:
             self.arms = [a for a in self.arms if a in only_arms]
@@ -99,7 +99,7 @@ class Data:
         if twin:
             e = jl(STORE / "experiments" / twin / "experiment.json") or {}
             self.ids.update({arm_of(m["name"]): m["id"] for m in e.get("methods", []) if arm_of(m["name"])})
-            self.arms = [a for a in ("A0", "A0r", "A", "A2", "B", "C", "D", "E", "N", "N2", "K", "H", "HP") if a in ("A0", "A0r", "B") or a in self.ids]
+            self.arms = [a for a in ("A0", "A0r", "A", "A2", "B", "C", "D", "E", "N", "N2", "K", "Kp", "H", "HP") if a in ("A0", "A0r", "B") or a in self.ids]
 
     def run_dir(self, arm, b):
         if arm == "A0":
@@ -679,7 +679,7 @@ def sec_gates(D):
     """The pre-registered verdicts of PLAN.md sections 4, 9 and 10, computed."""
     arms = set(D.arms)
     out = ["## Pre-registered gates\n"]
-    if {"N", "N2", "H"} <= arms:
+    if {"N", "N2"} <= arms and arms & {"K", "Kp", "H"}:
         out.append(hotloop_gates(D))
         return "\n".join(out)
     if "N" in arms:
@@ -811,7 +811,7 @@ def hotloop_gates(D):
     tw = cell_compare(D, "N2", "N", "R_loop_mohm")[0]
     out.append(f"Twin N2 against N, per cell: R_loop ratio median {f3(st.median([r['ratio'] for r in tw])) if tw else '-'}, "
                f"cells differing {sum(1 for r in tw if abs(r['ratio'] - 1) > 1e-9)} of {len(tw)}; open cells N {open_cells(D, 'N')}, N2 {open_cells(D, 'N2')}\n")
-    for arm in [a for a in ("K", "H", "HP") if a in D.arms]:
+    for arm in [a for a in ("K", "Kp", "H", "HP") if a in D.arms]:
         rows = []
         for k, lim in (("R_loop_mohm", 0.75), ("L_loop_nH", 0.90)):
             cr, med = cell_compare(D, arm, "N", k)
@@ -839,6 +839,10 @@ def hotloop_gates(D):
             judged = c["better"] + c["worse"]
             rows.append((f"secondary: {o} not worse than N beyond the twin's noise", (c["worse"] <= c["better"]) if judged else None,
                          f"better {c['better']}, worse {c['worse']}, noise {c['noise']}; median {f3(c['median'])}" if c["n"] else "no terms"))
+        ac = term_twin(D, arm, ("loss.loop_ac", "loss.copper_ac", "loss.loop", "loss.copper"))
+        for o, c in ac.items():
+            rows.append((f"reported: {o}, {arm} against N (terms, beyond the twin's noise)", None,
+                         f"median {f3(c['median'])}, better {c['better']}, worse {c['worse']}, noise {c['noise']}; {c['n']} terms" if c["n"] else "no terms"))
         if arm == "HP":
             cr, _ = cell_compare(D, "HP", "H", "R_loop_mohm")
             m = st.median(r["ratio"] for r in cr) if cr else None
@@ -847,6 +851,15 @@ def hotloop_gates(D):
             rows.append(("HP over H: R_loop median HP/H at most 0.85 and starved_thermal not up",
                          (m is not None and m <= 0.85 and sp <= sh), f"median {f3(m)} on {len(cr)} cells; starved_thermal H {sh}, HP {sp}"))
         out.append(_gtable(f"{arm} against N", rows))
+    if {"K", "Kp"} <= set(D.arms):
+        rows = []
+        for k in ("R_loop_mohm", "L_loop_nH"):
+            cr, med = cell_compare(D, "K", "Kp", k)
+            if cr:
+                rows.append((f"{k}: median K/Kp (reported)", None, f"median {st.median(r['ratio'] for r in cr):.3f}, better {sum(r['verdict'] == 'better' for r in cr)}, worse {sum(r['verdict'] == 'worse' for r in cr)} of {len(cr)} cells"))
+        rows += [(f"{n} (K against Kp)", ok, d) for n, ok, d in not_worse(D, "Kp", "K")]
+        rows.append((f"open cells K / Kp", None, f"{open_cells(D, 'K')} / {open_cells(D, 'Kp')}"))
+        out.append(_gtable("K against Kp: are the pours' keep-outs worth it", rows))
     return "### Hot-loop A/B\n\n" + "\n".join(out)
 
 

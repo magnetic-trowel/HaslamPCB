@@ -46,7 +46,29 @@ fi
 [ -s "$M/phys/$tag.status.json" ] && { echo "$b $tag: physics done"; exit 0; }
 op=$OPSRC/$b.operating.json it=$OPSRC/$b.intent.json
 t0=$(date +%s)
-if [ -z "$dx" ]; then
+# the DRC report of the run (the scorer's, for kae.excite.evaluate --drc: a cell whose loop pad it lists as
+# unconnected is open): RFAB_DRC_EVAL's report of the stored run, else its newest; the human run's for human
+drcsrc=
+case "$arm" in
+  human) rd=$(ls -d "$STORE"/boards/"$b"/runs/human.* 2>/dev/null | head -1) ;;
+  B) rd= ;;
+  *) rd=${d:-} ;;
+esac
+if [ -n "$rd" ]; then
+  drcsrc=$( { [ -n "${RFAB_DRC_EVAL:-}" ] && ls "$rd/evals/$RFAB_DRC_EVAL.drc.json.gz" 2>/dev/null; ls -t "$rd"/evals/*.drc.json.gz 2>/dev/null; } | head -1)
+fi
+if [ -n "$drcsrc" ]; then zcat "$drcsrc" > "$ws/drc.json"; DRCARG=(--drc "$ws/drc.json"); else DRCARG=(--no-drc); fi
+if [ -z "$dx" ] && [ -n "${RFAB_EVAL_ARGS:-}" ]; then
+  # kae.excite.evaluate with extra arguments (e.g. --scope losses), as eval_intent.sh runs it otherwise
+  T=${KAEQ_CPUS:-4}
+  ( export PYTHONPATH=$CODE/kae/src NUMBA_THREADING_LAYER=omp KAE_EM_THREADS=$T OMP_NUM_THREADS=$T OPENBLAS_NUM_THREADS=$T MKL_NUM_THREADS=$T
+    ( ulimit -v 40000000; $KAE_KICAD_WRAP kicad-cli pcb upgrade --force "$ws/board.kicad_pcb" >/dev/null 2>&1 || true )
+    ulimit -v "$KAE_EVAL_VMEM_KB"
+    "$KPY" -u -W ignore -m kae.excite.evaluate "$ws/board.kicad_pcb" --pitch 0.25 --max-cells "${KAE_EVAL_MAX_CELLS:-4000000}" \
+      --intent "$op" -o "$M/phys/$tag.ev.json" $RFAB_EVAL_ARGS "${DRCARG[@]}" > "$M/phys/$tag.ev.txt" 2>&1
+    "$KPY" -u -W ignore -m kae.intent status "$M/phys/$tag.ev.json" --intent "$it" -o "$M/phys/$tag.status.json" > "$M/phys/$tag.status.txt" 2>&1 )
+  echo "eval_s $(( $(date +%s) - t0 )) drc ${drcsrc:+$(basename "$drcsrc")}" >> "$M/phys/$tag.status.txt"
+elif [ -z "$dx" ]; then
   KAE_RULES_FROM=$ws/board.kicad_pcb bash "$CODE/tools/research/physics/eval_intent.sh" "$ws/board.kicad_pcb" "$op" "$it" \
     "$M/phys" "$tag" > /dev/null
 else

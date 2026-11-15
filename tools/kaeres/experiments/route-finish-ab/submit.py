@@ -68,11 +68,16 @@ def main():
     ap.add_argument("--offset-max-s", type=float, default=900.0,
                     help="--offsets: leave out boards where any base evaluation in OUT took longer (or none exists)")
     ap.add_argument("--owner", default="rf-ab")
+    ap.add_argument("--env", action="append", default=[], metavar="K=V", help="extra environment of every job (e.g. "
+                    "RFAB_EVAL_ARGS='--scope losses', RFAB_DRC_EVAL=<drc evaluator id>)")
+    ap.add_argument("--max-eval-s", type=float, help="measure: leave out boards whose history says an evaluation takes longer")
     ap.add_argument("--prio", type=int, default=0)
     ap.add_argument("--submit", action="store_true")
     a = ap.parse_args()
     boards = Path(a.boards).read_text().split() if Path(a.boards).exists() else a.boards.split(",")
-    env = f"SHA={a.sha} OUT={a.out}" + (f" A_ID={a.a_id}" if a.a_id else "")
+    import shlex
+    env = f"SHA={a.sha} OUT={a.out}" + (f" A_ID={a.a_id}" if a.a_id else "") + "".join(
+        " " + shlex.quote(kv) for kv in a.env)
     hist = history() if a.what == "measure" else {}
     jobs, skipped, est = [], [], 0.0
     for b in boards:
@@ -90,6 +95,9 @@ def main():
                 continue
         ev, peak = hist.get(b, (None, None))
         if ev is None and not a.include_unsolved:
+            skipped.append(b)
+            continue
+        if a.max_eval_s and ev and ev > a.max_eval_s:
             skipped.append(b)
             continue
         ev = ev or 6 * 3600.0

@@ -8,9 +8,11 @@
 #
 #   N   hl default      the confirmed default recipe (confirm-default-ab's N): --final and --finish
 #   N2  hl default twin N again (param replicate=2 only separates the ids): the run-to-run noise
-#   K   hl keepout      N + KAE_HOTLOOP_KEEPOUT=1 (R5: other nets off the return plane under each cell)
+#   K   hl keepout      N + KAE_HOTLOOP_KEEPOUT=1 (R5: other nets off the return plane under each cell, and off
+#                       the loop nets' pours: hotloop_keepout_pours defaults to 1)
+#   Kp  hl keepout nopours  N + KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_KEEPOUT_POURS=0 (the keep-out without the pours')
 #   H   hl cells        N + KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_CELLS=1 KAE_HOTLOOP_VIAS=1 (R5, R1+R2, R4)
-#   HP  hl cells pours  H + KAE_HOTLOOP_POURS=1 (R3)
+# (HP, the hot-loop pours, is not in this run: it is added only if H passes; see hotloop-ab/PLAN.md.)
 # The settings are environment variables of every kae process of the arm (route attempts, last mile, finish).
 #
 # Everything else as route-finish-ab: restart.py --parallel 4 --first-s 60 --scale-first --slack 1.15 --resume 0.5,
@@ -54,15 +56,16 @@ add() {  # NAME DESCRIPTION ENV ROUTE_FLAGS FINISH(0/1) [EXTRA --param K=V]
 }
 S7=${SHA:0:7}
 N="hl default $S7 (restarts)"; N2="hl default twin $S7 (restarts)"; KK="hl keepout $S7 (restarts)"
-HH="hl cells $S7 (restarts)"; HP="hl cells pours $S7 (restarts)"
+KP="hl keepout nopours $S7 (restarts)"; HH="hl cells $S7 (restarts)"
 add "$N" "kae.route.cli at $S7 as kae ships it: --final last mile and --finish in the time left" "" "" 1
 add "$N2" "twin of '$N' (identical recipe; param replicate=2 only separates the ids)" "" "" 1 replicate=2
-add "$KK" "as '$N' plus KAE_HOTLOOP_KEEPOUT=1 (R5)" "KAE_HOTLOOP_KEEPOUT=1" "" 1
+add "$KK" "as '$N' plus KAE_HOTLOOP_KEEPOUT=1 (R5, with the loop pours' keep-out: hotloop_keepout_pours default 1)" "KAE_HOTLOOP_KEEPOUT=1" "" 1
+add "$KP" "as '$N' plus KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_KEEPOUT_POURS=0 (R5 without the pours' keep-out)" \
+  "KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_KEEPOUT_POURS=0" "" 1
 add "$HH" "as '$N' plus KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_CELLS=1 KAE_HOTLOOP_VIAS=1 (R5, R1+R2, R4)" \
   "KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_CELLS=1 KAE_HOTLOOP_VIAS=1" "" 1
-add "$HP" "as '$HH' plus KAE_HOTLOOP_POURS=1 (R3)" "KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_CELLS=1 KAE_HOTLOOP_VIAS=1 KAE_HOTLOOP_POURS=1" "" 1
-desc="hot-loop A/B at $S7: N default, N2 twin, K keep-out, H cells + vias + keep-out, HP + pours. Recipe: tools/kaeres/experiments/hotloop-ab.sh; plan hotloop-ab/PLAN.md. Operating facts rf-ab-operating-$OPH"
-M=(--method "$N" --method "$N2" --method "$KK" --method "$HH" --method "$HP")
+desc="hot-loop A/B at $S7: N default, N2 twin, K keep-out, Kp keep-out without pours, H cells + vias + keep-out. Recipe: tools/kaeres/experiments/hotloop-ab.sh; plan hotloop-ab/PLAN.md. Operating facts rf-ab-operating-$OPH"
+M=(--method "$N" --method "$N2" --method "$KK" --method "$KP" --method "$HH")
 case "$STAGE" in
   full) $K exp create hotloop-ab "${M[@]}" --boards @$D/hotloop-ab/boards.txt --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "$desc" >/dev/null ;;
