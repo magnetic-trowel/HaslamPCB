@@ -139,3 +139,15 @@ by side), 5 attempts. Its numbers go in this section afterwards.
 
 A combined arm (W2 + L) could not be built in this session: creating the combined branch was refused by the session's
 permission check. It is the first thing to run after these verdicts if both fixes go in.
+
+## Addendum 2026-11-15 (2): the combination, before it runs
+`bridge-fixes-combined` (b135072a: main + bridge-ses-width at b866798a + bridge-disallow-layers, merged without
+conflicts; route tests 57 passed, 1 skipped). Experiment `bridge-fixes-combo`: the same 6 boards, arms C (its own
+replicate, REP=combo, because `bridge-fixes-confirm` was already running) and CB, 5 attempts, 10 h job timeout.
+- Primary: on these boards, CB's round-0 track_width and items_not_allowed totals are each at most 20 % of C's. CB has
+  no one-unit width error on any final board (actual = max + 0.1 um), and no more final tracks-not-allowed than C.
+  kae's own rounding past a rule finer than the grid (thunderscope 0.19079 mm) is outside both fixes. It is reported,
+  not counted.
+- Guards against C (per board, mean over attempts of log(x + 1)), margin +10 % (6 boards): opens, other errors and
+  defects (opens + errors). Undecided -> 5 more attempts.
+- Each fix's own PR waits for its verdict from `bridge-fixes-confirm`; the combination says whether they hold together.

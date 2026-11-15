@@ -33,8 +33,8 @@ from pathlib import Path
 STORE = Path(os.environ.get("KAE_RESULTS") or Path.home() / "kae-baselines")
 HERE = Path(__file__).resolve().parent
 B, SEED = 4000, 20261114
-ARMS = (("C", "bfix-control"), ("W", "bfix-seswidth"), ("L", "bfix-layers"))
-MARGIN = {"W": math.log(1.05), "L": math.log(1.10)}       # guards (PLAN.md)
+ARMS = (("C", "bfix-control"), ("W", "bfix-seswidth"), ("L", "bfix-layers"), ("CB", "bfix-combined"))
+MARGIN = {"W": math.log(1.05), "L": math.log(1.10), "CB": math.log(1.10)}       # guards (PLAN.md)
 WIDTH_RE = re.compile(r"max width ([0-9.]+) mm; actual ([0-9.]+) mm")
 
 
@@ -190,6 +190,13 @@ def main():
           all(v["r0_ina_L"] <= v["r0_ina_C"] for v in pl["boards"].values() if v["r0_ina_C"] > 0) and
           pl["totals"]["tna_L"] <= pl["totals"]["tna_C"])
     out["L"]["primary_verdict"] = "fixed" if ok else "not shown"
+    if any(k == "CB" for _, k in runs):
+        pc = primary(runs, "CB", lb, ("r0_tw", "sig", "r0_ina", "tna"))
+        t = pc["totals"]
+        out["CB"] = dict(primary=pc, guards=guards(runs, "CB", lb, a.level), summary=summary(runs, "CB", lb),
+                         primary_verdict="fixed" if (t.get("r0_ina_C", 0) > 0 and t["r0_ina_CB"] <= 0.2 * t["r0_ina_C"]
+                                                     and t.get("r0_tw_C", 0) > 0 and t["r0_tw_CB"] <= 0.2 * t["r0_tw_C"]
+                                                     and t["sig_CB"] == 0 and t["tna_CB"] <= t["tna_C"]) else "not shown")
     text = json.dumps(out, indent=1)
     if a.out:
         Path(a.out).write_text(text)

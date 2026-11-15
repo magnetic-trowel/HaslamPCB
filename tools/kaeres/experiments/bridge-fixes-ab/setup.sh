@@ -23,3 +23,9 @@ add() {  # NAME DESCRIPTION SHA
 add "kae bridge bfix-control 900 ${MAIN:0:7}" "bridge-fixes-ab C: kae bridge on main ${MAIN:0:7}, 900 s, fork d137fd1" "$MAIN"
 add "kae bridge bfix-seswidth 900 ${W:0:7}" "bridge-fixes-ab W: C plus session widths given back where Freerouting rounded them up one unit (bridge-ses-width ${W:0:7})" "$W"
 add "kae bridge bfix-layers 900 ${L:0:7}" "bridge-fixes-ab L: C plus classes kept off layers a custom rule disallows their tracks on (bridge-disallow-layers ${L:0:7})" "$L"
+# The combination (bridge-fixes-combined: main + bridge-ses-width at b866798a + bridge-disallow-layers), when asked:
+#   REP=combo CB_SHA=b135072a tools/kaeres/experiments/bridge-fixes-ab/setup.sh
+if [ -n "${CB_SHA:-}" ]; then
+  CB=$(git rev-parse "$CB_SHA")
+  add "kae bridge bfix-combined 900 ${CB:0:7}" "bridge-fixes-ab CB: C plus both fixes (bridge-fixes-combined ${CB:0:7})" "$CB"
+fi
