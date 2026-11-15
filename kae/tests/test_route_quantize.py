@@ -141,3 +141,20 @@ def test_repair_widening_stays_inside_the_rule():
     plan = SimpleNamespace(classes={"kae_PCIe": rc}, net_class={"N1": "kae_PCIe"})
     assert repair._widened(plan, dict(net="N1", layer="F.Cu"), 0.1908) == 0.19079
     assert repair._widened(None, dict(net="N1", layer="F.Cu"), 0.1908) == 0.1909
+
+
+def test_via_choice_keeps_the_annular_ring(monkeypatch):
+    """thunderscope rev5-3: a 0.4064/0.2032 mm via with a 0.1016 mm minimum ring; each rounded up to 1 um on its
+    own gave 0.407/0.204, a 0.1015 mm ring (199 annular_width errors per run). The diameter's floor is taken
+    after the drill is rounded."""
+    lim = {"via_diameter": SimpleNamespace(min=0.4064, opt=0.4064, max=None),
+           "hole_size": SimpleNamespace(min=0.2032, opt=0.2032, max=None),
+           "annular_width": SimpleNamespace(min=0.1016, opt=None, max=None)}
+    monkeypatch.setattr(C.R, "strictest", lambda rb, ctype, *a, **k: lim[ctype])
+    info = dict(probes={}, copper=["F.Cu", "B.Cu"], nets={"N": dict(netclass="Default")})
+    D, d, ring = C._via_choice(info, None, "N")
+    assert ring >= 0.1016 - 1e-9 and _on(D, UM) and _on(d, UM)
+    assert (D, d) == (0.408, 0.204)
+    lim["hole_size"] = SimpleNamespace(min=0.19, opt=0.2032, max=0.2035)       # a max off the um grid
+    D, d, _ = C._via_choice(info, None, "N")
+    assert d == 0.203
