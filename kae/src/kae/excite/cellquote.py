@@ -14,7 +14,7 @@ L_loop pairs and 33 of 37 R_loop pairs at 0.0625 mm (33 of 43 and 30 of 37 at th
 the quotes differ by more than 10 %. A cell is "open" when its loop does not close in the window (grown up to
 hotloop.MAX_GROW times) or when the DRC report lists a loop member as unconnected (as the evaluator does).
 
-Rows: {source, state ok|open|not_computed, L_nH, R_mohm (at f_sw, skin-corrected unless --no-skin), window,
+Rows: {source, state ok|open|not_computed|invalid, L_nH, R_mohm (at f_sw, skin-corrected unless --no-skin), window,
 pitch, seconds}. `score(rows)` turns them into one number per board for a portfolio's tie-break."""
 from __future__ import annotations
 
@@ -94,6 +94,10 @@ def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max
             rows.append(dict(row, state="open", why=f"the loop does not close in its window grown {grown} times"))
             continue
         L = z[f_edge].imag / (2 * math.pi * f_edge)
+        if not (0 < L < 1e-6 and 0 < z[f_fund].real < 100):
+            # an ill-conditioned window (a loop closing through a sliver, a piece left floating): no ranking value
+            rows.append(dict(row, state="invalid", why=f"non-physical L {L * 1e9:.4g} nH, R {z[f_fund].real * 1e3:.4g} mOhm"))
+            continue
         rows.append(dict(row, state="ok", L_nH=round(L * 1e9, 4), R_mohm=round(z[f_fund].real * 1e3, 4),
                          window=[round(x, 3) for x in win], pitch=pc, grown=grown, seconds=round(time.time() - t1, 1)))
         log(f"quote {s.name}: L {L * 1e9:.3f} nH, R {z[f_fund].real * 1e3:.3f} mOhm at {pc:g} mm ({time.time() - t1:.1f}s)")
@@ -127,9 +131,12 @@ OPEN_PENALTY = 5.0            # an open cell's score: e^5 ~ 150 x a closed one's
 
 def score(rows):
     """One number per board, lower better, for a portfolio's tie-break between layouts of one placement: the sum
-    over its cells of ln L_nH + ln R_mohm, OPEN_PENALTY per open cell (cells not computed count 0). Two boards'
+    over its cells of ln L_nH + ln R_mohm, OPEN_PENALTY per open cell (cells not computed count 0); None when a
+    cell's quote is not physical (state "invalid"). Two boards'
     difference is the sum of their cells' log ratios: 0.1 is about a 10 % change of one cell's L or R."""
     t = 0.0
+    if any(r["state"] == "invalid" for r in rows):
+        return None                      # no ranking from a board one of whose cells could not be quoted
     for r in rows:
         if r["state"] == "open":
             t += 2 * OPEN_PENALTY

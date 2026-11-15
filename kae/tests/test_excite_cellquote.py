@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """kae.excite.cellquote: the cell window alone ranks two layouts of one cell as the evaluator does."""
+import math
+
 from hotloop_fixtures import plane_fills, write_hotloop_board
 from kae.excite import cellquote as CQ
 
@@ -22,3 +24,10 @@ def test_the_quote_ranks_a_longer_loop_worse_and_an_open_one_open(tmp_path, monk
     verdict, total = CQ.compare([a], [b])
     assert verdict[CELL] == -1 and total < 0          # a (closed) is the better layout
     assert CQ.compare([b], [c])[0][CELL] == -1        # an open cell loses to any closed one
+
+
+def test_a_non_physical_quote_gives_no_score():
+    ok = dict(source="a", state="ok", L_nH=1.0, R_mohm=5.0)
+    assert CQ.score([ok]) == round(math.log(5.0), 4)
+    assert CQ.score([ok, dict(source="b", state="invalid")]) is None
+    assert CQ.score([ok, dict(source="b", state="open")]) > CQ.score([ok, dict(ok, source="b")])
