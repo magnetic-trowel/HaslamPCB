@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../../../.."
 K="python3 tools/kaeres/kaeres.py"
 MAIN=$(git rev-parse 091163c0)          # origin/main: the control and the harness of every arm
-W=$(git rev-parse e93216a3)             # bridge-ses-width, one commit on MAIN
+W=$(git rev-parse ${W_SHA:-e93216a3})    # bridge-ses-width (e93216a3; b866798a adds renamed-layer support)
 L=$(git rev-parse e6741eb8)             # bridge-disallow-layers, one commit on MAIN
 FORK="\$HOME/.cache/kaebench/kae-freerouting-fork-d137fd1/bin/freerouting"
 add() {  # NAME DESCRIPTION SHA

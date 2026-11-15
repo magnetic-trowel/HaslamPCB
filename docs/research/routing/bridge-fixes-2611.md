@@ -10,7 +10,7 @@ Keys: bridge-fixes-ab, bridge-ses-width, bridge-disallow-layers, track_width, it
 units, disallow track, rip errors
 
 **Status:** pre-registered (`tools/kaeres/experiments/bridge-fixes-ab/PLAN.md`), smoke done, full run queued
-2026-11-14 (`bridge-fixes-mech`, `bridge-fixes-odd`). Verdict pending.
+2026-11-14; round 1 read 2026-11-15, confirmation `bridge-fixes-confirm` queued. Verdict pending.
 
 ## Mechanisms
 1. **Session widths (W).** Freerouting keeps a trace's half width in whole session units (0.1 um). A class width of an
@@ -49,4 +49,31 @@ had 0 track_width errors, because no binding rule is in this set. Guards, as geo
 
 All are under the +5 % margin, so the guard passes without the extension. Per-type errors are the same within a
 few counts. This shows W is harmless where it acts without a binding rule. It cannot show the primary (errors
-removed); that needs `bridge-fixes-mech`, still running (8 of 14 jobs retried at a 10 h timeout).
+removed); that needs `bridge-fixes-mech`.
+
+**bridge-fixes-mech (2026-11-15, 7 boards x 5 attempts, C/W/L):** ripclap gave no output in any arm. The bridge ran
+past the 900 s harness limit before routing, so 6 boards count.
+
+| | C | fix | per board |
+|---|---|---|---|
+| L: items_not_allowed at round 0 (sum of per-board means) | 101.6 | 0 | 0 on every board where C had any |
+| L: tracks not allowed, final | 32.4 | 0 | |
+| W: one-unit track_width at round 0, right_io | 91.6 | 0 | |
+| W: one-unit track_width, final, right_io | 28.2 | 0 | |
+| W: one-unit track_width, final, thunderscope | 5.2 | 6.4 | not given back (renamed layers) |
+
+- **L meets its primary.** Its guards on 6 boards: opens 0.974 [0.957, 0.994] and defects 0.959 [0.929, 0.989]
+  pass, as do other errors 0.962 [0.80, 1.09]. All errors, 0.840 [0.50, 1.16], is undecided: its spread comes from
+  thunderscope's width errors, which L does not touch. By the plan this triggers L's extension (10 attempts).
+- **W as tested misses a case.** The session names copper layers as the DSN does ("Int2 (Sign)"), and
+  `restore_widths` looked them up by canonical name, so thunderscope got nothing back. Fixed in b866798a on
+  `bridge-ses-width`. The pooled guard over 89 boards passes: opens 1.001 [0.970, 1.031], other errors 1.012
+  [0.995, 1.036], defects 1.005 [0.993, 1.019].
+- **A third width bug, not W's.** Thunderscope's other 184 track_width errors per run come from kae itself. It
+  rounds a 0.19079 mm min = max rule up to the DSN's 0.1 um grid (0.1908 mm), past the max. A rule finer than the
+  grid can't be met at 0.1 um resolution; options are a finer DSN resolution or snapping down when the result still
+  meets min. Not tested here.
+
+**Confirmation queued** (`bridge-fixes-confirm`: C, W2, L on the 6 boards, 5 attempts, 10 h job timeout). W2 is
+judged on its primary there; L's extension pools both runs. A combined W2 + L arm still needs its own run before both
+go in: the combined branch couldn't be created in this session.

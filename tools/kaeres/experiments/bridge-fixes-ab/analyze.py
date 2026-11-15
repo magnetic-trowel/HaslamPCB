@@ -10,7 +10,7 @@ drc.json. Arms by method name: bfix-control (C), bfix-seswidth (W), bfix-layers 
 
 Primaries (PLAN.md, with the smoke addendum): each measured after the first Freerouting route (repair round 0 in
 the bridge's report, r0_*) and on the scorer's final board.
-- W: track_width violations whose actual width is above the rule's max by at most 0.15 um (Freerouting's
+- W: track_width violations whose actual width is the rule's max + 0.1 um exactly (Freerouting's
   one-unit rounding: the bug's signature), and all track_width violations, per board (mean over attempts).
 - L: items_not_allowed violations on a track, per board (mean over attempts), and all items_not_allowed.
 Guards: per board the mean over attempts of log(x + 1), arm minus C, for x = opens (unconnected), the errors other
@@ -59,7 +59,7 @@ def drc_counts(board, run, eid):
         if v["type"] == "track_width":
             tw += 1
             m = WIDTH_RE.search(v.get("description", ""))
-            if m and 0 < float(m.group(2)) - float(m.group(1)) <= 0.00015:
+            if m and abs(float(m.group(2)) - float(m.group(1)) - 0.0001) < 0.000005:   # Freerouting's one unit
                 sig += 1
         elif v["type"] == "items_not_allowed":
             ina += 1

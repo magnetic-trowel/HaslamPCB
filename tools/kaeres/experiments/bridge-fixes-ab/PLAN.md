@@ -113,3 +113,29 @@ About 0.3-0.5 CPU-h per run (900 s budget, ~1,000 CPU-s routing, plus scoring an
 7 x 3 x 5 = 105 runs on 800-3,600-pad boards, ~50 CPU-h; `bridge-fixes-odd` 85 x 2 x 2 = 340 runs, ~120 CPU-h.
 Extensions if needed: W +65 boards x 2 x 2 (~90 CPU-h) and a third attempt (~75 CPU-h); L attempts 5-9
 (7 x 2 x 5 = 70 runs, ~35 CPU-h).
+
+## Addendum 2026-11-15: round-1 reading, and the confirmation run (written before it runs)
+Round 1 (`bridge-fixes-mech` 7 boards x 5 attempts, `bridge-fixes-odd` 83 x 2) was read with `analyze.py`:
+- ripclap gave no output in any arm (the bridge overran the 900 s harness limit before routing: 15/15 `no_output`).
+  It is left out of every comparison.
+- **W as tested (e93216a3) does not meet its primary.** On thunderscope rev5-3 the copper layers have user names
+  ("Int2 (Sign)"), the session uses them, and `restore_widths` looked widths up by canonical name: nothing was
+  given back. That leaves 6.4 one-unit errors per run, and 184 errors per run from a different cause: kae rounds
+  the rule's 0.19079 mm up to the 0.1 um DSN grid (0.1908 mm), past its max (not W's mechanism; reported separately).
+  On right_io W works: round 0 track_width 91.6 -> 0, final one-unit errors 28.2 -> 0. The pooled guard over 89
+  boards passes (opens 1.001 [0.970, 1.031], other errors 1.012 [0.995, 1.036], defects 1.005 [0.993, 1.019]).
+  W2 (b866798a) fixes the layer-name lookup.
+- **L meets its primary.** Round-0 items_not_allowed 101.6 -> 0, final tracks not allowed 32.4 -> 0, on no board
+  higher. Guards on 6 boards: opens 0.974 [0.957, 0.994] and defects 0.959 [0.929, 0.989] pass; other errors 0.962
+  [0.80, 1.09] passes; all errors 0.840 [0.50, 1.16] is undecided. That is the pre-registered trigger for L's
+  extension.
+
+`bridge-fixes-confirm`: the 6 boards that gave output (`mech-confirm.txt`), arms C, W2, L (REP=confirm, new ids, side
+by side), 5 attempts. Its numbers go in this section afterwards.
+- W2 is decided by round 1's primary rule, applied to this run alone on the 4 width boards. The one-unit signature
+  is now actual = max + 0.1 um exactly; kae's own rounding past max is counted apart. W's guard is round 1's pooled
+  guard (W2 differs only on renamed layers), plus the mech guards of this run.
+- L's extension pools both runs per board (10 attempts per arm), as pre-registered.
+
+A combined arm (W2 + L) could not be built in this session: creating the combined branch was refused by the session's
+permission check. It is the first thing to run after these verdicts if both fixes go in.
