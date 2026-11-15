@@ -433,6 +433,12 @@ def escape_round(input_path, output_path, wd, plan, info, opts, hl, final_rep, d
                     e["lifted"] = True
             if not did:
                 continue
+            # the cell's array vias go too: past its ampacity count they are an L refinement, and round a
+            # QFN they hold the fan-out (bq25306 H: /REGN and /STAT stayed open with the plane lifted)
+            gone = [a for a in ko.get("array") or [] if a.get("cell") in did]
+            if gone:
+                W.edit(output_path, output_path, remove=[u for a in gone for u in a["uuids"]])
+                ko["array"] = [a for a in ko.get("array") or [] if a not in gone]
         lifts.append(dict(level=level, nets=nets, what=did))
         log(f"hotloop: lift {level} for {', '.join(nets) or 'cell pins'}: {did if level != 'crossing' else len(did)}")
         zones = zones_for(ko["board"], kplan, pads)
@@ -636,7 +642,7 @@ def _array_items(s, mods):
                 continue
             stubs = [it.uuid for it in s.space.routed if it.kind == "track" and it.owner == v.owner and it.uuid
                      and min(math.dist(it.geom.coords[0], (x, y)), math.dist(it.geom.coords[-1], (x, y))) < 1e-6]
-            out.append(dict(pt=Point(x, y), r=v.r + CROSS_HALF_MM, uuids=[v.uuid] + stubs))
+            out.append(dict(pt=Point(x, y), r=v.r + CROSS_HALF_MM, uuids=[v.uuid] + stubs, cell=m.id))
     return out
 
 
