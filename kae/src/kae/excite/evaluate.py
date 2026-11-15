@@ -16,6 +16,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from kae.physics import criteria as CR
+
 from . import dc as DC
 from . import harm as HA
 from . import models as M
@@ -140,7 +142,8 @@ def coarsen_pitch(window, pitch, n_layers, max_cells):
 
 
 def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=None, log=print, lumped=True,
-             intent=None, n_corners=16, seed=0, dc=True, max_cells=None):
+             intent=None, n_corners=16, seed=0, dc=True, max_cells=None, cells=True, cell_pitch=None, cell_skin=True,
+             drc=None, scope=None):
     """Every harm of a laid-out board, across the parameters' intervals.
 
     Each aggressor's pattern is solved in two bands: its switching fundamental (current split by the
@@ -148,7 +151,17 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     layout share is |Z| at the fundamental and L at the edge (the solve minus the same parts with
     ideal copper). Harm sizes (kae.excite.harm) are evaluated at the typical point and at seeded
     corners of the intervals (kae.excite.beliefs). lumped: two-pad parts are branches of the copper
-    model and only the other parts' pads are injected."""
+    model and only the other parts' pads are injected. cells: each switching cell's hot loop solved again in a
+    window at cell_pitch (default kae.excite.hotloop.CELL_PITCH), its primaries in the result's `cells`. drc: a
+    KiCad DRC report of this board (path or dict; None: drc.json or score/drc.json beside the board if present;
+    False: none): a cell whose loop member it lists as unconnected is an open cell. scope "losses": only what the
+    loss terms need (the cells' own bands, their overshoot observers, the switch-node capacitance, the DC and heat
+    bands, the windows); every other source and observer is set up as in the full evaluation (the same mesh and network,
+    so the values computed are the full evaluation's) but not solved, and only the SCOPE_KINDS observations are
+    reported (ev["scope"]; kae.intent marks terms on other kinds incomplete)."""
+    if scope not in (None, "losses"):
+        raise ValueError(f"scope {scope!r}: None or 'losses'")
+    loops = scope == "losses"
     from kae.board.kicad_file import load
     from kae.circuit import brief as B
     from kae.em import solve as ES
@@ -236,9 +249,10 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         f"{len(srcs)} sources, {len(obs)} observers, {len(pads)} pads ({len(missing)} outside or unresolved), "
         f"bands {[round(f / 1e6, 3) for f in freqs]} MHz, setup {time.time() - t0:.1f}s")
     solved, solver_stats = {}, []
+    cell_names = {s.name for s in srcs if s.kind == "cell"}
     last = {}            # source -> (f, injections, solution): the start of its next band's solve
     for f in freqs:
-        keys = [k for k, (ff, _) in pats.items() if ff == f]
+        keys = [k for k, (ff, _) in pats.items() if ff == f and (not loops or k[0] in cell_names)]
         injs = [{p: j for p, j in pats[k][1].items() if p in bm.m.terminals} for k in keys]
         # a pattern whose every injection is the circuit's leak (G_LEAK): the source's current closes inside
         # its part (a core current from a rail no other part is on): none of it reaches the copper
@@ -271,25 +285,41 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     if n_pins:
         notes.append(f"pins: {n_pins} pads took their pin type and name from the operating facts (the schematic's)")
     uncomputed = []
+    open_cells = {}          # a cell whose hot loop is open: {source: where}, priced at its caps below
     # an aggressor whose pattern drives current into a pad outside the copper model loses that current
     # from its solve: its harms are not computed (a dropped contribution is not a zero one)
     miss = set(missing)
     for s in srcs:
+        if loops and s.kind != "cell":
+            continue
         out_ = sorted({p for band in bands[s.name] for p, j in pats[(s.name, band)][1].items() if p in miss and abs(j) > 1e-9})
         if out_:
             notes.append(f"{s.name}: pads outside the copper model ({', '.join(out_[:6])}): its harms are not computed")
             uncomputed.append(s.name)
+    # a cell whose loop member KiCad's DRC lists as unconnected: open, whatever loop the remaining copper closes
+    drc_rep, drc_src = load_drc(path, drc)
+    for name, where in drc_open_cells(drc_rep, brief, srcs).items():
+        if name in uncomputed:
+            continue
+        notes.append(f"{name}: loop member unconnected in KiCad's DRC ({drc_src}): {where}: its harms are not computed; "
+                     f"its hot loop is priced open, at its caps")
+        uncomputed.append(name)
+        open_cells[name] = f"DRC unconnected: {where}"
     pairs = []
     for s in srcs:
-        if s.name in uncomputed:
+        if s.name in uncomputed or (loops and s.kind != "cell"):
             continue
         res = {}
         for band, f in bands[s.name].items():
             v, info = solved[(s.name, band)]
             if info["unbalanced"]:
-                notes.append(f"{s.name}: copper open: {open_note(info, bd.net_of)} (unrouted or outside the window): "
-                             f"its harms are not computed")
+                where = open_note(info, bd.net_of)
+                notes.append(f"{s.name}: copper open: {where} (unrouted or outside the window): "
+                             f"its harms are not computed" + ("; its hot loop is priced open, at its caps"
+                                                               if s.kind == "cell" else ""))
                 uncomputed.append(s.name)
+                if s.kind == "cell":
+                    open_cells[s.name] = where
                 res = None
                 break
             res[band] = (f, v)
@@ -300,6 +330,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                          f"harms are zero")
         for o in obs:
             if o.kind == "overshoot" and o.meta.get("source") != s.name:
+                continue
+            if loops and o.kind != "overshoot":
                 continue
             z = {}
             for band, (f, v) in res.items():
@@ -344,13 +376,16 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         harms.append(dict(observer=o.name, source=s.name, kind=o.kind, u=us[0], u_lo=min(us), u_hi=max(us),
                           L_nH=round(pr["Le"] * 1e9, 4), Zf_mohm=round(abs(pr["Zf"]) * 1e3, 3),
                           basis=o.basis, src_class=o.src_class, **(parts_ or {})))
-        if o.kind == "overshoot" and pr["Le"] > 0:
+        if o.kind == "overshoot":
             # the hot loop's efficiency cost: its copper inductance's energy, dumped into the switch at
-            # every turn-off (1/2 L I^2 per cycle), at each corner's operating current and frequency
+            # every turn-off (1/2 L I^2 per cycle), at each corner's operating current and frequency. A copper
+            # share at or below zero (the copper's mutual coupling cancelling some of the parts' own inductance)
+            # costs nothing, but the cell keeps its observation: a cell left out would leave the comparison
+            Lp = max(pr["Le"], 0.0)
             lv = []
             for c in range(ncp):
                 val = {k[1]: v for k, v in cps[s.name][c].items()}
-                lv.append(0.5 * pr["Le"] * val.get("I_A", 0.0) ** 2 * val.get("f_sw_Hz", 0.0))
+                lv.append(0.5 * Lp * val.get("I_A", 0.0) ** 2 * val.get("f_sw_Hz", 0.0))
             ob = O.observation(bd, o, s, lv, [0.0] * ncp)
             ob.update(id="loss.loop", unit="W", reference=dict(value=None, basis="none: a loss is priced, not bounded"),
                       label=f"hot-loop loss of {s.name}: 1/2 L_loop I^2 f_sw, L_loop {pr['Le'] * 1e9:.3g} nH (copper)")
@@ -369,22 +404,32 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             ob = O.observation(bd, o, s, rv, [0.0] * ncp)
             ob.update(id="loss.loop_ac", unit="W", reference=dict(value=None, basis="none: a loss is priced, not bounded"),
                       label=f"hot-loop AC conduction loss of {s.name}: I_ac,rms^2 R_loop, R_loop {R * 1e3:.3g} mOhm "
-                            f"at f_sw (copper, no skin effect)")
+                            f"at f_sw (board solve, fundamental; replaced per harmonic below)")
             ob["scope"]["kind"] = "loop_ac_loss"
             ob["scope"]["R_loop_ohm"] = R
             observations.append(ob)
+    observations += _ripple_observations(bd, brief, bm, net, op, srcs, obs, bands, cps, ncp, uncomputed, notes, key, nsub,
+                                         log)
+    for name, where in open_cells.items():
+        s = next(x for x in srcs if x.name == name)
+        o = next((x for x in obs if x.kind == "overshoot" and x.meta.get("source") == name), None)
+        if o is not None:
+            observations += open_cell_observations(bd, o, s, [{k[1]: v for k, v in cps[name][c].items()}
+                                                              for c in range(ncp)], where)
     # each switch node's capacitance in the layout (its copper to every other net and the world, in the
     # board's own stackup: kae.excite.capacitive), charged and discharged through the switch every cycle:
     # 1/2 C V^2 f_sw lost at each hard turn-on
-    cells = {pr["s"].name: pr["s"] for pr in pairs if pr["o"].kind == "overshoot" and pr["s"].meta.get("sw")}
-    if cells:
+    # (an open cell too: its switch node's capacitance is electrostatic and needs no closed loop)
+    sw_cells = {pr["s"].name: pr["s"] for pr in pairs if pr["o"].kind == "overshoot" and pr["s"].meta.get("sw")}
+    sw_cells.update({s.name: s for s in srcs if s.name in open_cells and s.meta.get("sw")})
+    if sw_cells:
         from . import capacitive as CAP
         try:
             cpl, cworld = CAP.couplings(b, bm, bd, brief, [], log=log)
         except Exception as e:                                   # the electrostatic solve is optional here
             cpl, cworld = [], {}
             notes.append(f"switch-node capacitance not computed ({type(e).__name__}: {e})")
-        for name, s in cells.items():
+        for name, s in sw_cells.items():
             sw = s.meta["sw"]
             # the node's whole capacitance: to the world (the Maxwell row sum) plus to every other net
             C = (cworld.get(sw) or 0.0) + sum(c for a, _, c in cpl if a == sw)
@@ -394,7 +439,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             for c in range(ncp):
                 val = {k[1]: v for k, v in cps[name][c].items()}
                 sv.append(0.5 * C * val.get("V_V", 0.0) ** 2 * val.get("f_sw_Hz", 0.0))
-            o = next(pr["o"] for pr in pairs if pr["s"].name == name and pr["o"].kind == "overshoot")
+            o = next(x for x in obs if x.kind == "overshoot" and x.meta.get("source") == name)
             ob = O.observation(bd, o, s, sv, [0.0] * ncp)
             ob.update(id="loss.swnode", unit="W", reference=dict(value=None, basis="none: a loss is priced, not bounded"),
                       label=f"switch-node capacitance loss of {name}: 1/2 C_sw V^2 f_sw, C_sw {C * 1e12:.3g} pF (copper)")
@@ -420,6 +465,47 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     harms.sort(key=lambda h: -(h["u_hi"] or 0))
     hazards += bias_hazards(harms, pitch)
     hazards += stack_hz
+    # each cell's hot loop at a finer pitch in a window around it: its primaries (kae.excite.hotloop)
+    cell_rows = []
+    if cells and any(s.kind == "cell" for s in srcs):
+        from . import hotloop as HL
+        t_c = time.time()
+        gp = {pr["s"].name: (pr["Le"], pr["Zf"]) for pr in pairs if pr["o"].kind == "overshoot"}
+        cell_rows = HL.cell_rows(path, b, bd, bm, srcs, obs, cps, bands, window, n_cu, nsub=nsub,
+                                 pitch=cell_pitch or HL.CELL_PITCH, global_pairs=gp, global_pitch=pitch,
+                                 open_cells=open_cells, uncomputed=uncomputed, skin=cell_skin, log=log)
+        log(f"cells: {len(cell_rows)} hot loops in {time.time() - t_c:.1f}s")
+    # every cell's AC loop loss as a sum over harmonics with skin and proximity crowding: R(f) from its window where it
+    # has a refined one, else from the board solve at f_sw, 3 f_sw, 5 f_sw with the skin correction (_board_R_rows)
+    from . import hotloop as HL
+    rows_by = {r["source"]: r for r in cell_rows}
+    for ob in [x for x in observations if x["id"] == "loss.loop_ac" and not x.get("open")]:
+        name = ob["scope"].get("source")
+        row = rows_by.get(name)
+        if row and row.get("state") == "ok" and (row.get("window") or {}).get("refined"):
+            hs, where = row["R_harmonics"], "cell window"
+        else:
+            s_ = next(x for x in srcs if x.name == name)
+            o_ = next(x for x in obs if x.kind == "overshoot" and x.meta.get("source") == name)
+            hs, where = _board_R_rows(bd, bm, net, op, s_, o_, bands[name]["fund"], key, nsub, lumped), "board solve"
+        Rf = HL.r_of_f(dict(R_harmonics=hs)) if hs else None
+        if Rf is None:
+            notes.append(f"{name}: loss.loop_ac per harmonic not computed (the harmonic solves are open); the "
+                         f"fundamental's R without skin stands (a lower bound)")
+            ob["label"] += " [fundamental only, no skin: harmonic solves open]"
+            continue
+        vals = []
+        for c in range(ncp):
+            val = {k[1]: v for k, v in cps[name][c].items()}
+            vals.append(HL.ac_loop_loss(val.get("I_A", 0.0), min(max(val.get("D", 0.5), 0.0), 1.0),
+                                        val.get("f_sw_Hz", 0.0), val.get("t_i_s", 0.0), Rf) if val.get("f_sw_Hz") else 0.0)
+        ob["values"] = vals
+        ob["scope"]["R_loop_ohm"] = hs[0]["R_mohm"] * 1e-3
+        ob["scope"]["R_harmonics_mohm"] = [h["R_mohm"] for h in hs]
+        ob["scope"]["R_from"] = where
+        ob["label"] = (f"hot-loop AC conduction loss of {name}: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and "
+                       f"proximity crowding, R_loop {hs[0]['R_mohm']:.3g} mOhm at f_sw, {hs[-1]['R_mohm']:.3g} at "
+                       f"{hs[-1]['n']} f_sw ({where})")
     # each cell's parasitic ring: its copper loop with the switch node's capacitance
     rings = []
     for pr in pairs:
@@ -429,6 +515,10 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 fr = [1 / (2 * math.pi * math.sqrt(pr["Le"] * c)) for c in (C.hi, C.typ, C.lo)]
                 rings.append(dict(cell=pr["s"].name, L_copper_nH=round(pr["Le"] * 1e9, 3),
                                   f_ring_MHz=[round(x / 1e6) for x in fr]))
+    if loops:
+        observations = [ob for ob in observations if ob["id"] in SCOPE_KINDS]
+        notes.append(f"scope losses: only {', '.join(SCOPE_KINDS)} are evaluated; other sources and observers are "
+                     f"not solved")
     bad = [ob for ob in observations if ob.get("implausible")]
     if bad:
         notes.append(f"{len(bad)} observation(s) implausible, left for kae.intent to report unpriced: "
@@ -440,6 +530,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 ledger=ledger.rows(), questions=[dict(subject=p.subject, name=p.name, lo=p.lo, hi=p.hi, unit=p.unit,
                                                       basis=p.basis) for p in ledger.flagged()],
                 bands={k: v for k, v in bands.items()}, rings=rings,
+                open_cells=[dict(source=k, why=v) for k, v in sorted(open_cells.items())], cells=cell_rows, drc=drc_src,
+                scope=scope,
                 observers=[dict(name=o.name, kind=o.kind, bound=o.bound, basis=o.basis) for o in obs],
                 harms=harms, observations=observations, hazards=hazards, mesh=mesh_rep,
                 part_power_W={k: round(v, 6) for k, v in sorted(part_power.items())},
@@ -632,6 +724,192 @@ def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes,
 THIN_SHARE = 0.25         # a priced net with this share of its copper in features under 3 cells is reported
 
 
+def _board_R_rows(bd, bm, net, op, s, o, f0, key, nsub, lumped):
+    """A cell's R_loop at f_sw, 3 f_sw, 5 f_sw from the board solve's network with each layer's R corrected for skin
+    (kae.em.skin, as the window's): [{n, f_MHz, R_mohm}], or None if a solve is open. The fallback where the cell
+    has no refined window (--no-cells, a window over its budget or open)."""
+    from kae.em import solve as ES
+    from .hotloop import HARMONICS, _skin_R
+    out = []
+    R0 = net.R
+    for n in HARMONICS:
+        f = n * f0
+        sol = bd.circuit.solve(f, [s])[s.name]
+        inj = {p: j for p, j in sol[key].items() if p in bm.m.terminals and abs(j) > 1e-12}
+        net.R = _skin_R(net, f, nsub)
+        try:
+            (v, info), = ES.potentials_many(bm.m, [inj], f, net=net, op=op, light=True)
+        finally:
+            net.R = R0
+        if info["unbalanced"]:
+            return None
+        z = O.bilinear(O.pattern(bd, o, f, active=lumped), v) - (O.bilinear(O.pattern(bd, o, f, active=lumped),
+                                                                             O.ideal(bd, sol)) if lumped else 0.0)
+        out.append(dict(n=n, f_MHz=round(f / 1e6, 4), R_mohm=round(max(z.real, 0.0) * 1e3, 4)))
+    return out
+
+
+def _ripple_observations(bd, brief, bm, net, op, srcs, obs, bands, cps, ncp, uncomputed, notes, key, nsub, log):
+    """loss.copper_ac per switching cell (kae.excite.ripple): its inductor's ripple current through the board's copper,
+    solved on the board solve's network at f_sw, 3 f_sw, 5 f_sw (one batch per frequency for all cells). A cell
+    whose ripple path is open adds "ripple:<cell>" to `uncomputed`; one without an inductor gets a note."""
+    from kae.em import solve as ES
+    from . import ripple as RP
+    t0 = time.time()
+    todo = []
+    for s in srcs:
+        if s.kind != "cell" or s.name in uncomputed:
+            continue
+        o = next((x for x in obs if x.kind == "overshoot" and x.meta.get("source") == s.name), None)
+        e, ref = RP.inductor_elem(bd, brief, s)
+        if e is None or o is None:
+            notes.append(f"{s.name}: no inductor{' ' + ref if ref else ''} in the circuit: its ripple's copper loss "
+                         f"(loss.copper_ac) is not modelled")
+            continue
+        f0 = bands[s.name]["fund"]
+        L = (e.z(2 * math.pi * f0)).imag / (2 * math.pi * f0)
+        rs = bd.circuit.src(f"ripple:{s.meta.get('cell')}", bd.net_of[e.pa], bd.net_of[e.pb], pa=e.pa, pb=e.pb,
+                            kind="ripple")
+        bd.circuit.sources.remove(rs)
+        todo.append(dict(s=s, o=o, rs=rs, L=L, f0=f0, P=[]))
+    for n in RP.HARMONICS:
+        live = [t for t in todo if t["P"] is not None]
+        if not live:
+            break
+        injs = []
+        for t in live:
+            Ja = bd.circuit.solve(n * t["f0"], [t["rs"]])[t["rs"].name][key]
+            injs.append({p: j for p, j in Ja.items() if p in bm.m.terminals and abs(j) > 1e-12})
+        # one frequency per cell set: cells of one board share f_sw only when their intents do; solve per frequency
+        for f in sorted({n * t["f0"] for t in live}):
+            grp = [(t, i) for t, i in zip(live, injs) if n * t["f0"] == f]
+            # a load island the ripple reaches with under 1 % of it (an unrouted MCU on the output rail) changes its
+            # loss by under 2 %: taken up, not called open
+            res = ES.potentials_many(bm.m, [i for _, i in grp], f, net=net, op=op, light=True, leak=RP.LEAK)
+            for (t, _), (v, info) in zip(grp, res):
+                if info["unbalanced"]:
+                    notes.append(f"{t['s'].name}: the inductor ripple's path is open ({open_note(info, bd.net_of)}): "
+                                 f"loss.copper_ac is not computed")
+                    uncomputed.append(t["rs"].name)
+                    t["P"] = None
+                    continue
+                t["P"].append(RP.p1(net, info["I"], f, nsub))
+                info.pop("x", None), info.pop("I", None)
+    out = []
+    for t in todo:
+        if t["P"] is None:
+            continue
+        s, Pf = t["s"], RP.p1_of_f([n * t["f0"] for n in RP.HARMONICS], t["P"])
+        vals = []
+        for c in range(ncp):
+            val = {k[1]: v for k, v in cps[s.name][c].items()}
+            dI = RP.ripple_amplitude(val, t["L"])
+            vals.append(RP.loss(dI, val.get("D", 0.5), val.get("f_sw_Hz", 0.0), Pf) if val.get("f_sw_Hz") else 0.0)
+        ob = O.observation(bd, t["o"], s, vals, [0.0] * ncp)
+        val0 = {k[1]: v for k, v in cps[s.name][0].items()}
+        ob.update(id="loss.copper_ac", unit="W", reference=dict(value=None, basis="none: a loss is priced, not bounded"),
+                  label=f"inductor ripple copper loss of {s.name}: dI {RP.ripple_amplitude(val0, t['L']):.3g} A p-p "
+                        f"(L {t['L'] * 1e6:.3g} uH) through the board's copper, R_eff "
+                        f"{2 * t['P'][0] * 1e3:.3g} mOhm at f_sw (skin)")
+        ob["scope"]["kind"] = "copper_ac_loss"
+        ob["scope"]["R_eff_ohm"] = [2 * x for x in t["P"]]
+        ob["scope"]["L_H"] = t["L"]
+        out.append(ob)
+    if todo:
+        log(f"ripple: {len(out)} cells' inductor ripple through the copper in {time.time() - t0:.1f}s")
+    return out
+
+
+# the observations scope "losses" reports: every loss term (the cells' loop, AC loop and switch-node losses, the DC
+# band's copper loss, the heat band's part losses) and what the same bands give at no extra solve (overshoot from the
+# cells' own solve, rail drop, track heating, junction temperatures). Dropped: the noise and EMI observers
+# (supply.peak, pickup.peak, cable_cm.v) and every non-cell source's solves. No board-level AC copper loss outside
+# the cells exists in this evaluator (kae.excite.wideband has it), so none is kept or dropped.
+SCOPE_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac", "loss.swnode", "loss.copper", "loss.copper_ac",
+               "loss.part", "drop.rail", "heat.track", "temp.junction")
+
+
+def load_drc(path, drc=None):
+    """(report dict or None, its source) of a KiCad DRC report (kicad-cli pcb drc --format json): `drc` a path or a
+    dict; None looks for the scorer's drc.json beside the board (or in score/ there); False: none."""
+    import os
+    if drc is False:
+        return None, None
+    if isinstance(drc, dict):
+        return drc, "given"
+    cands = [drc] if drc else ([os.path.join(os.path.dirname(os.path.abspath(path)), n)
+                                for n in ("drc.json", os.path.join("score", "drc.json"))] if path else [])
+    for c in cands:
+        if c and os.path.isfile(c):
+            with open(c) as f:
+                return json.load(f), os.path.basename(c) if not drc else c
+    if drc:
+        raise FileNotFoundError(f"DRC report {drc} not found")
+    return None, None
+
+
+def drc_open_cells(rep, brief, srcs):
+    """{cell source: the DRC item} for each cell one of whose loop pads (its brief structure's `loop`, and its
+    switch pins) the report lists among the unconnected items ("Pad N [NET] of REF ...")."""
+    import re
+    if not rep:
+        return {}
+    pads = set()
+    for u in rep.get("unconnected_items") or []:
+        for it in u.get("items") or []:
+            m = re.match(r"Pad (\S+) \[[^\]]*\] of (\S+)", it.get("description") or "")
+            if m:
+                pads.add((f"{m.group(2)}.{m.group(1)}", it.get("description")))
+    if not pads:
+        return {}
+    ref = {u: p["ref"] for u, p in brief["parts"].items()}
+    out = {}
+    for s in srcs:
+        if s.kind != "cell":
+            continue
+        st = next((x for x in brief.get("structures") or [] if x.get("id") == s.meta.get("cell")), {})
+        mine = {t for t in (s.pa, s.pb) if t}
+        for u, pin in st.get("loop") or []:
+            for n in (pin if isinstance(pin, list) else [pin]):
+                if ref.get(u):
+                    mine.add(f"{ref[u]}.{n}")
+        hit = sorted(d for t, d in pads if t in mine)
+        if hit:
+            out[s.name] = "; ".join(hit[:3])
+    return out
+
+
+# what an open cell is priced in, each at its cap (kae.intent counts them; its other harms stay not computed)
+OPEN_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac")
+
+
+def open_cell_observations(bd, o, s, vals, where):
+    """An open hot loop's observations at their caps, per corner (vals[c]: {param: value}): the commutated
+    current has no path but the switch itself, so the switch node rings until the switch's absolute maximum
+    (overshoot V_abs - V, kae.physics.criteria.overshoot_limits), and each of the loop's two losses is the
+    cell's whole throughput V I (a converter whose hot loop is open converts nothing; a closed loop's layout
+    loss is far below it: 1/2 L I^2 f_sw = V I needs L = 2 V / (I f_sw), microhenries). Each layout with the cell
+    open prices alike, at most what any closed loop could; kae.intent prices them and lists them as open."""
+    why = f"hot loop open: {where}"
+    V = [v.get("V_V", s.meta.get("V", 0.0)) for v in vals]
+    ov = [CR.overshoot_limits(Vc, v.get("V_max_V"))[1] for Vc, v in zip(V, vals)]
+    us = [x / max(HA.overshoot_bound(v, o.bound), 1e-9) for x, v in zip(ov, vals)]
+    out = [O.observation(bd, o, s, ov, us)]
+    out[0]["label"] = f"{o.name} <- {s.name}: OPEN, at the switch's absolute maximum"
+    P_ = [Vc * v.get("I_A", 0.0) for Vc, v in zip(V, vals)]
+    for id_, kind in (("loss.loop", "loop_loss"), ("loss.loop_ac", "loop_ac_loss")):
+        ob = O.observation(bd, o, s, list(P_), [0.0] * len(vals))
+        ob.update(id=id_, unit="W", reference=dict(value=None, basis="none: a loss is priced, not bounded"),
+                  label=f"{'hot-loop loss' if id_ == 'loss.loop' else 'hot-loop AC conduction loss'} of {s.name}: "
+                        f"OPEN, at the cell's throughput V I")
+        ob["scope"]["kind"] = kind
+        out.append(ob)
+    for ob in out:
+        ob["open"] = why
+        ob["capped_at"] = max(ob["values"], default=0.0)
+    return out
+
+
 def mesh_report(m, priced, nsub):
     """(report dict, notes) on how well the raster resolves the board: Mesh.check's per-layer warnings, the priced
     nets (the aggressors' and observers' patterns) whose copper is mostly narrower than 3 cells, and the known
@@ -758,18 +1036,35 @@ def main(argv=None):
     ap.add_argument("--no-lumped", action="store_true", help="copper only, with the circuit's ideal-copper split")
     ap.add_argument("--intent", help="intent file (JSON): operating conditions, part facts, requirements")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--cell-pitch", type=float, default=None,
+                    help="pitch (mm) of each switching cell's window solve (default kae.excite.hotloop.CELL_PITCH)")
+    ap.add_argument("--no-cells", action="store_true", help="skip the cells' window solves")
+    ap.add_argument("--drc", help="KiCad DRC report (JSON) of this board: a cell with a loop member it lists as "
+                    "unconnected is open (default: drc.json or score/drc.json beside the board, if present)")
+    ap.add_argument("--no-drc", action="store_true", help="ignore any DRC report")
+    ap.add_argument("--scope", choices=["losses"], help="losses: only the loss terms (cells' loop, AC loop and "
+                    "switch-node losses with their primaries; DC copper loss, part losses) and what their bands give "
+                    "free (overshoot, drop, heat); no noise or EMI observers. Same values as the full evaluation")
+    ap.add_argument("--no-cell-skin", action="store_true", help="the window solves without the skin correction")
     ap.add_argument("--max-cells", type=float, default=None,
                     help="raster budget (cells x copper layers): the pitch doubles until the board's window fits it")
     a = ap.parse_args(argv)
     from .beliefs import load_intent
     r = evaluate(a.board, a.pitch, tuple(a.window) if a.window else None, nsub=a.nsub, log=lambda m: print(m, file=sys.stderr),
                  lumped=not a.no_lumped, intent=load_intent(a.intent), seed=a.seed,
-                 max_cells=int(a.max_cells) if a.max_cells else None)
+                 max_cells=int(a.max_cells) if a.max_cells else None, cells=not a.no_cells, cell_pitch=a.cell_pitch,
+                 cell_skin=not a.no_cell_skin, drc=False if a.no_drc else a.drc, scope=a.scope)
     print_total(r["total"])
     print("assumptions:")
     for p in r["ledger"]:
         print(f"  {p['subject'][:28]:28s} {p['name']:9s} {p['typ']:10.4g} [{p['lo']:.4g} .. {p['hi']:.4g}] {p['unit']:2s} "
               f"{p['source']:10s} {p['basis'][:90]}")
+    if r.get("cells"):
+        from .hotloop import summary
+        for line in summary(r["cells"]):
+            print("cell:", line)
+    for oc in r.get("open_cells") or []:
+        print(f"OPEN hot loop: {oc['source']}: {oc['why']} (priced at its caps)")
     for rg in r["rings"]:
         print(f"ring: {rg['cell']}: copper loop {rg['L_copper_nH']} nH, f_ring {rg['f_ring_MHz']} MHz (C_sw hi/typ/lo)")
     print("harms (u at typical, [lowest .. highest over the corners]):")

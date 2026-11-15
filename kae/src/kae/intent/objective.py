@@ -22,6 +22,10 @@ operating corner, each with its scope) are matched by the intent's terms:
 - an observation the evaluator flags `implausible` (noise beyond half its rail) is priced at that cap (its
   values clipped to it), the same for every layout: left unpriced, it let the worse of two layouts escape
   its term whenever only that one crossed the cap. The status lists them under "implausible", with the reason.
+- a switching cell whose hot loop is open (unrouted copper: kae.excite.evaluate's `open_cells`) gets explicit
+  observations of overshoot.peak, loss.loop and loss.loop_ac at their caps (the switch's absolute maximum, the
+  cell's throughput V I); terms on those kinds price them, never leave the cell out (a cell an arm left open
+  must count against it, not drop from its median). The status lists them under "open_cells".
 - where: scope filters (glob patterns): section, from, to (a boundary: from a section's sources into
   another section's observers), observer, source, kind, rail, load, net, part, to_part, connector. part matches
   either side of a pair (the aggressor's parts or the victim's); to_part only the victim's (a noise limit on a
@@ -74,9 +78,14 @@ KINDS = {
                   "without a cell model at its efficiency. Loads' own consumption is not a loss and is left out."),
     "loss.loop": ("W", "Energy a switching cell's commutation loop inductance (the copper's share) dumps into the "
                   "switch at every turn-off, 1/2 L_loop I^2 f_sw: the hot loop's layout cost in efficiency."),
-    "loss.loop_ac": ("W", "A switching cell's hot loop's copper resistance at the switching frequency (the layout's "
-                     "share) carrying the loop's pulsed current, I^2 D (1 - D) R: a lower bound above a few MHz "
-                     "(no skin or proximity effect in the raster)."),
+    "loss.loop_ac": ("W", "A switching cell's hot loop's copper resistance (the layout's share) carrying the loop's "
+                     "pulsed current: with a cell window, the sum over harmonics of I_n^2 R_loop(n f_sw), R from the "
+                     "window solve with skin and proximity crowding (kae.excite.hotloop); without one, "
+                     "I^2 D (1 - D) R(f_sw) of the board solve, which has none (a lower bound)."),
+    "loss.copper_ac": ("W", "A switching cell's inductor ripple current (a triangle of dI = V D (1 - D) / (L f_sw) "
+                       "peak to peak) through the board's copper, summed over its harmonics with skin crowding "
+                       "(kae.excite.ripple): the AC copper loss neither loss.copper (DC) nor loss.loop_ac (the "
+                       "commutated current) prices. Priced like loss.copper when the intent says nothing else."),
     "loss.swnode": ("W", "The layout's capacitance of a switch node (its copper to every other net and the world, "
                     "in the board's stackup) charged through the switch every cycle, 1/2 C V^2 f_sw."),
     "temp.junction": ("C", "A dissipating part's junction temperature: the board's heat flow (copper I^2 R, every "
@@ -262,9 +271,20 @@ def _in(ob, dim):
 
 def _defaults(intent, obs, terms):
     out = []
+    # AC copper loss is copper loss: an intent that prices loss.copper and says nothing of loss.copper_ac prices it alike
+    has_ac = any(o["id"] == "loss.copper_ac" for o in obs)      # an evaluation from before the kind prices as before
+    if has_ac and not any(fnmatch.fnmatch("loss.copper_ac", t["obs"]) for t in terms):
+        for t in terms:
+            if t["obs"] == "loss.copper" and t["tier"] == "cost" and not t.get("where"):
+                out.append(dict(t, id=t["id"] + "ac", obs="loss.copper_ac",
+                                why=f"AC copper loss priced as {t['id']} prices the DC copper loss: {t.get('why') or ''}"))
+                break
     if intent["defaults"] == "neutral/1" and not any(fnmatch.fnmatch("loss.copper", t["obs"]) for t in terms):
         out.append(dict(id="D1", tier="cost", obs="loss.copper", rate="1 mW_eq/mW", agg="cvar20",
                         why="neutral/1: energy needs no assumed bound; every other quantity waits for intent"))
+        if has_ac and not any(fnmatch.fnmatch("loss.copper_ac", t["obs"]) for t in terms + out):
+            out.append(dict(id="D1ac", tier="cost", obs="loss.copper_ac", rate="1 mW_eq/mW", agg="cvar20",
+                            why="neutral/1: AC copper loss is copper loss, priced as D1"))
     return out
 
 
@@ -284,6 +304,7 @@ def evaluate(ev, intent=None, brief=None):
     cur = intent["currency"]
     complete = (ev.get("total") or {}).get("complete", True)
     missing = list((ev.get("total") or {}).get("not_computed") or []) if not complete else []
+    opened = [c["source"] for c in ev.get("open_cells") or []]
     status = dict(schema="kae.status/1", observedGeneration=intent["generation"], board=ev.get("board"),
                   complete=complete, currency=cur, defaults=intent["defaults"], terms=[], unclaimed=[],
                   questions=[], sections=sorted(secs), not_computed=missing, stackup=ev.get("stackup"))
@@ -347,7 +368,11 @@ def evaluate(ev, intent=None, brief=None):
             row["assumed"] = True
         if t["id"] in lost:
             row["overridden_by"] = sorted(lost[t["id"]])          # more specific terms price those observations
-        gap = _gap(t, missing)
+        gap = _gap(t, missing, opened)
+        if ev.get("scope") == "losses":
+            out_ = [k for k in KINDS if fnmatch.fnmatch(k, t["obs"]) and k not in SCOPE_LOSSES]
+            if out_:
+                gap = gap + [f"scope losses: {k}" for k in out_]      # not evaluated in this scope: never a zero
         if gap:
             # a source this term could see was not computed (open copper): the value below covers only the
             # sources that were; it is reported, never priced, and never read as zero
@@ -372,6 +397,9 @@ def evaluate(ev, intent=None, brief=None):
             val = dom[0]
         shown = (lambda x: f"{x:.4g} C") if inst[0][1]["unit"] == "C" else (lambda x: U.fmt(x, unit_))
         row.update(value=shown(val), dominant=dom[1].get("label"), rests_on=_rests(dom[1], ev))
+        op_ = sorted({ob["scope"].get("source") for _, ob in inst if ob.get("open")})
+        if op_:
+            row["open_cells"] = op_                  # priced at their caps (kae.excite.evaluate.open_cell_observations)
         f_hz = [f for f in (dom[1].get("f_Hz") or []) if f is not None]   # a DC observation has no frequency
         if f_hz:
             row["f_MHz"] = round(max(f_hz) / 1e6, 1)
@@ -428,6 +456,14 @@ def evaluate(ev, intent=None, brief=None):
     status["implausible"] = [dict(label=ob.get("label"), id=ob.get("id"), capped_at=ob.get("capped_at"),
                                   worst=max((v for v in ob.get("values") or []), default=None), why=ob["implausible"])
                              for ob in obs if ob.get("implausible")]
+    status["open_cells"] = [dict(source=c["source"], why=c["why"],
+                                 priced=sorted({r["id"] for r in rows if c["source"] in (r.get("open_cells") or [])}))
+                            for c in ev.get("open_cells") or []]
+    # each switching cell's hot-loop primaries (kae.excite.hotloop): L_loop, R_loop at f_sw and its harmonics, the
+    # overshoot peak, or its state (open, not computed); reported for cell-by-cell comparison, not priced here
+    status["cells"] = [{k: c.get(k) for k in ("cell", "source", "state", "why", "L_loop_nH", "R_loop_mohm",
+                                               "R_harmonics", "overshoot_V", "global") if k in c}
+                       for c in ev.get("cells") or []]
     status["questions"] = _questions(ev, intent, obs, rows)
     return status
 
@@ -469,11 +505,28 @@ def _legacy(ev, status):
 DC_KINDS = ("loss.copper", "drop.rail", "heat.track", "loss.part", "temp.junction")      # the DC band's observations
 
 
-def _gap(t, missing):
-    """The uncomputed sources ("dc" for the DC band, else an aggressor's name) this term could have seen."""
+# what an evaluation of scope "losses" observes (kae.excite.evaluate.SCOPE_KINDS)
+SCOPE_LOSSES = ("overshoot.peak", "loss.loop", "loss.loop_ac", "loss.swnode", "loss.copper", "loss.copper_ac",
+                "loss.part", "drop.rail", "heat.track", "temp.junction")
+
+# the kinds an open cell is observed in (at their caps), and loss.swnode, which needs no closed loop: a term on
+# these alone is complete for an open cell
+OPEN_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac", "loss.swnode")
+
+
+def _gap(t, missing, opened=()):
+    """The uncomputed sources ("dc" for the DC band, else an aggressor's name) this term could have seen. An open
+    cell (`opened`) is no gap for a term on OPEN_KINDS only: its observations there are explicit, at their caps."""
     if not missing:
         return []
     kinds = [k for k in KINDS if fnmatch.fnmatch(k, t["obs"])]
+    if all(k in OPEN_KINDS or k == "loss.copper_ac" for k in kinds if k not in DC_KINDS):
+        # only a switching cell (a source named cell:..., its ripple ripple:...) has these observations
+        cell_only = [k for k in kinds if k not in DC_KINDS]
+        missing = [s for s in missing if s == "dc" or (s.startswith("cell:") and s not in opened)
+                   or (s.startswith("ripple:") and "loss.copper_ac" in cell_only)]
+    else:
+        missing = [s for s in missing if not s.startswith("ripple:") or "loss.copper_ac" in kinds]
     out = []
     if "dc" in missing and any(k in DC_KINDS for k in kinds):
         out.append("dc")
