@@ -118,6 +118,7 @@ def _session(board_path, info, st, opts, log):
     from kae.board.kicad_file import load
     intent = _intent(board_path, opts)
     board = load(Path(board_path))
+    _seed_roles(board_path, board)
     # the schematic's pin facts the intent was compiled with (operating facts `pins`), applied as
     # kae.excite.evaluate does: without them an imported board's regulator pins carry no names and the
     # brief finds no cell (govish, powerboost)
@@ -126,6 +127,23 @@ def _session(board_path, info, st, opts, log):
                  place_allocs=False, guards=(), cell_price="W", cell_via_array=bool(st["vias"]), cell_widest_fit=True,
                  intent=intent, **intent_opts(intent))
     return Session(board_path, info=info, opts=copts, log=log, board=board)
+
+
+def _seed_roles(board_path, board, also=None):
+    """constraints._roles' per-content brief cache for `board_path` (and `also`, the work board, whose
+    routing does not change the netlist) from the board already loaded: on hdmi2rgb each extra load of
+    the board (silk outlines) cost ~40 s, and the stage, its Space's plan and the bridge's plan on the
+    work board each paid one. The brief is built as _roles builds it (no pin facts), so the plan is N's."""
+    import hashlib
+    try:
+        from kae.circuit.brief import build
+        key = hashlib.sha1(Path(board_path).read_bytes()).hexdigest()
+        if key not in CN._ROLES:
+            CN._ROLES[key] = (build(board),)
+        if also is not None:
+            CN._ROLES[hashlib.sha1(Path(also).read_bytes()).hexdigest()] = CN._ROLES[key]
+    except Exception:   # noqa: BLE001 - _roles builds its own
+        pass
 
 
 def _plan_cells(s):
@@ -755,6 +773,7 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
             dst = wd / "hotloop.kicad_pcb"
             s.write(dst, guards=zones)
             rep["board"] = str(dst)
+            _seed_roles(input_path, None, also=dst)
         log(f"hotloop: {len(mods)} cell(s), {len(tracks)} tracks, {len(vias)} vias, {len(zones)} zones "
             f"({clock_now() - t0:.1f}s)")
     except Exception as e:  # noqa: BLE001 - the bridge still routes the input
