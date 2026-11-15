@@ -43,7 +43,6 @@ from . import observe as O
 
 CELL_PITCH = 0.0625          # mm: L_loop within 0.5 %, R_loop within 3 % of 0.03125 mm on 3 boards (0.125: up to 11 %)
 SHARE = 0.05                 # a pad carrying this share of the cell's peak pad current sets the window
-LEAK = 0.25                  # share of the cell's current the window may leave to parts outside it (reported)
 MARGIN_MM = 3.0              # mm around the pads
 MARGIN_H = 3.0               # x the outer layers' depth to their next layer, if larger (the return spreads over a few h)
 HARMONICS = (1, 3, 5)        # R_loop at these multiples of f_sw
@@ -144,9 +143,8 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log):
         if skin:
             net.R = _skin_R(net, f, nsub)
         try:
-            # the current of parts the window left out (a module, a bulk cap) leaks up to LEAK of the largest injection;
-            # the truncation correction accounts for where it really goes
-            (v, info), = ES.potentials_many(bm.m, [inj], f, net=net, op=op, light=True, leak=LEAK,
+            # a pad the window left out carries less than SHARE of the peak (window_pads): its current may leak
+            (v, info), = ES.potentials_many(bm.m, [inj], f, net=net, op=op, light=True, leak=SHARE,
                                             x0=[_band_start(prev, inj, f, net.n_br)])
         finally:
             net.R = R0
