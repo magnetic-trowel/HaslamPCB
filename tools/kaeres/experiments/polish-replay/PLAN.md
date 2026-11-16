@@ -52,3 +52,9 @@ polish-merit's finish gain had per-board SD 0.25 (log scale, 74 boards). At n = 
 One smoke board per arm profiled (py-spy around the joint python, JFR on Freerouting) before the full run.
 Expected cost (information): about 15 CPU-h for the polish arm (11 % of R's 124.9 h on these boards scales to about
 14 h), and minutes for the copy arm's scoring.
+
+## Change before the full run (2026-11-16, smoke only, no result read)
+The two-board smoke of experiment `polish-replay` wrote no output in either arm: the methods took the board id
+from a `tasks/` path, but kaebench hands a method its input under `<run>/<adapter>/<kind>/<id>/attempt-N/input/`.
+The methods are re-registered as `kae preplay2 copy` / `kae preplay2 polish11` with the id read from that path,
+in experiment `polish-replay2`; nothing else changed. `polish-replay` is abandoned.

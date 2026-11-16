@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""polish-replay analysis (PLAN.md): python3 analyze.py. Read-only on ~/kae-baselines/experiments/polish-replay.
+"""polish-replay analysis (PLAN.md): python3 analyze.py. Read-only on ~/kae-baselines/experiments/polish-replay2.
 
 Per board: copy = R's kept board rescored; polish = the polish arm's board, kept only when KiCad ranks it no worse
 than copy (opens, then errors: restart.py's rule for --finish), raw = the polish board as written.
@@ -13,7 +13,7 @@ import os
 import random
 import statistics as st
 
-E = os.path.expanduser("~/kae-baselines/experiments/polish-replay/results.csv")
+E = os.path.expanduser("~/kae-baselines/experiments/polish-replay2/results.csv")
 rows = {}
 for r in csv.DictReader(open(E)):
     if r["attempt"] == "0" and r["status"] == "ok":
