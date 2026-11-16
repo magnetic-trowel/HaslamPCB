@@ -18,6 +18,7 @@ Tags: [M] measured here, [I] our inference.
 | Requirement | With intent (before: `phi_prime(u)` capped at 5, harm/Ω widths) |
 |---|---|
 | any term | ∂C/∂x_t = `rate_t` (cost) or `rate_t·[x_t > max_t]` (limit); hard terms: [objective](intent-driven-objectives.md#objective-formulation) |
+| supply noise past half its rail | priced at the evaluator's cap (`kae.excite.observe.implausible`, `cap_V`): values clipped, no slope above it; a hard term on it gives `noise_prediction_capped` (warn, "unverified"), never `hard_term_violated` |
 | loss, drop | closed-form widths in mW_eq/Ω (`kae.intent.route`); `knobs.route.width.*` clamp the ladder |
 | heating | IPC-2221 floor from the intent's limit, or none if heating is a cost |
 | band coupling | spectral weights only from harmonics inside each term's band, times the rate |
