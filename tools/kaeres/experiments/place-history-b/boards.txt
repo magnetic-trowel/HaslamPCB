@@ -1,0 +1,8 @@
+yamanseyravan-undercontrol-hardware-design-undercontrol-v6
+dimoustroufis-librewave-ecp5-librewave-ecp5
+watterott-rpi-display-rpi-display-bplus-v10
+adafruit-adafruit-servo-hat-bonnet-pcb-servo-bonnet-rev-b
+dvhx-smd-soldering-exercise-0805-ultimate-soldering-exercise
+protocentral-protocentral-pulse-express-hardware-pc-pulse-express-v3
+antmicro-audio-latency-tester-board-audio-latency-tester-board
+sinara-hw-sinara-zotino
