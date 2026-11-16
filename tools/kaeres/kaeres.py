@@ -1231,6 +1231,7 @@ def _board_json(bid, row):
 
 
 RESTART_FILES = {"summary.json": "restarts.json", "report.json": "restart-report.json",
+                 "report-windows.json": "restart-report-windows.json",
                  "report-origin.json": "restart-report-origin.json", "fr-telemetry.tar": "fr-telemetry.tar"}
 
 
