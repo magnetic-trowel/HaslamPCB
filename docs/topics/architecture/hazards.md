@@ -95,6 +95,7 @@ Keys: hazards, `hazard_summary`, `blocked`, block hazard, warn, info, `--recheck
 | `outline_incomplete` | block, manufacturing | `kae place`: staged footprints carry Edge.Cuts, the outline is open |
 | `placement_illegal` | block, assembly | `kae place` `legal: false` (exit 3): overlaps or outline violations remain |
 | `rules_not_modelled`, `rule_errors` | warn, data | the bridge's plan: custom-rule functions the router does not model, rules it could not evaluate |
+| `hard_term_violated` / `hard_term_unchecked` / `noise_prediction_capped` | block / warn / warn (info when no hard term is on it) | `kae.em.pnr --intent` (`kae.intent.route.Policy.hazards`): a hard term the field solve finds violated; one the router did not compute; a supply-noise prediction beyond half its rail, priced at the evaluator's cap ([intent-driven-objectives-build](intent-driven-objectives-build.md)), whose hard terms are unverified rather than violated |
 
 ## Recommendations for our system
 - Treat `hazard_summary.blocked` as the gate: a blocked board is not a deliverable, whatever `status` says. The `fix` field is the next command or relaxation to try.
