@@ -68,7 +68,9 @@ placement and one route per run, so per-run opens are per-attempt opens; seeds a
 
 **Power.** Measured seed SD of log1p(opens) 0.39-0.45 (original runs, within arm), heterogeneity 0. At k = 9 per arm,
 SD(Δ) = sqrt(2σ²/9) = 0.18-0.21, and on 45 feasible boards MDE80 = 2.8·SD(Δ)/√45 = 0.077-0.089 in log, **≈ 8.0-9.3 %**
-(σ = 0.42: 8.6 %). Seeds 3-8 alone: ≈ 10.7 %. The original point estimate (-7 % all boards, -9 % without pekaso)
+(σ = 0.42: 8.6 %). Seeds 3-8 alone: ≈ 10.7 %. On the 45 feasible boards, `analyse.py` on seeds 0-2 (before any new run)
+gives seed SD 0.31 and SD(Δ) 0.293 at k = 3, which leaves a heterogeneity SD of about 0.145 (pekaso carried most of the
+seed noise); then SD(Δ) at k = 9 is about 0.21 and MDE80 **≈ 9 %**, about the same. The original point estimate (-7 % all boards, -9 % without pekaso)
 sits at or just under the MDE, so a true effect of that size is found with probability about 0.6-0.8, and the CI is
 what is reported either way.
 
