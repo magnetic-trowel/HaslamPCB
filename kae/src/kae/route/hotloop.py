@@ -55,6 +55,15 @@ grown by an escape gap (a track of that net still leaves it), inside the board o
 edge clearance and outside rule areas; one KiCad zone per piece that touches a terminal, solid
 pad connection, a priority above every zone on the layer and distinct from every other pour.
 
+Net-exempt keep-outs (hotloop_keepout_exempt, env KAE_HOTLOOP_KEEPOUT_EXEMPT=hard|soft). A keep-out zone
+is of one net and a via crosses every layer, so a single-net keep-out banned the loop's own vias under the
+cell (hotloop-ab K: no loop-net via within 1 mm of the hull on arvsom, the sstv boost, gecko5 U13). With
+this setting each keep-out carries its exempt nets in its zone name (exempt_name: the cell's loop nets and
+the nets of every pin of its parts); translate writes it as a `kae_exempt_keepouts` area of the fork
+(router.kae_exempt_keepouts), not as a pin of the zone's net: the exempt nets route and place vias inside,
+every other net is banned ("hard") or pays KAE_HOTLOOP_KEEPOUT_SOFT_COST times its cost inside ("soft").
+kae's own grid router (critical_space) lets the exempt nets through and bans the others in both modes.
+
 Hazards (the shared schema): a cell the stage could not lay (`hotloop_cell_unrouted`), a cell
 with no ground plane to keep clear (`hotloop_no_return_plane`), and, after routing, an open
 connection whose direct path crosses a keep-out (`hotloop_keepout_blocks_route`, the one design
@@ -73,6 +82,7 @@ from kae.budget import now as clock_now
 from . import constraints as CN
 
 HL_PREFIX = "kae-hl:"          # pours this stage writes (kept in the output)
+EXEMPT_TAG = "#x="             # a keep-out's exempt nets in its zone name (exempt_names), url-quoted JSON
 GUARD_PREFIX = "kae-crit:"     # keep-outs (critical_write.GUARD_PREFIX; dropped from the output)
 MARGIN_WHY = ("a return at height h spreads as h / (x^2 + h^2): a 1 mm band holds 94 % (h 0.1 mm) "
               "to 86 % (h 0.2 mm) of an edge conductor's return; the hull covers the loop's interior")
@@ -96,6 +106,54 @@ def settings(board_path=None, opts=None):
     out["lift"] = g["hotloop_lift"] if g["hotloop_lift"] in LIFT_LEVELS else "plane"
     out["cells"] = out["cells"] or out["vias"] or out["pours"]
     return out
+
+
+def exempt_mode(opts=None):
+    """The keep-outs as net-exempt areas (env KAE_HOTLOOP_KEEPOUT_EXEMPT or opts hotloop_keepout_exempt):
+    "hard" (other nets' tracks and vias banned, the cell's own nets free), "soft" (other nets pay
+    KAE_HOTLOOP_KEEPOUT_SOFT_COST times their cost inside; the fork only), or "" (off: single-net
+    keep-out zones, every other net banned, the cell's own vias too)."""
+    import os
+    v = str((opts or {}).get("hotloop_keepout_exempt") or os.environ.get("KAE_HOTLOOP_KEEPOUT_EXEMPT") or "")
+    v = v.strip().lower()
+    return "hard" if v in ("1", "on", "true", "hard") else ("soft" if v == "soft" else "")
+
+
+def soft_cost(opts=None):
+    import os
+    try:
+        return float((opts or {}).get("hotloop_keepout_soft_cost") or os.environ.get("KAE_HOTLOOP_KEEPOUT_SOFT_COST")
+                     or 4.0)
+    except ValueError:
+        return 4.0
+
+
+def exempt_name(name, nets):
+    """A keep-out's zone name carrying its exempt nets (read back by exempt_nets)."""
+    from urllib.parse import quote
+    return f"{name}{EXEMPT_TAG}{quote(json.dumps(sorted(nets)), safe='')}" if nets else name
+
+
+def exempt_nets(name):
+    """The exempt nets a keep-out's zone name carries, or None (a plain keep-out)."""
+    from urllib.parse import unquote
+    name = name or ""
+    i = name.find(EXEMPT_TAG)
+    if not name.startswith(GUARD_PREFIX) or i < 0:
+        return None
+    try:
+        return set(json.loads(unquote(name[i + len(EXEMPT_TAG):])))
+    except ValueError:
+        return None
+
+
+def cell_nets(s, m, T):
+    """The nets a cell's keep-out exempts: its loop nets (input rail, switch node, ground) and the
+    nets of every pin of the cell's parts, so their tracks and vias reach the loop's own pads."""
+    nets = {t.net for t in T if t.net} | {n for n in (m.spec.get("sw"), m.spec.get("rail")) if n}
+    for u in m.parts:
+        nets |= {it.net for it in s.space.pads_by_fp.get(u, []) if it.net}
+    return nets
 
 
 def active(st):
@@ -244,8 +302,10 @@ def keepout_plan(s, mods, margin, log=_log):
                     continue
             esc = escapes(s, m, reg, loop, net)
             holes = loop_via_holes(s, T, nets, net) if loopvias else []
+            ex = (cell_nets(s, m, T) | {net}) if getattr(s, "hotloop_exempt_on", "") else set()
             plan.append(dict(cell=m.id, net=net, layer=layer, h=h, region=reg, escapes=esc, holes=holes,
-                             plane=(net, layer) == (pn, pl), conn=_connection(s.info, net, layer), loop=loop))
+                             plane=(net, layer) == (pn, pl), conn=_connection(s.info, net, layer), loop=loop,
+                             exempt=sorted(ex)))
             rows.append(dict(cell=m.id, layer=layer, net=net, h_mm=round(h, 3) if pl is not None else None,
                              region_mm2=round(reg.area, 2),
                              pins=len(esc), plane=(net, layer) == (pn, pl)))
@@ -344,9 +404,10 @@ def zones_for(board, plan, open_pads=()):
         cut = e["region"].difference(unary_union(cor)) if cor else e["region"]
         for z in loop_guard(board, cut, e["net"], e["layer"], f"{GUARD_PREFIX}hotloop:{e['cell']}:{e['net']}",
                             conn=e.get("conn")):
-            g = groups.setdefault((z[0], z[1]), dict(polys=[], prio=z[4], name=z[3], conn=z[6]))
+            g = groups.setdefault((z[0], z[1]), dict(polys=[], prio=z[4], name=z[3], conn=z[6], exempt=set()))
             g["polys"].append(_Poly(z[2][0]))
             g["prio"] = max(g["prio"], z[4])
+            g["exempt"] |= set(e.get("exempt") or ())
     out = []
     for (net, layer), g in groups.items():
         u = unary_union(g["polys"])
@@ -354,7 +415,8 @@ def zones_for(board, plan, open_pads=()):
             if isinstance(part, _Poly) and part.area > 0.5:
                 for piece in _hole_free(part):
                     if piece.area > 0.5:
-                        out.append((net, layer, [list(piece.exterior.coords)], g["name"], g["prio"], 0.0, g["conn"]))
+                        out.append((net, layer, [list(piece.exterior.coords)], exempt_name(g["name"], g["exempt"]),
+                                    g["prio"], 0.0, g["conn"]))
     return out
 
 
@@ -782,9 +844,11 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
         if st["keepout"]:
             s.hotloop_pours_on = st["keepout_pours"]
             s.hotloop_loopvias_on = st["keepout_loopvias"]
+            s.hotloop_exempt_on = exempt_mode(opts)
             guards, rows, hz = keepout_zones(s, mods, st["keepout_mm"], log=log)
             rep["_ko"] = dict(plan=s.hotloop_plan, board=s.board)
             rep["keepout"] = dict(margin_mm=st["keepout_mm"], margin_basis=MARGIN_WHY, cells=rows,
+                                  exempt=s.hotloop_exempt_on or None,
                                   zones=len(guards))
             rep["hazards"] += hz
             rep["guards"] = [dict(net=g[0], layer=g[1], ring=g[2][0], name=g[3]) for g in guards]
@@ -897,6 +961,7 @@ def last_mile_crit_zones(input_path, board_path, info, workdir, opts=None, log=_
             s = _session(input_path, info, dict(st, vias=False), opts, log)
             s.hotloop_pours_on = st["keepout_pours"]          # as the stage laid them (was: always with pours)
             s.hotloop_loopvias_on = st["keepout_loopvias"]
+            s.hotloop_exempt_on = exempt_mode(opts)
             plan, _rows, _hz = keepout_plan(s, _plan_cells(s), st["keepout_mm"], log=log)
             guards = zones_for(s.board, plan, open_cell_pads(drc_report, plan))
             if guards:

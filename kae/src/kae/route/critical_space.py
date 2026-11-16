@@ -52,6 +52,14 @@ INF = math.inf
 
 
 # ----------------------------------------------------------------------------- items
+def _keepout_exempt(why):
+    """The exempt nets of a net-exempt keep-out named in a net graphic's note, or None."""
+    from .hotloop import exempt_nets
+    from .translate import _zone_name_in
+    name = _zone_name_in(why)
+    return exempt_nets(name) if name else None
+
+
 class Item:
     """An obstacle or a piece of copper.
 
@@ -66,13 +74,14 @@ class Item:
     tracks_only: a rule area that keeps out tracks only
     """
     __slots__ = ('kind', 'net', 'layers', 'geom', 'r', 'cls', 'bbox', 'owner', 'hole', 'smd', 'vias_only', 'tracks_only',
-                 'local', 'fp', 'idx', 'uuid', 'width', 'drill', 'locked', 'pos', 'exact')
+                 'local', 'fp', 'idx', 'uuid', 'width', 'drill', 'locked', 'pos', 'exact', 'exempt')
 
     def __init__(self, kind, net, layers, geom, r=0.0, cls=None, owner=None, hole=None, smd=False,
                  vias_only=False, tracks_only=False):
         self.kind, self.net, self.layers, self.geom, self.r, self.cls = kind, net, frozenset(layers), geom, r, cls
         self.owner, self.hole, self.smd, self.vias_only = owner, hole, smd, vias_only
         self.tracks_only = tracks_only
+        self.exempt = None          # nets a net-exempt keep-out lets through (hotloop_keepout_exempt), or None
         self.local = None
         self.fp = None
         self.idx = -1
@@ -295,7 +304,13 @@ class Space:
         for net, shapes, cls, why in getattr(plan, "net_graphics", []) or []:
             for l, g in shapes.items():
                 if l in self.items and g is not None and not g.is_empty:
-                    self.items[l].append(Item("shape", net, [l], g, 0.0, cls, owner=why))
+                    it = Item("shape", net, [l], g, 0.0, cls, owner=why)
+                    ex = _keepout_exempt(why)
+                    if ex is not None:
+                        # a hot loop's net-exempt keep-out (hotloop.exempt_name): the cell's own nets
+                        # pass, as in the fork's kae_exempt_keepouts; every other net is kept out
+                        it.exempt = frozenset(ex | {net})
+                    self.items[l].append(it)
         # thermal-spoke corridors: other nets keep out (zero clearance)
         if not self.opts.get("no_corridors"):
             try:
@@ -409,6 +424,8 @@ class Space:
         """Clearance (mm) a `kind` ('track' | 'via') of `net` on `layer` keeps from item `it`,
         measured from it.geom grown by it.r; None when it does not constrain this copper."""
         if it.kind in ("pad", "track", "via", "corridor", "shape") and it.net and it.net == net:
+            return None
+        if it.exempt is not None and net in it.exempt:
             return None
         if it.kind == "corridor":
             return 0.0 if kind == "track" else None

@@ -319,6 +319,8 @@ def fork_settings(dsn, settings):
         return s
     if b"(kae_pin_entries" in tail:
         s.setdefault("kae_pin_entries", "true")
+    if b"(kae_exempt_keepouts" in tail:
+        s.setdefault("kae_exempt_keepouts", "true")
     return s
 
 

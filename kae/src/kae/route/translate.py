@@ -767,8 +767,18 @@ def apply(tree, plan, info):
     # copper graphics of a net: pins of the obstacle component in that net
     dsn_nets = {str(n[1]): n for n in findall(network, "net") if len(n) > 1}
     n_gp = 0
+    exempt_areas = []          # (layer, polygon, class, exempt nets): net-exempt keep-outs (hotloop)
+    from .hotloop import exempt_nets as _exempt_nets
     for i, (net, shapes, cls, _why) in enumerate(plan.net_graphics):
         if net not in dsn_nets:
+            continue
+        ex = _exempt_nets(_zone_name_in(_why))
+        if ex is not None:
+            # a hot loop's keep-out that the cell's own nets may use: an area of the fork's
+            # kae_exempt_keepouts, not a pin of the zone's net (which bans every other net's vias)
+            for l, geo in shapes.items():
+                for pg in _polygons(geo):
+                    exempt_areas.append((l, pg, cls, sorted(ex | {net})))
             continue
         # Freerouting joins a trace to a pin only at the pin's centre: the centre lies inside
         # the copper, the shapes are relative to it
@@ -794,6 +804,8 @@ def apply(tree, plan, info):
         placement.append(["component", OBSTACLE_IMAGE, place])
     summary["obstacles"] = n_ko
     summary["net_graphics"] = n_gp
+    if exempt_areas:
+        summary["exempt_keepouts"] = write_exempt_keepouts(tree, exempt_areas, lname, dsn_nets)
 
     # ---- placement: a clearance class per pin
     pins_set = 0
@@ -855,6 +867,42 @@ def apply(tree, plan, info):
     if fe:
         summary["fr_entry"] = fe
     return summary
+
+
+EXEMPT_SCOPE = "kae_exempt_keepouts"
+
+
+def _zone_name_in(why):
+    """The keep-out zone name in a net graphic's note ("zone NAME NET"): from the guard prefix to the
+    space after its exempt tag ("" when there is none)."""
+    from .hotloop import EXEMPT_TAG, GUARD_PREFIX
+    why = why or ""
+    i = why.find(GUARD_PREFIX)
+    j = why.find(EXEMPT_TAG, i) if i >= 0 else -1
+    if j < 0:
+        return ""
+    k = why.find(" ", j)
+    return why[i:k if k >= 0 else len(why)]
+
+
+def write_exempt_keepouts(tree, areas, lname, dsn_nets=None):
+    """The fork's `kae_exempt_keepouts` scope at the end of the pcb scope: per area its layer, the
+    keep-out's clearance class, the nets that may use it (those the DSN has) and its outline, in DSN
+    units; `(mode soft) (cost k)` with KAE_HOTLOOP_KEEPOUT_EXEMPT=soft. Stock Freerouting skips the
+    scope (and the keep-out with it). Returns the number of areas."""
+    from .hotloop import exempt_mode, soft_cost
+    for c in list(tree):
+        if isinstance(c, list) and c and c[0] == EXEMPT_SCOPE:
+            tree.remove(c)
+    node = [EXEMPT_SCOPE, ["version", "1"]]
+    if exempt_mode() == "soft":
+        node += [["mode", "soft"], ["cost", fmt(soft_cost())]]
+    for layer, pg, cls, nets in areas:
+        keep = [Q(n) for n in nets if dsn_nets is None or n in dsn_nets]
+        node.append(["area", lname(layer), ["clearance_class", cls], ["exempt", *keep],
+                     ["polygon", lname(layer), "0", *_ring(pg.exterior.coords)]])
+    tree.append(node)
+    return len(areas)
 
 
 def permute(tree, seed, first=()):
