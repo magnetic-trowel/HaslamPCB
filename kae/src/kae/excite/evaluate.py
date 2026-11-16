@@ -262,8 +262,12 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         keys = [k for k, z in zip(keys, none_) if not z]
         injs = [i for i, z in zip(injs, none_) if not z]
         t_band = time.time()
+        # a switching cell's loop is open only when more than CELL_LEAK of its current has no way out: a driver's or
+        # sensor's unrouted island taking a few per mille (kestrel's half bridges: 0.1-0.4 % into the gate driver's
+        # supply island at 20 kHz) changes its loop values by under 2 % and is no open hot loop
         band_res = ES.potentials_many(bm.m, injs, f, net=net, op=op, light=True,
-                                      x0=[_band_start(last.get(k[0]), inj, f, net.n_br) for k, inj in zip(keys, injs)]) \
+                                      x0=[_band_start(last.get(k[0]), inj, f, net.n_br) for k, inj in zip(keys, injs)],
+                                      leak=[CELL_LEAK if k[0] in cell_names else 1e-3 for k in keys]) \
             if keys else []
         for k, inj, res in zip(keys, injs, band_res):
             solved[k] = res
@@ -919,6 +923,8 @@ def drc_open_cells(rep, brief, srcs):
             out[s.name] = "; ".join(hit[:3])
     return out
 
+
+CELL_LEAK = 0.01             # share of a cell's current an island may hold before its loop counts as open
 
 # a working converter's hot-loop and AC copper losses stay far below its throughput; above this share they are flagged
 LOOP_LOSS_FRAC = 0.1
