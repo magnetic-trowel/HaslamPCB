@@ -93,6 +93,19 @@ def _stepcache():
 
 
 SC = _stepcache()
+
+
+def _drc_items():
+    """kae's DRC counting rules (kae/src/kae/drc_items.py, stdlib only), loaded by path from this
+    checkout like stepcache: the judge counts errors, ignored checks and the 499 cap as kae does."""
+    f = Path(__file__).resolve().parents[2] / "kae" / "src" / "kae" / "drc_items.py"
+    spec = importlib.util.spec_from_file_location("kae_drc_items", f)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+DI = _drc_items()
 BUSY = [lambda: False]   # whether any attempt is computing (main sets it)
 
 
@@ -195,9 +208,6 @@ def child_cpu():
     return r.ru_utime + r.ru_stime
 
 
-ENV_DEPENDENT_CHECKS = ("lib_footprint_issues", "lib_footprint_mismatch")  # as kaebench.tools: not the board's
-
-
 def report_unconnected(pro):
     """Make the project copy `pro` report unconnected items when it sets them to "ignore": KiCad's
     DRC then lists none at all, whatever --severity (7 corpus boards; the harness counts them by
@@ -239,10 +249,7 @@ def drc(board, inp, timeout):
         r = json.loads(rep.read_text())
     except (subprocess.TimeoutExpired, OSError, ValueError):
         return None
-    types = {}
-    for v in r.get("violations", []):
-        if v.get("severity", "error") == "error" and v.get("type") not in ENV_DEPENDENT_CHECKS:
-            types[v.get("type")] = types.get(v.get("type"), 0) + 1
+    types = DI.errors_by_type(r)          # env-dependent checks dropped
     n = len(r.get("unconnected_items", []))
     if n >= DRC_UNCONNECTED_CAP:
         # kicad-cli lists at most 499: past it, pcbnew's count after a zone fill (as the scorer,
@@ -253,13 +260,7 @@ def drc(board, inp, timeout):
     return dict(types=types, unconnected=n, overlaps=overlaps(r))
 
 
-DRC_UNCONNECTED_CAP = 499
-UNCONNECTED_PY = ("import json, sys, pcbnew\n"
-                  "b = pcbnew.LoadBoard(sys.argv[1]); zs = pcbnew.ZONES()\n"
-                  "for i in range(b.GetAreaCount()): zs.append(pcbnew.Cast_to_ZONE(b.GetArea(i)))\n"
-                  "len(zs) and pcbnew.ZONE_FILLER(b).Fill(zs)\n"
-                  "b.BuildConnectivity()\n"
-                  "print(json.dumps(dict(unconnected=b.GetConnectivity().GetUnconnectedCount(False))))\n")
+DRC_UNCONNECTED_CAP, UNCONNECTED_PY = DI.DRC_UNCONNECTED_CAP, DI.UNCONNECTED_PY
 
 
 def uncapped_unconnected(board, timeout):

@@ -569,9 +569,7 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
 
 
 # ----------------------------------------------------------------------------- KiCad feedback
-PLACEMENT_TYPES = ("courtyards_overlap", "copper_edge_clearance", "clearance", "hole_clearance", "hole_to_hole",
-                   "holes_co_located", "items_not_allowed", "malformed_courtyard", "npth_inside_courtyard",
-                   "pth_inside_courtyard", "shorting_items", "solder_mask_bridge")
+from kae.drc_items import PLACER_TYPES  # noqa: E402 - the illegal types plus solder mask bridges
 _OF_REF = re.compile(r"\bof (\S+)")
 _FP_REF = re.compile(r"^(?:Footprint|Courtyard of) (\S+)")
 
@@ -587,7 +585,7 @@ def kicad_violations(drc):
         drc = json.loads(drc)
     out = []
     for v in (drc or {}).get("violations", []):
-        if v.get("type") in PLACEMENT_TYPES and v.get("severity", "error") == "error":
+        if v.get("type") in PLACER_TYPES and v.get("severity", "error") == "error":
             out.append(dict(type=v.get("type"), severity=v.get("severity"), items=v.get("items", [])))
     return out
 
