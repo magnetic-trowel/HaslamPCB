@@ -45,3 +45,6 @@ The boards of `cf-windows` and `cf-windows-ext` (as of 170 of 186 jobs) whose ph
 
 ## Addendum after the first smoke (2026-11-16, before any full run)
 At 45569da the windows report was written, but kaebench's command adapter did not copy it to the run's artifacts, so it was not stored. Fix: `bench/src/kaebench/adapters.py` keeps `restarts/report-windows.json`. The experiment is registered again at the new commit as `cfw2b`. Arms, boards and rules are unchanged; `cfw2` holds only the smoke.
+- **Smokes:**
+  - fpv beeper: the windows used 271 of 3,600 nominal s. CF-W2 ran the rest as a restart and kept it (3 → 2 opens); CF-W stayed at 3.
+  - At 422971e, `restart-report-windows.json` is stored. Plumbing only; no rule changes.
