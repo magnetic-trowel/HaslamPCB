@@ -75,11 +75,13 @@ def window_board(board, parts):
 def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, terms=None, physics=True,
                    cong_mult=2.0, history_scale=1.0, bump_mm=0.25, bump_refs=(), margin=0.3, moves_per_part=6000,
                    legal_refs=(), legal_mm=0.15, drc_report=None, net_weights=None,
-                   phys_mult=1.0, log=None):
+                   phys_mult=1.0, board_path=None, opts=None, log=None):
     """See the module docstring. `board` is a kae.board.model.Board at the current poses;
     `window` a feedback.Window. `terms`: place terms built on the full board (the brief's
     structures), else built here when `physics`. `drc_report`: KiCad's report of the current
-    board (its placement errors become exact constraints); `net_weights`: {net: factor}."""
+    board (its placement errors become exact constraints); `net_weights`: {net: factor}.
+    `board_path`, `opts`: the run's board and options, for its own settings (zone_pull,
+    zone_keepout: a project KAE_ text variable or an opts value wins over the default)."""
     from kae.place import clusters
     from kae.place import exact as exactmod
     from kae.place.anneal import make_annealer
@@ -151,7 +153,7 @@ def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, term
     hook = history_hook(P, history, scale=history_scale, window=window.rect, report=hist_rep)
     ann = make_annealer(P, st.copy(), terms=terms, seed=seed, w_phys=float(phys_mult) if terms is not None else 0.0,
                         w_cong=30.0 * cong_mult, order=order, subset=sub, window=gwin, log=None, cong_history=hook,
-                        **zones_args(P))
+                        **zones_args(P, board_path=board_path, opts=opts))
     rep["history"] = hist_rep
     rep["cost_before"] = round(float(ann.cost(ann.lam1)), 5)
     # a fixed move count (not the engine's adaptive one): the same seed gives the same window
