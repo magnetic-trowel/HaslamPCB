@@ -76,6 +76,12 @@ RATES = {
     "crit_search": 0.10,        # one search with the work since the last clock event (module setup, its physics;
                                 # 0.08-0.17 s, the larger boards dearer)
     "crit_expansion": 7.9e-7,   # one A* expansion of that search (3.6e-7 - 1.1e-6 s)
+    # the greedy legalizer (kae.place.legalize.greedy, both paths). Before it was charged, a rip-up scan of the
+    # whole board cost no budget: one board ran 536 s wall on 138 s charged, 400 s of it in uncharged scans
+    "legal_fit": 1.45e-7,      # one origin-and-rotation fit test of the compiled ring walk (nearest_spot, ripup_spot); 1.44-1.45e-7 measured (can485, magtag)
+    "legal_cells": 1e-8,      # one cell of a grid-sized numpy pass (a summed-area table, a window or board search); 6e-9-1.7e-8 measured, 3 boards
+    "legal_sat_cells": 1.75e-9,      # one summed-area-table cell updated in place when a part is placed or evicted; 1.5-1.9e-9 measured, 3 boards
+    "legal_rect": 7.1e-4,      # one rectangle marked into an occupancy map (Python, per obstacle or part); 5.3e-4-5.1e-3 measured, median of 3 boards
     "seconds": 1.0,             # work already measured in nominal seconds by the caller
 }
 CEILING_FACTOR = 4.0    # a run past CEILING_FACTOR x its nominal budget in wall time has failed
