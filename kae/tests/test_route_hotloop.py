@@ -374,7 +374,7 @@ def test_clear_regions_and_foreign_copper(tmp_path):
     assert len(regs) == 1
     r = regs[0]
     assert r["layers"].get("B.Cu") == "GND"
-    assert {"VIN", "GND"} <= r["own"] and "Net-(U1-SW)" in r["own"] and "Net-(U1-BST)" in r["own"]
+    assert {"VIN", "GND"} <= r["own"] and "Net-(U1-BST)" in r["pins"] and "Net-(U1-BST)" not in r["own"]
     c = r["region"].centroid
     routing = [
         dict(kind="segment", uuid="a", net="Net-(U2-XTAL1)", layer="B.Cu", a=[c.x - 5, c.y], b=[c.x + 5, c.y],
@@ -386,8 +386,13 @@ def test_clear_regions_and_foreign_copper(tmp_path):
         dict(kind="via", uuid="d", net="+3V3", pos=[c.x, c.y], size=0.6, locked=False),
         dict(kind="via", uuid="e", net="Net-(U2-XTAL2)", pos=[c.x, c.y], size=0.6, locked=True),   # locked: kept
     ]
+    routing.append(dict(kind="segment", uuid="f", net="Net-(U1-BST)", layer="B.Cu", a=[c.x - 5, c.y],
+                        b=[c.x + 5, c.y], width=0.2, locked=False))      # a cell pin's net on the return: ripped
+    if r["side"] in r["layers"]:
+        routing.append(dict(kind="segment", uuid="g", net="Net-(U1-BST)", layer=r["side"], a=[c.x - 5, c.y],
+                            b=[c.x + 5, c.y], width=0.2, locked=False))  # its fan-out on the parts' layer: kept
     got = {x["uuid"] for x, _ in hotloop._foreign(routing, r)}
-    assert "a" in got and "b" not in got and "c" not in got and "e" not in got
+    assert "a" in got and "b" not in got and "c" not in got and "e" not in got and "f" in got and "g" not in got
     assert ("d" in got) == ("+3V3" not in r["own"])
 
 

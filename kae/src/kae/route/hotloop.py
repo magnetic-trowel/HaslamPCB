@@ -932,15 +932,21 @@ def clear_regions(s, mods, margin):
         c = region.centroid
         _h, pl, pn = s.ctx.plane(s.ctx.side_layer(T[0].fp), c.x, c.y, gnd=True)
         loop_nets = {t.net for t in T if t.net} | {n for n in (m.spec.get("sw"), m.spec.get("rail")) if n}
-        own = set(loop_nets) | {it.net for u in m.parts for it in s.space.pads_by_fp.get(u, []) if it.net}
+        # the cell parts' other pins (the IC's STAT, TS, FB...): their copper on the parts' own layer is their
+        # fan-out and stays; on the return layer under the loop it is what cut bq25306's plane (8 tracks of U1's
+        # own signals, 82 % of the gap), so there it is ripped and routed elsewhere like any foreign net
+        pins = {it.net for u in m.parts for it in s.space.pads_by_fp.get(u, []) if it.net} - set(loop_nets)
+        side = s.ctx.side_layer(T[0].fp)
         layers = ({pl: pn} if pl is not None else {})
         for n in loop_nets:
             for l, g in s.space.zones_of(n):
                 if g.intersects(region):
                     layers.setdefault(l, n)
         if layers:
-            out.append(dict(cell=m.id, module=m, region=region, layers=layers, loop_nets=loop_nets, own=own,
-                            loop=unary_union([t.geom for t in T]).convex_hull))
+            loop = unary_union([t.geom for t in T]).convex_hull
+            out.append(dict(cell=m.id, module=m, region=region, layers=layers, loop_nets=loop_nets, own=set(loop_nets),
+                            pins=pins, side=side, loop=loop,
+                            escapes=escapes(s, m, region, loop, None) if side in layers else []))
     return out
 
 
@@ -952,6 +958,8 @@ def _foreign(routing, cr):
     for r in routing:
         if r.get("locked") or not r.get("net") or r["net"] in cr["own"]:
             continue
+        if r["net"] in cr.get("pins", ()) and r.get("layer") == cr.get("side"):
+            continue                         # a cell pin's fan-out on the parts' own layer
         if r["kind"] == "via":
             g = Point(r["pos"]).buffer(r["size"] / 2)
             if g.intersects(cr["region"]):
@@ -1061,8 +1069,15 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             # rip, lock the loop's own copper, the region as keep-outs on its layers
             W.edit(board_path, board_path, remove=[r["uuid"] for r, _ in fr], lock=loop_cu or None)
             zones = []
+            from shapely.ops import unary_union
             for layer, net in cr["layers"].items():
-                zones += loop_guard(s.board, cr["region"], net, layer, f"{GUARD_PREFIX}clear:{cr['cell']}:{net}",
+                reg = cr["region"]
+                if layer == cr["side"]:
+                    # the cell pins keep their way out on the parts' own layer
+                    cor = [x["geom"] for x in cr["escapes"] if x["net"] in cr["pins"]]
+                    if cor:
+                        reg = reg.difference(unary_union(cor))
+                zones += loop_guard(s.board, reg, net, layer, f"{GUARD_PREFIX}clear:{cr['cell']}:{net}",
                                     conn=_connection(info, net, layer))
             if zones:
                 W.append_items(board_path, board_path, zones=zones)
