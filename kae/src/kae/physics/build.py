@@ -53,8 +53,7 @@ from .structures import (
     ThermalField,
     _Coupled,
 )
-
-GND_RE = re.compile(r'(^|[^A-Z])(A|D|P|S|C)?GND|^/?VSS|^0V$|GROUND|EARTH', re.I)
+from kae.circuit.names import GND_RE
 
 
 def _volts(name):

@@ -51,6 +51,7 @@ import math
 import re
 
 from kae.budget import now as clock_now
+from kae.circuit.names import SUPPLY_PIN
 
 from .critical_grid import Anchor
 from .critical_modules import Module, _commit_vias, anchor, dT_max, hop_layers, route_hop, via_candidates, width_ladder
@@ -110,10 +111,6 @@ def ldo_rating(ctx, u):
     if re.search(r"SOT-?89", t, re.I):
         return 0.5
     return 0.3
-
-
-SUPPLY_PIN = re.compile(r"^(V(CC|DD|IN|BAT|BUS|S|M|PP|IO|CORE|DDA|DDIO|USB|SYS|P|\+)\w*|AVDD|DVDD|IOVDD|PVDD|PVIN|"
-                        r"AVCC|DVCC|VIN\d*|PWR|POWER|\+V\w*|V\+|VREG_IN|IN)$", re.I)
 
 
 def _supply_pins(ctx, u, net):
