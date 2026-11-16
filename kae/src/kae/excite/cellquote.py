@@ -14,7 +14,7 @@ L_loop pairs and 33 of 37 R_loop pairs at 0.0625 mm (33 of 43 and 30 of 37 at th
 the quotes differ by more than 10 %. A cell is "open" when its loop does not close in the window (grown up to
 hotloop.MAX_GROW times) or when the DRC report lists a loop member as unconnected (as the evaluator does).
 
-Rows: {source, state ok|open|not_computed, L_nH, R_mohm (at f_sw, skin-corrected unless --no-skin), window,
+Rows: {source, state ok|open|invalid|not_computed, L_nH, R_mohm (at f_sw, skin-corrected unless --no-skin), window,
 pitch, seconds}. `score(rows)` turns them into one number per board for a portfolio's tie-break."""
 from __future__ import annotations
 
@@ -94,10 +94,28 @@ def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max
             rows.append(dict(row, state="open", why=f"the loop does not close in its window grown {grown} times"))
             continue
         L = z[f_edge].imag / (2 * math.pi * f_edge)
+        Pc = P[s.name]
+        bad = unphysical(L, z[f_fund].real, Pc["V"].typ if "V" in Pc else 0.0, Pc["I"].typ if "I" in Pc else 0.0, f_edge)
+        if bad:
+            rows.append(dict(row, state="invalid", why=bad, L_raw_nH=round(L * 1e9, 4),
+                             R_raw_mohm=round(z[f_fund].real * 1e3, 4), window=[round(x, 3) for x in win], pitch=pc))
+            continue
         rows.append(dict(row, state="ok", L_nH=round(L * 1e9, 4), R_mohm=round(z[f_fund].real * 1e3, 4),
                          window=[round(x, 3) for x in win], pitch=pc, grown=grown, seconds=round(time.time() - t1, 1)))
         log(f"quote {s.name}: L {L * 1e9:.3f} nH, R {z[f_fund].real * 1e3:.3f} mOhm at {pc:g} mm ({time.time() - t1:.1f}s)")
     return rows
+
+
+def unphysical(L, R, V, I, f_edge):
+    """Why a quote's window values are no working loop's, or None: L_loop not positive (the window misses where the
+    loop closes), or its resistance at f_sw or reactance at the edge band above the cell's load V / I (it closes
+    through a part: the evaluator's open-cell bound, kae.excite.evaluate.OPEN_R_FRAC)."""
+    from .evaluate import OPEN_R_FRAC
+    if L <= 0:
+        return f"L_loop {L * 1e9:.3g} nH is not positive: the window misses where the loop closes"
+    if V > 0 and I > 0 and (R > OPEN_R_FRAC * V / I or L * 2 * math.pi * f_edge > V / I):
+        return f"R {R:.3g} ohm or X {L * 2 * math.pi * f_edge:.3g} ohm above the load's V / I = {V / I:.3g} ohm"
+    return None
 
 
 def compare(a, b, tol=0.1):
@@ -107,7 +125,7 @@ def compare(a, b, tol=0.1):
     out = {}
     for x in a:
         y = rb.get(x["source"])
-        if y is None or "not_computed" in (x["state"], y["state"]):
+        if y is None or {"not_computed", "invalid"} & {x["state"], y["state"]}:
             continue
         if x["state"] == "open" or y["state"] == "open":
             out[x["source"]] = 0 if x["state"] == y["state"] else (1 if x["state"] == "open" else -1)

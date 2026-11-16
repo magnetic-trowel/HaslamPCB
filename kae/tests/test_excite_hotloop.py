@@ -359,3 +359,13 @@ def test_a_loop_closing_only_through_more_than_its_load_impedance_is_open(tmp, m
     ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cells=False)
     assert [c["source"] for c in ev["open_cells"]] == [CELL] and "V / I" in ev["open_cells"][0]["why"]
     assert all(o.get("open") for o in _obs(ev, "loss.loop_ac") + _obs(ev, "overshoot.peak"))
+
+
+def test_a_cell_quote_outside_physical_bounds_is_invalid_not_a_value():
+    from kae.excite.cellquote import compare, unphysical
+    assert unphysical(-0.049e-9, 0.028, 5.0, 1.0, 10e6)                 # sstv Kp U5: L <= 0
+    assert unphysical(30e-9, 99.0, 5.0, 1.0, 10e6)                      # closes through a part
+    assert unphysical(1.0e-9, 0.005, 5.0, 1.0, 10e6) is None
+    a = [dict(source="c", state="invalid"), dict(source="d", state="ok", L_nH=1.0, R_mohm=5.0)]
+    b = [dict(source="c", state="ok", L_nH=1.0, R_mohm=5.0), dict(source="d", state="ok", L_nH=2.0, R_mohm=5.0)]
+    assert compare(a, b)[0] == {"d": -1}                                 # an invalid quote decides nothing
