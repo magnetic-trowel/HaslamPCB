@@ -39,7 +39,7 @@ RATES = {
                                 # of checks. Kept below its measured 19 ms, which is mostly fixed overhead
                                 # (loading the board) that a budget does not scale
     "exact": 1e-3,              # one deadline check in the exact-repair loops (polygon checks: exact_pair)
-    "exact_pair": 1e-3,         # findings_at: per call plus per neighbour pair checked (shapely); calibrate
+    "exact_pair": 7.5e-3,       # findings_at: per call plus per neighbour pair checked (shapely); 7.45e-3 measured (loop-win smoke, 124k units)
     "anneal_move": 1.74e-5,     # one compiled annealer move
     "anneal_move_py": 2.1e-4,   # one Python-priced annealer move (physics terms, macros); 1.36e-4 before,
                                 # fitted on 65-328 pins: 1.9-2.0e-4 on 430 pins and 2.2-2.7e-4 on 821 (2026-11-14,
