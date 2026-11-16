@@ -54,7 +54,8 @@ def root():
 
 
 def enabled():
-    return root() is not None
+    """A cache replay is charged by its recorded seconds, which depend on the host: off in work mode."""
+    return root() is not None and os.environ.get("KAE_BUDGET") != "work"    # (this module is stdlib only)
 
 
 # ---- clock --------------------------------------------------------------------------------
@@ -396,12 +397,12 @@ def tail(text, n=4000):
 # kae.route.bridge saves an attempt's board at the stage boundaries an A/B branches at: "routed"
 # (Freerouting's session imported; the raw session too), "repaired" (repair rounds and last mile)
 # and "final" (the attempt's output). The key is conservative: the input board and its project
-# files, the seed, the time budget, the caller's options, the KAE_* environment, the failure
-# history it reads and the whole kae source (code_id), so a hit is the same attempt by the same
+# files, the seed, the time budget, the caller's options, the KAE_* environment and the whole kae
+# source (code_id), so a hit is the same attempt by the same
 # code. A method that knows its change lies past a stage can look up the control arm's point with
 # that arm's code id (find_fork(..., code=...)) and continue from it.
 
-_NOT_SETTINGS = ("KAE_STEP_CACHE", "KAE_STEP_CACHE_MAX_GB", "KAE_CHARGE_FILE", "KAE_ROUTE_HISTORY", "KAE_HOME",
+_NOT_SETTINGS = ("KAE_STEP_CACHE", "KAE_STEP_CACHE_MAX_GB", "KAE_CHARGE_FILE", "KAE_HOME",
                  "KAE_FR_LOCKDIR", "KAE_FR_SLOTS", "KAE_KICAD_WRAP", "KAE_KICAD_CLI", "KAE_KICAD_PYTHON",
                  "KAE_RESUME", "KAE_WORKERS", "KAE_DRC_TIMEOUT")
 _code = {}
@@ -424,7 +425,6 @@ def fork_context(input_path, seed, time_s, opts):
         return None
     b = Path(input_path)
     files = {e: file_sha(b.with_suffix(e)) for e in (".kicad_pcb", ".kicad_pro", ".kicad_dru") if b.with_suffix(e).exists()}
-    hist = os.environ.get("KAE_ROUTE_HISTORY")
     env = {k: v for k, v in os.environ.items() if k.startswith("KAE_") and k not in _NOT_SETTINGS}
     if env.get("KAE_BRIDGE_FREEROUTING"):
         try:
@@ -433,7 +433,7 @@ def fork_context(input_path, seed, time_s, opts):
             pass
     return dict(input=files, seed=seed, time_s=time_s, env=env,
                 opts=json.loads(json.dumps(opts or {}, sort_keys=True, default=str)),
-                history=file_sha(hist) if hist and Path(hist).exists() else None, code=code_id())
+                code=code_id())
 
 
 def fork_key(ctx, stage, code=None):

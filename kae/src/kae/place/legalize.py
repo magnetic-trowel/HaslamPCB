@@ -17,6 +17,7 @@ board stays the judge.
 """
 from __future__ import annotations
 
+from kae.budget import Deadline
 import math
 import os
 import re
@@ -98,9 +99,8 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
     2. Greedy: whatever is still illegal goes to the nearest free spot, largest first,
        evicting smaller parts when nothing is free nearby (`greedy`).
     3. Small boards only (<= GLOBAL_MAX parts): one CP-SAT model over every part."""
-    t0 = time.monotonic()
-    deadline = t0 + time_s
-    win_deadline = t0 + window_share * time_s
+    dl = Deadline(time_s)
+    win = dl.part(window_share * time_s)
     rep = dict(rounds=0, windows=0, solved=0, global_used=False, start_violators=0)
     kk = {}
     force = {i for i in force if P.parts[i].movable}
@@ -110,13 +110,13 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
             rep["start_violators"] = len(viol)
             for i in force:
                 viol.setdefault(i, []).append(("kicad", None))
-        if not viol or time.monotonic() > win_deadline:
+        if not viol or win.passed():
             break
         rep["rounds"] = rnd + 1
         bad = set(viol)
         for gr in _groups(st, bad, radius_mm=4.0):
-            now = time.monotonic()
-            if now > win_deadline:
+            win_left = win.left()
+            if win_left < 0:
                 break
             key = tuple(gr)
             kw = min(kk.get(key, k), MAX_WINDOW)
@@ -125,7 +125,7 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
             near = sorted(P.mov, key=lambda c: abs(st.center(c)[0] - cx) + abs(st.center(c)[1] - cy))
             free = list(dict.fromkeys(gr[:MAX_WINDOW] + near[:kw]))[:max(MAX_WINDOW, len(gr[:MAX_WINDOW]))]
             margin = int(math.ceil((2.0 + 0.5 * (kw // k)) / P.g))
-            budget = min(max(1.0, 0.15 * time_s), win_deadline - now)
+            budget = min(max(1.0, 0.15 * time_s), win_left)
             if budget <= 0.2:
                 break
             sol, model = _window_solve(P, st, free, margin, budget, workers, seed + rnd)
@@ -140,14 +140,14 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
                 log(f"legalize window {gr[:4]} free={len(free)} status={model.status} {model.wall:.2f}s")
     viol = grid_violations(st)
     if viol:
-        rep["greedy"] = greedy(P, st, list(viol), log=log, time_s=max(1.0, deadline - time.monotonic()))
+        rep["greedy"] = greedy(P, st, list(viol), log=log, time_s=max(1.0, dl.left()))
         viol = grid_violations(st)
-    if viol and time.monotonic() < deadline and len(P.mov) <= GLOBAL_MAX:
+    if viol and dl.left() > 0 and len(P.mov) <= GLOBAL_MAX:
         rep["global_used"] = True
         items = [cpsat.single(P, i, int(st.X[i]), int(st.Y[i]), int(st.K[i])) for i in P.mov]
         obstacles = [(ob.side, ob.g) for ob in P.obstacles]
         model = cpsat.Model(P, items, obstacles, w_disp=1.0, w_rot=1.0)
-        sol = model.solve(max(1.0, deadline - time.monotonic()), workers=workers, seed=seed)
+        sol = model.solve(max(1.0, dl.left()), workers=workers, seed=seed)
         rep["global_status"] = model.status
         if sol is not None:
             for it, i, (X, Y, v) in zip(items, P.mov, sol):
@@ -155,7 +155,7 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
         viol = grid_violations(st)
     rep["end_violators"] = len(viol)
     rep["violations"] = {P.parts[i].ref: [str(r) for r in rs[:3]] for i, rs in list(viol.items())[:20]}
-    rep["seconds"] = round(time.monotonic() - t0, 2)
+    rep["seconds"] = round(dl.elapsed(), 2)
     return rep
 
 
@@ -287,7 +287,7 @@ def _covered(occ, rect, pad, xa, xb, ya, yb):
     return (L[w:w + nx, h:h + ny] - L[0:nx, h:h + ny] - L[w:w + nx, 0:ny] + L[0:nx, 0:ny]).astype(float)
 
 
-def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, t0, time_s=None):
+def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
     """greedy() on the compiled kernels (summed-area tables updated in place)."""
     from . import _fastlegal as FL
     from .problem import sat
@@ -370,7 +370,7 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, t0, time_s=None):
     # first pass: a free spot near where the part wants to be
     out_of_time = False
     for i in parts:
-        if time_s is not None and time.monotonic() - t0 > time_s:
+        if time_s is not None and dl.passed():
             out_of_time = True
             queue.append(i)
             continue
@@ -407,7 +407,7 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, t0, time_s=None):
                                    opp, opp_n, brd, brd_n, int(min(reach, max_d)))
         return None if c < 0 else (c, X, Y, ks[k], "ripup")
     while queue:
-        if out_of_time or (time_s is not None and time.monotonic() - t0 > time_s):
+        if out_of_time or (time_s is not None and dl.passed()):
             out_of_time = True
             break
         i = queue.pop(0)
@@ -455,7 +455,7 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, t0, time_s=None):
     unplaced += queue
     moved = sum(math.hypot((st.X[i] - x) * P.g, (st.Y[i] - y) * P.g) for i, (x, y) in start.items())
     rep = dict(placed=len(placed_set), unplaced=[P.parts[i].ref for i in unplaced], moved_mm=round(moved, 2),
-               ripups=ripups, seconds=round(time.monotonic() - t0, 2), compiled=True, out_of_time=out_of_time)
+               ripups=ripups, seconds=round(dl.elapsed(), 2), compiled=True, out_of_time=out_of_time)
     if log:
         log(f"greedy legalization: {len(placed_set)} placed, {len(unplaced)} without a spot, {ripups} rip-ups, "
             f"moved {moved:.1f} mm ({rep['seconds']}s)")
@@ -472,7 +472,7 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
     evicted and placed again (rip-up; evictions only go to smaller parts, so it ends).
     Always ends legal for the parts it places; returns {placed, unplaced: [refs], moved_mm,
     ripups}."""
-    t0 = time.monotonic()
+    dl = Deadline(math.inf if time_s is None else time_s)
     parts = sorted({i for i in parts if P.parts[i].movable}, key=lambda i: -P.parts[i].area)
     if not parts:
         return dict(placed=0, unplaced=[], moved_mm=0.0, ripups=0, seconds=0.0)
@@ -480,7 +480,7 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
         from ._fastlegal import HAVE_NUMBA
         compiled = HAVE_NUMBA and not os.environ.get("KAE_NO_NUMBA")
     if compiled:
-        return _greedy_fast(P, st, parts, log, (2.0 / P.g) if w_rot is None else w_rot, ripup, max_ripups, t0,
+        return _greedy_fast(P, st, parts, log, (2.0 / P.g) if w_rot is None else w_rot, ripup, max_ripups, dl,
                             time_s=time_s)
     ext = 1
     for i in P.mov:
@@ -560,7 +560,7 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
     unplaced += queue
     moved = sum(math.hypot((st.X[i] - x) * P.g, (st.Y[i] - y) * P.g) for i, (x, y) in start.items())
     rep = dict(placed=len(placed_set), unplaced=[P.parts[i].ref for i in unplaced], moved_mm=round(moved, 2),
-               ripups=ripups, seconds=round(time.monotonic() - t0, 2))
+               ripups=ripups, seconds=round(dl.elapsed(), 2))
     if log:
         log(f"greedy legalization: {len(placed_set)} placed, {len(unplaced)} without a spot, {ripups} rip-ups, "
             f"moved {moved:.1f} mm ({rep['seconds']}s)")
@@ -568,9 +568,7 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
 
 
 # ----------------------------------------------------------------------------- KiCad feedback
-PLACEMENT_TYPES = ("courtyards_overlap", "copper_edge_clearance", "clearance", "hole_clearance", "hole_to_hole",
-                   "holes_co_located", "items_not_allowed", "malformed_courtyard", "npth_inside_courtyard",
-                   "pth_inside_courtyard", "shorting_items", "solder_mask_bridge")
+from kae.drc_items import PLACER_TYPES  # noqa: E402 - the illegal types plus solder mask bridges
 _OF_REF = re.compile(r"\bof (\S+)")
 _FP_REF = re.compile(r"^(?:Footprint|Courtyard of) (\S+)")
 
@@ -586,7 +584,7 @@ def kicad_violations(drc):
         drc = json.loads(drc)
     out = []
     for v in (drc or {}).get("violations", []):
-        if v.get("type") in PLACEMENT_TYPES and v.get("severity", "error") == "error":
+        if v.get("type") in PLACER_TYPES and v.get("severity", "error") == "error":
             out.append(dict(type=v.get("type"), severity=v.get("severity"), items=v.get("items", [])))
     return out
 
@@ -620,27 +618,20 @@ def violation_parts(P, st, v):
     return out
 
 
-def repair_kicad(P, st, violations, time_s=30.0, workers=2, seed=0, step_mm=0.1, log=None):
-    """Feed KiCad's verdict on a candidate placement back as constraints: every movable part
-    a placement violation names grows its occupancy rectangle by `step_mm` (kept for the rest
-    of the run, P.bump) and is re-placed by the windowed legalizer. Returns a report."""
-    if violations and isinstance(violations, (str, dict)):
-        violations = kicad_violations(violations)
-    parts = set()
-    by_type = {}
-    for v in violations or []:
-        ps = violation_parts(P, st, v)
-        by_type[v["type"]] = by_type.get(v["type"], 0) + 1
-        parts |= {i for i in ps if P.parts[i].movable}
-    for i in parts:
-        P.bump(i, step_mm)
-    rep = dict(violations=sum(by_type.values()), by_type=by_type, parts=sorted(P.parts[i].ref for i in parts))
-    if parts:
-        rep["legalize"] = legalize(P, st, time_s=time_s, workers=workers, seed=seed, log=log, force=parts)
-    return rep
-
-
 # ----------------------------------------------------------------------------- exact shapes
+ARC_ERR = 0.001   # mm: most an arc of a pad or hole may sit inside its polygon (the polygon is inscribed)
+
+
+def arc_segs(r, err=ARC_ERR):
+    """Shapely quad_segs (segments per quarter circle) that keep a radius-r arc within `err` of its
+    inscribed polygon. A fixed 8 put a 3 mm hole 0.007 mm inside its polygon, so with a 1.7 mm pad
+    two shapes measured 0.009 mm further apart than KiCad, which measures arcs exactly:
+    melexinvn's hole_clearance 0.2402 mm (rule 0.25) read 0.2491 and passed."""
+    if r <= err:
+        return 1
+    return max(8, min(64, math.ceil(math.pi / (4.0 * math.acos(1.0 - err / r)))))
+
+
 def pad_shape(p, layer=None):
     """A pad's copper as a library-frame polygon, as KiCad shapes it: circles, ovals, rounded
     rectangles from the pad's fields; trapezoids, chamfered rectangles and custom pads (anchor
@@ -661,24 +652,24 @@ def pad_shape(p, layer=None):
         geom = affinity.affine_transform(affinity.translate(outline, ox, oy), [c, s, -s, c, p.lx, p.ly])
     elif shape == "circle":
         cx, cy = lib(ox, oy)
-        geom = Point(cx, cy).buffer(max(w, h) / 2, quad_segs=8)
+        geom = Point(cx, cy).buffer(max(w, h) / 2, quad_segs=arc_segs(max(w, h) / 2))
     elif shape == "oval" and abs(w - h) > 1e-9:
         r = min(w, h) / 2
         if w > h:
             a, b = lib(ox - (w / 2 - r), oy), lib(ox + (w / 2 - r), oy)
         else:
             a, b = lib(ox, oy - (h / 2 - r)), lib(ox, oy + (h / 2 - r))
-        geom = LineString([a, b]).buffer(r, quad_segs=8)
+        geom = LineString([a, b]).buffer(r, quad_segs=arc_segs(r))
     elif shape == "oval":
         cx, cy = lib(ox, oy)
-        geom = Point(cx, cy).buffer(w / 2, quad_segs=8)
+        geom = Point(cx, cy).buffer(w / 2, quad_segs=arc_segs(w / 2))
     elif shape == "roundrect" and rratio > 0:
         # KiCad's rounded rectangle: corner radius rratio x the shorter side (as rectangles
         # the corners sat outside the copper; pingdevkit's 0402s read 0.191 mm apart, not 0.2)
         r = min(0.5, float(rratio)) * min(w, h)
         core = Polygon([(ox - w / 2 + r, oy - h / 2 + r), (ox + w / 2 - r, oy - h / 2 + r),
                         (ox + w / 2 - r, oy + h / 2 - r), (ox - w / 2 + r, oy + h / 2 - r)])
-        loc = core.buffer(r, quad_segs=8) if r > 0 else core
+        loc = core.buffer(r, quad_segs=arc_segs(r)) if r > 0 else core
         geom = Polygon([lib(u, v) for u, v in loc.exterior.coords])
     else:
         geom = Polygon([lib(ox - w / 2, oy - h / 2), lib(ox + w / 2, oy - h / 2), lib(ox + w / 2, oy + h / 2),
@@ -702,8 +693,8 @@ def hole_shape(p):
                 u0, u1, v0, v1 = 0.0, 0.0, -(h / 2 - r), (h / 2 - r)
             a = (p.lx + u0 * c + v0 * s, p.ly - u0 * s + v0 * c)
             b = (p.lx + u1 * c + v1 * s, p.ly - u1 * s + v1 * c)
-            return LineString([a, b]).buffer(r, quad_segs=8)
-    return Point(p.lx, p.ly).buffer(p.drill / 2, quad_segs=8)
+            return LineString([a, b]).buffer(r, quad_segs=arc_segs(r))
+    return Point(p.lx, p.ly).buffer(p.drill / 2, quad_segs=arc_segs(p.drill / 2))
 
 
 def _copper_sides(p, part_side):

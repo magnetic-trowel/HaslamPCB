@@ -430,14 +430,6 @@ def _mutual(kern, al, vl, st, h):
     return kern.loop_mutual_core(PA, al.closed, za, PV, vl.closed, zv, h, *GAUSS, *_scratch())
 
 
-def _cself(A, h, eps_r):
-    """Capacitance to the plane (pF) of copper of area A at height h in a dielectric eps_r:
-    a square of side s with the microstrip per-length capacitance C'(s, h, eps_r) along it
-    and its fringe across the ends, s (2 C' - eps0 eps_r s / h) (cf. jit cext)."""
-    s = math.sqrt(max(A, 1e-6))
-    return s * (2.0 * cprime_hj(s, h, eps_r) - EPS0 * eps_r * s / h)
-
-
 def _cm(kern, an, vn, st, h, eps_r):
     """Mutual capacitance (pF) between two NodeShapes over the plane at h (kernel:
     jit.patches_cm_core: first order in the potential coefficients with the plane image,

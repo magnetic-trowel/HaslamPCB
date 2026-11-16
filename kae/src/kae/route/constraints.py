@@ -107,6 +107,8 @@ class RoutingClass:
     via: tuple              # (diameter, drill) mm, the real via
     rep: str = ""           # representative net
     rep2: str = ""          # a second net of the class (for same-class pairs), or ""
+    layers: list | None = None  # the layers its tracks may use, when a custom (constraint disallow track) rule
+                                # keeps them off some (Freerouting's use_layer); None: every copper layer
 
 
 @dataclass
@@ -217,6 +219,7 @@ DEFAULTS = dict(
                                    # negative = auto (Problem.auto_margin: 2 x (0.7 - utilization), 0..1 mm).
                                    # 0: placement-decide-staged found auto and 0 equal (cp1 0.305 both,
                                    # completion 0.942 / 0.941), so the formula with no source is dropped
+    anchor_tight=1,                # placement: a big part with no spot free of the fixed geometry is fixed first (place.pipeline)
     connector_edge=2,              # placement: user-facing connectors kae places (kae.place.edge_check:
                                    # USB, barrel, audio, RJ/modular, video/D-sub; at or near 100 % on an
                                    # edge on human boards) 2: pinned to the edge facing out after the seed,
@@ -421,9 +424,13 @@ def plan(info, board_path, opts=None):
                                 if r.condition is not None else True)
                 except KeyError:
                     rsig.append(None)
-        sig = (nc_name, dp, tuple(widths[l] for l in cu), (D, d), tuple(rsig))
+        # layers a custom rule disallows this net's tracks on (KiCad's items_not_allowed): the class keeps off them
+        off = tuple(l for l in cu if R.disallowed(rb, net_item(info, net, "track", l, widths[l]), l, "track"))
+        if len(off) == len(cu):
+            off = ()        # disallowed everywhere: no layer to restrict to; KiCad reports it whatever we do
+        sig = (nc_name, dp, tuple(widths[l] for l in cu), (D, d), tuple(rsig), off)
         sig_of[net] = sig
-        per_net[net] = dict(widths=widths, wmin=wmin, via=(D, d), ring=ring)
+        per_net[net] = dict(widths=widths, wmin=wmin, via=(D, d), ring=ring, off=off)
     groups = {}
     for net in nets:
         groups.setdefault(sig_of[net], []).append(net)
@@ -435,8 +442,10 @@ def plan(info, board_path, opts=None):
         used.add(name)
         members = sorted(members)
         w = per_net[members[0]]["widths"]
+        off = per_net[members[0]]["off"]
         rc = RoutingClass(name=name, nets=members, netclass=sig[0], widths=dict(w), via=per_net[members[0]]["via"],
-                          rep=members[0], rep2=members[1] if len(members) > 1 else "")
+                          rep=members[0], rep2=members[1] if len(members) > 1 else "",
+                          layers=[l for l in cu if l not in off] if off else None)
         p.classes[name] = rc
         for n in members:
             p.net_class[n] = name
@@ -1028,6 +1037,7 @@ def thermal_corridors(info, p, pad_uuids=None, sev=None):
     if polys:
         board = unary_union(polys)
     foreign_cache = {}
+    zone_geo, fill_cache = {}, {}   # per zone: its polygon; per (zone, layer, net, clearance): its potential fill
     lane_w = max(s.get("min_track") or 0.0, 0.1)
     by_layer = {}
 
@@ -1138,7 +1148,10 @@ def thermal_corridors(info, p, pad_uuids=None, sev=None):
                 conn = "thermal" if pad.get("attr") == "pth" else "full"
             if conn != "thermal":
                 continue
-            zg = unary_union([x for x in (_poly(r) for r in z["rings"]) if x is not None])
+            zk = id(z)
+            if zk not in zone_geo:
+                zone_geo[zk] = unary_union([x for x in (_poly(r) for r in z["rings"]) if x is not None])
+            zg = zone_geo[zk]
             for l in pad["layers"]:
                 if l not in z["layers"]:
                     continue
@@ -1159,10 +1172,13 @@ def thermal_corridors(info, p, pad_uuids=None, sev=None):
                     sw = min(sw, pmin)
                 sw = max(sw, mt)
                 clr = max(z.get("clearance") or 0.0, s.get("min_clearance", 0.0))
-                fill = zg
-                if board is not None:
-                    fill = fill.intersection(board.buffer(-s.get("edge_clearance", 0.0)))
-                fill = fill.difference(foreign(l, pad["net"], clr))
+                fk = (zk, l, pad["net"], clr)
+                if fk not in fill_cache:   # the same for every pad of this zone, net and layer
+                    fill = zg
+                    if board is not None:
+                        fill = fill.intersection(board.buffer(-s.get("edge_clearance", 0.0)))
+                    fill_cache[fk] = fill.difference(foreign(l, pad["net"], clr))
+                fill = fill_cache[fk]
                 if fill.is_empty:
                     continue
                 cx, cy = pad["pos"]
@@ -1170,6 +1186,7 @@ def thermal_corridors(info, p, pad_uuids=None, sev=None):
                 half = max(maxx - cx, cx - minx, maxy - cy, cy - miny)
                 reach = half + gap + max(mt, 0.1) + clr
                 ring = cop.buffer(gap, quad_segs=8)
+                fill_ring = []      # fill.union(ring) and cop.buffer(1e-4): once per pad, not per strip
                 cand = []
                 for k in range(4):
                     # KiCad lays the spokes out in the pad's frame: the spoke angle is relative to the
@@ -1185,7 +1202,9 @@ def thermal_corridors(info, p, pad_uuids=None, sev=None):
                     land = land.difference(ring)
                     if land.area < sw * max(mt, 0.05):
                         continue
-                    cand.append((land.area, strip.intersection(fill.union(ring)).difference(cop.buffer(1e-4))))
+                    if not fill_ring:
+                        fill_ring[:] = [fill.union(ring), cop.buffer(1e-4)]
+                    cand.append((land.area, strip.intersection(fill_ring[0]).difference(fill_ring[1])))
                 cand.sort(key=lambda t: -t[0])
                 clear = []    # the best strips that, together, leave every neighbour a way out
                 for c in cand:

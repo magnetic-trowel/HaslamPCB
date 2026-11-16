@@ -31,10 +31,10 @@ each layer's integer flow with its vias fixed and one commodity per side (fallin
 commodity, a network flow, when sides cost escapes); balls the rounding left out are offered
 to each layer in turn. Outer rings stay on the surface (LAYER_COST), as on the human boards
 and in the vendor guides. Plane layers (translate.plane_layers) carry no escapes unless opts
-escape_plane_layers. Laying (_lay_grid): the dog-bones, then each escape along its planned
-path (through the middle of each gap), checked exactly, else searched with the grid router to
-a box past the package's edge. A package whose ball field is routed already (a restart
-resuming from its best board) is not planned.
+escape_plane_layers. The plan is not laid: the bridge lays the fixed dog-bones (dog_bones),
+measured better under Freerouting than any laid plan (gecko5education 54 -> 241-269 open,
+nekoink 91 -> 144-176), and keeps the plan and its certificate for the report. A package whose
+ball field is routed already (a restart resuming from its best board) is not planned.
 
 Certificate (certificate): the LP with every side open, the board's legal minimum widths and
 no plane vias is an upper bound on the balls that can escape; below the demand, no routing
@@ -56,11 +56,12 @@ blocked (kae.route.blocked's format: cause "rule", summary), laid, wanted}.
 """
 from __future__ import annotations
 
+from kae.budget import now as clock_now
 import math
 import time
 
 import numpy as np
-from shapely.geometry import LineString, Point, box
+from shapely.geometry import LineString, Point
 
 from . import critical_write as W
 
@@ -80,7 +81,6 @@ PAD_COST = 150.0               # a via in the ball's pad (legal in KiCad; filled
 EDGE_COST = 1.0                # per tile or cell crossed
 MILP_S = 60.0                  # seconds for one package's integer plan
 BIG = 50                       # tracks: no limit, for an open gap
-DEBUG = False
 
 
 def _grid(pts):
@@ -640,7 +640,7 @@ def _site_ok(sp, ctx, override=None, check=True, small=None):
                 out[(k, t)] = False
                 continue
             sizes = [dict(size=dv, drill=min(sp.via_size(pd.net)[1], dv - 0.1))] if dv else [{}]
-            sv = small.get("via") or small_via(sp)
+            sv = small.get("via") or legal_via(sp)
             if sv and not dv:
                 sizes.append(dict(size=sv[0], drill=sv[1]))
             out[(k, t)] = any(not sp.via_violations(pd.net, *v, first=True, **kw) for kw in sizes)
@@ -782,7 +782,7 @@ def plan_grid(sp, pkg, info, opts=None, deadline=None, order=None):
     rounded greedily (sites exclusive); stage 2: each layer's integer flow with the vias
     fixed and a commodity per side, so that escapes leave towards their nets' other ends.
     `order`: bus net lists (not used yet)."""
-    t0 = time.monotonic()
+    t0 = clock_now()
     ctx = _setup(sp, pkg, info, opts)
     ok = _site_ok(sp, ctx)
     M, opt, plane, _ = _stage1(sp, ctx, ok, pads=bool((opts or {}).get("escape_via_in_pad")))
@@ -792,7 +792,7 @@ def plan_grid(sp, pkg, info, opts=None, deadline=None, order=None):
                 rules={l: {k: round(v, 4) for k, v in r.items() if v is not None} for l, r in ctx["R"].items()},
                 variables=M.n, rows=len(M.rows))
     if x is None:
-        plan.update(status="no solution", seconds=round(time.monotonic() - t0, 1))
+        plan.update(status="no solution", seconds=round(clock_now() - t0, 1))
         return plan, ctx, {}, []
     plan["lp"] = round(float(sum(x[v] for v in opt.values())), 1)
     # flexibility: a ball's legal options (layer and site); the scarce ones choose first, the
@@ -823,7 +823,7 @@ def plan_grid(sp, pkg, info, opts=None, deadline=None, order=None):
     paths = {}
 
     def layer_plan(l, assigned):
-        left = 20.0 if deadline is None else max(3.0, min(20.0, deadline - time.monotonic()))
+        left = 20.0 if deadline is None else max(3.0, min(20.0, deadline - clock_now()))
         got = _stage2(sp, ctx, l, assigned, taken, left)
         if got is None or len(got) < len(assigned):
             # the sides cost escapes (or no integer plan in time): one commodity escapes as
@@ -842,7 +842,7 @@ def plan_grid(sp, pkg, info, opts=None, deadline=None, order=None):
     # the balls the rounding left out: each layer in turn takes them if it then escapes more
     for l in real:
         lost = [k for k in ctx["sig"] if not any(k in got for _a, got in per_layer.values())]
-        if not lost or (deadline is not None and time.monotonic() > deadline):
+        if not lost or (deadline is not None and clock_now() > deadline):
             break
         add = []
         for k in lost:
@@ -876,7 +876,7 @@ def plan_grid(sp, pkg, info, opts=None, deadline=None, order=None):
     plan["planned"] = len(paths)
     plan["plane_vias"] = len(plane_vias)
     plan["by_layer"] = {l: sum(1 for q in paths.values() if q["layer"] == l) for l in ctx["layers"]}
-    plan["seconds"] = round(time.monotonic() - t0, 1)
+    plan["seconds"] = round(clock_now() - t0, 1)
     return plan, ctx, paths, plane_vias
 
 
@@ -1027,7 +1027,7 @@ def certificate(sp, pkg, info, opts=None, log=print, deadline=None):
         return e is not None and e >= demand - 0.5
 
     def more_time():
-        return deadline is None or time.monotonic() < deadline
+        return deadline is None or clock_now() < deadline
     cur = dict(w=min(R[l]["w"] for l in real), c=min(R[l]["c"] for l in real), c_pad=meta["cpad"],
                D=min(R[l]["D"] for l in real))
     dr = min(R[l]["drill"] for l in real)
@@ -1254,134 +1254,6 @@ def ring_certificate(sp, pkg, log=print, opts=None):
 
 
 # ----------------------------------------------------------------------------- laying
-def _lay_grid(sp, ctx, paths, plane_vias, info, deadline=None, tracks=True):
-    """Lay a plan: the plane balls' and the planned dog-bones, then each escape on its layer
-    along its planned path (through the middle of each gap, side by side where several
-    share one), checked exactly, else searched with the grid router to a box past the
-    package's edge. Returns one record per planned ball."""
-    from .critical_grid import Anchor, GridRouter
-    from .lastmile import _commit
-    zclr = max([float(z.get("clearance") or 0.0) for z in info.get("zones") or []] + [0.0])
-    B, xy, p, balls, R = ctx["B"], ctx["xy"], ctx["p"], ctx["balls"], ctx["R"]
-    owner = ("escape", ctx["ref"])
-
-    def dog_bone(pd, t):
-        if t[0] == "pad":
-            v = pd.pos
-            sp.via_in_pad = True
-            try:
-                bad = sp.via_violations(pd.net, *v, first=True)
-            finally:
-                sp.via_in_pad = False
-            if bad:
-                return None
-            sp.add_via(pd.net, *v, owner=owner, uuid=W.new_uuid())
-            return v
-        v = xy(t[0] / 2, t[1] / 2)
-        # the net's via, else the smallest the board allows (where room is scarce)
-        size = None
-        for cand in [sp.via_size(pd.net)] + ([small_via(sp)] if small_via(sp) else []):
-            if not sp.via_violations(pd.net, *v, size=cand[0], drill=cand[1], first=True) and \
-                    not _starves(sp, pd.net, Point(v), cand[0] / 2, sp.cu, zclr):
-                size = cand
-                break
-        if size is None:
-            return None
-        mn, opt, _ = sp.width_limits(pd.net, B)
-        for wd in [w for w in dict.fromkeys([opt, mn]) if w] or [0.1]:
-            if sp.track_violations(pd.net, B, wd, pd.pos, v, first=True) or \
-                    _starves(sp, pd.net, LineString([pd.pos, v]), wd / 2, [B], zclr):
-                continue
-            sp.add_via(pd.net, *v, owner=owner, size=size[0], drill=size[1], uuid=W.new_uuid())
-            sp.add_track(pd.net, B, wd, pd.pos, v, owner=owner, uuid=W.new_uuid())
-            via_size[pd.net, round(v[0], 4), round(v[1], 4)] = size
-            return v
-        return None
-    via_size = {}
-    for k, t in plane_vias:
-        dog_bone(balls[k][0], t)
-    vias = {k: dog_bone(balls[k][0], q["site"]) for k, q in paths.items() if q["site"] is not None}
-    if not tracks:
-        # the dog-bones only: the router lays the escapes, from the vias the plan placed
-        recs = []
-        for k, q in paths.items():
-            pd = balls[k][0]
-            v = vias.get(k)
-            recs.append(dict(pad=f"{pd.owner[0]}.{pd.owner[1]}", net=pd.net, ring=balls[k][1], layer=q["layer"],
-                             side=q["side"], via=[round(v[0], 4), round(v[1], 4)] if v else None, exit=None,
-                             laid=False, **ctx.get("flex", {}).get(k, {})))
-        return recs
-    slots = {}
-    for q in paths.values():
-        for nd in q["nodes"]:
-            if nd[0] == "g":
-                key = (q["layer"], nd[1])
-                slots[key] = [slots.get(key, [0, 0])[0] + 1, 0]
-    gr = GridRouter(sp, pad_entry="centre")      # escapes leave from the ball's centre (dog-bone geometry)
-    recs = []
-    # the least flexible first on each layer (fewest options: they cannot go elsewhere)
-    flex = ctx.get("flex", {})
-    for k in sorted(paths, key=lambda k: (ctx["layers"].index(paths[k]["layer"]),
-                                          flex.get(k, {}).get("options", 0), -balls[k][1], len(paths[k]["nodes"]))):
-        q, pd = paths[k], balls[k][0]
-        l = q["layer"]
-        rec = dict(pad=f"{pd.owner[0]}.{pd.owner[1]}", net=pd.net, ring=balls[k][1], layer=l, side=q["side"],
-                   via=None, exit=None, laid=False, **flex.get(k, {}))
-        recs.append(rec)
-        if q["site"] is not None:
-            v = vias.get(k)
-            if v is None:
-                continue
-            rec["via"] = [round(v[0], 4), round(v[1], 4)]
-            rec["via_size"] = list(via_size.get((pd.net, rec["via"][0], rec["via"][1]), sp.via_size(pd.net)))
-        if deadline is not None and time.monotonic() > deadline:
-            continue
-        start = pd.pos if l == B else tuple(rec["via"])
-        pts = _plan_points(ctx, q, start, slots, R[l]["w"] + R[l]["c"])
-        rec["_pts"], rec["_k"] = pts, k
-        rec["exit"] = [round(pts[-1][0], 4), round(pts[-1][1], 4)]
-        mn, opt, _ = sp.width_limits(pd.net, l)
-        for wd in [w for w in dict.fromkeys([opt, mn]) if w] or [0.1]:
-            if DEBUG:
-                rec["pts"] = [[round(a, 3), round(b, 3)] for a, b in pts]
-                rec["nodes"] = q["nodes"]
-                rec["why"] = [str(sp.track_violations(pd.net, l, wd, a_, b_, first=True))[:120] for a_, b_ in zip(pts, pts[1:])]
-            if all(not sp.track_violations(pd.net, l, wd, a_, b_, first=True) for a_, b_ in zip(pts, pts[1:])):
-                for a_, b_ in zip(pts, pts[1:]):
-                    sp.add_track(pd.net, l, wd, a_, b_, owner=owner, uuid=W.new_uuid())
-                rec["laid"] = "plan"
-                break
-    # then a search for the escapes their planned path did not fit, while time allows
-    for rec in recs:
-        if rec["laid"] or "_pts" not in rec or (deadline is not None and time.monotonic() > deadline):
-            continue
-        k, pts = rec["_k"], rec["_pts"]
-        q, pd = paths[k], balls[k][0]
-        l = q["layer"]
-        mn, opt, _ = sp.width_limits(pd.net, l)
-        start = pts[0]
-        cxy = pts[-1]
-        tgt = Anchor(box(cxy[0] - p / 2, cxy[1] - p / 2, cxy[0] + p / 2, cxy[1] + p / 2), (l,), centre=cxy, kind="track")
-        if l == B:
-            src = [Anchor(pd.geom, (B,), centre=pd.pos)]
-        else:
-            src = [Anchor(Point(start).buffer(sp.via_size(pd.net)[0] / 2), (l,), centre=start, kind="via")]
-        win = gr.window(src + [tgt], margin=1.5 * p)
-        for wd in [w for w in dict.fromkeys([opt, mn]) if w] or [0.1]:
-            rt = gr.connect(pd.net, src, [tgt], wd, [l], via=False, window=win)
-            if rt is not None and (rt.segs or rt.vias):
-                new = _commit(sp, rt)
-                if new is not None:
-                    for it in new:
-                        it.owner = owner
-                    rec["laid"] = "search"
-                    break
-    for rec in recs:
-        rec.pop("_pts", None)
-        rec.pop("_k", None)
-    return recs
-
-
 def _records(ctx, paths):
     """The plan per ball, not laid: layer, side, planned via position, flexibility."""
     xy, balls, flex = ctx["xy"], ctx["balls"], ctx.get("flex", {})
@@ -1397,48 +1269,6 @@ def _records(ctx, paths):
                          side=q["side"], via=via, in_pad=bool(t is not None and t[0] == "pad"), exit=None,
                          laid=False, **flex.get(k, {})))
     return recs
-
-
-def _plan_points(ctx, q, start, slots, step):
-    """Board points of a planned escape: `start` (ball or via), the middle of each gap on its
-    path (the k-th of n tracks in a gap offset by (k - (n - 1) / 2) * step along it) and the
-    centre of each tile it turns in, then 0.75 pitch out past the package's edge."""
-    xy, p, l = ctx["xy"], ctx["p"], q["layer"]
-    par = 0 if l == ctx["B"] else 1
-    idx = []
-    last_dir = None
-
-    def tiles_of(g):
-        gx, gy = g
-        return {(gx - 1, gy), (gx + 1, gy)} if gx % 2 == par else {(gx, gy - 1), (gx, gy + 1)}
-    prev = None
-    for nd in q["nodes"][1:]:
-        if nd[0] == "g" and prev is not None and prev[0] == "g":
-            # round a corner of the tile both gaps bound: through its centre, clear of the corner
-            common = tiles_of(prev[1]) & tiles_of(nd[1])
-            if common:
-                cx_, cy_ = next(iter(common))
-                idx.append((cx_ / 2, cy_ / 2))
-        prev = nd
-        if nd[0] == "g":
-            gx, gy = nd[1]
-            key = (l, nd[1])
-            n, k = slots.get(key, [1, 0])
-            if key in slots:
-                slots[key][1] += 1
-            off = (k - (n - 1) / 2) * step / p
-            along_y = gx % 2 == par            # its corners are above and below each other
-            idx.append((gx / 2, gy / 2 + off) if along_y else (gx / 2 + off, gy / 2))
-        elif nd[0] == "c":
-            continue                           # straight across a tile: the gaps' middles suffice
-        elif nd[0] == "sink":
-            last_dir = {"W": (-1, 0), "E": (1, 0), "S": (0, -1), "N": (0, 1)}[nd[1]]
-    if last_dir is None:
-        last_dir = (0, 0)
-    s0 = q["nodes"][0][1]
-    last = idx[-1] if idx else (s0[0] / 2, s0[1] / 2)
-    idx.append((last[0] + 0.75 * last_dir[0], last[1] + 0.75 * last_dir[1]))
-    return _simplify([start] + [xy(*m) for m in idx])
 
 
 def _simplify(pts):
@@ -1521,11 +1351,10 @@ def _cache_put(key, value):
 
 
 def run(sp, info, opts=None, log=print, deadline=None):
-    """Plan, certify and lay the escapes of every ball grid; check fine-pitch pad rings.
+    """Plan and certify the escapes of every ball grid (not laid); check fine-pitch pad rings.
     Returns {packages, blocked, laid, wanted} (blocked: kae.route.blocked entries)."""
     opts = opts or {}
     out = dict(packages=[], blocked=[], laid=0, wanted=0)
-    lay = opts.get("escape_lay", True) not in (False, "dog_bones")
     for pkg in find_packages(sp):
         try:
             if pkg["kind"] == "ring":
@@ -1534,7 +1363,7 @@ def run(sp, info, opts=None, log=print, deadline=None):
                     out["blocked"].append(c)
                     out["packages"].append(dict(ref=pkg["ref"], kind="ring", certificate=c["summary"]))
                 continue
-            if deadline is not None and time.monotonic() > deadline:
+            if deadline is not None and clock_now() > deadline:
                 log(f"escape plan {pkg['ref']}: no time left")
                 continue
             routed = _routed_inside(sp, pkg)
@@ -1563,11 +1392,8 @@ def run(sp, info, opts=None, log=print, deadline=None):
             if cert:
                 out["blocked"].append(cert)
                 plan["certificate"] = cert["summary"]
-            recs = _lay_grid(sp, ctx, paths, plane_vias, info, deadline=deadline,
-                             tracks=bool(opts.get("escape_tracks", True))) if lay else _records(ctx, paths)
-            plan["escapes"] = recs
-            plan["laid"] = sum(1 for r in recs if r["laid"])
-            plan["vias_laid"] = sum(1 for r in recs if r["via"] and r["laid"] is not False) if lay else 0
+            plan["escapes"] = _records(ctx, paths)
+            plan["laid"] = plan["vias_laid"] = 0
             out["laid"] += plan["laid"]
             out["wanted"] += plan.get("planned", 0)
             log(f"escape plan {pkg['ref']}: pitch {plan['pitch']:.3f}, {plan['signal']} signal and "

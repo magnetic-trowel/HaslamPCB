@@ -31,11 +31,6 @@ finish's gate need not run the input again. Its time is reserved from the start 
 board replaces the kept one when KiCad ranks it no worse. summary.json's "finish" says which parts
 ran and which were skipped for time.
 
-With --history, every judged attempt adds the nets KiCad found open on its board to a failure
-history (restarts/history.json, {net: attempts that left it open}; record_open), and every attempt
-gets its path in KAE_ROUTE_HISTORY: a router may route those nets first (kae.route.bridge does).
-Each attempt's record in summary.json lists the nets it left open.
-
 Work is measured, since a sandboxed method's processes are invisible to the harness: every
 attempt's processes (its process tree and session, so a router started in a session of its own
 counts too) are sampled from /proc each second (CPU seconds summed over all of them, peak RSS);
@@ -53,7 +48,9 @@ judged or killed when) is the uncached one, and only the wall time shrinks. The 
 and charged seconds go to summary.json and KAE_WORK (step_cache).
 """
 import argparse
+import gzip
 import importlib.util
+import io
 import resource
 import json
 import os
@@ -63,10 +60,19 @@ import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import time
 from pathlib import Path
 
 GRACE_S = 30.0  # an attempt is killed this long after its own budget
+# Counted-work budgets (KAE_BUDGET=work, kae.budget): the attempts' --time is nominal seconds of work.
+# The schedule must not depend on which attempt ends first, so attempts run in batches (up to --parallel,
+# all waited for, judged in order); the plan's clock adds each batch's budget, and wall time is only
+# the ceiling (WORK_CEILING x an attempt's budget, as in kae.budget).
+WORK = os.environ.get("KAE_BUDGET") == "work"
+WORK_CEILING = 4.0
+OPEN_REST_MIN_S = 60.0   # --open-rest: no third run with less than this per lane
+WORK_FINAL_SHARE, WORK_FINISH_SHARE = 0.15, 0.10     # of --time, for --final and --finish (unless --final-s / --finish-s)
 FINAL_MIN_S = 60.0  # the final pass at least, beyond one DRC of the board (a last mile's joins and refill)
 
 
@@ -83,6 +89,19 @@ def _stepcache():
 
 
 SC = _stepcache()
+
+
+def _drc_items():
+    """kae's DRC counting rules (kae/src/kae/drc_items.py, stdlib only), loaded by path from this
+    checkout like stepcache: the judge counts errors, ignored checks and the 499 cap as kae does."""
+    f = Path(__file__).resolve().parents[2] / "kae" / "src" / "kae" / "drc_items.py"
+    spec = importlib.util.spec_from_file_location("kae_drc_items", f)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+DI = _drc_items()
 BUSY = [lambda: False]   # whether any attempt is computing (main sets it)
 
 
@@ -185,9 +204,6 @@ def child_cpu():
     return r.ru_utime + r.ru_stime
 
 
-ENV_DEPENDENT_CHECKS = ("lib_footprint_issues", "lib_footprint_mismatch")  # as kaebench.tools: not the board's
-
-
 def report_unconnected(pro):
     """Make the project copy `pro` report unconnected items when it sets them to "ignore": KiCad's
     DRC then lists none at all, whatever --severity (7 corpus boards; the harness counts them by
@@ -202,15 +218,24 @@ def report_unconnected(pro):
         pro.write_text(json.dumps(d, indent=2), encoding="utf-8")
 
 
+def task_rules(inp, board):
+    """Put the task's project files (.kicad_pro, .kicad_dru) beside `board`, and remove any the
+    task has none of: a rules file the method left there must not judge it (as kaebench's
+    install_rules). Before, an attempt's own .kicad_dru stayed when the input had none."""
+    for ext in (".kicad_pro", ".kicad_dru"):
+        src, dst = inp.with_suffix(ext), board.with_suffix(ext)
+        if src.exists():
+            shutil.copy2(src, dst)
+        else:
+            dst.unlink(missing_ok=True)
+
+
 def drc(board, inp, timeout):
     """{type: count} of DRC errors (env-dependent checks dropped) and the unconnected count of a
     board by kicad-cli, with the input's project rules; None when there is no usable board."""
     if not board.exists() or board.stat().st_size == 0:
         return None
-    for ext in (".kicad_pro", ".kicad_dru"):  # the task's rules, never the method's copy
-        src = inp.with_suffix(ext)
-        if src.exists():
-            shutil.copy2(src, board.with_suffix(ext))
+    task_rules(inp, board)
     report_unconnected(board.with_suffix(".kicad_pro"))
     rep = board.with_name("drc.json")
     # --severity-all: kicad-cli filters unconnected items by the project's severity like violations,
@@ -229,10 +254,7 @@ def drc(board, inp, timeout):
         r = json.loads(rep.read_text())
     except (subprocess.TimeoutExpired, OSError, ValueError):
         return None
-    types = {}
-    for v in r.get("violations", []):
-        if v.get("severity", "error") == "error" and v.get("type") not in ENV_DEPENDENT_CHECKS:
-            types[v.get("type")] = types.get(v.get("type"), 0) + 1
+    types = DI.errors_by_type(r)          # env-dependent checks dropped
     n = len(r.get("unconnected_items", []))
     if n >= DRC_UNCONNECTED_CAP:
         # kicad-cli lists at most 499: past it, pcbnew's count after a zone fill (as the scorer,
@@ -243,13 +265,7 @@ def drc(board, inp, timeout):
     return dict(types=types, unconnected=n, overlaps=overlaps(r))
 
 
-DRC_UNCONNECTED_CAP = 499
-UNCONNECTED_PY = ("import json, sys, pcbnew\n"
-                  "b = pcbnew.LoadBoard(sys.argv[1]); zs = pcbnew.ZONES()\n"
-                  "for i in range(b.GetAreaCount()): zs.append(pcbnew.Cast_to_ZONE(b.GetArea(i)))\n"
-                  "len(zs) and pcbnew.ZONE_FILLER(b).Fill(zs)\n"
-                  "b.BuildConnectivity()\n"
-                  "print(json.dumps(dict(unconnected=b.GetConnectivity().GetUnconnectedCount(False))))\n")
+DRC_UNCONNECTED_CAP, UNCONNECTED_PY = DI.DRC_UNCONNECTED_CAP, DI.UNCONNECTED_PY
 
 
 def uncapped_unconnected(board, timeout):
@@ -356,29 +372,6 @@ def judge(board, inp, base, timeout, placement=False, base_pairs=()):
     return (1 if out else 0, 0 if clean else 1, d["unconnected"], new, out)
 
 
-def record_open(info, history, path):
-    """Add the nets the DRC of attempt `info`'s board found open (its drc.json, written by judge)
-    to `history` {net: attempts that left it open}, note them in `info` (open_nets), and write the
-    history to `path` atomically (attempts read it when they start). info None: write it only."""
-    if info is not None:
-        nets = set()
-        try:
-            rep = json.loads(Path(info["out"]).with_name("drc.json").read_text())
-        except (OSError, ValueError):
-            rep = {}
-        for u in rep.get("unconnected_items") or []:
-            for it in u.get("items") or []:
-                m = re.search(r"\[([^\]]*)\]", it.get("description") or "")
-                if m and m.group(1) and m.group(1) != "<no net>":
-                    nets.add(m.group(1))
-        info["open_nets"] = sorted(nets)
-        for n in nets:
-            history[n] = history.get(n, 0) + 1
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(history, indent=1, sort_keys=True))
-    os.replace(tmp, path)
-
-
 def charge_env(info):
     return {"KAE_CHARGE_FILE": info["charge"]} if info.get("charge") else {}
 
@@ -404,6 +397,17 @@ def finish_estimate(a, inp, judge_est):
             _PADS[inp] = 0
     pads = _PADS[inp]
     return max(FINISH_MIN_S, FINISH_COEF[0] + FINISH_COEF[1] * pads + 2 * judge_est + 5.0)
+
+
+def work_final_s(a):
+    """Work mode: the nominal seconds of the --final pass, --final-s, else WORK_FINAL_SHARE of --time."""
+    return (a.final_s or WORK_FINAL_SHARE * a.time) if a.final else 0.0
+
+
+def work_finish_s(a):
+    """Work mode: the nominal seconds of the --finish pass, --finish-s, else WORK_FINISH_SHARE of --time (until
+    2026-11-11 work mode ignored --finish-s: a 30 % finish got 10 % and the other 20 % went unused)."""
+    return (a.finish_s or WORK_FINISH_SHARE * a.time) if a.finish else 0.0
 
 
 def final_reserve(a, judge_est, inp=None):
@@ -434,6 +438,95 @@ def _last_json(path):
     return {}
 
 
+FR_RAW_LIMIT = 20_000_000    # bytes as stored: a run's raw Freerouting logs and result files plus its compact telemetry
+
+
+def fr_raw_env(d):
+    """Where kae.route.freerouting copies each run's whole log and result file for this attempt."""
+    return {"KAE_FR_RAW_DIR": str(Path(d) / "fr-raw")}
+
+
+def keep_fr_raw(wd, summary, limit=FR_RAW_LIMIT):
+    """Gzip every attempt's raw Freerouting files (wd/<attempt>/fr-raw) into wd/fr-telemetry.tar,
+    `<attempt>/<name>.gz`, with manifest.json listing the parts kept and dropped (`parts`, `dropped`:
+    name, raw_bytes, gz_bytes). The tar and the attempts' compact `fr` in summary.json together stay
+    within `limit` bytes as stored: the compact telemetry is always kept, and the bulkiest raw parts
+    go first when they would not fit. Returns the record for summary.json's `fr_raw` (`file` None:
+    no tar, because nothing was kept), or None when no attempt ran Freerouting."""
+    raw = sorted(p for p in wd.glob("*/fr-raw/*") if p.is_file() and not p.is_symlink())
+    if not raw:
+        return None
+    gz_dir = wd / ".fr-raw-gz"
+    gz_dir.mkdir(exist_ok=True)
+    parts = []
+    for i, p in enumerate(raw):
+        g = gz_dir / str(i)
+        with open(p, "rb") as fi, gzip.open(g, "wb", compresslevel=6) as fo:
+            shutil.copyfileobj(fi, fo)
+        parts.append(dict(name=f"{p.parent.parent.name}/{p.name}.gz", raw_bytes=p.stat().st_size,
+                          gz_bytes=g.stat().st_size, g=g))
+    bare = dict(summary, attempt_log=[{k: v for k, v in d.items() if k != "fr"} for d in summary["attempt_log"]])
+    budget = limit - (len(json.dumps(summary, indent=1)) - len(json.dumps(bare, indent=1))) - 1024   # the fr_raw record
+    kept, dropped = sorted(parts, key=lambda x: x["gz_bytes"]), []   # kept[-1] is the bulkiest
+    while kept and sum(x["gz_bytes"] + 1024 for x in kept) > budget:   # 1024: a tar member's header and padding
+        dropped.append(kept.pop())
+    tar = wd / "fr-telemetry.tar"
+    public = lambda x: {k: v for k, v in x.items() if k != "g"}
+    while True:
+        manifest = json.dumps(dict(limit_bytes=limit, parts=[public(x) for x in kept], dropped=[public(x) for x in dropped]),
+                              indent=1).encode()
+        with tarfile.open(tar, "w") as t:
+            info = tarfile.TarInfo("manifest.json")
+            info.size = len(manifest)
+            t.addfile(info, io.BytesIO(manifest))
+            for x in kept:
+                t.add(x["g"], arcname=x["name"], recursive=False)
+        stored = tar.stat().st_size
+        if stored <= budget or not kept:
+            break
+        dropped.append(kept.pop())
+    if stored > budget:   # even the manifest does not fit: the record below still says what was dropped
+        tar.unlink()
+        stored = 0
+    for d in {p.parent for p in raw} | {gz_dir}:
+        shutil.rmtree(d, ignore_errors=True)
+    return dict(file=tar.name if stored else None, limit_bytes=limit, stored_bytes=stored, parts_kept=len(kept),
+                parts_dropped=len(dropped), dropped_raw_bytes=sum(x["raw_bytes"] for x in dropped))
+
+
+FAILURE_TAIL = 1200   # characters of a failed attempt's log kept in its record
+
+
+def attempt_failure(log_path):
+    """Why an attempt exited non-zero, for its record in summary.json (the attempt's own log goes
+    with the work directory): the status and error of its report (the last JSON line), and the
+    end of its log without that line."""
+    rep = _last_json(log_path)
+    try:
+        lines = Path(log_path).read_text(errors="replace").splitlines()
+    except OSError:
+        lines = []
+    tail = "\n".join(ln for ln in lines if not ln.startswith("{"))[-FAILURE_TAIL:]
+    return dict(status=rep.get("status"), error=(str(rep.get("error"))[:FAILURE_TAIL] if rep.get("error") else None),
+                log_tail=tail)
+
+
+def fr_telemetry(log_path):
+    """The Freerouting telemetry (kae.route.freerouting.telemetry) of a route attempt's report (the
+    last JSON line of its log): {"first": the first routing, "repair": [one per repair round that
+    routed]}, {} when the attempt reports none."""
+    rep = _last_json(log_path)
+    out = {}
+    first = ((rep.get("router") or {}).get("report") or {}).get("telemetry")
+    if first:
+        out["first"] = first
+    rounds = [t for r in ((rep.get("repair") or {}).get("rounds") or [])
+              if (t := (r.get("router") or {}).get("telemetry"))]
+    if rounds:
+        out["repair"] = rounds
+    return out
+
+
 def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, stop, cpu_s, base_pairs, keep_equal):
     """Run `command` once on the kept board (in wd/kind) with `b` seconds, judge its board and say
     whether it replaces the kept one: when KiCad ranks it better, or (keep_equal) no worse."""
@@ -441,9 +534,7 @@ def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, s
     d.mkdir(exist_ok=True)
     src, o = d / "best_in.kicad_pcb", d / "board.kicad_pcb"
     shutil.copy2(best["out"], src)
-    for ext in (".kicad_pro", ".kicad_dru"):   # the task's rules
-        if inp.with_suffix(ext).exists():
-            shutil.copy2(inp.with_suffix(ext), src.with_suffix(ext))
+    task_rules(inp, src)
     t = time.monotonic()
     seed = a.seed * 1000 + 999
     drc_json = Path(best["out"]).with_name("drc.json")      # the judge's DRC of the kept board
@@ -456,9 +547,9 @@ def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, s
     if SC:
         info["charge"] = str(d / "charge.jsonl")
     p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
-                         start_new_session=True, env=dict(os.environ, KAE_RESUME="1", **charge_env(info)))
+                         start_new_session=True, env=dict(os.environ, KAE_RESUME="1", **charge_env(info), **fr_raw_env(d)))
     while reap(p, info) is None:
-        if time.monotonic() + saved(info) > min(t + b + GRACE_S, end - judge_est - 5):
+        if time.monotonic() + saved(info) > min(t + (WORK_CEILING if WORK else 1.0) * b + GRACE_S, end - judge_est - 5):
             stop(p, info)
             info["killed"] = True
             break
@@ -485,7 +576,7 @@ def final_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s, base_
     if best is None or best.get("rank") is None or best["rank"][:2] == (0, 0):
         return None
     fin_res = (finish_estimate(a, inp, judge_est) + judge_est + 10.0) if a.finish else 0.0
-    b = max(20.0, end - time.monotonic() - judge_est - 10.0 - fin_res)
+    b = work_final_s(a) if WORK else max(20.0, end - time.monotonic() - judge_est - 10.0 - fin_res)
     return _one_pass(a, "final", a.final, best, inp, base, wd, end, b, judge_est, meter, stop, cpu_s, base_pairs,
                      keep_equal=False)
 
@@ -497,7 +588,7 @@ def finish_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s, base
     ran, were skipped or failed; its DRC runs). None without a board."""
     if best is None or best.get("rank") is None:
         return None
-    b = max(20.0, end - time.monotonic() - judge_est - 10.0)
+    b = work_finish_s(a) if WORK else max(20.0, end - time.monotonic() - judge_est - 10.0)
     info = _one_pass(a, "finish", a.finish, best, inp, base, wd, end, b, judge_est, meter, stop, cpu_s, base_pairs,
                      keep_equal=True)
     rep = _last_json(wd / "finish" / "log")
@@ -618,9 +709,6 @@ def main():
                          "its time reserved from the start; kept when KiCad ranks it no worse, clean boards too")
     ap.add_argument("--finish-s", type=float, default=0.0,
                     help="seconds for the finish pass; 0 = an estimate from the input's pad count plus two DRCs")
-    ap.add_argument("--history", action="store_true",
-                    help="keep a history of the nets judged attempts left open (restarts/history.json) and pass "
-                         "its path to every attempt in KAE_ROUTE_HISTORY")
     ap.add_argument("--screen", action="store_true",
                     help="methods that place: successive halving over placements instead of the fixed waves "
                          "(fresh attempts at --screen-s, the best of each rung resumed with eta x the budget)")
@@ -628,8 +716,26 @@ def main():
                     help="rung-0 budget (0: first-s; kae staged at half of it overran its budget: placing alone "
                          "takes 60-100 s)")
     ap.add_argument("--eta", type=int, default=2)
+    ap.add_argument("--policy", default="", choices=("", "completion-first"),
+                    help="completion-first: two runs of this wrapper in --time (half each). The second is --alt "
+                         "(e.g. the module stage) when the first run's board is clean, else another run of COMMAND "
+                         "with the next --seed; the better board by the harness's ranking is kept (--alt's when no "
+                         "worse). Off by default")
+    ap.add_argument("--open-alt", default="",
+                    help="completion-first: the command of the second run when phase 1's board is not clean, on that "
+                         "board (@BEST@), instead of COMMAND again; kept when it ranks no worse")
+    ap.add_argument("--open-rest", action="store_true",
+                    help="completion-first with --open-alt: the --open-alt run's unused budget goes to one more run "
+                         "(COMMAND with the next seed, or --alt on a clean board with --open-rest-alt)")
+    ap.add_argument("--open-rest-alt", action="store_true",
+                    help="with --open-rest: when the kept board is clean, that run is --alt (kept when no worse)")
+    ap.add_argument("--alt", default="", help="completion-first: the command of the second run on a clean board")
     ap.add_argument("command", nargs=argparse.REMAINDER)
     a = ap.parse_args()
+    if a.alt and not a.policy:
+        a.policy = "completion-first"     # --alt makes completion-first the policy (completion-first verdict, 2026-11)
+    if a.policy:
+        return run_policy(ap, a)
     cmd = " ".join(a.command[1:] if a.command[:1] == ["--"] else a.command)
     inp, out = Path(a.input).resolve(), Path(a.output).resolve()
     wd = Path.cwd() / "restarts"
@@ -639,13 +745,15 @@ def main():
         nfp = inp.read_text(errors="replace").count("(footprint ")
         a.first_s *= max(1.0, nfp / 40) ** 0.5
         log(f"{nfp} footprints: first wave {a.first_s:.0f}s")
-    end = t0 + a.time
+    end = t0 + (2 * WORK_CEILING * a.time if WORK else a.time)
+    plan_s = max(0.0, a.time - work_final_s(a) - work_finish_s(a))
+    plan_used = [0.0]        # work mode: nominal seconds of the batches launched so far
     base_dir = wd / "input"  # the input's own DRC errors (silk, rules) are not the method's
     base_dir.mkdir(exist_ok=True)
     shutil.copy2(inp, base_dir / "board.kicad_pcb")
     w = time.monotonic()
-    b0 = drc(base_dir / "board.kicad_pcb", inp, 0.2 * a.time)
-    judge_est = max(1.0, time.monotonic() - w)   # seconds one judgement takes (the slowest seen)
+    b0 = drc(base_dir / "board.kicad_pcb", inp, a.time if WORK else 0.2 * a.time)
+    judge_est = 0.0 if WORK else max(1.0, time.monotonic() - w)   # seconds one judgement takes (the slowest seen)
 
     def deadline():
         # attempts stop in time for the last wave to be judged one by one before the end
@@ -653,14 +761,13 @@ def main():
         # past its time, the harness killed it and kept nothing)
         return end - max(min(0.25 * a.time, 60 + 0.05 * a.time), a.parallel * judge_est + GRACE_S + 15) \
             - final_reserve(a, judge_est, inp)
+
+    def left():
+        return plan_s - plan_used[0] if WORK else deadline() - time.monotonic()
     base = (b0 or {}).get("types", {})
-    history = {}
-    if a.history:
-        os.environ["KAE_ROUTE_HISTORY"] = str(wd / "history.json")   # attempts inherit it
-        record_open(None, history, wd / "history.json")
     sh = None
     if a.screen:
-        sh = Halving(*rung_plan(deadline() - time.monotonic(), a.parallel, a.screen_s or a.first_s, a.eta), eta=a.eta)
+        sh = Halving(*rung_plan(left(), a.parallel, a.screen_s or a.first_s, a.eta), eta=a.eta)
         log(f"successive halving: rung budgets {[round(b) for b in sh.budgets]} s, {sh.n0} placements")
     log(f"input DRC errors by type: {base}")
     running, done, k = {}, [], 0
@@ -673,11 +780,11 @@ def main():
         # the method's budget follows the schedule; slack only lets an attempt run past it (up to
         # the overall deadline), it does not shrink the budget of late attempts
         if sh is not None:
-            cand, rung, b, src_k = sh.next(deadline() - time.monotonic())
-            b = min(b, deadline() - time.monotonic())
+            cand, rung, b, src_k = sh.next(left())
+            b = min(b, left())
             frm = next(x for x in done if x["k"] == src_k) if src_k is not None else None
         else:
-            b = min(a.first_s * a.growth ** (k // a.parallel), deadline() - time.monotonic())
+            b = min(a.first_s * a.growth ** (k // a.parallel), left())
             frm = best if (a.resume > 0 and k >= a.parallel and best is not None and best["rank"] is not None
                            and k % a.parallel < round(a.resume * a.parallel)) else None
         if b < 20 or (a.max_attempts and k >= a.max_attempts):
@@ -690,16 +797,14 @@ def main():
         if frm is not None:
             src, resume = d / "best_in.kicad_pcb", True
             shutil.copy2(frm["out"], src)
-            for ext in (".kicad_pro", ".kicad_dru"):   # the task's rules
-                if inp.with_suffix(ext).exists():
-                    shutil.copy2(inp.with_suffix(ext), src.with_suffix(ext))
+            task_rules(inp, src)
         c = cmd.replace("@IN@", shlex.quote(str(inp))).replace("@OUT@", shlex.quote(str(o)))
         c = c.replace("@BEST@", shlex.quote(str(src)))
         c = c.replace("@SEED@", str(s)).replace("@TIME@", str(int(b)))
         ch = dict(charge=str(d / "charge.jsonl")) if SC else {}
         p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
                              start_new_session=True, env=dict(os.environ, KAE_RESUME="1" if resume else "0",
-                                                              **charge_env(ch)))
+                                                              **charge_env(ch), **fr_raw_env(d)))
         running[p] = dict(k=k, seed=s, budget=round(b), out=o, t=time.monotonic(),
                           resumed_from=frm["k"] if resume else None, **ch)
         if sh is not None:
@@ -735,8 +840,16 @@ def main():
                     i.setdefault("dead_at", time.monotonic())
         return live
     BUSY[0] = busy
-    while launch() if len(running) < a.parallel else False:
-        pass
+
+    def fill():
+        """Start attempts while slots are free (work mode: a whole batch, only when none is running)."""
+        if WORK and running:
+            return
+        while len(running) < a.parallel and launch():
+            pass
+        if WORK and running:
+            plan_used[0] += max(i["budget"] for i in running.values())
+    fill()
     while running:
         if SC and all("hold" in i for i in running.values()):   # nothing computes: skip to the first hold's end
             SC.advance(min(i["hold"] for i in running.values()) - time.monotonic())
@@ -744,10 +857,13 @@ def main():
             time.sleep(1)
         meter.sample([p.pid for p in running if "hold" not in running[p]])
         now = time.monotonic()
+        if WORK and any(alive(p.pid) and now <= i["t"] + i["budget"] * WORK_CEILING + GRACE_S for p, i in running.items()):
+            continue                 # the batch is judged whole, in launch order
         for p, info in list(running.items()):
             if "hold" not in info:
                 spent = now + saved(info)   # the attempt's own clock: charged time counts as elapsed
-                over = spent > info["t"] + info["budget"] * a.slack + GRACE_S or spent > deadline() + GRACE_S
+                over = (spent > info["t"] + info["budget"] * WORK_CEILING + GRACE_S) if WORK else (
+                    spent > info["t"] + info["budget"] * a.slack + GRACE_S or spent > deadline() + GRACE_S)
                 if reap(p, info) is None and not over:
                     continue
                 if p.returncode is None:
@@ -769,12 +885,14 @@ def main():
             else:
                 rank = judge(info["out"], inp, base, max(10.0, end - w0 - 5), a.check_placement,
                              (b0 or {}).get("overlaps", ()))
-                judge_est = max(judge_est, time.monotonic() - w0)
+                judge_est = 0.0 if WORK else max(judge_est, time.monotonic() - w0)
             judge_cpu += child_cpu() - c0
             judge_wall += time.monotonic() - w0
             info.update(rc=p.returncode, rank=rank)
-            if a.history and rank is not None:
-                record_open(info, history, wd / "history.json")
+            if (fr := fr_telemetry(info["out"].parent / "log")):
+                info["fr"] = fr
+            if p.returncode:
+                info["failure"] = attempt_failure(info["out"].parent / "log")
             if sh is not None:
                 sh.judged(info["cand"], info["k"], rank)
             fast_fails = fast_fails + 1 if rank is None and info["wall_s"] < 10 else 0
@@ -805,8 +923,7 @@ def main():
                     stop(p, info)
             running.clear()
             break
-        while len(running) < a.parallel and launch():
-            pass
+        fill()
     fin = final_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s,
                      (b0 or {}).get("overlaps", ())) if a.final else None
     if fin is not None:
@@ -849,6 +966,8 @@ def main():
                                       for d in done])
     if sh is not None:
         summary["halving"] = sh.summary()
+    if (fr_raw := keep_fr_raw(wd, summary)):
+        summary["fr_raw"] = fr_raw
     (wd / "summary.json").write_text(json.dumps(summary, indent=1))
     print("KAE_WORK " + json.dumps(work), flush=True)
     if best is None:
@@ -858,6 +977,143 @@ def main():
     shutil.copy2(best["out"], out)
     log(f"kept #{best['k']} (seed {best['seed']}): {best['rank']}")
     carry_report(carry or best["out"].parent, wd)
+    origin_report(best, done, wd)
+    return 0
+
+
+def _phase_argv(ap, a, time_s, seed, output, command):
+    """This wrapper's own argv for one phase of a policy: every option as given, but the policy's own."""
+    skip = {"policy", "alt", "open_alt", "open_rest", "open_rest_alt", "time", "seed", "output", "command", "help"}
+    argv = []
+    for act in ap._actions:
+        if act.dest in skip or not act.option_strings:
+            continue
+        v = getattr(a, act.dest)
+        if isinstance(act, argparse._StoreTrueAction):
+            if v:
+                argv.append(act.option_strings[0])
+        elif v != act.default:
+            argv += [act.option_strings[0], str(v)]
+    return [sys.executable, str(Path(__file__).resolve()), *argv, "--time", str(time_s), "--seed", str(seed),
+            "--output", str(output), "--", command]
+
+
+def run_policy(ap, a):
+    """--policy completion-first (see --help): phase 1 runs COMMAND with half of --time; phase 2 runs --alt when phase
+    1's board is clean, else COMMAND again with seed + 1, in what is left. Each phase is this wrapper (its own waves,
+    resumes, --final and --finish) in restarts/policy<k>; the kept board's reports are copied to restarts/."""
+    cmd = " ".join(a.command[1:] if a.command[:1] == ["--"] else a.command)
+    inp, out = Path(a.input).resolve(), Path(a.output).resolve()
+    wd = Path.cwd() / "restarts"
+    wd.mkdir(exist_ok=True)
+    t0 = time.monotonic()
+    base_dir = wd / "input"
+    base_dir.mkdir(exist_ok=True)
+    shutil.copy2(inp, base_dir / "board.kicad_pcb")
+    b0 = drc(base_dir / "board.kicad_pcb", inp, a.time if WORK else 0.2 * a.time)
+    base, base_pairs = (b0 or {}).get("types", {}), (b0 or {}).get("overlaps", ())
+
+    def phase(k, seed, time_s, command):
+        d = wd / f"policy{k}"
+        d.mkdir(exist_ok=True)
+        o = d / "out.kicad_pcb"
+        log(f"policy phase {k}: seed {seed}, {time_s:.0f}s: {command[:80]}")
+        with open(d / "log", "w") as f:
+            r = subprocess.run(_phase_argv(ap, a, time_s, seed, o, command), cwd=d, stdout=f, stderr=subprocess.STDOUT)
+        work = None
+        for line in (d / "log").read_text(errors="replace").splitlines():
+            if line.startswith("KAE_WORK "):
+                work = json.loads(line[9:])
+        rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() else None
+        log(f"policy phase {k}: rc {r.returncode}, rank {rank}")
+        return dict(k=k, seed=seed, out=o, dir=d, rank=rank, work=work or {}, command=command[:200])
+
+    def open_phase(k, seed, time_s, command, prev):
+        """--open-alt on phase 1's board: one command, @IN@ the input, @BEST@ phase 1's board (with the task's
+        rules), @OUT@, @SEED@, @TIME@ (its nominal seconds in work mode); killed at 4x (work) or its time + grace."""
+        d = wd / f"policy{k}"
+        d.mkdir(exist_ok=True)
+        src, o = d / "best_in.kicad_pcb", d / "out.kicad_pcb"
+        shutil.copy2(prev["out"], src)
+        for ext in (".kicad_pro", ".kicad_dru"):    # the task's rules
+            if inp.with_suffix(ext).exists():
+                shutil.copy2(inp.with_suffix(ext), src.with_suffix(ext))
+                shutil.copy2(inp.with_suffix(ext), o.with_suffix(ext))
+        c = command.replace("@IN@", shlex.quote(str(inp))).replace("@OUT@", shlex.quote(str(o)))
+        c = c.replace("@BEST@", shlex.quote(str(src))).replace("@SEED@", str(seed)).replace("@TIME@", str(int(time_s)))
+        c = c.replace("@REPORT@", shlex.quote(str(d / "report.json")))
+        log(f"policy phase {k} (open-alt): seed {seed}, {time_s:.0f}s: {command[:80]}")
+        w0 = time.monotonic()
+        with open(d / "log", "w") as f:
+            try:
+                r = subprocess.run(["sh", "-c", c], cwd=d, stdout=f, stderr=subprocess.STDOUT,
+                                   timeout=(WORK_CEILING * time_s if WORK else time_s + GRACE_S), start_new_session=True)
+                rc = r.returncode
+            except subprocess.TimeoutExpired:
+                rc = "timeout"
+        rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() else None
+        log(f"policy phase {k}: rc {rc}, rank {rank}")
+        used = time.monotonic() - w0
+        if (d / "report.json").exists():                # the command's report (@REPORT@): kept beside the summary
+            shutil.copy2(d / "report.json", wd / "report-windows.json")
+            try:                                         # its own clock: nominal seconds in work mode
+                used = float(json.loads((d / "report.json").read_text()).get("seconds") or used)
+            except (ValueError, OSError, AttributeError):
+                pass
+        return dict(k=k, seed=seed, out=o, dir=d, rank=rank, command=command[:200], time_s=time_s, used_s=used,
+                    work=dict(attempts=1, wall_s=round(time.monotonic() - w0, 1)))
+
+    p1 = phase(1, a.seed, 0.5 * a.time, cmd)
+    clean1 = p1["rank"] is not None and p1["rank"][1] == 0
+    alt = bool(clean1 and a.alt)
+    left = 0.5 * a.time if WORK else a.time - (time.monotonic() - t0)   # work mode: nominal halves
+    open_alt = bool(not clean1 and a.open_alt and p1["rank"] is not None and p1["out"].exists())
+    if open_alt:
+        # one process where a restart phase runs --parallel lanes: the same work in counted seconds is lanes x its time
+        p2 = open_phase(2, a.seed + 1, max(30.0, left) * max(1, a.parallel), a.open_alt, p1)
+    else:
+        p2 = phase(2, a.seed + 1, max(30.0, left), a.alt if alt else cmd)
+    if p2["rank"] is not None and (p1["rank"] is None or (p2["rank"] <= p1["rank"] if (alt or open_alt)
+                                                          else p2["rank"] < p1["rank"])):
+        best = p2
+    else:
+        best = p1
+    phases = [p1, p2]
+    third = None
+    if open_alt and a.open_rest:
+        # --open-rest: the windows' unused budget (they stop when no window is left) goes to one more run: --alt
+        # when the kept board is clean and --open-rest-alt is set (kept when no worse), else COMMAND with the next
+        # seed (kept when strictly better); per lane, as the restart phases count it
+        rest = (p2["time_s"] - p2["used_s"]) / max(1, a.parallel)
+        if rest >= OPEN_REST_MIN_S:
+            clean_b = best["rank"] is not None and best["rank"][1] == 0
+            third = "alt" if (clean_b and a.open_rest_alt and a.alt) else "restart"
+            p3 = phase(3, a.seed + 2, rest, a.alt if third == "alt" else cmd)
+            phases.append(p3)
+            if p3["rank"] is not None and (best["rank"] is None or (p3["rank"] <= best["rank"] if third == "alt"
+                                                                    else p3["rank"] < best["rank"])):
+                best = p3
+    work = dict(policy="completion-first", second="alt" if alt else "open-alt" if open_alt else "restart", kept=best["k"],
+                third=third,
+                phases=[dict(k=p["k"], seed=p["seed"], rank=p["rank"], command=p["command"],
+                             **{x: p.get(x) for x in ("time_s", "used_s")},
+                             **{x: p["work"].get(x) for x in ("attempts", "cpu_s", "method_cpu_s", "wall_s")})
+                        for p in phases],
+                attempts=sum(p["work"].get("attempts") or 0 for p in phases),
+                cpu_s=round(sum(p["work"].get("cpu_s") or 0 for p in phases), 1),
+                method_cpu_s=round(sum(p["work"].get("method_cpu_s") or 0 for p in phases), 1),
+                wall_s=round(time.monotonic() - t0, 1), best_rank=best["rank"], budget_s=a.time)
+    for n in ("report.json", "report-origin.json"):
+        if (best["dir"] / "restarts" / n).exists():
+            shutil.copy2(best["dir"] / "restarts" / n, wd / n)
+    (wd / "summary.json").write_text(json.dumps(work, indent=1, default=str))
+    print("KAE_WORK " + json.dumps(work, default=str), flush=True)
+    if best["rank"] is None or not best["out"].exists():
+        log("no phase produced a board")
+        return 1
+    out.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(best["out"], out)
+    log(f"policy kept phase {best['k']} ({work['second']} second run): {best['rank']}")
     return 0
 
 
@@ -883,6 +1139,20 @@ def carry_report(attempt_dir, wd):
                 for s in b.get("summary") or []:
                     log(f"blocked: {s}")
             return
+
+
+def origin_report(best, done, wd):
+    """When the kept board came from a resumed attempt or a final pass, restarts/report.json is only
+    that router's report: the report of the fresh attempt it descends from (a joint loop's iterations,
+    windows and stop reason) goes to restarts/report-origin.json."""
+    by_k, cur, seen = {d["k"]: d for d in done}, best, set()
+    while cur.get("resumed_from") in by_k and cur["k"] not in seen:
+        seen.add(cur["k"])
+        cur = by_k[cur["resumed_from"]]
+    if cur is not best:
+        rep = _last_json(cur["out"].parent / "log")
+        if rep:
+            (wd / "report-origin.json").write_text(json.dumps(dict(rep, origin_attempt=cur["k"]), indent=1))
 
 
 if __name__ == "__main__":
