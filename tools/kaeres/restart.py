@@ -31,11 +31,6 @@ finish's gate need not run the input again. Its time is reserved from the start 
 board replaces the kept one when KiCad ranks it no worse. summary.json's "finish" says which parts
 ran and which were skipped for time.
 
-With --history, every judged attempt adds the nets KiCad found open on its board to a failure
-history (restarts/history.json, {net: attempts that left it open}; record_open), and every attempt
-gets its path in KAE_ROUTE_HISTORY: a router may route those nets first (kae.route.bridge does).
-Each attempt's record in summary.json lists the nets it left open.
-
 Work is measured, since a sandboxed method's processes are invisible to the harness: every
 attempt's processes (its process tree and session, so a router started in a session of its own
 counts too) are sampled from /proc each second (CPU seconds summed over all of them, peak RSS);
@@ -376,29 +371,6 @@ def judge(board, inp, base, timeout, placement=False, base_pairs=()):
     return (1 if out else 0, 0 if clean else 1, d["unconnected"], new, out)
 
 
-def record_open(info, history, path):
-    """Add the nets the DRC of attempt `info`'s board found open (its drc.json, written by judge)
-    to `history` {net: attempts that left it open}, note them in `info` (open_nets), and write the
-    history to `path` atomically (attempts read it when they start). info None: write it only."""
-    if info is not None:
-        nets = set()
-        try:
-            rep = json.loads(Path(info["out"]).with_name("drc.json").read_text())
-        except (OSError, ValueError):
-            rep = {}
-        for u in rep.get("unconnected_items") or []:
-            for it in u.get("items") or []:
-                m = re.search(r"\[([^\]]*)\]", it.get("description") or "")
-                if m and m.group(1) and m.group(1) != "<no net>":
-                    nets.add(m.group(1))
-        info["open_nets"] = sorted(nets)
-        for n in nets:
-            history[n] = history.get(n, 0) + 1
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(history, indent=1, sort_keys=True))
-    os.replace(tmp, path)
-
-
 def charge_env(info):
     return {"KAE_CHARGE_FILE": info["charge"]} if info.get("charge") else {}
 
@@ -736,9 +708,6 @@ def main():
                          "its time reserved from the start; kept when KiCad ranks it no worse, clean boards too")
     ap.add_argument("--finish-s", type=float, default=0.0,
                     help="seconds for the finish pass; 0 = an estimate from the input's pad count plus two DRCs")
-    ap.add_argument("--history", action="store_true",
-                    help="keep a history of the nets judged attempts left open (restarts/history.json) and pass "
-                         "its path to every attempt in KAE_ROUTE_HISTORY")
     ap.add_argument("--screen", action="store_true",
                     help="methods that place: successive halving over placements instead of the fixed waves "
                          "(fresh attempts at --screen-s, the best of each rung resumed with eta x the budget)")
@@ -787,10 +756,6 @@ def main():
     def left():
         return plan_s - plan_used[0] if WORK else deadline() - time.monotonic()
     base = (b0 or {}).get("types", {})
-    history = {}
-    if a.history:
-        os.environ["KAE_ROUTE_HISTORY"] = str(wd / "history.json")   # attempts inherit it
-        record_open(None, history, wd / "history.json")
     sh = None
     if a.screen:
         sh = Halving(*rung_plan(left(), a.parallel, a.screen_s or a.first_s, a.eta), eta=a.eta)
@@ -919,8 +884,6 @@ def main():
                 info["fr"] = fr
             if p.returncode:
                 info["failure"] = attempt_failure(info["out"].parent / "log")
-            if a.history and rank is not None:
-                record_open(info, history, wd / "history.json")
             if sh is not None:
                 sh.judged(info["cand"], info["k"], rank)
             fast_fails = fast_fails + 1 if rank is None and info["wall_s"] < 10 else 0
