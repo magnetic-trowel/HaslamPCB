@@ -58,8 +58,8 @@ pad connection, a priority above every zone on the layer and distinct from every
 Net-exempt keep-outs (hotloop_keepout_exempt, env KAE_HOTLOOP_KEEPOUT_EXEMPT=hard|soft). A keep-out zone
 is of one net and a via crosses every layer, so a single-net keep-out banned the loop's own vias under the
 cell (hotloop-ab K: no loop-net via within 1 mm of the hull on arvsom, the sstv boost, gecko5 U13). With
-this setting each keep-out carries its exempt nets in its zone name (exempt_name: the cell's loop nets and
-the nets of every pin of its parts); translate writes it as a `kae_exempt_keepouts` area of the fork
+this setting each keep-out carries its exempt nets in its zone name (exempt_name: the cell's loop nets:
+input rail, switch node, ground/PGND); translate writes it as a `kae_exempt_keepouts` area of the fork
 (router.kae_exempt_keepouts), not as a pin of the zone's net: the exempt nets route and place vias inside,
 every other net is banned ("hard") or pays KAE_HOTLOOP_KEEPOUT_SOFT_COST times its cost inside ("soft").
 kae's own grid router (critical_space) lets the exempt nets through and bans the others in both modes.
@@ -148,12 +148,12 @@ def exempt_nets(name):
 
 
 def cell_nets(s, m, T):
-    """The nets a cell's keep-out exempts: its loop nets (input rail, switch node, ground) and the
-    nets of every pin of the cell's parts, so their tracks and vias reach the loop's own pads."""
-    nets = {t.net for t in T if t.net} | {n for n in (m.spec.get("sw"), m.spec.get("rail")) if n}
-    for u in m.parts:
-        nets |= {it.net for it in s.space.pads_by_fp.get(u, []) if it.net}
-    return nets
+    """The nets a cell's keep-out exempts: its loop nets only (input rail, switch node, ground/PGND: the
+    loop terminals' nets). The cell IC's other pin nets stay foreign: under the loop they would cut the
+    return plane (pilot c226cce, all pin nets exempt: nekoink starved_thermal 5 -> 41); their fan-out on
+    the parts' own layer keeps the escape corridors (`escapes`), opened for a pin the repair rounds
+    leave open, as for a single-net keep-out."""
+    return {t.net for t in T if t.net} | {n for n in (m.spec.get("sw"), m.spec.get("rail")) if n}
 
 
 def active(st):
