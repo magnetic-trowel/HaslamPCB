@@ -9,7 +9,7 @@
 #
 #   SHA=<commit> followup-ab.sh register     # method add + exp create, smokes and full runs (no job)
 #   followup-ab.sh exps smoke|full           # the experiment names
-#   SHA=<commit> followup-ab.sh warm         # warm the numba cache the methods copy (after register)
+#   SHA=<commit> followup-ab.sh warm BOARD   # warm the numba cache the methods copy (after register)
 #
 # Submit: `kaeres exp submit NAME` (owner exp-NAME), then `kaeq prio -1 --owner exp-NAME`; smokes first.
 #
@@ -137,18 +137,16 @@ register() {
     "$JC" "$JB" "$JR"
 }
 
-warm() {  # the numba cache the methods copy, compiled with the experiments' kae venv
+warm() {  # BOARD: the numba cache the methods copy, compiled with the experiments' kae venv on one board
   setup
-  local b; b=$(head -1 $B/smoke.boards.txt)
-  local t; t=$(ls -d "$HOME/kae-baselines/boards/$b/tasks/"* | head -1)
-  echo "warming $NUMBA from $t"
-  bash tools/kaeres/experiments/warm-numba.sh "$SHA" "$NUMBA" "$t/route/input/board.kicad_pcb" \
-    "$t/joint-fixed/input/board.kicad_pcb" "/var/tmp/$USER/warm-$NUMBA"
+  local b=${1:?a .kicad_pcb with its routing stripped (any merit board)}
+  echo "warming $NUMBA on $b"
+  bash tools/kaeres/experiments/warm-numba.sh "$SHA" "$NUMBA" "$b" "$b" "/var/tmp/$USER/warm-$NUMBA"
 }
 
 case ${1:-} in
   register) register ;;
-  warm) warm ;;
+  warm) warm "${2:-}" ;;
   exps) case ${2:-} in
           smoke) echo p6-repair-staged-smoke p6-repair-place-smoke j10-joint-window-smoke ;;
           full) echo p6-repair-staged p6-repair-place j10-joint-window ;;
