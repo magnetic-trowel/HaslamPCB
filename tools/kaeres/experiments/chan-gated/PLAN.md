@@ -88,3 +88,12 @@ it has; a board with no runs in an arm is left out of that arm's contrast and li
 ## Cost (information, not a cap)
 Screen about 260 x 3 x ~1.5 min = ~20 CPU-h (prepare included). Full run about 100 boards x 4 arms x 3 seeds at
 ~0.27 CPU-h per run, about 330 CPU-h with physics and scoring.
+
+## Addendum 2026-11-16, before the screen's results are read
+**The edge fix's motivating board does not exercise it.** A placement-only check at f07098dc on tinkerforge
+motion-detector (60 s, seeds 0-2, w_chan 3 with and without `place_chan_edge`): no pad of a movable part ends in
+the edge band (1.0 mm) in any seed, in either arm, and the board has no outline hole or footprint edge cut. The
+router's "walled in by shape edge (touches U1.4, P1.EP)" there is a pinch against the fixed sensor P1, which the
+pair term already prices. So chan3edge runs only where the screen shows the edge band in use: the arm is kept if at
+least 20 % of the gated boards have pads of movable parts in the band at the end of the w = 0 anneal (mean over
+seeds of `final_edge` > 0), else it is dropped before submission and the run has three arms.
