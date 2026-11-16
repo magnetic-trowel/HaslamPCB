@@ -49,8 +49,8 @@ echo "phist-b: input $KEY, arm $ARM, seed $SEED, place+route ${B2}s, resume ${B1
 mkdir -p placed
 $(spy "joint-$ARM-$SEED") $PY -m kae.joint.cli run "$IN" placed/board.kicad_pcb --seed "$SEED" --time "$B2" \
   --max-iters 0 --no-modules --set place_w_cong=30 $H > joint.log 2>&1 || echo "phist-b: joint rc $?"
-grep -E "place history|place: .*(anneal|rung)" joint.log | head -20 || true
-echo "phist-b: joint report: $(grep '^{' joint.log | tail -1)"
+# the fresh attempt's own result (iter 0: opens after its first route), what its placement read, its clock
+grep -E "place history|iter 0:|^\[kae.budget\]|Traceback|Error" joint.log | cut -c1-2000 | sed 's/^/phist-b joint: /' || true
 [ -f placed/board.kicad_pcb ] || { echo "phist-b: joint wrote no board" >&2; tail -30 joint.log >&2; exit 4; }
 for ext in kicad_pro kicad_dru; do    # the task's rules beside the resumed board (restart.task_rules)
   if [ -f "${IN%.kicad_pcb}.$ext" ]; then cp "${IN%.kicad_pcb}.$ext" "placed/board.$ext"; else rm -f "placed/board.$ext"; fi
