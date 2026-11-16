@@ -73,8 +73,8 @@ def unconnected_ignored(board):
 # "A{slash}B": unescape) and may hold brackets themselves ("sdram_dq[0]"), and user layer names
 # may too: a net's closing bracket is the one followed by " of ", " on " or the end.
 _NET = re.compile(r"\[(.*?)\](?= of | on |\s*$)", re.S)
-_OF = re.compile(r"\bof (.+?)(?= on | \(|\s*$)", re.S)        # references may hold spaces ("On - Off")
-_FOOTPRINT = re.compile(r"^Footprint (?!text of )(.+?)(?= \(|\s*$)")   # "Footprint U1", "Footprint ADS4 (0x4B)"
+_OF = re.compile(r"\bof (\S.*?)(?= on | \(|\s*$)", re.S)        # references may hold spaces ("On - Off")
+_FOOTPRINT = re.compile(r"^Footprint (?!text of )(\S.*?)(?= \(|\s*$)")   # "Footprint U1", "Footprint ADS4 (0x4B)"
 _KINDS = (("pad", ("pad", "pth pad", "npth pad", "smd pad")), ("track", ("track", "arc")), ("via", ("via",)),
           ("zone", ("zone", "teardrop")), ("footprint", ("footprint",)))
 _ESCAPES = {"{slash}": "/", "{backslash}": "\\", "{lt}": "<", "{gt}": ">", "{colon}": ":", "{dblquote}": '"',
