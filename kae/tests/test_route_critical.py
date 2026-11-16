@@ -1443,3 +1443,17 @@ def test_rails_start_nothing_past_their_deadline(tmp_path):
     on_time = route_rails(s2.ctx, mode="all", deadline=None)
     assert [r["net"] for r in on_time] == [r["net"] for r in late] and not any(r.get("clock") for r in on_time)
     assert any(r.get("design_A") for r in on_time)       # these were planned and sized, not skipped
+
+
+def test_stage_removes_project_files_the_board_has_none_of(tmp_path):
+    """A .kicad_dru left in the staging dir by an earlier board must not judge the next one."""
+    a, b = tmp_path / "a" / "x.kicad_pcb", tmp_path / "b" / "y.kicad_pcb"
+    for p in (a, b):
+        p.parent.mkdir()
+        p.write_text("(kicad_pcb)\n")
+    a.with_suffix(".kicad_dru").write_text("(version 1)\n")
+    d = tmp_path / "stage"
+    W.stage(a, d)
+    assert (d / "board.kicad_dru").exists()
+    W.stage(b, d)
+    assert not (d / "board.kicad_dru").exists() and (d / "board.kicad_pcb").exists()

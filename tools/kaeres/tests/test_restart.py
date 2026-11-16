@@ -133,6 +133,40 @@ def test_judge_counts_unconnected_items_of_any_severity(tmp_path, monkeypatch):
         assert json.loads(inp.with_suffix(".kicad_pro").read_text()) == pro  # the task's project untouched
 
 
+# a kicad-cli that reports one clearance error per line of a .kicad_dru beside the board
+RULES_CLI = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+out, board = args[args.index("--output") + 1], args[-1]
+dru = board[:-len(".kicad_pcb")] + ".kicad_dru"
+n = len(open(dru).read().splitlines()) if os.path.exists(dru) else 0
+json.dump(dict(violations=[dict(type="clearance", severity="error", items=[])] * n, unconnected_items=[]), open(out, "w"))
+"""
+
+
+def test_judge_ignores_a_rules_file_the_method_left_when_the_task_has_none(tmp_path, monkeypatch):
+    """The judge ranks every attempt under the task's rules: a .kicad_dru the method wrote beside its
+    board is replaced by the task's, and removed when the task has none (before, it stayed and judged)."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "kicad-cli").write_text(RULES_CLI)
+    (bin_ / "kicad-cli").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}:{os.environ['PATH']}")
+    monkeypatch.setenv("KAE_KICAD_WRAP", "")
+    inp = tmp_path / "in" / "board.kicad_pcb"
+    inp.parent.mkdir()
+    inp.write_text("(kicad_pcb)\n")
+    board = tmp_path / "a0" / "board.kicad_pcb"
+    board.parent.mkdir()
+    board.write_text("(kicad_pcb)\n")
+    board.with_suffix(".kicad_dru").write_text("(version 1)\n(rule a)\n(rule b)\n")   # the method's own
+    assert restart.drc(board, inp, 60)["types"] == {}
+    assert not board.with_suffix(".kicad_dru").exists()
+    inp.with_suffix(".kicad_dru").write_text("(version 1)\n")                         # the task's own
+    board.with_suffix(".kicad_dru").write_text("(version 1)\n(rule a)\n(rule b)\n")
+    assert restart.drc(board, inp, 60)["types"] == {"clearance": 1}
+
+
 def test_judge_counts_past_drcs_cap_of_499_with_pcbnew(tmp_path, monkeypatch):
     """kicad-cli lists at most 499 unconnected items: polarfire-som's ~150 attempts all read 499, so
     the wrapper chose blind. Past the cap the count comes from pcbnew (a stand-in here)."""

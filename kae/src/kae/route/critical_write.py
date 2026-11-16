@@ -231,7 +231,8 @@ def transplant(work, inp, dst):
 
 def stage(board, dst_dir, name="board"):
     """Copy a board and its project files (.kicad_pro, .kicad_dru, .kicad_prl) into dst_dir
-    as <name>.*; returns the new board path."""
+    as <name>.*, removing any there that the board has none of (a stale rules file from an earlier
+    use of dst_dir would otherwise judge it); returns the new board path."""
     src = Path(board)
     d = Path(dst_dir)
     d.mkdir(parents=True, exist_ok=True)
@@ -241,7 +242,9 @@ def stage(board, dst_dir, name="board"):
     for ext in (".kicad_pro", ".kicad_dru", ".kicad_prl"):
         s = src.with_suffix(ext)
         t = d / f"{name}{ext}"
-        if s.exists() and s.resolve() != t.resolve():
+        if not s.exists():
+            t.unlink(missing_ok=True)
+        elif s.resolve() != t.resolve():
             shutil.copy2(s, t)
     return out
 
