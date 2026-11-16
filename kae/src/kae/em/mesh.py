@@ -262,7 +262,7 @@ class Mesh:
                     lab[j, i] = k
                     self.cov[layer][j, i] = 1.0
 
-    RHO_CU_OHM_MM = 1.72e-5
+    RHO_CU_OHM_MM = MAT.RHO_CU_OHM_MM
     THIN_L_H_PER_MM = 1.0e-9          # a thin track's partial self inductance, about 1 nH/mm
 
     def bridge_gaps(self):

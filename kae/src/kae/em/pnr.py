@@ -30,6 +30,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from kae import materials as MAT
 from kae.excite import dc as DC
 from kae.route.critical_physics import RHO_CU, ipc2221_width
 
@@ -40,7 +41,7 @@ from .kicad import BoardMesh
 MU0 = 4e-7 * math.pi
 
 
-def strip_L_per_mm(w, h, t=0.035):
+def strip_L_per_mm(w, h, t=MAT.CU_1OZ_MM):
     """Air microstrip inductance per mm (H/mm), Hammerstad-Jensen with the thickness correction."""
     w = np.maximum(w, 1e-3)
     h = np.maximum(h, 1e-3)
@@ -720,7 +721,7 @@ class PhysRouter:
         mn, opt, mx = self.sp.width_limits(n, layer)
         mesh = getattr(self, "mesh", None)
         names = getattr(self, "layer_names", None) or []
-        t = mesh.layers[names.index(layer)].t if mesh is not None and layer in names else 0.035
+        t = mesh.layers[names.index(layer)].t if mesh is not None and layer in names else MAT.CU_1OZ_MM
         try:
             s = float(self.sp._generic_need(n, "track", layer) or 0.2)
         except Exception:                     # noqa: BLE001 - a clearance only weighs the area

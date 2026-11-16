@@ -30,6 +30,8 @@ import shapely
 from shapely.geometry import Polygon, box
 from shapely.ops import unary_union
 
+from kae import materials as MAT
+
 INF = float('inf')
 
 # body (current-path) height above the copper, mm, by package keyword (E5 prior: the
@@ -123,7 +125,7 @@ class BoardView:
         self.area = 1e4
         self.copper: list[str] = ['F.Cu', 'B.Cu']
         self.zcu: dict[str, float] = {'F.Cu': 0.0, 'B.Cu': 1.5}
-        self.tcu: dict[str, float] = {'F.Cu': 0.035, 'B.Cu': 0.035}
+        self.tcu: dict[str, float] = {'F.Cu': MAT.CU_1OZ_MM, 'B.Cu': MAT.CU_1OZ_MM}
         self.er = 4.3
         self.thickness = 1.6
         self.track_min = 0.15
@@ -149,12 +151,12 @@ class BoardView:
         st = _get(board, 'stackup', None)
         if st is not None and _get(st, 'copper'):
             cu = list(_get(st, 'copper'))
-            tc = list(_get(st, 'cu_thickness') or [0.035] * len(cu))
+            tc = list(_get(st, 'cu_thickness') or [MAT.CU_1OZ_MM] * len(cu))
             gaps = list(_get(st, 'gaps') or [])
             ers = list(_get(st, 'er') or [])
             if len(gaps) != len(cu) - 1 or not all(g and g > 0 for g in gaps):
                 th = float(_get(st, 'thickness', 1.6) or 1.6)
-                gaps = [max(0.05, th / max(1, len(cu) - 1) - 0.035)] * (len(cu) - 1)
+                gaps = [max(0.05, th / max(1, len(cu) - 1) - MAT.CU_1OZ_MM)] * (len(cu) - 1)
             z = [0.0]
             for k in range(1, len(cu)):
                 z.append(z[-1] + tc[k - 1] / 2 + gaps[k - 1] + tc[k] / 2)
@@ -168,7 +170,7 @@ class BoardView:
             th = float(_get(board, 'thickness', 1.6) or 1.6)
             bv.copper = ['F.Cu', 'B.Cu']
             bv.zcu = {'F.Cu': 0.0, 'B.Cu': th}
-            bv.tcu = {'F.Cu': 0.035, 'B.Cu': 0.035}
+            bv.tcu = {'F.Cu': MAT.CU_1OZ_MM, 'B.Cu': MAT.CU_1OZ_MM}
             bv.gaps = [th]
             bv.thickness = th
         rules = _get(board, 'rules', None)

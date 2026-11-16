@@ -37,6 +37,15 @@ terms agree (docs/topics/rules/thermal.md, docs/topics/rules/power/high-current.
                                   ~3-6 (convection; a downward face the least) + ~6 (radiation,
                                   emissivity 0.9 near 300-330 K) per face; 10 is their average,
                                   and an enclosure only lowers it.
+
+Physical constants, in the units the kernels use (CODATA 2018; mu0 is the pre-2019 exact
+4 pi 1e-7 H/m, 5.5e-10 from CODATA 2018's, far below any model error here):
+
+    EPS0_F_M         8.8541878128e-12 F/m
+    EPS0_PF_MM       8.8541878128e-3  pF/mm
+    MU0_4PI_NH_MM    0.1    nH/mm     mu0 / (4 pi)
+    C0_MM_NS         299.792458 mm/ns
+    ETA0_OHM         376.730313 ohm   free-space impedance
 """
 from __future__ import annotations
 
@@ -52,6 +61,12 @@ CU_1OZ_MM = 0.035
 K_FR4_THROUGH = 0.3
 K_FR4_IN = 0.8
 H_AIR = 10.0
+
+EPS0_F_M = 8.8541878128e-12
+EPS0_PF_MM = 8.8541878128e-3
+MU0_4PI_NH_MM = 0.1
+C0_MM_NS = 299.792458
+ETA0_OHM = 376.730313
 
 
 def barrel_area_mm2(drill_mm, plating_mm=VIA_PLATING_MM):
