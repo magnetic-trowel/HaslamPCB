@@ -1,0 +1,89 @@
+<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
+# chan-gated: the routing-channel term on boards that have pinches (pre-registered plan)
+
+Written 2026-11-16, before any run of this experiment's arms. Source: the placement-routability experiment
+(branch `place-routab-exp`, plan d21a9acc / 7cf3e6b3) and its board-by-board analysis (proposals P1, P2).
+There the channel term (`place_w_chan` 3) showed no effect on all 46 boards, but a dose-response with the
+movable-pair halo overlap measured at w = 0 (Spearman -0.37, permutation p 0.012; opens ratio 0.87 on the 25
+boards with >= 10 overlaps). That subset was found after the fact, so it is a hypothesis; this experiment tests it
+on new boards.
+
+## Questions
+1. On boards with >= 10 movable-pair channel overlaps, does the channel term (w_chan 3, as tested) lower opens?
+2. Do the two fixes (pad-to-edge channels, `place_chan_edge` 1; the seed-cost cap, `place_chan_cap`) change that?
+3. Does the crossing term together with the channel term (each fixes the other's harm: xing pulls parts into pinches,
+   chan spreads them into crossings) lower opens?
+
+## Code (commit a21c44ca, branch `chan-gated`, all arms)
+origin/main 10a6405a plus `place-w-chan` (the setting) and `place-crossing-term` (the crossing term), plus:
+- `place_chan_edge` 1: channels between pads and the board edge (outline and edge cutouts). A pad sample (centre,
+  corners) closer to the edge than copper-to-edge clearance + track + clearance costs; a pad wholly in that band
+  costs as a halo overlap of one halo's depth along its long side. A unary keep-out on the zone term's raster.
+  Motivation: tinkerforge motion-detector, parts pushed onto the edge cutout in 3/3 chan3 seeds against 1/3 control.
+- `place_chan_cap` k: w_chan is lowered so the term's cost at the anneal's seed (pair overlap / A0 + edge part) is at
+  most k x the seed wirelength cost (1). Motivation: dvhx (991 pads) +30 % wirelength at w_chan 3; the term's cost per
+  pinch does not scale with the board while the wirelength is normalized. k is set from a calibration on
+  placement-routability boards (all excluded here) before this experiment's boards are screened; its value is
+  recorded in the addendum below and in the method recipe.
+- Every chan arm reports `stages.place.channel_term` (seed and final overlap, weight used, edge part).
+
+## Boards
+- Candidates (`select_screen.py`, deterministic): `pad_density.very_dense` (then `dense`) from
+  the board-tag suites (`/var/tmp/$USER/board-tags/suites/`), 2 or 4 copper layers, `usable_route_test`, 40-1500 pads, not one of the 46
+  placement-routability boards, one board per repository (independence), shuffled with seed `chan-gated:20261116`.
+  The first 260 are screened (`screen.txt`).
+- Screen (`screen_board.py`, `check_w0.py`): the place-fixed task prepared by this commit's harness, then
+  `kae.place.pipeline.place` at w = 0 (control), 60 s, seeds 0-2; the overlap is the number of pairs of parts
+  (at least one movable) whose channel halos overlap at the end of the anneal (`exact.channel_overlap`, the same
+  measure as placement-routability's `check3.py` `final_chan[1]`).
+- **Gate (pre-registered): mean over seeds 0-2 of that count >= 10.** Every passing board is run. If fewer than 90
+  of the 260 pass, the next boards of the same deterministic list are screened until 100 pass (at most 520 screened).
+- **Infeasible placements are excluded:** a board whose movable parts need more than 100 % of the free area on a side
+  (`Problem.utilization()` > 1 in the screen, the quantity the placer's `side_full` diagnosis prints).
+- A board that screens with an error on any seed is left out and listed.
+
+## Arms and chassis
+Chassis as placement-routability: one placement, one route, `kae.joint.cli run --max-iters 0 --no-modules`, budget
+900 s x sqrt(fp/40), seeds 0-2 (attempts 0-2), timed class, all arms in the same board jobs (side by side; counted
+budgets have not landed). Freerouting: the pinned fork d137fd1 (`kae-freerouting.pin`), set explicitly with
+`KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING` in every arm. The project control is switching to the work-counting
+build abefc74 when kae PR #97 and freerouting PR #11 merge; this experiment keeps d137fd1 in every arm.
+
+| Arm | Flags |
+|---|---|
+| control | none |
+| chan3 | `--set place_w_chan=3` |
+| chan3fix | `--set place_w_chan=3 --set place_chan_edge=1 --set place_chan_cap=<k>` |
+| xingchan3 | `--set place_w_xing=2 --set place_w_chan=3` |
+
+## Metrics and decision
+**Primary** (each arm against control, and chan3fix and xingchan3 against chan3): per board, Δ = mean over seeds of
+log1p(opens) in the arm minus the same in control; opens = unconnected items of the kicad-cli score on the re-opened
+board, per attempt. Reported: mean Δ (as %, exp(Δ)-1) with a 10k board-bootstrap 95 % CI and a two-sided sign-flip
+p; the ratio of summed per-board mean opens with a bootstrap CI; boards lower/higher. Seeds are not paired across
+arms (placement-routability: same-seed residual correlation -0.18 to +0.15), so the per-board seed mean is the unit.
+Holm over the three arm-vs-control contrasts. No minimum effect: a credible gain with guards holding is a gain;
+a CI that includes 0 and effects the MDE cannot rule out is "unknown".
+
+**Power.** Measured seed SD of log1p(opens) 0.39-0.45 per run; observed SD(Δ) at k = 3 was 0.32-0.33 with no
+measurable heterogeneity. MDE80 = 2.8 SD(Δ)/sqrt(n): about 9 % at n = 100, 8 % at n = 125 (k = 3), 6.5 % at
+n = 100 with k = 6. The SD(Δ) of this run is reported with the result.
+
+**Pre-registered extension (once).** If an arm's primary CI includes 0 and its point estimate is a gain larger than
+half the MDE, seeds 3-5 are added for control and that arm on the same boards and the test is read once more at k = 6.
+
+**Guards** (vs control, board bootstrap): DRC errors in total and per type (a type fails when its summed count
+rises beyond 3.4 %, the A/A spread of DRC totals, with the CI excluding no rise); legal placements not down;
+completion not down; wirelength per routed connection (a rise is reported with its CI; finishing more connections
+adds wire, so raw wirelength is reported too but is not the guard). Physics only above its floor.
+**Mechanism checks:** final movable-pair overlap per arm (from the channel report; control from the screen),
+edge-pinched pads, crossings (`stages.place.crossings`). **Secondary:** opens by cause where the router's diagnosis
+names it, plane-net vs signal-net opens, cp1, cpk, xc, CPU. Results also by layer count and by overlap tercile.
+
+Missing runs: lost jobs are retried once at 2x timeout; a board still missing an arm-seed is reported with the seeds
+it has; a board with no runs in an arm is left out of that arm's contrast and listed.
+
+## Cost (information, not a cap)
+Screen about 260 x 3 x ~1.5 min = ~20 CPU-h (prepare included). Full run about 100 boards x 4 arms x 3 seeds at
+~0.27 CPU-h per run, about 330 CPU-h with physics and scoring.
