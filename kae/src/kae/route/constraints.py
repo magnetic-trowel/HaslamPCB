@@ -218,6 +218,13 @@ DEFAULTS = dict(
     place_w_chan=0.0,              # placement: weight of the annealer's routing-channel term (pad halos of
                                    # two parts overlapping / mean part area; kae.place.exact.channel_grid). Off
                                    # until its A/B: one board's evidence so far (paw3395)
+    place_untangle=0,              # placement: 1 runs kae.place.crossings.untangle after legalization (swaps of
+                                   # equal parts and half turns that remove ratsnest crossings). Off until its A/B
+                                   # (docs/research/placement/placement-routability-2611.md) says otherwise
+    place_w_xing=0.0,              # placement: mm of weighted HPWL one ratsnest crossing costs in the annealer
+                                   # (kae.place.crossings; 0 is off until its A/B, docs/research/placement/)
+    place_xing_from=0.25,          # placement: fraction of the anneal schedule after which the crossing term prices
+    place_untangle_x_mm=2.0,       # placement: mm of weighted HPWL one removed crossing may cost in untangle
     place_margin=0.0,              # placement: routing room between movable parts, mm (Problem.set_margin);
                                    # negative = auto (Problem.auto_margin: 2 x (0.7 - utilization), 0..1 mm).
                                    # 0: placement-decide-staged found auto and 0 equal (cp1 0.305 both,
