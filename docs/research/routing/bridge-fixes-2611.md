@@ -10,7 +10,7 @@ Keys: bridge-fixes-ab, bridge-ses-width, bridge-disallow-layers, track_width, it
 units, disallow track, rip errors
 
 **Status:** pre-registered (`tools/kaeres/experiments/bridge-fixes-ab/PLAN.md`), smoke done, full run queued
-2026-11-14; round 1 read 2026-11-15, confirmation `bridge-fixes-confirm` queued. Verdict pending.
+2026-11-14; decided 2026-11-15: L adopted (PR #79); W2 held for `rule-quantize`; the combination holds.
 
 ## Mechanisms
 1. **Session widths (W).** Freerouting keeps a trace's half width in whole session units (0.1 um). A class width of an
@@ -77,3 +77,24 @@ past the 900 s harness limit before routing, so 6 boards count.
 **Confirmation queued** (`bridge-fixes-confirm`: C, W2, L on the 6 boards, 5 attempts, 10 h job timeout). W2 is
 judged on its primary there; L's extension pools both runs. A combined W2 + L arm still needs its own run before both
 go in: the combined branch couldn't be created in this session.
+
+**Confirmation and combination (2026-11-15; `bridge-fixes-confirm` and `bridge-fixes-combo`, 6 boards x 5 attempts).**
+- **L (pooled with round 1, 10 attempts per arm).** At the first route, disallowed-layer errors went from 98.4 to 0,
+  and tracks on forbidden layers on the final board from 33.9 to 0. Guards: opens 0.985 [0.969, 1.002] and defects
+  0.965 [0.933, 0.994] pass. Other errors, 0.956 [0.76, 1.14], stay undecided, but the totals are 247.6 vs 248.1 with
+  the same types in both arms: small counts on 6 boards, and no other boards with such rules exist. Verdict: adopt,
+  PR #79. The tested commit sits on 6fdfc89c, which lacks main's #74-#77 (joint and module-stage, restart and queue
+  code, which the bridge does not run). Its merge into main is clean, and the combined branch on main repeats the
+  primary.
+- **W2 (b866798a).** Freerouting's one-unit width errors on final boards went from 32.6 to 0, including
+  thunderscope's renamed layers (2.8 to 0) and right_io (29.8 to 0). The pre-registered round-0 rule is still not
+  met: 94.2 to 59.4, because round 0 cannot separate kae's own rounding past a rule finer than the grid
+  (thunderscope, 0.19079 mm), which W2 does not touch. Without thunderscope, round 0 goes from 94.2 to 0. Guards:
+  defects 0.969 [0.915, 1.016] passes, and round 1's pooled guard over 89 boards still applies. Verdict: W2 removes
+  what it targets and harms nothing measured, but `rule-quantize` (helper `fit()`) covers W's case and the
+  rounding-past-max bug. W2 waits for `rule-quantize-mech`. If that is adopted, W2 is superseded.
+- **Combination (b135072a, main + W2 + L).** One-unit width errors on final boards went from 30.6 to 0, and
+  disallowed-layer errors at the first route from 98.0 to 0 (tracks on final boards 36.6 to 0). Round-0
+  track_width went from 133.6 to 39.8; the remainder is thunderscope's rounding (39.8 in both arms). Guards: opens
+  0.974 [0.898, 1.035], errors 0.668 [0.434, 1.002] and defects 0.920 [0.773, 1.024] pass; other errors 1.046
+  [0.79, 1.46] is undecided. The fixes hold together.

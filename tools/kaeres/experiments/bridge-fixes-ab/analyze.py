@@ -106,7 +106,8 @@ def load(names):
             row.update(drc_counts(r["board"], r["run"], r["evaluator_drc"]))
             row.update(round0(r["board"], r["run"]))
             row["defects"] = row["opens"] + row["errors"]
-            runs[(r["board"], k)][int(r["attempt"])] = row
+            # attempts of several experiments pool per board (L's extension); key by experiment too
+            runs[(r["board"], k)][(name, int(r["attempt"]))] = row
     return runs
 
 
@@ -143,7 +144,7 @@ def summary(runs, arm, boards):
     res = {}
     for k in ("C", arm):
         rs = [runs[(b, k)] for b in have]
-        res[k] = dict(boards=len(have), cp1=sum(r.get(0, {}).get("clean", False) for r in rs),
+        res[k] = dict(boards=len(have), cp1=sum(min(r.items())[1]["clean"] for r in rs),
                       cpk=sum(any(x["clean"] for x in r.values()) for r in rs),
                       completion=round(st.fmean(x["completion"] for r in rs for x in r.values()), 4) if rs else None,
                       cpu_h=round(sum(x["cpu"] for r in rs for x in r.values()) / 3600, 1),
