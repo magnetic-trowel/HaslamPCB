@@ -73,6 +73,8 @@ ITEMS = [
     ("Track [A/B] on F.Cu, length 1.2 mm", "track", ["A/B"], None),
     ("Zone [GND] on L1 [Top], priority 0", "zone", ["GND"], None),     # a layer name with brackets
     ("Segment on Edge.Cuts", "other", [], None),
+    ("Pad 1 [<no net>] of  on F.Cu", "pad", [], None),                 # a part without a reference
+    ("Footprint  ", "footprint", [], None),
     ("PCB text 'out of 3' on F.Silkscreen", "other", [], None),
 ]
 
