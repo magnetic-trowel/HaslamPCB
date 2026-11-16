@@ -1680,7 +1680,7 @@ def trim_widths(ctx, m, tol=None):
         if w0 <= 1.05 * lo:
             continue
         best = w0
-        for w in sorted({round(max(lo, w0 * f), 4) for f in (0.0, 0.35, 0.5, 0.7)}):
+        for w in sorted({ctx.sp.clamp_width(rt.net, lay, max(lo, w0 * f)) for f in (0.0, 0.35, 0.5, 0.7)}):
             if w >= w0 - 1e-6:
                 break
             rt.width = w

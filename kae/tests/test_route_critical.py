@@ -1443,3 +1443,54 @@ def test_rails_start_nothing_past_their_deadline(tmp_path):
     on_time = route_rails(s2.ctx, mode="all", deadline=None)
     assert [r["net"] for r in on_time] == [r["net"] for r in late] and not any(r.get("clock") for r in on_time)
     assert any(r.get("design_A") for r in on_time)       # these were planned and sized, not skipped
+
+
+# ----------------------------------------------------------------------------- no stated minimum width
+def _no_min_session(tmp_path):
+    """The synthetic board with min_track_width 0 (no stated minimum), as on the 9 corpus boards
+    where the module stage laid zero-width copper (chassis-soft M, 2026-11)."""
+    import json
+    from kae.board.kicad_file import load
+    from kae.route.critical import Session
+    p = F.write_board(tmp_path)
+    pro = json.loads((tmp_path / "board.kicad_pro").read_text())
+    pro["board"]["design_settings"]["rules"]["min_track_width"] = 0.0
+    (tmp_path / "board.kicad_pro").write_text(json.dumps(pro))
+    b = load(p)
+    info = F.synth_info(b)
+    info["settings"]["min_track"] = 0.0
+    return Session(p, info=info, board=b, log=lambda *a: None)
+
+
+def test_no_stated_minimum_floors_widths_at_the_narrowest_class(tmp_path):
+    """The board states no minimum width: kae fills that silence with the narrowest class width (the bridge's
+    own neck then); a stated minimum is kept as it is."""
+    s = _no_min_session(tmp_path)
+    sp = s.space
+    assert sp.eff.track_width("VIN", "F.Cu").min in (0.0, None)          # the board states none
+    floor = min(w for rc in sp.plan.classes.values() for w in rc.widths.values())
+    assert floor > 0
+    for net in ("VIN", "GND", "+3V3", "Net-(U2-XTAL1)"):
+        assert sp.width_limits(net, "F.Cu")[0] == floor
+        assert sp.clamp_width(net, "F.Cu", 0.0) == floor
+    t = F.session(tmp_path / "stated")
+    mn = t.space.eff.track_width("VIN", "F.Cu").min
+    assert mn > 0 and t.space.width_limits("VIN", "F.Cu")[0] == mn
+
+
+def test_module_stage_never_lays_zero_width_copper(tmp_path, monkeypatch):
+    """Every width ladder ends at the minimum (route_chain: [opt, min]); with no stated minimum
+    that was 0, and a zero-width track always fits. Here every hop is asked for width 0 only:
+    whatever the stage lays is at least the floor."""
+    from kae.route import critical_modules as CM
+    real = CM.route_hop
+
+    def zero_only(ctx, m, tag, net, sources, targets, widths, *a, **kw):
+        return real(ctx, m, tag, net, sources, targets, [0.0], *a, **kw)
+    monkeypatch.setattr(CM, "route_hop", zero_only)
+    s = _no_min_session(tmp_path)
+    s.route()
+    tracks = [it for it in s.space.routed if it.kind == "track"]
+    assert tracks
+    for it in tracks:
+        assert it.width >= s.space.width_limits(it.net, next(iter(it.layers)))[0] - 1e-9 > 0, it.owner
