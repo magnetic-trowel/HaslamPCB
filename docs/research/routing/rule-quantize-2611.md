@@ -8,8 +8,9 @@ it applies, and the A/B that decides it. Not here: the bridge's other rule fixes
 [kae-freerouting-bridge](kae-freerouting-bridge.md).
 Keys: rule-quantize, quantize.fit, track_width, annular_width, min = max, session units, DSN resolution, nm grid
 
-**Status:** pre-registered (`tools/kaeres/experiments/rule-quantize/PLAN.md`), smoke and full run below. Verdict
-pending.
+**Status:** pre-registered (`tools/kaeres/experiments/rule-quantize/PLAN.md`). The mech run is decided (2026-11-16):
+Q removes every grid error, and its guards pass against main. The guard set (`rule-quantize-guard`) and the
+zero-width check (`rule-quantize-zw`) are still running; adoption waits for them.
 
 ## Mechanism
 KiCad stores and judges every length in whole nm. kae and Freerouting keep coarser grids:
@@ -83,5 +84,51 @@ only last mile and escapes rounded them the unsafe way.
   measurable time. Details are in PLAN.md.
 
 ## Results
-Pending: `rule-quantize-mech` (5 boards x C, Q, CB, QL x 5 attempts) and `rule-quantize-guard` (68 hard
-boards x C, Q x 2).
+### rule-quantize-mech (2026-11-16, 5 boards x 4 arms x 5 attempts, all 100 runs scored)
+Grid errors per board, as the mean over attempts. "Width" means track_width within 0.2 um of the bound; "ring"
+means annular_width within 1 um of the minimum.
+
+| board | C width / ring (final) | Q | CB | QL | C round 0 width / ring |
+|---|---|---|---|---|---|
+| thunderscope rev5-3 | 171.4 / 199.0 | 0 / 0 | 179.6 / 199.0 | 0 / 0 | 148.4 / 159.2 |
+| ducktop2 right_io | 38.0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 91.2 / 0 |
+| ducktop2 center | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 2.6 / 0 |
+| ducktop2 left_io | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| regymm pynqsdr | 0 / 2.4 | 0 / 0 | 0 / 2.4 | 0 / 0 | 0 / 16.4 |
+
+- **Primary, Q vs C: fixed.** Q has no grid error on any run, final or round 0. C had round-0 width errors on 2 of
+  the 4 width boards (right_io, center), plus thunderscope's off-grid rule. thunderscope's own errors are not the
+  one-unit kind, so the pre-registered "3 of 4 boards" count is met only with thunderscope included.
+- **Guards, Q vs C** (ratio [95 % CI], margin +10 %): all four pass.
+  - opens 0.62 [0.24, 1.03];
+  - other errors 0.50 [0.18, 1.02];
+  - errors 0.40 [0.12, 1.03], total 531 -> 98;
+  - defects 0.76 [0.62, 0.94].
+- **Per-type errors per run, C -> Q:**
+  - track_width 41.9 -> 0;
+  - annular_width 40.3 -> 0;
+  - connection_width 6.0 -> 2.4;
+  - items_not_allowed 10.7 -> 10.0 (L's bug, in both);
+  - everything else the same within 0.2.
+
+  Completion is 0.669 -> 0.691; cp1 and cpk are 0 in both arms.
+- **QL vs CB:** CB (W2 + L) still has thunderscope's 179.6 width errors per run, because W only restores
+  one-unit widths and the error is kae's own rounding, and both rings. QL has none of either, and no board has more
+  grid errors under QL than under CB.
+  - opens 0.62 [0.24, 1.00]: pass;
+  - defects 0.79 [0.62, 0.99]: pass;
+  - errors 0.56 [0.13, 1.40], total 448 -> 45: undecided on 5 boards (reported as descriptive, per the plan);
+  - other errors: same as errors.
+
+  analyze.py prints "not shown" for QL vs CB. That is its Q-vs-C rule (C needs round-0 width errors on 3 boards),
+  not the plan's QL-vs-CB rule, which QL meets on its primary.
+- **CPU is not comparable:** 5.4 h for C vs 8.8 h for Q, and 4.6 h for CB vs 14.0 h for QL. C and CB replayed
+  step-cache hits from the bridge-fixes runs of the same methods (the same inputs), so their Freerouting and DRC
+  steps were cached. The smoke's profile shows Q adds no measurable time.
+
+**Verdict (mech):** Q fixes every grid-rounding error on the boards where the mechanism exists, with no guard
+failing. As part of Q+L, it does what bridge-ses-width (W) does and also fixes what W misses (thunderscope's
+off-grid rule and both annular-ring cases). Width handling should therefore go with rule-quantize, superseding
+bridge-ses-width, provided `rule-quantize-guard` (68 boards, +5 %) and `rule-quantize-zw` pass.
+
+Pending: `rule-quantize-guard` (68 hard boards x C, Q x 2) and `rule-quantize-zw` (PLAN-zw.md).
