@@ -621,26 +621,6 @@ def violation_parts(P, st, v):
     return out
 
 
-def repair_kicad(P, st, violations, time_s=30.0, workers=2, seed=0, step_mm=0.1, log=None):
-    """Feed KiCad's verdict on a candidate placement back as constraints: every movable part
-    a placement violation names grows its occupancy rectangle by `step_mm` (kept for the rest
-    of the run, P.bump) and is re-placed by the windowed legalizer. Returns a report."""
-    if violations and isinstance(violations, (str, dict)):
-        violations = kicad_violations(violations)
-    parts = set()
-    by_type = {}
-    for v in violations or []:
-        ps = violation_parts(P, st, v)
-        by_type[v["type"]] = by_type.get(v["type"], 0) + 1
-        parts |= {i for i in ps if P.parts[i].movable}
-    for i in parts:
-        P.bump(i, step_mm)
-    rep = dict(violations=sum(by_type.values()), by_type=by_type, parts=sorted(P.parts[i].ref for i in parts))
-    if parts:
-        rep["legalize"] = legalize(P, st, time_s=time_s, workers=workers, seed=seed, log=log, force=parts)
-    return rep
-
-
 # ----------------------------------------------------------------------------- exact shapes
 ARC_ERR = 0.001   # mm: most an arc of a pad or hole may sit inside its polygon (the polygon is inscribed)
 

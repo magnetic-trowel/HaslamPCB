@@ -34,7 +34,6 @@ from __future__ import annotations
 import collections
 
 from kae.budget import now as clock_now
-import math
 import os
 import time
 from dataclasses import dataclass, field
@@ -1245,90 +1244,3 @@ def grid_verdict(P, st, exact):
     return dict(legal_grid=not (gv & confirmed),
                 grid_conservative=dict(count=len(only), by_class={k: v[:10] for k, v in cls.items()}))
 
-
-def local_replace(board, parts, window_mm=None, time_s=30.0, seed=0, physics=True, brief=None, log=None,
-                  angle_step=None, workers=1, net_weights=None, cong_history=None, moves_per_part=None):
-    """Re-place only `parts` (footprint uuids or references) of an already placed board,
-    inside `window_mm` = (x0, y0, x1, y1) when given, with every other footprint where it is
-    (fixed geometry and fixed pins): the module and joint loops' local re-placement after
-    routing. `net_weights` {net name: factor} scales nets' wirelength weights (routing
-    feedback: an unrouted or detoured net pulls its pins together harder). `cong_history`:
-    callable (x0, y0, b, nbx, nby) -> (nbx, nby) array added to the congestion bins' static
-    demand (Congestion.Dp; track mm per bin, Congestion.S0 a bin's empty-board supply).
-    `moves_per_part`: a fixed move budget (moves_per_part x len(parts)) instead of the
-    clock, so a windowed re-place is deterministic under load. Ends exactly
-    legal for the moved parts when it can (kae.place.exact.repair, only `parts` move).
-    Returns Result(poses of the re-placed parts, report, state, problem)."""
-    t0 = clock_now()
-    log = log or (lambda *a, **k: None)
-    if brief is None:
-        try:
-            brief, _ = make_brief(board)
-        except Exception:
-            brief = {}
-    want = set(parts)
-    # every other footprint is locked (as joint.replace.window_board does): left movable it
-    # was modeled snapped to the grid and to a right angle (a part at 45 deg as 0 deg), so the
-    # re-placed parts were judged against neighbours that are not where the board has them
-    import dataclasses
-    board_w = dataclasses.replace(board, footprints=[
-        fp if (fp.locked or fp.uuid in want or fp.ref in want) else dataclasses.replace(fp, locked=True)
-        for fp in board.footprints])
-    P = Problem.build(board_w, net_kinds=_net_kinds(brief), angle_step=angle_step)
-    P.set_margin(0.0)
-    sub = [p.i for p in P.parts if p.movable and (p.uuid in want or p.ref in want)]
-    st = State(P)
-    for p in P.parts:
-        if not p.movable:
-            continue
-        X, Y = P.grid_of(p.x0, p.y0)
-        rots = [r.rot for r in p.rots]
-        k = min(range(len(rots)), key=lambda kk: min(abs(rots[kk] - p.rot0) % 360, 360 - abs(rots[kk] - p.rot0) % 360))
-        st.X[p.i], st.Y[p.i], st.K[p.i] = X, Y, k
-    window = None
-    if window_mm is not None:
-        x0, y0, x1, y1 = window_mm
-        window = (int(math.floor((x0 - P.ox) / P.g)), int(math.ceil((x1 - P.ox) / P.g)),
-                  int(math.floor((y0 - P.oy) / P.g)), int(math.ceil((y1 - P.oy) / P.g)))
-    terms = None
-    if physics and (brief or {}).get("structures"):
-        try:
-            terms, _ = make_terms(board, brief, barrier=0.0, u_sat=SA_U_SAT)
-        except Exception as e:
-            log(f"place terms failed ({type(e).__name__}: {e})")
-    order = clusters.protection_order(P, brief) if physics else []
-    P.order_rules = order          # the closed loop's repair keeps them (kae.place.exact)
-    for net in P.nets:
-        net.weight *= float((net_weights or {}).get(net.name, 1.0))
-    rep = dict(parts=[P.parts[i].ref for i in sub], window=window)
-    if sub:
-        ann = make_annealer(P, st.copy(), terms=terms, seed=seed, w_phys=1.0 if terms is not None else 0.0,
-                            order=order, subset=sub, window=window, log=log, cong_history=cong_history,
-                            **zonesmod.annealer_args(P))
-        if moves_per_part:
-            rep["anneal"] = ann.run(cpu_s=1e9, max_moves=int(moves_per_part) * len(sub), deadline=None)
-        else:
-            rep["anneal"] = ann.run(cpu_s=max(0.5, 0.8 * time_s), deadline=t0 + 0.85 * time_s)
-        rep["anneal"]["cong_history"] = getattr(getattr(ann, "ann", ann), "cong_history", None)
-        ann.write_back()
-        st = ann.st
-        bad = [i for i in grid_violations(st) if i in set(sub)]
-        if bad:
-            rep["greedy"] = greedy_subset(P, st, bad, log)
-        rep["exact"] = exact_check(P, st, parts=sub)
-        if rep["exact"]:
-            left = max(2.0, t0 + time_s - clock_now())
-            rep["closed_loop"] = exactmod.repair(P, st, time_s=left, log=log, allowed=set(sub))
-            rep["closed_loop"].pop("findings", None)
-            rep["exact"] = exact_check(P, st, parts=sub)
-        gv = grid_verdict(P, st, rep["exact"])
-        rep["legal_grid"] = gv["legal_grid"]
-        rep["grid_conservative"] = gv["grid_conservative"]
-    rep["seconds"] = round(clock_now() - t0, 2)
-    poses = {P.parts[i].uuid: st.pose(i) for i in sub}
-    return Result(poses=poses, report=rep, state=st, problem=P)
-
-
-def greedy_subset(P, st, parts, log=None):
-    from .legalize import greedy
-    return greedy(P, st, parts, log=log)

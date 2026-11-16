@@ -58,13 +58,13 @@ Spot weights (match the acceptance order): placement 4, unrouted 3, other errors
 
 - `CongestionHistory` = PathFinder's history cost on a 1 mm grid: every routed evaluation, accepted or not, adds 1 (unit: a bin's routing supply) along each failed connection's corridor, so a failed region stays expensive after one re-placement. Rejected candidates' failures still enter it.
 - RUDY marks how crowded the failed region is: the placer's RUDY map of the routed placement adds 0.5·max(0, u − 0.5) to history bins within 3 mm of a failure. RUDY alone never opens a window: on PCBs it ranks routability near chance.
-- Placer congestion model (`kae.place.cost.Congestion`): RUDY + pin-escape demand priced as Σ max(0, u − 0.5)². The history, resampled to the annealer's bins and limited to the window plus two bins, enters through the `cong_history` hook (`make_annealer`, `local_replace`) as static demand:
+- Placer congestion model (`kae.place.cost.Congestion`): RUDY + pin-escape demand priced as Σ max(0, u − 0.5)². The history, resampled to the annealer's bins and limited to the window plus two bins, enters through the `cong_history` hook (`make_annealer`) as static demand:
 
   `u_b = (D_nets + D_escape + h_b·S_b) / S_b`
 
   The extra demand never moves with a part, so both engines (reference `Annealer`, compiled `FastAnnealer`) stay exactly incremental.
 - In a window: congestion weight doubled (30 → 60); parts named by an unrouted connection bumped 0.25 mm (`Problem.bump`, more occupancy on every side); routing margin 0.3 mm. Both bumps dropped if they make the window illegal. Why this is not bloat, and its A/B: [kae-joint-loop](../../research/joint/kae-joint-loop.md).
-- The re-anneal also carries the placer's physics terms and protection-order rules; nets of the window's unrouted connections weigh 2× (`local_replace(net_weights=…)`).
+- The re-anneal also carries the placer's physics terms and protection-order rules; nets of the window's unrouted connections weigh 2× (`replace_window(net_mult=…)`).
 - Legality stays hard and closes with the placer's own loop: KiCad placement errors → exact constraints (`exact.kicad_feedback`) → grid legality → greedy legalizer → exact check repaired by `exact.repair(allowed=window parts)`. The rip-up region grows to cover wherever that repair moved a part. An illegal window is discarded before any routing.
 - Annealer runs a fixed move count (6,000 per part), so a window is reproducible whenever its time budget does not bind.
 

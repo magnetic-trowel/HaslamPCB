@@ -29,8 +29,8 @@ terms agree (docs/topics/rules/thermal.md, docs/topics/rules/power/high-current.
                                   370HR); TI SNVA419 lists 0.23 without a source.
     K_FR4_IN         0.8  W/(m K) FR-4 along the laminate: the glass weave conducts along it,
                                   measured 0.81 (Azar and Graebner) to 1.06; Graebner 1997: about 3x
-                                  through-plane. The research FV solver (tm_board_thermal_fv) and the
-                                  place terms' ThermalFV already use 0.8. Isotropic 0.3 overstated a
+                                  through-plane. The research FV solvers (tm_board_thermal_fv,
+                                  ex_exact.FVThermal) already use 0.8. Isotropic 0.3 overstated a
                                   copper-sparse part's rise by ~60 % (decide note, RC6).
     H_AIR            10   W/(m^2 K) still-air natural convection plus radiation from each face:
                                   TI SNVA419 Table 1 (0.001 W/cm^2 C). Correlations give

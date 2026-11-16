@@ -42,7 +42,7 @@ Would the placer choose better if it priced moves with exact physics (PEEC loop 
 | `multi` locally, 5 boards | PEEC changed 4 of 41 decisions (decap via sites, -0.2 to -1.0% each); closed forms read +1.8 to +6.4% high per board median | same |
 | A/B at 92afed4, critical router, A+B, 33 boards, k = 2, 1800 s | fast vs multi: cp1 0.667 / 0.667, cpk 0.697 / 0.697; 50 decisions re-scored (226 PEEC calls, 1.1 s), **0 changed** | [physics-fidelity-92afed4](../../../bench/results/2026-10-24-physics-fidelity-92afed4.md) |
 | `multi` in the joint loop, 6 boards, 2 seeds, local | not better (14 / 10 vs 11 / 8 unconnected; noise) | [joint-loop-b6](../../../bench/results/2026-10-24-joint-loop-b6.md) |
-| ThermalFV | unit-tested (rises within 1e-9 of the FV reference); not wired into the placer | [exact-physics-in-kae](../../topics/physics/exact-physics-in-kae.md) |
+| ThermalFV | unit-tested (rises within 1e-9 of the FV reference); never wired into the placer; removed from kae 2026-11 (test-only code; [last version](https://github.com/magnetic-trowel/kicad-auto-everything/blob/ca98570e/kae/src/kae/physics/exact.py)) | [exact-physics-in-kae](../../topics/physics/exact-physics-in-kae.md) |
 | engine benchmarks | compiled Cholesky 6-13x faster than SuperLU; Schur window 1.6 s vs 51 s Green block at 281k nodes; quotes 25-110 us; commit 20-60 ms; within 1e-10 of brute force | [below](#engine-benchmarks) |
 
 All numbers compare models with models (PEEC, FV); none is a measurement.
@@ -69,7 +69,7 @@ Exact physics before routing did not pay: the reference is only as good as the g
 
 ## Code
 
-- `kae/src/kae/physics/exact.py` (PEEC loop values, `pick`, `configure`, `ThermalFV`); flags `--physics-fidelity`, `--physics-k` in `kae.route.critical_cli` and `kae.joint.cli`. Test: `kae/tests/test_physics_exact.py`.
+- `kae/src/kae/physics/exact.py` (PEEC loop values, `pick`, `configure`; `ThermalFV` until 2026-11); flags `--physics-fidelity`, `--physics-k` in `kae.route.critical_cli` and `kae.joint.cli`. Test: `kae/tests/test_physics_exact.py`.
 - Studies: `tools/research/physics/ex_exact.py`, `ex_decision_flips.py`, `ex_cost_table.py`, `ex_scaling.py`, `ex_polish.py`, `ex_surrogate.py`, `ex_thermal_table.py`, `ex_window_quotes.py`, `ex_fidelity.py`, `ex_fidelity_report.py`; engine benchmarks `eng_board_scaling.py`, `eng_compiled_cholesky.py`, `eng_discretization.py`, `eng_window_schur.py`.
 - First appearances: [c5c53c4](https://github.com/magnetic-trowel/kicad-auto-everything/commit/c5c53c40404a972ba3ede1e0d3ab1a5dcc3e58a0), [6d731a8](https://github.com/magnetic-trowel/kicad-auto-everything/commit/6d731a8168626034c1c30f3954f8e346a2507f53), [0591403](https://github.com/magnetic-trowel/kicad-auto-everything/commit/05914032a3de8de6a67ff4f0680e70dda33f23c4); engine benchmarks [05c03b6](https://github.com/magnetic-trowel/kicad-auto-everything/commit/05c03b682433c116f6042d2fdbfd2870f45f0425), [34a12a8](https://github.com/magnetic-trowel/kicad-auto-everything/commit/34a12a8e561cd161f1e7e5983700aa50f0b47d1f), [fdd1b35](https://github.com/magnetic-trowel/kicad-auto-everything/commit/fdd1b35ff79e2a4dcc7c23622148480138eb92f6).
 

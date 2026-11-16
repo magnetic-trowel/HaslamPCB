@@ -18,7 +18,7 @@ The placer's own machinery does the work (kae.place: Problem, State, make_anneal
    which makes room for the corridor the router could not find.
    KiCad's placement errors also become exact constraints (exact.kicad_feedback: the two
    parts keep their distance plus a step), and nets of unrouted connections weigh
-   `net_mult` x more (the placer's net_weights hook in local_replace does the same).
+   `net_mult` x more.
 3. The annealer (physics terms, routability, legality, displacement) runs on the window's
    parts inside the window rectangle, with the congestion weight raised by `cong_mult` and
    the routing history added as RUDY demand (penalty.history_hook, the placer's cong_history
@@ -26,8 +26,8 @@ The placer's own machinery does the work (kae.place: Problem, State, make_anneal
    moves.
 4. Legality is hard: grid legality (routing margin and routing bumps dropped if they are
    what is illegal, then the greedy legalizer), then the placer's exact closed loop scoped
-   to the window's parts (exact.repair(allowed=window parts)), as kae.place.pipeline
-   .local_replace ends. A window that ends illegal returns no poses.
+   to the window's parts (exact.repair(allowed=window parts)). A window that ends illegal
+   returns no poses.
 """
 from __future__ import annotations
 

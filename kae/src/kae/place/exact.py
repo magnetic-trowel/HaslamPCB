@@ -1320,10 +1320,10 @@ def fix_silk(P, st, time_s=10.0, phys=None, max_rise=0.03, max_wl_rise=0.1, w_ro
 
 def _grid_rects(P, p, rects, rot):
     g = P.g
-    from .problem import rot_rect_any
+    from .problem import rot_rect
     out = []
     for r in rects:
-        x0, y0, x1, y1 = rot_rect_any(r, rot, p.s)
+        x0, y0, x1, y1 = rot_rect(r, rot, p.s)
         gr = (int(round(x0 / g)), int(round(x1 / g)), int(round(y0 / g)), int(round(y1 / g)))
         if gr[1] > gr[0] and gr[3] > gr[2]:
             out.append(gr)

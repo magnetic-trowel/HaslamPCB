@@ -289,45 +289,6 @@ def test_module_stage_in_every_fidelity(tmp_path):
         assert multi[mid][1][1] <= ve * 1.02
 
 
-# ----------------------------------------------------------------------------- thermal (FV)
-def test_fv_operator_matches_tm_board_thermal_fv_and_the_fin(research):
-    """tm_board_thermal_fv E0: a uniform 2-layer 1 oz board, 1 W into 2 x 2 mm with 49 vias:
-    FV 11.59, 8.14, 4.87, 2.21 K at r = 5, 10, 20, 40 mm (analytic fin 12.06 ... 2.16 K)."""
-    import scipy.sparse.linalg as spla
-    import tm_board_thermal_fv as tm
-    b = tm.two_layer(lx=200e-3, ly=200e-3, dx=1e-3)
-    b.cov[:] = True
-    c = 100e-3
-    m = b.rect(c - 1e-3, c - 1e-3, c + 1e-3, c + 1e-3)
-    b.add_power(m, 1.0)
-    for x in np.arange(c - 3e-3, c + 4e-3, 1e-3):
-        for y in np.arange(c - 3e-3, c + 4e-3, 1e-3):
-            b.add_via(x + 0.5e-3, y + 0.5e-3)
-    A = EX.fv_operator(b.t_cu, b.d, b.cov, b.via, b.dx, *b.h)
-    T = spla.spsolve(A.tocsc(), b.p.ravel()).reshape(b.nl, b.nx, b.ny)
-    j = int(c / b.dx)
-    for r, ref in ((5e-3, 11.59), (10e-3, 8.14), (20e-3, 4.87), (40e-3, 2.21)):
-        i = int((c + r) / b.dx)
-        assert 0.5 * (T[0, i, j] + T[1, i, j]) == pytest.approx(ref, abs=0.006)
-
-
-def test_thermal_fv_matches_ex_exact_and_caches_source_fields(research):
-    import ex_exact as EE
-    from kae.physics.place_terms import Terms
-    from kae.physics.priors import Knobs
-    from place_terms_fixtures import buck_board
-    b, brief = buck_board(p_w=5.4)
-    T = Terms(b, brief, knobs=Knobs(jit="off"))
-    mine, ref = EX.ThermalFV(T, dx=1.0), EE.FVThermal(T, dx=1.0)
-    r1, m1 = mine.rise()
-    r0, m0 = ref.rise()
-    assert np.allclose(r1, r0, rtol=1e-9) and m1 == pytest.approx(m0)
-    n = mine.solves
-    mine.rise()                                         # nothing moved: every field is cached
-    assert mine.solves == n
-    assert mine.cost() == pytest.approx(EE.thermal_cost(T, r0, m0), rel=1e-9)
-
-
 def test_via_return_is_two_vias_with_their_images_over_the_plane():
     """The second via's image spans [-h, 0] like the first's (it sat at [-2h, -h]): via_return is
     ties(h, r, d, 0), the same physics."""
