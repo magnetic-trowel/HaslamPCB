@@ -261,14 +261,24 @@ def lease_plan(jobs, real_mb, cfg, now, buffer=0.0, timed_held=None, credit=0.0,
                 evict=evict if evict != victim else None)
 
 
+def timed_share(jobs, grants, room, buffer):
+    """The share of a memory shortfall (free `room` under half the `buffer`) that batch jobs' use over their grants
+    does not explain: the share of an eviction's lost work that counts against timed_z. timed_z answers for the timed
+    jobs' growth only; a batch job past its grant (an expensive one is kept running there) is no evidence that too
+    little was set aside for timed jobs."""
+    short = max(1.0, buffer / 2 - room)
+    over = sum(max(0.0, j["use"] - grants[j["id"]]) for j in jobs if not j.get("timed"))
+    return max(0.0, 1.0 - over / short)
+
+
 def adapt_z(z, hist, cfg, now):
     """The next timed_z (std deviations of forecast growth set aside for timed jobs), from the work lost to
-    requeues like adapt_hold: +0.5 above overcommit_loss_target, -0.25 below half of it, within [0, 6]."""
+    requeues like adapt_hold: +0.5 above overcommit_loss_target, -0.25 below half of it, within [0, timed_z_max]."""
     new, loss = adapt_hold(z / 6.0, hist, cfg, now)
     if loss is None:
         return z, None
     if loss > cfg["overcommit_loss_target"]:
-        return min(6.0, z + 0.5), loss
+        return min(cfg["timed_z_max"], z + 0.5), loss
     if loss < cfg["overcommit_loss_target"] / 2:
         return max(0.0, z - 0.25), loss
     return z, loss

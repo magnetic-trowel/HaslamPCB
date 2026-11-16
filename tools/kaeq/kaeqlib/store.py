@@ -189,9 +189,13 @@ DEFAULTS = {
     # job may reach its expected size (need_mb, or the most it has used), and spends its life at each fraction of
     # that as its owner's finished jobs did (their memory histograms); jobs of one owner correlated as measured.
     # Mean + timed_z std of that growth, pooled over all timed jobs (pooled_headroom). timed_z adapts to the work
-    # lost to requeues (overcommit_loss_target): +0.5 above it, -0.25 below half of it, within [0, 6].
+    # lost to requeues (overcommit_loss_target): +0.5 above it, -0.25 below half of it, within [0, timed_z_max].
+    # Only the loss the timed jobs' growth caused counts: an eviction while batch jobs are over their grants counts
+    # for the part of the shortfall they do not explain. (At 6, z set aside 109 G for timed growth after batch
+    # jobs' overshoot had caused the evictions, and nothing could start with 152 G free.)
     "timed_forecast": True,
     "timed_z": 2.0,
+    "timed_z_max": 3.0,
     "overcommit_loss_target": 0.02,
     "overcommit_window_s": 21600,
     "overcommit_every_s": 600,
