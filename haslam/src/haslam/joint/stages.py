@@ -178,6 +178,7 @@ class HaslamStages:
                                scorecard=(rep.get("scorecard") or {}).get("total"), budget_s=rep.get("budget_s"),
                                crossings=rep.get("crossings"), untangle=rep.get("untangle"),
                                input_locked_errors=rep.get("input_locked_errors"),
+                               channel=rep.get("channel_term"),
                                stops=place_stops(rep)))
         return Layout(board=str(out), poses=self._all_poses(b), info=info)
 
