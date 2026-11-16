@@ -56,3 +56,19 @@ def test_a_loop_that_only_polls_ends_after_a_counted_number_of_checks():
     while c.now() < d:
         n += 1
     assert n == 15
+
+
+def test_deadline_made_past_the_ceiling_has_passed():
+    """Past the wall ceiling now() is infinite: a Deadline made then has passed and has no time
+    left (a hand-written `now() + s` was inf, and `now() > inf` never held)."""
+    budget.set_mode("work", rates={"poll": 0.0})
+    try:
+        d = budget.Deadline(10.0)
+        assert not d.passed() and d.left() == 10.0
+        budget.clock().ceiling = -1.0             # the ceiling is behind us: now() is inf
+        assert d.passed() and d.left() == -1.0
+        late = budget.Deadline(10.0)
+        assert late.passed() and late.left() == -1.0
+        assert late.part(5.0).passed()
+    finally:
+        budget.set_mode("time")
