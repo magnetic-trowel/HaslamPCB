@@ -42,3 +42,21 @@ quote took 19-29 s per board here; at 5538b26 it also ran on tied open boards (C
 equal scores). Changed before the full run: only clean boards of different arms are compared (an open board's
 copper still changes, and a big board's quote can take minutes while the loop waits), and a non-physical quote
 gives no score. CV kept arm A (N) over a clean KV board on the quote (score 3.19 against 3.64).
+
+## Results (c022fa4 and the rerun at 14df4f9; physics with the fixed evaluator)
+
+Per cell against N (cells ok in both, kestrel's left out as in the A/B), median L / R ratio:
+K 1.20 / 1.61 (13 cells), Kp 1.13 / 1.05, KV 1.15 / 1.28, C 1.03 / 0.97 (8), C2 (rerun, final tie-break) 1.00 / 1.00 (5).
+Completion over the 11 boards: N 0.950, K 0.907, Kp 0.924, KV 0.891, C 0.953, CV 0.958; on the rerun's 5 boards
+N 0.996, C2 0.998. arvsom C/CV and the sstv physics were still running when this was written.
+
+- **C avoids K's losses** (esp32 at the final tie-break: N's 24.8 nH / 80 mOhm kept, not K's 33.9 / 205; nekoink 2.62 /
+  22.6 against K's 7.03 / 71.3) and costs no completion, but **rarely gets K's gains**: KiCad's rank decides
+  first, and the K arm's boards were often less complete (bq25306: K's gain came with an open connection) or the
+  quote could not separate the two clean boards (govish, qubik: within the 0.1 margin; on govish the quote ranked
+  the boards the wrong way).
+- **KV does not work as built**: no loop-net via used its holes (arvsom, gecko5 U13: 0 in the hull, as K), and
+  completion fell (arvsom 545 unconnected against K's 387).
+- **The quote** (cellquote at 0.125 mm) orders pairs of the A/B's layouts as the evaluator does in 43 of 51 L and
+  38 of 46 R pairs among N, K and Kp (30 of 33 and 30 of 35 when the quotes differ by more than 10 %); it is weakest
+  on 2-layer boards whose window truncation is large (govish, qubik).
