@@ -916,6 +916,9 @@ def last_mile_crit_zones(input_path, board_path, info, workdir, opts=None, log=_
 
 # ----------------------------------------------------------------------------- D: clear the return after routing
 CLEAR_GAIN = 0.05        # a cleared cell is kept only when its quote (watts) falls by more than this
+CLEAR_MAX_ITEMS = 40     # a cell with more foreign items than this in its region is left as routed (an info
+                         # hazard): librewave U702's 303 ripped items reconnected 16 nets of 20 and took the time
+                         # the cells behind it needed
 
 
 def clear_regions(s, mods, margin):
@@ -1038,18 +1041,31 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
         t_q = clock_now() - t1
         listing = pcbnew_io.edit_routing(board_path, wd / "listing.kicad_pcb")["routing"]
         fixed = {r["uuid"] for r in W.routing(input_path) if r.get("locked")}      # the task's pre-routes
+        from shapely.geometry import LineString, Point
         for cr in regions:
             cr["foreign"] = _foreign(listing, cr, fixed)
             cr["amount"] = sum(x[1] for x in cr["foreign"])
-        regions.sort(key=lambda c: -c["amount"])
-        per_cell = 2 * t_drc + t_q + 120.0
-        rep["estimate_s_per_cell"] = round(per_cell, 1)
+            core = cr["loop"].buffer(0.5)
+            # the expected gain: foreign copper under the loop itself (between its terminals), then in the margin
+            cr["core"] = sum((Point(r["pos"]).buffer(r["size"] / 2).intersection(core).area if r["kind"] == "via"
+                              else LineString([r["a"], r["b"]]).intersection(core).length) for r, _ in cr["foreign"])
+        regions.sort(key=lambda c: (-c["core"], -c["amount"]))
+        rep["estimate_s_per_cell"] = round(2 * t_drc + t_q + 60.0, 1)
         for k, cr in enumerate(regions):
             row = dict(cell=cr["cell"], foreign_items=len(cr["foreign"]), foreign_mm=round(cr["amount"], 2),
-                       layers=sorted(cr["layers"]))
+                       under_loop_mm=round(cr["core"], 2), layers=sorted(cr["layers"]))
             rep["cells"].append(row)
+            per_cell = 2 * t_drc + t_q + 60.0 + 1.5 * len(cr["foreign"])
             if not cr["foreign"]:
                 row.update(kept=False, why="no foreign copper in the region")
+                continue
+            if len(cr["foreign"]) > CLEAR_MAX_ITEMS:
+                row.update(kept=False, why=f"{len(cr['foreign'])} foreign items, more than {CLEAR_MAX_ITEMS} to re-route")
+                rep["hazards"].append(H.make(
+                    "hotloop_clear_skipped", "info", "data",
+                    f"{cr['cell']}: {len(cr['foreign'])} foreign items lie in its region ({cr['amount']:.0f} mm); "
+                    f"clearing that many is left to the routing (more than {CLEAR_MAX_ITEMS}).",
+                    objects=[cr["cell"]], evidence=dict(items=len(cr["foreign"]), under_loop_mm=round(cr["core"], 2))))
                 continue
             if left() < per_cell:
                 row.update(kept=False, why=f"time: {left():.0f} s left, {per_cell:.0f} s estimated")
