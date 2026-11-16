@@ -11,7 +11,7 @@ the runs' raw logs (KAE_FR_RAW_DIR, restart.py's fr-telemetry.tar unpacked: *.lo
 next to its result file (*.result.json[.gz], for the board's pin count). A directory's first path part
 below each DIR names the group a ratio is reported for (one board and stage, say).
 
-    fr_fit.py [--cap 3.0] [--load DIR ...] DIR [DIR ...]
+    fr_fit.py [--cap 3.0] [--alpha A] [--load DIR ...] DIR [DIR ...]
 
 --load: runs from a busier host; their time gets one shared factor (reported) so they inform the shape
 of the model without biasing its level. Prints the fit and each group's actual / predicted pass time.
@@ -59,6 +59,9 @@ def passes(root, src):
         group = os.path.relpath(f, root).split(os.sep)[0]
         prev, last = 0, None
         for line in text.splitlines():
+            if (m := START.search(line)):   # a pass loop starts (the default, or a fallback attempt from
+                u, prev, last = int(m.group(1)), 0, None   # its own board): its steps count from zero
+                continue
             if (m := STEPS.search(line)):
                 last = int(m.group(2))
                 continue
@@ -82,6 +85,8 @@ def main():
     ap.add_argument("dirs", nargs="+")
     ap.add_argument("--load", nargs="*", default=[])
     ap.add_argument("--cap", type=float, default=CAP[0], help="the step's scale at most (FR_SCALE_MAX)")
+    ap.add_argument("--alpha", type=float, help="fix alpha (FR_SCALE_EXP): to refit the level and the pass terms "
+                    "on a few boards, whose pin counts cannot pin down the shape")
     a = ap.parse_args()
     CAP[0] = a.cap
     rows = [r for d in a.dirs for r in passes(d, "quiet")] + [r for d in a.load for r in passes(d, "load")]
@@ -96,7 +101,10 @@ def main():
     lo, hi = [-20, 0, 0, 0, -2], [0, 4, 50, 500, 2]
     if not a.load:
         lo[4], hi[4] = -1e-9, 1e-9
-    x = least_squares(resid, [np.log(1e-5), 1.0, 4.0, 30.0, 0.0], bounds=(lo, hi)).x
+    x0 = [np.log(1e-5), 1.0, 4.0, 30.0, 0.0]
+    if a.alpha is not None:
+        lo[1], hi[1], x0[1] = a.alpha - 1e-9, a.alpha + 1e-9, a.alpha
+    x = least_squares(resid, x0, bounds=(lo, hi)).x
     print(f"{len(rows)} passes, {len(groups)} groups; busier host x{np.exp(x[4]):.2f}")
     print(f"r = {np.exp(x[0]):.3g} s/step at {REF_PINS:.0f} pins, alpha = {x[1]:.2f}, "
           f"beta = {x[2] * 1e-3:.3g} s/(pin pass), gamma = {x[3] * 1e-6:.3g} s/(unrouted pin pass)")
