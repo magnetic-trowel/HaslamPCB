@@ -45,7 +45,7 @@ from kae.physics.kernels import cprime_hj, image, lprime_hj, m_seg, patch_coupli
 from kae.route.critical_physics import INF, r_track, r_via
 
 GROUND = "0"
-EPS0_PF_MM = 8.854e-3
+EPS0_PF_MM = MAT.EPS0_PF_MM
 R_MIN = 1e-4
 K_SUM = 0.8           # largest sum of |k| over one inductor's couplings
 

@@ -98,7 +98,7 @@ def warm(nbk):
     g = np.zeros(1, np.bool_)
     nbk.loop_core(f, f, f + 1, f, f + 1, ii, f, f, bb, f + 0.2, f, f, 4, -1, 0.3, 0.15, 1.0, 1.6, 0.15,
                   H, H, N, N, g, 0.0, 0.0, 1.0, np.zeros(8), np.zeros(8), np.zeros(8), np.zeros(8))
-    nbk.patches_cm_core(f, f, f + 1, f + 1, f, f + 1, 0.2, 4.3, 8.85e-3)
+    nbk.patches_cm_core(f, f, f + 1, f + 1, f, f + 1, 0.2, 4.3, 8.8541878128e-3)
     Q = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]])
     sc = [np.zeros((64, 3)) for _ in range(4)]
     for ca in (True, False):

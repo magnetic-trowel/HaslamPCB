@@ -39,7 +39,7 @@ from kae import materials as MAT
 
 MU0_4PI = MAT.MU0_4PI_NH_MM          # nH/mm
 MU0_2PI = 0.2          # nH/mm
-EPS0 = 8.8541878e-3    # pF/mm
+EPS0 = MAT.EPS0_PF_MM  # pF/mm
 C0 = 299.792458        # mm/ns
 ETA0 = 376.730313      # ohm
 T_CU = MAT.CU_1OZ_MM   # mm, default copper thickness

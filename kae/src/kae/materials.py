@@ -15,7 +15,8 @@ terms agree (docs/topics/rules/thermal.md, docs/topics/rules/power/high-current.
                      and IPC's annulus. A fab that drills d and plates inward leaves
                      pi (d - t) t, 12 % less at 0.3 mm: within the class 2 vs 3 spread.
     K_CU             390 W/(m K)  copper (annealed: 385-401).
-    RHO_CU_OHM_MM    1.72e-5      copper resistivity at 20 C.
+    RHO_CU_OHM_MM    1/SIGMA_CU   copper resistivity at 20 C, 1.7241e-5 ohm mm (the IACS standard,
+                                  IEC 60028); was 1.72e-5, 0.24 % below the conductivity beside it.
     SIGMA_CU         5.8e7 S/m    annealed copper's conductivity at T_REF_C (IEC 60028: 1/58 ohm mm^2/m),
                                   the field solver's value.
     ALPHA_CU         3.93e-3 1/K  copper resistance's temperature coefficient at T_REF_C (IEC 60028 via
@@ -53,8 +54,8 @@ import math
 
 VIA_PLATING_MM = 0.020
 K_CU = 390.0
-RHO_CU_OHM_MM = 1.72e-5
 SIGMA_CU = 5.8e7
+RHO_CU_OHM_MM = 1e3 / SIGMA_CU      # ohm mm, from S/m
 ALPHA_CU = 3.93e-3
 T_REF_C = 20.0
 CU_1OZ_MM = 0.035
