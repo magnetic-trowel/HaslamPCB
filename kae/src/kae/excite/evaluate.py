@@ -343,6 +343,26 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 z[band] = O.bilinear(Jk, v) - (O.bilinear(Jk, vid[(s.name, band)]) if lumped else 0.0)
             w_e = 2 * math.pi * res["edge"][0]
             pairs.append(dict(o=o, s=s, Zf=z["fund"], Le=z["edge"].imag / w_e))
+    # a cell whose loop closes only through impedance above its own load's, V / I (its copper share at f_sw, or its
+    # inductance at the edge band times 2 pi f_e), carries no commutated current: its copper is effectively open (it
+    # closes through a resistor, a small capacitor, a part's leak). Its values would be no layout's (gecko5 U14 under a
+    # keep-out read L -19388 nH, R 99 kOhm): it is an open cell, priced at its caps, never reported as a value
+    for pr in [pr for pr in pairs if pr["o"].kind == "overshoot" and pr["s"].kind == "cell"]:
+        s, Pc = pr["s"], P[pr["s"].name]
+        V, I = (Pc["V"].typ if "V" in Pc else 0.0), (Pc["I"].typ if "I" in Pc else 0.0)
+        if not (V > 0 and I > 0):
+            continue
+        z_load = V / I
+        w_e = 2 * math.pi * bands[s.name]["edge"]
+        z_cu = max(abs(pr["Zf"]), abs(pr["Le"]) * w_e)
+        if z_cu > z_load:
+            where = (f"the loop closes only through {z_cu:.3g} ohm (|Z| at f_sw {abs(pr['Zf']):.3g} ohm, L {pr['Le'] * 1e9:.4g} "
+                     f"nH at {bands[s.name]['edge'] / 1e6:.3g} MHz), above the cell's load V / I = {z_load:.3g} ohm")
+            notes.append(f"{s.name}: copper effectively open: {where}: its harms are not computed; its hot loop is "
+                         f"priced open, at its caps")
+            uncomputed.append(s.name)
+            open_cells[s.name] = where
+    pairs = [pr for pr in pairs if pr["s"].name not in open_cells]
     # harms at the typical point and at the corners of each aggressor's intervals
     cps = {s.name: corners(P[s.name].values(), n=n_corners, seed=seed) for s in srcs}
     ncp = n_corners + 3

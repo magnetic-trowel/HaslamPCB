@@ -339,3 +339,23 @@ def test_a_loop_loss_beyond_a_tenth_of_the_throughput_is_flagged_and_capped(tmp,
     assert row["contribution"] == pytest.approx(OB._agg([min(v, c) for v, c in zip(ob["values"], ob["cap_values"])],
                                                         "cvar20", None) * 1e3, abs=1e-4)
     assert any(i["id"] == "loss.loop_ac" for i in st["implausible"])
+
+
+def test_a_loop_closing_only_through_more_than_its_load_impedance_is_open(tmp, monkeypatch):
+    """gecko5 U14 under a keep-out read L -19388 nH, R 99 kOhm: the loop closed only through a part, not copper. A
+    cell whose copper share exceeds its load V / I is open (priced at its caps), never a reported value. Here the
+    load is made tiny (I x 1e7) so the fixture's few-mOhm loop exceeds it."""
+    from kae.excite import evaluate as EV
+    orig = EV.ledger_for
+
+    def big_I(*a, **k):
+        P, L = orig(*a, **k)
+        for ps in P.values():
+            if "I" in ps:
+                ps["I"].typ *= 1e7
+        return P, L
+    monkeypatch.setattr(EV, "ledger_for", big_I)
+    p = write_hotloop_board(f"{tmp}/effopen", "closed")
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cells=False)
+    assert [c["source"] for c in ev["open_cells"]] == [CELL] and "load V / I" in ev["open_cells"][0]["why"]
+    assert all(o.get("open") for o in _obs(ev, "loss.loop_ac") + _obs(ev, "overshoot.peak"))
