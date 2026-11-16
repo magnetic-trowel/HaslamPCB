@@ -105,3 +105,14 @@ per stage. `--cpus`/`--mem` of the full jobs come from the smoke's measured peak
 ## Cost
 Original: 0.26 CPU-h per control/xing run (299 runs, 78 CPU-h). 46 boards × 2 arms × 6 seeds = 552 runs ≈ 145 CPU-h
 plus preparation, scoring and physics. Information, not a cap.
+
+## Addendum 2026-11-16, at submission (no run of the 46 boards exists yet)
+- **Smoke** (experiment `xing-ext-smoke`, nrf52840-breakout and terjeio dummy-x3, both arms, one job per board running
+  both arms): all 4 runs ok and scored by DRC evaluator afa09d34bc94 (the original's), the joint report says seed 3,
+  the method sets the d137fd1 bridge, crossings fall in xing (44→35, 32→7). Job peaks 1.2 and 1.4 GB against
+  1.8-2.0 GB declared, 2 CPUs (cpu/wall 1.2-1.3), so kaeres's estimates are kept; kaeq learns the owner's peaks.
+- **Profile:** the py-spy/JFR runs (`exp-xing-ext-prof`) were still queued behind priority-2 work after 6 h. The full
+  run was submitted without waiting, because no speedup could be applied to it anyway: pooling with seeds 0-2 needs the
+  kae and harness code of d21a9ac unchanged, so any speedup found is a later method, not this one. The profile is
+  reported when it runs.
+- Submitted 138 jobs (46 boards × 3 seed pairs, both arms in each job), owner `exp-xing-ext`.
