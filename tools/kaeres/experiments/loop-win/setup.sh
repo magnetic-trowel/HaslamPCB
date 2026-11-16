@@ -5,7 +5,8 @@
 # loop-win (PLAN.md): the joint loop's windows with evidence, tabu and exact legality, one at a time and together,
 # against staged restarts at the same counted allowance.
 #   SHA=<pushed commit> tools/kaeres/experiments/loop-win/setup.sh
-# PROFILE=1: KAE_BUDGET_PROFILE=1 in every command (each run prints wall time per counted-work kind; a new method id)
+# PROFILE=1: KAE_BUDGET_PROFILE=1 KAE_BUDGET_GAP=10 in every command (each run prints wall time per counted-work kind,
+# and every uncharged stretch over 10 s with its call stack; a new method id)
 # DIRTY=1: register unpushed code (kaeres --allow-dirty); HARNESS=<pushed commit> then runs prepare and scoring
 # (restart.py always comes from the kae code); ARMS="restarts ctl all": only these arms
 set -euo pipefail
@@ -17,7 +18,7 @@ KH='$HOME/.cache/kaebench'
 FORK="\$HOME/.cache/kaebench/kae-freerouting-fork-d137fd1/bin/freerouting"
 NUMBA=numba-loopwin-$S7
 CP="cp -r $KH/$NUMBA numba 2>/dev/null;"
-WENV="env KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1${PROFILE:+ KAE_BUDGET_PROFILE=1}"
+WENV="env KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1${PROFILE:+ KAE_BUDGET_PROFILE=1 KAE_BUDGET_GAP=10}"
 TAG=${PROFILE:+ profiled}
 ARMS=${ARMS:-restarts ctl evidence tabu exact all}
 want() { [[ " $ARMS " == *" $1 "* ]]; }

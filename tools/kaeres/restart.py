@@ -658,6 +658,8 @@ def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, s
         hold(saved(info))
         info["step_cache"] = SC.charges(info["charge"])
     info["wall_s"] = round(time.monotonic() - t, 1)
+    if (bl := budget_line(d / "log")):
+        info["budget_report"] = bl
     c0, w0 = child_cpu(), time.monotonic()
     rank = judge(o, inp, base, max(10.0, end - w0 - 5), a.check_placement, base_pairs)
     info.update(rank=rank, judge_cpu_s=child_cpu() - c0, judge_wall_s=time.monotonic() - w0)
