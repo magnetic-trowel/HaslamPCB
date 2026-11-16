@@ -35,12 +35,14 @@ import math
 
 import numpy as np
 
-MU0_4PI = 0.1          # nH/mm
+from kae import materials as MAT
+
+MU0_4PI = MAT.MU0_4PI_NH_MM          # nH/mm
 MU0_2PI = 0.2          # nH/mm
 EPS0 = 8.8541878e-3    # pF/mm
 C0 = 299.792458        # mm/ns
 ETA0 = 376.730313      # ohm
-T_CU = 0.035           # mm, default copper thickness
+T_CU = MAT.CU_1OZ_MM   # mm, default copper thickness
 
 # ----------------------------------------------------------------------------- lines
 
@@ -319,7 +321,7 @@ def patch_coupling(Aa, Av, r, ha, hv, Ca=None, Cv=None, eps_r=1.0):
 # ----------------------------------------------------------------------------- thermal
 
 
-def fin_params(cu_thickness_mm, cu_fill, fr4_mm, k_cu=390.0, k_fr4=0.8, h_top=10.0, h_bot=10.0):
+def fin_params(cu_thickness_mm, cu_fill, fr4_mm, k_cu=MAT.K_CU, k_fr4=MAT.K_FR4_IN, h_top=MAT.H_AIR, h_bot=MAT.H_AIR):
     """Sheet conductance G_s (W/K) and spreading length lambda (mm) of a board fin.
 
     G_s = sum_layers k_cu t_i f_i + k_fr4 t_fr4 (W/K per square); lambda = sqrt(G_s / h_tot)."""

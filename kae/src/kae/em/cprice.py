@@ -65,10 +65,11 @@ import time
 
 import numpy as np
 
+from kae import materials as MAT
 from kae.excite.harm import phi
 
 C0 = 299792458.0
-EPS0 = 8.8541878128e-12
+EPS0 = MAT.EPS0_F_M
 F_LO = 1e3              # Hz: the victim node's resistance is its impedance's real part here
 H_NONE = 1.6            # mm: the plane height assumed where a cell has no copper above or below
 # coplanar copper at edge gap g beside a strip over a plane at h adds CO_A exp(-CO_B g / h) of the strip's
@@ -139,7 +140,7 @@ def raster_kappa(wq, h, er, pitch, surface):
         gw = math.ceil(max(8 * h, 4.0) / pitch) * pitch
         q = []
         for length in (8.0, 16.0):
-            m = Mesh.over(0, -gw, length + 2, gw, pitch, [Layer("T", h, 0.035, 1), Layer("G", 0, 0.035, 1)])
+            m = Mesh.over(0, -gw, length + 2, gw, pitch, [Layer("T", h, MAT.CU_1OZ_MM, 1), Layer("G", 0, MAT.CU_1OZ_MM, 1)])
             m.rect(1, "GND", 0, -gw, length + 2, gw)
             m.rect(0, "S", 1, 0, 1 + length, wq)
             st = Stack([0.0, h * 1e-3], [er]) if surface else Stack([0.0, h * 1e-3, 2 * h * 1e-3], [er, er])
