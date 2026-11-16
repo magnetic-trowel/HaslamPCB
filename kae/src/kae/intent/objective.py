@@ -543,6 +543,10 @@ def _capped(ob):
     cap_V, or for an evaluation from before that field, half the rail its reason names."""
     if not ob.get("implausible"):
         return ob
+    if ob.get("cap_values"):                     # a per-corner cap (kae.excite.evaluate.LOOP_LOSS_FRAC of V I)
+        cv = ob["cap_values"]
+        return dict(ob, values=[min(v, c) if c > 0 else v for v, c in zip(ob.get("values") or [], cv)],
+                    capped_at=max(cv))
     cap = ob.get("cap_V")
     if cap is None:
         m = re.search(r"exceeds (\d+)% of its ([0-9.eE+-]+) V rail", ob["implausible"])

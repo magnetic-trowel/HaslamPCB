@@ -308,3 +308,34 @@ def test_loss_loop_ac_always_carries_skin_effect_per_harmonic(tmp):
     (b0,) = _obs(ev0, "loss.loop_ac")
     assert brd["scope"]["R_harmonics_mohm"][2] > b0["scope"]["R_harmonics_mohm"][2]
     assert brd["values"][0] > b0["values"][0]
+
+
+def test_a_cell_with_discrete_switches_is_never_driven_through_its_controller(tmp):
+    """A half bridge's gate driver has its HS pin on the switch node; the brief says the switches are discrete. The
+    cell must be excited at its transistors, not at the driver (whose supply pins left it open on every layout)."""
+    from kae.board.kicad_file import load
+    from kae.circuit import brief as B
+    from kae.excite import models as M, sources as S
+    p = write_hotloop_board(f"{tmp}/discrete", "closed")
+    b = load(p)
+    br = B.build(b)
+    bd = M.build(b, br)
+    st = next(x for x in br["structures"] if x.get("kind") == "commutation_cell")
+    uuid = {u: q["ref"] for u, q in br["parts"].items()}
+    assert S._cell(bd, st, uuid) is not None                      # integrated: the controller's SW pin
+    st = dict(st, integrated_switches=False)
+    assert S._cell(bd, st, uuid) is None                          # discrete, and no transistor in this loop
+
+
+def test_a_loop_loss_beyond_a_tenth_of_the_throughput_is_flagged_and_capped(tmp, monkeypatch):
+    from kae.excite import evaluate as EV
+    monkeypatch.setattr(EV, "LOOP_LOSS_FRAC", 1e-6)
+    p = write_hotloop_board(f"{tmp}/implausible", "closed")
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cells=False)
+    (ob,) = _obs(ev, "loss.loop_ac")
+    assert "throughput" in ob["implausible"] and len(ob["cap_values"]) == len(ob["values"])
+    st = OB.evaluate(ev, {"terms": [TERMS["terms"][1]]})
+    row = st["terms"][0]
+    assert row["contribution"] == pytest.approx(OB._agg([min(v, c) for v, c in zip(ob["values"], ob["cap_values"])],
+                                                        "cvar20", None) * 1e3, abs=1e-4)
+    assert any(i["id"] == "loss.loop_ac" for i in st["implausible"])
