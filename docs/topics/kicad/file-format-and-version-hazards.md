@@ -1,7 +1,7 @@
 # KiCad file-format, version and live-vs-saved hazards
 
 Scope: 9↔10 dialect differences, silent data loss on write, live vs saved divergence, parsing libraries. Not here: transform bugs -> [transform-math-pitfalls.md](transform-math-pitfalls.md); fix-commit counts per bug class -> [mcp-server-lessons.md](mcp-server-lessons.md#recurring-bug-classes).
-Keys: format stamp, 20241229, 20260206, _NUMERIC_NET_VERSION_MAX, numeric net rebinding, named nets, net table, BL_UNDEFINED, unknown layer crash, 0xc0000005, socket probe, SaveBoard data loss, re-serialization, torn writes, O_TRUNC, atomic write, CST, byte-preserving, live vs saved, SaveDocumentToString, unsafe_file_fallback, session pinning, kiutils, kicad-skip
+Keys: format stamp, overbar, ConvertToNewOverbarNotation, legacy layer names, NPTH pad number, 20241229, 20260206, _NUMERIC_NET_VERSION_MAX, numeric net rebinding, named nets, net table, BL_UNDEFINED, unknown layer crash, 0xc0000005, socket probe, SaveBoard data loss, re-serialization, torn writes, O_TRUNC, atomic write, CST, byte-preserving, live vs saved, SaveDocumentToString, unsafe_file_fallback, session pinning, kiutils, kicad-skip
 
 Rules [I]: a subprocess may compute, never write ("A subprocess may compute, never write" [P]); measure version differences, don't infer them; every MCP server with an IPC path hit live-vs-saved divergence independently [P].
 
@@ -14,6 +14,7 @@ Rules [I]: a subprocess may compute, never write ("A subprocess may compute, nev
 | Unknown layers | `Dwgs.User`, `User.1–45`, inner copper beyond In2 mapped to `BL_UNDEFINED`; KiCad 10.0.5 indexes its layer bitset with the unvalidated value; placing a stock USB-C footprint "faulted KiCAD at `0xc0000005` … discarding the session's unsaved board"; client saw only an NNG timeout [P] ([ff518c8](https://github.com/mixelpixx/Konnect/commit/ff518c80235c6d546d0b93266fdaad4a57ee0cc4)) |
 | Socket probe | a raw connect "never completes NNG's handshake, and afterwards KiCad answers no client at all … until pcbnew restarts" (#498); discover the socket through filesystem metadata only [P] ([7e2d787](https://github.com/mixelpixx/Konnect/commit/7e2d787603406e6def19fed28f432d77696a55b3)) |
 | Units over IPC | KMS IPC handlers ignored `unit`: parts "at 1/25.4th of the intended position" when inches were given [P] ([319a65b](https://github.com/mixelpixx/KiCAD-MCP-Server/commit/319a65bd0b49e47fb4fcf2dd37be46f88fa29caa)) |
+| Legacy names | KiCad 10's reader renames on load: net names in files stamped before 20210606 go from `~RTS~`/`~RTS` to `~{RTS}` (`ConvertToNewOverbarNotation`; net table, pads, `add_net`, but not a zone's `net_name`); a KiCad 5 layer table names renamed copper layers by their user name (`(1 GND power)`), which KiCad maps by position to F.Cu, In*n*.Cu, B.Cu; NPTH and copperless pads lose their numbers (`PAD::CanHaveNumber`), and pads without copper their nets, including an NPTH circle or oval no larger than its hole (`PAD::IsOnCopperLayer`; both rules for any version) [C] ([pcb_io_kicad_sexpr_parser.cpp](https://gitlab.com/kicad/code/kicad/-/blob/10.0/pcbnew/pcb_io/kicad_sexpr/pcb_io_kicad_sexpr_parser.cpp)) |
 | Mixed versions | POA `autoroute_pcb` refuses a KiCad 10 board when only pcbnew 9 is available [P] |
 | DRC JSON | KiCad 10 courtyard classification changed; deleting a missing ID needs a 10-specific postcondition (PRO) [P] |
 
@@ -41,6 +42,7 @@ Use a byte-preserving CST file layer (POA's `_cst.py` is reusable under our GPL-
 **What kae does** (decisions and measurements: [kae-board-model § Writing boards](../../research/placement/kae-board-model.md#writing-boards)) [C]:
 - Poses, SES imports and routing edits go through KiCad's plain reader and writer (`PCB_IO_MGR`), not `LoadBoard`/`SaveBoard` and not a byte splice: the import and `FOOTPRINT::Flip` exist only inside KiCad. No fallback to `LoadBoard`/`SaveBoard`.
 - Every such write is re-read and compared with the board in memory (stamp, item counts, every pad's, routing item's and zone's net). Changed copper or nets never reach the destination; a format upgrade or changed drawing counts become `data` hazards in the report.
+- The reader (`kae.board.kicad_file`) applies the legacy-name rules above (`legacy_names`), so kae sees old boards' nets, layers and pad numbers as pcbnew does.
 - The text writers (`kae.route.critical_write`) refuse boards stamped 20241229 or lower instead of version-gating their output.
 
 ## Live versus saved divergence
