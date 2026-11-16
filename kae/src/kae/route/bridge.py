@@ -147,6 +147,11 @@ DEFAULT_OPTS = dict(
                              # ground vias at decap/IC pads, stitch pours, kept only where DRC is no worse
     pad_trim=None,           # Freerouting's centre ends cut back to the pad edge, through finish (part "trim",
                              # last); None = when the pad_entry setting is "edge"
+    ladder_late=False,       # experimental (fr-ladder-late): Freerouting's no-fanout fallback ladder off in every
+                             # call, and run once last on the kept board (kae.route.ladder; needs a fork build
+                             # with autorouter.fallback_only)
+    ladder_share=0.25,       # with ladder_late: the ladder's time box, of the attempt, reserved from the repair rounds
+    ladder_min_s=150.0,      # with ladder_late: no ladder in an attempt shorter than this
 )
 
 
@@ -304,12 +309,27 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
             log(f"thermal vias: {type(e).__name__}: {e}")
             hot = []
         tv_s = min(float(opts.get("thermal_via_s") or 0.0), 0.1 * time_s) if hot else 0.0
+        from . import ladder
+        lad_s = ladder.window(opts, time_s) if opts.get("repair") else 0.0
         if opts.get("repair") and left() > 30:
             from . import repair
             report["repair"] = repair.loop(input_path, output_path, wd, p, info, opts,
-                                           deadline=t0 + time_s - 10 - diag_s - tv_s, log=log)
+                                           deadline=t0 + time_s - 10 - diag_s - tv_s - lad_s, log=log)
             final_rep = report["repair"].pop("_report", None)
             report.setdefault("hazards", []).extend(report["repair"].pop("hazards", None) or [])
+            best_ = report["repair"].get("final")
+            if lad_s and best_ and best_.get("unconnected") and left() - diag_s - tv_s > 40:
+                # opts ladder_late: the fallback ladder last, on the board the repair rounds and the
+                # last mile kept, in its own time box; kept only when KiCad ranks it better
+                report["ladder"] = ladder.run(input_path, output_path, wd, p, info, opts, best_,
+                                              deadline=min(t0 + time_s - 10 - diag_s - tv_s, clock_now() + lad_s),
+                                              log=log)
+                if report["ladder"]["kept"]:
+                    report["repair"]["final"] = report["ladder"]["after"]
+                    final_rep = report["ladder"].pop("_report")
+                    report.setdefault("hazards", []).extend(report["ladder"].pop("hazards", None) or [])
+            elif lad_s:
+                report["ladder"] = dict(skipped="complete" if best_ and not best_.get("unconnected") else "time")
             if hot and left() > 20:
                 # after the repair and last-mile rounds, which judge connections only: the hot parts'
                 # thermal vias and solid heat pads, judged by KiCad's DRC like a round (kae.route.thermal_vias)
@@ -519,6 +539,8 @@ def router_settings(p, opts, repair=False):
     if p.min_width:
         # the fork's floor for every neck-down (pads, fanout, retries); older builds ignore it
         s["min_trace_width_um"] = specctra.fmt(p.min_width * 1000)
+    from .ladder import off_in_calls
+    s.update(off_in_calls(opts))
     return s
 
 
