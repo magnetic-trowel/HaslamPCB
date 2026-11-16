@@ -51,3 +51,41 @@ def test_unconnected_ignored(tmp_path):
         assert DI.unconnected_ignored(b) is want
     kb = pytest.importorskip("kaebench.boardfiles")
     assert kb.unconnected_ignored(b) is False
+
+
+# item descriptions as KiCad 10 writes them (shapes from the corpus' DRC reports)
+ITEMS = [
+    ("Pad 2 [GND] of C3 on F.Cu", "pad", ["GND"], "C3"),
+    ("PTH pad 6 [GND] of J11", "pad", ["GND"], "J11"),
+    ("NPTH pad of H1", "pad", [], "H1"),
+    ("Pad 1 [<no net>] of S4 on L1", "pad", [], "S4"),
+    ("Pad 1 [GND] of D2 on Top Layer", "pad", ["GND"], "D2"),          # a layer name with a space
+    ("Pad 1 [D[0]] of R47 on TOP", "pad", ["D[0]"], "R47"),            # a net name with brackets
+    ("Via [sdram_dq[3]] on F.Cu - B.Cu", "via", ["sdram_dq[3]"], None),
+    ("Footprint U1", "footprint", [], "U1"),
+    ("Footprint ADS4 (0x4B)", "footprint", [], "ADS4"),
+    ("Footprint text of U$3 (${REV})", "footprint", [], "U$3"),
+    ("Reference field of D1", "other", [], "D1"),
+    ("Value field of Q1 (CMUT3904)", "other", [], "Q1"),
+    ("Pad [<no net>] of On - Off on F.Cu", "pad", [], "On - Off"),       # a reference with spaces
+    ("PCB text '[OSHW] UID:' on F.Silkscreen", "other", [], None),
+    ("Polygon [<no net>] of G*** on B.Cu", "other", [], "G***"),
+    ("Track [A/B] on F.Cu, length 1.2 mm", "track", ["A/B"], None),
+    ("Zone [GND] on L1 [Top], priority 0", "zone", ["GND"], None),     # a layer name with brackets
+    ("Segment on Edge.Cuts", "other", [], None),
+    ("PCB text 'out of 3' on F.Silkscreen", "other", [], None),
+]
+
+
+def test_items_kind_nets_and_owner():
+    for desc, kind, nets, ref in ITEMS:
+        assert (DI.item_kind(desc), DI.item_nets(desc), DI.item_ref(desc)) == (kind, nets, ref), desc
+
+
+def test_open_nets_and_board_names():
+    rep = dict(unconnected_items=[dict(items=[dict(description="Pad 1 [A/B] of U1 on F.Cu"),
+                                              dict(description="Track [A/B] on F.Cu, length 1 mm")]),
+                                  dict(items=[dict(description="Pad 2 [D[0]] of U2 on F.Cu")])])
+    assert DI.open_nets(rep) == ["A/B", "D[0]"]
+    assert DI.board_nets(DI.open_nets(rep), ["A{slash}B", "D[0]", "C"]) == ["A{slash}B", "D[0]"]
+    assert DI.board_nets(["X"], ["A{slash}B"]) == ["X"]

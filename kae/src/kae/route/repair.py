@@ -43,11 +43,11 @@ import time
 from pathlib import Path
 
 from kae.board import pcbnew_io
+from kae.drc_items import item_nets
 
 from . import constraints, drc, freerouting, specctra, translate
 from .specctra import Q, find, findall
 
-_NET = re.compile(r"\[([^\]]*)\]")
 _MIN = re.compile(r"min (?:width )?([\d.]+) mm")
 _SPOKES = re.compile(r"min spoke count (\d+); actual (\d+)")
 _DRC_LAYER = re.compile(r"\(layer ([^;)]+)")
@@ -58,10 +58,6 @@ def _key(s):
     """Better boards sort higher: clean, then fewer violations in all (errors plus missing
     connections), then fewer missing connections."""
     return (s["errors"] == 0 and s["unconnected"] == 0, -(s["errors"] + s["unconnected"]), -s["unconnected"])
-
-
-def _nets_of(item_desc):
-    return [m for m in _NET.findall(item_desc or "") if m and m != "<no net>"]
 
 
 def _is_zone(desc):
@@ -324,7 +320,7 @@ def analyse(report, routed, info=None, plan=None, fills=None, layer_map=None, co
             nets.add(routed[it["uuid"]]["net"])
     for u in report.get("unconnected_items") or []:
         its = u.get("items") or []
-        uns = {n for it in its for n in _nets_of(it.get("description"))}
+        uns = {n for it in its for n in item_nets(it.get("description"))}
         zone_its = [it for it in its if _is_zone(it.get("description"))]
         if not zone_its:
             for n in uns:
