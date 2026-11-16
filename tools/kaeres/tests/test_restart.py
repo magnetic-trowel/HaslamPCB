@@ -324,3 +324,26 @@ def test_completion_first_open_alt_works_on_the_first_board_when_it_is_open(tmp_
                             "--open-alt", "grep -q first @BEST@ && echo '(kicad_pcb OPEN=1 polished)' > @OUT@"))
     assert r.returncode == 0, r.stdout + r.stderr
     assert s["second"] == "open-alt" and s["kept"] == 2 and "polished" in out.read_text()
+
+
+def test_open_rest_spends_the_windows_unused_budget(tmp_path):
+    """--open-rest: the open-alt run reports it used little of its budget (@REPORT@ seconds), so one more run gets
+    the rest: COMMAND with the next seed on an open board, --alt with --open-rest-alt once the board is clean."""
+    win = ("sed 's/first/win/' @BEST@ > @OUT@ && echo '{\"seconds\": 10}' > @REPORT@")
+    cmd = ("if [ @SEED@ -ge 2 ]; then echo '(kicad_pcb OPEN=1 third)' > @OUT@; "
+           "else echo '(kicad_pcb OPEN=3 first)' > @OUT@; fi")
+    r, out, s = _run(tmp_path, cmd, None, time_s=600,
+                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
+                            "--open-alt", win, "--open-rest"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert s["second"] == "open-alt" and s["third"] == "restart" and s["kept"] == 3 and "third" in out.read_text()
+    assert (tmp_path / "work" / "restarts" / "report-windows.json").exists()
+
+
+def test_open_rest_alt_runs_alt_on_a_board_the_windows_completed(tmp_path):
+    win = "echo '(kicad_pcb OPEN=0 win)' > @OUT@ && echo '{\"seconds\": 10}' > @REPORT@"
+    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=3 first)' > @OUT@", None, time_s=600,
+                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
+                            "--open-alt", win, "--open-rest", "--open-rest-alt"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert s["third"] == "alt" and s["kept"] == 3 and "alt" in out.read_text()
