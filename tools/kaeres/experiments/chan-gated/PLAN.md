@@ -11,22 +11,23 @@ on new boards.
 
 ## Questions
 1. On boards with >= 10 movable-pair channel overlaps, does the channel term (w_chan 3, as tested) lower opens?
-2. Do the two fixes (pad-to-edge channels, `place_chan_edge` 1; the seed-cost cap, `place_chan_cap`) change that?
+2. Does pricing channels to the board edge as well (`place_chan_edge` 1) change that?
 3. Does the crossing term together with the channel term (each fixes the other's harm: xing pulls parts into pinches,
    chan spreads them into crossings) lower opens?
 
-## Code (commit a21c44ca, branch `chan-gated`, all arms)
+## Code (kae at f07098dc, harness a21c44ca, branch `chan-gated`, all arms)
 origin/main 10a6405a plus `place-w-chan` (the setting) and `place-crossing-term` (the crossing term), plus:
 - `place_chan_edge` 1: channels between pads and the board edge (outline and edge cutouts). A pad sample (centre,
   corners) closer to the edge than copper-to-edge clearance + track + clearance costs; a pad wholly in that band
   costs as a halo overlap of one halo's depth along its long side. A unary keep-out on the zone term's raster.
   Motivation: tinkerforge motion-detector, parts pushed onto the edge cutout in 3/3 chan3 seeds against 1/3 control.
-- `place_chan_cap` k: w_chan is lowered so the term's cost at the anneal's seed (pair overlap / A0 + edge part) is at
-  most k x the seed wirelength cost (1). Motivation: dvhx (991 pads) +30 % wirelength at w_chan 3; the term's cost per
-  pinch does not scale with the board while the wirelength is normalized. k is set from a calibration on
-  placement-routability boards (all excluded here) before this experiment's boards are screened; its value is
-  recorded in the addendum below and in the method recipe.
-- Every chan arm reports `stages.place.channel_term` (seed and final overlap, weight used, edge part).
+- Every chan arm reports `stages.place.channel_term` (seed and final overlap of pairs with a movable part, edge part).
+- **The second fix (scale or cap the weight, P2b) is not tested.** A cap against the term's cost at the anneal's
+  seed was built (a21c44ca) and calibrated on three placement-routability boards before any screen result: the
+  seed's overlap is the unlegalized start's (dvhx 19 x A0, fm4dd 50 x A0), unrelated to the pinches the anneal ends
+  with, so a cap switched the term off (w 3 -> 0.002). Removed in f07098dc. A working cap needs the overlap after
+  legalization inside the anneal, which is not a cheap change. Only dvhx motivated it.
+- Harness a21c44ca prepared the screen's tasks; it differs from f07098dc only in `kae/` and this folder.
 
 ## Boards
 - Candidates (`select_screen.py`, deterministic): `pad_density.very_dense` (then `dense`) from
@@ -54,11 +55,11 @@ build abefc74 when kae PR #97 and freerouting PR #11 merge; this experiment keep
 |---|---|
 | control | none |
 | chan3 | `--set place_w_chan=3` |
-| chan3fix | `--set place_w_chan=3 --set place_chan_edge=1 --set place_chan_cap=<k>` |
+| chan3edge | `--set place_w_chan=3 --set place_chan_edge=1` |
 | xingchan3 | `--set place_w_xing=2 --set place_w_chan=3` |
 
 ## Metrics and decision
-**Primary** (each arm against control, and chan3fix and xingchan3 against chan3): per board, Δ = mean over seeds of
+**Primary** (each arm against control, and chan3edge and xingchan3 against chan3): per board, Δ = mean over seeds of
 log1p(opens) in the arm minus the same in control; opens = unconnected items of the kicad-cli score on the re-opened
 board, per attempt. Reported: mean Δ (as %, exp(Δ)-1) with a 10k board-bootstrap 95 % CI and a two-sided sign-flip
 p; the ratio of summed per-board mean opens with a bootstrap CI; boards lower/higher. Seeds are not paired across

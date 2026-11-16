@@ -4,15 +4,15 @@
 #
 # Methods of the chan-gated experiment (PLAN.md, written before any run). One commit for all arms;
 # only the --set flags differ. Chassis as placement-routability: one placement, one route.
-#   SHA=<pushed commit> CAP=<place_chan_cap> setup.sh
+#   SHA=<kae commit> HSHA=<harness commit> setup.sh   (harness: the commit that prepared the screen's tasks)
 set -euo pipefail
 cd "$(dirname "$0")/../../../.."
 K="python3 tools/kaeres/kaeres.py"
 SHA=${SHA:?commit}
-CAP=${CAP:?place_chan_cap}
+HSHA=${HSHA:?harness commit}
 S7=${SHA:0:7}
 KAE=(--code kae=.@$SHA)
-H=(--harness $SHA)
+H=(--harness $HSHA)
 KH='$HOME/.cache/kaebench'
 FR="\$HOME/.cache/kaebench/kae-freerouting-fork-d137fd1/bin/freerouting"   # the pinned fork (kae-freerouting.pin)
 NUMBA=numba-kae-changated-$S7
@@ -25,5 +25,5 @@ one() {  # NAME DESCRIPTION FLAGS
 }
 one "kae changated control $S7"    "control: knobs off"                                       ""
 one "kae changated chan3 $S7"      "routing-channel term w_chan 3, as tested in placement-routability" "--set place_w_chan=3"
-one "kae changated chan3fix $S7"   "w_chan 3 with pad-to-edge channels and the seed-cost cap $CAP" "--set place_w_chan=3 --set place_chan_edge=1 --set place_chan_cap=$CAP"
+one "kae changated chan3edge $S7"  "w_chan 3 with pad-to-edge channels"                       "--set place_w_chan=3 --set place_chan_edge=1"
 one "kae changated xingchan3 $S7"  "crossing term 2 mm and w_chan 3 together"                 "--set place_w_xing=2 --set place_w_chan=3"
