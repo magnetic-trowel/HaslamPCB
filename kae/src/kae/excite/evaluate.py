@@ -358,8 +358,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             continue
         z_load = V / I
         w_e = 2 * math.pi * bands[s.name]["edge"]
-        # resistance: I^2 R alone would burn a tenth of V I at R = OPEN_R_FRAC V / I (largest working loop over 230 cell
-        # evaluations: 0.031 V / I); reactance at the edge band: the load's V / I
+        # resistance at f_sw above OPEN_R_FRAC V / I, or reactance at the edge band above V / I: no working loop
         R_cu, X_cu = max(pr["Zf"].real, 0.0), abs(pr["Le"]) * w_e
         if R_cu > OPEN_R_FRAC * z_load or X_cu > z_load:
             where = (f"the loop closes only through R {R_cu:.3g} ohm at f_sw, L {pr['Le'] * 1e9:.4g} nH at "
@@ -931,9 +930,10 @@ CELL_LEAK = 0.01             # share of a cell's current an island may hold befo
 
 # a working converter's hot-loop and AC copper losses stay far below its throughput; above this share they are flagged
 LOOP_LOSS_FRAC = 0.1
-# a loop whose copper resistance at f_sw exceeds this share of the load's V / I (its I^2 R alone a tenth of V I) is
-# open: it closes through a part, not copper (largest working loop seen: 0.031)
-OPEN_R_FRAC = 0.1
+# a loop whose copper resistance at f_sw exceeds this share of the load's V / I is open: it closes through a part, not
+# copper (largest working loop seen: 0.031; kestrel's 20 kHz half bridges, working, 0.11-0.16). Between, a loss above
+# LOOP_LOSS_FRAC of V I is flagged implausible instead
+OPEN_R_FRAC = 1.0
 
 # what an open cell is priced in, each at its cap (kae.intent counts them; its other harms stay not computed)
 OPEN_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac")
