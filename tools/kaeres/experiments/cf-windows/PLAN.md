@@ -74,3 +74,10 @@ Every run was scored. No rule changes.
   - adafruit ds2482s-800: open after phase 1 (6 opens) in both arms, with the same phase 1. CF ran R' and CF-W ran `open-alt`; both ended at 6.
   - acruxcz trx055 carrier was still running when the full run was submitted (peak 15 GB). It stays in the experiment.
   - No rule changes.
+
+## Final pooled read (2026-11-16, cf-windows + cf-windows-ext complete): CF-W wins
+- **Primary**, the 112 boards open after phase 1: CF-W 1,096 vs CF 1,303 opens (−15.9 %), 51 boards fewer and 19 more, mean d −0.073, p 0.0042.
+- **Guards hold:** clean 124 vs 120, DRC errors 1,387 vs 1,405, legal 195 vs 195, physics n 9 median 0.997 (floor 1.12).
+- **All 233 boards:** 1,724 vs 1,931 opens (−10.7 %).
+- **CPU:** real 405.4 h (CF-W) vs 417.9 h (CF), against a charged allowance of 610.2 h each. No optimizer `timed_out` in either arm.
+- Phase 1 was identical in both arms on 229 of 233 boards.
