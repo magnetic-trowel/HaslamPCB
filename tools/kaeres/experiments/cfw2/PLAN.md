@@ -42,3 +42,6 @@ The boards of `cf-windows` and `cf-windows-ext` (as of 170 of 186 jobs) whose ph
   - real CPU against charged;
   - the windows reports summarised per outcome group: windows tried and kept, repeats, rip-up size, legality failures, why the loop stopped, and which open nets (signal, bus, power) the windows attempted.
   - These reports also serve the analysis of why signal and bus opens survive on the 14 boards with 20 or more opens left. They are in this experiment's CF-W arm, so no separate re-run is needed.
+
+## Addendum after the first smoke (2026-11-16, before any full run)
+At 45569da the windows report was written, but kaebench's command adapter did not copy it to the run's artifacts, so it was not stored. Fix: `bench/src/kaebench/adapters.py` keeps `restarts/report-windows.json`. The experiment is registered again at the new commit as `cfw2b`. Arms, boards and rules are unchanged; `cfw2` holds only the smoke.
