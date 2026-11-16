@@ -132,7 +132,7 @@ Each entry gives (a) the mapping, (b) the known result, (c) what breaks, (d) the
   - Two pads of the same part on the same net are double-counted (take the min).
 - **(d) Payoff.**
   - The lifted cost ranks placements by routed cost at ρ 0.85, against 0.51 for HPWL
-    ([collapse_assign](../../tools/research/collapse_assign/RESULTS.md)). T1 brings that
+    ([collapse_assign](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/collapse_assign/RESULTS.md)). T1 brings that
     signal into every best response, priced at the current β.
   - It is the exact discrete version of the envelope-theorem pin tension, which failed as
     a *gradient* (`tension`, `grad`) and has not been tried as a *global argmin*.
@@ -285,7 +285,7 @@ Each entry gives (a) the mapping, (b) the known result, (c) what breaks, (d) the
 - **(d) Payoff.**
   - jc uses 70% more vias than combo on large boards.
   - Its conflicts are mostly corridor sharing
-    ([collapse_assign](../../tools/research/collapse_assign/RESULTS.md)).
+    ([collapse_assign](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/collapse_assign/RESULTS.md)).
   - Class alternatives could replace via hops.
 - **(e) Test.** For the conflict cells with the highest jc history, enumerate 2–4 classes
   per involved net and pick a combination by local search. Count vias and clean.

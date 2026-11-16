@@ -35,6 +35,8 @@ Pending the 500-board comparison. The speed-ups are exact and safe to keep; they
 
 ## Code
 
+- **Archived:** [`autoplace`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/autoplace) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/kicad-auto-everything/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [e822cf3](https://github.com/magnetic-trowel/kicad-auto-everything/commit/e822cf31fa4b572b19571644aef2eb1ec9ab8eca) (2026-10-27, import from the research branch, path fixes only); last change on the research branch: `bb952a0` (2026-11-01, docs only) at tag `archive/autoplace-kae-router`. Run it from a checkout of the tag.
+
 `tools/research/autoplace/place.py --router kae` (`_route_kae`, `route_probe`); speed-ups in `_Cells`, `_crossings`, `_within`, `_legal_mask`. `kae` itself is described in the routing area.
 
 ## Related

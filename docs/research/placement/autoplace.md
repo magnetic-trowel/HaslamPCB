@@ -76,6 +76,8 @@ How the loop spent its effort (in-loop unrouted/errors per probe, `*` = kept): a
 
 ## Code
 
+- **Archived:** [`autoplace`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/autoplace) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/kicad-auto-everything/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [e822cf3](https://github.com/magnetic-trowel/kicad-auto-everything/commit/e822cf31fa4b572b19571644aef2eb1ec9ab8eca) (2026-10-27, import from the research branch, path fixes only); last change on the research branch: `cd26ccb` on `autoplace-experiments`, docs-only `7a540b4` (2026-11-01) at tag `archive/autoplace-experiments`. Run it from a checkout of the tag.
+
 `tools/research/autoplace/` (moved from `methods/autoplace` on the branch, tip `cd26ccb`): `place.py` (solver and driver), `kicad_helper.py` (pcbnew side), `summarize.py`, `place-smoke-14.txt`, README with setup. Run as a kaebench `--command`:
 
 ```bash
