@@ -942,6 +942,65 @@ def _exact_only_candidates(P, st, i, ks, w_rot, limit):
     return _candidates(P, st, i, S, pad, ks, w_rot, limit)
 
 
+class RepairPhysics:
+    """Physics tie-break for the legality repairs (audit P6; setting `repair_physics`, off by default).
+
+    The repairs move a part to the nearest exactly clean spot by displacement alone, so a decap
+    pushed out of a crowd lands wherever there is room: on 14 merit boards the exact repair raised
+    two boards' decoupling loops by 130% and 274% (docs/research/placement/kae-exact-legality.md).
+    With this on P (`P.repair_phys`), a repair that has found its nearest clean spot for a part
+    with physics terms keeps looking a little longer: the clean spots within `window_mm` (L1, plus
+    the rotation charge) of that first one, at most `n` of them and `checks` exact checks more,
+    and takes the one whose physics (the placement terms' incremental delta) is lowest; the
+    nearest wins ties (an improvement under `tol` Σu). Each priced spot also charges one
+    deadline check, so the work is counted. Parts no term touches move as before."""
+
+    def __init__(self, P, terms, n=6, window_mm=2.0, checks=40, tol=1e-4):
+        self.terms = terms
+        self.n, self.checks, self.tol = int(n), int(checks), float(tol)
+        self.window_mm = float(window_mm)
+        self.window = self.window_mm / P.g            # grid cells, the candidates' cost unit
+        touched = terms.parts()
+        self.priced_parts = {p.i for p in P.parts if p.movable and p.uuid in touched}
+        self.stats = dict(priced=0, evaluated=0, changed=0, gain=0.0)
+
+    def priced(self, i):
+        return i in self.priced_parts
+
+    def pricer(self, P, st, i):
+        """A function (X, Y, k) -> change of the physics total if part i stands there, the rest
+        where st has them now."""
+        poses = {p.uuid: st.pose(p.i) for p in P.parts}
+        uid = P.parts[i].uuid
+
+        def at(X, Y, k):
+            home = (int(st.X[i]), int(st.Y[i]), int(st.K[i]))
+            st.X[i], st.Y[i], st.K[i] = X, Y, k
+            try:
+                new = st.pose(i)
+            finally:
+                st.X[i], st.Y[i], st.K[i] = home
+            self.stats["evaluated"] += 1
+            return float(self.terms.delta(poses, [uid], [new]))
+        return at
+
+    def choose(self, picks):
+        """The spot to take of [(physics delta, X, Y, k)] in candidate order (the first is the
+        nearest): the lowest physics, the nearest unless another is better by more than tol."""
+        best = picks[0]
+        for c in picks[1:]:
+            if c[0] < best[0] - self.tol:
+                best = c
+        self.stats["priced"] += 1
+        if best is not picks[0]:
+            self.stats["changed"] += 1
+            self.stats["gain"] = round(self.stats["gain"] + picks[0][0] - best[0], 6)
+        return best
+
+    def report(self):
+        return dict(self.stats, n=self.n, window_mm=self.window_mm, checks=self.checks)
+
+
 def move_clean(P, st, E, i, deadline, w_rot=4.0, limit=600, evict=True, allowed=None, guard=None):
     """Move part i to the nearest spot that is grid-free (others where they are) and exactly
     clean; with evict, else to the nearest exactly clean spot where it only covers smaller
@@ -955,12 +1014,22 @@ def move_clean(P, st, E, i, deadline, w_rot=4.0, limit=600, evict=True, allowed=
     cands = _candidates(P, st, i, S, pad, ks, w_rot, limit)
     if not cands:
         cands = _exact_only_candidates(P, st, i, ks, w_rot, limit)
-    for c, X, Y, k in cands:
+    rp = getattr(P, "repair_phys", None)
+    if rp is not None and rp.priced(i):
+        spot = _priced_spot(P, st, E, i, cands, deadline, rp,
+                            lambda X, Y, k: guard.count_at(i, X, Y, k) <= base)
+        if spot is not None:
+            E.set_pose(i, *spot)
+            return True, []
         if deadline.passed():
             return False, []
-        if not E.findings_at(i, X, Y, k, first=True) and guard.count_at(i, X, Y, k) <= base:
-            E.set_pose(i, X, Y, k)
-            return True, []
+    else:
+        for c, X, Y, k in cands:
+            if deadline.passed():
+                return False, []
+            if not E.findings_at(i, X, Y, k, first=True) and guard.count_at(i, X, Y, k) <= base:
+                E.set_pose(i, X, Y, k)
+                return True, []
     if not evict:
         return False, []
     # evict: grid tables without the smaller movable parts; the spot must be exactly clean
@@ -989,6 +1058,31 @@ def move_clean(P, st, E, i, deadline, w_rot=4.0, limit=600, evict=True, allowed=
             out.append(P.parts[q].ref)
         return True, out
     return False, []
+
+
+def _priced_spot(P, st, E, i, cands, deadline, rp, ok=None):
+    """RepairPhysics' choice for part i among `cands` (in order, nearest first): the first
+    exactly clean spot that `ok` accepts, then the further clean ones within rp.window of it
+    (at most rp.n priced, rp.checks exact checks after the first), the lowest physics kept.
+    Returns (X, Y, k) or None (no clean spot, or the deadline passed before one was found)."""
+    price = None
+    picks, c0, extra = [], None, 0
+    for c, X, Y, k in cands:
+        if deadline.passed():
+            break
+        if c0 is not None:
+            if c > c0 + rp.window or len(picks) >= rp.n or extra >= rp.checks:
+                break
+            extra += 1
+        if E.findings_at(i, X, Y, k, first=True) or (ok is not None and not ok(X, Y, k)):
+            continue
+        if price is None:
+            price = rp.pricer(P, st, i)
+            c0 = c
+        picks.append((price(X, Y, k), X, Y, k))
+    if not picks:
+        return None
+    return rp.choose(picks)[1:]
 
 
 PARK = -10 ** 6
@@ -1033,9 +1127,16 @@ def reseed(P, st, E, parts, deadline, edge=False, first=(), w_rot=4.0, limit=600
             cands = _candidates(P, st, q, S, pad, ks, w_rot, limit, edge=edge)
             if not cands:        # the grid has no room for it: the exact check judges (paw3222)
                 cands = _exact_only_candidates(P, st, q, ks, w_rot, limit)
+            rp = getattr(P, "repair_phys", None)
+            rp = rp if rp is not None and rp.priced(q) else None
+            picks, c0, extra, price = [], None, 0, None
             for c, X, Y, k in cands:
                 if deadline.passed():
                     break
+                if c0 is not None:      # physics tie-break (RepairPhysics): a few more spots near the first
+                    if c > c0 + rp.window or len(picks) >= rp.n or extra >= rp.checks:
+                        break
+                    extra += 1
                 if E.findings_at(q, X, Y, k, first=True):
                     continue
                 E.set_pose(q, X, Y, k)
@@ -1048,11 +1149,19 @@ def reseed(P, st, E, parts, deadline, edge=False, first=(), w_rot=4.0, limit=600
                 if ok and big:
                     ok = all(_still_fits(P, st, j, big_maps[j], q) for j in big)
                 tries += 1
+                if ok and rp is not None:
+                    if price is None:
+                        price, c0 = rp.pricer(P, st, q), c
+                    picks.append((price(X, Y, k), X, Y, k))
+                    continue
                 if ok:
                     done = True
                     break
-                if tries > 300:
+                if tries > 300 and c0 is None:
                     break
+            if picks:
+                E.set_pose(q, *rp.choose(picks)[1:])
+                done = True
             if not done and first_clean is not None:
                 E.set_pose(q, *first_clean)
                 done = True

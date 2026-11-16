@@ -219,6 +219,12 @@ DEFAULTS = dict(
                                    # negative = auto (Problem.auto_margin: 2 x (0.7 - utilization), 0..1 mm).
                                    # 0: placement-decide-staged found auto and 0 equal (cp1 0.305 both,
                                    # completion 0.942 / 0.941), so the formula with no source is dropped
+    repair_physics=0,              # placement (audit P6): 1: the legality repairs (kae.place.exact move_clean,
+                                   # reseed) take the lowest-physics of the first few exactly clean spots near
+                                   # the nearest, and legalization windows keep decaps by their ICs' pins
+                                   # (kae.place.legalize PAIR_W); 0: nearest spot, displacement only. Off until
+                                   # the followup A/B (tools/kaeres/experiments/followup-ab.sh); env
+                                   # KAE_REPAIR_PHYSICS when neither the project nor opts set it
     anchor_tight=1,                # placement: a big part with no spot free of the fixed geometry is fixed first (place.pipeline)
     connector_edge=2,              # placement: user-facing connectors kae places (kae.place.edge_check:
                                    # USB, barrel, audio, RJ/modular, video/D-sub; at or near 100 % on an

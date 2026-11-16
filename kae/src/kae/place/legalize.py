@@ -49,6 +49,34 @@ def _groups(st, bad, radius_mm):
     return groups
 
 
+# repair_physics (audit P6): a window keeps each decap near its IC's power pin. Each pair is a
+# two-pin net in the window's objective at PAIR_W x the pair's weight (decap structures weigh 2
+# x the cap's ownership, kae.place.clusters), so a cell of pin distance costs about a cell of
+# displacement (the window's own weight, 1 per cell) and a cap is not left behind by its IC.
+PAIR_W = 0.5
+
+
+def _pair_nets(P, st, free):
+    """hpwl_nets for cpsat.Model from P.repair_pairs [(part, pad, part, pad, weight)]: the pairs
+    with a part in `free`; the other end, when it is not free, as a fixed pin where it stands."""
+    pairs = getattr(P, "repair_pairs", None)
+    if not pairs:
+        return []
+    nets = []
+    for ia, ka, ib, kb, w in pairs:
+        if ia not in free and ib not in free:
+            continue
+        pins, fixed = [], []
+        for i, k in ((ia, ka), (ib, kb)):
+            if i in free:
+                pins.append((i, k))
+            else:
+                fx, fy = st.pins_xy(i)[k]
+                fixed.append((int(round((fx - P.ox) / P.g)), int(round((fy - P.oy) / P.g))))
+        nets.append((w, pins, fixed))
+    return nets
+
+
 def _window_solve(P, st, free, margin_cells, time_s, workers, seed, w_rot=1.0):
     """Re-place the `free` parts inside a window around them; others are obstacles."""
     g = P.g
@@ -76,7 +104,8 @@ def _window_solve(P, st, free, margin_cells, time_s, workers, seed, w_rot=1.0):
         it = cpsat.single(P, i, int(st.X[i]), int(st.Y[i]), int(st.K[i]))
         it.bounds = (wi0, wi1, wj0, wj1)
         items.append(it)
-    model = cpsat.Model(P, items, obstacles, w_disp=1.0, w_rot=w_rot)
+    nets = _pair_nets(P, st, fs)
+    model = cpsat.Model(P, items, obstacles, w_disp=1.0, w_rot=w_rot, hpwl_nets=nets, w_wl=PAIR_W if nets else 0.0)
     sol = model.solve(time_s, workers=workers, seed=seed)
     _ = g
     if sol is not None:      # variant index -> rotation index
