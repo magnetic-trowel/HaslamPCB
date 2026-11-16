@@ -26,6 +26,7 @@ Purposes: (1) spare others dead ends: failures are written up as carefully as su
 - `docs/research/<area>/<id>.md`: one write-up per path, or per group of small related dead ends.
 - `docs/research/ideas.md`: untested ideas by theme.
 - Code: `tools/research/<path>/`; the `kae` package in `kae/`; code not ported is cited by branch and commit.
+- Archived code: prototypes that nothing in HEAD runs were removed on 2026-11-15 and stay public at tag [`archive/research-prototypes-2611`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research); their pages link there. Map: [tools/research/README.md](../../tools/research/README.md#archived-prototypes).
 
 ## Areas
 
