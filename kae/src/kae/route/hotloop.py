@@ -950,13 +950,14 @@ def clear_regions(s, mods, margin):
     return out
 
 
-def _foreign(routing, cr):
+def _foreign(routing, cr, fixed=None):
     """The routing items of nets foreign to the cell inside its region on its clear layers (vias: any layer),
-    unlocked only: [(item, length inside)]."""
+    never the task input's own pre-routes (`fixed` uuids; without it, locked items): [(item, length inside)].
+    The router's own copper may come back locked (bq25306's N board), so lock state alone does not tell."""
     from shapely.geometry import LineString, Point
     out = []
     for r in routing:
-        if r.get("locked") or not r.get("net") or r["net"] in cr["own"]:
+        if (r["uuid"] in fixed if fixed is not None else r.get("locked")) or not r.get("net") or r["net"] in cr["own"]:
             continue
         if r["net"] in cr.get("pins", ()) and r.get("layer") == cr.get("side"):
             continue                         # a cell pin's fan-out on the parts' own layer
@@ -1036,8 +1037,9 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
         q0 = quotes(board_path, wd / "drc0" / "drc.json")
         t_q = clock_now() - t1
         listing = pcbnew_io.edit_routing(board_path, wd / "listing.kicad_pcb")["routing"]
+        fixed = {r["uuid"] for r in W.routing(input_path) if r.get("locked")}      # the task's pre-routes
         for cr in regions:
-            cr["foreign"] = _foreign(listing, cr)
+            cr["foreign"] = _foreign(listing, cr, fixed)
             cr["amount"] = sum(x[1] for x in cr["foreign"])
         regions.sort(key=lambda c: -c["amount"])
         per_cell = 2 * t_drc + t_q + 120.0
@@ -1063,11 +1065,14 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             shutil.copy2(board_path, snap)
             # the current board's routing (earlier cells may have changed it)
             listing = pcbnew_io.edit_routing(board_path, cd / "listing.kicad_pcb")["routing"]
-            fr = _foreign(listing, cr)
+            fr = _foreign(listing, cr, fixed)
             ripped_nets = sorted({r["net"] for r, _ in fr})
             loop_cu = [r["uuid"] for r in listing if r.get("net") in cr["loop_nets"] and not r.get("locked")]
+            # the ripped nets' remaining copper must be free to re-route (the router's copper can come back locked)
+            ripped_set = {r["net"] for r, _ in fr}
+            rel = [r["uuid"] for r in listing if r.get("net") in ripped_set and r.get("locked") and r["uuid"] not in fixed]
             # rip, lock the loop's own copper, the region as keep-outs on its layers
-            W.edit(board_path, board_path, remove=[r["uuid"] for r, _ in fr], lock=loop_cu or None)
+            W.edit(board_path, board_path, remove=[r["uuid"] for r, _ in fr], lock=loop_cu or None, unlock=rel or None)
             zones = []
             from shapely.ops import unary_union
             for layer, net in cr["layers"].items():
@@ -1083,7 +1088,7 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
                 W.append_items(board_path, board_path, zones=zones)
             o2 = dict(opts)
             o2["crit_zones"] = [z for z in pcbnew_io.zone_fills(board_path)["zones"] if hard_zone(z.get("name"))]
-            o2["fixed_uuids"] = sorted({r["uuid"] for r in listing if r.get("locked")} | set(loop_cu))
+            o2["fixed_uuids"] = sorted(fixed | {r["uuid"] for r in listing if r.get("net") in cr["loop_nets"]})
             o2["rounds"] = 1
             p2 = constraints.plan(info, input_path, o2)
             p2.plane_policy = plane_policy(o2)
