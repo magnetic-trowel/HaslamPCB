@@ -97,3 +97,14 @@ router's "walled in by shape edge (touches U1.4, P1.EP)" there is a pinch agains
 pair term already prices. So chan3edge runs only where the screen shows the edge band in use: the arm is kept if at
 least 20 % of the gated boards have pads of movable parts in the band at the end of the w = 0 anneal (mean over
 seeds of `final_edge` > 0), else it is dropped before submission and the run has three arms.
+
+## Addendum 2026-11-16 (2), before the screen's results are read
+- The arms run kae at 220479488 (f07098dc plus a report-only change: the channel report, seed and final overlap of
+  pairs with a movable part, is kept in every run, control included, as `stages.place.channel` of the joint report;
+  it was dropped by kae.joint before). Harness a21c44ca. Methods: control 370040899c4e, chan3 87bb75a6cdbc,
+  chan3edge 683e35db2440, xingchan3 794bce3d52ce.
+- A kaeres smoke of the arms at f07098dc on tinkerforge motion-detector (outside the set) ran and scored in every
+  arm. Its one blocked open there is "edge clearance to shape edge (.kicad_pcb)": an Edge.Cuts shape outside the
+  closed outline (the board's DRC reports `invalid_outline`), which neither the placer's outline nor the edge term
+  sees. The edge term's motivating case is a malformed outline, not a pad-to-edge channel.
+- Mechanism check per run: `stages.place.channel.final_pairs` per arm against control.
