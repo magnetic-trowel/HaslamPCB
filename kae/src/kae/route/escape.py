@@ -45,7 +45,9 @@ solving the bound again with the rule changed (narrower track, smaller clearance
 track clearance, smaller via, plane layers opened to signals, more signal layers), with the
 KiCad edit that writes it back. A site without a via is credited one pitch more room, and a
 gap between two empty sites at least what crosses a pitch with nothing at its ends, so runs
-of empty sites of any length are over-estimated (_caps `sound`). Pad rings (QFN/QFP rows, ring_certificate): the
+of empty sites of any length are over-estimated (_caps `sound`). Where the bound finds no
+obstruction with the smallest legal via but does with the net class's via kae routes with,
+own_via reports kae's via choice (hazard escape_blocked_by_own_via), not a rule. Pad rings (QFN/QFP rows, ring_certificate): the
 pads a track of the board's minimum width cannot leave between its neighbours.
 
 Buses: `plan_grid(..., order=None)` takes no bus order yet; the interface for it is a list
@@ -1150,6 +1152,56 @@ def _kicad_edit(ref, r, layers):
     return ""
 
 
+def own_via(sp, pkg, info, opts=None, log=print, deadline=None):
+    """None, or the finding that kae's own via, not the rules, blocks the escape: the bound
+    (as `certificate`'s, without vias in the pads unless opts escape_via_in_pad) finds no
+    obstruction with the smallest via the rules allow (legal_via), but does with the via kae
+    routes with (the net class's via, constraints._via_choice: one per net, everywhere). The
+    fix is kae's via choice, not a rule. kae has no option for a smaller via in the escape
+    alone, so the net class's via is the setting that controls it (a capability gap)."""
+    from kae import hazards as H
+    prof, nlay = _fab(sp, opts)
+    fl = fab_floors(prof, nlay)
+    lv = legal_via(sp, fl)
+    if lv is None or (deadline is not None and clock_now() > deadline):
+        return None
+    ctx = _setup(sp, pkg, info, opts, minimum=True, floors=fl)
+    vias = {n: sp.via_size(n) for n in {ctx["balls"][k][0].net for k in ctx["sig"]}}
+    if not vias:
+        return None
+    own = min(vias.values())       # over-estimates the room kae's vias leave, as the bound must
+    if own[0] <= lv[0] + 1e-9:
+        return None
+    e_legal, meta, _d = bound(sp, pkg, info, opts, floors=fl)
+    demand = meta["demand"]
+    if e_legal is None or e_legal < demand - 0.5:
+        return None            # an obstruction with the legal via too: the certificate's entry
+    e_own, _m, _d = bound(sp, pkg, info, opts, override=dict(D=own[0]), floors=fl)
+    if e_own is None or e_own >= demand - 0.5:
+        return None
+    short = demand - int(math.floor(e_own + 1e-6))
+    ref = pkg["ref"]
+    classes = sorted({info["nets"].get(n, {}).get("netclass") or "Default" for n, v in vias.items() if v == own})
+    cls = ", ".join(classes)
+    gap = "kae has no option to use a smaller via in the escape alone: its via is the net class's, for every via of the net"
+    summary = (f"{ref}: no obstruction found with the smallest via the rules allow ({lv[0]} mm, drill {lv[1]} mm), "
+               f"but kae routes with the net class's {own[0]} mm via (drill {own[1]} mm), with which {short} of "
+               f"{demand} signal nets can't leave its ball field (LP bound {e_own:.1f}). No rule needs relaxing: "
+               f"set the via of net class {cls} to {lv[0]} mm, drill {lv[1]} mm. Capability gap: {gap}")
+    log("escape own via " + summary)
+    h = H.make("escape_blocked_by_own_via", "warn", "data",
+               f"{ref}: the rules allow a {lv[0]} mm via, with which no escape obstruction is found; kae uses the "
+               f"net class's {own[0]} mm via, with which {short} of {demand} signal nets can't leave the ball field.",
+               objects=[ref] + classes,
+               evidence=dict(legal_via=list(lv), own_via=list(own), demand=demand, escapable_legal=round(e_legal, 1),
+                             escapable_own=round(e_own, 1), short=short, fab=prof["name"], capability_gap=gap),
+               fix=f"No rule needs relaxing: set the via of net class {cls} to {lv[0]} mm, drill {lv[1]} mm "
+                   f"(.kicad_pro net classes); kae then uses it for every via of those nets.")
+    return dict(package=ref, constraint="escape_own_via", legal_via=list(lv), own_via=list(own), netclasses=classes,
+                demand=demand, escapable_legal=round(e_legal, 1), escapable_own=round(e_own, 1),
+                short_with_own_via=short, capability_gap=gap, summary=summary, hazards=[h])
+
+
 def _across(p, q):
     """`p`'s width across the row it shares with neighbour `q`."""
     ang = math.atan2(q.pos[1] - p.pos[1], q.pos[0] - p.pos[0])
@@ -1352,7 +1404,9 @@ def _cache_put(key, value):
 
 def run(sp, info, opts=None, log=print, deadline=None):
     """Plan and certify the escapes of every ball grid (not laid); check fine-pitch pad rings.
-    Returns {packages, blocked, laid, wanted} (blocked: kae.route.blocked entries)."""
+    Returns {packages, blocked, laid, wanted} (blocked: kae.route.blocked entries), and
+    hazards when kae's own via blocks an escape the rules' smallest via does not (own_via;
+    the package's plan carries the finding as own_via)."""
     opts = opts or {}
     out = dict(packages=[], blocked=[], laid=0, wanted=0)
     for pkg in find_packages(sp):
@@ -1377,7 +1431,7 @@ def run(sp, info, opts=None, log=print, deadline=None):
             if got is not None:
                 # the same input planned before (a restart's earlier attempt): plans and
                 # certificates are deterministic
-                plan, paths, plane_vias, flex, cert = got
+                plan, paths, plane_vias, flex, cert, ov = got
                 ctx = _setup(sp, pkg, info, opts)
                 ctx["flex"] = flex
                 plan = dict(plan, cached=True)
@@ -1388,10 +1442,20 @@ def run(sp, info, opts=None, log=print, deadline=None):
                 except Exception as e:  # noqa: BLE001 - a failed proof must not throw away the plan
                     log(f"escape plan {pkg['ref']}: certificate failed: {type(e).__name__}: {e}")
                     cert = None
-                _cache_put(key, (plan, paths, plane_vias, ctx.get("flex", {}), cert))
+                ov = None
+                if cert is None:
+                    # no obstruction with the legal via: does kae's own (the net class's) block it?
+                    try:
+                        ov = own_via(sp, pkg, info, opts, log=log, deadline=deadline)
+                    except Exception as e:  # noqa: BLE001 - a failed check must not throw away the plan
+                        log(f"escape plan {pkg['ref']}: own-via check failed: {type(e).__name__}: {e}")
+                _cache_put(key, (plan, paths, plane_vias, ctx.get("flex", {}), cert, ov))
             if cert:
                 out["blocked"].append(cert)
                 plan["certificate"] = cert["summary"]
+            if ov:
+                plan["own_via"] = {k: v for k, v in ov.items() if k != "hazards"}
+                out.setdefault("hazards", []).extend(ov["hazards"])
             plan["escapes"] = _records(ctx, paths)
             plan["laid"] = plan["vias_laid"] = 0
             out["laid"] += plan["laid"]
