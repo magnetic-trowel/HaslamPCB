@@ -227,6 +227,10 @@ DEFAULTS = dict(
     place_w_chan=0.0,              # placement: weight of the annealer's routing-channel term (pad halos of
                                    # two parts overlapping / mean part area; haslam.place.exact.channel_grid). Off
                                    # until its A/B: one board's evidence so far (paw3395)
+    place_chan_edge=0,             # placement: 1 adds channels between pads and the board edge to the
+                                   # channel term (haslam.place.exact.channel_edge_term); off until its A/B
+    place_chan_cap=0.0,            # placement: k > 0 caps place_w_chan so the channel term's seed cost is
+                                   # at most k x the seed wirelength cost (haslam.place.pipeline._channel_weight)
     place_untangle=0,              # placement: 1 runs haslam.place.crossings.untangle after legalization (swaps of
                                    # equal parts and half turns that remove ratsnest crossings). Off until its A/B
                                    # (docs/research/placement/placement-routability-2611.md) says otherwise
