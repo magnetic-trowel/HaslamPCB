@@ -376,35 +376,29 @@ def _rung_summary(res, seconds):
 
 
 def _channel_weight(P, st, w_chan, zone_tab, kw, board_path, opts):
-    """The routing-channel term's weight, its pad-to-edge table and its report.
+    """The routing-channel term's weight, its pad-to-edge table (place_chan_edge 1:
+    exact.channel_edge_term, else None), its report (the halo overlap of pairs with a movable
+    part at the anneal's seed, / A0, and the edge part at weight 1) and the edge table at
+    weight 1 for the final report.
 
-    place_chan_edge 1 adds channels between pads and the board edge (exact.channel_edge_term).
-    place_chan_cap k > 0 caps the weight so the term's cost at the seed (halo overlap of pairs
-    with a movable part / A0, plus the edge part) is at most k times the seed's wirelength
-    cost: clearing every pinch the seed has may then cost at most a share k of the
-    wirelength. Without it the cost of a pinch is fixed against the mean part's area while
-    the wirelength is normalized to 1, so a board of many small parts with many pinches
-    spends far more wire on them (dvhx soldering exercise, 991 pads: wirelength +30 % at
-    w_chan 3)."""
+    A cap on the weight from the seed's cost (place_chan_cap, tried on this branch) does not
+    work: the seed's overlap is that of the unlegalized start (dvhx 19 x A0, fm4dd 50 x A0)
+    and says nothing about the pinches the anneal ends with, so any cap on it switches the
+    term off."""
     from kae.route.constraints import setting
     edge_on = float(setting("place_chan_edge", board_path, opts) or 0.0) > 0
-    cap = float(setting("place_chan_cap", board_path, opts) or 0.0)
     A0 = exactmod.mean_part_area(P)
     ov0, np0 = exactmod.channel_overlap(P, exactmod.channel_grid(P, weight=1.0), st.X, st.Y, st.K)
     c = zone_tab.c if zone_tab is not None else zonesmod.raster_cell(P)
     e1 = exactmod.channel_edge_term(P, 1.0, A0, c) if edge_on else None
     edge0 = float(sum(e1.part(i, st.X[i], st.Y[i], st.K[i]) for i in P.mov)) if e1 is not None else 0.0
-    unit = ov0 / A0 + edge0
-    w_eff = w_chan
-    if cap > 0 and unit > 0:
-        w_eff = min(w_chan, cap * float(kw.get("w_wl", 1.0)) / unit)
-    rep = dict(w_chan=w_chan, w_eff=round(w_eff, 5), cap=cap, edge=edge_on, A0=round(A0, 3),
-               seed_overlap=round(ov0 / A0, 5), seed_pairs=np0, seed_edge=round(edge0, 5))
+    rep = dict(w_chan=w_chan, edge=edge_on, A0=round(A0, 3), seed_overlap=round(ov0 / A0, 5), seed_pairs=np0,
+               seed_edge=round(edge0, 5))
     edge_tab = None
     if e1 is not None:
-        edge_tab = exactmod.channel_edge_term(P, w_eff, A0, c)
-        rep.update(e1.info, edge_weight=w_eff)
-    return w_eff, edge_tab, rep, e1
+        edge_tab = exactmod.channel_edge_term(P, w_chan, A0, c)
+        rep.update(e1.info, edge_weight=w_chan)
+    return w_chan, edge_tab, rep, e1
 
 
 def _channel_final(P, st, rep, e1):
@@ -957,7 +951,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         arep = ann.run(cpu_s=cpu, deadline=deadline - 0.1 * budget)
         ann.write_back()
         if "channel_term" in rep:
-            _channel_final(P, st, rep["channel_term"], chan_e1)
+            _channel_final(P, ann.st, rep["channel_term"], chan_e1)
         rep["anneal"] = arep
         stage("anneal", t)
         t = clock_now()

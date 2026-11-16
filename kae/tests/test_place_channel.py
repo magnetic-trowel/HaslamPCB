@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The routing-channel term (kae.place.exact.channel_grid) and its two additions: the
-pad-to-edge part (channel_edge_term, riding on the zone table) and the weight cap
+"""The routing-channel term (kae.place.exact.channel_grid) and its addition: the
+pad-to-edge part (channel_edge_term, riding on the zone table) and its plumbing
 (pipeline._channel_weight). The overlap measure equals the annealer's own pair sum; the edge
 part prices pads near the outline and nothing in the middle; merged zone tables price each
 part as the sum of their parts; both engines price the merged table alike."""
@@ -126,7 +126,7 @@ def test_engine_prices_the_merged_table_like_the_reference():
         assert abs(da - de) < 1e-9 * max(1.0, abs(da))
 
 
-def test_cap_bounds_the_seed_cost_and_off_changes_nothing():
+def test_channel_weight_reports_the_seed_and_adds_the_edge_table_only_when_asked():
     P, st = _problem()
     _scatter(P, st)
     for i in P.mov:
@@ -134,10 +134,8 @@ def test_cap_bounds_the_seed_cost_and_off_changes_nothing():
         st.Y[i] = 200 + (st.Y[i] - 200) // 8
     w, tab, rep, e1 = _channel_weight(P, st, 3.0, None, {}, None, {})
     assert w == 3.0 and tab is None and e1 is None and rep["seed_overlap"] > 0
-    w, tab, rep, e1 = _channel_weight(P, st, 3.0, None, {}, None, {"place_chan_cap": 0.01, "place_chan_edge": 1})
-    unit = rep["seed_overlap"] + rep["seed_edge"]
-    assert w < 3.0 and abs(w * unit - 0.01) < 1e-3 * 0.01 + 1e-5
-    assert tab is not None and e1 is not None
-    # a cap above the seed cost leaves the weight alone
-    w, *_ = _channel_weight(P, st, 3.0, None, {}, None, {"place_chan_cap": 1e9})
-    assert w == 3.0
+    w, tab, rep, e1 = _channel_weight(P, st, 3.0, None, {}, None, {"place_chan_edge": 1})
+    assert w == 3.0 and tab is not None and e1 is not None and rep["edge_weight"] == 3.0
+    for i in P.mov:
+        k = int(st.K[i])
+        assert abs(tab.part(i, st.X[i], st.Y[i], k) - 3 * e1.part(i, st.X[i], st.Y[i], k)) < 1e-9
