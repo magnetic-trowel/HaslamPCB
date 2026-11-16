@@ -22,13 +22,19 @@ rule. It is used for:
   the class limits).
 
 ## Where the mechanism exists (`scan_rules.py`, `scan.json`)
-Over the 14,199 `usable_route_test` boards, a `.kicad_dru` constraint with a max (or min = max) that main's chain
-of roundings (kae up to 0.1 um, or to 1 um for vias, then Freerouting's 0.2 um width grid) pushes past a bound:
-**4 boards**. thunderscope rev5-3 has track_width 0.19079 (outer) and 0.14789 (inner), ducktop2 center, left_io
-and right_io have 0.1521. No via_diameter, hole_size or annular_width maximum is affected anywhere. Off-grid
-minimums are common: net-class widths off 0.1 um on about 200 boards, and via sizes, drills and edge clearances
-in design settings on 10-180 boards each. Rounding a minimum up is safe, though, and only last mile and escapes
-rounded one down, to the nearest 0.1 um.
+Over the 14,199 `usable_route_test` boards, two mechanisms push a value past a bound on main.
+- **Width maximum:** a `.kicad_dru` constraint with a max (or min = max) that main's chain of roundings (kae up to
+  0.1 um, then Freerouting's 0.2 um width grid) crosses. This happens on **4 boards**. thunderscope rev5-3 has
+  track_width 0.19079 (outer) and 0.14789 (inner); ducktop2 center, left_io and right_io have 0.1521. No
+  via_diameter or hole_size maximum is affected anywhere.
+- **Annular ring:** main rounds a via's drill and diameter up to 1 um each on its own, which shrinks the ring
+  below the minimum. thunderscope's 0.4064/0.2032 mm via with a 0.1016 mm ring becomes 0.407/0.204, a 0.1015 mm
+  ring: 199 annular_width errors in a control run. This happens on **2 boards**, thunderscope and regymm pynqsdr
+  ebaz_sdr (0.50038/0.30226, ring 0.09906). The scan reads only net-class vias and design-setting minimums.
+
+Off-grid minimums are common: net-class widths off 0.1 um on about 200 boards, and via sizes, drills and edge
+clearances in design settings on 10-180 boards each. Rounding a minimum up is safe, though, and only last mile and
+escapes rounded one down, to the nearest 0.1 um.
 
 ## Arms (same recipe and harness as bridge-fixes-ab: main 091163c0, fork d137fd1, 900 s, `--seed {attempt}`)
 C main; Q rule-quantize; CB bridge-fixes-combined (b135072a: W2 + L); QL rule-quantize-layers (ebf20ae4: Q + L).
@@ -36,26 +42,30 @@ New ids (`REP=rq`) so all arms run side by side in each board's job, kaeq timed 
 
 | experiment | boards | arms | attempts |
 |---|---|---|---|
-| `rule-quantize-mech` | `mech.txt` (the 4 scan boards) | C, Q, CB, QL | 5 |
+| `rule-quantize-mech` | `mech.txt` (the 5 scan boards) | C, Q, CB, QL | 5 |
 | `rule-quantize-guard` | `guard-hard.txt`: 68 boards, one per repo family, class widths off the 0.1 um grid, all `route_demand` hard/extreme or `pad_density` very_dense/extreme (`select_boards.py`) | C, Q | 2 |
 
 On guard boards, Q changes only the widths kae writes itself (critical router, last mile, escapes). Each moves by
 less than 0.1 um: the width is now kept in nm instead of being rounded up. Freerouting's widths are unchanged.
 
 ## Outcomes and decision rules
-**Primary (mech):** grid track_width errors are track_width errors whose actual width is within 0.2 um of the
-rule's bound. They are counted at round 0 (the bridge's DRC after the first Freerouting route) and on the scorer's
-final board, per board as the mean over attempts. All track_width errors are reported too.
-- **Q fixes it** when Q has no grid error on any final board and its round-0 total is at most 10 % of C's, with C
-  having some on at least 3 of the 4 boards.
-- **Q subsumes W** when QL has no more grid errors than CB on any board (final and round 0), and QL's guards
+**Primaries (mech), per board as the mean over attempts, each at round 0 (the bridge's DRC after the first
+Freerouting route) and on the scorer's final board:**
+- grid width errors: track_width errors whose actual width is within 0.2 um of the rule's bound. All track_width
+  errors are reported too;
+- grid ring errors: annular_width errors whose actual ring is within 1 um of the minimum.
+
+- **Q fixes it** when Q has no grid error of either kind on any final board, and its round-0 totals are each at
+  most 10 % of C's. For widths, C must have some on at least 3 of the 4 width boards; for rings, on at least 1 of
+  the 2 ring boards.
+- **Q subsumes W** when QL has no more grid width errors than CB on any board (final and round 0), and QL's guards
   against CB pass at +10 %.
 
 **Guards** (per board, mean over attempts of log(x + 1), arm minus control, geometric-mean ratio, 95 % bootstrap
 interval over boards, B = 4000): x = opens, other errors (all errors except track_width and items_not_allowed),
 all errors, and defects (opens + errors). A guard passes when the upper end is below the margin, fails when the
 lower end is above it, and is otherwise undecided.
-- mech: Q vs C and QL vs CB, margin +10 %. Four boards can't resolve 5 %, so these are reported as descriptive
+- mech: Q vs C and QL vs CB, margin +10 %. Five boards can't resolve 5 %, so these are reported as descriptive
   where undecided;
 - guard set: Q vs C, margin +5 %.
 
@@ -77,9 +87,28 @@ per-type DRC errors (read before any verdict), and the boards whose opens moved 
 where it matters (hard vs not).
 
 ## Expected cost (information, not a limit)
-About 0.3-0.5 CPU-h per run. mech: 4 x 4 x 5 = 80 runs, about 35 CPU-h; one job per board runs 20 attempts in
+About 0.3-0.5 CPU-h per run. mech: 5 x 4 x 5 = 100 runs, about 45 CPU-h; one job per board runs 20 attempts in
 sequence (wall about 5-6 h; 10 h job timeout). guard: 68 x 2 x 2 = 272 runs, about 110 CPU-h. Extension: about
 130 CPU-h more.
 
-## Smoke
-(Filled in before the full run.)
+## Smoke (2026-11-15, before the full run; a local smoke script, kaeq owner rule-quantize)
+C (main 091163c0) and Q (e27df322), seed 0, 900 s, fork d137fd1, one run each on thunderscope rev5-3 and ducktop2
+right_io, with KiCad DRC run the way the scorer runs it.
+
+| board | arm | round 0 errors | round 0 track_width / annular_width | final errors | final opens |
+|---|---|---|---|---|---|
+| thunderscope | C | 430 | 190 / 199 | 430 (190 track_width, 199 annular_width) | 499 |
+| thunderscope | Q | 48 | 0 / 0 | 8 (length 4, edge 4) | 499 |
+| right_io | C | - | - | 3 (items_not_allowed; last mile ripped the width errors) | 138 |
+| right_io | Q | - | - | 58 (54 items_not_allowed: L's bug; 4 diff_pair_gap) | 97 |
+
+- **Output.** Q's board has 157 tracks at 0.19079 and 4 at 0.14789 (C: 190 at 0.1908). Vias are 0.408/0.204 (C:
+  0.407/0.204). `widths_fitted` is 78 on thunderscope and 27 on right_io. KiCad's SES import takes the fractional
+  session width (1907.9 units) as 0.19079 mm.
+- **Profile** (py-spy on the python process, JFR on Freerouting d137fd1). Q on thunderscope: 931 s wall, peak RSS
+  2.2 GB. Freerouting 55 % (wall-budgeted; JFR: TreeMap, MinAreaTree overlaps, ShapeSearchTree completion, maze
+  priority queue). Last mile and repair 18 % (shapely intersection, union, buffer). KiCad DRC 12 %, pcbnew calls
+  6 %, rule evaluation 6 %, board I/O 1 %, imports and numba under 1 %.
+- **right_io:** Freerouting 81 %, last mile 12 % (grid `_connect`), DRC 3 %. C has the same split.
+- **Time and sizing.** The jobs are budget-bound, so no speedup shortens them, and Q adds no measurable time.
+  kaeres' default sizing (2 CPUs, about 2-3 GB) matches the measured peak.
