@@ -511,6 +511,36 @@ def attempt_failure(log_path):
                 log_tail=tail)
 
 
+PLACE_HISTORY = re.compile(r"place history: (.*)$")
+
+
+def place_history(log_path):
+    """What a fresh attempt's placement read from the shared routing history (kae.joint.stages, the
+    `place_history` option): its "place history: N attempts, peak P, coverage C ..." line, or None."""
+    try:
+        lines = Path(log_path).read_text(errors="replace").splitlines()
+    except OSError:
+        return None
+    for ln in lines:
+        if (m := PLACE_HISTORY.search(ln)):
+            return m.group(1).strip()
+    return None
+
+
+def keep_history_maps(wd):
+    """The routing-history maps the attempts wrote (h-*.npz under the work directory, e.g. the
+    place_history=../phist directory of kae.joint) into wd/phist.tar, so a run keeps the maps its
+    placements read; None when there are none."""
+    maps = sorted(p for p in wd.rglob("h-*.npz") if p.is_file() and not p.is_symlink())
+    if not maps:
+        return None
+    tar = wd / "phist.tar"
+    with tarfile.open(tar, "w") as t:
+        for p in maps:
+            t.add(p, arcname=str(p.relative_to(wd)), recursive=False)
+    return dict(file=tar.name, maps=[str(p.relative_to(wd)) for p in maps])
+
+
 def fr_telemetry(log_path):
     """The Freerouting telemetry (kae.route.freerouting.telemetry) of a route attempt's report (the
     last JSON line of its log): {"first": the first routing, "repair": [one per repair round that
@@ -891,6 +921,9 @@ def main():
             info.update(rc=p.returncode, rank=rank)
             if (fr := fr_telemetry(info["out"].parent / "log")):
                 info["fr"] = fr
+            if (ph := place_history(info["out"].parent / "log")):
+                info["place_history"] = ph
+                log(f"#{info['k']} place history: {ph}")
             if p.returncode:
                 info["failure"] = attempt_failure(info["out"].parent / "log")
             if sh is not None:
@@ -968,6 +1001,8 @@ def main():
         summary["halving"] = sh.summary()
     if (fr_raw := keep_fr_raw(wd, summary)):
         summary["fr_raw"] = fr_raw
+    if (phist := keep_history_maps(wd)):
+        summary["phist"] = phist
     (wd / "summary.json").write_text(json.dumps(summary, indent=1))
     print("KAE_WORK " + json.dumps(work), flush=True)
     if best is None:

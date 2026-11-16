@@ -43,3 +43,18 @@ def test_loop_keeps_the_history_option():
     # kae.joint.cli passes the loop only its own keys: the directory must be one of them
     from kae.joint.cli import _loop_keys
     assert "place_history" in _loop_keys()
+
+
+def test_place_history_logs_attempts_peak_and_coverage(tmp_path):
+    # the placement's log line restart.py surfaces (tools/kaeres/restart.py, place_history)
+    from kae.joint.stages import KaeStages
+    _hist(1.0).save(tmp_path / "h-0-1.npz")
+    _hist(3.0).save(tmp_path / "h-1-2.npz")
+    lines = []
+    st = KaeStages.__new__(KaeStages)
+    st.opts, st.log = dict(place_history=str(tmp_path)), lines.append
+    assert st._place_history() is not None
+    assert lines and lines[0].startswith("place history: 2 attempts, peak ")
+    assert "coverage 0." in lines[0]
+    r = st.place_history_report
+    assert r["attempts"] == 2 and 0 < r["coverage"] < 1 and r["peak"] > 0 and r["bins"] > 0

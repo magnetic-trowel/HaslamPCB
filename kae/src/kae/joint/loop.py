@@ -33,10 +33,10 @@ same result whenever no time budget binds (a time-bound stage stops at the clock
 from __future__ import annotations
 
 import os
-
-from kae.budget import now as clock_now
 import time
 from pathlib import Path
+
+from kae.budget import now as clock_now
 
 from .feedback import CongestionHistory, error_spots, physics_spots, plan_windows, unrouted_spots
 from .scorecard import accept

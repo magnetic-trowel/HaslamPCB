@@ -395,3 +395,24 @@ def test_open_rest_alt_runs_alt_on_a_board_the_windows_completed(tmp_path):
                             "--open-alt", win, "--open-rest", "--open-rest-alt"))
     assert r.returncode == 0, r.stdout + r.stderr
     assert s["third"] == "alt" and s["kept"] == 3 and "alt" in out.read_text()
+
+
+def test_place_history_line_and_maps_kept(tmp_path):
+    # a fresh attempt's log names what its placement read; the maps the attempts wrote go to phist.tar
+    wd = tmp_path / "restarts"
+    (wd / "a4").mkdir(parents=True)
+    (wd / "a4" / "log").write_text("[kae.joint 10:00:00] place history: 4 attempts, peak 2.50, coverage 0.120 "
+                                   "(30 of 250 bins, mean 0.800; 4 files)\nother\n")
+    (wd / "a0").mkdir()
+    (wd / "a0" / "log").write_text("no history here\n")
+    assert restart.place_history(wd / "a4" / "log").startswith("4 attempts, peak 2.50, coverage 0.120")
+    assert restart.place_history(wd / "a0" / "log") is None
+    assert restart.place_history(wd / "missing" / "log") is None
+    assert restart.keep_history_maps(wd) is None
+    (wd / "phist").mkdir()
+    (wd / "phist" / "h-0-1.npz").write_bytes(b"x")
+    (wd / "phist" / "h-1-2.npz").write_bytes(b"y")
+    rec = restart.keep_history_maps(wd)
+    assert rec == dict(file="phist.tar", maps=["phist/h-0-1.npz", "phist/h-1-2.npz"])
+    with tarfile.open(wd / "phist.tar") as t:
+        assert sorted(t.getnames()) == ["phist/h-0-1.npz", "phist/h-1-2.npz"]

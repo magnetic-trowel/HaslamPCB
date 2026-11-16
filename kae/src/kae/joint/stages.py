@@ -72,7 +72,7 @@ STAGE_KEYS = frozenset({
     "keep", "no_physics", "no_modules", "budget_s", "route_parallel", "first_last_mile", "first_blocked",
     # placer and module stage
     "writer", "edge_mate", "angle_step", "module_time", "window_module_time", "drop_modules_attempt",
-    "place_history_scale",
+    "place_history", "place_history_scale",
     # window re-placement and rip-up
     "replace_time", "replace_margin", "cong_mult", "history_scale", "bump_mm", "legal_mm", "net_mult",
     "phys_mult", "big_pads", "max_cross",
@@ -154,9 +154,15 @@ class KaeStages:
         if hist is None or not hist.h.any():
             self.log(f"place history: nothing to read in {d} ({len(files)} files)")
             return None
-        self.log(f"place history: {len(files)} attempts, peak {float(hist.h.max()):.2f}")
+        # coverage: the share of the map's bins with any history (a map that covers the board only
+        # raises the congestion weight everywhere); peak/mean over those bins says how local it is
+        on = hist.h[hist.h > 0]
+        peak, cover = float(hist.h.max()), on.size / max(1, hist.h.size)
+        self.log(f"place history: {hist.attempts} attempts, peak {peak:.2f}, coverage {cover:.3f} "
+                 f"({on.size} of {hist.h.size} bins, mean {float(on.mean()):.3f}; {len(files)} files)")
         scale = float(self.opts.get("place_history_scale", 1.0))
-        report = self.place_history_report = dict(attempts=int(hist.attempts))
+        report = self.place_history_report = dict(attempts=int(hist.attempts), peak=round(peak, 3),
+                                                  coverage=round(cover, 4), bins=int(on.size))
 
         def factory(P):
             return history_hook(P, hist, scale=scale, report=report)
