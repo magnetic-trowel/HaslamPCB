@@ -381,6 +381,11 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
             if final_rep and (report.get("repair") or {}).get("final", {}).get("unconnected"):
                 report.setdefault("hazards", []).extend(hotloop.blocked_by_keepout(
                     final_rep, hl["guards"], gnd={g["net"] for g in hl["guards"]}))
+        hc = clear_hook(output_path, input_path, wd / "hotloop-clear", opts,
+                        deadline=t0 + time_s - 10 - (float(opts.get("finish_min_s") or 60.0)
+                                                     if finish_parts(opts, p) else 0.0), log=log, report=report)
+        if hc is not None:
+            report["hotloop_clear"] = hc
         stepcache.save_fork(fork, "repaired", {"board": output_path}, clock_now() - t0)
         parts = finish_parts(opts, p)
         if parts and left() > float(opts.get("finish_min_s") or 60.0):
@@ -423,6 +428,19 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
             shutil.rmtree(wd, ignore_errors=True)
         else:
             report["workdir"] = str(wd)
+
+
+def clear_hook(board, input_path, workdir, opts, deadline, log=_log, report=None):
+    """kae.route.hotloop.clear on a routed board when the hotloop_clear setting is on (design D: the cells'
+    returns cleared of foreign copper after routing, kept per cell only when better); None when off. Its
+    hazards go to `report`."""
+    from . import hotloop
+    if not hotloop.settings(input_path, opts).get("clear") or not Path(board).exists():
+        return None
+    rep = hotloop.clear(input_path, board, workdir, opts=opts, deadline=deadline, log=log)
+    if report is not None:
+        report.setdefault("hazards", []).extend(rep.pop("hazards", None) or [])
+    return rep
 
 
 def finish_parts(opts, plan=None):
@@ -538,6 +556,11 @@ def last_mile_only(input_path, board_path, output_path, time_s=120.0, seed=0, wo
                               base=base)
         final = next((r for r in reversed(rounds) if r.get("final")), {}).get("final") or best
         report.update(rounds=rounds, final=final, status="repaired")
+        # the portfolio's final pass: the cells' returns cleared after the last mile, before finish
+        hc = clear_hook(output_path, input_path, wd / "hotloop-clear", opts, deadline=deadline, log=log,
+                        report=report)
+        if hc is not None:
+            report["hotloop_clear"] = hc
         return report
     finally:
         report["seconds"] = round(clock_now() - t0, 2)

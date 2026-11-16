@@ -77,7 +77,8 @@ GUARD_PREFIX = "kae-crit:"     # keep-outs (critical_write.GUARD_PREFIX; dropped
 MARGIN_WHY = ("a return at height h spreads as h / (x^2 + h^2): a 1 mm band holds 94 % (h 0.1 mm) "
               "to 86 % (h 0.2 mm) of an edge conductor's return; the hull covers the loop's interior")
 SETTINGS = ("hotloop_keepout", "hotloop_keepout_mm", "hotloop_cells", "hotloop_vias", "hotloop_pours",
-            "hotloop_budget_s", "hotloop_keepout_pours", "hotloop_lift", "hotloop_keepout_loopvias")
+            "hotloop_budget_s", "hotloop_keepout_pours", "hotloop_lift", "hotloop_keepout_loopvias", "hotloop_clear",
+            "hotloop_clear_force")
 
 
 def _log(msg):
@@ -92,6 +93,8 @@ def settings(board_path=None, opts=None):
                cells=bool(float(g["hotloop_cells"] or 0)), vias=bool(float(g["hotloop_vias"] or 0)),
                pours=bool(float(g["hotloop_pours"] or 0)), budget_s=float(g["hotloop_budget_s"]))
     out["keepout_pours"] = bool(float(g["hotloop_keepout_pours"] or 0))
+    out["clear"] = bool(float(g["hotloop_clear"] or 0))
+    out["clear_force"] = bool(float(g["hotloop_clear_force"] or 0))
     out["keepout_loopvias"] = bool(float(g["hotloop_keepout_loopvias"] or 0))
     out["lift"] = g["hotloop_lift"] if g["hotloop_lift"] in LIFT_LEVELS else "plane"
     out["cells"] = out["cells"] or out["vias"] or out["pours"]
@@ -909,3 +912,238 @@ def last_mile_crit_zones(input_path, board_path, info, workdir, opts=None, log=_
         log(f"hotloop: last-mile keep-outs: {type(e).__name__}: {e}")
         return []
     return zones
+
+
+# ----------------------------------------------------------------------------- D: clear the return after routing
+CLEAR_GAIN = 0.05        # a cleared cell is kept only when its quote (watts) falls by more than this
+
+
+def clear_regions(s, mods, margin):
+    """Per cell: {cell, region, layers, loop_nets, own_nets}: the hull of its loop terminals plus `margin`
+    (MARGIN_WHY), the return-plane layer and every layer where a loop net has a pour there, the loop nets
+    (terminal nets, switch node, rail) and every net of the cell parts' pads (never foreign)."""
+    from shapely.ops import unary_union
+    out = []
+    for m in mods:
+        T = m.spec.get("_T")
+        if not T:
+            continue
+        region = unary_union([t.geom for t in T]).convex_hull.buffer(margin)
+        c = region.centroid
+        _h, pl, pn = s.ctx.plane(s.ctx.side_layer(T[0].fp), c.x, c.y, gnd=True)
+        loop_nets = {t.net for t in T if t.net} | {n for n in (m.spec.get("sw"), m.spec.get("rail")) if n}
+        own = set(loop_nets) | {it.net for u in m.parts for it in s.space.pads_by_fp.get(u, []) if it.net}
+        layers = ({pl: pn} if pl is not None else {})
+        for n in loop_nets:
+            for l, g in s.space.zones_of(n):
+                if g.intersects(region):
+                    layers.setdefault(l, n)
+        if layers:
+            out.append(dict(cell=m.id, module=m, region=region, layers=layers, loop_nets=loop_nets, own=own,
+                            loop=unary_union([t.geom for t in T]).convex_hull))
+    return out
+
+
+def _foreign(routing, cr):
+    """The routing items of nets foreign to the cell inside its region on its clear layers (vias: any layer),
+    unlocked only: [(item, length inside)]."""
+    from shapely.geometry import LineString, Point
+    out = []
+    for r in routing:
+        if r.get("locked") or not r.get("net") or r["net"] in cr["own"]:
+            continue
+        if r["kind"] == "via":
+            g = Point(r["pos"]).buffer(r["size"] / 2)
+            if g.intersects(cr["region"]):
+                out.append((r, 1.0))
+            continue
+        if r.get("layer") not in cr["layers"]:
+            continue
+        g = LineString([r["a"], r["b"]])
+        if g.intersects(cr["region"]):
+            out.append((r, g.intersection(cr["region"]).length))
+    return out
+
+
+def _cell_watts(q, s, m):
+    """A quote row's watts at the cell's operating point: 1/2 L I^2 f_sw + I^2 D (1 - D) R (R at f_sw, skin
+    included, as cellquote gives it); None when the row is not 'ok'."""
+    from .critical_modules import cell_operating
+    if not q or q.get("state") != "ok":
+        return None
+    I, f, D, _b = cell_operating(s.ctx, m)
+    return 0.5 * q["L_nH"] * 1e-9 * I * I * f + I * I * D * (1 - D) * q["R_mohm"] * 1e-3
+
+
+def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=None):
+    """hotloop_clear (design D): after routing, per commutation cell, the copper of foreign nets on the cell's
+    return layer and loop-net pour layers within its hull plus margin is ripped; the ripped nets are routed
+    again with the region a keep-out for them only (the loop nets' copper locked): kae's last mile (grid
+    router), one Freerouting repair round with the region as kae-crit: obstacles, the last mile again. A
+    cell's changes are kept only when every ripped net is connected again, KiCad's DRC is no worse and the
+    cell's quote (kae.excite.cellquote, in watts at its operating point) falls by more than CLEAR_GAIN; else
+    they are reverted. Cells go in order of foreign copper under them. `board_path` is changed in place.
+    Returns a report {cells: [...], seconds, hazards}."""
+    import shutil
+    from kae import hazards as H
+    from kae.board import pcbnew_io
+    from . import constraints, critical_write as W, drc, repair
+    from .bridge import plane_policy, severities
+    t0 = clock_now()
+    deadline = deadline or (t0 + 900.0)
+    opts = dict(opts or {})
+    st = settings(input_path, opts)
+    rep = dict(cells=[], hazards=[])
+    wd = Path(wd)
+    wd.mkdir(parents=True, exist_ok=True)
+
+    def left():
+        return deadline - clock_now()
+    try:
+        info = info or pcbnew_io.export_dsn(input_path, wd / "kicad.dsn")
+        if not (wd / "kicad.dsn").exists():
+            pcbnew_io.export_dsn(input_path, wd / "kicad.dsn")
+        s = _session(input_path, info, dict(st, vias=False), opts, log)
+        mods = _plan_cells(s)
+        regions = clear_regions(s, mods, st["keepout_mm"])
+        if not regions:
+            rep["seconds"] = round(clock_now() - t0, 1)
+            return rep
+        intent = _intent(input_path, opts)
+        from kae.excite.cellquote import quote_cells
+        opts.setdefault("severities", severities(input_path))
+
+        def check(board, d):
+            return drc.run(drc.stage_board(board, input_path, d), Path(d) / "drc.json",
+                           timeout=max(30, left() - 5))
+
+        def quotes(board, drc_json):
+            rows = quote_cells(str(board), intent=intent, drc=str(drc_json), log=lambda *a: None)
+            return {r.get("cell"): r for r in rows}
+        t1 = clock_now()
+        rep0 = check(board_path, wd / "drc0")
+        t_drc = clock_now() - t1
+        base = drc.summary(rep0)
+        t1 = clock_now()
+        q0 = quotes(board_path, wd / "drc0" / "drc.json")
+        t_q = clock_now() - t1
+        listing = pcbnew_io.edit_routing(board_path, wd / "listing.kicad_pcb")["routing"]
+        for cr in regions:
+            cr["foreign"] = _foreign(listing, cr)
+            cr["amount"] = sum(x[1] for x in cr["foreign"])
+        regions.sort(key=lambda c: -c["amount"])
+        per_cell = 2 * t_drc + t_q + 120.0
+        rep["estimate_s_per_cell"] = round(per_cell, 1)
+        for k, cr in enumerate(regions):
+            row = dict(cell=cr["cell"], foreign_items=len(cr["foreign"]), foreign_mm=round(cr["amount"], 2),
+                       layers=sorted(cr["layers"]))
+            rep["cells"].append(row)
+            if not cr["foreign"]:
+                row.update(kept=False, why="no foreign copper in the region")
+                continue
+            if left() < per_cell:
+                row.update(kept=False, why=f"time: {left():.0f} s left, {per_cell:.0f} s estimated")
+                rep["hazards"].append(H.make(
+                    "hotloop_clear_skipped", "info", "data",
+                    f"{cr['cell']}: its return was not cleared of {len(cr['foreign'])} foreign item(s): no time left "
+                    f"({left():.0f} s, about {per_cell:.0f} s needed).", objects=[cr["cell"]],
+                    evidence=dict(foreign_mm=round(cr["amount"], 2))))
+                continue
+            cd = wd / f"cell{k}"
+            cd.mkdir(exist_ok=True)
+            snap = cd / "before.kicad_pcb"
+            shutil.copy2(board_path, snap)
+            # the current board's routing (earlier cells may have changed it)
+            listing = pcbnew_io.edit_routing(board_path, cd / "listing.kicad_pcb")["routing"]
+            fr = _foreign(listing, cr)
+            ripped_nets = sorted({r["net"] for r, _ in fr})
+            loop_cu = [r["uuid"] for r in listing if r.get("net") in cr["loop_nets"] and not r.get("locked")]
+            # rip, lock the loop's own copper, the region as keep-outs on its layers
+            W.edit(board_path, board_path, remove=[r["uuid"] for r, _ in fr], lock=loop_cu or None)
+            zones = []
+            for layer, net in cr["layers"].items():
+                zones += loop_guard(s.board, cr["region"], net, layer, f"{GUARD_PREFIX}clear:{cr['cell']}:{net}",
+                                    conn=_connection(info, net, layer))
+            if zones:
+                W.append_items(board_path, board_path, zones=zones)
+            o2 = dict(opts)
+            o2["crit_zones"] = [z for z in pcbnew_io.zone_fills(board_path)["zones"] if hard_zone(z.get("name"))]
+            o2["fixed_uuids"] = sorted({r["uuid"] for r in listing if r.get("locked")} | set(loop_cu))
+            o2["rounds"] = 1
+            p2 = constraints.plan(info, input_path, o2)
+            p2.plane_policy = plane_policy(o2)
+            p2.plane_cost = o2.get("plane_cost")
+            p2.pad_shapes = o2.get("pad_shapes") or "kicad"
+            shutil.copy2(wd / "kicad.dsn", cd / "kicad.dsn")
+            cdl = min(deadline, clock_now() + per_cell - t_drc - t_q)
+            cur = check(board_path, cd / "rip")
+            rounds = []
+            b_in = repair.input_errors(input_path, cd, cdl) if drc.summary(cur)["errors"] else {}
+            # kae's grid router (the last mile), one Freerouting repair round, the last mile again
+            cur = repair._last_mile(input_path, board_path, cd, p2, info, o2, cdl, rounds, drc.summary(cur), cur,
+                                    set(o2["fixed_uuids"]), log, base=b_in) or cur
+            if drc.summary(cur)["unconnected"] and cdl - clock_now() > 60:
+                rr = repair.loop(input_path, board_path, cd, p2, info, o2, deadline=cdl, log=log)
+                cur = rr.pop("_report", None) or cur
+            # the keep-outs go, the loop's copper is unlocked again
+            W.edit(board_path, board_path, drop_guards=True, unlock=loop_cu or None)
+            after = check(board_path, cd / "after")
+            sa = drc.summary(after)
+            still = sorted({net_ for net_, _seg in _open_pairs(after)} & set(ripped_nets))
+            qa = quotes(board_path, cd / "after" / "drc.json")
+            w0 = _cell_watts(q0.get(cr["cell"]), s, cr["module"])
+            w1 = _cell_watts(qa.get(cr["cell"]), s, cr["module"])
+            row.update(ripped=len(fr), nets=ripped_nets, rerouted=len(ripped_nets) - len(still),
+                       before=dict(unconnected=base["unconnected"], errors=base["errors"],
+                                   L_nH=(q0.get(cr["cell"]) or {}).get("L_nH"), R_mohm=(q0.get(cr["cell"]) or {}).get("R_mohm")),
+                       after=dict(unconnected=sa["unconnected"], errors=sa["errors"],
+                                  L_nH=(qa.get(cr["cell"]) or {}).get("L_nH"), R_mohm=(qa.get(cr["cell"]) or {}).get("R_mohm")),
+                       W_before=w0, W_after=w1)
+            why = []
+            if still and not st.get("clear_force"):
+                why.append(f"ripped net(s) left open: {', '.join(still[:4])}")
+            if sa["unconnected"] > base["unconnected"] and not (st.get("clear_force") and set(still)):
+                why.append(f"unconnected {base['unconnected']} -> {sa['unconnected']}")
+            if sa["errors"] > base["errors"] and not repair.errors_no_worse(
+                    sa, base, b_in or repair.input_errors(input_path, cd, deadline)):
+                why.append(f"DRC errors {base['errors']} -> {sa['errors']}")
+            if w1 is None or (w0 is not None and w1 > w0 * (1 - CLEAR_GAIN)):
+                why.append(f"quote {w0 and round(w0 * 1e3, 4)} -> {w1 and round(w1 * 1e3, 4)} mW, not "
+                           f"{CLEAR_GAIN:.0%} better")
+            if why:
+                shutil.copy2(snap, board_path)
+                row.update(kept=False, why="; ".join(why))
+                if still:
+                    rep["hazards"].append(H.make(
+                        "hotloop_clear_blocked", "warn", "electrical",
+                        f"{cr['cell']}: foreign copper stays on its return ({len(fr)} item(s) of "
+                        f"{', '.join(ripped_nets[:4])}): rerouted off it, {', '.join(still[:4])} found no other way.",
+                        objects=[cr["cell"]] + still[:6],
+                        evidence=dict(foreign_mm=round(cr["amount"], 2), left_open=still,
+                                      quote_mW=[w0 and round(w0 * 1e3, 4), w1 and round(w1 * 1e3, 4)]),
+                        fix=("A design trade-off: keep the net's path across the loop's return (the loop as routed), or "
+                             "force the clearing (KAE_HOTLOOP_CLEAR_FORCE=1), which leaves that net to be routed "
+                             "another way or open; moving the net's parts or a layer change frees it."),
+                        decision=dict(options=["keep the net's path under the loop", "clear the loop's return"],
+                                      setting="hotloop_clear_force")))
+            else:
+                row.update(kept=True, why="better")
+                base = sa
+                q0 = qa
+            log(f"hotloop clear {cr['cell']}: {len(fr)} foreign item(s) of {len(ripped_nets)} net(s); "
+                f"{'kept' if row['kept'] else 'reverted: ' + row['why']}")
+    except Exception as e:  # noqa: BLE001 - the routed board stands (each cell restored from its snapshot)
+        import traceback
+        traceback.print_exc()
+        rep["error"] = f"{type(e).__name__}: {e}"
+        last = next((c for c in reversed(rep["cells"]) if "kept" not in c), None)
+        if last is not None:
+            snaps = sorted(Path(wd).glob("cell*/before.kicad_pcb"))
+            if snaps:
+                shutil.copy2(snaps[-1], board_path)
+                last.update(kept=False, why=f"error: {rep['error']}"[:200])
+        rep["hazards"].append(H.make("hotloop_clear_failed", "warn", "data",
+                                     f"Clearing the hot loops' returns failed: {rep['error']}"[:300],
+                                     objects=["hotloop_clear"], fix="Report the board; it is kept as routed."))
+    rep["seconds"] = round(clock_now() - t0, 1)
+    return rep

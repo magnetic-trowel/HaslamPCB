@@ -279,6 +279,10 @@ DEFAULTS = dict(
     hotloop_lift="plane",          # how far the escape round may lift a keep-out for a net left open (in order
                                    # corridors, pours, crossing, plane): the last level allowed; "corridors" never
                                    # lets a foreign net through the return plane (it stays open, a decision hazard)
+    hotloop_clear=0,               # D: 1 clears each cell's return after routing (kae.route.hotloop.clear): foreign
+                                   # copper on its return and loop-net pour layers under the hull ripped and routed
+                                   # elsewhere, kept per cell only when no worse and its quote 5 % better
+    hotloop_clear_force=0,         # 1 keeps a cleared cell even when a ripped net finds no other way (left open)
     hotloop_budget_s=120.0,        # s: the cell stage stops starting cells after this (and after 15 % of the budget)
 )
 

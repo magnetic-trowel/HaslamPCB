@@ -9,6 +9,7 @@
                                                [--[no-]last-mile] [--[no-]blocked] [--[no-]finish] [--report FILE]
     python -m kae.route.cli lastmile INPUT BOARD OUTPUT [--seed N] [--time S] [--workdir DIR] [--keep]
                                                [--set KEY=VALUE] [--report FILE]
+    python -m kae.route.cli clear INPUT BOARD OUTPUT [--time S] [--set KEY=VALUE] [--report FILE]
     python -m kae.route.cli finish INPUT BOARD OUTPUT [--time S] [--parts tails,taut,power] [--input-drc FILE]
                                                [--set KEY=VALUE] [--report FILE]
 
@@ -117,6 +118,16 @@ def main(argv=None):
     m.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
     m.add_argument("--report")
     recheck_args(m)
+    c = sub.add_parser("clear", help="clear the hot loops' returns of foreign copper on a routed board "
+                                     "(kae.route.hotloop.clear, design D)")
+    c.add_argument("input")
+    c.add_argument("board")
+    c.add_argument("output")
+    c.add_argument("--time", type=float, default=600.0)
+    c.add_argument("--workdir")
+    c.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
+    c.add_argument("--report")
+    recheck_args(c)
     f = sub.add_parser("finish", help="the finish stage alone on a routed board (with the task input's rules)")
     f.add_argument("input")
     f.add_argument("board")
@@ -142,6 +153,19 @@ def main(argv=None):
             rep["status"] = "finished"
             return rep
         return _finish(a, run_finish, dict(parts=tuple(p for p in a.parts.split(",") if p)))
+    if a.cmd == "clear":
+        def run_clear(opts):
+            import shutil
+            import tempfile
+            from kae.route import hotloop
+            from pathlib import Path
+            shutil.copy2(a.board, a.output)
+            wd = Path(a.workdir or tempfile.mkdtemp(prefix="kae-clear-", dir=str(Path(a.output).parent)))
+            rep = hotloop.clear(a.input, a.output, wd, opts=dict(opts, hotloop_clear=1),
+                                deadline=clock_now() + a.time - 10)
+            rep["status"] = "finished"
+            return rep
+        return _finish(a, run_clear, {})
     if a.cmd == "lastmile":
         return _finish(a, lambda opts: bridge.last_mile_only(a.input, a.board, a.output, time_s=a.time, seed=a.seed,
                                                              workdir=a.workdir, opts=opts),

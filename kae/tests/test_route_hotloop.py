@@ -363,3 +363,37 @@ def test_loopvias_leave_room_for_the_loops_own_vias_beside_their_pads(tmp_path):
     s2 = hotloop._session(p, F.synth_info(b), hotloop.settings(None, {"hotloop_keepout": 1}), {}, lambda *a: None)
     plan2, _, _ = hotloop.keepout_plan(s2, hotloop._plan_cells(s2), 1.0)
     assert all(not e["holes"] for e in plan2)
+
+
+def test_clear_regions_and_foreign_copper(tmp_path):
+    """design D: the cell's region, its clear layers and the nets that are never foreign."""
+    p = F.write_board(tmp_path / "in")
+    s = hotloop._session(p, F.synth_info(load(p)), hotloop.settings(None, {"hotloop_clear": 1}), {},
+                         lambda *a: None)
+    regs = hotloop.clear_regions(s, hotloop._plan_cells(s), 1.0)
+    assert len(regs) == 1
+    r = regs[0]
+    assert r["layers"].get("B.Cu") == "GND"
+    assert {"VIN", "GND"} <= r["own"] and "Net-(U1-SW)" in r["own"] and "Net-(U1-BST)" in r["own"]
+    c = r["region"].centroid
+    routing = [
+        dict(kind="segment", uuid="a", net="Net-(U2-XTAL1)", layer="B.Cu", a=[c.x - 5, c.y], b=[c.x + 5, c.y],
+             width=0.2, locked=False),
+        dict(kind="segment", uuid="b", net="Net-(U2-XTAL1)", layer="F.Cu", a=[c.x - 5, c.y], b=[c.x + 5, c.y],
+             width=0.2, locked=False),                      # not a clear layer here
+        dict(kind="segment", uuid="c", net="VIN", layer="B.Cu", a=[c.x - 5, c.y], b=[c.x + 5, c.y], width=0.2,
+             locked=False),                                 # the loop's own copper: never touched
+        dict(kind="via", uuid="d", net="+3V3", pos=[c.x, c.y], size=0.6, locked=False),
+        dict(kind="via", uuid="e", net="Net-(U2-XTAL2)", pos=[c.x, c.y], size=0.6, locked=True),   # locked: kept
+    ]
+    got = {x["uuid"] for x, _ in hotloop._foreign(routing, r)}
+    assert "a" in got and "b" not in got and "c" not in got and "e" not in got
+    assert ("d" in got) == ("+3V3" not in r["own"])
+
+
+def test_clear_setting_parses(monkeypatch):
+    monkeypatch.delenv("KAE_HOTLOOP_CLEAR", raising=False)
+    st = hotloop.settings(None, {})
+    assert not st["clear"] and not hotloop.active(st)
+    st = hotloop.settings(None, {"hotloop_clear": 1})
+    assert st["clear"] and not hotloop.active(st)          # D routes as N: no stage, no keep-outs
