@@ -81,7 +81,7 @@ Each is off by default where the code was kept.
 
 ## Measured but not merged
 
-- **Placement untangle pass** (`rules-placement` [6e42c04](https://github.com/magnetic-trowel/kicad-auto-everything/commit/6e42c04b85f4550a1aa7bf645c0122bdc1f2635d)): swaps interchangeable parts and half-turns parts when that removes ratsnest crossings within 0.2% HPWL. 10 boards × 2 seeds, 900 s: 203 → 162 open, errors 372 → 234; much of it one board (servo-hat 92 → 58). One study; worth a suite run.
+- **Placement untangle pass** (`rules-placement` [6e42c04](https://github.com/magnetic-trowel/kicad-auto-everything/commit/6e42c04b85f4550a1aa7bf645c0122bdc1f2635d)): swaps interchangeable parts and half-turns parts when that removes ratsnest crossings within 0.2% HPWL. 10 boards × 2 seeds, 900 s: 203 → 162 open, errors 372 → 234; much of it one board (servo-hat 92 → 58). Suite run (46 boards × 3 seeds, 2026-11-15): opens +5.4 %, p 0.98, not adopted → [placement-routability-2611](../placement/placement-routability-2611.md#verdicts).
 - **A window's new errors ripped before it is judged** (`kae-complete` [5c194b9](https://github.com/magnetic-trowel/kicad-auto-everything/commit/5c194b9e8691e7fb100625af0f68c12a0afda463)): 3 boards, 1 seed, 49 → 46 open, mixed per board (chip-lcd 12 → 15, vspeed-vario 28 → 17).
 - **Routing room from the free area** (`fill_margin`, [67d0436](https://github.com/magnetic-trowel/kicad-auto-everything/commit/67d0436c1ea024db50d662b44f3cb83beac585bd)): 203 → 205 open on the same 10 boards, no gain.
 
