@@ -219,6 +219,11 @@ DEFAULTS = dict(
                                    # negative = auto (Problem.auto_margin: 2 x (0.7 - utilization), 0..1 mm).
                                    # 0: placement-decide-staged found auto and 0 equal (cp1 0.305 both,
                                    # completion 0.942 / 0.941), so the formula with no source is dropped
+    place_margin_gate=0.0,         # placement: keep place_margin only on boards with at least this many pads per cm²
+                                   # per copper layer, else 0 (kae.place.margin_gate.gate); 0 off
+    place_margin_regions=0,        # placement: 1 caps each movable part's margin at its region's own auto margin
+                                   # (sub-boards between cutouts and narrow necks, rule-area walls;
+                                   # kae.place.margin_gate.caps); 0 off
     anchor_tight=1,                # placement: a big part with no spot free of the fixed geometry is fixed first (place.pipeline)
     connector_edge=2,              # placement: user-facing connectors kae places (kae.place.edge_check:
                                    # USB, barrel, audio, RJ/modular, video/D-sub; at or near 100 % on an
