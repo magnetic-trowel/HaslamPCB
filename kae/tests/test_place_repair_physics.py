@@ -119,3 +119,43 @@ def test_window_keeps_a_decap_by_its_ic():
         return float(np.abs(st.pins_xy(c)[0] - st.pins_xy(u)[0]).sum())
     without, with_pairs = run(False), run(True)
     assert with_pairs < without - 1.0, (without, with_pairs)
+
+
+class _PairTerms:
+    """Physics = distance from cap `c` to IC `u` (board mm, L1)."""
+
+    def __init__(self, c, u):
+        self.c, self.u = c, u
+
+    def parts(self):
+        return {self.c, self.u}
+
+    def delta(self, poses, moved, new):
+        ux, uy = poses[self.u][:2]
+        d = lambda p: abs(p[0] - ux) + abs(p[1] - uy)
+        return sum(d(n) - d(poses[m]) for m, n in zip(moved, new) if m == self.c)
+
+
+def test_a_moved_ic_takes_its_decap_along():
+    """The repair moved the IC 2.5 mm from its cap: the cap follows to the clean spot nearest where
+    the same move puts it, since that lowers the physics; a cap with no pair stays."""
+    P, st = _legal()
+    ref = {p.ref: p.i for p in P.parts}
+    u, c = ref["U1"], ref["R1"]
+    E = exact.ExactModel(P, st)
+    guard = exact.OrderGuard(P, st)
+    rp = exact.RepairPhysics(P, _PairTerms(P.parts[c].uuid, P.parts[u].uuid), pairs=[(c, 0, u, 0, 2.0)])
+    home_u = (int(st.X[u]), int(st.Y[u]))
+    spot = next(t for t in _spots(P, st, E, u, 400) if abs(t[0] - home_u[0]) + abs(t[1] - home_u[1]) >= 25)
+    E.set_pose(u, *spot)
+    dist = lambda: float(np.abs(np.array(st.xy(c)) - np.array(st.xy(u))).sum())
+    before = dist()
+    c0 = (int(st.X[c]), int(st.Y[c]))
+    exact._follow(P, st, E, u, home_u, Deadline(30), guard, rp)
+    assert (int(st.X[c]), int(st.Y[c])) != c0 and dist() < before
+    assert rp.stats["followed"] == 1 and not E.findings_at(c, int(st.X[c]), int(st.Y[c]), int(st.K[c]))
+    rp.partners = {}
+    c1 = (int(st.X[c]), int(st.Y[c]))
+    E.set_pose(u, *home_u, int(st.K[u]))
+    exact._follow(P, st, E, u, (int(spot[0]), int(spot[1])), Deadline(30), guard, rp)
+    assert (int(st.X[c]), int(st.Y[c])) == c1

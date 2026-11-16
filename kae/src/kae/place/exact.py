@@ -953,16 +953,25 @@ class RepairPhysics:
     the rotation charge) of that first one, at most `n` of them and `checks` exact checks more,
     and takes the one whose physics (the placement terms' incremental delta) is lowest; the
     nearest wins ties (an improvement under `tol` Σu). Each priced spot also charges one
-    deadline check, so the work is counted. Parts no term touches move as before."""
+    deadline check, so the work is counted. Parts no term touches move as before.
 
-    def __init__(self, P, terms, n=6, window_mm=2.0, checks=40, tol=1e-4):
+    A part that moves takes its decap partners along (`partners`, from P.repair_pairs: a cap and
+    its IC): each partner that stayed goes to the clean spot nearest where the same displacement
+    puts it, chosen the same way, if that lowers the physics (`follow`). The tie-break alone
+    cannot undo a repair that moves an IC 10 mm from its caps (1.3in TFT bonnet: decap 0.33 -> 9)."""
+
+    def __init__(self, P, terms, pairs=(), n=6, window_mm=2.0, checks=40, tol=1e-4):
         self.terms = terms
+        self.partners = {}                            # part -> the parts it shares a decap pair with
+        for ia, _, ib, _, _ in pairs:
+            self.partners.setdefault(ia, set()).add(ib)
+            self.partners.setdefault(ib, set()).add(ia)
         self.n, self.checks, self.tol = int(n), int(checks), float(tol)
         self.window_mm = float(window_mm)
         self.window = self.window_mm / P.g            # grid cells, the candidates' cost unit
         touched = terms.parts()
         self.priced_parts = {p.i for p in P.parts if p.movable and p.uuid in touched}
-        self.stats = dict(priced=0, evaluated=0, changed=0, gain=0.0)
+        self.stats = dict(priced=0, evaluated=0, changed=0, gain=0.0, followed=0, follow_gain=0.0)
 
     def priced(self, i):
         return i in self.priced_parts
@@ -1019,7 +1028,9 @@ def move_clean(P, st, E, i, deadline, w_rot=4.0, limit=600, evict=True, allowed=
         spot = _priced_spot(P, st, E, i, cands, deadline, rp,
                             lambda X, Y, k: guard.count_at(i, X, Y, k) <= base)
         if spot is not None:
-            E.set_pose(i, *spot)
+            home = (int(st.X[i]), int(st.Y[i]))
+            E.set_pose(i, *spot[1:])
+            _follow(P, st, E, i, home, deadline, guard, rp, w_rot, limit)
             return True, []
         if deadline.passed():
             return False, []
@@ -1051,11 +1062,15 @@ def move_clean(P, st, E, i, deadline, w_rot=4.0, limit=600, evict=True, allowed=
         if guard.count_at(i, X, Y, k) > base:
             continue
         out_parts = {q for v in f for q in v["parts"]} - {i}
+        home = (int(st.X[i]), int(st.Y[i]))
         E.set_pose(i, X, Y, k)
         out = []
         for q in sorted(out_parts, key=lambda q: -P.parts[q].area):
             move_clean(P, st, E, q, deadline, w_rot, limit, evict=False, allowed=allowed, guard=guard)
             out.append(P.parts[q].ref)
+        rp = getattr(P, "repair_phys", None)
+        if rp is not None and rp.priced(i):
+            _follow(P, st, E, i, home, deadline, guard, rp, w_rot, limit, skip=out_parts)
         return True, out
     return False, []
 
@@ -1064,7 +1079,7 @@ def _priced_spot(P, st, E, i, cands, deadline, rp, ok=None):
     """RepairPhysics' choice for part i among `cands` (in order, nearest first): the first
     exactly clean spot that `ok` accepts, then the further clean ones within rp.window of it
     (at most rp.n priced, rp.checks exact checks after the first), the lowest physics kept.
-    Returns (X, Y, k) or None (no clean spot, or the deadline passed before one was found)."""
+    Returns (physics delta, X, Y, k) or None (no clean spot, or the deadline passed first)."""
     price = None
     picks, c0, extra = [], None, 0
     for c, X, Y, k in cands:
@@ -1082,7 +1097,36 @@ def _priced_spot(P, st, E, i, cands, deadline, rp, ok=None):
         picks.append((price(X, Y, k), X, Y, k))
     if not picks:
         return None
-    return rp.choose(picks)[1:]
+    return rp.choose(picks)
+
+
+def _follow(P, st, E, i, home, deadline, guard, rp, w_rot=4.0, limit=600, skip=()):
+    """Part i moved from grid origin `home`: each of its decap partners (rp.partners) that is
+    movable and did not move goes to the clean spot nearest where i's displacement puts it,
+    chosen as _priced_spot chooses, if that lowers the physics by more than rp.tol."""
+    dX, dY = int(st.X[i]) - home[0], int(st.Y[i]) - home[1]
+    if not (dX or dY):
+        return
+    for j in sorted(rp.partners.get(i, ())):
+        if j in skip or not P.parts[j].movable or not rp.priced(j) or deadline.passed():
+            continue
+        at = (int(st.X[j]), int(st.Y[j]), int(st.K[j]))
+        base = guard.count(j)
+        price = rp.pricer(P, st, j)                     # against where it stands now
+        st.X[j], st.Y[j] = at[0] + dX, at[1] + dY       # candidates ranked from where i's move puts it
+        try:
+            S, pad = _tables(P, st, {j})
+            cands = _candidates(P, st, j, S, pad, list(range(len(P.parts[j].rots))), w_rot, limit)
+        finally:
+            st.X[j], st.Y[j], st.K[j] = at
+        spot = _priced_spot(P, st, E, j, cands, deadline, rp, lambda X, Y, k: guard.count_at(j, X, Y, k) <= base)
+        if spot is None:
+            continue
+        d = price(*spot[1:])
+        if d < -rp.tol:
+            E.set_pose(j, *spot[1:])
+            rp.stats["followed"] += 1
+            rp.stats["follow_gain"] = round(rp.stats["follow_gain"] - d, 6)
 
 
 PARK = -10 ** 6

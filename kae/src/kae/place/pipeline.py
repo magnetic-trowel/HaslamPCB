@@ -1196,15 +1196,16 @@ def edge_hazards(rep, board, poses):
 def _repair_physics(P, terms, structs, rep, board_path, opts):
     """Setting repair_physics (audit P6, off by default): the legality repairs and the windowed
     legalizer see the physics. P.repair_phys (exact.RepairPhysics) prices the clean spots near
-    the nearest one in exact.move_clean and exact.reseed; P.repair_pairs (each decap's cap pad
+    the nearest one in exact.move_clean and exact.reseed, and brings a moved part's decap
+    partners along; P.repair_pairs (each decap's cap pad
     and its IC pad) keeps decaps by their ICs in legalize._window_solve. Report: repair_physics
     with the pairs, the priced parts and, as the run goes on, how many moves the physics changed."""
     from kae.route.constraints import setting_env
     if terms is None or not int(float(setting_env("repair_physics", board_path, opts))):
         return
-    P.repair_phys = exactmod.RepairPhysics(P, terms)
     P.repair_pairs = [(ia, pa[0], ib, pb[0], float(w)) for s in structs if s.kind == "decap"
                       for (ia, pa), (ib, pb), w in s.segs if pa and pb and ia != ib]
+    P.repair_phys = exactmod.RepairPhysics(P, terms, P.repair_pairs)
     rep["repair_physics"] = dict(pairs=len(P.repair_pairs), parts=len(P.repair_phys.priced_parts),
                                  window_mm=P.repair_phys.window_mm, n=P.repair_phys.n,
                                  stats=P.repair_phys.stats)
