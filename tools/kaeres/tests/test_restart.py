@@ -400,3 +400,11 @@ def test_alt_alone_makes_completion_first_the_policy(tmp_path):
                      extra=("--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@"))
     assert r.returncode == 0, r.stdout + r.stderr
     assert s["policy"] == "completion-first" and s["second"] == "alt"
+
+
+def test_budget_line_reads_the_attempts_counted_work_report(tmp_path):
+    log = tmp_path / "log"
+    log.write_text('[kae.joint] something\n[kae.budget] {"mode": "work", "wall_s": 10.0, "wall_by_kind": {"exact_pair": 2.0}}\n'
+                   '{"seed": 0}\n')
+    assert restart.budget_line(log)["wall_by_kind"] == {"exact_pair": 2.0}
+    assert restart.budget_line(tmp_path / "missing") == {}
