@@ -1,7 +1,7 @@
 # Exact physics in kae: `--physics-fidelity fast|exact|multi`
 
 Scope: the shipped `kae.physics.exact` module (PEEC for routed loops, FV thermal), its validation, CLI/hooks, and measured cost and decision changes on 5 boards. Not here: the design study that chose this -> [exact-physics-options](exact-physics-options.md); closed forms -> [place-terms](place-terms.md); rungs -> [solver-ladder](solver-ladder.md).
-Keys: kae.physics.exact, --physics-fidelity, fast, exact, multi, --physics-k, PEEC, multi-filament, image plane, Grover, Neumann integral, loop_hook, exact.pick, final_fidelity, exact.configure, routed_utilizations, ThermalFV, ex_fidelity.py, block cache
+Keys: kae.physics.exact, --physics-fidelity, fast, exact, multi, --physics-k, PEEC, multi-filament, image plane, Grover, Neumann integral, loop_hook, exact.pick, final_fidelity, exact.configure, ThermalFV, ex_fidelity.py, block cache
 
 Tags: [C] one core of the shared 4-core VM; KiCad 10.0.7 route tasks of `kae-work-v3`.
 
@@ -13,7 +13,7 @@ Tags: [C] one core of the shared 4-core VM; KiCad 10.0.7 route tasks of `kae-wor
 |---|---|---|
 | Hot loop, power path, decap loop | `critical_physics.Loop.value`: fastloop partial inductances with images, Hammerstad–Jensen strip self terms, projected oblique pairs | `loop_value(lp)`: PEEC on the same pieces, KCL rows and active set |
 | Surge path (chain) | L′(w, h)·length + via | `surge_path(pts, w, h)`, `chain_module_exact(ctx, m)` |
-| Thermal (placement) | fin kernel with edge images | `ThermalFV(terms)`: 2.5-D finite volume, factored once, cached 1 W source fields |
+| Thermal (placement) | fin kernel with edge images | none: `ThermalFV` (2.5-D finite volume) was never wired into the placer and was removed 2026-11 ([last version](https://github.com/magnetic-trowel/kicad-auto-everything/blob/ca98570e/kae/src/kae/physics/exact.py)); the research reference is `tools/research/physics/ex_exact.FVThermal` |
 
 **PEEC model** (filaments, Neumann partials, images, minimum-energy loop L, per-pair block cache): [kae-exact-physics-before-routing](../../research/placement/kae-exact-physics-before-routing.md#idea-and-how-it-works), fidelity switch.
 
@@ -21,7 +21,7 @@ Not removed: the plane is still ideal and per strip, so cut planes, far-side dec
 
 ## 2. Validation [C]
 
-`kae/tests/test_physics_exact.py` (18 tests, 42 s):
+`kae/tests/test_physics_exact.py` (16 tests; the two FV rows below were tested before `ThermalFV` was removed):
 
 | Check | Reference | Result |
 |---|---|---|
@@ -66,9 +66,9 @@ Route report field `physics_fidelity`: mode, k, decisions, changed, PEEC calls a
 - `critical_recheck.board_physics` carries `@exact.final_fidelity`: in exact and multi, stage values, recheck and retweak badness are PEEC.
 - In-process: `exact.configure(mode, k)` once (or `with exact.scope(mode, k):`); `exact.add_cli_args(parser)` adds both flags.
 
-**Joint loop.** `JointStages.evaluate` takes `Scorecard.modules` from `recheck`/`board_physics`, so `accept` compares exact routed physics once the process runs `exact.configure("exact")` (module stage then also quotes by PEEC); `scorecard.py` unchanged. Hook in `joint/cli.py`: `EX.add_cli_args(r)` before parsing, `EX.configure(a.physics_fidelity, a.physics_k)` after. Exact acceptance with a fast module stage: `exact.routed_utilizations(board, brief, terms, stage)` returns `{module: u}` by PEEC in any mode.
+**Joint loop.** `JointStages.evaluate` takes `Scorecard.modules` from `recheck`/`board_physics`, so `accept` compares exact routed physics once the process runs `exact.configure("exact")` (module stage then also quotes by PEEC); `scorecard.py` unchanged. Hook in `joint/cli.py`: `EX.add_cli_args(r)` before parsing, `EX.configure(a.physics_fidelity, a.physics_k)` after.
 
-**Thermal.** `ThermalFV(terms).cost()` prices the placer's thermal term by FV rises; source move = one solve (cached by pose), victim move = none. For multi-fidelity arbitration of placements (designs (b)+(h) in [exact-physics-options](exact-physics-options.md#4-designs)); not wired into the placer.
+**Thermal.** `ThermalFV(terms).cost()` priced the placer's thermal term by FV rises; source move = one solve (cached by pose), victim move = none. It was meant for multi-fidelity arbitration of placements (designs (b)+(h) in [exact-physics-options](exact-physics-options.md#4-designs)), was never wired into the placer, and was removed from kae in 2026-11 ([last version](https://github.com/magnetic-trowel/kicad-auto-everything/blob/ca98570e/kae/src/kae/physics/exact.py)).
 
 ## 4. Measurements [C]
 

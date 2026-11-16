@@ -112,8 +112,9 @@ def rect_area(r):
 
 
 def rot_rect(r, rot, s):
-    """A library-frame rectangle at pose rotation `rot` (a multiple of 90 degrees) and side
-    sign `s`, as offsets from the origin. Exact: axis-aligned rectangles stay axis-aligned."""
+    """The bounding box of a library-frame rectangle at pose rotation `rot` and side sign `s`,
+    as offsets from the origin. Exact at multiples of 90 degrees (axis-aligned rectangles stay
+    axis-aligned); at other angles the box of the rotated rectangle."""
     x0, y0, x1, y1 = r
     px, py = transform.pads_xy(np.array([x0, x1, x1, x0]), np.array([y0, y0, y1, y1]), 0.0, 0.0, rot, s)
     return (float(px.min()), float(py.min()), float(px.max()), float(py.max()))
@@ -975,18 +976,15 @@ class Problem:
     def _rot(self, part, rot, local, lib_board):
         s = part.s
         L = part._lib
+        rr = lambda r: rot_rect(r, rot, s)  # noqa: E731
+        own_rects = tuple(rr(r) for r in L.get("own_pieces") or [L["own"]])
         if rot % 90.0 == 0.0:
-            rr = lambda r: rot_rect(r, rot, s)  # noqa: E731
-            own_rects = tuple(rr(r) for r in L.get("own_pieces") or [L["own"]])
             own = rr(L["own"])
         else:
             # an odd angle: bounding boxes of each rotated piece (courtyard, every pad), so the
             # grid stays conservative (grid-legal implies legal at the actual angle) without
             # boxing the box of the whole footprint
-            rr = lambda r: rot_rect_any(r, rot, s)  # noqa: E731
-            own = rect_union([rr(r) for r in L.get("own_parts") or [L["own"]]])
-            own_rects = tuple(rr(r) for r in L.get("own_pieces") or [L["own"]])
-            own = rect_union([own] + list(own_rects))
+            own = rect_union([rr(r) for r in L.get("own_parts") or [L["own"]]] + list(own_rects))
         if len(local):
             px, py = transform.pads_xy(local[:, 0], local[:, 1], 0.0, 0.0, rot, s)
             pins = np.column_stack([px, py])
@@ -1010,9 +1008,8 @@ class Problem:
             if not ok:
                 p.fits = False
                 for r in p.rots:
-                    rr = rot_rect if r.rot % 90.0 == 0.0 else rot_rect_any
-                    r.board = rr(p._lib["board_pads"], r.rot, p.s)
-                    r.boards = tuple(rr(gr, r.rot, p.s) for gr in p._lib["board_groups"])
+                    r.board = rot_rect(p._lib["board_pads"], r.rot, p.s)
+                    r.boards = tuple(rot_rect(gr, r.rot, p.s) for gr in p._lib["board_groups"])
                 self.notes.append(f"{p.ref}: courtyard does not fit on the board; only its pads are kept inside")
 
     def allow_overhang(self, parts):
@@ -1027,9 +1024,8 @@ class Problem:
                 continue
             p.overhang = True
             for r in p.rots:
-                rr = rot_rect if r.rot % 90.0 == 0.0 else rot_rect_any
-                r.board = rr(p._lib["board_pads"], r.rot, p.s)
-                r.boards = tuple(rr(gr, r.rot, p.s) for gr in p._lib["board_groups"])
+                r.board = rot_rect(p._lib["board_pads"], r.rot, p.s)
+                r.boards = tuple(rot_rect(gr, r.rot, p.s) for gr in p._lib["board_groups"])
                 r.g_board = r.g_board_exact = to_grid(r.board, self.g)
                 r.g_boards = r.g_boards_exact = tuple(to_grid(b, self.g) for b in r.boards)
             out.append(p.ref)
@@ -1067,8 +1063,7 @@ class Problem:
                 lib = rect_grow(rect_union([pad_lib_rect(pads[k]) for k in keep]), self.edge_clearance + 0.002)
                 saved = [(r.board, r.boards, r.g_board, r.g_boards) for r in p.rots]
                 for r in p.rots:
-                    rr = rot_rect if r.rot % 90.0 == 0.0 else rot_rect_any
-                    r.board = rr(lib, r.rot, p.s)
+                    r.board = rot_rect(lib, r.rot, p.s)
                     r.boards = (r.board,)
                     r.g_board = to_grid(r.board, self.g)
                     r.g_boards = (r.g_board,)
@@ -1119,8 +1114,7 @@ class Problem:
                 fixed_relaxed = True     # a locked module's body (an Arduino under its shield)
             p.relaxed = True
             for r in p.rots:
-                rr = rot_rect if r.rot % 90.0 == 0.0 else rot_rect_any
-                r.own_rects = tuple(rr(x, r.rot, p.s) for x in p._lib["own_pads_pieces"])
+                r.own_rects = tuple(rot_rect(x, r.rot, p.s) for x in p._lib["own_pads_pieces"])
                 r.own = rect_union(list(r.own_rects))
                 r.g_own_exact = to_grid(r.own, g)
                 r.g_own_rects_exact = tuple(to_grid(x, g) for x in r.own_rects)
@@ -1345,9 +1339,6 @@ class Problem:
     def grid_of(self, x, y):
         return int(round((x - self.ox) / self.g)), int(round((y - self.oy) / self.g))
 
-    def side_index(self, i):
-        return 0 if self.parts[i].s > 0 else 1
-
     def outside_cells(self, X, Y, gr):
         """Cells of grid rect gr (relative to origin X, Y) not inside the outline."""
         a, b, c, d = gr
@@ -1368,12 +1359,6 @@ class Problem:
 
 def shift(r, x, y):
     return (r[0] + x, r[1] + y, r[2] + x, r[3] + y)
-
-
-def rot_rect_any(r, rot, s):
-    x0, y0, x1, y1 = r
-    px, py = transform.pads_xy(np.array([x0, x1, x1, x0]), np.array([y0, y0, y1, y1]), 0.0, 0.0, rot, s)
-    return (float(px.min()), float(py.min()), float(px.max()), float(py.max()))
 
 
 # ----------------------------------------------------------------------------- raster

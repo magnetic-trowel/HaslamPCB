@@ -92,16 +92,6 @@ def m_par(l1, l2, s, d):
     return MU0_4PI * (_G(s + l2, d) - _G(s + l2 - l1, d) - _G(s, d) + _G(s - l1, d))
 
 
-def _Gv(u, d):
-    return u * np.arcsinh(u / d) - np.sqrt(u * u + d * d)
-
-
-def m_par_v(l1, l2, s, d):
-    """Vectorized m_par (numpy arrays broadcast)."""
-    d = np.maximum(d, 1e-9)
-    return MU0_4PI * (_Gv(s + l2, d) - _Gv(s + l2 - l1, d) - _Gv(s, d) + _Gv(s - l1, d))
-
-
 _GL = {n: np.polynomial.legendre.leggauss(n) for n in (2, 3, 4, 6, 8, 12, 16)}
 
 
@@ -333,35 +323,6 @@ def fin_point(r_mm, gs, lam):
     """Temperature rise (K per W) at distance r from a point source in an infinite fin."""
     from scipy.special import k0
     return k0(np.maximum(r_mm, 1e-6) / lam) / (2.0 * math.pi * gs)
-
-
-def fin_disk_self(a_mm, gs, lam):
-    """Mean-centre rise (K per W) of a uniformly heated disk of radius a in an infinite fin:
-    (1 - (a/lam) K1(a/lam)) / (pi a^2 h_tot), with h_tot = G_s / lam^2."""
-    from scipy.special import k1
-    x = max(a_mm, 1e-3) / lam
-    htot_per_mm2 = gs / (lam * lam)          # W/K per mm^2
-    return (1.0 - x * k1(x)) / (math.pi * a_mm * a_mm * htot_per_mm2)
-
-
-def image_offsets(x0, y0, x1, y1, xs, ys, rings=1):
-    """Adiabatic-edge image positions of a source at (xs, ys) in the rectangle
-    [x0, x1] x [y0, y1]: arrays (X, Y) including the source itself (index 0)."""
-    Lx, Ly = x1 - x0, y1 - y0
-    u, v = xs - x0, ys - y0
-    X, Y = [], []
-    for m in range(-rings, rings + 1):
-        for ux in ((2 * m * Lx + u), (2 * m * Lx - u)):
-            for k in range(-rings, rings + 1):
-                for vy in ((2 * k * Ly + v), (2 * k * Ly - v)):
-                    X.append(x0 + ux)
-                    Y.append(y0 + vy)
-    X = np.array(X)
-    Y = np.array(Y)
-    i0 = int(np.argmin((X - xs) ** 2 + (Y - ys) ** 2))
-    X[[0, i0]] = X[[i0, 0]]
-    Y[[0, i0]] = Y[[i0, 0]]
-    return X, Y
 
 
 # ----------------------------------------------------------------------------- spectra

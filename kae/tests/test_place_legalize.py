@@ -7,7 +7,7 @@ import numpy as np
 import shapely
 
 from kae.board.kicad_file import load
-from kae.place.legalize import exact_check, kicad_violations, legalize, repair_kicad, violation_parts
+from kae.place.legalize import exact_check, kicad_violations, legalize, violation_parts
 from kae.place.problem import Problem
 from kae.place.state import State, grid_violations
 
@@ -68,13 +68,6 @@ def test_kicad_violations_become_constraints():
     assert [v["type"] for v in vs] == ["courtyards_overlap", "clearance"]
     assert violation_parts(P, st, vs[0]) == {a, b}
     assert violation_parts(P, st, vs[1]) == {a}            # unknown reference: nearest pad
-    before = {i: P.parts[i].rots[0].g_own for i in (a, b)}
-    rep = repair_kicad(P, st, vs, time_s=30.0, workers=2, seed=0, step_mm=0.2)
-    assert set(rep["parts"]) == {"U1", "U2"} and rep["by_type"] == {"courtyards_overlap": 1, "clearance": 1}
-    for i in (a, b):                                       # the rectangles grew for good
-        g0, g1 = before[i], P.parts[i].rots[0].g_own
-        assert g1[0] < g0[0] and g1[1] > g0[1] and g1[2] < g0[2] and g1[3] > g0[3]
-    assert not grid_violations(st) and exact_check(P, st) == []
 
 
 def test_closed_loop_repair_ends_exactly_legal():

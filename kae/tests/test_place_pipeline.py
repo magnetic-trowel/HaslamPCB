@@ -100,61 +100,6 @@ def test_escalation_drops_the_margin_then_relaxes_bodies():
     assert P.margin == 0.0 and not grid_violations(st)
 
 
-def test_local_replace_moves_only_the_subset_inside_its_window(tmp_path):
-    """The module loop's local re-placement: only the named parts move, inside the window,
-    and come back legal; everything else stays where the board has it."""
-    from kae.place.pipeline import local_replace, place
-    b = kicad_file.load(FIXTURE)
-    res = place(b, seed=0, time_s=30.0, physics=False)
-    for fp in b.footprints:                       # the placed board
-        if fp.uuid in res.poses:
-            fp.x, fp.y, fp.rot, _ = res.poses[fp.uuid]
-    movable = [fp for fp in b.footprints if not fp.locked and fp.uuid in res.poses]
-    sub = [fp.ref for fp in movable[:3]]
-    xs = [fp.x for fp in movable[:3]]
-    ys = [fp.y for fp in movable[:3]]
-    win = (min(xs) - 4, min(ys) - 4, max(xs) + 4, max(ys) + 4)
-    out = local_replace(b, sub, window_mm=win, time_s=20.0, seed=1, physics=False)
-    assert set(out.report["parts"]) == set(sub)
-    assert out.report["legal_grid"] and not out.report["exact"]
-    assert {b.by_uuid()[u].ref for u in out.poses} == set(sub)
-
-
-def test_local_replace_holds_the_other_parts_where_the_board_has_them():
-    """local_replace left every other movable part movable, modeled snapped to the grid and to
-    a right angle (a part at 45 deg as 0 deg), and judged the re-placed parts against those
-    stand-ins. The others are now locked at their real poses (as joint.replace does)."""
-    from kae.place.pipeline import local_replace
-    b = kicad_file.load(FIXTURE)
-    movable = [fp for fp in b.footprints if not fp.locked and fp.on_board]
-    sub, other = [fp.ref for fp in movable[:2]], movable[2]
-    other.rot = 45.0
-    out = local_replace(b, sub, time_s=5.0, seed=0, physics=False, moves_per_part=50)
-    P = out.problem
-    assert {P.parts[i].ref for i in P.mov} == set(sub)
-    q = next(p for p in P.parts if p.uuid == other.uuid)
-    assert not q.movable and q.fp.rot == 45.0 and (q.fp.x, q.fp.y) == (other.x, other.y)
-    assert not b.by_uuid()[other.uuid].locked            # the caller's board is untouched
-
-
-def test_local_replace_takes_net_weights_from_routing_feedback():
-    """kae.joint's call: net_weights scale wirelength weights (an unrouted net pulls its pins
-    together); the result is exactly legal for the moved parts and nothing else moves."""
-    from kae.place.pipeline import local_replace, place
-    b = kicad_file.load(FIXTURE)
-    res = place(b, seed=0, time_s=30.0, physics=False)
-    for fp in b.footprints:
-        if fp.uuid in res.poses:
-            fp.x, fp.y, fp.rot, _ = res.poses[fp.uuid]
-    sub = [fp.ref for fp in b.footprints if not fp.locked and fp.uuid in res.poses][:4]
-    out = local_replace(b, sub, time_s=15.0, seed=0, physics=False, net_weights={"SIG1": 10.0})
-    assert not out.report["exact"]
-    w = {n.name: n.weight for n in out.problem.nets}
-    base = {n.name: n.weight for n in local_replace(b, sub, time_s=5.0, physics=False).problem.nets}
-    assert abs(w["SIG1"] - 10.0 * base["SIG1"]) < 1e-9
-    assert {b.by_uuid()[u].ref for u in out.poses} == set(sub)
-
-
 def test_legal_grid_follows_the_exact_check():
     """The grid is a conservative prefilter (bodies for missing courtyards, outward rounding):
     a grid violator the exact check does not confirm does not make the result illegal; it is
@@ -171,31 +116,6 @@ def test_legal_grid_follows_the_exact_check():
     assert v["legal_grid"] is False
     v = grid_verdict(P, st, [])
     assert v["legal_grid"] is True and v["grid_conservative"]["count"] > 0
-
-
-def test_local_replace_takes_congestion_history_and_a_fixed_move_budget():
-    """kae.joint's hooks: cong_history adds static demand to the congestion bins (both
-    engines, totals exact); moves_per_part replaces the clock, so a re-place repeats."""
-    import numpy as np
-    from kae.place.pipeline import local_replace, place
-    b = kicad_file.load(FIXTURE)
-    res = place(b, seed=0, time_s=30.0, physics=False)
-    for fp in b.footprints:
-        if fp.uuid in res.poses:
-            fp.x, fp.y, fp.rot, _ = res.poses[fp.uuid]
-    sub = [fp.ref for fp in b.footprints if not fp.locked and fp.uuid in res.poses][:4]
-    seen = {}
-
-    def hist(x0, y0, bsz, nbx, nby):
-        seen["shape"] = (nbx, nby)
-        a = np.zeros((nbx, nby))
-        a[nbx // 2, nby // 2] = 5.0
-        return a
-    out1 = local_replace(b, sub, time_s=30.0, physics=False, cong_history=hist, moves_per_part=300)
-    out2 = local_replace(b, sub, time_s=30.0, physics=False, cong_history=hist, moves_per_part=300)
-    assert seen["shape"] and out1.report["anneal"]["cong_history"]["bins"] == 1
-    assert out1.report["anneal"]["moves"] == out2.report["anneal"]["moves"]
-    assert out1.poses == out2.poses
 
 
 def _probe_fakes(monkeypatch, table, calls):

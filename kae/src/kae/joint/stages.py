@@ -894,6 +894,3 @@ def placement_errors(drc_report):
             n += 1
     return n
 
-
-def dump(obj, path):
-    Path(path).write_text(json.dumps(obj, indent=1, default=str))
