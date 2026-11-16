@@ -225,3 +225,42 @@ def test_a_depopulated_interior_is_no_proof(tmp_path):
     assert c and c["proof"] is False and "not a proof" in c["summary"]
     sp, info, pkg = _grid_space(tmp_path / "full", 1.0, 0.4)
     assert escape.certificate(sp, pkg, info, log=lambda m: None)["proof"] is True
+
+
+def _rules_allow(sp, via, drill):
+    """Lower the board setup's via minimums so that the smallest legal via is (via, drill);
+    the net class keeps its 0.6/0.3 mm via, the one kae routes with."""
+    sp.settings.update(min_via=via, min_drill=drill, min_annular=(via - drill) / 2)
+    assert escape.legal_via(sp, escape.fab_floors(*escape._fab(sp, None))) == (via, drill)
+    assert sp.via_size("S00") == (0.6, 0.3)
+
+
+def test_own_via_blocking_an_escape_the_rules_allow_is_a_hazard(tmp_path):
+    """At 1 mm pitch the net class's 0.6 mm via leaves 8 inner balls shut in, a 0.4 mm one
+    none. When the rules already allow 0.4 mm the certificate finds no obstruction, and the
+    report says that kae's own via, not a rule, blocks the escape (never "feasible")."""
+    sp, info, pkg = _grid_space(tmp_path, 1.0, 0.4)
+    _rules_allow(sp, 0.4, 0.2)
+    assert escape.certificate(sp, pkg, info, log=lambda m: None) is None
+    out = escape.run(sp, info, {}, log=lambda m: None)
+    assert not out["blocked"]
+    (h,) = out["hazards"]
+    assert (h["code"], h["severity"], h["category"]) == ("escape_blocked_by_own_via", "warn", "data")
+    assert h["objects"] == ["U7", "Default"] and "0.4 mm" in h["message"] and "0.6 mm" in h["message"]
+    assert h["evidence"]["legal_via"] == [0.4, 0.2] and h["evidence"]["own_via"] == [0.6, 0.3]
+    assert h["evidence"]["short"] > 0 and "capability_gap" in h["evidence"] and "net class Default" in h["fix"]
+    (pk,) = out["packages"]
+    ov = pk["own_via"]
+    assert "no obstruction found" in ov["summary"] and "feasible" not in ov["summary"]
+    assert "Capability gap" in ov["summary"] and "hazards" not in ov
+    from kae import hazards as H
+    assert H.derive(dict(escape=out)) == []      # not an escape_infeasible: no rule blocks it
+
+
+def test_no_own_via_hazard_when_the_net_class_via_fits(tmp_path):
+    """At 1.27 mm pitch the 0.6 mm via escapes every ball too: nothing to report."""
+    sp, info, pkg = _grid_space(tmp_path, PITCH, 0.4)
+    _rules_allow(sp, 0.4, 0.2)
+    assert escape.own_via(sp, pkg, info, log=lambda m: None) is None
+    out = escape.run(sp, info, {}, log=lambda m: None)
+    assert not out.get("hazards") and "own_via" not in out["packages"][0]

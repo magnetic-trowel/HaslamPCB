@@ -219,7 +219,9 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
             if got.get("escape"):
                 # the escape plan per package (per ball: layer, side, via, exit), and what no routing
                 # can escape under the board's rules (the "blocked" section's packages)
-                report["escape"] = {k: v for k, v in got["escape"].items() if k != "blocked"}
+                report["escape"] = {k: v for k, v in got["escape"].items() if k not in ("blocked", "hazards")}
+                # kae's own via blocking an escape the rules allow (escape.own_via): a hazard
+                report.setdefault("hazards", []).extend(got["escape"].get("hazards") or [])
                 if got["escape"]["blocked"]:
                     report["blocked_packages"] = got["escape"]["blocked"]
             if got["added"]:
