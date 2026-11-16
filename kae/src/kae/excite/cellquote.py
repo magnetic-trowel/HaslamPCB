@@ -36,8 +36,9 @@ def _physical(z, f_fund, f_edge):
     return 0 < L < 1e-6 and 0 < z[f_fund].real < 100
 
 
-def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max_cells=MAX_CELLS, log=print):
-    """One row per switching cell of the board at `path` (see the module doc)."""
+def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max_cells=MAX_CELLS, log=print, only=None):
+    """One row per switching cell of the board at `path` (see the module doc); `only`: the cell ids (brief
+    structure ids) to quote, the others left out (kae.route.hotloop.clear quotes one cell at a time)."""
     from kae.board import pinfacts as PF
     from kae.board.kicad_file import load
     from kae.circuit import brief as B
@@ -55,7 +56,7 @@ def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max
     brief = B.build(b)
     bd = M.build(b, brief)
     srcs = S.add_all(bd, brief)
-    cells = [s for s in srcs if s.kind == "cell"]
+    cells = [s for s in srcs if s.kind == "cell" and (only is None or s.meta.get("cell") in set(only))]
     if not cells:
         return []
     obs = O.observers(bd, brief, srcs)

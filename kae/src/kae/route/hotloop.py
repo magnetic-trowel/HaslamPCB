@@ -916,7 +916,7 @@ def last_mile_crit_zones(input_path, board_path, info, workdir, opts=None, log=_
 
 # ----------------------------------------------------------------------------- D: clear the return after routing
 CLEAR_GAIN = 0.05        # a cleared cell is kept only when its quote (watts) falls by more than this
-CLEAR_MAX_ITEMS = 40     # a cell with more foreign items than this in its region is left as routed (an info
+CLEAR_MAX_ITEMS = 60     # a cell with more foreign items than this in its region is left as routed (an info
                          # hazard): librewave U702's 303 ripped items reconnected 16 nets of 20 and took the time
                          # the cells behind it needed
 
@@ -1029,16 +1029,14 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             return drc.run(drc.stage_board(board, input_path, d), Path(d) / "drc.json",
                            timeout=max(30, left() - 5))
 
-        def quotes(board, drc_json):
-            rows = quote_cells(str(board), intent=intent, drc=str(drc_json), log=lambda *a: None)
+        def quotes(board, drc_json, only=None):
+            rows = quote_cells(str(board), intent=intent, drc=str(drc_json), log=lambda *a: None, only=only)
             return {r.get("cell"): r for r in rows}
         t1 = clock_now()
         rep0 = check(board_path, wd / "drc0")
         t_drc = clock_now() - t1
         base = drc.summary(rep0)
-        t1 = clock_now()
-        q0 = quotes(board_path, wd / "drc0" / "drc.json")
-        t_q = clock_now() - t1
+        q0, t_q = {}, 30.0           # quoted per cell, just before it is cleared (a big board's all-cell quote: minutes)
         listing = pcbnew_io.edit_routing(board_path, wd / "listing.kicad_pcb")["routing"]
         fixed = {r["uuid"] for r in W.routing(input_path) if r.get("locked")}      # the task's pre-routes
         from shapely.geometry import LineString, Point
@@ -1050,6 +1048,7 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             cr["core"] = sum((Point(r["pos"]).buffer(r["size"] / 2).intersection(core).area if r["kind"] == "via"
                               else LineString([r["a"], r["b"]]).intersection(core).length) for r, _ in cr["foreign"])
         regions.sort(key=lambda c: (-c["core"], -c["amount"]))
+        kept_any, last_drc = False, wd / "drc0" / "drc.json"
         rep["estimate_s_per_cell"] = round(2 * t_drc + t_q + 60.0, 1)
         for k, cr in enumerate(regions):
             row = dict(cell=cr["cell"], foreign_items=len(cr["foreign"]), foreign_mm=round(cr["amount"], 2),
@@ -1077,6 +1076,11 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
                 continue
             cd = wd / f"cell{k}"
             cd.mkdir(exist_ok=True)
+            if cr["cell"] not in q0:
+                t1 = clock_now()
+                q0.update(quotes(board_path, (cd.parent / "drc0" / "drc.json") if k == 0 or not kept_any
+                                 else last_drc, only=[cr["cell"]]))
+                t_q = clock_now() - t1
             snap = cd / "before.kicad_pcb"
             shutil.copy2(board_path, snap)
             # the current board's routing (earlier cells may have changed it)
@@ -1126,7 +1130,7 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             after = check(board_path, cd / "after")
             sa = drc.summary(after)
             still = sorted({net_ for net_, _seg in _open_pairs(after)} & set(ripped_nets))
-            qa = quotes(board_path, cd / "after" / "drc.json")
+            qa = quotes(board_path, cd / "after" / "drc.json", only=[cr["cell"]])
             w0 = _cell_watts(q0.get(cr["cell"]), s, cr["module"])
             w1 = _cell_watts(qa.get(cr["cell"]), s, cr["module"])
             row.update(ripped=len(fr), nets=ripped_nets, rerouted=len(ripped_nets) - len(still),
@@ -1165,7 +1169,8 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             else:
                 row.update(kept=True, why="better")
                 base = sa
-                q0 = qa
+                q0 = {}                   # the board changed: later cells are quoted on it
+                kept_any, last_drc = True, cd / "after" / "drc.json"
             log(f"hotloop clear {cr['cell']}: {len(fr)} foreign item(s) of {len(ripped_nets)} net(s); "
                 f"{'kept' if row['kept'] else 'reverted: ' + row['why']}")
     except Exception as e:  # noqa: BLE001 - the routed board stands (each cell restored from its snapshot)
