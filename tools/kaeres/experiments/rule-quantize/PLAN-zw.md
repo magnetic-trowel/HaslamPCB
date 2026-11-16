@@ -52,5 +52,23 @@ bobbycar, attempt 0) uses the same methods, and its runs count as attempt 0 ther
 About 1.1 CPU-h per run (chassis-soft M: about 1,100 s wall, 4,000 CPU-s at parallel 4). 10 x 3 x 2 = 60 runs, about
 70 CPU-h. The extension costs as much again.
 
-## Smoke
-(Filled in before the full run.)
+## Smoke (2026-11-15, before the full run)
+`rule-quantize-zw-smoke`, attempt 0. Zero-width segments, opens and DRC errors on the final board:
+
+| board | ZM | ZQ | ZQ2 |
+|---|---|---|---|
+| sharp-lv-s3 touch | 35 zw, 21 opens, 0 err | 19 zw, 24 opens, 0 err | 0 zw, 23 opens, 0 err |
+| bobbycar boardcomputer | 71 zw, 37 opens, 8 err | 69 zw, 41 opens, 8 err | 0 zw, 41 opens, 8 err |
+
+KiCad's DRC does not report zero-width tracks when the board's minimum is 0, so they show up in no error count.
+The primary is therefore read from the board file (`zw.py`: `segment` and `arc` items
+with `(width 0)`).
+
+- **Profile.** One direct run of `kae.joint.cli run` per arm on sharp-touch, 900 s, py-spy on the python
+  process and JFR on Freerouting d137fd1; `zw.sh`. ZM: 645 s wall, 21 zero-width segments. ZQ2: 622 s, none.
+  Freerouting 45-48 %, last mile and repair 25-27 % (grid `_connect`), numba compile 15-16 % (cold), CP-SAT 5 %,
+  pcbnew and DRC 3 %.
+- **The cheap fix is the numba compile.** The methods copy `numba-chassis-<sha7>`, which did not exist for these
+  commits, so every run compiled cold (about 90 s). `warm.sh` builds the three caches from the methods' own venvs
+  before the full run starts. The caches hold compiled machine code for identical sources, so results do not
+  change. Sizing is kaeres' estimate; the smoke jobs peaked at about 7 GB with parallel 4.

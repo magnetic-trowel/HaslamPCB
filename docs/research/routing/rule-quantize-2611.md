@@ -52,8 +52,15 @@ Alternatives considered:
 Where it is used: `constraints._width_choice` (class widths, nm), `_via_choice` (um, with the diameter's floor taken
 after the drill is rounded), the DSN class width (up to 0.2 um), `translate.fit_widths`, `lastmile.widths_of` (and
 its two callers that rounded), `escape.small_via` / `legal_via` (up, never below a minimum), and `repair` widening
-(clamped into the class's limits). Already safe and unchanged: `critical_space.clamp_width` (falls back to the exact
-max), clearances (rounded up, the safe side), and coordinates written at 6 decimals.
+(clamped into the class's limits). Already safe and unchanged: clearances (rounded up, the safe side) and
+coordinates written at 6 decimals.
+
+**Effective limits (af3cc286, PR #66 folded in).** `critical_space.Space.width_limits` is the one source of a net's
+width limits for kae's own routers. They are the board's stated min, opt and max, and where the board states no
+minimum, the narrowest class width (the bridge's own neck in that case), capped at opt and max. The board's rules
+win; kae only fills their silence. With a minimum of 0, width ladders ending at the minimum laid zero-width copper
+(chassis-soft M: on 10 boards). `clamp_width` fits into these limits with `fit`, and so do the module stage's trim
+widths. Check: `PLAN-zw.md`.
 
 Gaps left (not rounding): `fr_entry` rail class widths and `constraints.width_at` necks are not checked against a
 rule's max, and `power_copper` zone thermal sizes are fixed at 0.3 mm.
