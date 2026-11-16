@@ -950,8 +950,9 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         # wall clock too: on a loaded host CPU seconds lag behind the caller's timeout
         arep = ann.run(cpu_s=cpu, deadline=deadline - 0.1 * budget)
         ann.write_back()
-        if "channel_term" in rep:
-            _channel_final(P, ann.st, rep["channel_term"], chan_e1)
+        # the channel report in every run (w_chan 0 too: the mechanism measure of an A/B's control)
+        rep.setdefault("channel_term", dict(w_chan=0.0, A0=round(exactmod.mean_part_area(P), 3)))
+        _channel_final(P, ann.st, rep["channel_term"], chan_e1)
         rep["anneal"] = arep
         stage("anneal", t)
         t = clock_now()
