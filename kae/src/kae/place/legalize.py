@@ -20,7 +20,6 @@ from __future__ import annotations
 from kae.budget import now as clock_now
 import math
 import os
-import re
 import time
 
 import numpy as np
@@ -569,9 +568,7 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
 
 
 # ----------------------------------------------------------------------------- KiCad feedback
-from kae.drc_items import PLACER_TYPES  # noqa: E402 - the illegal types plus solder mask bridges
-_OF_REF = re.compile(r"\bof (\S+)")
-_FP_REF = re.compile(r"^(?:Footprint|Courtyard of) (\S+)")
+from kae.drc_items import PLACER_TYPES, item_ref  # noqa: E402 - the illegal types plus solder mask bridges
 
 
 def kicad_violations(drc):
@@ -600,13 +597,13 @@ def violation_parts(P, st, v):
     out = set()
     for it in v.get("items", []):
         d = it.get("description", "")
-        m = _OF_REF.search(d) or _FP_REF.search(d)
-        if m is None:
+        ref = item_ref(d)
+        if ref is None:
             # a board-level item ('Segment on Edge.Cuts', "PCB text '...' on B.Cu", 'Rule Area',
             # 'Track', 'Via', 'Zone'): no part; by position it would name whichever part has a
             # pad nearest the item's anchor (paw3222: an edge error became a pair separation)
             continue
-        cands = by_ref.get(m.group(1), [])
+        cands = by_ref.get(ref, [])
         pos = it.get("pos") or {}
         if len(cands) == 1:
             out.add(cands[0])

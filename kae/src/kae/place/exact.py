@@ -1509,7 +1509,9 @@ def kicad_feedback(P, st, report, step=0.3):
     track) keeps off the error's positions by `step`. Returns {errors, by_type, constraints,
     fixed_only, placer_by_type}: errors between fixed items only cannot be repaired by placement;
     placer_by_type counts the others (the placer's) by type."""
-    from .legalize import _OF_REF, kicad_violations, violation_parts
+    from kae.drc_items import item_ref
+
+    from .legalize import kicad_violations, violation_parts
     viols = kicad_violations(report)
     fb = getattr(P, "feedback", None)
     if fb is None:
@@ -1584,7 +1586,7 @@ def kicad_feedback(P, st, report, step=0.3):
             out["fixed_only"] += 1
             continue
         if v["type"] == "copper_edge_clearance" and any(
-                "Edge.Cuts" in it.get("description", "") and not _OF_REF.search(it.get("description", ""))
+                "Edge.Cuts" in it.get("description", "") and item_ref(it.get("description", "")) is None
                 for it in v.get("items", [])):
             # against the board edge: the named parts' copper keeps EDGE_STEP more from it each
             # time KiCad still objects (the model's own edge check is EDGE_TOL lenient for

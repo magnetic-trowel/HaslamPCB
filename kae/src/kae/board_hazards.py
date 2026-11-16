@@ -33,6 +33,7 @@ import time
 from pathlib import Path
 
 from kae import hazards as H
+from kae.drc_items import item_nets, item_ref
 
 # DRC check -> (hazard severity, category, what it means for the board, fix). block: the board
 # would not work or cannot be built as drawn. Sources: KiCad 10.0 drc_item.cpp (the keys),
@@ -378,20 +379,14 @@ def forced_project(pro):
     return pro
 
 
-_NET = re.compile(r"\[([^\]]+)\]")
-_REF = re.compile(r"(?:\bof |^Footprint )(\S+)")
-
-
 def _objects(items):
     nets, refs = [], []
     for it in items or []:
         d = it.get("description") or ""
-        for m in _NET.finditer(d):
-            if m.group(1) not in nets and m.group(1) != "<no net>":
-                nets.append(m.group(1))
-        for m in _REF.finditer(d):
-            if m.group(1) not in refs:
-                refs.append(m.group(1))
+        nets += [n for n in item_nets(d) if n not in nets]
+        r = item_ref(d)
+        if r and r not in refs:
+            refs.append(r)
     return refs + nets
 
 
