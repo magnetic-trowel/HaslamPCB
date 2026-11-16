@@ -1202,8 +1202,9 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
                 log(f"anneal quench: legality {arep['quench'].get('leg_start')} -> {arep['quench'].get('leg_end')} "
                     f"in {arep['quench'].get('moves')} moves")
         ann.write_back()
-        if "channel_term" in rep:
-            _channel_final(P, ann.st, rep["channel_term"], chan_e1)
+        # the channel report in every run (w_chan 0 too: the mechanism measure of an A/B's control)
+        rep.setdefault("channel_term", dict(w_chan=0.0, A0=round(exactmod.mean_part_area(P), 3)))
+        _channel_final(P, ann.st, rep["channel_term"], chan_e1)
         rep["anneal"] = arep
         stage("anneal", t)
         t = clock_now()
