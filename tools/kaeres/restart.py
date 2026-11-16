@@ -359,9 +359,6 @@ def uncapped_unconnected(board, timeout):
         return None
 
 
-OF_REF = re.compile(r"^(?:Footprint (\S+)$|.*\bpad\b.* of (\S+?)(?: on \S+)?$)", re.I)
-
-
 def overlaps(report):
     """Pairs of parts a placement put on top of each other, from a DRC report: courtyards that
     overlap, and pads of two parts that short (pad to pad: a track's short is the router's).
@@ -372,8 +369,8 @@ def overlaps(report):
             continue
         refs = []
         for it in v.get("items", []):
-            m = OF_REF.match(it.get("description", ""))
-            refs.append((m.group(1) or m.group(2)) if m else None)
+            d = it.get("description", "")       # a pad's or a footprint's owner; a track's short is the router's
+            refs.append(DI.item_ref(d) if DI.item_kind(d) in ("pad", "footprint") else None)
         if len(refs) == 2 and None not in refs and refs[0] != refs[1]:
             pairs.add(tuple(sorted(refs)))
     return sorted(pairs)
