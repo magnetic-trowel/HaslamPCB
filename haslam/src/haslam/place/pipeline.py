@@ -384,6 +384,48 @@ def _rung_summary(res, seconds):
                 seconds=round(seconds, 1))
 
 
+
+def _channel_weight(P, st, w_chan, zone_tab, kw, board_path, opts):
+    """The routing-channel term's weight, its pad-to-edge table and its report.
+
+    place_chan_edge 1 adds channels between pads and the board edge (exact.channel_edge_term).
+    place_chan_cap k > 0 caps the weight so the term's cost at the seed (halo overlap of pairs
+    with a movable part / A0, plus the edge part) is at most k times the seed's wirelength
+    cost: clearing every pinch the seed has may then cost at most a share k of the
+    wirelength. Without it the cost of a pinch is fixed against the mean part's area while
+    the wirelength is normalized to 1, so a board of many small parts with many pinches
+    spends far more wire on them (dvhx soldering exercise, 991 pads: wirelength +30 % at
+    w_chan 3)."""
+    from haslam.route.constraints import setting
+    edge_on = float(setting("place_chan_edge", board_path, opts) or 0.0) > 0
+    cap = float(setting("place_chan_cap", board_path, opts) or 0.0)
+    A0 = exactmod.mean_part_area(P)
+    ov0, np0 = exactmod.channel_overlap(P, exactmod.channel_grid(P, weight=1.0), st.X, st.Y, st.K)
+    c = zone_tab.c if zone_tab is not None else zonesmod.raster_cell(P)
+    e1 = exactmod.channel_edge_term(P, 1.0, A0, c) if edge_on else None
+    edge0 = float(sum(e1.part(i, st.X[i], st.Y[i], st.K[i]) for i in P.mov)) if e1 is not None else 0.0
+    unit = ov0 / A0 + edge0
+    w_eff = w_chan
+    if cap > 0 and unit > 0:
+        w_eff = min(w_chan, cap * float(kw.get("w_wl", 1.0)) / unit)
+    rep = dict(w_chan=w_chan, w_eff=round(w_eff, 5), cap=cap, edge=edge_on, A0=round(A0, 3),
+               seed_overlap=round(ov0 / A0, 5), seed_pairs=np0, seed_edge=round(edge0, 5))
+    edge_tab = None
+    if e1 is not None:
+        edge_tab = exactmod.channel_edge_term(P, w_eff, A0, c)
+        rep.update(e1.info, edge_weight=w_eff)
+    return w_eff, edge_tab, rep, e1
+
+
+def _channel_final(P, st, rep, e1):
+    """The channel report after the anneal: halo overlap of pairs with a movable part (/ A0)
+    and the edge part at weight 1 (e1: the edge table at weight 1, or None)."""
+    ov, npairs = exactmod.channel_overlap(P, exactmod.channel_grid(P, weight=1.0), st.X, st.Y, st.K)
+    rep.update(final_overlap=round(ov / rep["A0"], 5), final_pairs=npairs)
+    if e1 is not None:
+        rep["final_edge"] = round(float(sum(e1.part(i, st.X[i], st.Y[i], st.K[i]) for i in P.mov)), 5)
+
+
 def place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, log=None, anneal=True,
           edge_mate=False, anneal_args=None, angle_step=None, fixed=(), board_path=None, opts=None,
           verify=None, relations=None):
@@ -1104,9 +1146,12 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
                 rep["silk_text"] = exactmod.refine_silk_text(P, log=log)
             grids.append(exactmod.silk_grid(P, weight=w_silk))
             rep["silk_term"] = dict(parts=len(grids[-1]), w_silk=w_silk)
+        edge_tab = chan_e1 = None
         if w_chan > 0:
-            grids.append(exactmod.channel_grid(P, weight=w_chan))
-            rep["channel_term"] = dict(parts=len(grids[-1]), w_chan=w_chan)
+            w_eff, edge_tab, rep["channel_term"], chan_e1 = _channel_weight(P, st, w_chan, zone_tab, kw,
+                                                                            board_path, opts)
+            grids.append(exactmod.channel_grid(P, weight=w_eff))
+            rep["channel_term"]["parts"] = len(grids[-1])
         if soft_bands:
             w_band = float(setting("escape_band_w", board_path, opts))
             grids.append(EB.escape_grid(P, soft_bands, weight=w_band))
@@ -1123,6 +1168,10 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             kw.setdefault("w_zone", 1.0)
             kw["zones"] = zone_tab
             rep["zone_term"] = dict(zone_tab.info, w_zone=kw["w_zone"])
+        # the channel term's pad-to-edge part rides on the zone table (a unary keep-out)
+        if edge_tab is not None and float(kw.get("w_zone", 1.0) or 0.0) > 0:
+            kw.setdefault("w_zone", 1.0)
+            kw["zones"] = zonesmod.merge(kw.get("zones"), edge_tab)
         kw.setdefault("hard_fixed", float(setting_env("place_anneal_hard_fixed", board_path, opts)) > 0)
         ann = make_annealer(P, st.copy(), terms=terms, macros=[m for m in macros if not m.anchored], seed=seed,
                             log=log, **kw)
@@ -1142,6 +1191,8 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
                 log(f"anneal quench: legality {arep['quench'].get('leg_start')} -> {arep['quench'].get('leg_end')} "
                     f"in {arep['quench'].get('moves')} moves")
         ann.write_back()
+        if "channel_term" in rep:
+            _channel_final(P, st, rep["channel_term"], chan_e1)
         rep["anneal"] = arep
         stage("anneal", t)
         t = clock_now()

@@ -224,8 +224,7 @@ def build(P, pull=1.0, keepout=1.0, parts=None):
     if not (zones or apertures) or (pull <= 0 and keepout <= 0):
         return None
     # zone cells ~0.1 mm, coarser on big boards (at most ~1M cells a map)
-    cell = max(RASTER_MM, math.sqrt(max(1.0, P.ncx * P.ncy) * P.g * P.g / 1e6))
-    c = max(1, int(round(cell / P.g)))
+    c = raster_cell(P)
     regions = fill_regions(board, zones)
     inner = sorted({ly for (_, ly) in regions if not ly.startswith(("F.", "B."))})
     board_area = max(1e-9, float(P.outline.area)) if P.outline is not None else None
@@ -393,6 +392,44 @@ def build(P, pull=1.0, keepout=1.0, parts=None):
             if lst:
                 Z.pull_of[i] = lst
     return Z
+
+
+def merge(a, b):
+    """One table pricing both ZoneTerms (same raster cell and rotation count): b's maps after
+    a's, each (part, rotation)'s entries a's then b's. Either may be None. The merged table
+    keeps a's distance scale (b's keep-out entries do not use it) and a's pull geometry."""
+    if a is None or b is None:
+        return a if b is None else b
+    if a.c != b.c or a.kmax != b.kmax or a.maps.shape[1:] != b.maps.shape[1:]:
+        raise ValueError("zone tables on different rasters")
+    if a.pad is None or b.pad is None:
+        raise ValueError("zone tables need their pad rows")
+    nh = int((a.pad < 0).sum())         # header rows: one per (part, rotation)
+    if nh != int((b.pad < 0).sum()):
+        raise ValueError("zone tables of different boards")
+    heads = np.zeros((nh, 4))
+    rows, pads = [], []
+    for h in range(nh):
+        heads[h, 0] = nh + len(rows)
+        for t, off in ((a, 0), (b, a.maps.shape[0])):
+            s, n = int(t.ent[h, 0]), int(t.ent[h, 1])
+            for e in range(s, s + n):
+                dx, dy, m, w = t.ent[e]
+                rows.append((dx, dy, m + off, w))
+                pads.append(int(t.pad[e]))
+        heads[h, 1] = len(rows) - (heads[h, 0] - nh)
+    ent = np.vstack([heads, np.array(rows, float).reshape(-1, 4)])
+    pad = np.concatenate([np.full(nh, -1, np.int64), np.array(pads, np.int64)])
+    Z = ZoneTerm(a.c, np.concatenate([a.maps, b.maps]).astype(np.uint16), ent, a.kmax, dict(a.info, **b.info),
+                 pad=pad, dz=a.dz)
+    Z.geoms, Z.pull_of = a.geoms, a.pull_of
+    return Z
+
+
+def raster_cell(P):
+    """The zone raster's cell in grid steps (build): ~0.1 mm, coarser on big boards."""
+    cell = max(RASTER_MM, math.sqrt(max(1.0, P.ncx * P.ncy) * P.g * P.g / 1e6))
+    return max(1, int(round(cell / P.g)))
 
 
 def seed_anchors(Z, P, objs, pos, weight):
