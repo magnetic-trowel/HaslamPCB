@@ -71,8 +71,9 @@ def unconnected_ignored(board):
 # "Track [SDA] on F.Cu, length 1.2 mm", "Via [VCC] on F.Cu - B.Cu", "Zone [GND] on L1 [Top],
 # priority 0", "Segment on Edge.Cuts". Net names are shown unescaped ("A/B" for the board's
 # "A{slash}B": unescape) and may hold brackets themselves ("sdram_dq[0]"), and user layer names
-# may too: a net's closing bracket is the one followed by " of ", " on " or the end.
-_NET = re.compile(r"\[(.*?)\](?= of | on |\s*$)", re.S)
+# may too ("Via [GND] on L1 [TOP] - L4 [BOT]"): an item names at most one net, opened by its first
+# bracket and closed by the bracket followed by " of ", " on " or the end.
+_NET = re.compile(r"^([^\[]*)\[(.*?)\](?= of | on |\s*$)", re.S)   # the first bracket opens the net
 _OF = re.compile(r"\bof (\S.*?)(?= on | \(|\s*$)", re.S)        # references may hold spaces ("On - Off")
 _FOOTPRINT = re.compile(r"^Footprint (?!text of )(\S.*?)(?= \(|\s*$)")   # "Footprint U1", "Footprint ADS4 (0x4B)"
 _KINDS = (("pad", ("pad", "pth pad", "npth pad", "smd pad")), ("track", ("track", "arc")), ("via", ("via",)),
@@ -89,7 +90,9 @@ def item_kind(desc):
 
 def item_nets(desc):
     """Net names an item's description shows, "<no net>" left out."""
-    return [n for n in _NET.findall(desc or "") if n and n != "<no net>"]
+    d = desc or ""
+    m = None if d.startswith("PCB text") else _NET.match(d)
+    return [m.group(2)] if m and m.group(2) and m.group(2) != "<no net>" else []
 
 
 def item_ref(desc):
@@ -98,7 +101,7 @@ def item_ref(desc):
     d = desc or ""
     if d.startswith("PCB text"):
         return None
-    d = _NET.sub("[]", d)
+    d = _NET.sub(r"\1[]", d, count=1)
     m = _FOOTPRINT.match(d) or _OF.search(d)
     return m.group(1) if m else None
 
