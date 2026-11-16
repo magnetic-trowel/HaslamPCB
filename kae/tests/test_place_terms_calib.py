@@ -334,3 +334,13 @@ def test_decap_budget_held_to_careful_layout():
         assert lc <= r['alloc']['value'] <= 2.0 * lc + 1e-9
         us.append(r['util'])
     assert us[0] <= 1.0 < us[1]
+
+
+def test_negative_rail_prices_as_its_magnitude():
+    """A -3.3 V rail stresses its decaps as +3.3 V does: build._Ctx.net_volts took the brief's
+    signed volts, so a -12 V rail priced its decap budgets with v_rail = -12."""
+    import copy
+    b, brief = decap_board()
+    neg = copy.deepcopy(brief)
+    neg['nets']['3V3']['volts'] = -abs(float(brief['nets']['3V3']['volts']))
+    assert _decap_value(_terms(b, neg)).alloc.value == pytest.approx(_decap_value(_terms(b, brief)).alloc.value)

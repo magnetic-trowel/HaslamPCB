@@ -159,9 +159,11 @@ class _Ctx:
         return b, per_pin
 
     def net_volts(self, net):
+        """A rail's magnitude in volts (the brief's, else from its name): a -12 V rail stresses
+        its loops and decaps as 12 V does (as critical_modules.Ctx.volts and excite.dc read it)."""
         r = self.nets.get(net) or {}
         v = r.get('volts')
-        return float(v) if v else _volts(net)
+        return abs(float(v)) if v else _volts(net)
 
 
 def _is_ic(p):
