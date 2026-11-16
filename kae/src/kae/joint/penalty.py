@@ -9,8 +9,8 @@ where Freerouting failed) to the static demand of those bins, as utilization tim
 bin's empty-board supply. Moves that keep nets and pins in a failed region then pay more,
 as PathFinder's history cost makes a congested node dearer for every net.
 
-The placer takes it through its hook: `make_annealer(..., cong_history=f)` (also
-`local_replace(cong_history=...)`) calls f(x0, y0, b, nbx, nby) once with its bins and adds
+The placer takes it through its hook: `make_annealer(..., cong_history=f)` (as
+joint.replace.replace_window passes it) calls f(x0, y0, b, nbx, nby) once with its bins and adds
 the returned (nbx, nby) array, in track mm per bin, to `Congestion.Dp`. The extra demand
 never moves with a part, so both engines stay exactly incremental. `history_hook` builds
 f; the supply per bin is the placer's own formula (Congestion: copper layers x bin area /

@@ -29,14 +29,23 @@ terms agree (docs/topics/rules/thermal.md, docs/topics/rules/power/high-current.
                                   370HR); TI SNVA419 lists 0.23 without a source.
     K_FR4_IN         0.8  W/(m K) FR-4 along the laminate: the glass weave conducts along it,
                                   measured 0.81 (Azar and Graebner) to 1.06; Graebner 1997: about 3x
-                                  through-plane. The research FV solver (tm_board_thermal_fv) and the
-                                  place terms' ThermalFV already use 0.8. Isotropic 0.3 overstated a
+                                  through-plane. The research FV solvers (tm_board_thermal_fv,
+                                  ex_exact.FVThermal) already use 0.8. Isotropic 0.3 overstated a
                                   copper-sparse part's rise by ~60 % (decide note, RC6).
     H_AIR            10   W/(m^2 K) still-air natural convection plus radiation from each face:
                                   TI SNVA419 Table 1 (0.001 W/cm^2 C). Correlations give
                                   ~3-6 (convection; a downward face the least) + ~6 (radiation,
                                   emissivity 0.9 near 300-330 K) per face; 10 is their average,
                                   and an enclosure only lowers it.
+
+Physical constants, in the units the kernels use (CODATA 2018; mu0 is the pre-2019 exact
+4 pi 1e-7 H/m, 5.5e-10 from CODATA 2018's, far below any model error here):
+
+    EPS0_F_M         8.8541878128e-12 F/m
+    EPS0_PF_MM       8.8541878128e-3  pF/mm
+    MU0_4PI_NH_MM    0.1    nH/mm     mu0 / (4 pi)
+    C0_MM_NS         299.792458 mm/ns
+    ETA0_OHM         376.730313 ohm   free-space impedance
 """
 from __future__ import annotations
 
@@ -52,6 +61,12 @@ CU_1OZ_MM = 0.035
 K_FR4_THROUGH = 0.3
 K_FR4_IN = 0.8
 H_AIR = 10.0
+
+EPS0_F_M = 8.8541878128e-12
+EPS0_PF_MM = 8.8541878128e-3
+MU0_4PI_NH_MM = 0.1
+C0_MM_NS = 299.792458
+ETA0_OHM = 376.730313
 
 
 def barrel_area_mm2(drill_mm, plating_mm=VIA_PLATING_MM):

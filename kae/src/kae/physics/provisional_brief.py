@@ -13,11 +13,10 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
+from kae.circuit.names import GND_RE, PWR_RE
+
 from . import priors as PR
 
-GND_RE = re.compile(r'(^|[^A-Z])(A|D|P|S|C)?GND|^/?VSS|^0V$|GROUND|EARTH', re.I)
-PWR_RE = re.compile(r'^/?(\+?\d+(\.\d+)?V\d*|\+[A-Z0-9_.]+|V(CC|DD|BUS|IN|SYS|BAT|MOT|M|PP|REG|CORE|CAP|S)[A-Z0-9_.]*|'
-                    r'[AD]V(DD|CC)[A-Z0-9_]*|\d+V\d+|[0-9]+V[0-9]*_?[A-Z]*)$', re.I)
 REG_RE = re.compile(r'LDO|REG|1117|LM317|78[0-9]{2}|AP2[0-9]{3}|AP7[0-9]{3}|AP63|MCP1[67]\d\d|XC6|RT9|RT8|TLV7|TPS|LM2|LMR|'
                     r'MP1|MP2|MP8|SY8|AOZ|LT1|LT3|LTC3|ADP|NCP|MIC5|MIC29|SPX|BD9|HT7|ME6|LP29|LP38|LP59|MAX15|MAX17|'
                     r'BUCK|BOOST|DCDC|PMIC|AMS1|XL[0-9]{4}|SX1308|MT3608|SGM2|SGM6|RP[0-9]{3}|LD39|LD29|ST1S', re.I)

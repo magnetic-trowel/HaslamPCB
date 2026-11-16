@@ -94,7 +94,7 @@ def test_experiment_env_takes_only_result_neutral_settings():
     assert kaeres.exp_env(argparse.Namespace(env=["KAE_STEP_CACHE=/var/tmp/x"])) == {"KAE_STEP_CACHE": "/var/tmp/x"}
     import pytest
     with pytest.raises(SystemExit):
-        kaeres.exp_env(argparse.Namespace(env=["KAE_ROUTE_HISTORY=/x"]))   # would change results: a recipe's job
+        kaeres.exp_env(argparse.Namespace(env=["KAE_BUDGET=work"]))   # would change results: a recipe's job
 
 
 def test_the_sandbox_binds_the_step_cache(tmp_path, monkeypatch):

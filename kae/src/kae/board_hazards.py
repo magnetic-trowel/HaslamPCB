@@ -32,6 +32,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from kae import budget
 from kae import hazards as H
 
 # DRC check -> (hazard severity, category, what it means for the board, fix). block: the board
@@ -570,8 +571,7 @@ def finish(report, output=None, project_board=None, kind="route", mode="auto", d
         elif not Path(output).exists():
             meta["skipped"] = "no output board"
         else:
-            from kae.budget import now as clock_now
-            left = None if deadline is None else deadline - clock_now()
+            left = None if deadline is None else budget.clock().left(deadline)
             if left is not None and left < MIN_RECHECK_S and mode != "on":
                 meta["skipped"] = f"time ({left:.0f} s left)"
                 hidden = {k: v for k, v in downgraded(project_severities(project_board)).items()
@@ -585,7 +585,7 @@ def finish(report, output=None, project_board=None, kind="route", mode="auto", d
                                     fix="Run again with --recheck on, or run kicad-cli pcb drc with the checks set "
                                         "to error."))
             else:
-                timeout = 900.0 if left is None else max(MIN_RECHECK_S, min(900.0, left - 5.0))
+                timeout = 900.0 if left is None else max(MIN_RECHECK_S, min(900.0, budget.wall_timeout(left - 5.0)))
                 hz, meta = recheck(output, project_board, timeout=timeout, log=log)
                 skip = {f"drc_{t}" for t in SKIP_BY_KIND.get(kind, ())}
                 extra += [h for h in hz if h["code"] not in skip]

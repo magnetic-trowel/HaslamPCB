@@ -187,12 +187,6 @@ def end_plane(mesh, pad_layer, ref_ids=None):
     return int(ks[0]) if ks else -1
 
 
-def main_return(mesh, ref_ids=None):
-    """The layer with the most return copper: where every return ends up (the reference of theta)."""
-    occ = [ref_copper(mesh, k, ref_ids).sum() for k in range(len(mesh.layers))]
-    return int(np.argmax(occ)) if max(occ) > 0 else -1
-
-
 def _extend(mesh, node, k, ref_ids):
     """Plane k's potential extended to every cell from its nearest return copper."""
     occ = ref_copper(mesh, k, ref_ids)

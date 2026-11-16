@@ -20,20 +20,9 @@ import tempfile
 from pathlib import Path
 
 from . import stepcache
-
-# Violation types that depend on the local library setup, not on the board (as kaebench).
-ENV_DEPENDENT = ("lib_footprint_issues", "lib_footprint_mismatch")
-# kicad-cli lists at most this many unconnected items; past it (or when the project ignores the
-# check: unconnected_ignored) the count comes from pcbnew's connectivity after a zone fill, as
-# kaebench's scorer counts (score._uncapped): on polarfire-som
-# every repair round read 499 and last-mile rounds that joined 26-41 connections were discarded
-DRC_UNCONNECTED_CAP = 499
-UNCONNECTED_PY = ("import json, sys, pcbnew\n"
-                  "b = pcbnew.LoadBoard(sys.argv[1]); zs = pcbnew.ZONES()\n"
-                  "for i in range(b.GetAreaCount()): zs.append(pcbnew.Cast_to_ZONE(b.GetArea(i)))\n"
-                  "len(zs) and pcbnew.ZONE_FILLER(b).Fill(zs)\n"
-                  "b.BuildConnectivity()\n"
-                  "print(json.dumps(dict(unconnected=b.GetConnectivity().GetUnconnectedCount(False))))\n")
+# what a report counts, shared with tools/kaeres/restart.py: on polarfire-som every repair round read
+# 499 and last-mile rounds that joined 26-41 connections were discarded until the cap was looked past
+from kae.drc_items import DRC_UNCONNECTED_CAP, ENV_DEPENDENT, UNCONNECTED_PY, errors, unconnected_ignored  # noqa: F401
 
 
 class DrcError(RuntimeError):
@@ -115,18 +104,6 @@ def _run(board, out_json, timeout, cache, mb):
             if rep.get(k):
                 rep[k].sort(key=_content_key)
     return rep
-
-
-def unconnected_ignored(board):
-    """True when the project beside `board` sets the unconnected_items check to "ignore": KiCad's
-    DRC then lists no unconnected items at all, even with --severity-all, so its count says nothing
-    about connectivity (as kaebench's boardfiles.unconnected_ignored; the scorer then counts with
-    pcbnew, and so does run). gamaphy-freedom-rp2040 is one such board."""
-    try:
-        pro = json.loads(Path(board).with_suffix(".kicad_pro").read_text(encoding="utf-8"))
-        return pro["board"]["design_settings"]["rule_severities"]["unconnected_items"] == "ignore"
-    except (OSError, ValueError, KeyError, TypeError):
-        return False
 
 
 def canonical_copper_order(board, uuids=False):
@@ -411,11 +388,6 @@ def uncapped_unconnected(board, timeout=900):
         return int(json.loads(r.stdout.strip().splitlines()[-1])["unconnected"])
     except (PcbnewError, OSError, subprocess.TimeoutExpired, ValueError, IndexError, KeyError):
         return None
-
-
-def errors(report, ignore=ENV_DEPENDENT):
-    """Error-level violations (as kaebench counts them), unconnected items aside."""
-    return [v for v in report.get("violations", []) if v.get("severity") == "error" and v.get("type") not in ignore]
 
 
 def summary(report):

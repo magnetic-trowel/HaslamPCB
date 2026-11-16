@@ -23,12 +23,15 @@ Keys: joint place-and-route, pnr, pnr line, ab33, dev6, phys10, v5 era, v7 era, 
 | [forces-and-fields.md](forces-and-fields.md) | pin tension, bloat, soft-route gradients (`pnr_grad`), Physarum (`pnr_slime`) | did not work; grad_phys partial for physics |
 | [llm-proposer.md](llm-proposer.md) | LLM relational moves (`pnr_llm`) | did not work |
 | [layer-collapse-analysis.md](layer-collapse-analysis.md) | layer-count bounds, exact layer assignment, collapse placement terms (`collapse_obst`, `collapse_assign`, `collapse_cplace`) | did not work; narrow partial results |
-| [jc.md](jc.md) | negotiate, jc, jc2 (`collapse_joint`) | partial; worked (best family); jc2 likely worked, unconfirmed |
+| [jc.md](jc.md) | negotiate, jc, jc2 (`collapse_joint`) | partial; worked on ab33 (best family), did not carry to the 213-board merit suite (cp1 0.225 vs kae 0.29–0.31); jc2 likely worked, unconfirmed |
 | [jc-extensions.md](jc-extensions.md) | harmonic pressure, learned value, QD archive, min-plus maps (T1), exact physics maps (T2) (`harmonic`, `learn_value`, `qd_archive`, `xf_minplus`, `xf_physmap`) | none clearly beat jc; min-plus leans merit on vias |
 | [pour-models.md](pour-models.md) | minimal-partition pours, pour-damage maps (T4) (`collapse_pour`, `xf_pour`) | did not work; worked on physics, needs confirming |
 | [untested-ideas.md](untested-ideas.md) | T3, T5–T12, untested catalog ideas | untested |
 | [kae-staged.md](kae-staged.md) | kae place, then Freerouting bridge + last mile (`kae/src/kae/joint/cli.py` `--max-iters 0 --no-modules`) | worked on A+B; partial on split C |
 | [kae-joint-loop.md](kae-joint-loop.md) | kae joint loop (`kae/src/kae/joint/`, `tools/research/joint/`) | worked on A+B; clock-bound on split C |
+| [window-outcomes-2611.md](window-outcomes-2611.md) | how the joint loop's windows end; J3 skip windows on DRC types no move can change | J3 did not work: futile windows gone, freed time unused |
+| [window-budget-2611.md](window-budget-2611.md) | joint-loop windows at 1–4 budgets; fixes J2, J4, J5, J14; compute-matched vs restarts | windows pay only with extra compute; J2/J4/J5 did not work; J14 (`first_last_mile`) worked; restarts beat windows at equal CPU |
+| [restart-screen-2611.md](restart-screen-2611.md) | `restart.py --screen` on the joint method (j1-screen) | did not work: inside replicate noise |
 
 Older micro-benchmarks of the same research, listed in the placement area: synthetic CP-SAT / annealing placement (`tools/research/solver-bench`, [solver benchmarks](../../topics/solvers/benchmarks.md)); decap distance statistics (`tools/research/layout-data`).
 

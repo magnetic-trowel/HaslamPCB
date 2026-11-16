@@ -16,7 +16,7 @@ Keys: layer collapse, layer-count bound, capacity cut, graph thickness, BGA esca
 - **Bus orientation.** Part pairs joined by ≥ 4 two-pin nets: longest decreasing subsequence of the pin permutation (generally the RSK shape) = how many nets can share a via-free layer.
 - API `placecost.py`: `capacity_overflow`, `bus_pairs`, `bus_lds`.
 
-**Results** ([collapse_obst/RESULTS.md](../../../tools/research/collapse_obst/RESULTS.md)):
+**Results** ([collapse_obst/RESULTS.md](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/collapse_obst/RESULTS.md)):
 - Sound bounds never exceed 2 layers (capacity forces 2 on 2 boards, never 3); real layer counts = planes + BGA escape (102/112 boards have 2 signal layers). Capacity demand does not explain our routing failures.
 - Escape formula within ±1 of the signal-layer count on all 7 fine-pitch BGAs (3 times one above).
 - 4+ vs 2 layers: max cut demand AUC 0.77, no better than plain pad density (0.79).
@@ -34,7 +34,7 @@ Keys: layer collapse, layer-count bound, capacity cut, graph thickness, BGA esca
 
 `lifted.py:LiftedConflicts` exposes the lifted cost with incremental `update` for placement.
 
-**Results** ([collapse_assign/RESULTS.md](../../../tools/research/collapse_assign/RESULTS.md); v5 route tasks, ab33 human placements):
+**Results** ([collapse_assign/RESULTS.md](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/collapse_assign/RESULTS.md); v5 route tasks, ab33 human placements):
 
 | run | A clean | B clean | all clean | completion | vias | length mm |
 |---|---|---|---|---|---|---|
@@ -74,8 +74,10 @@ Keys: layer collapse, layer-count bound, capacity cut, graph thickness, BGA esca
 
 ## Code
 
-- [`tools/research/collapse_obst/`](../../../tools/research/collapse_obst/): `obst.py`, `placecost.py`, `placements.py`, `report.py`, `run_all.py`. Heat-map figures not published (third-party boards); `report.py` regenerates them.
-- [`tools/research/collapse_assign/`](../../../tools/research/collapse_assign/): `collapse.py` (router plug-in), `lifted.py`, `analyze.py`, `placement_study.py`. Needs `ortools`.
+- **Archived:** [`collapse_obst`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/collapse_obst), [`collapse_assign`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/collapse_assign) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/kicad-auto-everything/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [1e53ff1](https://github.com/magnetic-trowel/kicad-auto-everything/commit/1e53ff126883570507cb8f7400556e52c200ff25) (2026-10-27, import from the research branch, path fixes only). Run it from a checkout of the tag.
+
+- [`tools/research/collapse_obst/`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/collapse_obst): `obst.py`, `placecost.py`, `placements.py`, `report.py`, `run_all.py`. Heat-map figures not published (third-party boards); `report.py` regenerates them.
+- [`tools/research/collapse_assign/`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/collapse_assign): `collapse.py` (router plug-in), `lifted.py`, `analyze.py`, `placement_study.py`. Needs `ortools`.
 - [`tools/research/collapse_cplace/`](../../../tools/research/collapse_cplace/): `terms.py`, `methods_cplace.py`, `methods_cplace_lv.py`, `diag.py`, `diag_report.py`, `summarize.py`, `run_cplace.sh`.
 
 ## Related

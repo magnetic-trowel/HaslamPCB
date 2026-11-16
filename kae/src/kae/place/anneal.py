@@ -714,9 +714,7 @@ class Annealer:
             if mv is None:
                 continue
             S, newpos, kind = mv
-            acc, d = self.try_move(S, newpos, 1e-12, self.lam0, kind)
-            if acc and d > 0:
-                pass
+            _, d = self.try_move(S, newpos, 1e-12, self.lam0, kind)
             if d > 0:
                 ups.append(d)
         ups.sort()

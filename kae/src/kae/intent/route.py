@@ -15,10 +15,12 @@ from __future__ import annotations
 import fnmatch
 import math
 
+from kae import materials as MAT
+
 from . import objective as OB
 from . import units as U
 
-RHO_CU_OHM_MM = 1.72e-5            # copper resistivity, ohm mm
+RHO_CU_OHM_MM = MAT.RHO_CU_OHM_MM  # copper resistivity, ohm mm
 # neutral/1: currency per mm^2 of copper when the intent says nothing. w* = 3.1 mm/A on 35 um copper.
 # Basis (economic, always-on): a mm^2 of a 2-layer board at volume costs about $0.0003-0.0008, and 1 mW
 # for 5 years at $0.15/kWh about $0.0066, so 0.05-0.12 mW_eq/mm^2. Human layouts imply more: median 0.64

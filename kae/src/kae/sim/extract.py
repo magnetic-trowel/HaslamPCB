@@ -35,6 +35,8 @@ import math
 from dataclasses import dataclass, field
 
 import numpy as np
+
+from kae import materials as MAT
 from shapely import STRtree
 from shapely.geometry import LineString, Point
 
@@ -120,7 +122,7 @@ class _Builder:
             h = rb.thickness
             if ln > 1e-6 and not pour:
                 self.net.stats["no_reference_mm"] = self.net.stats.get("no_reference_mm", 0.0) + ln
-        t = self.t_cu.get(layer, 0.035)
+        t = self.t_cu.get(layer, MAT.CU_1OZ_MM)
         R = r_track(ln, w, t)
         L = lprime_hj(w, h) * ln * 1e-9
         C = 0.0 if (ground or pour or not self.line_c) else cprime_hj(w, h, _er(rb, layer)) * ln * 1e-12

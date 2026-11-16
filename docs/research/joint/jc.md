@@ -54,7 +54,7 @@ v7, joint tasks, engine v6.3, 3 seeds, **partial** (jc 88, jc_lv 94 of 99 attemp
 
 xf3 jc baselines (fixed engine 4c4330a, all 33 boards, 3 seeds): rows "base jc" in [pour-models.md](pour-models.md#pour-damage-maps-in-jc-t4) and [jc-extensions.md](jc-extensions.md#min-plus-best-response-maps-t1).
 
-**Verdict: worked (best family).** Best legality and clean rate in both eras, best fast physics in v5. Caveats: v5 is one seed; v7 clean gains over `combo` within seed noise and the jc runs incomplete; more vias than combo (+70% v5, +50% v7); weaker on large B boards; `RoutedPhys` time (`jc_full`) outside the CPU clock. Bugs found later are fixed in jc2. Merit arms: `jc`, `jc_lv`, `jc_full`.
+**Verdict: worked (best family).** Best legality and clean rate in both eras, best fast physics in v5. Caveats: v5 is one seed; v7 clean gains over `combo` within seed noise and the jc runs incomplete; more vias than combo (+70% v5, +50% v7); weaker on large B boards; `RoutedPhys` time (`jc_full`) outside the CPU clock. Bugs found later are fixed in jc2. Merit arms: `jc`, `jc_lv`, `jc_full`; merit-suite result → [below](#jc-on-the-213-board-merit-suite-2026-102930).
 
 ## jc2: jc hardened
 
@@ -89,6 +89,21 @@ xf3 jc baselines (fixed engine 4c4330a, all 33 boards, 3 seeds): rows "base jc" 
 - 5-board devB screen (1 seed): the fix stack does not hurt routed physics (1.14 vs jc 1.23); min-plus does (1.54).
 
 **Verdict: likely worked, unconfirmed.** A cleanup of jc, not a new method: fewer vias and open connections, equal length, clean within seed spread; most of the gain from end-phase bug fixes. Merit arms: `jc2_fix`, `jc2_fixmp_lv`.
+
+## jc on the 213-board merit suite (2026-10-29/30)
+The v5 headline (legal 0.879, clean 0.667, physics 0.82× human) is one seed on 33 boards, and 0.82 is fast physics; routed physics there was 1.05. On the merit suite jc loses to the kae line and is not worth porting into `kae` [C].
+
+| all 213 merit boards, attempt 0 | cp1 | completion | opens | CPU h | no output |
+|---|---|---|---|---|---|
+| pnr jc / jc2_fix / pjc2 | 0.225 / 0.230 / 0.230 | 0.850 / 0.847 / 0.842 | 4,386 / 4,050 / 4,644 | 149 / 142 / 151 | 12 |
+| kae staged / kae joint loop | 0.291 / 0.305 | 0.906 / 0.898 | 4,884 / 5,675 | 127 / 133 | 6 / 6 |
+| kae bridge on the human placement | 0.268 | 0.927 | 6,160 | 107 | 4 |
+| jc2_fix placement + kae bridge (hybrid, branch `hybrid-pnr-kae`) | 0.258 | 0.786 | 4,969 | 169 | 21 |
+
+- By split, cp1: B (72 boards) staged 0.458, joint loop 0.458, jc 0.375; C (126) joint loop 0.175, staged 0.151, jc 0.087.
+- Physics: module ratio on the 28 A+B human-clean boards jc **0.47**, joint loop 0.87, staged 1.19; on fully routed boards jc / joint loop 1.10 (n 28, jc worse), jc / staged 0.815.
+- Engine 957a37f (fast router, anytime output), 120 CPU-s per attempt as in the scorecard, under the restart wrapper. Sources: kaeres experiments `merit-500r3` (pnr arms) and `merit-500r3k` (kae arms), same days and evaluators (DRC 98dc632c1679).
+- Verdict: jc's legality and clean-rate lead does not carry over from ab33 to the merit suite; it keeps good physics on small boards. `pnr route_only` (7 CPU-h for 213 boards vs bridge 107 h; opens 2,749 vs 1,435 on 195 common boards) is cheap but weaker: a possible fast probe, not a finisher [I].
 
 ## Open questions
 
