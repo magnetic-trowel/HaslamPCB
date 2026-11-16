@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import shapely
 
+from kae.budget import Deadline
 from kae.board.kicad_file import load
 from kae.place.legalize import exact_check, kicad_violations, legalize, repair_kicad, violation_parts
 from kae.place.problem import Problem
@@ -120,11 +121,10 @@ def test_reseed_places_a_pile_and_overhang_keeps_only_pads_in():
     """Escalation steps of the closed loop: a constructive re-seed (biggest first, each at an
     exactly clean spot, looking ahead for the next big parts) places a pile exactly legal;
     allow_overhang lets a courtyard hang over the edge while its pads stay in."""
-    import time
     from kae.place import exact
     P, st = _pile()
     E = exact.ExactModel(P, st)
-    failed = exact.reseed(P, st, E, set(P.mov), time.monotonic() + 60)
+    failed = exact.reseed(P, st, E, set(P.mov), Deadline(60))
     assert not failed and exact_check(P, st) == []
     i = max(P.mov, key=lambda q: P.parts[q].area)
     before = P.parts[i].rots[0].g_board
@@ -298,7 +298,6 @@ def test_repair_keeps_protection_order():
 def test_move_clean_skips_a_spot_that_breaks_protection_order(monkeypatch):
     """The guard itself: of two exactly clean spots, the nearer one puts the protection part
     farther from the connector than the protected part; the repair takes the other."""
-    import time
     from kae.place import exact
     P, st, E, guard, ref = _held_chain()
     i7 = ref["U7"].i
@@ -309,7 +308,7 @@ def test_move_clean_skips_a_spot_that_breaks_protection_order(monkeypatch):
     E.set_pose(i7, *good)                                # where it stands, the rule holds
     monkeypatch.setattr(exact, "_candidates", lambda *a, **k: [(0.0, *bad), (1.0, *good)])
     E.findings_at = lambda i, X, Y, K, **kw: []          # both spots clean
-    ok, _ = exact.move_clean(P, st, E, i7, time.monotonic() + 30)
+    ok, _ = exact.move_clean(P, st, E, i7, Deadline(30))
     assert ok and (int(st.X[i7]), int(st.Y[i7]), int(st.K[i7])) == tuple(good)
     assert guard.total() == 0
 
@@ -715,7 +714,6 @@ def test_repair_judges_exactly_where_the_grid_leaves_no_room():
     the grid offered the header no origin at all and the repair called it 'no room' forever.
     With no grid-free origin the repair takes origins free of the other movable parts only and
     lets the exact check judge them against the fixed ones."""
-    import time
     from kae.place import exact
     from kae.place.problem import Obstacle
     P, st = _pile()
@@ -731,7 +729,7 @@ def test_repair_judges_exactly_where_the_grid_leaves_no_room():
     home = (int(st.X[i]), int(st.Y[i]), int(st.K[i]))
     P.feedback = {"sep": {}, "avoid": {i: [(E.hull(E.sh[i]), "test")]}}   # it must leave where it is
     E = exact.ExactModel(P, st)
-    ok, _ = exact.move_clean(P, st, E, i, time.monotonic() + 30)
+    ok, _ = exact.move_clean(P, st, E, i, Deadline(30))
     assert ok and (int(st.X[i]), int(st.Y[i]), int(st.K[i])) != home and not E.part_findings(i)
 
 

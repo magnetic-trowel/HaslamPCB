@@ -161,6 +161,32 @@ def now(kind="poll"):
     return clock().now(kind)
 
 
+class Deadline:
+    """`seconds` of budget from now on the process clock: a stage's start, its end and the time
+    it used, in one object, so no stage mixes clocks. Each method reads now(kind) once, as the
+    `t0 = now(); end = t0 + s; now() > end; end - now(); now() - t0` it replaces did, so
+    counted-work runs charge the same polls."""
+    __slots__ = ("kind", "t0", "end")
+
+    def __init__(self, seconds, kind="poll", t0=None):
+        self.kind = kind
+        self.t0 = now(kind) if t0 is None else t0
+        self.end = self.t0 + float(seconds)
+
+    def part(self, seconds):
+        """A deadline `seconds` after this one's start (a share of its budget); reads no clock."""
+        return Deadline(seconds, self.kind, t0=self.t0)
+
+    def left(self):
+        return self.end - now(self.kind)
+
+    def passed(self):
+        return now(self.kind) > self.end
+
+    def elapsed(self):
+        return now(self.kind) - self.t0
+
+
 def wall_timeout(seconds):
     """Wall seconds to allow a subprocess a caller gave `seconds` of budget: the same (time mode), or
     what is left to the ceiling, at least an hour without one (work mode): a timeout read from the

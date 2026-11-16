@@ -22,7 +22,7 @@
 """
 from __future__ import annotations
 
-from kae.budget import cpsat_charge, cpsat_limit
+from kae.budget import Deadline, cpsat_charge, cpsat_limit
 from kae.budget import now as clock_now
 import math
 import time
@@ -564,9 +564,9 @@ def micro_place(P, members, structs, anchor, time_s=2.0, top_k=3, workers=2, see
     m.minimize(sum(obj))
     layouts = []
     rot_lits = [l for i in members if i != anchor for l in V[i][2]]
-    t_end = clock_now() + time_s * top_k
+    dl = Deadline(time_s * top_k)
     for _ in range(top_k):
-        left = t_end - clock_now()
+        left = dl.left()
         if left <= 0.05:
             break
         s = cp_model.CpSolver()
@@ -615,8 +615,7 @@ def build_macros(P, structs, time_s=10.0, top_k=3, workers=2, seed=0, log=None, 
     n_try = max(top_k, candidates) if terms is not None else top_k
     # the budget: half to the CP-SAT proposals, half to annealing them on the terms (whose
     # deltas cost milliseconds on big boards); a macro never takes more than its share
-    t_start = clock_now()
-    deadline = t_start + time_s
+    dl = Deadline(time_s)
     per = max(0.3, 0.5 * time_s / len(groups) / max(1, n_try))
     out = []
     for gi, (mem, sts) in enumerate(groups):
@@ -633,7 +632,7 @@ def build_macros(P, structs, time_s=10.0, top_k=3, workers=2, seed=0, log=None, 
                 rerank(P, mac, terms)
                 # anneal the best few layouts on the place terms themselves, within this
                 # macro's share of what is left of the budget
-                share = max(0.0, deadline - clock_now()) / max(1, len(groups) - gi)
+                share = max(0.0, dl.left()) / max(1, len(groups) - gi)
                 for lay0 in list(mac.layouts[:top_k]):
                     better = refine(P, mac, lay0, terms, seed=seed,
                                     deadline=clock_now() + max(0.05, share / top_k))
