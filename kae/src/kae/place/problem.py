@@ -558,6 +558,11 @@ class Obstacle:
     why: str
 
 
+def margin_for_util(util):
+    """The auto margin for a utilization: about 1 mm on an empty board, nothing above 70 %."""
+    return float(min(1.0, max(0.0, 2.0 * (0.7 - util))))
+
+
 class Problem:
     """Everything the seed, annealer and legalizer need, derived once from a Board."""
 
@@ -1211,12 +1216,12 @@ class Problem:
         """Routing room between movable parts, from how full the board is: about 1 mm on an
         empty board, nothing above 70% utilization (part rectangles are mutually exclusive
         inflated by half the margin each)."""
-        util = max(self.utilization())
-        return float(min(1.0, max(0.0, 2.0 * (0.7 - util))))
+        return margin_for_util(max(self.utilization()))
 
     def set_margin(self, m):
         """Grow every movable part's occupancy and board rectangles by m/2 on each side (0
         restores the exact rectangles): routing room between parts and towards the board edge.
+        A part in self.margin_cap ({part index: mm}) gets at most its cap.
         Parts with many pins get more (escape space: m * min(0.8, 0.1 sqrt(pins)) extra, so a
         32-pin QFN on an empty board keeps about 0.6 mm more around it than a resistor).
         Legality does not need any of it; routability does."""
@@ -1227,15 +1232,17 @@ class Problem:
         # far as the board's slack allows: Freerouting narrows tracks it squeezes in there
         r = self.board.rules
         track = (r.track_min if r and r.track_min else 0.2)
-        edge_room = min(1.0, m / 0.5) * (track + self.clr_min) if m > 0 else 0.0
+        cap = getattr(self, "margin_cap", None) or {}
         bands = getattr(self, "escape", {}) if getattr(self, "escape_on", False) else {}
         fan = getattr(self, "fanout", {}) if getattr(self, "escape_on", False) else {}
         for p in self.parts:
             if not p.movable:
                 continue
-            esc = m * min(0.8, 0.1 * math.sqrt(len(p.fp.pads))) if m > 0 else 0.0
-            k = (int(round((m + esc) / 2 / g)) if m > 0 else 0) + extra.get(p.i, 0)
-            kb = int(round((m / 2 + edge_room) / g)) if m > 0 else 0
+            mp = min(m, cap.get(p.i, m))      # a region's own room (kae.place.margin_gate.caps)
+            er = min(1.0, mp / 0.5) * (track + self.clr_min) if mp > 0 else 0.0
+            esc = mp * min(0.8, 0.1 * math.sqrt(len(p.fp.pads))) if mp > 0 else 0.0
+            k = (int(round((mp + esc) / 2 / g)) if mp > 0 else 0) + extra.get(p.i, 0)
+            kb = int(round((mp / 2 + er) / g)) if mp > 0 else 0
             for r in p.rots:
                 kl, kt, kr, kd = self._band_cells(p, r) if p.i in bands else (0, 0, 0, 0)
                 a, b, c, d = r.g_own_exact
