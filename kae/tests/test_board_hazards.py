@@ -152,9 +152,34 @@ def test_summary_hazards_and_finish_off(tmp_path):
 
 
 def test_finish_skips_without_time(tmp_path):
-    import time
+    from kae import budget
     pcb = _project(tmp_path, dict(clearance="warning"))
     pcb.write_text(TWO_PADS.read_text())
-    rep = B.finish(dict(), str(pcb), str(pcb), mode="auto", deadline=time.monotonic() + 1)
+    rep = B.finish(dict(), str(pcb), str(pcb), mode="auto", deadline=budget.now() + 1)
     sk = next(h for h in rep["hazards"] if h["code"] == "recheck_skipped")
     assert sk["severity"] == "warn" and sk["objects"] == ["clearance"]
+
+
+@pytest.mark.parametrize("mode", ["time", "work"])
+def test_finish_reads_the_deadline_on_the_budget_clock(monkeypatch, tmp_path, mode):
+    """The deadline is a kae.budget.now() value in both modes. In work mode now() is the charged
+    seconds, so reading it against time.monotonic() left about minus the host's uptime, and the
+    recheck was always skipped. The subprocess timeout is wall time (budget.wall_timeout)."""
+    from kae import budget
+    seen = {}
+
+    def fake_recheck(output, project_board, timeout=None, log=None):
+        seen["timeout"] = timeout
+        return [], dict(ran=True)
+    monkeypatch.setattr(B, "recheck", fake_recheck)
+    pcb = _project(tmp_path, dict(clearance="warning"))
+    pcb.write_text(TWO_PADS.read_text())
+    budget.set_mode(mode)
+    try:
+        budget.set_ceiling(600.0)
+        rep = B.finish(dict(), str(pcb), str(pcb), mode="auto", deadline=budget.now() + 300)
+        assert rep["recheck"] == dict(ran=True) and B.MIN_RECHECK_S <= seen["timeout"] <= 900.0
+        rep = B.finish(dict(), str(pcb), str(pcb), mode="auto", deadline=budget.now() + 1)
+        assert rep["recheck"]["skipped"].startswith("time")
+    finally:
+        budget.set_mode("time")
