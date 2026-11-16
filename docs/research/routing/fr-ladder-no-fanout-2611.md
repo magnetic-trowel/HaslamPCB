@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # A Freerouting fallback ladder without fanout or neck width (2026-11-14)
 
-Status: **running, no verdict.** Plan: `tools/kaeres/experiments/fr-ladder-ab/PLAN.md`.
+Status: **decided 2026-11-16: not adopted.** The ladder fires but does not close opens beyond noise; the branch stays unmerged. Plan: `tools/kaeres/experiments/fr-ladder-ab/PLAN.md`.
 
 ## The gap
 After a pass loop stops with open connections, the fork re-routes the board under named setting changes
@@ -50,7 +50,43 @@ retryable, so the ladder does not run after one.
   hotspots (`ShapeSearchTree45Degree.completeShapeUnlocked`, `PriorityQueue.siftUp`) and nothing from
   the ladder itself. No cheap speedup is specific to this change.
 
-## A/B
-`fr-ladder-ab`: 40 congested boards (fr-settings-ab's set) x {d137fd1, ladder build}, at kae 6fdfc89
-(main), one run per board. The primary set is the boards where the ladder fired. Decision rule and
-extension are in the plan. kaeq owner `exp-fr-ladder-ab`, jobs #96580-#96659.
+## A/B result (2026-11-16)
+`fr-ladder-ab`: 40 congested boards (fr-settings-ab's set) x {d137fd1, ladder build 40c89c3}, kae 6fdfc89
+(main), production chassis, one run per board. 80 of 80 jobs ok (kaeq owner `exp-fr-ladder-ab`). All runs were
+scored by the same DRC evaluator.
+
+**Manipulation check.** The ladder ran in at least one attempt on 20 of 40 boards (`restarts.json`,
+`fr.first.fallback`), and its board won in 37 attempts. Control logged no ladder strategy. It never ran on
+the 20 large boards, where Freerouting stops on time and never stagnates.
+
+| Set | Boards | Opens control → ladder | Better / worse | Sign p | Clean | DRC errors | Method CPU h |
+|---|---|---|---|---|---|---|---|
+| Exercised (primary) | 20 | 262 → 259 (-1.1 %) | 9 / 5 | 0.42 | 2 → 1 | 1039 → 1044 (+0.5 %) | 26.9 → 26.0 |
+| Not exercised | 20 | 4881 → 5041 (+3.3 %) | 5 / 7 | 0.77 | 1 → 1 | 2182 → 2263 (+3.7 %) | 52.5 → 48.7 |
+| All | 40 | 5143 → 5300 (+3.1 %) | 14 / 12 | 0.85 | 3 → 2 | 3221 → 3307 (+2.7 %) | 79.4 → 74.8 |
+
+On the exercised boards the error types are unchanged except `starved_thermal` 8 → 13 and
+`solder_mask_bridge` 343 → 347. Vias went 1679 → 1721. Per board, the mean log1p(opens) difference is
+-0.007, with SD 0.47. The clean board lost was
+cormoran pmw3610 (0 → 1 open, 2 errors). Patchouli also went 0 → 1 open, but it was not clean in either arm.
+
+**Verdict against the plan.** The rule needs opens at least 10 % lower with p < 0.05, and cp1 not lower.
+The result is -1.1 % with p 0.42, and cp1 fell 2 → 1. The opens effect is below the 2.4 % twin floor and
+p is above 0.2, so the extension clause does not trigger either. **Not adopted.** No fork PR. The branch
+`kae-ladder-no-neck` and the build `kae-fr-ladder-40c89c3` are kept as a record.
+
+**Noise note.** The boards where the ladder never ran differ only by wall-clock chance (same Freerouting
+code path), yet opens moved +3.3 %, per-board SD 0.084. That is twice fr-settings-ab's twin SD (0.04).
+Most of it is `starved_thermal` and opens on seeed jetson (errors 154 → 230, opens 681 → 750). The
+chassis's wall-clock noise on big boards is larger than the twin measured.
+
+**Why it didn't help (reading):** when the bridge's Freerouting stagnates, it is mostly on small boards
+with a handful of opens. The ladder re-routes them under a via-cost change, and a different board often
+wins inside Freerouting (37 attempts). But the restart chassis already runs 4 attempts per wave in different
+item orders, followed by repair and the last mile. The ladder's gain is one more variant of what the
+chassis already explores, and it costs the repair rounds' time. This agrees with fr-settings-ab's cost-cycle
+arm (via cost varied across restarts: -2 %, within the twin). A ladder could still matter in a
+single-shot Freerouting call (no restarts); that was not tested.
+
+Separate from this: the placement session's work-budget fork changes (abefc74: one `max_work` per job,
+shared by ladder attempts; a `WORK_BUDGET` stop never starts the ladder) are independent of this branch.
