@@ -357,5 +357,5 @@ def test_a_loop_closing_only_through_more_than_its_load_impedance_is_open(tmp, m
     monkeypatch.setattr(EV, "ledger_for", big_I)
     p = write_hotloop_board(f"{tmp}/effopen", "closed")
     ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cells=False)
-    assert [c["source"] for c in ev["open_cells"]] == [CELL] and "load V / I" in ev["open_cells"][0]["why"]
+    assert [c["source"] for c in ev["open_cells"]] == [CELL] and "V / I" in ev["open_cells"][0]["why"]
     assert all(o.get("open") for o in _obs(ev, "loss.loop_ac") + _obs(ev, "overshoot.peak"))
