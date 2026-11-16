@@ -632,6 +632,18 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         margin = P.auto_margin()
     else:
         rep["margin_set"] = margin
+    # kae.place.margin_gate: the margin only on boards dense per copper layer, and within each
+    # region's own room (sub-boards between cutouts, rule-area walls)
+    from . import margin_gate as MG
+    gate_t = float(setting("place_margin_gate", board_path, opts))
+    if margin > 0 and gate_t > 0:
+        keep, why = MG.gate(board, gate_t)
+        rep["margin_gate"] = dict(keep=keep, why=why, margin_mm=round(margin, 3))
+        if not keep:
+            margin = 0.0
+    if margin > 0 and int(setting("place_margin_regions", board_path, opts)):
+        from .problem import margin_for_util
+        P.margin_cap, rep["margin_regions"] = MG.caps(P, margin_for_util)
     P.set_margin(margin)
     # escape bands (kae.place.escape_band): 1 a soft annealer term against parts unrelated to the
     # package, 2 hard occupancy against every part, 0 off
