@@ -503,6 +503,23 @@ def final_reserve(a, judge_est, inp=None):
     return r
 
 
+def budget_line(log_path):
+    """The attempt's own counted-work report (kae.budget prints `[kae.budget] {...}` at exit: units, charged and,
+    with KAE_BUDGET_PROFILE=1, wall seconds per kind), {} when the log has none. The attempt logs are deleted."""
+    try:
+        lines = Path(log_path).read_text(errors="replace").splitlines()
+    except OSError:
+        return {}
+    for line in reversed(lines):
+        if line.startswith("[kae.budget] "):
+            try:
+                r = json.loads(line[len("[kae.budget] "):])
+                return r if isinstance(r, dict) else {}
+            except ValueError:
+                return {}
+    return {}
+
+
 def _last_json(path):
     """The last JSON object line of a log (a kae command's report), {} when there is none."""
     try:
@@ -972,6 +989,8 @@ def main():
             info.update(rc=p.returncode, rank=rank)
             if (fr := fr_telemetry(info["out"].parent / "log")):
                 info["fr"] = fr
+            if (bl := budget_line(info["out"].parent / "log")):
+                info["budget_report"] = bl
             if p.returncode:
                 info["failure"] = attempt_failure(info["out"].parent / "log")
             if sh is not None:

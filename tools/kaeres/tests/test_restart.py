@@ -433,3 +433,11 @@ def test_open_rest_alt_runs_alt_on_a_board_the_windows_completed(tmp_path):
                             "--open-alt", win, "--open-rest", "--open-rest-alt"))
     assert r.returncode == 0, r.stdout + r.stderr
     assert s["third"] == "alt" and s["kept"] == 3 and "alt" in out.read_text()
+
+
+def test_budget_line_reads_the_attempts_counted_work_report(tmp_path):
+    log = tmp_path / "log"
+    log.write_text('[kae.joint] something\n[kae.budget] {"mode": "work", "wall_s": 10.0, "wall_by_kind": {"exact_pair": 2.0}}\n'
+                   '{"seed": 0}\n')
+    assert restart.budget_line(log)["wall_by_kind"] == {"exact_pair": 2.0}
+    assert restart.budget_line(tmp_path / "missing") == {}
