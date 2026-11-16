@@ -38,25 +38,20 @@ def _space(tmp_path):
     return Space(load(p), info, plan=CN.plan(info, p, {})), info
 
 
-def test_escape_plan_escapes_every_ball_and_lays_legal_copper(tmp_path):
+def test_escape_plan_escapes_every_ball_and_lays_nothing(tmp_path):
     sp, info = _space(tmp_path)
+    before = len(sp.routed)
     out = escape.run(sp, info, {}, log=lambda m: None)
     (pk,) = out["packages"]
     assert pk["signal"] == 64 and pk["planned"] == 64 and not out["blocked"]
     # the outer rings on the surface, the rest through dog-bones to B.Cu
     assert pk["by_layer"]["F.Cu"] >= 28 and pk["by_layer"]["B.Cu"] >= 4
-    assert pk["laid"] >= 44
+    assert pk["laid"] == 0 and len(sp.routed) == before      # the plan is reported, not laid
     balls = {b[1]: (134.5 + b[2], 121.0 + b[3]) for b in BALLS}
     for r in pk["escapes"]:
-        if r["via"]:
+        if r["via"] and not r["in_pad"]:
             bx, by = balls[r["net"]]
             assert abs(abs(r["via"][0] - bx) - PITCH / 2) < 1e-6 and abs(abs(r["via"][1] - by) - PITCH / 2) < 1e-6
-    for it in sp.routed:
-        if it.kind == "via":
-            assert not sp.via_violations(it.net, it.geom.x, it.geom.y, ignore=(it,))
-        else:
-            a, b = it.geom.coords
-            assert not sp.track_violations(it.net, next(iter(it.layers)), it.width, a, b, ignore=(it,))
 
 
 def test_has_grid_only_for_ball_grids():
@@ -99,7 +94,7 @@ def test_an_unsolved_bound_neither_certifies_nor_throws_away_the_plan(tmp_path, 
     monkeypatch.setattr(escape, "certificate", boom)
     out = escape.run(sp, info, {}, log=lambda m: None)
     (pk,) = out["packages"]
-    assert "error" not in pk and pk["planned"] == 64 and pk["laid"] >= 44 and not out["blocked"]
+    assert "error" not in pk and pk["planned"] == 64 and not out["blocked"]
 
 
 def _grid_space(tmp_path, pitch, ball, small=(), net=lambda r, c: f"S{r}{c}", drop=()):
