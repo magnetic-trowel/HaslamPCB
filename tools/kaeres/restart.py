@@ -212,15 +212,24 @@ def report_unconnected(pro):
         pro.write_text(json.dumps(d, indent=2), encoding="utf-8")
 
 
+def task_rules(inp, board):
+    """Put the task's project files (.kicad_pro, .kicad_dru) beside `board`, and remove any the
+    task has none of: a rules file the method left there must not judge it (as kaebench's
+    install_rules). Before, an attempt's own .kicad_dru stayed when the input had none."""
+    for ext in (".kicad_pro", ".kicad_dru"):
+        src, dst = inp.with_suffix(ext), board.with_suffix(ext)
+        if src.exists():
+            shutil.copy2(src, dst)
+        else:
+            dst.unlink(missing_ok=True)
+
+
 def drc(board, inp, timeout):
     """{type: count} of DRC errors (env-dependent checks dropped) and the unconnected count of a
     board by kicad-cli, with the input's project rules; None when there is no usable board."""
     if not board.exists() or board.stat().st_size == 0:
         return None
-    for ext in (".kicad_pro", ".kicad_dru"):  # the task's rules, never the method's copy
-        src = inp.with_suffix(ext)
-        if src.exists():
-            shutil.copy2(src, board.with_suffix(ext))
+    task_rules(inp, board)
     report_unconnected(board.with_suffix(".kicad_pro"))
     rep = board.with_name("drc.json")
     # --severity-all: kicad-cli filters unconnected items by the project's severity like violations,
@@ -551,9 +560,7 @@ def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, s
     d.mkdir(exist_ok=True)
     src, o = d / "best_in.kicad_pcb", d / "board.kicad_pcb"
     shutil.copy2(best["out"], src)
-    for ext in (".kicad_pro", ".kicad_dru"):   # the task's rules
-        if inp.with_suffix(ext).exists():
-            shutil.copy2(inp.with_suffix(ext), src.with_suffix(ext))
+    task_rules(inp, src)
     t = time.monotonic()
     seed = a.seed * 1000 + 999
     drc_json = Path(best["out"]).with_name("drc.json")      # the judge's DRC of the kept board
@@ -815,9 +822,7 @@ def main():
         if frm is not None:
             src, resume = d / "best_in.kicad_pcb", True
             shutil.copy2(frm["out"], src)
-            for ext in (".kicad_pro", ".kicad_dru"):   # the task's rules
-                if inp.with_suffix(ext).exists():
-                    shutil.copy2(inp.with_suffix(ext), src.with_suffix(ext))
+            task_rules(inp, src)
         c = cmd.replace("@IN@", shlex.quote(str(inp))).replace("@OUT@", shlex.quote(str(o)))
         c = c.replace("@BEST@", shlex.quote(str(src)))
         c = c.replace("@SEED@", str(s)).replace("@TIME@", str(int(b)))
