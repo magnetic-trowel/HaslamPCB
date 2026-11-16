@@ -72,6 +72,10 @@ ITEMS = [
     ("Polygon [<no net>] of G*** on B.Cu", "other", [], "G***"),
     ("Track [A/B] on F.Cu, length 1.2 mm", "track", ["A/B"], None),
     ("Zone [GND] on L1 [Top], priority 0", "zone", ["GND"], None),     # a layer name with brackets
+    ("Via [GND] on L1 [TOP] - L4 [BOT]", "via", ["GND"], None),
+    ("Pad 1 [VCC] of U1 on L1 [TOP]", "pad", ["VCC"], "U1"),
+    ("Pad 1 [<no net>] of U1 on L1 [TOP]", "pad", [], "U1"),
+    ("Via [NetC140]_2] on Top Layer - Bottom Layer", "via", ["NetC140]_2"], None),
     ("Segment on Edge.Cuts", "other", [], None),
     ("Pad 1 [<no net>] of  on F.Cu", "pad", [], None),                 # a part without a reference
     ("Footprint  ", "footprint", [], None),
