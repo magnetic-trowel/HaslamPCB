@@ -140,3 +140,15 @@ builds decide nothing on their own.
 - Arms, k = 1, hypotheses, primary, guards and the A/A source unchanged.
 - **Still worth running:** margin-ab left MA at -7.5 % [-15.1, -0.9], unknown, and the gated default is still open on
   main. About 490 CPU-h after the trim (queue triage).
+
+## Addendum 2026-11-17 (m3), before any run on this build: main 22ff779a and Freerouting f1c41d3
+Main (kae #105) and the pin moved after `margin-gate-m` was submitted: the fork now counts the optimizer's search steps and
+pour fills inside `autorouter.max_work`, and kae stops charging optimizer passes on top of that and sets the new
+weights. Checked before deciding: on a small board where no budget binds the bridge's copper came out item for item
+the same on both builds, but the charged clock did not (53.3 s against 39.1 s). Its arms run the restart portfolio under counted work, and the number of attempts and their budgets follow the charged clock. So its outputs change
+on the new build.
+- Migrated: branch `margin-gate-m3` (rebased on main 22ff779a, no conflict; the -m2 branch is left as it
+  was). Every arm at kae and harness b209883a, the commit before this addendum. Freerouting fork f1c41d3, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `margin-gate-m3` (owner `exp-margin-gate-m3`), new method ids. The runs of `margin-gate-m` (15 jobs done) are on the
+  previous build and excluded from the decision; its jobs are cancelled.
+- Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
