@@ -108,6 +108,13 @@ class BoardMesh:
             for layer, pgs in per.items():
                 for pg in pgs:
                     add(net, layer, pg)
+        # board-level copper shapes with a net (gr_poly, gr_rect, ... on a copper layer): KiCad 8+ connects them like a
+        # small pour. Left out, a board whose VIN, SW and output copper are such shapes read open on every net they
+        # carry (aravind7s' ADP2384 evaluation board) while KiCad found it connected
+        for net, per in sorted((getattr(b, "copper", None) or {}).items()):
+            for layer, pgs in sorted(per.items()):
+                for pg in pgs:
+                    add(net, layer, pg)
         thin = []
         for t in tracks:
             pts = _arc_points(t) if getattr(t, "mid", None) else [t.start, t.end]
