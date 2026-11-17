@@ -18,6 +18,13 @@ routed-physics recheck). Every later iteration:
    the board changed (annealed coupling). When every window is exhausted, a new cycle samples
    them again under new seeds, until `patience_cycles` cycles in a row accept nothing
    (stop "no improvement (cycle k)").
+   With `tabu`, a window whose part set already failed is skipped (its next, larger attempt
+   is tried instead) unless a window kept since then shares a part with it or lies within
+   `margin` of it: the same parts in the same context failed before (41-53 % of windows
+   repeated a part set, and repeats were kept a third as often as new windows).
+   With `window_evidence`, each incumbent's open connections are first diagnosed
+   (kae.route.blocked, in window order, within `evidence_s`): a connection no part move can
+   free opens no window, and the parts and corridors the diagnosis blames join the window.
 3. **Repair.** stages.repair: re-place the window's parts, rip up the nets touching it, redo
    its modules, re-route with everything else locked.
 4. **Judge.** scorecard.accept against the incumbent: legality, completion and DRC must not
@@ -33,9 +40,11 @@ same result whenever no time budget binds (a time-bound stage stops at the clock
 from __future__ import annotations
 
 from kae.budget import now as clock_now
+import math
 import time
 
-from .feedback import CongestionHistory, error_spots, physics_spots, plan_windows, unrouted_spots
+from .feedback import (ENV_DEPENDENT, NO_MOVE_FIXES, CongestionHistory, apply_evidence, error_spots, physics_spots,
+                       plan_windows, unrouted_spots)
 from .scorecard import accept
 
 DEFAULTS = dict(
@@ -56,6 +65,8 @@ DEFAULTS = dict(
     physics_spots=True,    # flagged modules make windows too
     min_iter_s=60.0,       # an iteration is not started with less than this left
     iter_share=0.25,       # one window's repair gets at most this share of the budget (at least min_iter_s)
+    window_budget_factor=0.0,  # extra time for the windows beyond the budget's shares: this many budgets after
+                           # iteration 0 (the experiments' knob; 0: windows get what the shares leave)
     phys_slack=0.10,       # routed physics a strict completion/DRC gain may cost (scorecard.accept)
     eff_tiebreak=False,    # equal on everything else: keep a board with dominating copper (length, vias); A/B arm
     rudy_scale=0.5,        # RUDY overflow near failures added to the history (0: off)
@@ -67,6 +78,13 @@ DEFAULTS = dict(
                            # board's open nets still get lastmile.close for at least this long
     diagnose_s=30.0,       # the final board's "blocked" diagnosis: at most this (and 5 % of the budget)
     recycle=True,          # when every window is exhausted and time is left, sample them all again
+    tabu=False,            # a part set whose window failed is not tried again until a window kept since
+                           # touched it (shared parts, or rectangles within `margin`); the next larger
+                           # attempt of the same window is tried instead (A/B arm)
+    window_evidence=False, # windows from kae.route.blocked's diagnosis of the incumbent (feedback.apply_evidence):
+                           # drop what no move frees, add the parts and corridors to blame; DRC types no move
+                           # changes (feedback.NO_MOVE_FIXES) open no window (A/B arm)
+    evidence_s=30.0,       # ... one diagnosis per incumbent: at most this (and 5 % of the budget)
     min_cycle_s=5.0,       # ... unless the last cycle took less than this (nothing could be routed)
     patience_cycles=2,     # stop after this many full cycles over the windows in a row accept nothing
 )
@@ -90,6 +108,26 @@ def escalate(win, attempt, parts, bounds, o):
     ws = plan_windows(win.spots, parts, bounds, margin=o["margin"] * (1.5 ** k),
                       max_parts=cap, max_pins=None, merge_factor=1.0)
     return ws[0] if ws else win
+
+
+def _near(a, b, m):
+    """Rectangles a and b overlap once a is grown by m."""
+    return a[0] - m < b[2] and b[0] < a[2] + m and a[1] - m < b[3] and b[1] < a[3] + m
+
+
+def tabu_reason(win, failed, kept, margin):
+    """Why window `win` should not run again, or None. `failed`: {key: (iteration, rect, parts)}
+    of windows that failed; `kept`: [(iteration, rect, parts)] of windows kept, in order. A
+    failed part set stays tabu until a window kept after its failure shares a part with it or
+    lies within `margin` of its rectangle (the board changed there)."""
+    f = failed.get(win.key)
+    if f is None:
+        return None
+    it_f, rect_f, parts_f = f
+    for it_k, rect_k, parts_k in kept:
+        if it_k > it_f and (set(parts_k) & set(parts_f) or _near(rect_k, rect_f, margin)):
+            return None
+    return f"tabu: the same parts failed at iteration {it_f}, nothing kept near them since"
 
 
 def derive_seed(seed, it, k=0):
@@ -121,12 +159,42 @@ class JointLoop:
 
     # ------------------------------------------------------------------ helpers
     def _spots(self, fb, lay):
-        sp = unrouted_spots(fb.get("drc") or {}) + error_spots(fb.get("drc") or {})
+        ignore = ENV_DEPENDENT + NO_MOVE_FIXES if self.opts["window_evidence"] else ENV_DEPENDENT
+        sp = unrouted_spots(fb.get("drc") or {}) + error_spots(fb.get("drc") or {}, ignore=ignore)
         if self.opts["physics_spots"]:
             _, _, centres, refs = self._geom
             mp = getattr(self.stages, "module_parts", {}) or {}
             sp += physics_spots(fb.get("recheck") or {}, mp, centres, refs)
         return sp
+
+    def _evidence(self, st, lay, fb, spots, it, time_s):
+        """kae.route.blocked on the incumbent's open connections, nets in window order, within
+        evidence_s (and 5 % of the budget). The diagnosis set-up (DSN export, zone refill) is
+        charged as one DRC of the board. Returns (diagnosis or {}, report row)."""
+        from pathlib import Path
+
+        from kae import budget
+        o = self.opts
+        parts, bounds, _, _ = self._geom
+        order = [n for w in plan_windows([s for s in spots if s.kind == "unrouted"], parts, bounds,
+                                         margin=o["margin"], max_parts=o["max_parts"], merge_factor=1.0)
+                 for s in w.spots for n in s.nets]
+        t0 = clock_now()
+        row = dict(nets=len(set(order)))
+        if not order or not hasattr(st, "diagnose"):
+            return {}, dict(row, note="nothing to diagnose")
+        try:
+            budget.charge("drc_mb", Path(lay.board).stat().st_size / 1e6)
+        except (OSError, AttributeError, TypeError):
+            pass                  # no board file (test stages)
+        t = min(float(o["evidence_s"]), 0.05 * time_s)
+        try:
+            d = st.diagnose(lay, fb.get("drc") or {}, it, t, nets=list(dict.fromkeys(order)), log=lambda m: None)
+        except Exception as e:  # noqa: BLE001 - windows then come from the spots alone
+            d = dict(error=f"{type(e).__name__}: {e}")
+        row.update(seconds=round(clock_now() - t0, 1), undiagnosed=(d or {}).get("undiagnosed"),
+                   error=(d or {}).get("error"))
+        return (d if isinstance(d, dict) and not d.get("error") else {}), row
 
     def _history(self, hist, lay, fb):
         """Failed connections into the congestion history, then the placer's RUDY overflow
@@ -236,7 +304,21 @@ class JointLoop:
         self._history(hist, lay, fb)
         best, best_card, best_fb, best_it = lay, card, fb, 0
         self._save(st, best, output, rep)
+        now0 = clock_now()
+        if float(o["window_budget_factor"]) > 0 and math.isfinite(now0):
+            # a real window budget, measured: iteration 0 kept its usual shares of time_s (past the
+            # work-mode wall ceiling now() is infinite: the run has failed and gets no windows)
+            deadline = max(deadline, now0 + float(o["window_budget_factor"]) * time_s + fin_res + reserve)
+            rep["window_deadline_s"] = round(deadline - t0, 1)
+            # the wall ceiling (work mode) follows the whole budget, as for any run of that length
+            from kae import budget
+            if budget.work_mode():
+                budget.set_ceiling(deadline - t0)
         tries = {}
+        failed, kept_wins = {}, []        # tabu: failed part sets, kept windows (iteration, rect, parts)
+        rep["tabu_skips"] = 0
+        diag, diag_it = {}, None          # window_evidence: the incumbent's diagnosis
+        rep["evidence"] = []
         max_att = int(o["max_attempts"]) if o["max_attempts"] is not None else 2 + int(time_s // 1800)
         rep["max_attempts"] = max_att
         cycles, cycle_t0, cycle_kept, idle = 0, clock_now(), 0, 0
@@ -259,6 +341,16 @@ class JointLoop:
                 break
             spots = self._spots(best_fb, best)
             parts, bounds, _, _ = self._geom
+            if o["window_evidence"]:
+                if diag_it != best_it:
+                    diag, row = self._evidence(st, best, best_fb, spots, it, time_s)
+                    diag_it = best_it
+                    _, notes = apply_evidence(spots, diag, parts)
+                    rep["evidence"].append(dict(row, iter=best_it, **notes))
+                    self.log(f"evidence on iteration {best_it}: {notes} ({row.get('seconds')}s)")
+                    if left_win() < est:
+                        continue          # the time check above ends the loop
+                spots, _ = apply_evidence(spots, diag, parts)
             cap = min(o["max_parts"], share_cap(parts, o))
             o_win = dict(o, max_parts=cap)
             base = [w for w in plan_windows(spots, parts, bounds, margin=o["margin"], max_parts=cap,
@@ -284,6 +376,16 @@ class JointLoop:
             base0 = min(base, key=lambda w: tries.get(w.key, 0))
             attempt = tries.get(base0.key, 0)
             win = escalate(base0, attempt, parts, bounds, o_win)
+            if o["tabu"]:
+                why_t = tabu_reason(win, failed, kept_wins, o["margin"])
+                while why_t and attempt + 1 < max_att:      # the next, larger attempt instead
+                    attempt += 1
+                    win = escalate(base0, attempt, parts, bounds, o_win)
+                    why_t = tabu_reason(win, failed, kept_wins, o["margin"])
+                if why_t:
+                    tries[base0.key] = max_att
+                    rep["tabu_skips"] += 1
+                    continue
             it += 1
             t = clock_now()
             bump = sorted({r for s in win.spots if s.kind == "unrouted" for r in s.refs})
@@ -301,6 +403,7 @@ class JointLoop:
                 self.log(f"repair failed: {type(e).__name__}: {e}\n{traceback.format_exc(limit=6)}")
                 cand, rrep = None, dict(outcome=f"error: {type(e).__name__}: {e}")
             tries[base0.key] = attempt + 1
+            failed[win.key] = (it, win.rect, win.parts)     # until kept below
             if cand is None:
                 rows.append(dict(iter=it, window=win.to_dict(), accepted=False, why=rrep.get("outcome"),
                                  seconds=round(clock_now() - t, 1), repair=rrep))
@@ -324,6 +427,8 @@ class JointLoop:
                      f"{dt:.0f}s)")
             if keep:
                 best, best_card, best_fb, best_it = cand, card, fb, it
+                failed.pop(win.key, None)
+                kept_wins.append((it, win.rect, win.parts))
                 self._save(st, best, output, rep)
                 self._geom = st.geometry(best)
                 tries = {}               # the board changed: earlier failures may now succeed

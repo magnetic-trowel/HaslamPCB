@@ -184,6 +184,19 @@ def test_loop_respects_the_time_budget():
     assert rep["stop"].startswith("time") and not [c for c in st.calls if c[0] == "repair"]
 
 
+def test_window_budget_factor_extends_only_the_window_phase(monkeypatch):
+    import kae.joint.loop as L
+    t = [1000.0]
+    monkeypatch.setattr(L, "clock_now", lambda: t[0])
+    st = FakeStages(broken=("R1",))
+    place, route = st.place, st.route
+    st.place = lambda seed, time_s: (t.__setitem__(0, t[0] + 10), place(seed, time_s))[1]
+    st.route = lambda *a, **k: (t.__setitem__(0, t[0] + 50), route(*a, **k))[1]
+    rep = JointLoop(st, opts=dict(max_iters=0, window_budget_factor=2.0, finish=False)).run("o", time_s=100.0)
+    # deadline = end of iteration 0 (t0 + 60) + 2 budgets + reserve (25)
+    assert rep["window_deadline_s"] == pytest.approx(60 + 200 + 25, abs=1e-6)
+
+
 def test_staged_baseline_has_no_iterations_and_no_modules():
     st = FakeStages()
     rep = _run(st, max_iters=0, modules=False, finish=False)
@@ -339,6 +352,26 @@ def test_window_router_budget_grows_after_timeouts_and_shrinks_back():
     assert st.window_route_s == 225.0
 
 
+def test_window_router_budget_follows_counted_work_not_wall_seconds(monkeypatch):
+    from kae import budget
+    from kae.joint.stages import KaeStages
+    monkeypatch.setattr(budget, "work_mode", lambda: True)
+    st = KaeStages.__new__(KaeStages)
+    st.opts, st.log = dict(budget_s=9000.0), (lambda m: None)
+    s3 = {"autorouter.max_passes": "3"}
+    # the pass cap stopped it short of its 3 passes: the budget bound (wall seconds do not count)
+    st._adapt_window_s(dict(router=dict(autorouter_stop="MAX_PASSES", seconds=1.0, passes_done=1, passes_cap=1,
+                                        settings=s3), steps=dict(router=59.0)))
+    assert st.window_route_s == 120.0
+    # its own 3 passes done in a quarter of the budget's work: halved, whatever the wall clock said
+    st._adapt_window_s(dict(router=dict(autorouter_stop="MAX_PASSES", seconds=500.0, passes_done=3, passes_cap=9,
+                                        settings=s3), steps=dict(router=20.0)))
+    assert st.window_route_s == 60.0
+    st._adapt_window_s(dict(router=dict(autorouter_stop="MAX_PASSES", seconds=1.0, passes_done=3, passes_cap=9,
+                                        settings=s3), steps=dict(router=40.0)))
+    assert st.window_route_s == 60.0
+
+
 def test_no_window_restarts_after_a_timeout_or_with_many_open(tmp_path, monkeypatch):
     import kae.route.incremental as I
     from kae.joint.stages import KaeStages
@@ -384,3 +417,74 @@ def test_copper_totals_lines_and_arcs():
            vias=[1, 2])
     length, vias = copper_totals(b)
     assert vias == 2 and length == pytest.approx(5 + math.pi + 1.5 * math.pi + 0.5 * math.pi, rel=1e-6)
+
+
+def test_tabu_never_repeats_a_failed_part_set_without_a_kept_window_near_it():
+    import time as _t
+
+    from kae.joint.feedback import Window
+    from kae.joint.loop import tabu_reason
+
+    class Slow(FakeStages):
+        def repair(self, *a, **k):
+            _t.sleep(0.02)
+            return super().repair(*a, **k)
+    common = dict(min_iter_s=0.0, reserve=0.0, max_parts=2, margin=1.0, finish=False, max_attempts=2,
+                  min_cycle_s=0.01, patience_cycles=10, max_iters=12)
+    st = Slow(broken=("R2",), bad=("R2",))
+    JointLoop(st, opts=common).run("o", time_s=1e6, seed=5)
+    plain = [c[3] for c in st.calls if c[0] == "repair"]
+    assert len(plain) == 12 and len(set(plain)) < len(plain)          # the same parts again and again
+    st2 = Slow(broken=("R2",), bad=("R2",))
+    rep = JointLoop(st2, opts=dict(common, tabu=True)).run("o", time_s=1e6, seed=5)
+    tabu = [c[3] for c in st2.calls if c[0] == "repair"]
+    assert len(tabu) == len(set(tabu)) and len(tabu) < 12 and rep["tabu_skips"] > 0
+    # a window kept since the failure, sharing a part or near it, lifts the tabu
+    w = Window(rect=(0, 0, 2, 2), parts=("a", "b"))
+    failed = {w.key: (3, w.rect, w.parts)}
+    assert tabu_reason(w, failed, [], 1.0).startswith("tabu")
+    assert tabu_reason(w, failed, [(2, (0, 0, 2, 2), ("a",))], 1.0)          # kept before the failure
+    assert tabu_reason(w, failed, [(4, (10, 10, 12, 12), ("b",))], 1.0) is None
+    assert tabu_reason(w, failed, [(4, (2.5, 0, 4, 2), ("z",))], 1.0) is None
+    assert tabu_reason(w, failed, [(4, (5, 5, 6, 6), ("z",))], 1.0)
+def test_window_evidence_skips_connections_no_move_frees():
+    class Diag(FakeStages):
+        def diagnose(self, lay, drc, it, time_s, nets=None, log=None):
+            self.calls.append(("diagnose", it, tuple(nets or ())))
+            return {"blocked": [dict(net="NR2", pads=["R2.1"], cause="rule", against_ref="R2", against_own=True)],
+                    "congestion": [dict(net="NR1", pads=["R1.1"], cause="congestion")]}
+    st = Diag(broken=("R1", "R2"))
+    rep = _run(st, window_evidence=True, finish=False)
+    repaired = {r for c in st.calls if c[0] == "repair" for r in c[3]}
+    assert "R2" not in repaired and "R1" in repaired              # R2's open connection opens no window
+    assert rep["final"]["unconnected"] == 1 and rep["stop"] == "no window left to try"
+    ev = rep["evidence"]
+    assert ev[0]["iter"] == 0 and ev[0]["dropped"] == 1 and ev[0]["congestion"] == 1
+    assert [c for c in st.calls if c[0] == "diagnose"][0][2] == ("NR1", "NR2")      # in window order
+    # one diagnosis per incumbent (iteration 0 and the kept window), then the final board's
+    assert len([c for c in st.calls if c[0] == "diagnose" and c[2]]) == len(ev) == 1 + rep["accepted"]
+def test_window_budget_factor_raises_the_wall_ceiling_in_work_mode(monkeypatch):
+    from kae import budget
+    import kae.joint.loop as L
+    t = [0.0]
+    monkeypatch.setattr(L, "clock_now", lambda: t[0])
+    monkeypatch.setattr(budget, "work_mode", lambda: True)
+    seen = []
+    monkeypatch.setattr(budget, "set_ceiling", lambda s: seen.append(s))
+    st = FakeStages(broken=("R1",))
+    route = st.route
+    st.route = lambda *a, **k: (t.__setitem__(0, t[0] + 50), route(*a, **k))[1]
+    JointLoop(st, opts=dict(max_iters=0, window_budget_factor=2.0, finish=False)).run("o", time_s=100.0)
+    assert seen == [pytest.approx(50 + 200 + 25)]          # the whole extended budget, not --time alone
+
+
+def test_window_budget_factor_gives_no_windows_past_the_wall_ceiling(monkeypatch):
+    import kae.joint.loop as L
+    t = [0.0]
+    monkeypatch.setattr(L, "clock_now", lambda: t[0])
+    st = FakeStages(broken=("R1",))
+    route = st.route
+    st.route = lambda *a, **k: (t.__setitem__(0, float("inf")), route(*a, **k))[1]     # the ceiling hit in iteration 0
+    rep = JointLoop(st, opts=dict(window_budget_factor=2.0, finish=False, min_iter_s=0.0)).run("o", time_s=100.0)
+    assert "window_deadline_s" not in rep and not [c for c in st.calls if c[0] == "repair"]
+    assert rep["stop"].startswith("time")
