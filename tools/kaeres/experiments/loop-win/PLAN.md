@@ -102,3 +102,15 @@ What the smoke shows:
 - **Window time is undercharged against R.** At the same nominal allowance, W0 used 1.94 measured CPU-h on the small board against R's 1.58 (+23 %). Wall time per charged second was 2.85× for W0 and 1.87× for R.
   - The coordinator holds batch 1 until `fr-budget-calibration` is merged (2026-11-14). The methods are then re-registered on main plus these branches, and both seeds run with the CPU guard as written.
 - **The joint loop's wall ceiling.** When the ceiling was hit, the window deadline became NaN, and a profiled run went on to 58 windows. Fixed in `loop-win-base` ea7a63c; it changes nothing below the ceiling.
+
+## Addendum (2026-11-17, before any batch-1 run): the arms do not judge boards the same way
+On bestelampe in `loop-win-smoke6`, W0's finishing stage reached 5 opens with 14 DRC errors, and the loop reverted it to 7 opens with 4 errors. R kept 3 opens with 25 errors. The two arms decide which board to keep by different rules:
+- **R:** `restart.py` judges every attempt and its final last-mile pass with the harness order: illegal, then not clean, then open connections, then new DRC errors. Fewer opens win whatever they cost in DRC errors.
+  - Main's default kae method (completion-first, PR #77) uses this judge for its delivered board.
+- **W0 and the other W arms:** there is no restart wrapper, so the delivered board is the joint loop's own incumbent. `joint.scorecard.accept` keeps a window, a finishing try or the last mile only if neither placement errors, nor opens, nor DRC errors get worse.
+
+The A/B therefore measures the acceptance rule as well as the windows. The fix is not yet chosen:
+- Wrapping the W arms in `restart.py` would give both arms the same judge for the delivered board. It would not change this case, because the 5-open board is rejected inside the loop.
+- Matching would need the loop to accept by the harness order too. That trades DRC errors for opens, which is a design question for the user.
+
+Batch 1 waits for that decision.
