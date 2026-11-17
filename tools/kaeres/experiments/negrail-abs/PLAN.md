@@ -31,3 +31,17 @@ It is a bug fix: the placer should read rails as the evaluator does. It is merge
 
 ## Smoke
 2 boards x 2 arms, profiled. Plumbing only: no rule changes after it.
+
+## Addendum 2026-11-17, before any run on the new build: current components
+Project rule (2026-11-17): every experiment runs on current main and the current Freerouting pin; results from older
+builds decide nothing on their own.
+- **Code.** The branch is rebased onto main c81770e1 as `physics-net-volts-abs-m2` (the original branch is left as it
+  was). The fix is 35c396f2 (was 76b19e7: the same change, no conflict). Arms: main = kae c81770e1, abs = kae 35c396f2;
+  `restart.py` from c81770e1 for both.
+- **Freerouting:** the pinned fork 9a5512d (fork master with the work budget), set as `KAE_FREEROUTING` and
+  `KAE_BRIDGE_FREEROUTING`. Counted work as before. Main's rate for this build (fr_work 9.2e-6) gives Freerouting about
+  0.77x the search steps per nominal second that d137fd1 got on the old rate; both arms alike.
+- **New experiment `negrail-abs-m`** (owner `exp-negrail-abs-m`), new method ids. The finished runs of `negrail-abs` (old
+  build) are excluded from the decision and never pooled; its queued jobs are cancelled.
+- Boards (63), arms, k = 1, primary, guards and decision rules unchanged. No smoke: the rebase changed no code of either arm.
+- **Still worth running:** PR #83 is not merged, so the harm check still gates it; about 60 CPU-h (queue triage).
