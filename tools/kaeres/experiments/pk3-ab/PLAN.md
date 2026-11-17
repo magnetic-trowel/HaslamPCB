@@ -96,3 +96,6 @@ Fork f1c41d3 (freerouting#13) with kae main 22ff779a (#105) counts both optimize
 autorouter.max_work, and kae charges them once (on 9a5512d the optimizer ran uncounted, up to 10 passes, and
 could reach the 4x wall ceiling). Unstarted jobs of `pk3-ab-m` were cancelled and the methods re-registered
 as experiment `pk3-ab-p2` at this commit on the new pin; nothing else changed.
+
+## Addendum 2026-11-17: re-registered on main 9e54baed as `pk3-ab-p3`, before any job ran
+#108 (the joint loop keeps or reverts each step by the shared ranked judge kae.rank.board_rank) reaches the Pk3 arm's windows and finish. `pk3-ab-p2` was registered but never submitted. Arms, boards, pin (f1c41d3), analysis and decision rule are unchanged.
