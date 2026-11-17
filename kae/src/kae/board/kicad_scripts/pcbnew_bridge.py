@@ -12,6 +12,7 @@ and prints one status line ({"ok": ...}) on stdout.
     python pcbnew_bridge.py edit-routing BOARD EDITS OUT_JSON DEST
     python pcbnew_bridge.py zone-fills BOARD OUT_JSON
     python pcbnew_bridge.py text-shapes BOARD OUT_JSON
+    python pcbnew_bridge.py copper-items BOARD OUT_JSON [--clusters]
     python pcbnew_bridge.py worker
 
 export-dsn: KiCad's Specctra export of BOARD (loaded with its project, so net classes and
@@ -1038,6 +1039,95 @@ def text_shapes(path, out):
     _status(dict(ok=True, texts=len(texts)))
 
 
+def copper_items(path, out, clusters=False):
+    """Every pad with copper, track, arc, via and copper graphic on a net of BOARD (loaded as kicad-cli's
+    DRC loads it) as KiCad's DRC report names it: uuid, kind, net, description (GetItemDescription, the
+    report's text), pos (GetPosition, the report's position) and its connectivity anchors (pad: the
+    shape position on each of its copper layers; track and arc: both ends; via: its centre; graphic: its
+    connection points), all in nm.
+    With `clusters`, the zones are refilled (as the DRC's --refill-zones) and each item gets
+    `cluster`, a number shared by the items KiCad's connectivity joins (through copper or one zone
+    island; numbers mean nothing else), and the result `unconnected`, the board's unconnected count (as
+    kae.route.drc.UNCONNECTED_PY counts it)."""
+    board = _load(path)
+    up = pcbnew.UNITS_PROVIDER(pcbnew.pcbIUScale, pcbnew.EDA_UNITS_MM)
+    if clusters:
+        zs = pcbnew.ZONES()
+        for i in range(board.GetAreaCount()):
+            zs.append(pcbnew.Cast_to_ZONE(board.GetArea(i)))
+        if len(zs):
+            pcbnew.ZONE_FILLER(board).Fill(zs)
+        board.BuildConnectivity()
+
+    def nm(p):
+        return [int(p.x), int(p.y)]
+    items = []
+    for fp in board.GetFootprints():
+        for pad in fp.Pads():
+            cu = [l for l in pad.GetLayerSet().CuStack()]
+            if not cu:
+                continue
+            anchors = []
+            for l in cu:
+                try:
+                    a = nm(pad.ShapePos(l))
+                except TypeError:            # a KiCad without padstacks: one shape position
+                    a = nm(pad.ShapePos())
+                if a not in anchors:
+                    anchors.append(a)
+            items.append(dict(uuid=pad.m_Uuid.AsString(), kind="pad", net=pad.GetNetname(),
+                              description=pad.GetItemDescription(up, True), pos=nm(pad.GetPosition()),
+                              anchors=anchors))
+    for t in board.GetTracks():
+        cls = t.GetClass()
+        if cls == "PCB_VIA":
+            kind, anchors = "via", [nm(t.GetPosition())]
+        else:
+            kind, anchors = ("arc" if cls == "PCB_ARC" else "track"), [nm(t.GetStart()), nm(t.GetEnd())]
+        items.append(dict(uuid=t.m_Uuid.AsString(), kind=kind, net=t.GetNetname(),
+                          description=t.GetItemDescription(up, True), pos=nm(t.GetPosition()), anchors=anchors))
+    shapes = [d for d in board.GetDrawings()] + [g for fp in board.GetFootprints() for g in fp.GraphicalItems()]
+    shapes = [d for d in shapes if isinstance(d, pcbnew.PCB_SHAPE) and pcbnew.IsCopperLayer(d.GetLayer())
+              and d.GetNetCode() > 0 and hasattr(d, "GetConnectionPoints")]
+    for d in shapes:                 # copper graphics on a net are connectivity items too (their anchors as KiCad's)
+        items.append(dict(uuid=d.m_Uuid.AsString(), kind="shape", net=d.GetNetname(),
+                          description=d.GetItemDescription(up, True), pos=nm(d.GetPosition()),
+                          anchors=[nm(p) for p in d.GetConnectionPoints()]))
+    if clusters:
+        conn = board.GetConnectivity()
+        objs = [p for fp in board.GetFootprints() for p in fp.Pads() if p.GetLayerSet().CuStack()]
+        objs += list(board.GetTracks()) + shapes
+        parent = {}
+
+        def find(u):
+            while parent.setdefault(u, u) != u:
+                parent[u] = parent[parent[u]]
+                u = parent[u]
+            return u
+        seen = set()
+        for o in objs:
+            u = o.m_Uuid.AsString()
+            if u in seen:
+                continue
+            seen.add(u)
+            for x in conn.GetConnectedItems(o):
+                if x.GetClass() == "ZONE":           # a zone's islands are clusters of their own: never a link
+                    continue
+                v = x.m_Uuid.AsString()
+                seen.add(v)
+                a, b = find(u), find(v)
+                if a != b:
+                    parent[b] = a
+        roots = {}
+        for it in items:
+            it["cluster"] = roots.setdefault(find(it["uuid"]), len(roots))
+        _write(out, dict(ok=True, items=items, unconnected=conn.GetUnconnectedCount(False)))
+        _status(dict(ok=True, items=len(items)))
+        return
+    _write(out, dict(ok=True, items=items))
+    _status(dict(ok=True, items=len(items)))
+
+
 def _serve_one(req):
     """Run one request in a forked child; returns its exit status (negative: signal)."""
     parent = os.getpid()
@@ -1112,6 +1202,8 @@ def main(argv):
             zone_fills(args[0], args[1])
         elif op == "text-shapes":
             text_shapes(args[0], args[1])
+        elif op == "copper-items":
+            copper_items(args[0], args[1], clusters="--clusters" in flags)
         else:
             raise SystemExit(f"unknown op {op}")
     except Exception as e:  # report failures as JSON

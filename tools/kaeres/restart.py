@@ -57,6 +57,7 @@ import os
 import re
 import shlex
 import shutil
+import tempfile
 import signal
 import subprocess
 import sys
@@ -218,6 +219,49 @@ def report_unconnected(pro):
         pro.write_text(json.dumps(d, indent=2), encoding="utf-8")
 
 
+def canonical_copper_order(board, uuids=False):
+    """Rewrite `board` with its top-level (segment), (arc) and (via) blocks in the order of their content
+    (the same rule as kae.route.drc.canonical_copper_order; this wrapper is stdlib only), and with `uuids`
+    their UUIDs derived from that content. KiCad writes copper in UUID order, new on every import of a
+    routed board, and its DRC counts depend on both: two copies of one board (same copper, other UUIDs)
+    judged 13 and 15 errors, and the schedule then promoted different attempts. Returns {new uuid: old
+    uuid} (empty without `uuids`)."""
+    lines = Path(board).read_text(errors="replace").split("\n")
+    blocks, first, out, i = [], None, [], 0
+    while i < len(lines):
+        ln = lines[i]
+        if ln.startswith(("\t(segment", "\t(arc", "\t(via")) and not ln.startswith("\t(via_"):
+            j, depth = i, 0
+            while True:
+                depth += lines[j].count("(") - lines[j].count(")")
+                if depth <= 0:
+                    break
+                j += 1
+            blocks.append(lines[i:j + 1])
+            if first is None:
+                first = len(out)
+            i = j + 1
+            continue
+        out.append(ln)
+        i += 1
+    back = {}
+    if blocks:
+        blocks.sort(key=lambda b: [x for x in b if "(uuid" not in x and "(tstamp" not in x])
+        if uuids:
+            import hashlib
+            for k, blk in enumerate(blocks):
+                h = hashlib.sha1(("%d\n" % k + "\n".join(x for x in blk if "(uuid" not in x)).encode()).hexdigest()
+                u = f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
+                for x in blk:
+                    m = re.search(r'\(uuid "?([0-9a-fA-F-]+)"?\)', x)
+                    if m:
+                        back[u] = m.group(1)
+                blocks[k] = [re.sub(r'\(uuid "?[0-9a-fA-F-]+"?\)', f'(uuid "{u}")', x) for x in blk]
+        out[first:first] = [x for b in blocks for x in b]
+        Path(board).write_text("\n".join(out))
+    return back
+
+
 def task_rules(inp, board):
     """Put the task's project files (.kicad_pro, .kicad_dru) beside `board`, and remove any the
     task has none of: a rules file the method left there must not judge it (as kaebench's
@@ -231,6 +275,43 @@ def task_rules(inp, board):
 
 
 def drc(board, inp, timeout):
+    """_drc of `board`; work mode: of a canonical copy (copper in content order with content-derived
+    UUIDs), since KiCad's counts depend on the copper's file order and UUIDs."""
+    if not WORK or not board.exists() or board.stat().st_size == 0:
+        return _drc(board, inp, timeout)
+    d = Path(tempfile.mkdtemp(prefix="judge-", dir=board.parent))
+    try:
+        c = d / "board.kicad_pcb"
+        shutil.copy2(board, c)
+        back = canonical_copper_order(c, uuids=True)
+        r = _drc(c, inp, timeout)
+        _keep_report(c.with_name("drc.json"), board.with_name("drc.json"), back)
+        return r
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _keep_report(src, dst, back):
+    """The judge's DRC report of the canonical copy `src` as `dst` (where time mode's judge leaves it, beside
+    the attempt's board), its UUIDs mapped back to the board's (`back`: {copy's uuid: board's}). --finish gets
+    it as @DRC@ (the finish gate's identity diff names
+    copper by UUID). Without it finish judged its input again in work mode."""
+    try:
+        r = json.loads(src.read_text())
+    except (OSError, ValueError):
+        dst.unlink(missing_ok=True)
+        return
+    for k in ("violations", "unconnected_items"):
+        for v in r.get(k) or []:
+            for it in v.get("items") or []:
+                if it.get("uuid") in back:
+                    it["uuid"] = back[it["uuid"]]
+    tmp = dst.with_name(dst.name + ".tmp")
+    tmp.write_text(json.dumps(r, indent=2))
+    os.replace(tmp, dst)
+
+
+def _drc(board, inp, timeout):
     """{type: count} of DRC errors (env-dependent checks dropped) and the unconnected count of a
     board by kicad-cli, with the input's project rules; None when there is no usable board."""
     if not board.exists() or board.stat().st_size == 0:
