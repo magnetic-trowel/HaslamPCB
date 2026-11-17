@@ -12,7 +12,7 @@ KPY=$CODE.venv-kae/bin/python
 OUT=${OUT:-/var/tmp/$USER/rf-ab}
 OPSRC=${OPSRC:-/var/tmp/$USER/intent-213/compiled-9867d0b}
 NUMBA=$HOME/.cache/kaebench/numba-rf-${SHA:0:7}
-FORK=$HOME/.cache/kaebench/kae-freerouting-fork-2e1125a/bin/freerouting
+FORK=${FORK:-$HOME/.cache/kaebench/kae-freerouting-fork-2e1125a/bin/freerouting}
 A0_RUN=kae-bridge-main-final-restarts.286c2335.a0      # merge3-ab's arm, e9889fd
 [ -x "$KB" ] && [ -x "$KPY" ] || { echo "no frozen code for ${SHA:0:12}: run route-finish-ab.sh (kaeres exp create) first" >&2; exit 2; }
 . "$HOME/.cache/kaebench/env.sh"

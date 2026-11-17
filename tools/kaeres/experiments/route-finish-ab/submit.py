@@ -70,6 +70,8 @@ def main():
     ap.add_argument("--owner", default="rf-ab")
     ap.add_argument("--env", action="append", default=[], metavar="K=V", help="extra environment of every job (e.g. "
                     "RFAB_EVAL_ARGS='--scope losses', RFAB_DRC_EVAL=<drc evaluator id>)")
+    ap.add_argument("--default-eval-s", type=float, default=6 * 3600.0,
+                    help="measure: evaluation seconds assumed for a board without history (sizes cpus and timeout)")
     ap.add_argument("--max-eval-s", type=float, help="measure: leave out boards whose history says an evaluation takes longer")
     ap.add_argument("--prio", type=int, default=0)
     ap.add_argument("--submit", action="store_true")
@@ -100,7 +102,7 @@ def main():
         if a.max_eval_s and ev and ev > a.max_eval_s:
             skipped.append(b)
             continue
-        ev = ev or 6 * 3600.0
+        ev = ev or a.default_eval_s
         cpus = 16 if ev > 600 else 4
         mem = max(4096, int(1.3 * (peak or 3000)))
         tmo = int(min(12 * 3600, max(4 * 3600 if ev > 600 else 3600, 3 * ev + 1800)))

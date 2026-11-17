@@ -39,7 +39,11 @@ case "$arm" in
   K) export KAE_HOTLOOP_KEEPOUT=1; RF=""; FIN=(--finish "$FN") ;;
   H) export KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_CELLS=1 KAE_HOTLOOP_VIAS=1; RF=""; FIN=(--finish "$FN") ;;
   HP) export KAE_HOTLOOP_KEEPOUT=1 KAE_HOTLOOP_CELLS=1 KAE_HOTLOOP_VIAS=1 KAE_HOTLOOP_POURS=1; RF=""; FIN=(--finish "$FN") ;;
-  *) echo "ARM: A, N, K, H or HP" >&2; exit 2 ;;
+  hswN|hswC|hswD|hswCD)   # hotloop-sw's arms: every hot-loop option set explicitly
+    export KAE_HOTLOOP_KEEPOUT=0 KAE_HOTLOOP_VIAS=0 KAE_HOTLOOP_POURS=0 KAE_HOTLOOP_CELLS=0 KAE_HOTLOOP_CLEAR=0
+    case "$arm" in hswC) KAE_HOTLOOP_CELLS=1 ;; hswD) KAE_HOTLOOP_CLEAR=1 ;; hswCD) KAE_HOTLOOP_CELLS=1 KAE_HOTLOOP_CLEAR=1 ;; esac
+    RF=""; FIN=(--finish "$FN") ;;
+  *) echo "ARM: A, N, K, H, HP or hswN|hswC|hswD|hswCD" >&2; exit 2 ;;
 esac
 INNER="if [ \"\$KAE_RESUME\" = 1 ]; then $E -m kae.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@ --set operating=$OP $RF; else $E -m kae.route.cli route @IN@ @OUT@ --seed @SEED@ --time @TIME@ --set operating=$OP $RF; fi"
 cd "$D/work"

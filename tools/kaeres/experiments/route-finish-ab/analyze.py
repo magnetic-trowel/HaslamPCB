@@ -50,7 +50,8 @@ def jl(p):
 
 def arm_of(name):
     n = name.lower()
-    for pre, arm in (("hl default twin", "N2"), ("hl default", "N"), ("hl keepout nopours", "Kp"), ("hl keepout", "K"), ("hl cells pours", "HP"),
+    for pre, arm in (("hsw cells clear", "CD"), ("hsw cells", "C"), ("hsw clear", "D"), ("hsw default", "N"),
+                     ("hl default twin", "N2"), ("hl default", "N"), ("hl keepout nopours", "Kp"), ("hl keepout", "K"), ("hl cells pours", "HP"),
                      ("hl cells", "H")):
         if n.startswith(pre):
             return arm
@@ -82,7 +83,7 @@ class Data:
         self.boards = (STORE / "experiments" / exp / "boards.txt").read_text().split()
         self.ids = {arm_of(m["name"]): m["id"] for m in self.e["methods"] if arm_of(m["name"])}
         self.drc_eval = self.e["evaluators"]["drc"]
-        self.arms = [a for a in ("A0", "A0r", "A", "A2", "B", "C", "D", "E", "N", "N2", "K", "Kp", "H", "HP") if a in ("A0", "A0r", "B") or a in self.ids]
+        self.arms = [a for a in ("A0", "A0r", "A", "A2", "B", "C", "D", "E", "N", "N2", "K", "Kp", "H", "HP", "CD") if a in ("A0", "A0r", "B") or a in self.ids]
         self._a0 = None
         if only_arms:
             self.arms = [a for a in self.arms if a in only_arms]
@@ -99,7 +100,7 @@ class Data:
         if twin:
             e = jl(STORE / "experiments" / twin / "experiment.json") or {}
             self.ids.update({arm_of(m["name"]): m["id"] for m in e.get("methods", []) if arm_of(m["name"])})
-            self.arms = [a for a in ("A0", "A0r", "A", "A2", "B", "C", "D", "E", "N", "N2", "K", "Kp", "H", "HP") if a in ("A0", "A0r", "B") or a in self.ids]
+            self.arms = [a for a in ("A0", "A0r", "A", "A2", "B", "C", "D", "E", "N", "N2", "K", "Kp", "H", "HP", "CD") if a in ("A0", "A0r", "B") or a in self.ids]
 
     def run_dir(self, arm, b):
         if arm == "A0":
@@ -679,6 +680,9 @@ def sec_gates(D):
     """The pre-registered verdicts of PLAN.md sections 4, 9 and 10, computed."""
     arms = set(D.arms)
     out = ["## Pre-registered gates\n"]
+    if {"N", "CD"} <= arms:
+        out.append(sw_gates(D))
+        return "\n".join(out)
     if {"N", "N2"} <= arms and arms & {"K", "Kp", "H"}:
         out.append(hotloop_gates(D))
         return "\n".join(out)
@@ -802,6 +806,70 @@ def term_twin(D, arm, observables, ref="N", twin="N2"):
         out[o] = dict(n=len(v), better=sum(r < 1 - e for r, e in v), worse=sum(r > 1 + e for r, e in v),
                       noise=sum(1 - e <= r <= 1 + e for r, e in v), median=st.median(r for r, _ in v) if v else None)
     return out
+
+
+SW_TOL = {"L_loop_nH": 0.005, "R_loop_mohm": 0.03}   # hotloop-sw/PLAN.md: the cell window's convergence at 0.0625 mm
+
+
+def _layers(b):
+    try:
+        return json.load(open(CORPUS / "boards" / b / "row.json")).get("layers")
+    except (OSError, ValueError):
+        return None
+
+
+def cell_ratios(D, arm, ref, k):
+    """[(board, cell, topology, layers, ratio)] over cells valued in both (no exclusions)."""
+    out = []
+    for b in D.boards:
+        cx, cr = cells(D, arm, b), cells(D, ref, b)
+        if cx is None or cr is None:
+            continue
+        for src in sorted(set(cx) | set(cr)):
+            x, y = _cell_val(cx.get(src), k), _cell_val(cr.get(src), k)
+            if x is not None and y:
+                parts = src.split(":")
+                out.append((b, src, parts[2] if len(parts) > 2 else "?", _layers(b), x / y))
+    return out
+
+
+def _cell_row(label, rows, tol):
+    if not rows:
+        return (label, None, "no cells")
+    r = [x[4] for x in rows]
+    return (label, None, f"median {st.median(r):.3f}, better {sum(v < 1 - tol for v in r)}, worse {sum(v > 1 + tol for v in r)}, "
+            f"within {tol:.1%} {sum(1 - tol <= v <= 1 + tol for v in r)}; {len(r)} cells")
+
+
+def sw_gates(D):
+    """hotloop-sw/PLAN.md: C, D and CD against N (routing gates; cells reported) and against the human layout."""
+    out = []
+    for arm in [a for a in ("C", "D", "CD") if a in D.arms]:
+        rows = []
+        for name, ok, det in not_worse(D, "N", arm):
+            rows.append((name, ok, det))
+        rows.append(new_types(D, "N", arm))
+        rows.append(validity(D, "N", arm))
+        rows.append((f"open cells {arm} / N (reported)", None, f"{open_cells(D, arm)} / {open_cells(D, 'N')}"))
+        for k in ("L_loop_nH", "R_loop_mohm"):
+            cr = cell_ratios(D, arm, "N", k)
+            rows.append(_cell_row(f"{k} {arm}/N, all cells", cr, SW_TOL[k]))
+            for topo in sorted({x[2] for x in cr}):
+                rows.append(_cell_row(f"  {k} {arm}/N, {topo}", [x for x in cr if x[2] == topo], SW_TOL[k]))
+            for ly in sorted({x[3] for x in cr if x[3] is not None}):
+                rows.append(_cell_row(f"  {k} {arm}/N, {ly} layers", [x for x in cr if x[3] == ly], SW_TOL[k]))
+            ch = cell_ratios(D, arm, "human", k)
+            rows.append(_cell_row(f"{k} {arm}/human", ch, SW_TOL[k]))
+        vd, by = physics_verdicts(D, arm, "N")
+        for o in ("loss.loop_ac", "loss.copper_ac", "loss.loop", "loss.copper"):
+            if by.get(o):
+                rows.append((f"{o} {arm}/N (board terms, reported)", None, f"median {st.median(by[o]):.3f} over {len(by[o])} terms"))
+        out.append(_gtable(f"{arm} against N", rows))
+    rows = []
+    for k in ("L_loop_nH", "R_loop_mohm"):
+        rows.append(_cell_row(f"{k} N/human", cell_ratios(D, "N", "human", k), SW_TOL[k]))
+    out.append(_gtable("N against the human layout (reference)", rows))
+    return "### Hot-loop A/B on switching-regulator boards\n\n" + "\n".join(out)
 
 
 def hotloop_gates(D):
