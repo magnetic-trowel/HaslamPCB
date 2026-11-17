@@ -8,6 +8,7 @@
 - **Human-layout coverage (§3):** 158 of 213 boards scored (28 of 41 before on stage 1's boards, now 34), 25 of 32 radio boards with EMI observations (19 with cable emission). J2032, USB armory and PolarFire have no result yet.
 - **The raster's pitch bias does not need a correction for the A/B (§4).** The systematic part (first order in pitch, same sign) is common to both arms and to the human layout. The part that does not cancel is sub-cell snapping, measured by shifting the raster: 1–2% on copper loss, rail drop and the board total, 7–16% (median) on single field observations. Local refinement would not remove it; differences inside the shift spread are noise.
 - **Boards that still have nothing** are listed with the reason (§5): netless or unrouted files, passive boards, and parts the classifier leaves unknown.
+- **Boost hot loops were priced at the output current** (§7): 1.5–4.4× low in current, 2.3–20× in ½·L·I²·f; recompiled into `compiled-51eaed9`, no A/B verdict changes.
 
 Tags: [M] measured here on the human layouts; [I] inference. Evaluator: [physics-driven-build](../architecture/physics-driven-build.md); intents: [intent-driven-objectives](../architecture/intent-driven-objectives.md); field-solver accuracy: [field-solver-accuracy](../../research/physics/field-solver-accuracy.md).
 
@@ -97,6 +98,23 @@ Capacitive pickup is not in the fast evaluator's `pickup.peak` (only `kae.excite
 - **The sign is physics, not a reference choice.** Potentials are differences inside one connected net, so no ground node enters. In the case taken apart (Green Lion's BMS shield, negative at 13–15 of 19 corners in every arm) the rail part was ≥ 0 and the ground part negative: another rail's return current, or the source's own ground-pin current, flows through ground copper shared with the load and leaves the source's ground pin above the load's. There CN7 is both the +5 V source and the +12 V load; the 0.3 A of +12 V returns from CN7's ground pins to J1, putting them 11 mV above IC1's ground; IC1's rail part is +1.2 mV, the sum −10 mV. The load then sees more than the source's voltage.
 - **Definition.** A drop is what the load loses of its source's voltage, so `drop.rail` = max(0, signed sum). The signed value stays in the observation's `signed` list for the reader. A cost term with a plain rate on drop.rail had paid a credit for a negative drop; it no longer does. `harm.phi` already priced a negative drop at 0.
 - **Not covered:** an over-voltage at a load (signed < 0) is not a requirement any intent states today; a term for it would read `signed`.
+
+### 7. Boost cells were priced at their output current [M]
+
+The 213 set's intents gave every converter cell `I_A` = the spec's I_out. A boost's switch and hot loop carry its input current, I_out·V_out/(V_in·η) ([converter-currents](converter-currents.md#1-equations-ccm-steady-state)), so 5 of its 6 boost cells were low by the factor below, their ½·L·I²·f by its square. Fixed on branch `converter-currents`: the compiler writes I_out_A, V_in_V, V_out_V and η, and the evaluator converts by topology (`kae.physics.converter`). Recompiled: the 6 boards below into `intent-213/compiled-51eaed9` (frozen summaries `summaries-9867d0b`; the other 207 boards' files copied unchanged; the base commit reproduces `compiled-9867d0b` byte for byte).
+
+| Board, cell | V_in → V_out, I_out | I_sw ÷ I_out (typ, η 0.8–0.95) | Effect, human layout, base 37c5307 → 51eaed9 |
+|---|---|---|---|
+| powerboost 500c, boost U1 | 3.7 → 5 V, 1 A | 1.50 | loss.loop ×2.34, loss.loop_ac ×3.1, loss.copper (DC) ×1.66, overshoot 0.27 → 0.43 V |
+| it8951 booster, boost U1 | 3.7 → 5 V, 1 A | 1.50 | loss.loop ×2.25, loss.loop_ac ×2.06; D was a 0.1–0.9 prior (BAT+ has no voltage on the board), now 0.33 from the intent: loss.part 3.86 W → 0.71 W, D1 716 → 183 °C, U1 2468 → 167 °C |
+| chip-lcd-dip, LED boost IC3 | 5 → 20 V, 20 mA | 4.44 | loss.loop ×19.8 (0.12 → 2.3 µW) |
+| nekoink, boost U2 | 3.3 → 5 V, 0.5 A | 1.68 | boost cell's loss.loop ×2.84, loss.loop_ac ×3.0; its 4 buck cells unchanged |
+| sstv badge, TPS63001 (4-switch) | 3.7 → 3.3 V, 0.8 A | buck region: output leg static | boost leg's loss.loop, loss.loop_ac, overshoot → 0; the inductor ripple was counted on both legs, now once: loss.copper_ac 3.1 → 0.27 mW (buck leg D 0.89 from the intent, was a 0.5 prior) |
+| magtag 2.9", boost EINK2 | 3.3 → 6.25 V, 0.2 A | 2.10 | no cell excited in the evaluator, DC copper open: no observation before or after |
+
+**Hot-loop A/B (24 boards), boards with boost cells re-run** (powerboost, it8951, chip-lcd, nekoink, sstv; arms N 5c74bb275336, K c398ff3471c1, Kp b709412203d2; `--scope losses`, DRC afa09d34bc94; before = base code with `compiled-9867d0b`, after = 51eaed9 with `compiled-51eaed9`). No gate changes: the R_loop, L_loop and open-cell gates are geometry, and both arms of a board carry the same current, so per-term K/N and Kp/N ratios move ≤ 0.2 % (loss.loop, loss.loop_ac, loss.swnode); hard and implausible counts keep their order across arms. Board totals move with the absolute loss: it8951's hard tier 31.6 → 0.7–0.85 mW_eq in every arm (the duty prior's 3.9 W of part loss gone); chip-lcd's K/N total 0.98 → 0.80 on sub-mW costs.
+
+Also changed for every converter (not re-run on the other 22 converter boards): a buck cell's DC input current is now D·I_out/η (was D·I_out, lossless), +11 % at η 0.9 on the input rail's DC current.
 
 ## Conflicts and open questions
 
