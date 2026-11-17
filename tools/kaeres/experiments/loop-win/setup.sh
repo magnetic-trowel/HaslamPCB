@@ -15,14 +15,15 @@ K="python3 tools/kaeres/kaeres.py"
 SHA=${SHA:?commit}
 S7=${SHA:0:7}
 KH='$HOME/.cache/kaebench'
-FORK="\$HOME/.cache/kaebench/kae-freerouting-fork-d137fd1/bin/freerouting"
+FRB=${FRB:-kae-freerouting-fork-9a5512d}   # the pinned fork build (2026-11-16: master with the work hook)
+FORK="\$HOME/.cache/kaebench/$FRB/bin/freerouting"
 NUMBA=numba-loopwin-$S7
 CP="cp -r $KH/$NUMBA numba 2>/dev/null;"
 WENV="env KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1${PROFILE:+ KAE_BUDGET_PROFILE=1 KAE_BUDGET_GAP=10}"
 TAG=${PROFILE:+ profiled}
 ARMS=${ARMS:-restarts ctl evidence tabu exact all}
 want() { [[ " $ARMS " == *" $1 "* ]]; }
-E="$WENV NUMBA_CACHE_DIR=\$PWD/numba OMP_NUM_THREADS=1 KAE_BRIDGE_FREEROUTING=$FORK {py:kae}"
+E="$WENV NUMBA_CACHE_DIR=\$PWD/numba OMP_NUM_THREADS=1 KAE_FREEROUTING=$FORK KAE_BRIDGE_FREEROUTING=$FORK {py:kae}"
 # allowance A = 3.15 x 900 s x sqrt(fp/40) of nominal work (loop-compute-matched, loop-polish, polish-merit);
 # the harness timeout is the 4x wall ceiling
 T=$(( 4 * 900 * 315 / 100 ))
@@ -31,14 +32,14 @@ common=(${DIRTY:+--allow-dirty} --kind joint-fixed --param timeout_s=$T --param 
 FIN="$CP $E -m kae.route.cli lastmile @IN@ @BEST@ @OUT@ --seed @SEED@ --time @TIME@"
 RES="if [ \"\$KAE_RESUME\" = 1 ]; then $E -m kae.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@; else"
 INNER="'$CP $RES $E -m kae.joint.cli run @IN@ @OUT@ --seed @SEED@ --time @TIME@ --max-iters 0 --no-modules; fi'"
-want restarts && $K method add "kae lw restarts$TAG $S7" --description "staged + restarts, whole allowance, counted work, Freerouting d137fd1; loop-win at $S7" \
-  --command "$WENV KAE_BRIDGE_FREEROUTING=$FORK {py:kae} {code:kae}/tools/kaeres/restart.py --input {input} --output {output} --time \$(( {timeout} / 4 )) --seed {attempt} --parallel 1 --first-s 300 --scale-first --slack 1.15 --resume 0.5 --final '$FIN' --check-placement -- $INNER" \
+want restarts && $K method add "kae lw restarts$TAG $S7" --description "staged + restarts, whole allowance, counted work, Freerouting $FRB; loop-win at $S7" \
+  --command "$WENV KAE_FREEROUTING=$FORK KAE_BRIDGE_FREEROUTING=$FORK {py:kae} {code:kae}/tools/kaeres/restart.py --input {input} --output {output} --time \$(( {timeout} / 4 )) --seed {attempt} --parallel 1 --first-s 300 --scale-first --slack 1.15 --resume 0.5 --final '$FIN' --check-placement -- $INNER" \
   "${common[@]}"
 # W arms: one joint loop, B = A / 3.15 for iteration 0 plus two budgets of window time (loop-compute-matched's W),
 # no module stage (as R), one process
 joint() {  # name, description, extra --set flags
   want "$1" || return 0
-  $K method add "kae lw joint $1$TAG $S7" --description "joint loop, B = A/3.15 plus 2 B of windows, no modules, counted work, d137fd1; $2; loop-win at $S7" \
+  $K method add "kae lw joint $1$TAG $S7" --description "joint loop, B = A/3.15 plus 2 B of windows, no modules, counted work, $FRB; $2; loop-win at $S7" \
     --command "$CP $E -m kae.joint.cli run {input} {output} --seed {attempt} --time \$(( {timeout} / 4 * 100 / 315 )) --no-modules --set window_budget_factor=2 $3" \
     "${common[@]}"
 }
