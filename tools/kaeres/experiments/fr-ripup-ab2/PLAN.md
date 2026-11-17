@@ -71,3 +71,12 @@ an 80 %-power MDE of 2.2 %.
 ## Profiling
 fr-ripup-ab's smoke profile (nekoink-2, d137fd1): Freerouting 68 %, last mile and repair 16 %, KiCad DRC 7.5 %,
 pcbnew 4 %; no cheap speedup. One smoke board per arm is profiled again on the new pin before the full run.
+
+## Before the full run (2026-11-16)
+- **Profile on the new pin** (fr-neck-gated-ab2's control on arduino-asx00031, py-spy and JFR, partial):
+  Freerouting 76 %, last mile and repair 13 %, KiCad DRC 4.5 %, pcbnew 3 %. No cheap speedup on the kae side.
+- **Wall time:** under the profilers the wall was about 4x the nominal work (Freerouting's job ran to its wall
+  timeout, with four attempts sharing a 5-CPU grant).
+- **Ceiling risk:** 33 unprofiled parallel-4 runs of other experiments on the same pin and chassis ran at a
+  median 1.72x their budget (p90 3.48x, max 3.69x) with no 4x ceiling hit. So the full run goes ahead. Runs that
+  hit `ceiling_hit` are reported per arm and, if any, retried before analysis.
