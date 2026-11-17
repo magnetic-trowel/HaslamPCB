@@ -187,6 +187,12 @@ Settings for every job:
 - KiCad runs with `MaximumThreads=2`.
 - Freerouting gets `-Xmx` sized to the board (`java_heap=auto-v1`) and `-XX:ActiveProcessorCount=2`.
 - The harness tree has a 40 GB address-space cap.
+- Numba caches: a template that copies a warm cache before kae runs (`cp -r $HOME/.cache/kaebench/numba-NAME
+  numba 2>/dev/null; env NUMBA_CACHE_DIR=$PWD/numba ...`) gets it filled by the job: after each method runs,
+  the kernels it compiled in its work dirs that the named cache lacks are added (`publish_numba_cache`). The
+  first jobs of a new checkout compile; later ones load. Kernels are keyed by source path and mtime, so a
+  cache serves only the checkout that made it. Without this, a cache nobody warmed made every kae process
+  compile from scratch, about 130 CPU s per `kae.joint.cli` run.
 
 ## Step cache (A/B arms that share early steps)
 
