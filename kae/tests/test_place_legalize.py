@@ -864,3 +864,52 @@ def test_round_pads_and_holes_measure_within_the_arc_error():
     measured = hole_shape(hole).distance(pad_shape(pad))
     assert gap <= measured <= gap + 2 * ARC_ERR + 1e-9
     assert measured < 0.25 - 0.005           # the exact check's test: it now reports the violation
+
+
+def test_greedy_charges_its_scans_and_the_charges_change_no_decision():
+    """Under counted budgets the greedy legalizer charges its real work (fit tests of the ring walk,
+    grid-sized array passes, summed-area-table updates, rectangles marked): its scans between two
+    deadline polls once cost no budget (a rip-up scan of a full board: 98 s wall, nothing charged)."""
+    from kae import budget
+    from kae.place.legalize import greedy
+    poses = {}
+    try:
+        for mode in ("time", "work"):
+            for compiled in (True, False):
+                P, st = _pile()
+                budget.set_mode(mode)
+                greedy(P, st, list(P.mov), compiled=compiled)
+                u = budget.clock().units
+                kinds = ("legal_fit", "legal_cells", "legal_sat_cells", "legal_rect") if compiled \
+                    else ("legal_cells", "legal_rect")
+                assert all(u[k] > 0 for k in kinds), dict(u)
+                if mode == "work":
+                    spent = sum(u[k] * budget.RATES[k] for k in kinds)
+                    assert budget.clock().spent >= spent > 0
+                poses[mode, compiled] = (st.X.copy(), st.Y.copy(), st.K.copy())
+    finally:
+        budget.set_mode("time")
+    for compiled in (True, False):
+        assert all((a == b).all() for a, b in zip(poses["time", compiled], poses["work", compiled]))
+
+
+def test_ripup_scan_counts_every_fit_test_of_a_full_board():
+    """A part with no spot (the board full of larger parts) walks every origin within reach in
+    every rotation: the scan reports each fit test, so the charge follows the work."""
+    from kae.place import _fastlegal as FL
+    from kae.place.problem import sat
+    P, st = _pile()
+    i = P.mov[0]
+    ks = FL.rotations_for_fit(P.parts[i], 0)
+    own, own_n, opp, opp_n, brd, brd_n = FL.part_arrays(P.parts[i], ks)
+    pad, D = 4, 30
+    full = sat(np.ones((P.ncx + 2 * pad, P.ncy + 2 * pad), dtype=np.int32))
+    empty = sat(np.zeros((P.ncx + 2 * pad, P.ncy + 2 * pad), dtype=np.int32))
+    c, _, _, _, n = FL.ripup_spot(full, full, empty, empty, P.sat_out, P.ncx, P.ncy, pad, 0, P.ncx // 2,
+                                  P.ncy // 2, 0, 1.0, 4.0, own, own_n, opp, opp_n, brd, brd_n, D)
+    assert c < 0 and n == len(ks) * (2 * D * (D + 1) + 1)
+    c, _, _, _, n = FL.nearest_spot(full, full, P.sat_out, P.ncx, P.ncy, pad, 0, P.ncx // 2, P.ncy // 2, 0, 1.0,
+                                    own, own_n, opp, opp_n, brd, brd_n, D)
+    assert c < 0 and n == len(ks) * (2 * D * (D + 1) + 1)
+    S = sat(np.zeros((5, 5), dtype=np.int32))
+    assert FL.sat_add_rect(S, 1, 3, 2, 4, 1) == 4 * 3 and S[-1, -1] == 4    # the cells after the corner
