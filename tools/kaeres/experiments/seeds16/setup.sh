@@ -6,7 +6,7 @@
 # harness keeps each completion-first phase's attempt log (for the work curves); kae code as the recipe pins it.
 #   HARNESS=<pushed commit> tools/kaeres/experiments/seeds16/setup.sh
 set -euo pipefail
-cd "$(dirname "$0")/../../.."
+cd "$(dirname "$0")/../../../.."
 K="python3 tools/kaeres/kaeres.py"
 KH='$HOME/.cache/kaebench'
 HARNESS=${HARNESS:?commit}
