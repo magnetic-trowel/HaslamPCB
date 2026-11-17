@@ -83,3 +83,10 @@ estimate is at least 1 % in favour of Pk3.
 - Wall time was 2:40 per arm under py-spy and JFR. Peak RSS was 1.36 GB.
 - Freerouting took 91 % of the sampled time, last mile and repair 4 %, and numba, HiGHS, CP-SAT and placement
   about 1 % each. No cheap speedup on the kae side.
+
+## Addendum 2026-11-17: re-registered on current main as experiment `pk3-ab-m` (before any full-run result)
+Every arm runs the placer (`kae.joint.cli run --max-iters 0`, without `--start`) under counted work. main's #102
+(counted budgets charge the greedy legaliser's scans) and #103 (close_loop diagnoses stop at their time) therefore
+change the outputs. Under the rule "current main plus the current pin", branch `pk3-ab-m2` merges main
+c81770e1 into pk3-ab, the methods are re-registered at its commit, and the queued jobs of `pk3-ab` are cancelled
+(only its smoke had run). Arms, boards, analysis, power and decision rule are unchanged.
