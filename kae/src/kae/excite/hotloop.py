@@ -125,7 +125,7 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log):
     op = ES.Operator(net)
     from .evaluate import _band_start
     R0 = net.R
-    out, dropped, prev = {}, 0.0, None
+    out, dropped, prev, rcu = {}, 0.0, None, {}
     for f in freqs:                      # ascending: each starts from the last one's solution (_band_start)
         Ja = sols[f]["Ja"]
         inj = {p: j for p, j in Ja.items() if p in bm.m.terminals and abs(j) > 1e-12}
@@ -142,11 +142,14 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log):
         if info["unbalanced"]:
             return None, info, bm.m
         prev = (f, inj, info.pop("x"))
-        info.pop("I", None)
+        # the copper's own dissipation of the pattern (the R it was solved with): R_loop, never negative
+        R_used = _skin_R(net, f, nsub) if skin else net.R
+        nb_cu = net.off["l"]
+        rcu[f] = float(np.sum(R_used[:nb_cu] * np.abs(info.pop("I")[:nb_cu]) ** 2))
         Jk = pats[f]
         vid = O.ideal(bd, sols[f])
         out[f] = O.bilinear(Jk, v) - O.bilinear(Jk, vid)
-    return out, dict(dropped=dropped), bm.m
+    return out, dict(dropped=dropped, rcu=rcu), bm.m
 
 
 def _truncation_too_large(g, zc, f_fund, f_edge):
@@ -156,6 +159,11 @@ def _truncation_too_large(g, zc, f_fund, f_edge):
     Rg, Rc = g[1].real, zc[f_fund].real
     return (abs(g[0] - Lc) > max(TRUNC_MAX * abs(g[0]), TRUNC_FLOOR[0])
             or abs(Rg - Rc) > max(TRUNC_MAX * abs(Rg), TRUNC_FLOOR[1]))
+
+
+def _g_R(g):
+    """The board solve's R_loop at f_sw (ohm): its copper dissipation (g[2]) when known, else the layout share Re Zf."""
+    return g[2] if len(g) > 2 and g[2] is not None else max(g[1].real, 0.0)
 
 
 def _corrected_L(g, z, zc, f_edge):
@@ -186,7 +194,7 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
         g = global_pairs.get(s.name)
         if g is not None:
             row["global"] = dict(pitch=global_pitch, L_loop_nH=round(g[0] * 1e9, 4),
-                                 R_loop_mohm=round(max(g[1].real, 0.0) * 1e3, 4))
+                                 R_loop_mohm=round(_g_R(g) * 1e3, 4))
         if s.name in open_cells:
             rows.append(dict(row, state="open", why=open_cells[s.name]))
             continue
@@ -211,12 +219,12 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
                 break                        # no finer than the board solve: nothing to refine
             z, info, m = _solve_window(path, b, bd, s, o, win, pc, nsub, bm.fills, freqs, skin, log)
             whole = win == tuple(board_window)
-            zc = None
+            zc, infc = None, None
             if z is not None and global_pitch:
                 # the same window at the board's pitch, for the truncation correction below; it must close too (a
                 # neck the fine raster resolves and the coarse one loses: the board solve then closes outside)
-                zc, _, _ = _solve_window(path, b, bd, s, o, win, global_pitch, nsub, bm.fills, [f_fund, f_edge], False,
-                                         log)
+                zc, infc, _ = _solve_window(path, b, bd, s, o, win, global_pitch, nsub, bm.fills, [f_fund, f_edge],
+                                            False, log)
             bad = zc is not None and _truncation_too_large(g, zc, f_fund, f_edge)
             if (z is not None and (zc is not None or not global_pitch) and not bad) or whole or grown >= MAX_GROW:
                 break
@@ -234,7 +242,7 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
             # the window over its cell budget (many layers, far parts) at the board's pitch, or a window whose
             # correction cannot be trusted: the board solve's values stand, with no harmonics (reported,
             # layout-independent like the window)
-            R0 = round(max(g[1].real, 0.0) * 1e3, 4)
+            R0 = round(_g_R(g) * 1e3, 4)
             peaks = [HA.peak(g[1], g[0], v["I_A"], v.get("D", 0.5), v["t_i_s"])[0]
                      for v in ({k[1]: x for k, x in cp.items()} for cp in cps[s.name])]
             rows.append(dict(row, state="ok", L_loop_nH=round(g[0] * 1e9, 4), R_loop_mohm=R0,
@@ -253,13 +261,17 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
         # the window's truncation, measured at the board's pitch: the board solve minus the same window at that pitch
         # (no skin correction in either, as the board solve has none). Added to the fine solve, it leaves the fine
         # pitch's correction of the board solve (two-grid: truncation and pitch errors add to first order)
-        dLe, dZf = 0.0, 0j
+        dLe, dZf, dR = 0.0, 0j, 0.0
         if zc is not None:
             dLe = g[0] - zc[f_edge].imag / w_e
             dZf = g[1] - zc[f_fund]
+            dR = _g_R(g) - (infc or {}).get("rcu", {}).get(f_fund, _g_R(g))
         Le = z[f_edge].imag / w_e + dLe
         Zf = z[f_fund] + dZf
-        R = [dict(n=n, f_MHz=round(f / 1e6, 4), R_mohm=round(max((z[f] + dZf).real, 0.0) * 1e3, 4))
+        # R_loop: the copper's dissipation of the cell's current (window, skin) with the truncation's (board minus the
+        # window at the board's pitch, both without skin) added; never below zero
+        rw = info.get("rcu") or {}
+        R = [dict(n=n, f_MHz=round(f / 1e6, 4), R_mohm=round(max(rw.get(f, 0.0) + dR, 0.0) * 1e3, 4))
              for n, f in zip(HARMONICS, fh)]
         peaks = []
         for c in range(len(cps[s.name])):
@@ -272,8 +284,8 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
                          f_edge_MHz=round(f_edge / 1e6, 4),
                          window=dict(box=[round(x, 3) for x in win], pitch=pc, margin_mm=margin, grown=grown,
                                      L_raw_nH=round(z[f_edge].imag / w_e * 1e9, 4), trunc_L_nH=round(dLe * 1e9, 4),
-                                     R_raw_mohm=round(max(z[f_fund].real, 0.0) * 1e3, 4),
-                                     trunc_R_mohm=round(dZf.real * 1e3, 4), corrected=zc is not None, refined=True,
+                                     R_raw_mohm=round(rw.get(f_fund, 0.0) * 1e3, 4),
+                                     trunc_R_mohm=round(dR * 1e3, 4), corrected=zc is not None, refined=True,
                                      cells=int(m.nx * m.ny * len(m.layers)), dropped_injection=round(info["dropped"], 5),
                                      skin=bool(skin), seconds=round(time.time() - t0, 1))))
         log(f"cell {s.name}: window {win[2] - win[0]:.1f} x {win[3] - win[1]:.1f} mm at {pc:g} mm: L_loop "
