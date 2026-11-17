@@ -182,8 +182,10 @@ def _cell(bd, s, uuid):
     meta = dict(kind="cell", cell=s["id"], I=I, V=V, t_sw=t_sw, didt=I / t_sw, f_e=1 / (math.pi * t_sw),
                 f_sw=ex.get("f_sw_Hz"), cls=s.get("class"), sw=sw, bus=bus, gnd=gnd)
     ctrl = uuid.get(s.get("controller"))
-    # an integrated switch: the controller's SW pin(s) on the switch node
-    if ctrl and ctrl in bd.ic_nodes:
+    # an integrated switch: the controller's SW pin(s) on the switch node. Not when the brief says the switches are
+    # discrete (a half-bridge gate driver's HS pin sits on the switch node but carries no commutated current: taking
+    # it for the switch drove the cell into the driver's supply pins, an island that never closes)
+    if ctrl and ctrl in bd.ic_nodes and s.get("integrated_switches") is not False:
         swp = [t for t in bd.pads_of.get(sw, []) if t.startswith(ctrl + ".")]
         if swp:
             nodes = bd.ic_nodes[ctrl]

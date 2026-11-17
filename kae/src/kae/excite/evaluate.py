@@ -262,8 +262,12 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         keys = [k for k, z in zip(keys, none_) if not z]
         injs = [i for i, z in zip(injs, none_) if not z]
         t_band = time.time()
+        # a switching cell's loop is open only when more than CELL_LEAK of its current has no way out: a driver's or
+        # sensor's unrouted island taking a few per mille (kestrel's half bridges: 0.1-0.4 % into the gate driver's
+        # supply island at 20 kHz) changes its loop values by under 2 % and is no open hot loop
         band_res = ES.potentials_many(bm.m, injs, f, net=net, op=op, light=True,
-                                      x0=[_band_start(last.get(k[0]), inj, f, net.n_br) for k, inj in zip(keys, injs)]) \
+                                      x0=[_band_start(last.get(k[0]), inj, f, net.n_br) for k, inj in zip(keys, injs)],
+                                      leak=[CELL_LEAK if k[0] in cell_names else 1e-3 for k in keys]) \
             if keys else []
         for k, inj, res in zip(keys, injs, band_res):
             solved[k] = res
@@ -343,6 +347,28 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 z[band] = O.bilinear(Jk, v) - (O.bilinear(Jk, vid[(s.name, band)]) if lumped else 0.0)
             w_e = 2 * math.pi * res["edge"][0]
             pairs.append(dict(o=o, s=s, Zf=z["fund"], Le=z["edge"].imag / w_e))
+    # a cell whose loop closes only through impedance a working loop never has (its copper share's resistance at f_sw
+    # above LOOP_LOSS_FRAC V / I, or its reactance at the edge band above V / I) carries no commutated current: its copper is effectively open (it
+    # closes through a resistor, a small capacitor, a part's leak). Its values would be no layout's (gecko5 U14 under a
+    # keep-out read L -19388 nH, R 99 kOhm): it is an open cell, priced at its caps, never reported as a value
+    for pr in [pr for pr in pairs if pr["o"].kind == "overshoot" and pr["s"].kind == "cell"]:
+        s, Pc = pr["s"], P[pr["s"].name]
+        V, I = (Pc["V"].typ if "V" in Pc else 0.0), (Pc["I"].typ if "I" in Pc else 0.0)
+        if not (V > 0 and I > 0):
+            continue
+        z_load = V / I
+        w_e = 2 * math.pi * bands[s.name]["edge"]
+        # resistance at f_sw above OPEN_R_FRAC V / I, or reactance at the edge band above V / I: no working loop
+        R_cu, X_cu = max(pr["Zf"].real, 0.0), abs(pr["Le"]) * w_e
+        if R_cu > OPEN_R_FRAC * z_load or X_cu > z_load:
+            where = (f"the loop closes only through R {R_cu:.3g} ohm at f_sw, L {pr['Le'] * 1e9:.4g} nH at "
+                     f"{bands[s.name]['edge'] / 1e6:.3g} MHz: beyond a working loop for the cell's load V / I = "
+                     f"{z_load:.3g} ohm (R above {OPEN_R_FRAC:g} V / I, or |X| above V / I)")
+            notes.append(f"{s.name}: copper effectively open: {where}: its harms are not computed; its hot loop is "
+                         f"priced open, at its caps")
+            uncomputed.append(s.name)
+            open_cells[s.name] = where
+    pairs = [pr for pr in pairs if pr["s"].name not in open_cells]
     # harms at the typical point and at the corners of each aggressor's intervals
     cps = {s.name: corners(P[s.name].values(), n=n_corners, seed=seed) for s in srcs}
     ncp = n_corners + 3
@@ -506,6 +532,27 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         ob["label"] = (f"hot-loop AC conduction loss of {name}: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and "
                        f"proximity crowding, R_loop {hs[0]['R_mohm']:.3g} mOhm at f_sw, {hs[-1]['R_mohm']:.3g} at "
                        f"{hs[-1]['n']} f_sw ({where})")
+    # a closed cell's layout losses above LOOP_LOSS_FRAC of its throughput V I are no working converter's: the inputs
+    # are wrong (the cell's I, V or circuit), not the copper. Flagged implausible and capped there (kae.intent
+    # prices the cap, the same for every layout, and lists them), never reported as a layout's loss
+    for ob in observations:
+        if ob["id"] not in ("loss.loop", "loss.loop_ac", "loss.copper_ac") or ob.get("open"):
+            continue
+        name = ob["scope"].get("source")
+        if name not in cps:
+            continue
+        caps = []
+        for c in range(len(ob["values"])):
+            val = {k[1]: v for k, v in cps[name][c].items()}
+            caps.append(LOOP_LOSS_FRAC * val.get("V_V", 0.0) * val.get("I_A", 0.0))
+        over = [v > cp for v, cp in zip(ob["values"], caps) if cp > 0]
+        if any(over):
+            w = max(range(len(caps)), key=lambda c: ob["values"][c] / caps[c] if caps[c] > 0 else 0.0)
+            ob["implausible"] = (f"{ob['values'][w]:.3g} W exceeds {LOOP_LOSS_FRAC:.0%} of the cell's throughput "
+                                 f"V I = {caps[w] / LOOP_LOSS_FRAC:.3g} W: beyond any working converter (are the "
+                                 f"cell's I, V and switches right?)")
+            ob["cap_values"] = caps
+            notes.append(f"{name}: {ob['id']} implausible, capped: {ob['implausible']}")
     # each cell's parasitic ring: its copper loop with the switch node's capacitance
     rings = []
     for pr in pairs:
@@ -878,6 +925,15 @@ def drc_open_cells(rep, brief, srcs):
             out[s.name] = "; ".join(hit[:3])
     return out
 
+
+CELL_LEAK = 0.01             # share of a cell's current an island may hold before its loop counts as open
+
+# a working converter's hot-loop and AC copper losses stay far below its throughput; above this share they are flagged
+LOOP_LOSS_FRAC = 0.1
+# a loop whose copper resistance at f_sw exceeds this share of the load's V / I is open: it closes through a part, not
+# copper (largest working loop seen: 0.031; kestrel's 20 kHz half bridges, working, 0.11-0.16). Between, a loss above
+# LOOP_LOSS_FRAC of V I is flagged implausible instead
+OPEN_R_FRAC = 1.0
 
 # what an open cell is priced in, each at its cap (kae.intent counts them; its other harms stay not computed)
 OPEN_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac")
