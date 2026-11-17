@@ -153,3 +153,26 @@ on the new build.
   previous build and excluded from the decision; its jobs are cancelled.
 - Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
 - 2026-11-17 (main 9e54baed, #106 + #108): kept as registered. #108 changes only kae.joint.scorecard.accept, which the joint loop calls for windows, the finishing stage and its last-mile close; these arms never reach it (staged chassis `--max-iters 0` has no finishing stage, or bridge/placement only), the module stage's re-laid-copper guard keeps the old rule unchanged (physics_guard), and restart.py's judge returns the same key. #106 is harness-only.
+
+## Addendum 2026-11-17 (m4), before any run on this build: PR #83 and the inert trim
+Approved by the user 2026-11-17 after the analysis of finished rows from older builds (explore-2611 results); written
+before any result of this build is read. No `margin-gate-m3` job had run.
+- **Why a new build.** Main 8a2c748f merges PR #83: the placer's physics terms price a negative rail by its magnitude.
+  That changes the placer's terms on 2 of this test's remaining boards (glasgow revd1, fobos shield), so every arm moves
+  to the new main. #106 (numba cache publishing, harness only) and #108 (the joint loop's accept, which the staged
+  chassis `--max-iters 0` never calls) change nothing here.
+- **Code.** `margin-gate-m4`: the branch rebased onto main 8a2c748f (no conflict); every arm at kae and harness
+  36545f2f, the commit before this addendum. Freerouting fork f1c41d3 and counted work, as in -m3.
+- **Boards: the 52 inert boards are dropped** (`margin_inert.txt` of the analysis): on current code MA gated runs the
+  control's path when kae's auto margin is 0 (utilization at least 0.7) or the gate is off, a rule that matched all 17
+  finished -m boards. 91 boards are left (`boards-m4.txt`): 51 dense-hi, and the dense-lo and barrier boards where the
+  margin acts. The MA (ungated) arm stays off on the dense-hi boards, as before; seismos 5corestencil, kept for the caps,
+  has auto margin 0 and is among the dropped boards.
+- **The caps contrast is renamed "untested":** the region caps can act on only 3 of the boards, and on one of them MA
+  gated and MA were already identical. The stage tests the gated auto margin on dense boards.
+- **No A/A floor from gated-out boards:** under counted work they are identical to the control by construction.
+- **Extension (pre-registered):** if the dense-hi result is unknown (MDE80 about 14 % at 51 boards against an expected
+  7-9 %), the extension adds dense-hi boards only, screened with `mscan.py` for auto margin > 0 and the gate on, chosen
+  without outcomes; same arms and k.
+- New experiment `margin-gate-m4` (owner `exp-margin-gate-m4`); `margin-gate-m3` is cancelled. Primary, guards and
+  hypotheses otherwise unchanged.
