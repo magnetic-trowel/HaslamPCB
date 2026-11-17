@@ -103,10 +103,10 @@ TPS62933 = IC(
     "TPS62933DRLR", manufacturer="Texas Instruments", datasheet=DS["TPS62933"], symbol="Regulator_Switching:TPS62933",
     description="3.8-30 V 3 A sync buck, 12 uA Iq, PFM", footprint="Package_TO_SOT_SMD:SOT-583-8",
     pins=None,
-    ratings=Ratings(limits=[VLimit(("VIN", "EN"), ("GND",), 32, v_rec=30)]),
+    ratings=Ratings(limits=[VLimit(("VIN", "SW"), ("GND",), 32, v_rec=30), VLimit(("EN", "FB"), ("GND",), 6)]),
     source={"pins": "KiCad Regulator_Switching:TPS62933 = DS SLUSEA4D Table 7-1 (RT 1, EN 2, VIN 3, GND 4, SW 5, "
                     "BST 6, SS 7, FB 8)",
-            "ratings": "DS p.1 3.8-30 V input; Iq 12 uA (TPS62933); FB 0.8 V, IFB 0.15 uA max"},
+            "ratings": "DS 6.1 Abs Max: VIN, SW (DC) 32 V, SW < 10 ns 33 V, EN and FB 6 V; 3.8-30 V input; Iq 12 uA; FB 0.8 V, IFB 0.15 uA max"},
     fields=_lcsc("C3200405", "expand, stock 5788 on 2026-11-17"))
 
 # FireBeetle 2 ESP32-C6 on two female headers (custom footprint, pad numbering in make_footprints.py)
