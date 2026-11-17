@@ -939,10 +939,13 @@ def publish_numba_cache(m, rdir, log=None):
     template names ($HOME/.cache/kaebench/numba-NAME, copied to $PWD/numba before kae runs), adding
     only kernels the cache lacks. numba compiles a kernel on its first call unless the cache has it;
     a named cache that was never warmed (`cp -r` fails silently) made every kae process of every job
-    compile from scratch (about 130 CPU seconds per kae.joint.cli run). Kernels
+    compile from scratch (about 110 CPU seconds per kae.joint.cli run). Kernels
     are keyed by their source file's path and mtime, so one checkout's kernels never load for
-    another's. Data files go first and the index last, each written to a temporary name and renamed,
-    so a job copying the cache meanwhile sees a kernel whole or not at all."""
+    another's. A kernel is its index (.nbi) and the data files (.N.nbc) it names, and numba loads a
+    data file by name without checking its signature, so a kernel's files must all come from one run:
+    a publisher claims the kernel (an exclusive .claim file) and skips it when another holds the claim
+    or the index is there. Data files go first and the index last, each written to a temporary name
+    and renamed, so a job copying the cache meanwhile sees a kernel whole or not at all."""
     names = NUMBA_CACHE_RE.findall(m["recipe"]["runner"].get("template") or "")
     if not names or not rdir.is_dir():
         return 0
@@ -954,8 +957,20 @@ def publish_numba_cache(m, rdir, log=None):
             if (to / nbi.name).exists():
                 continue
             stem = nbi.name[:-len(".nbi")]
+            claim = to / f"{stem}.claim"
             try:
                 to.mkdir(parents=True, exist_ok=True)
+                os.close(os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            except FileExistsError:
+                continue
+            except OSError as e:
+                if log:
+                    with open(log, "a") as fh:
+                        fh.write(f"numba cache {name}: could not add {nbi.name}: {e}\n")
+                break
+            try:
+                if (to / nbi.name).exists():   # published between the check above and the claim
+                    continue
                 for f in [*sorted(nbi.parent.glob(glob.escape(stem) + ".*.nbc")), nbi]:
                     tmp = to / f"{f.name}.tmp{os.getpid()}"
                     shutil.copyfile(f, tmp)
@@ -966,6 +981,8 @@ def publish_numba_cache(m, rdir, log=None):
                     with open(log, "a") as fh:
                         fh.write(f"numba cache {name}: could not add {nbi.name}: {e}\n")
                 break
+            finally:
+                claim.unlink(missing_ok=True)
     if added and log:
         with open(log, "a") as fh:
             fh.write(f"numba cache {', '.join(names)}: added {added} kernel(s) from {m['id']}\n")

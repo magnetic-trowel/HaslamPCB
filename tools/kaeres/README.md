@@ -192,7 +192,7 @@ Settings for every job:
   the kernels it compiled in its work dirs that the named cache lacks are added (`publish_numba_cache`). The
   first jobs of a new checkout compile; later ones load. Kernels are keyed by source path and mtime, so a
   cache serves only the checkout that made it. Without this, a cache nobody warmed made every kae process
-  compile from scratch, about 130 CPU s per `kae.joint.cli` run.
+  compile from scratch, about 110 CPU s per `kae.joint.cli` run.
 
 ## Step cache (A/B arms that share early steps)
 

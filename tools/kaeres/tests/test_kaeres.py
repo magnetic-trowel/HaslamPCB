@@ -568,4 +568,9 @@ def test_publish_numba_cache_adds_missing_kernels_only(tmp_path, monkeypatch):
         "engine.cost-[a]-9.py312.nbi", "engine.step-40.py312.1.nbc", "engine.step-40.py312.2.nbc", "engine.step-40.py312.nbi"]
     assert (cache / sub / "engine.cost-[a]-9.py312.nbi").read_text() == "old"
     assert kaeres.publish_numba_cache(m, run) == 0
+    # a kernel another job is publishing (its claim is there) is left to that job
+    (cache / sub / "engine.step-40.py312.nbi").unlink()
+    (cache / sub / "engine.step-40.py312.claim").touch()
+    assert kaeres.publish_numba_cache(m, run) == 0
+    assert not (cache / sub / "engine.step-40.py312.nbi").exists()
     assert kaeres.publish_numba_cache(dict(id="m2", recipe=dict(runner=dict(template="kae route"))), run) == 0
