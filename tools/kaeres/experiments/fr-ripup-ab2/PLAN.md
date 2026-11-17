@@ -74,7 +74,8 @@ pcbnew 4 %; no cheap speedup. One smoke board per arm is profiled again on the n
 
 ## Before the full run (2026-11-16)
 - **Profile on the new pin** (fr-neck-gated-ab2's control on arduino-asx00031, py-spy and JFR, partial):
-  Freerouting 76 %, last mile and repair 13 %, KiCad DRC 4.5 %, pcbnew 3 %. No cheap speedup on the kae side.
+  Freerouting 93 %, last mile and repair 2 %, imports 1.3 %, KiCad DRC 1.2 %, pcbnew 1 %, numba 0.7 % (8,550 s
+  sampled, attempts 0-11). No cheap speedup on the kae side.
 - **Wall time:** under the profilers the wall was about 4x the nominal work (Freerouting's job ran to its wall
   timeout, with four attempts sharing a 5-CPU grant).
 - **Ceiling risk:** 33 unprofiled parallel-4 runs of other experiments on the same pin and chassis ran at a
