@@ -114,7 +114,7 @@ The 213 set's intents gave every converter cell `I_A` = the spec's I_out. A boos
 
 **Hot-loop A/B (24 boards), boards with boost cells re-run** (powerboost, it8951, chip-lcd, nekoink, sstv; arms N 5c74bb275336, K c398ff3471c1, Kp b709412203d2; `--scope losses`, DRC afa09d34bc94; before = base code with `compiled-9867d0b`, after = 51eaed9 with `compiled-51eaed9`). No gate changes: the R_loop, L_loop and open-cell gates are geometry, and both arms carry the same current, so per-term K/N and Kp/N ratios move ≤ 0.2 %. Board totals move with the absolute loss: it8951's hard tier 31.6 → 0.7–0.85 mW_eq in every arm (the duty prior's 3.9 W of part loss gone); chip-lcd's K/N total 0.98 → 0.80 on sub-mW costs.
 
-Also changed for every converter (not re-run on the other 22 converter boards): a buck cell's DC input current is now D·I_out/η (was D·I_out, lossless), +11 % at η 0.9 on the input rail's DC current.
+Every buck cell's DC input current is now D·I_out/η (was lossless D·I_out): +11 % at η 0.9; not re-run on the other 22 converter boards.
 
 ## Conflicts and open questions
 
