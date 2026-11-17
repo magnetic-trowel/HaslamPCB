@@ -16,8 +16,9 @@ import statistics as st
 E = os.path.expanduser("~/kae-baselines/experiments/polish-replay2/results.csv")
 rows = {}
 for r in csv.DictReader(open(E)):
-    if r["attempt"] == "0" and r["status"] == "ok":
-        rows.setdefault(r["board"], {})["copy" if "copy" in r["method"] else "polish"] = r
+    # the two arms only (results.csv also has the human reference rows)
+    if r["attempt"] == "0" and r["status"] == "ok" and r["method"].startswith("kae preplay2 "):
+        rows.setdefault(r["board"], {})["copy" if " copy " in r["method"] else "polish"] = r
 d, raw, err, typ, cpu, better, worse = [], [0, 0, 0], [0, 0, 0], {}, 0.0, 0, 0
 for b, v in sorted(rows.items()):
     if "copy" not in v or "polish" not in v:
