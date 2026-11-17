@@ -570,17 +570,44 @@ def _intent_cell(ctx, m):
     return cs.get(m.id) or cs.get(f"cell:{m.id}") or {}
 
 
-def _intent_current(ctx, m):
-    """The current a cell's copper is sized for when the intent states it: the upper end of its
-    I_A (the brief's own estimate, 0.6 x an inductor rating, can be several times what the board
-    carries: bq25306's 4.7 A against the intent's 0.3-1 A). None without one."""
-    v = _intent_cell(ctx, m).get("I_A")
-    try:
-        if isinstance(v, (list, tuple)) and v:
-            return float(v[-1])
-        return float(v) if v is not None else None
-    except (TypeError, ValueError):
+def _intent_converter(ctx, m):
+    """The cell's commutated current and duty from the intent's cells.<id> (kae.physics.converter.from_intent, as
+    kae.excite.params.cell reads it: I_switch_A, else I_A, else I_out_A through the cell's topology at the
+    intent's or the rails' voltages), or None when the intent states no current."""
+    from kae.physics import converter as CV
+    cell = _intent_cell(ctx, m)
+    if not cell:
         return None
+    s = m.spec
+    cls = s.get("class") or ""
+    v = lambda k: ctx.volts(s.get(k) or "") if s.get(k) else None
+    if cls == "boost":
+        vi, vo = v("vin"), v("rail")
+    else:
+        vi, vo = v("rail"), v("vout")
+    if s.get("topology") == "buck_boost_4switch":
+        sib = next((x for x in ctx.brief.get("structures") or [] if x.get("topology") == "buck_boost_4switch"
+                    and x.get("id") != s.get("id") and x.get("controller") == s.get("controller")), {})
+        so = ctx.volts(sib.get("rail") or "") if sib.get("rail") else None
+        vi, vo = (v("rail"), so) if cls == "buck" else (so, v("rail"))
+    top, leg = CV.topology_of(cls, s, vo)
+    try:
+        return CV.from_intent(cell, top, leg, vi, vo)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def _intent_current(ctx, m):
+    """The current a cell's copper is sized for when the intent states it: the upper end of its commutated
+    current (_intent_converter: a boost's input current, not its output; the brief's own estimate, 0.6 x an
+    inductor rating, can be several times what the board carries: bq25306's 4.7 A against the intent's
+    0.3-1 A). None without one."""
+    cc = _intent_converter(ctx, m)
+    if cc is None:
+        return None
+    if cc.I[2] <= 0 and cc.I_L:              # a static 4-switch leg: its closed switch still carries I_L, as DC
+        return float(cc.I_L[2])
+    return float(cc.I[2])
 
 
 def route_cell(ctx, m):
@@ -1029,12 +1056,13 @@ def cell_operating(ctx, m):
         except (TypeError, ValueError):
             return None
     basis = []
-    I = iv("I_A")
-    if I is None:
+    cc = _intent_converter(ctx, m)
+    if cc is None:
         I = float(ex.get("I") or 1.0)
         basis.append("I: brief excitation")
     else:
-        basis.append("I: intent")
+        I = float(cc.I[0])
+        basis.append(f"I: intent ({cc.basis})" if cc.source == "physics" else "I: intent")
     f = iv("f_sw_Hz")
     if f is None:
         f = float(ex.get("f_sw_Hz") or 1e6)
@@ -1042,13 +1070,17 @@ def cell_operating(ctx, m):
     else:
         basis.append("f_sw: intent")
     D = iv("D")
+    if D is None and cc is not None and cc.D is not None:
+        D = cc.D[0]
+        basis.append("D: intent operating point (kae.physics.converter)")
     if D is None:
         cls = s.get("class") or ""
         # the cell's rail is its bus: a buck's input, a boost's output (kae.circuit.structures)
         bus, vin, vout = (ctx.volts(s.get(k) or "") for k in ("rail", "vin", "vout"))
         if cls == "boost" and vin and bus and bus > vin:
-            D = 1.0 - vin / bus
-            basis.append("D: boost 1 - Vin/V")
+            from kae.physics import converter as CV
+            D = CV.duty("boost", vin, bus)
+            basis.append(f"D: boost 1 - Vin eta/V (eta {CV.ETA[1]:g})")
         elif cls == "buck" and vout and bus and bus > vout:
             D = vout / bus
             basis.append("D: buck Vout/Vin")
