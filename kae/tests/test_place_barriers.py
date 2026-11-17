@@ -147,3 +147,126 @@ def test_fit_split_moves_parts_a_region_cannot_legalize_and_gives_up_when_none_c
     assert s.region_of["R2"] == left    # the caller's split is not changed
     none, rep = B.fit_split(placer({True: {"R2"}, False: {"R2"}}), bd, s, time_s=10)
     assert none is None and rep["unfit"] == 1
+
+
+# ------------------------------------------------------------------ avoidable crossings (barrier_weight_mode)
+import numpy as np  # noqa: E402
+
+from kae.place.problem import Net  # noqa: E402
+
+G = 0.5
+
+
+class _P:
+    """The parts of a Problem the avoidable-crossing test reads: a 100 x 50 mm board, grid 0.5 mm."""
+
+    def __init__(self, bd, parts, nets, obstacles=()):
+        self.board, self.parts, self.nets, self.obstacles = bd, parts, nets, list(obstacles)
+        self.g, self.ox, self.oy = G, 0.0, 0.0
+        self.ncx, self.ncy = 200, 100
+        cx = (np.arange(self.ncx) + 0.5) * G
+        cy = (np.arange(self.ncy) + 0.5) * G
+        XX, YY = np.meshgrid(cx, cy, indexing="ij")
+        import shapely
+        self.inside = shapely.contains_xy(bd.outline[0].buffer(-G * 0.70711), XX, YY)
+
+    def grid_of(self, x, y):
+        return int(round((x - self.ox) / self.g)), int(round((y - self.oy) / self.g))
+
+
+def _part(i, pads, movable, nets):
+    """A 1 x 1 mm part (2 x 2 cells) with pad offsets `pads`, pad k on net index nets[k]."""
+    rot = NS(pins=np.array(pads, dtype=float), own=(-0.5, -0.5, 0.5, 0.5), g_own=(-1, 1, -1, 1), g_opp=())
+    return NS(i=i, movable=movable, s=1.0, rots=[rot], pad_net=np.array(nets))
+
+
+class _St:
+    def __init__(self, P, at):
+        self.P, self.at = P, at
+        self.K = [0] * len(P.parts)
+
+    def pins_xy(self, i):
+        return self.P.parts[i].rots[0].pins + np.array(self.at[i], dtype=float)
+
+
+def _void_board(void):
+    outer = Polygon([(0, 0), (100, 0), (100, 50), (0, 50)], holes=[list(void.exterior.coords)])
+    return board([outer], [])
+
+
+def _nets(*specs):
+    return [Net(i=n, name=name, kind="signal", weight=1.0, pins=list(pins)) for n, (name, pins) in enumerate(specs)]
+
+
+def test_detour_around_a_void():
+    bd = _void_board(box(45, 10, 55, 40))
+    P = _P(bd, [], [])
+    bars = B.Barriers(P)
+    # around the near corners: 2 x hypot(5, 15) + 10, less the straight 20 mm
+    assert abs(bars.detour((40, 25), (60, 25)) - (2 * (5 ** 2 + 15 ** 2) ** 0.5 + 10 - 20)) < 1e-6
+    assert bars.detour((40, 5), (60, 5)) == 0.0
+
+
+def test_movable_part_across_a_void_is_avoidable():
+    # R1 (movable) left of the void, its only net goes to J1 (fixed) right of it: R1 could sit by J1
+    bd = _void_board(box(45, 10, 55, 40))
+    parts = [_part(0, [(0, 0)], True, [0]), _part(1, [(0, 0)], False, [0])]
+    nets = _nets(("a", [(0, 0), (1, 0)]))
+    P = _P(bd, parts, nets)
+    st = _St(P, [(40, 25), (60, 25)])
+    rep = B.crossings(P, st)
+    assert rep["edges"] == 1 and rep["avoidable_edges"] == 1 and rep["anchored_edges"] == 0
+    assert rep["detour_mm"] > 20
+    r = B.reweight_crossing(P, st, 3.0, mode="detour")
+    assert r["reweighted"] == 1
+    # 1 + detour / HPWL = 1 + 21.6 / 20 (under the cap of 3)
+    assert abs(nets[0].weight - (1 + rep["detour_mm"] / 20.0)) < 1e-3
+    nets[0].weight = 1.0
+    assert B.reweight_crossing(P, st, 3.0, mode="avoidable")["reweighted"] == 1 and nets[0].weight == 3.0
+
+
+def test_no_free_spot_by_the_partner_is_not_avoidable():
+    # the right of the void is all fixed obstacles: R1 has nowhere to go by J1
+    bd = _void_board(box(45, 10, 55, 40))
+    parts = [_part(0, [(0, 0)], True, [0]), _part(1, [(0, 0)], False, [0])]
+    nets = _nets(("a", [(0, 0), (1, 0)]))
+    full = NS(side=0, g=(110, 200, 0, 100), rect=None, why="locked")
+    P = _P(bd, parts, nets, [full])
+    st = _St(P, [(40, 25), (60, 25)])
+    assert B.crossings(P, st)["avoidable_edges"] == 0
+    assert B.reweight_crossing(P, st, 3.0, mode="avoidable")["reweighted"] == 0 and nets[0].weight == 1.0
+
+
+def test_keyboard_matrix_between_locked_switches_is_not_reweighted():
+    # a plate cutout between two locked switches (SW1, SW2): the column net joins them directly, the row net
+    # joins their diodes (D1 by SW1, D2 by SW2). Neither crossing is avoidable: the switches are fixed, and a
+    # diode moved by the other diode would cross to its own switch instead
+    bd = _void_board(box(45, 3, 55, 47))
+    parts = [_part(0, [(0, 0), (0, 1)], False, [0, 2]),     # SW1: col, k1
+             _part(1, [(0, 0), (0, 1)], False, [0, 3]),     # SW2: col, k2
+             _part(2, [(0, 0), (0, 1)], True, [1, 2]),      # D1: row, k1
+             _part(3, [(0, 0), (0, 1)], True, [1, 3])]      # D2: row, k2
+    nets = _nets(("col0", [(0, 0), (1, 0)]), ("row0", [(2, 0), (3, 0)]), ("k1", [(0, 1), (2, 1)]), ("k2", [(1, 1), (3, 1)]))
+    P = _P(bd, parts, nets)
+    st = _St(P, [(38, 25), (62, 25), (42, 20), (58, 20)])
+    rep = B.crossings(P, st)
+    assert rep["edges"] == 2 and rep["nets"] == 2
+    assert rep["anchored_edges"] == 1 and rep["avoidable_edges"] == 0
+    for mode in ("avoidable", "detour"):
+        r = B.reweight_crossing(P, st, 3.0, mode=mode)
+        assert r["reweighted"] == 0 and all(n.weight == 1.0 for n in nets)
+    # the old rule multiplies both
+    B.reweight_crossing(P, st, 3.0, mode="all")
+    assert nets[0].weight == 3.0 and nets[1].weight == 3.0 and nets[2].weight == 1.0
+
+
+def test_diode_free_of_its_switch_can_follow_its_partner():
+    # the same row, but D1 has no net to a fixed part: it may sit by D2, so the row crossing is avoidable
+    bd = _void_board(box(45, 3, 55, 47))
+    parts = [_part(0, [(0, 0)], True, [0]), _part(1, [(0, 0), (0, 1)], True, [0, 1]),
+             _part(2, [(0, 0)], False, [1])]
+    nets = _nets(("row0", [(0, 0), (1, 0)]), ("k2", [(1, 1), (2, 0)]))
+    P = _P(bd, parts, nets)
+    st = _St(P, [(42, 20), (58, 20), (62, 21)])
+    rep = B.crossings(P, st)
+    assert rep["edges"] == 1 and rep["avoidable_edges"] == 1

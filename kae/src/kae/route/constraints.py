@@ -245,6 +245,10 @@ DEFAULTS = dict(
                                    # 0: off, until barrier-fit-ab decides
     barrier_net_weight=1.0,        # placement: nets a seed places across a void or an all-copper keepout have this
                                    # weight multiplier in the annealer; 1: off
+    barrier_weight_mode="all",     # placement, with barrier_net_weight > 1: "all" multiplies every crossing net;
+                                   # "avoidable" only nets with a crossing a movable part could avoid; "detour" those
+                                   # by 1 + the measured detour over the net's HPWL, at most barrier_net_weight
+                                   # (kae.place.barriers)
     zone_pull=0.0,                 # placement (kae.place.zones): weight of pads off their own net's fixed copper
                                    # zone (all of them off = zone_pull x the seed HPWL), also the seed's pull and
                                    # package pins; 0: off. Off by default: zone-ab (48 boards, 3 seeds) at 3 left
