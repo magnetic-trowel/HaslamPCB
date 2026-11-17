@@ -133,3 +133,15 @@ builds decide nothing on their own.
 - **Still worth running:** Q is not in main, and the guard is what clears it for a PR; the zw arms decide whether the
   zero-width fix goes with it. About 160 CPU-h together (queue triage), plus cold numba compiles (the caches are
   per commit).
+
+## Addendum 2026-11-17 (m3), before any run on this build: main 22ff779a and Freerouting f1c41d3
+Main (kae #105) and the pin moved after `rule-quantize-guard-m` was submitted: the fork now counts the optimizer's search steps and
+pour fills inside `autorouter.max_work`, and kae stops charging optimizer passes on top of that and sets the new
+weights. Checked before deciding: on a small board where no budget binds the bridge's copper came out item for item
+the same on both builds, but the charged clock did not (53.3 s against 39.1 s). Its arms run the bridge under counted work on boards where the repair and last-mile budgets bind (open nets, hard boards), and those budgets follow the charged clock. So its outputs change
+on the new build.
+- Migrated: branch `rule-quantize-m3` (rebased on main 22ff779a, no conflict; the -m2 branch is left as it
+  was). Arms: C = main 22ff779a, Q = 6b2a86ec; harness 22ff779a. Freerouting fork f1c41d3, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `rule-quantize-guard-m3` (owner `exp-rule-quantize-guard-m3`), new method ids. The runs of `rule-quantize-guard-m` (12 jobs done) are on the
+  previous build and excluded from the decision; its jobs are cancelled.
+- Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
