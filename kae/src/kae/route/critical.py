@@ -751,7 +751,7 @@ def run(input_path, output_path, seed=0, time_s=900.0, opts=None, bridge_opts=No
 def soft_critical(s, slack=0.10):
     """Bridge options that let the last mile re-lay critical copper (repair._last_mile):
     `soft_fixed`, the uuids of the session's critical tracks and vias, and `physics_guard`,
-    which keeps a re-laid board only by the joint loop's rule (kae.joint.scorecard.accept:
+    which keeps a re-laid board only by kae.joint.scorecard.physics_guard (
     completion and DRC never worse, routed physics (critical_recheck.board_physics, the
     modules' u) at most `slack` of the incumbent's total worse per connection gained)."""
     tracks, vias = s.copper()
@@ -766,8 +766,8 @@ def soft_critical(s, slack=0.10):
         return c
 
     def guard(before, before_summary, after, after_summary):
-        from kae.joint.scorecard import accept
-        return accept(card(before, before_summary), card(after, after_summary), phys_slack=slack)
+        from kae.joint.scorecard import physics_guard
+        return physics_guard(card(before, before_summary), card(after, after_summary), phys_slack=slack)
     return dict(soft_fixed=uuids, physics_guard=guard)
 
 

@@ -8,14 +8,37 @@ import pytest
 
 from kae.joint.feedback import PartGeom
 from kae.joint.loop import JointLoop, derive_seed
-from kae.joint.scorecard import Scorecard, accept, physics_total
+from kae.joint.scorecard import Scorecard, accept, physics_guard, physics_total
 
 
 def card(unc=0, err=0, pe=0, mods=None):
     return Scorecard(placement_errors=pe, unconnected=unc, errors=err, modules=dict(mods or {}))
 
 
-def test_accept_is_lexicographic_with_hard_guards():
+def test_accept_uses_the_delivered_results_ranked_judge():
+    """kae.rank.board_rank, as restart.py ranks attempts: legal, clean, opens, then DRC errors."""
+    # bestelampe (loop-win-smoke6): the finishing try took 7 open connections to 5 at 4 -> 14 DRC errors
+    keep, why = accept(card(unc=7, err=4, pe=2, mods={"a": 1.0}), card(unc=5, err=14, pe=2, mods={"a": 1.3}))
+    assert keep and "unconnected" in why                             # fewer opens win, physics does not veto
+    assert not accept(card(unc=5, err=14), card(unc=7, err=4))[0]    # ... and not the other way round
+    # illegal ranks last: a legal board beats an illegal one whatever its opens and errors
+    assert accept(card(unc=0, pe=1), card(unc=9, err=9))[0]
+    assert not accept(card(unc=9, err=9), card(unc=0, pe=1))[0]
+    # clean before not clean: a clean board beats one with fewer DRC errors... none can; and among
+    # not-clean boards, opens before DRC errors
+    assert accept(card(unc=1), card(unc=0))[0]
+    assert accept(card(unc=0, err=1), card(unc=0, err=0))[0]          # clean: no DRC error left
+    assert not accept(card(unc=0), card(unc=0, err=1))[0]             # clean beats not clean
+    assert accept(card(unc=2, err=0), card(unc=1, err=5))[0]          # not clean: fewer opens first
+    assert accept(card(unc=1, err=5), card(unc=1, err=4))[0]          # same opens: fewer errors
+    # an equal rank: routed physics decides, beyond float noise
+    assert accept(card(unc=2, mods={"a": 1.0}), card(unc=2, mods={"a": 0.8}))[0]
+    assert not accept(card(unc=2, mods={"a": 1.0}), card(unc=2, mods={"a": 1.002}))[0]
+    assert not accept(card(unc=2, mods={"a": 1.0}), card(unc=2, mods={"a": 1.05}))[0]
+
+
+def test_physics_guard_is_lexicographic_with_hard_guards():
+    accept = physics_guard            # the older rule, kept for re-laid critical copper
     base = card(unc=2, err=0, mods={"a": 1.0})
     assert accept(base, card(unc=1, mods={"a": 1.0}))[0]                 # completion better
     assert accept(base, card(unc=2, mods={"a": 0.8}))[0]                 # physics better
@@ -63,7 +86,7 @@ class Lay:
 
 class FakeStages:
     """A board of parts on a line; connection k is unrouted until part k is re-placed.
-    Re-placing part 'BAD' makes a new error (rejected). Physics: each move adds 0.01 to
+    Re-placing part 'BAD' makes a placement error (rejected). Physics: each move adds 0.01 to
     module 'm' unless the part is 'GOOD'."""
 
     def __init__(self, broken=("R1", "R2"), bad=(), fail_replace=(), finisher=False):
@@ -96,7 +119,8 @@ class FakeStages:
         return lay
 
     def evaluate(self, lay, it):
-        c = card(unc=len(lay.broken), err=len(getattr(lay, "errors", ())), mods={"m": 1.0})
+        # re-placing BAD makes the placement illegal: rejected by the ranked judge whatever it routes
+        c = card(unc=len(lay.broken), pe=len(getattr(lay, "errors", ())), mods={"m": 1.0})
         drc = {"unconnected_items": [
             {"items": [{"description": f"Pad 1 [N{r}] of {r} on F.Cu", "pos": {"x": 10.0 * int(r[1:]), "y": 0.0}},
                        {"description": f"Pad 2 [N{r}] of R0 on F.Cu", "pos": {"x": 10.0 * int(r[1:]) + 3.0, "y": 0.0}}]}
