@@ -36,6 +36,6 @@ $K method add "kae pk3 Rresume $S7" --description "R through k = 2, then a resum
   --command "$(wrap "--finish '$RESUME' $SLOT")" "${common[@]}"
 $K method add "kae pk3 Pk3 $S7" --description "R through k = 2, then P-late's windows finish on the kept board in the k = 3 slot; pk3-ab at $S7" \
   --command "$(wrap "--finish '$POL' $SLOT")" "${common[@]}"
-$K exp create pk3-ab-p3 --boards @tools/kaeres/experiments/pk3-ab/boards.txt --harness $SHA --kae $SHA \
+$K exp create pk3-ab-p4 --boards @tools/kaeres/experiments/pk3-ab/boards.txt --harness $SHA --kae $SHA \
   --description "P-k3 confirmatory: R / R+resume / P-k3 in the k = 3 slot; PLAN.md in tools/kaeres/experiments/pk3-ab" \
   --method "kae pk3 R $S7" --method "kae pk3 Rresume $S7" --method "kae pk3 Pk3 $S7"
