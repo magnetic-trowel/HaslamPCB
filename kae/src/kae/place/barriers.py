@@ -588,7 +588,9 @@ class Barriers:
     def detour(self, a, b):
         """Shortest path from a to b around the barrier pieces the straight line crosses, less the straight
         line (mm). The pieces are taken by their convex hull when neither end is inside it, else by their
-        simplified outline; other barriers on the way are not seen."""
+        simplified outline, holes included (a keepout frame along the board edge with spurs into the board is
+        one piece whose hole holds both pins); other barriers on the way are not seen. None when no path
+        exists (an end enclosed)."""
         seg = LineString([a, b])
         hit = [self.pieces[j] for j in self.tree.query(seg, predicate="intersects")]
         if not hit:
@@ -599,19 +601,21 @@ class Barriers:
             self._hull[key] = (g.convex_hull, g.simplify(DETOUR_SIMPLIFY))
         hull, simple = self._hull[key]
         obst = hull if not (hull.covers(Point(a)) or hull.covers(Point(b))) else simple
-        return max(0.0, _around(a, b, obst) - seg.length)
+        d = _around(a, b, obst)
+        return None if d is None else max(0.0, d - seg.length)
 
 
 def _around(a, b, obst):
     """Length of the shortest path from a to b that does not pass through the interior of `obst`
-    (visibility graph over its outline vertices, Dijkstra)."""
+    (visibility graph over the vertices of its outlines and of its holes, Dijkstra); None when there is
+    none."""
     import heapq
     inner = obst.buffer(-1e-4)
     if inner.is_empty:
         return math.dist(a, b)
     shapely.prepare(inner)
     rings = [obst] if obst.geom_type == "Polygon" else list(getattr(obst, "geoms", []))
-    vs = [tuple(c) for poly in rings for c in list(poly.exterior.coords)[:-1]]
+    vs = [tuple(c) for poly in rings for ring in (poly.exterior, *poly.interiors) for c in list(ring.coords)[:-1]]
     nodes = [tuple(a), tuple(b)] + vs
 
     def ok(p, q):
@@ -632,7 +636,7 @@ def _around(a, b, obst):
             if nd < dist[v] and ok(nodes[u], nodes[v]):
                 dist[v] = nd
                 heapq.heappush(heap, (nd, v))
-    return math.dist(a, b)      # no way round (a closed ring): the straight line stands, detour 0
+    return None                 # no way round: an end is enclosed
 
 
 def _anchors(P, st, i):
@@ -700,7 +704,7 @@ def reweight_crossing(P, st, weight, mode="all"):
     det = defaultdict(float)
     for (n, avoid, _, d, _) in cls:
         if avoid:
-            det[n] += d
+            det[n] += d or 0.0
     factors = {}
     for n, d in det.items():
         pts = np.array([st.pins_xy(i)[k] for (i, k) in P.nets[n].pins])
@@ -712,7 +716,8 @@ def reweight_crossing(P, st, weight, mode="all"):
     return dict(barriers=len(all_barriers(P.board)), nets=len(nets), edges=len(edges), weight=weight, mode=mode,
                 avoidable_edges=sum(1 for c in cls if c[1]), anchored_edges=sum(1 for c in cls if c[2]),
                 reweighted=len(factors), factor_mean=round(sum(factors.values()) / len(factors), 3) if factors else None,
-                detour_mm=round(sum(c[3] for c in cls), 2), s=round(time.monotonic() - t0, 2))
+                detour_mm=round(sum(c[3] or 0.0 for c in cls), 2), detour_unknown=sum(1 for c in cls if c[3] is None),
+                s=round(time.monotonic() - t0, 2))
 
 
 def crossings(P, st):
@@ -732,6 +737,7 @@ def crossings(P, st):
     except Exception as e:        # a report, never a failed placement
         return dict(rep, error=f"{type(e).__name__}: {e}")
     return dict(rep, avoidable_edges=sum(1 for c in cls if c[1]), avoidable_nets=len({c[0] for c in cls if c[1]}),
-                anchored_edges=sum(1 for c in cls if c[2]), detour_mm=round(sum(c[3] for c in cls), 2),
-                avoidable_detour_mm=round(sum(c[3] for c in cls if c[1]), 2),
+                anchored_edges=sum(1 for c in cls if c[2]), detour_mm=round(sum(c[3] or 0.0 for c in cls), 2),
+                avoidable_detour_mm=round(sum(c[3] or 0.0 for c in cls if c[1]), 2),
+                detour_unknown=sum(1 for c in cls if c[3] is None),
                 straight_mm=round(sum(c[4] for c in cls), 2), s=round(time.monotonic() - t0, 2))

@@ -270,3 +270,21 @@ def test_diode_free_of_its_switch_can_follow_its_partner():
     st = _St(P, [(42, 20), (58, 20), (62, 21)])
     rep = B.crossings(P, st)
     assert rep["edges"] == 1 and rep["avoidable_edges"] == 1
+
+
+def test_detour_around_a_spur_of_an_edge_frame():
+    # ohwr fmc-dio: thin all-copper keepouts along the edge and a spur into the board unite into one piece
+    # whose hull is the whole board and whose hole holds both pins; the path goes round the spur's tip
+    frame = box(0, 0, 100, 50).difference(box(1, 1, 99, 49)).union(box(49, 0.5, 51, 40))
+    bd = board([box(0, 0, 100, 50)], [], [ko(frame)])
+    bars = B.Barriers(_P(bd, [], []))
+    want = 2 * (9 ** 2 + 20 ** 2) ** 0.5 + 2 - 20
+    assert abs(bars.detour((40, 20), (60, 20)) - want) < 0.05
+    assert bars.detour((40, 45), (60, 45)) == 0.0          # above the spur: no crossing
+
+
+def test_detour_of_an_enclosed_pin_is_unknown():
+    wall = box(40, 10, 60, 40).difference(box(45, 15, 55, 35))
+    bd = board([box(0, 0, 100, 50)], [], [ko(wall)])
+    bars = B.Barriers(_P(bd, [], []))
+    assert bars.detour((50, 25), (80, 25)) is None
