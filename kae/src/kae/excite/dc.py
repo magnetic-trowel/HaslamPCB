@@ -14,8 +14,10 @@ each return to where it really goes:
     switching regulator (no cell found)    takes I Vout / (eta Vin) from its input, the rest to ground
     commutation cell (kae.circuit)         its inductor and rectifier conduct (lumped into the copper);
                                            the switches are injected: boost: the switch takes D I_L to
-                                           ground, I_L = I_out / (1 - D); buck: the high side takes
-                                           D I_out from the input; synchronous rectifiers likewise
+                                           ground, I_L = I_out / (1 - D) with D = 1 - V_in eta / V_out;
+                                           buck: the input gives D I_out / eta, the high side D I_out, the
+                                           cell's losses return through its ground; synchronous rectifiers
+                                           likewise (kae.physics.converter)
 
 A rail fed by a cell carries the cell's operating current (the AC ledger's I_A and D, the same
 operating point the switching harms use), split among its loads by their priors.
