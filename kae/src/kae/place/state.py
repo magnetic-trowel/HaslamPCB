@@ -73,12 +73,6 @@ class State:
             out.append((1 - si, (X + a, X + b, Y + c, Y + d), "opp"))
         return out
 
-    def board_rect(self, i):
-        p = self.P.parts[i]
-        a, b, c, d = p.rots[self.K[i]].g_board
-        X, Y = int(self.X[i]), int(self.Y[i])
-        return (X + a, X + b, Y + c, Y + d)
-
     def hpwl(self, signal_only=False):
         """Weighted half-perimeter wirelength in mm over all nets (or signal nets)."""
         P = self.P

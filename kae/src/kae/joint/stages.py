@@ -66,6 +66,7 @@ def _project(src_board, dst_board):
 # Every `opts` key the stages read (kae.joint.cli rejects a --set key that neither these, the
 # loop's DEFAULTS, the placer's limits (kae.route.constraints.DEFAULTS) nor bridge.KEY name).
 STAGE_KEYS = frozenset({
+    "module_clock",       # the module stage keeps its clock (kae.route.critical_joint.optimize_modules clock=True)
     # set by kae.joint.cli from its flags
     "keep", "no_physics", "no_modules", "budget_s", "route_parallel", "first_last_mile", "first_blocked",
     # placer and module stage
@@ -156,6 +157,8 @@ class KaeStages:
         rep = res.report
         # connectors the placer pinned to the edge stay there: the windows must not pull them in
         self.locked |= set((rep.get("edge_pinned") or {}).get("uuids") or ())
+        # big parts fixed before the seed (place.pipeline._anchor_tight_parts) stay there too
+        self.locked |= set((rep.get("anchored") or {}).get("uuids") or ())
         legal = bool(rep.get("legal_grid") and not rep.get("exact") and not rep.get("outline_incomplete"))
         b = self._load(out)
         info = dict(place=dict(seconds=round(clock_now() - t0, 1), legal=legal, hpwl=rep.get("hpwl"),
@@ -220,7 +223,8 @@ class KaeStages:
                            terms=self.terms)
             moved, copper, rep = optimize_modules(board, brief, terms=self.terms, locked=sorted(locked),
                                                   log=lambda m: self.log(f"modules: {m}"), time_s=t_mod, session=sess,
-                                                  rails=only is None, modules=None if only is None else list(only))
+                                                  rails=only is None, modules=None if only is None else list(only),
+                                                  clock=bool(self.opts.get("module_clock", True)), t_start=t0)
         except Exception as e:
             import traceback
             traceback.print_exc(file=sys.stderr)
@@ -257,7 +261,8 @@ class KaeStages:
         new.info["modules"] = dict(seconds=round(dt_mod, 1), budget_s=round(t_mod, 1),
                                    stop="clock" if float(rep.get("seconds") or 0.0) >= 0.95 * t_mod else "done",
                                    moved=sorted(rep.get("moved") or {}),
-                                   copper=len(copper), modules=[dict(id=m["id"], u0=m.get("u0"), u=m.get("u"),
+                                   copper=len(copper), clock=rep.get("clock"), opt_phase_s=rep.get("phase_s"),
+                                   modules=[dict(id=m["id"], u0=m.get("u0"), u=m.get("u"),
                                                                      status=m.get("status"))
                                                                 for m in rep.get("modules") or []])
         return new
@@ -699,7 +704,8 @@ class KaeStages:
                              net_weights={n: float(o.get("net_mult", 2.0)) for sp in window.spots
                                           if sp.kind == "unrouted" for n in sp.nets},
                              phys_mult=float(o.get("phys_mult", 2.0)) ** min(attempt, 2),
-                             physics=not o.get("no_physics"), log=lambda m: self.log(f"replace: {m}"))
+                             physics=not o.get("no_physics"), board_path=str(self.input), opts=o,
+                             log=lambda m: self.log(f"replace: {m}"))
         rep["replace"] = {k: v for k, v in res.report.items() if k not in ("window",)}
         if not res.poses and (window.parts or res.report.get("rejected")):
             rep["outcome"] = res.report.get("rejected") or res.report.get("skipped") or "no part moved"
@@ -861,7 +867,7 @@ def last_mile_line(lm):
 def route_stops(rep):
     """Why a bridge or route_open call stopped: Freerouting's autorouter (COMPLETED,
     STAGNATION, NO_IMPROVEMENT, TIMED_OUT, MAX_PASSES), its optimizer (below_threshold,
-    timed_out, skipped), the bridge's repair rounds (clean, no improvement, time, round cap)."""
+    timed_out, work_budget, skipped), the bridge's repair rounds (clean, no improvement, time, round cap)."""
     r = rep.get("router") or {}
     rr = r.get("report") or {}
     out = dict(autorouter=r.get("autorouter_stop") or rr.get("autorouter_stop"),
@@ -891,6 +897,3 @@ def placement_errors(drc_report):
             n += 1
     return n
 
-
-def dump(obj, path):
-    Path(path).write_text(json.dumps(obj, indent=1, default=str))

@@ -5,6 +5,7 @@ import dataclasses
 from pathlib import Path
 
 import numpy as np
+import pytest
 from kae.board.kicad_file import load
 from kae.joint.feedback import CongestionHistory, Window
 from kae.joint.penalty import bin_supply, history_hook
@@ -193,3 +194,79 @@ def test_courtyard_helper_and_geometry_use_courtyards():
     assert abs(moved.bounds[0] - cy.bounds[0] - 5.0) < 1e-6
     area = _new_area(b, {fp.uuid: (fp.x + 5.0, fp.y, fp.rot, fp.side)})
     assert area.contains(moved.centroid)
+
+
+class _Captured(Exception):
+    pass
+
+
+def _zone_board():
+    """The fixture with a VCC pour on F.Cu that U1's SMD pads (0.5 mm mask expansion) would
+    bridge: the default zone_keepout prices it (as test_place_zones)."""
+    from shapely.geometry import box
+
+    from kae.board.model import Zone
+    b = load(FIXTURE)
+    b.zones = list(b.zones) + [Zone(uuid="z-pour", name="", net="VCC", layers=["F.Cu"],
+                                    outline=box(5.0, 25.0, 20.0, 35.0), priority=2, clearance=0.2)]
+    for f in b.footprints:
+        if f.ref == "U1":
+            for pd in f.pads:
+                if pd.kind == "smd":
+                    pd.mask_margin = 0.5
+    return b
+
+
+def test_replace_window_reads_zone_settings_from_the_board_and_opts(tmp_path, monkeypatch):
+    """zone_keepout set as opts or as the project's KAE_ZONE_KEEPOUT text variable reaches the
+    window's annealer, as it does the first placement's."""
+    import json
+
+    import kae.place.anneal as anneal
+    got = []
+
+    def fake(P, st, **kw):
+        got.append(kw)
+        raise _Captured
+
+    monkeypatch.setattr(anneal, "make_annealer", fake)
+    b = _zone_board()
+    u1 = _uuid(b, "U1")
+    win = Window(rect=(0.0, 0.0, 60.0, 40.0), parts=(u1,), refs=("U1",))
+    pcb = tmp_path / "b.kicad_pcb"
+    pcb.write_text("")
+
+    def zones(board_path=None, opts=None):
+        got.clear()
+        with pytest.raises(_Captured):
+            replace_window(b, win, {"nets": {}, "structures": []}, physics=False, board_path=board_path, opts=opts)
+        return got[0].get("zones")
+
+    assert zones() is not None                                      # the default prices the pour
+    assert zones(opts={"zone_keepout": 0}) is None
+    pcb.with_suffix(".kicad_pro").write_text(json.dumps({"text_variables": {"KAE_ZONE_KEEPOUT": "0"}}))
+    assert zones(board_path=str(pcb)) is None
+    assert zones(board_path=str(pcb), opts={"zone_keepout": 1}) is None     # the board's wins
+
+
+def test_stages_repair_passes_board_and_opts_to_replace_window(tmp_path, monkeypatch):
+    import shutil
+
+    import kae.joint.replace as replace
+    from kae.joint.stages import KaeStages, Layout
+    inp = tmp_path / "in.kicad_pcb"
+    shutil.copy2(FIXTURE, inp)
+    st = KaeStages(inp, tmp_path / "wd", opts=dict(writer="sexpr", zone_keepout=0))
+    st.brief = {"structures": [], "nets": {}, "parts": {}}
+    st.module_parts = {}
+    got = {}
+
+    def fake(*a, **kw):
+        got.update(kw)
+        raise _Captured
+
+    monkeypatch.setattr(replace, "replace_window", fake)
+    win = Window(rect=(0.0, 0.0, 60.0, 40.0), parts=(), refs=())
+    with pytest.raises(_Captured):
+        st.repair(Layout(board=str(inp)), win, None, 0, 0, 30.0)
+    assert got["board_path"] == str(inp.resolve()) and got["opts"]["zone_keepout"] == 0

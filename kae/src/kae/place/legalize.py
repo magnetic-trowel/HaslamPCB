@@ -17,7 +17,7 @@ board stays the judge.
 """
 from __future__ import annotations
 
-from kae.budget import now as clock_now
+from kae.budget import Deadline, charge
 import math
 import os
 import re
@@ -99,9 +99,8 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
     2. Greedy: whatever is still illegal goes to the nearest free spot, largest first,
        evicting smaller parts when nothing is free nearby (`greedy`).
     3. Small boards only (<= GLOBAL_MAX parts): one CP-SAT model over every part."""
-    t0 = clock_now()
-    deadline = t0 + time_s
-    win_deadline = t0 + window_share * time_s
+    dl = Deadline(time_s)
+    win = dl.part(window_share * time_s)
     rep = dict(rounds=0, windows=0, solved=0, global_used=False, start_violators=0)
     kk = {}
     force = {i for i in force if P.parts[i].movable}
@@ -111,13 +110,13 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
             rep["start_violators"] = len(viol)
             for i in force:
                 viol.setdefault(i, []).append(("kicad", None))
-        if not viol or clock_now() > win_deadline:
+        if not viol or win.passed():
             break
         rep["rounds"] = rnd + 1
         bad = set(viol)
         for gr in _groups(st, bad, radius_mm=4.0):
-            now = clock_now()
-            if now > win_deadline:
+            win_left = win.left()
+            if win_left < 0:
                 break
             key = tuple(gr)
             kw = min(kk.get(key, k), MAX_WINDOW)
@@ -126,7 +125,7 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
             near = sorted(P.mov, key=lambda c: abs(st.center(c)[0] - cx) + abs(st.center(c)[1] - cy))
             free = list(dict.fromkeys(gr[:MAX_WINDOW] + near[:kw]))[:max(MAX_WINDOW, len(gr[:MAX_WINDOW]))]
             margin = int(math.ceil((2.0 + 0.5 * (kw // k)) / P.g))
-            budget = min(max(1.0, 0.15 * time_s), win_deadline - now)
+            budget = min(max(1.0, 0.15 * time_s), win_left)
             if budget <= 0.2:
                 break
             sol, model = _window_solve(P, st, free, margin, budget, workers, seed + rnd)
@@ -141,14 +140,14 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
                 log(f"legalize window {gr[:4]} free={len(free)} status={model.status} {model.wall:.2f}s")
     viol = grid_violations(st)
     if viol:
-        rep["greedy"] = greedy(P, st, list(viol), log=log, time_s=max(1.0, deadline - clock_now()))
+        rep["greedy"] = greedy(P, st, list(viol), log=log, time_s=max(1.0, dl.left()))
         viol = grid_violations(st)
-    if viol and clock_now() < deadline and len(P.mov) <= GLOBAL_MAX:
+    if viol and dl.left() > 0 and len(P.mov) <= GLOBAL_MAX:
         rep["global_used"] = True
         items = [cpsat.single(P, i, int(st.X[i]), int(st.Y[i]), int(st.K[i])) for i in P.mov]
         obstacles = [(ob.side, ob.g) for ob in P.obstacles]
         model = cpsat.Model(P, items, obstacles, w_disp=1.0, w_rot=1.0)
-        sol = model.solve(max(1.0, deadline - clock_now()), workers=workers, seed=seed)
+        sol = model.solve(max(1.0, dl.left()), workers=workers, seed=seed)
         rep["global_status"] = model.status
         if sol is not None:
             for it, i, (X, Y, v) in zip(items, P.mov, sol):
@@ -156,7 +155,7 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
         viol = grid_violations(st)
     rep["end_violators"] = len(viol)
     rep["violations"] = {P.parts[i].ref: [str(r) for r in rs[:3]] for i, rs in list(viol.items())[:20]}
-    rep["seconds"] = round(clock_now() - t0, 2)
+    rep["seconds"] = round(dl.elapsed(), 2)
     return rep
 
 
@@ -167,11 +166,14 @@ def _occupancy(P, st, skip, pad):
     occ = [np.zeros((P.ncx + 2 * pad, P.ncy + 2 * pad), dtype=np.int32) for _ in (0, 1)]
     for ob in P.obstacles:
         _mark(occ[ob.side], ob.g, pad, 1)
+    n = len(P.obstacles)
     for i in P.mov:
         if i in skip:
             continue
         for side, r, _ in st.grid_rects(i):
             _mark(occ[side], r, pad, 1)
+            n += 1
+    charge("legal_rect", n)
     return occ
 
 
@@ -237,31 +239,38 @@ def _nearest_spot(P, p, X0, Y0, K0, occ, pad, w_rot, span, cost_occ=None, w_cost
     ks = rotations_for_fit(p, K0)
     while True:
         xa, xb, ya, yb = X0 - R, X0 + R, Y0 - R, Y0 + R
+        passes = 0                          # window-sized array passes (the counted work)
         for k in ks:
             r = p.rots[k]
             ok = np.ones((xb - xa + 1, yb - ya + 1), dtype=bool)
             for brd in (r.g_boards or (r.g_board,)):
                 ok &= _inside_origins(P, brd, xa, xb, ya, yb)
+                passes += 1
                 if not ok.any():
                     break
             if not ok.any():
                 continue
             for o in (r.g_own_rects or (r.g_own,)):
                 ok &= _free_origins(occ[si], o, pad, xa, xb, ya, yb)
+                passes += 1
             for o in r.g_opp:
                 if not ok.any():
                     break
                 ok &= _free_origins(occ[1 - si], o, pad, xa, xb, ya, yb)
+                passes += 1
             if not ok.any():
                 continue
             xs, ys = np.nonzero(ok)
             cost = (np.abs(xs + xa - X0) + np.abs(ys + ya - Y0) + (w_rot if k != K0 else 0.0)).astype(float)
+            passes += 1
             if cost_occ is not None:
                 for o in (r.g_own_rects or (r.g_own,)):
                     cost += w_cost * _covered(cost_occ[si], o, pad, xa, xb, ya, yb)[xs, ys]
+                    passes += 1
             j = int(np.argmin(cost))
             if best is None or cost[j] < best[0]:
                 best = (float(cost[j]), int(xs[j] + xa), int(ys[j] + ya), k)
+        charge("legal_cells", passes * (xb - xa + 1) * (yb - ya + 1))
         # a spot within R of the origin can still lose to one just outside when the best
         # cost exceeds R (L1 vs the square window): widen once more in that case
         if (best is not None and best[0] <= R) or R >= span:
@@ -288,7 +297,7 @@ def _covered(occ, rect, pad, xa, xb, ya, yb):
     return (L[w:w + nx, h:h + ny] - L[0:nx, h:h + ny] - L[w:w + nx, 0:ny] + L[0:nx, 0:ny]).astype(float)
 
 
-def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, t0, time_s=None):
+def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
     """greedy() on the compiled kernels (summed-area tables updated in place)."""
     from . import _fastlegal as FL
     from .problem import sat
@@ -301,6 +310,7 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, t0, time_s=None):
     skip = set(parts)
     occ = _occupancy(P, st, skip, pad)
     S = [sat(occ[0]), sat(occ[1])]
+    charge("legal_cells", 2 * occ[0].size)
     SO = P.sat_out
     max_d = P.ncx + P.ncy + 4 * pad
     arrs = {}
@@ -313,8 +323,10 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, t0, time_s=None):
         return arrs[key]
 
     def add(i, v):
+        n = 0
         for side, (a, b, c, d), _ in st.grid_rects(i):
-            FL.sat_add_rect(S[side], a + pad, b + pad, c + pad, d + pad, v)
+            n += FL.sat_add_rect(S[side], a + pad, b + pad, c + pad, d + pad, v)
+        charge("legal_sat_cells", n)
 
     def local(i):
         # the ring walk is cheap only nearby (its cost grows with the square of the reach);
@@ -327,9 +339,10 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, t0, time_s=None):
         if reach >= max_d:
             return _global_spot(i)
         ks, own, own_n, opp, opp_n, brd, brd_n = arrays(i)
-        c, X, Y, k = FL.nearest_spot(S[0], S[1], SO, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1, int(st.X[i]),
-                                     int(st.Y[i]), ks.index(int(st.K[i])), float(w_rot), own, own_n, opp, opp_n,
-                                     brd, brd_n, int(min(reach, max_d)))
+        c, X, Y, k, n = FL.nearest_spot(S[0], S[1], SO, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1, int(st.X[i]),
+                                        int(st.Y[i]), ks.index(int(st.K[i])), float(w_rot), own, own_n, opp, opp_n,
+                                        brd, brd_n, int(min(reach, max_d)))
+        charge("legal_fit", n)
         return None if c < 0 else (c, X, Y, ks[k])
 
     def _global_spot(i):
@@ -342,12 +355,14 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, t0, time_s=None):
         xs = np.arange(nx)[:, None]
         ys = np.arange(ny)[None, :]
         dist = np.abs(xs - X0) + np.abs(ys - Y0)
+        passes = 1                          # board-sized array passes (the counted work)
         best = None
         for k in FL.rotations_for_fit(p, K0):
             r = p.rots[k]
             ok = np.ones((nx, ny), dtype=bool)
             for brd in (r.g_boards or (r.g_board,)):
                 ok &= _inside_origins(P, brd, 0, nx - 1, 0, ny - 1)
+                passes += 1
             if not ok.any():
                 continue
             for side, rect in [(si, o) for o in (r.g_own_rects or (r.g_own,))] + [(1 - si, o) for o in r.g_opp]:
@@ -356,22 +371,25 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, t0, time_s=None):
                 cnt = (T[b + pad:b + pad + nx, d + pad:d + pad + ny] - T[a + pad:a + pad + nx, d + pad:d + pad + ny]
                        - T[b + pad:b + pad + nx, c + pad:c + pad + ny] + T[a + pad:a + pad + nx, c + pad:c + pad + ny])
                 ok &= cnt == 0
+                passes += 1
                 if not ok.any():
                     break
             if not ok.any():
                 continue
             cost = np.where(ok, dist + (w_rot if k != K0 else 0.0), np.inf)
+            passes += 1
             j = int(np.argmin(cost))
             c = float(cost.flat[j])
             if best is None or c < best[0]:
                 best = (c, j // ny, j % ny, k)
+        charge("legal_cells", passes * nx * ny)
         return best
     start = {i: (int(st.X[i]), int(st.Y[i])) for i in parts}
     placed_set, queue = set(), []
     # first pass: a free spot near where the part wants to be
     out_of_time = False
     for i in parts:
-        if time_s is not None and clock_now() - t0 > time_s:
+        if time_s is not None and dl.passed():
             out_of_time = True
             queue.append(i)
             continue
@@ -394,21 +412,26 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, t0, time_s=None):
         soft = [np.zeros_like(occ[0]) for _ in (0, 1)]
         for ob in P.obstacles:
             _mark(hard[ob.side], ob.g, pad, 1)
+        n = len(P.obstacles)
         for j in P.mov:
             if j == i or (j in skip and j not in placed_set):
                 continue
             tgt = soft if P.parts[j].area < p.area else hard
             for side, r, _ in st.grid_rects(j):
                 _mark(tgt[side], r, pad, 1)
+                n += 1
+        charge("legal_rect", n)
         H = [sat(hard[0]), sat(hard[1])]
         C = [sat(soft[0]), sat(soft[1])]
+        charge("legal_cells", 4 * hard[0].size)
         ks, own, own_n, opp, opp_n, brd, brd_n = arrays(i)
-        c, X, Y, k = FL.ripup_spot(H[0], H[1], C[0], C[1], SO, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1,
-                                   int(st.X[i]), int(st.Y[i]), ks.index(int(st.K[i])), float(w_rot), 4.0, own, own_n,
-                                   opp, opp_n, brd, brd_n, int(min(reach, max_d)))
+        c, X, Y, k, n = FL.ripup_spot(H[0], H[1], C[0], C[1], SO, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1,
+                                      int(st.X[i]), int(st.Y[i]), ks.index(int(st.K[i])), float(w_rot), 4.0, own,
+                                      own_n, opp, opp_n, brd, brd_n, int(min(reach, max_d)))
+        charge("legal_fit", n)
         return None if c < 0 else (c, X, Y, ks[k], "ripup")
     while queue:
-        if out_of_time or (time_s is not None and clock_now() - t0 > time_s):
+        if out_of_time or (time_s is not None and dl.passed()):
             out_of_time = True
             break
         i = queue.pop(0)
@@ -456,7 +479,7 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, t0, time_s=None):
     unplaced += queue
     moved = sum(math.hypot((st.X[i] - x) * P.g, (st.Y[i] - y) * P.g) for i, (x, y) in start.items())
     rep = dict(placed=len(placed_set), unplaced=[P.parts[i].ref for i in unplaced], moved_mm=round(moved, 2),
-               ripups=ripups, seconds=round(clock_now() - t0, 2), compiled=True, out_of_time=out_of_time)
+               ripups=ripups, seconds=round(dl.elapsed(), 2), compiled=True, out_of_time=out_of_time)
     if log:
         log(f"greedy legalization: {len(placed_set)} placed, {len(unplaced)} without a spot, {ripups} rip-ups, "
             f"moved {moved:.1f} mm ({rep['seconds']}s)")
@@ -473,7 +496,7 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
     evicted and placed again (rip-up; evictions only go to smaller parts, so it ends).
     Always ends legal for the parts it places; returns {placed, unplaced: [refs], moved_mm,
     ripups}."""
-    t0 = clock_now()
+    dl = Deadline(math.inf if time_s is None else time_s)
     parts = sorted({i for i in parts if P.parts[i].movable}, key=lambda i: -P.parts[i].area)
     if not parts:
         return dict(placed=0, unplaced=[], moved_mm=0.0, ripups=0, seconds=0.0)
@@ -481,7 +504,7 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
         from ._fastlegal import HAVE_NUMBA
         compiled = HAVE_NUMBA and not os.environ.get("KAE_NO_NUMBA")
     if compiled:
-        return _greedy_fast(P, st, parts, log, (2.0 / P.g) if w_rot is None else w_rot, ripup, max_ripups, t0,
+        return _greedy_fast(P, st, parts, log, (2.0 / P.g) if w_rot is None else w_rot, ripup, max_ripups, dl,
                             time_s=time_s)
     ext = 1
     for i in P.mov:
@@ -520,12 +543,15 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
             soft = [np.zeros_like(occ[0]) for _ in (0, 1)]
             for ob in P.obstacles:
                 _mark(hard[ob.side], ob.g, pad, 1)
+            n = len(P.obstacles)
             for j in P.mov:
                 if j == i or (j in skip and j not in placed_set):
                     continue
                 tgt = soft if P.parts[j].area < p.area else hard
                 for side, r, _ in st.grid_rects(j):
                     _mark(tgt[side], r, pad, 1)
+                    n += 1
+            charge("legal_rect", n)
             best = _nearest_spot(P, p, int(st.X[i]), int(st.Y[i]), int(st.K[i]), hard, pad, w_rot, span,
                                  cost_occ=soft, w_cost=4.0)
             if best is None:
@@ -561,7 +587,7 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
     unplaced += queue
     moved = sum(math.hypot((st.X[i] - x) * P.g, (st.Y[i] - y) * P.g) for i, (x, y) in start.items())
     rep = dict(placed=len(placed_set), unplaced=[P.parts[i].ref for i in unplaced], moved_mm=round(moved, 2),
-               ripups=ripups, seconds=round(clock_now() - t0, 2))
+               ripups=ripups, seconds=round(dl.elapsed(), 2))
     if log:
         log(f"greedy legalization: {len(placed_set)} placed, {len(unplaced)} without a spot, {ripups} rip-ups, "
             f"moved {moved:.1f} mm ({rep['seconds']}s)")
@@ -569,9 +595,7 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
 
 
 # ----------------------------------------------------------------------------- KiCad feedback
-PLACEMENT_TYPES = ("courtyards_overlap", "copper_edge_clearance", "clearance", "hole_clearance", "hole_to_hole",
-                   "holes_co_located", "items_not_allowed", "malformed_courtyard", "npth_inside_courtyard",
-                   "pth_inside_courtyard", "shorting_items", "solder_mask_bridge")
+from kae.drc_items import PLACER_TYPES  # noqa: E402 - the illegal types plus solder mask bridges
 _OF_REF = re.compile(r"\bof (\S+)")
 _FP_REF = re.compile(r"^(?:Footprint|Courtyard of) (\S+)")
 
@@ -587,7 +611,7 @@ def kicad_violations(drc):
         drc = json.loads(drc)
     out = []
     for v in (drc or {}).get("violations", []):
-        if v.get("type") in PLACEMENT_TYPES and v.get("severity", "error") == "error":
+        if v.get("type") in PLACER_TYPES and v.get("severity", "error") == "error":
             out.append(dict(type=v.get("type"), severity=v.get("severity"), items=v.get("items", [])))
     return out
 
@@ -619,26 +643,6 @@ def violation_parts(P, st, v):
                        if len(P.parts[i].fp.pads) else math.hypot(st.xy(i)[0] - pos["x"], st.xy(i)[1] - pos["y"]))
             out.add(best)
     return out
-
-
-def repair_kicad(P, st, violations, time_s=30.0, workers=2, seed=0, step_mm=0.1, log=None):
-    """Feed KiCad's verdict on a candidate placement back as constraints: every movable part
-    a placement violation names grows its occupancy rectangle by `step_mm` (kept for the rest
-    of the run, P.bump) and is re-placed by the windowed legalizer. Returns a report."""
-    if violations and isinstance(violations, (str, dict)):
-        violations = kicad_violations(violations)
-    parts = set()
-    by_type = {}
-    for v in violations or []:
-        ps = violation_parts(P, st, v)
-        by_type[v["type"]] = by_type.get(v["type"], 0) + 1
-        parts |= {i for i in ps if P.parts[i].movable}
-    for i in parts:
-        P.bump(i, step_mm)
-    rep = dict(violations=sum(by_type.values()), by_type=by_type, parts=sorted(P.parts[i].ref for i in parts))
-    if parts:
-        rep["legalize"] = legalize(P, st, time_s=time_s, workers=workers, seed=seed, log=log, force=parts)
-    return rep
 
 
 # ----------------------------------------------------------------------------- exact shapes

@@ -188,11 +188,18 @@ OBS_ID = {"victim": "pickup.peak", "supply": "supply.peak", "overshoot": "oversh
 IMPLAUSIBLE_RAIL_FRAC = 0.5
 
 
+def cap_V(o) -> float | None:
+    """The cap an implausible value of this observer is priced at (IMPLAUSIBLE_RAIL_FRAC of its rail), or None
+    for an observer without one. kae.intent prices at it; so does the router (kae.intent.route.Policy)."""
+    V = o.meta.get("V") if o.kind == "supply" else None
+    return IMPLAUSIBLE_RAIL_FRAC * V if V else None
+
+
 def implausible(o, values) -> str | None:
     """Why an observer's per-corner values cannot be a real board's, or None."""
     V = o.meta.get("V") if o.kind == "supply" else None
     w = max(values, default=0.0)
-    if V and w > IMPLAUSIBLE_RAIL_FRAC * V:
+    if V and w > cap_V(o):
         return (f"{w:.3g} V of copper noise on {o.meta.get('rail')} exceeds {IMPLAUSIBLE_RAIL_FRAC:.0%} of its "
                 f"{V:g} V rail: beyond first-order pricing, and no working board shows it (is the net a rail?)")
     return None
@@ -224,7 +231,7 @@ def observation(bd, o, s, values, us, fs=()):
     why = implausible(o, values)
     if why:
         out["implausible"] = why
-        out["cap_V"] = IMPLAUSIBLE_RAIL_FRAC * o.meta["V"]
+        out["cap_V"] = cap_V(o)
     if fs:
         out["f_Hz"] = list(fs)
         out["scope"]["connectors"] = to_parts

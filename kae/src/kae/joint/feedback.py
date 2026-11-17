@@ -31,9 +31,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-# DRC types that depend on the local library setup, not on the board (as kaebench and
-# kae.route.drc ignore them)
-ENV_DEPENDENT = ("lib_footprint_issues", "lib_footprint_mismatch")
+from kae.drc_items import ENV_DEPENDENT, PLACEMENT_TYPES  # noqa: F401 - the benchmark's ignored and placement types
 
 _NET = re.compile(r"\[([^\]]*)\]")
 _REF = re.compile(r"\bof (\S+?)(?:\s+on\s|\s*$)")
@@ -42,10 +40,6 @@ _SHORT = re.compile(r"(?:clearance|min[^;]*?) ([\d.]+) mm; actual (-?[\d.]+) mm"
 W_PLACEMENT = 4.0    # spot weights: legality first, then a missing connection, an error, physics
 W_UNROUTED = 3.0
 W_ERROR = 2.0
-# KiCad DRC types that make a placement illegal (kaebench's PLACEMENT_ERROR_TYPES)
-PLACEMENT_TYPES = ("courtyards_overlap", "copper_edge_clearance", "clearance", "hole_clearance", "hole_to_hole",
-                   "holes_co_located", "items_not_allowed", "malformed_courtyard", "npth_inside_courtyard",
-                   "pth_inside_courtyard", "shorting_items")
 W_PHYSICS = 1.0
 
 

@@ -15,10 +15,12 @@ from __future__ import annotations
 import fnmatch
 import math
 
+from kae import materials as MAT
+
 from . import objective as OB
 from . import units as U
 
-RHO_CU_OHM_MM = 1.72e-5            # copper resistivity, ohm mm
+RHO_CU_OHM_MM = MAT.RHO_CU_OHM_MM  # copper resistivity, ohm mm
 # neutral/1: currency per mm^2 of copper when the intent says nothing. w* = 3.1 mm/A on 35 um copper.
 # Basis (economic, always-on): a mm^2 of a 2-layer board at volume costs about $0.0003-0.0008, and 1 mW
 # for 5 years at $0.15/kWh about $0.0066, so 0.05-0.12 mW_eq/mm^2. Human layouts imply more: median 0.64
@@ -153,24 +155,45 @@ class Policy:
             out.append((t, r, lim, t["tier"]))
         return out
 
-    def dC_dV(self, terms, V):
-        """The path search's slope per volt of a pair's peak at corner values V (array): each cost term's rate;
-        each limit's rate where V exceeds it; HARD_SLOPE where a hard term is violated (steering only)."""
+    @staticmethod
+    def noise_cap(o, V):
+        """The evaluator's cap on an implausible peak (kae.excite.observe.implausible: supply noise beyond
+        IMPLAUSIBLE_RAIL_FRAC of its rail) for observer o at corner peaks V: dict(cap_V, worst_V, why), or None
+        when V is plausible. Pass its cap_V to pair_cost, pair_hard and dC_dV to price the pair as
+        kae.intent.objective does (values clipped at the cap), and the dict to hazards(capped=...)."""
+        from kae.excite import observe as O
+        why = O.implausible(o, [float(v) for v in V])
+        if not why:
+            return None
+        return dict(cap_V=O.cap_V(o), worst_V=float(max(V)), why=why, rail=o.meta.get("rail"))
+
+    @staticmethod
+    def _clip(V, cap):
         import numpy as np
         V = np.asarray(V, float)
+        return V if cap is None else np.minimum(V, cap)
+
+    def dC_dV(self, terms, V, cap=None):
+        """The path search's slope per volt of a pair's peak at corner values V (array): each cost term's rate;
+        each limit's rate where V exceeds it; HARD_SLOPE where a hard term is violated (steering only).
+        cap (noise_cap): above it the price is the cap's, flat, so the slope there is zero."""
+        import numpy as np
+        V = np.asarray(V, float)
+        Vc = self._clip(V, cap)
         d = np.zeros_like(V)
         for t, r, lim, tier in terms:
             if tier == "cost":
                 d += r
             elif lim is not None:
-                d += (self.HARD_SLOPE if tier == "hard" else r) * (V > lim)
-        return d
+                d += (self.HARD_SLOPE if tier == "hard" else r) * (Vc > lim)
+        return d if cap is None else d * (V <= cap)
 
-    def pair_cost(self, terms, V):
+    def pair_cost(self, terms, V, cap=None):
         """The intent's cost (limit and cost tiers) of a pair at corner peak voltages V (array), in its
-        currency. Hard terms are not in it: pair_hard."""
+        currency, with V clipped at cap (noise_cap) as the evaluator clips it. Hard terms are not in it:
+        pair_hard."""
         import numpy as np
-        V = np.asarray(V, float)
+        V = self._clip(V, cap)
         c = np.zeros_like(V)
         for t, r, lim, tier in terms:
             if tier == "cost":
@@ -179,9 +202,12 @@ class Policy:
                 c += r * np.maximum(0.0, V - lim)
         return c
 
-    def pair_hard(self, terms, V):
-        """[(term, worst V, limit V, violation)] of the pair's hard terms at corner peaks V: the violation is
-        the evaluator's (excess over the limit at the worst corner, relative to the limit)."""
+    def pair_hard(self, terms, V, cap=None):
+        """[(term, worst V, limit V, violation)] of the pair's hard terms at corner peaks V, clipped at cap
+        (noise_cap): the violation is the evaluator's (excess over the limit at the worst corner, relative to
+        the limit). A capped pair's violation still ranks layouts, as the evaluator's hard tier does, but
+        hazards() does not read it as a failing board."""
+        V = self._clip(V, cap)
         out = []
         for t, _, lim, tier in terms:
             if tier == "hard" and lim is not None:
@@ -234,15 +260,19 @@ class Policy:
 
 
     # ------------------------------------------------------------------ hazards (shared schema)
-    def hazards(self, hard_rows=None, checked_pairs=True, checked_dc=True):
+    def hazards(self, hard_rows=None, checked_pairs=True, checked_dc=True, capped=None):
         """What the routed board's reader must know: violated hard terms (block), hard terms the router never
-        checked (warn), heating limits the width caps overrode, and a defaulted area price (info).
+        checked (warn), noise predictions priced at their cap (warn, or info when no hard term is on them),
+        heating limits the width caps overrode, and a defaulted area price (info).
         hard_rows: [(term, instance, worst value, limit, violation)] from pair_hard and dc_hard;
         checked_pairs: False when no field solve priced the pair terms (plain routing); checked_dc: False when
-        the DC band was not solved (its drops unknown)."""
+        the DC band was not solved (its drops unknown); capped: {instance: (noise_cap's dict, [terms])} of the
+        pairs priced at their cap. A capped pair's hard violation is no block: the prediction behind it is
+        implausible (kae.excite.observe.implausible), so it is reported as capped and its hard terms as unverified."""
         out = []
+        capped = capped or {}
         for t, inst, val, lim, v in hard_rows or []:
-            if v > 0:
+            if v > 0 and inst not in capped:
                 kind = t["obs"]
                 out.append(dict(code="hard_term_violated", severity="block", category="electrical",
                                 message=f"Hard requirement {t['id']} ({kind}) fails on {inst}: {U.fmt(val, 'V')} "
@@ -252,6 +282,19 @@ class Policy:
                                                                        why=t.get("why")),
                                 fix="Move the parts it names closer or apart, give the router more room, or "
                                     "relax the term to a 'limit' with a rate if exceeding it is acceptable."))
+        for inst, (c, terms) in sorted(capped.items()):
+            hard = sorted(t["id"] for t, _, _, tier in terms if tier == "hard")
+            ids = [t["id"] for t, _, _, _ in terms]
+            out.append(dict(code="noise_prediction_capped", severity="warn" if hard else "info", category="data",
+                            message=f"Predicted {U.fmt(c['worst_V'], 'V')} of noise on {inst} is implausible; priced at "
+                                    f"its cap {U.fmt(c['cap_V'], 'V')} for {', '.join(ids)}"
+                                    + (f", so hard term{'s' if len(hard) > 1 else ''} {', '.join(hard)} "
+                                       f"{'are' if len(hard) > 1 else 'is'} unverified." if hard else "."),
+                            objects=[x for x in [inst, c.get("rail")] + ids if x],
+                            evidence=dict(predicted_V=c["worst_V"], cap_V=c["cap_V"], why=c["why"], terms=ids,
+                                          hard_terms=hard),
+                            fix="Check that the net is a rail and the aggressor's current is on the right net "
+                                "(kae brief), then evaluate the routed board (kae.excite.evaluate, then kae.intent)."))
         unchecked = self.unchecked_hard()
         if not checked_pairs:
             unchecked += [t for t in self.intent.get("terms", []) if t["tier"] == "hard"

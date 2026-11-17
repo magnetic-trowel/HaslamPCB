@@ -30,7 +30,8 @@ until satisfied, so the next repair round moves the culprit and later checks kee
 """
 from __future__ import annotations
 
-from kae.budget import now as clock_now
+from kae import budget
+from kae.budget import Deadline, now as clock_now
 import time
 
 import numpy as np
@@ -742,12 +743,16 @@ class ExactModel:
                 out.append(dict(type=kind, refs=[P.parts[q].ref for q in idx], parts=list(idx), detail=detail))
             if first:
                 raise _Stop
+        n = 1                       # counted work: the call (its shapes, the envelope) and each pair
         try:
             self._env(i, A, add)
             for j in self.neighbours(A["env"], skip=i):
+                n += 1
                 self._pair(i, A, j, self.sh[j], add)
         except _Stop:
             pass
+        finally:
+            budget.charge("exact_pair", n)
         return out
 
 
@@ -945,7 +950,8 @@ def _exact_only_candidates(P, st, i, ks, w_rot, limit):
 def move_clean(P, st, E, i, deadline, w_rot=4.0, limit=600, evict=True, allowed=None, guard=None):
     """Move part i to the nearest spot that is grid-free (others where they are) and exactly
     clean; with evict, else to the nearest exactly clean spot where it only covers smaller
-    movable parts, which are then re-placed the same way. Returns (moved, evicted refs)."""
+    movable parts, which are then re-placed the same way. Stops at `deadline` (a
+    kae.budget.Deadline). Returns (moved, evicted refs)."""
     p = P.parts[i]
     ks = list(range(len(p.rots)))
     guard = guard if guard is not None else OrderGuard(P, st)
@@ -955,7 +961,7 @@ def move_clean(P, st, E, i, deadline, w_rot=4.0, limit=600, evict=True, allowed=
     if not cands:
         cands = _exact_only_candidates(P, st, i, ks, w_rot, limit)
     for c, X, Y, k in cands:
-        if clock_now("exact") > deadline:
+        if deadline.passed():
             return False, []
         if not E.findings_at(i, X, Y, k, first=True) and guard.count_at(i, X, Y, k) <= base:
             E.set_pose(i, X, Y, k)
@@ -971,7 +977,7 @@ def move_clean(P, st, E, i, deadline, w_rot=4.0, limit=600, evict=True, allowed=
         S2, pad2 = _tables(P, st, small | {i}, obstacles=False)
         cands = _candidates(P, st, i, S2, pad2, ks, w_rot, limit)
     for c, X, Y, k in cands:
-        if clock_now("exact") > deadline:
+        if deadline.passed():
             return False, []
         f = E.findings_at(i, X, Y, k)
         # every finding there must name a part that moves out (one naming only part i, or a
@@ -1027,13 +1033,13 @@ def reseed(P, st, E, parts, deadline, edge=False, first=(), w_rot=4.0, limit=600
         tries = 0
         guard_tries = 0
         big_maps = {j: {k: _ok_map(P, j, k, S, pad) for k in range(len(P.parts[j].rots))} for j in big}
-        if clock_now("exact") < deadline:
+        if deadline.left() > 0:
             ks = list(range(len(P.parts[q].rots)))
             cands = _candidates(P, st, q, S, pad, ks, w_rot, limit, edge=edge)
             if not cands:        # the grid has no room for it: the exact check judges (paw3222)
                 cands = _exact_only_candidates(P, st, q, ks, w_rot, limit)
             for c, X, Y, k in cands:
-                if clock_now("exact") > deadline:
+                if deadline.passed():
                     break
                 if E.findings_at(q, X, Y, k, first=True):
                     continue
@@ -1081,8 +1087,7 @@ def repair(P, st, time_s=30.0, log=None, rounds=8, w_rot=4.0, allowed=None):
     until no finding is left or the time is up. `allowed`: part indices it may move (default
     every movable part). Returns a report (start/end findings, parts moved, evicted, parts
     left with their findings)."""
-    t0 = clock_now("exact")
-    deadline = t0 + time_s
+    deadline = Deadline(time_s, "exact")
     E = ExactModel(P, st)
     scope = None if allowed is None else set(allowed)
     found = E.check(parts=scope, max_items=100000)
@@ -1090,12 +1095,12 @@ def repair(P, st, time_s=30.0, log=None, rounds=8, w_rot=4.0, allowed=None):
     order0 = OrderGuard(P, st).total()
     def local_rounds(found):
         for _ in range(rounds):
-            if not found or clock_now("exact") > deadline:
+            if not found or deadline.passed():
                 break
             rep["rounds"] += 1
             progress = False
             for i in culprits(P, found, scope):
-                if clock_now("exact") > deadline:
+                if deadline.passed():
                     break
                 if not E.part_findings(i, max_items=1):
                     continue
@@ -1114,7 +1119,7 @@ def repair(P, st, time_s=30.0, log=None, rounds=8, w_rot=4.0, allowed=None):
     rep["reseeds"] = []
     failed_first = []
     for attempt in range(6):
-        if not found or clock_now("exact") > deadline:
+        if not found or deadline.passed():
             break
         base = culprits(P, found, scope)
         if not base:
@@ -1151,7 +1156,7 @@ def repair(P, st, time_s=30.0, log=None, rounds=8, w_rot=4.0, allowed=None):
     rep["end"] = len(found)
     rep["order_broken"] = [order0, OrderGuard(P, st).total()]      # protection-order rules, before/after
     rep["findings"] = found[:60]
-    rep["seconds"] = round(clock_now("exact") - t0, 2)
+    rep["seconds"] = round(deadline.elapsed(), 2)
     if log:
         log(f"exact repair: {rep['start']} -> {rep['end']} findings in {rep['rounds']} rounds, "
             f"moved {len(rep['moved'])}, evicted {len(rep['evicted'])} ({rep['seconds']}s)")
@@ -1166,8 +1171,7 @@ def fix_order(P, st, time_s=10.0, phys=None, max_rise=0.03, w_rot=4.0, limit=600
     optional) bounds it: the moves together may raise it by `max_rise` of its value at the
     start (at least 0.05); a move past that is not taken, at most `max_evals` priced per part.
     Returns a report."""
-    t0 = clock_now("exact")
-    deadline = t0 + time_s
+    deadline = Deadline(time_s, "exact")
     guard = OrderGuard(P, st)
     rep = dict(start=guard.total(), moved=[], refused_physics=0, no_spot=0)
     if not rep["start"]:
@@ -1177,20 +1181,20 @@ def fix_order(P, st, time_s=10.0, phys=None, max_rise=0.03, w_rot=4.0, limit=600
     phys0 = base_phys = phys() if phys is not None else None
     cap = None if phys0 is None else phys0 + max(0.05, max_rise * abs(phys0))
     for j in range(len(guard.rules)):
-        if clock_now("exact") > deadline:
+        if deadline.passed():
             break
         if not guard.broken(j):
             continue
         (ci, _), (ti, _), (ii, _) = guard.rules[j]
         for i in [q for q in (ti, ii) if P.parts[q].movable]:
-            if not guard.broken(j) or clock_now("exact") > deadline:
+            if not guard.broken(j) or deadline.passed():
                 break
             base = guard.count(i)
             S, pad = _tables(P, st, {i})
             home = (int(st.X[i]), int(st.Y[i]), int(st.K[i]))
             evals, done = 0, False
             for c, X, Y, k in _candidates(P, st, i, S, pad, list(range(len(P.parts[i].rots))), w_rot, limit):
-                if clock_now("exact") > deadline or evals >= max_evals:
+                if deadline.passed() or evals >= max_evals:
                     break
                 if guard.count_at(i, X, Y, k) >= base or E.findings_at(i, X, Y, k, first=True):
                     continue
@@ -1211,7 +1215,7 @@ def fix_order(P, st, time_s=10.0, phys=None, max_rise=0.03, w_rot=4.0, limit=600
     rep["end"] = guard.total()
     if base_phys is not None:
         rep["physics"] = [round(phys0, 4), round(base_phys, 4)]
-    rep["seconds"] = round(clock_now("exact") - t0, 2)
+    rep["seconds"] = round(deadline.elapsed(), 2)
     if log:
         log(f"order fix: {rep['start']} -> {rep['end']} rules broken, moved {rep['moved']} ({rep['seconds']}s)")
     return rep
@@ -1237,8 +1241,7 @@ def fix_silk(P, st, time_s=10.0, phys=None, max_rise=0.03, max_wl_rise=0.1, w_ro
     has fewer conflicts and breaks no more protection-order rules. `phys` bounds the physics
     total as in fix_order, and the moves together may lengthen the HPWL by `max_wl_rise` of
     it at most. Returns a report (conflicts by type before and after)."""
-    t0 = clock_now("exact")
-    deadline = t0 + time_s
+    deadline = Deadline(time_s, "exact")
     E = ExactModel(P, st)
     found = E.silk_check()
     count = lambda f: {k: sum(1 for v in f if v["type"] == k) for k in ("silk_overlap", "silk_over_copper")}
@@ -1256,7 +1259,7 @@ def fix_silk(P, st, time_s=10.0, phys=None, max_rise=0.03, max_wl_rise=0.1, w_ro
         for (q, _) in net.pins:
             nets_of.setdefault(q, set()).add(net.i)
     for _ in range(rounds):
-        if not found or clock_now("exact") > deadline:
+        if not found or deadline.passed():
             break
         progress = False
         parts = {}
@@ -1266,7 +1269,7 @@ def fix_silk(P, st, time_s=10.0, phys=None, max_rise=0.03, max_wl_rise=0.1, w_ro
                 q = min(mv, key=lambda q: P.parts[q].area)
                 parts[q] = parts.get(q, 0) + 1
         for i in sorted(parts, key=lambda q: (P.parts[q].area, -parts[q])):
-            if clock_now("exact") > deadline:
+            if deadline.passed():
                 break
             base = len(E.silk_findings(i))
             if not base:
@@ -1278,7 +1281,7 @@ def fix_silk(P, st, time_s=10.0, phys=None, max_rise=0.03, max_wl_rise=0.1, w_ro
             mine = nets_of.get(i, ())
             wl_home = _local_wl(P, st, mine)
             for c, X, Y, k in _candidates(P, st, i, S, pad, list(range(len(P.parts[i].rots))), w_rot, limit):
-                if clock_now("exact") > deadline or evals >= max_evals:
+                if deadline.passed() or evals >= max_evals:
                     break
                 st.X[i], st.Y[i], st.K[i] = X, Y, k            # the cheap test first: wirelength
                 d_wl = _local_wl(P, st, mine) - wl_home
@@ -1312,7 +1315,7 @@ def fix_silk(P, st, time_s=10.0, phys=None, max_rise=0.03, max_wl_rise=0.1, w_ro
     rep["hpwl"] = [round(wl0, 2), round(st.hpwl(), 2)]
     if base_phys is not None:
         rep["physics"] = [round(phys0, 4), round(base_phys, 4)]
-    rep["seconds"] = round(clock_now("exact") - t0, 2)
+    rep["seconds"] = round(deadline.elapsed(), 2)
     if log:
         log(f"silk fix: {rep['start']} -> {rep['end']}, moved {rep['moved']} ({rep['seconds']}s)")
     return rep
@@ -1320,10 +1323,10 @@ def fix_silk(P, st, time_s=10.0, phys=None, max_rise=0.03, max_wl_rise=0.1, w_ro
 
 def _grid_rects(P, p, rects, rot):
     g = P.g
-    from .problem import rot_rect_any
+    from .problem import rot_rect
     out = []
     for r in rects:
-        x0, y0, x1, y1 = rot_rect_any(r, rot, p.s)
+        x0, y0, x1, y1 = rot_rect(r, rot, p.s)
         gr = (int(round(x0 / g)), int(round(x1 / g)), int(round(y0 / g)), int(round(y1 / g)))
         if gr[1] > gr[0] and gr[3] > gr[2]:
             out.append(gr)
@@ -1671,8 +1674,12 @@ def diagnose(P, st, E, i, limit=400, deadline=None):
 def close_loop(P, st, time_s, log=None, deadline=None):
     """The closed legality loop at the end of a placement: exact repair, then for whatever is
     left, why. Returns the repair report with 'diagnosis' {ref: {reason, detail}}. `deadline`
-    (monotonic seconds): no part is diagnosed after it (a part's diagnosis took 37 s on
-    pico-ice, 7 parts 260 s); the rest are listed in 'diagnosis_skipped'."""
+    (kae.budget.now() seconds; default: `time_s` from the start): no part is diagnosed after it
+    (a part's diagnosis took 37 s on pico-ice, 7 parts 260 s); the rest are listed in
+    'diagnosis_skipped'. Without the default, a caller that gave no deadline (kae place) let the
+    diagnoses run unbounded: 465 s charged after a 42 s repair on the servo bonnet at --time 150."""
+    if deadline is None:
+        deadline = clock_now("exact") + float(time_s)
     rep = repair(P, st, time_s=time_s, log=log)
     if rep["stuck"]:
         E = ExactModel(P, st)

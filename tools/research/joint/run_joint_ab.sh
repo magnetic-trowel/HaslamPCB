@@ -82,7 +82,8 @@ for arm in $ARMS; do
                joint-pf) A="$A joint-pf=$WORKDIR/results/joint-pf-$TAG/kae-joint-pf" ;; esac
 done
 [ -n "$A" ] && "$KAE_PY" "$R/tools/research/joint/joint_stops.py" $A --out "$WORKDIR/results/joint-stops-$TAG.md" || true
-# routed physics per arm (module values vs the human layout, rail drops):
+# routed physics per arm (module values vs the human layout, rail drops); joint_physics.py is at tag
+# archive/research-prototypes-2611, its successor is tools/kaeres/physics_board.py:
 #   $KAE_PY tools/research/joint/joint_physics.py --tasks $WORKDIR/tasks --out $WORKDIR/physics-$TAG \
 #     --arm staged=$WORKDIR/results/joint-staged-$TAG/kae-staged --arm joint=$WORKDIR/results/joint-loop-$TAG/kae-joint \
 #     --arm human-fr=$WORKDIR/results/joint-human-fr-$TAG/human-freerouting

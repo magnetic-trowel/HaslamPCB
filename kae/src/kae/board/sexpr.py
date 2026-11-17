@@ -15,8 +15,10 @@ Adapted from tools/research/physics/pc_refplane.py (parse, first, kids).
 """
 import re
 
-_TOK = re.compile(r'\(|\)|"(?:[^"\\]|\\.)*"|[^\s()"]+')
-_PAREN_OR_STR = re.compile(r'"(?:[^"\\]|\\.)*"|[()]')
+# A '"' opens a quoted string only at the start of a token, as KiCad's DSNLEXER reads it; inside
+# an unquoted atom it is an ordinary character (KiCad 5 boards carry fields like `'/"`).
+_TOK = re.compile(r'\(|\)|"(?:[^"\\]|\\.)*"|[^\s()"][^\s()]*')
+_PAREN_OR_STR = re.compile(r'"(?:[^"\\]|\\.)*"|[^\s()"][^\s()]*|[()]')
 _ESC = re.compile(r'\\(.)')
 _ESC_MAP = {'n': '\n', 't': '\t', 'r': '\r'}
 
@@ -57,7 +59,7 @@ def _scan_end(text, a):
     """Exact end (exclusive) of the block opening at text[a] == '('."""
     depth = 0
     for m in _PAREN_OR_STR.finditer(text, a):
-        c = m.group(0)
+        c = m.group(0)     # a quoted string or an atom is skipped whole
         if c == "(":
             depth += 1
         elif c == ")":

@@ -16,6 +16,8 @@ import math
 import re
 from dataclasses import dataclass
 
+from kae import materials as MAT
+
 from . import criteria as CR
 
 
@@ -363,7 +365,7 @@ THERMAL_VICTIM = {
 # sum P / (h_tot A) (heat balance over its area), only the local excess above it, so the
 # thermal budgets apply to that excess: a source's hot spot above the board mean (a design
 # rule of thumb: <= 20 K) and a victim's rise from its neighbours (THERMAL_VICTIM).
-THERMAL = dict(k_cu=390.0, k_fr4=0.8, h_top=10.0, h_bot=10.0, plane_fill=1.0, signal_fill=0.2,
+THERMAL = dict(k_cu=MAT.K_CU, k_fr4=MAT.K_FR4_IN, h_top=MAT.H_AIR, h_bot=MAT.H_AIR, plane_fill=1.0, signal_fill=0.2,
                source_local_K=20.0)
 
 

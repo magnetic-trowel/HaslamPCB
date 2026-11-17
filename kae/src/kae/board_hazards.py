@@ -32,6 +32,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from kae import budget
 from kae import hazards as H
 
 # DRC check -> (hazard severity, category, what it means for the board, fix). block: the board
@@ -553,7 +554,7 @@ def add_arguments(ap):
 def finish(report, output=None, project_board=None, kind="route", mode="auto", deadline=None, brief=None,
            board=None, log=None):
     """Close `report` for the LLM: static project hazards, the forced-severity recheck of
-    `output` (mode on|auto|off; within `deadline`, a time.monotonic() value), then
+    `output` (mode on|auto|off; within `deadline`, a kae.budget.now() value), then
     kae.hazards.finalize (nested lists hoisted, flags derived, capped, summary). The
     recheck's meta goes to report["recheck"]. Never raises: a report is always written."""
     extra = []
@@ -570,7 +571,7 @@ def finish(report, output=None, project_board=None, kind="route", mode="auto", d
         elif not Path(output).exists():
             meta["skipped"] = "no output board"
         else:
-            left = None if deadline is None else deadline - time.monotonic()
+            left = None if deadline is None else budget.clock().left(deadline)
             if left is not None and left < MIN_RECHECK_S and mode != "on":
                 meta["skipped"] = f"time ({left:.0f} s left)"
                 hidden = {k: v for k, v in downgraded(project_severities(project_board)).items()
@@ -584,7 +585,7 @@ def finish(report, output=None, project_board=None, kind="route", mode="auto", d
                                     fix="Run again with --recheck on, or run kicad-cli pcb drc with the checks set "
                                         "to error."))
             else:
-                timeout = 900.0 if left is None else max(MIN_RECHECK_S, min(900.0, left - 5.0))
+                timeout = 900.0 if left is None else max(MIN_RECHECK_S, min(900.0, budget.wall_timeout(left - 5.0)))
                 hz, meta = recheck(output, project_board, timeout=timeout, log=log)
                 skip = {f"drc_{t}" for t in SKIP_BY_KIND.get(kind, ())}
                 extra += [h for h in hz if h["code"] not in skip]
@@ -592,5 +593,12 @@ def finish(report, output=None, project_board=None, kind="route", mode="auto", d
         meta = dict(ran=False, error=f"{type(e).__name__}: {e}"[:200])
     if not meta.get("ran"):
         extra += summary_hazards(report, skip=SKIP_BY_KIND.get(kind, ()))
+    if kind == "route" and output and Path(output).exists():
+        try:
+            from kae.board.kicad_file import load as load_board
+            from kae.route.pairs import hazards as pair_hazards
+            extra += pair_hazards(load_board(output))
+        except Exception as e:      # noqa: BLE001 - a report is always written
+            extra.append(H.make("pair_check_failed", "info", "data", f"Pair coupling not checked: {e}"[:200]))
     report["recheck"] = meta
     return H.finalize(report, extra=extra)

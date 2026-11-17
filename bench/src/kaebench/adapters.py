@@ -222,18 +222,19 @@ class Freerouting(Adapter):
             log = f"freerouting timed out after {remaining:.0f}s\n{e.stdout or ''}{e.stderr or ''}"
             timed_out = True
         own = _router_report(result)
+        binary = tools.freerouting_identity(self.cmd())   # which program this attempt ran (path, sha256)
         partial = timed_out or bool(own and own.get("final_state") == "TIMED_OUT")
         # A router that crashes can still leave an empty session file behind (Freerouting
         # 2.5.0 opens it before writing); that is no output, not a failed import.
         ses_empty = ses.exists() and ses.stat().st_size == 0
         ses_cut = ses.exists() and not ses_empty and not ses_complete(ses)
         if not ses.exists() or ses_empty or ses_cut:
-            return AdapterResult(None, log, dict(passes=passes, rc=rc, timed_out=timed_out, router_report=own,
+            return AdapterResult(None, log, dict(passes=passes, rc=rc, timed_out=timed_out, router_report=own, router_binary=binary,
                                                  job_timeout_s=job_s, partial=partial, **dsn_fixes,
                                                  ses_empty=ses_empty, ses_cut=ses_cut, artifacts=artifacts))
         stripped = strip_ses_placement(ses, ses2)
         quoted = quote_ses_net_names(ses2)
-        meta = dict(passes=passes, rc=rc, timed_out=timed_out, rule_args=rule_args, **dsn_fixes,
+        meta = dict(passes=passes, rc=rc, timed_out=timed_out, rule_args=rule_args, router_binary=binary, **dsn_fixes,
                     ses_placement_stripped=stripped, ses_nets_quoted=quoted, router_report=own,
                     job_timeout_s=job_s, partial=partial, artifacts=artifacts)
         try:
@@ -275,7 +276,7 @@ def _restart_reports(workdir):
     per-attempt log and the kept attempt's own report. Links are left out: this copy runs outside
     the sandbox, and only files the method wrote belong in the results."""
     d = Path(workdir) / "restarts"
-    return [d / n for n in ("summary.json", "report.json", "report-origin.json", "fr-telemetry.tar")
+    return [d / n for n in ("summary.json", "report.json", "report-windows.json", "report-origin.json", "fr-telemetry.tar")
             if (d / n).is_file() and not (d / n).is_symlink()]
 
 

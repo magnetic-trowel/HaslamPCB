@@ -54,7 +54,7 @@ Shared lesson: on boards that route at about HPWL length, the routing signal add
 - Part motion (from `seq`): pads pull along their outgoing tubes, foreign occupancy pushes the body, optionally −`phys_w` · ∇physics; steps legalized and kept only if network cost drops.
 - Routing prior: +λ history for net n off its dilated final tubes (λ = 0.2 default).
 
-**Results** ([pnr_slime/RESULTS.md](../../../tools/research/pnr_slime/RESULTS.md)):
+**Results** ([pnr_slime/RESULTS.md](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/pnr_slime/RESULTS.md)):
 - dev6: motion, prior and full equal `seq` (completion 0.904–0.908, length 683–685 mm) or worse (full lost a clean board to `starved_thermal`).
 - phys10: seq + slime with physics, place physics 3.77 vs 4.05; on top of `seq_phys` 1.53 vs 1.52, routed 1.30 vs 1.26.
 - Unconditional force moves: HPWL +4–8%, routed length +3–7%; λ = 0.6: +2–8% length. Not run on all 33 boards.
@@ -67,9 +67,11 @@ Shared lesson: on boards that route at about HPWL length, the routing signal add
 
 ## Code
 
+- **Archived:** [`pnr_slime`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/pnr_slime) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/kicad-auto-everything/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [1e53ff1](https://github.com/magnetic-trowel/kicad-auto-everything/commit/1e53ff126883570507cb8f7400556e52c200ff25) (2026-10-27, import from the research branch, path fixes only). Run it from a checkout of the tag.
+
 - [`tools/research/pnr/methods.py`](../../../tools/research/pnr/methods.py): `tension`, `pin_tensions`, `bloat`.
 - [`tools/research/pnr_grad/`](../../../tools/research/pnr_grad/): `grad.py` (`grad`, `grad_hpwl`, `grad_phys`), `gradcheck.py`.
-- [`tools/research/pnr_slime/slime.py`](../../../tools/research/pnr_slime/slime.py) (`slime`, `slime_motion`, `slime_prior`, `slime_phys`, `slime_phys2`).
+- [`tools/research/pnr_slime/slime.py`](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/pnr_slime/slime.py) (`slime`, `slime_motion`, `slime_prior`, `slime_phys`, `slime_phys2`).
 
 ## Related
 

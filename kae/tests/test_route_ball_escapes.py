@@ -38,25 +38,20 @@ def _space(tmp_path):
     return Space(load(p), info, plan=CN.plan(info, p, {})), info
 
 
-def test_escape_plan_escapes_every_ball_and_lays_legal_copper(tmp_path):
+def test_escape_plan_escapes_every_ball_and_lays_nothing(tmp_path):
     sp, info = _space(tmp_path)
+    before = len(sp.routed)
     out = escape.run(sp, info, {}, log=lambda m: None)
     (pk,) = out["packages"]
     assert pk["signal"] == 64 and pk["planned"] == 64 and not out["blocked"]
     # the outer rings on the surface, the rest through dog-bones to B.Cu
     assert pk["by_layer"]["F.Cu"] >= 28 and pk["by_layer"]["B.Cu"] >= 4
-    assert pk["laid"] >= 44
+    assert pk["laid"] == 0 and len(sp.routed) == before      # the plan is reported, not laid
     balls = {b[1]: (134.5 + b[2], 121.0 + b[3]) for b in BALLS}
     for r in pk["escapes"]:
-        if r["via"]:
+        if r["via"] and not r["in_pad"]:
             bx, by = balls[r["net"]]
             assert abs(abs(r["via"][0] - bx) - PITCH / 2) < 1e-6 and abs(abs(r["via"][1] - by) - PITCH / 2) < 1e-6
-    for it in sp.routed:
-        if it.kind == "via":
-            assert not sp.via_violations(it.net, it.geom.x, it.geom.y, ignore=(it,))
-        else:
-            a, b = it.geom.coords
-            assert not sp.track_violations(it.net, next(iter(it.layers)), it.width, a, b, ignore=(it,))
 
 
 def test_has_grid_only_for_ball_grids():
@@ -99,14 +94,16 @@ def test_an_unsolved_bound_neither_certifies_nor_throws_away_the_plan(tmp_path, 
     monkeypatch.setattr(escape, "certificate", boom)
     out = escape.run(sp, info, {}, log=lambda m: None)
     (pk,) = out["packages"]
-    assert "error" not in pk and pk["planned"] == 64 and pk["laid"] >= 44 and not out["blocked"]
+    assert "error" not in pk and pk["planned"] == 64 and not out["blocked"]
 
 
-def _grid_space(tmp_path, pitch, ball, small=(), net=lambda r, c: f"S{r}{c}", drop=()):
+def _grid_space(tmp_path, pitch, ball, small=(), net=lambda r, c: f"S{r}{c}", drop=(), shift=None):
     """An 8 x 8 grid at `pitch` of `ball` mm pads (the indices in `small` 0.3 mm), each with a
     partner, on the synthetic 2-layer board (clearance 0.2, tracks >= 0.15, vias 0.6/0.3);
-    `net(row, column)` names each ball's net."""
-    balls = [(f"{chr(65 + r)}{c + 1}", net(r, c), (c - (N - 1) / 2) * pitch, (r - (N - 1) / 2) * pitch,
+    `net(row, column)` names each ball's net, `drop` the (row, column) left empty, `shift`
+    (row, pitches) moves one row's balls along it."""
+    sh = lambda r: shift[1] * pitch if shift and r == shift[0] else 0.0     # noqa: E731
+    balls = [(f"{chr(65 + r)}{c + 1}", net(r, c), (c - (N - 1) / 2) * pitch + sh(r), (r - (N - 1) / 2) * pitch,
               0.3 if r * N + c in small else ball, 0.3 if r * N + c in small else ball, "smd", 0.0, "", "passive")
              for r in range(N) for c in range(N) if (r, c) not in drop]
     grid = ("U7", "BGA", "Package_BGA:Grid", 134.5, 121.0, 0.0, balls, (4.8, 4.8))
@@ -221,12 +218,114 @@ def test_the_demand_is_one_escape_per_net_that_leaves(tmp_path):
     assert escape.certificate(sp, pkg, info, log=lambda m: None) is None
 
 
-def test_a_depopulated_interior_is_no_proof(tmp_path):
-    """The model puts vias only at the dog-bone sites and in the pads; in a depopulated
-    interior a via may sit anywhere (three eMMC-153 packages routed cleanly by hand were
-    certified 1 net short). The entry says so and carries proof False."""
-    sp, info, pkg = _grid_space(tmp_path, 1.0, 0.4, drop={(3, 3), (3, 4), (4, 3), (4, 4)})
+CENTRE = {(3, 3), (3, 4), (4, 3), (4, 4)}          # a 2 x 2 empty centre
+CHANNEL = CENTRE | {(5, 3), (6, 3), (7, 3)}        # ... open to the north edge
+
+
+def _bound(sp, pkg, info, hubs=True):
+    """The certificate's bound (no vias in pads, fab floors), with or without the voids' layer
+    changes."""
+    orig = escape._stage1
+    try:
+        escape._stage1 = lambda *a, **k: orig(*a, **{**k, "hubs": hubs and k.get("hubs", False)})
+        return escape.bound(sp, pkg, info, floors=escape.fab_floors(*escape._fab(sp, None)))
+    finally:
+        escape._stage1 = orig
+
+
+def test_a_full_grid_is_unchanged_by_the_void_rule(tmp_path):
+    """No empty site: no void, the same bound, and a proof as before."""
+    sp, info, pkg = _grid_space(tmp_path, 0.9, 0.4)
+    e, ctx, _d = _bound(sp, pkg, info)
+    assert ctx["voids"] == [] and e == _bound(sp, pkg, info, hubs=False)[0]
     c = escape.certificate(sp, pkg, info, log=lambda m: None)
-    assert c and c["proof"] is False and "not a proof" in c["summary"]
-    sp, info, pkg = _grid_space(tmp_path / "full", 1.0, 0.4)
-    assert escape.certificate(sp, pkg, info, log=lambda m: None)["proof"] is True
+    assert c["proof"] is True and c["voids"] == [] and "not a proof" not in c["summary"]
+    assert ctx["site_rings"][(3, 4)] == 3 and ctx["site_rings"][(0, 5)] == 0
+
+
+def test_an_open_centre_void_is_a_proof_and_counts_its_exits(tmp_path):
+    """The eMMC-153s' human vias sit in their empty centre, off the dog-bone sites, so main
+    gave any depopulated field no proof. The bound now changes layer anywhere in a void
+    (without a limit: an upper bound), so the open centre credits more escapes than the
+    dog-bone sites alone, the entry is a proof, and the void's mouth is counted at the
+    bound's rules: room((L + 1) pitch) tracks for a run of L empty edge sites."""
+    sp, info, pkg = _grid_space(tmp_path, 0.9, 0.4, drop=CHANNEL)
+    e, ctx, _d = _bound(sp, pkg, info)
+    assert e > _bound(sp, pkg, info, hubs=False)[0] + 0.5
+    (v,) = ctx["voids"]
+    rb = ctx["R"][ctx["B"]]
+    assert v["open"] and len(v["sites"]) == 7
+    assert v["tracks"] == escape._fit2(2 * 0.9 - ctx["d"], rb["w"], rb["c"], ctx["cpad"], ctx["cpad"]) > 0
+    # rings from the void's mouth while its tracks fit: the balls beside the mouth (one from
+    # the edge) are on the surface, those further in keep their rings from the edge
+    assert ctx["site_rings"][(2, 6)] == ctx["site_rings"][(4, 6)] == 0 and v["counted"] == 1
+    assert ctx["site_rings"][(2, 5)] == 1
+    c = escape.certificate(sp, pkg, info, log=lambda m: None)
+    assert c and c["proof"] is True and "not a proof" not in c["summary"]
+    assert c["voids"] == [dict(sites=7, open=True, mouth_tracks=v["tracks"], counted=v["counted"],
+                               demand=v["demand"])]
+    assert "1 open to the edge" in c["summary"]
+
+
+def test_a_closed_void_changes_layer_in_it(tmp_path):
+    """A closed void (main's test: an 8 x 8 grid at 1 mm with an empty 2 x 2 centre, 1 net
+    short without its layer changes) escapes once a via may sit anywhere in it; at 0.9 mm the
+    bound credits the void and the entry is still a proof."""
+    sp, info, pkg = _grid_space(tmp_path, 1.0, 0.4, drop=CENTRE)
+    e, ctx, _d = _bound(sp, pkg, info)
+    (v,) = ctx["voids"]
+    assert not v["open"] and v["tracks"] == 0
+    assert _bound(sp, pkg, info, hubs=False)[0] < ctx["demand"] - 0.5 <= e
+    assert escape.certificate(sp, pkg, info, log=lambda m: None) is None
+    sp, info, pkg = _grid_space(tmp_path / "tight", 0.9, 0.4, drop=CENTRE)
+    c = escape.certificate(sp, pkg, info, log=lambda m: None)
+    assert c and c["proof"] is True and c["voids"][0]["open"] is False
+
+
+def test_a_grid_off_one_lattice_is_no_proof(tmp_path):
+    """A row shifted by 0.3 pitches: the balls are off one square lattice, so the empty sites
+    (where a via may sit) are not known. The entry says so and carries proof False."""
+    sp, info, pkg = _grid_space(tmp_path, 0.9, 0.4, shift=(2, 0.3))
+    assert pkg["lattice"] is False
+    c = escape.certificate(sp, pkg, info, log=lambda m: None)
+    assert c and c["proof"] is False and "not a proof" in c["summary"] and "lattice" in c["summary"]
+
+
+
+def _rules_allow(sp, via, drill):
+    """Lower the board setup's via minimums so that the smallest legal via is (via, drill);
+    the net class keeps its 0.6/0.3 mm via, the one kae routes with."""
+    sp.settings.update(min_via=via, min_drill=drill, min_annular=(via - drill) / 2)
+    assert escape.legal_via(sp, escape.fab_floors(*escape._fab(sp, None))) == (via, drill)
+    assert sp.via_size("S00") == (0.6, 0.3)
+
+
+def test_own_via_blocking_an_escape_the_rules_allow_is_a_hazard(tmp_path):
+    """At 1 mm pitch the net class's 0.6 mm via leaves 8 inner balls shut in, a 0.4 mm one
+    none. When the rules already allow 0.4 mm the certificate finds no obstruction, and the
+    report says that kae's own via, not a rule, blocks the escape (never "feasible")."""
+    sp, info, pkg = _grid_space(tmp_path, 1.0, 0.4)
+    _rules_allow(sp, 0.4, 0.2)
+    assert escape.certificate(sp, pkg, info, log=lambda m: None) is None
+    out = escape.run(sp, info, {}, log=lambda m: None)
+    assert not out["blocked"]
+    (h,) = out["hazards"]
+    assert (h["code"], h["severity"], h["category"]) == ("escape_blocked_by_own_via", "warn", "data")
+    assert h["objects"] == ["U7", "Default"] and "0.4 mm" in h["message"] and "0.6 mm" in h["message"]
+    assert h["evidence"]["legal_via"] == [0.4, 0.2] and h["evidence"]["own_via"] == [0.6, 0.3]
+    assert h["evidence"]["short"] > 0 and "capability_gap" in h["evidence"] and "net class Default" in h["fix"]
+    (pk,) = out["packages"]
+    ov = pk["own_via"]
+    assert "no obstruction found" in ov["summary"] and "feasible" not in ov["summary"]
+    assert "Capability gap" in ov["summary"] and "hazards" not in ov
+    from kae import hazards as H
+    assert H.derive(dict(escape=out)) == []      # not an escape_infeasible: no rule blocks it
+
+
+def test_no_own_via_hazard_when_the_net_class_via_fits(tmp_path):
+    """At 1.27 mm pitch the 0.6 mm via escapes every ball too: nothing to report."""
+    sp, info, pkg = _grid_space(tmp_path, PITCH, 0.4)
+    _rules_allow(sp, 0.4, 0.2)
+    assert escape.own_via(sp, pkg, info, log=lambda m: None) is None
+    out = escape.run(sp, info, {}, log=lambda m: None)
+    assert not out.get("hazards") and "own_via" not in out["packages"][0]

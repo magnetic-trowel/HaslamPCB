@@ -17,6 +17,8 @@ def kq(tmp_path, monkeypatch):
     monkeypatch.setenv("KAEQ_HOME", str(tmp_path))
     monkeypatch.setenv("KAEQ_OWNER", "t")
     sys.path.insert(0, HERE)
+    for m in [m for m in sys.modules if m == "kaeqlib" or m.startswith("kaeqlib.")]:
+        del sys.modules[m]          # kaeqlib.store reads KAEQ_HOME when imported: a fresh import per test
     import kaeq
     importlib.reload(kaeq)
     with open(kaeq.CONF, "w") as f:
@@ -315,13 +317,13 @@ def test_no_start_while_threads_queue_for_a_cpu(kq):
     def idle_cpus():  # the test machine may be busy: report it idle, so only the run queue decides
         clock[0] += 4000
         return 0, clock[0]
-    kq.cpu_ticks = idle_cpus
     conf = json.load(open(kq.CONF)); conf.update(runq_window_s=1, heavy_boost=False)   # a short window; no fillers
     json.dump(conf, open(kq.CONF, "w"))
     d = kq.Daemon()
+    d.host.cpu_ticks = idle_cpus
     submit(kq, "sleep 20", name="busy", qos="batch")
     drive(kq, d, lambda: states(d)["busy"] == "running")  # (with nothing running, one job always starts)
-    kq.runnable_threads = lambda: 50  # 4 threads, 1 reserved: 50 runnable threads is oversubscribed
+    d.host.runnable_threads = lambda: 50  # 4 threads, 1 reserved: 50 runnable threads is oversubscribed
     submit(kq, "true", name="wait", qos="batch")
     for _ in range(10):
         d.tick()
@@ -331,7 +333,7 @@ def test_no_start_while_threads_queue_for_a_cpu(kq):
     submit(kq, "true", name="timed")
     drive(kq, d, lambda: states(d)["timed"] in ("running", "ok"))
     assert states(d)["wait"] == "queued"
-    kq.runnable_threads = lambda: 0
+    d.host.runnable_threads = lambda: 0
     drive(kq, d, lambda: states(d)["wait"] in ("running", "ok"))
     d.c.execute("UPDATE jobs SET state='cancelled' WHERE state IN ('queued','running')")
     d.c.commit()
@@ -566,10 +568,22 @@ def test_lease_plan_uses_the_timed_forecast_and_thaws_compressed_jobs_only_with_
 
 
 def test_the_timed_forecast_z_adapts_to_lost_work(kq):
-    cfg = dict(overcommit_window_s=21600, overcommit_loss_target=0.02)
+    cfg = dict(overcommit_window_s=21600, overcommit_loss_target=0.02, timed_z_max=3.0)
     assert kq.adapt_z(2.0, [(0, 0.0, 0.0), (3600, 100000.0, 5000.0)], cfg, now=3600)[0] == 2.5
+    assert kq.adapt_z(3.0, [(0, 0.0, 0.0), (3600, 100000.0, 5000.0)], cfg, now=3600)[0] == 3.0   # capped
     assert kq.adapt_z(2.0, [(0, 0.0, 0.0), (3600, 100000.0, 100.0)], cfg, now=3600)[0] == 1.75
     assert kq.adapt_z(2.0, [(0, 0.0, 0.0), (3600, 10.0, 5.0)], cfg, now=3600) == (2.0, None)
+
+
+def test_an_eviction_counts_against_timed_z_only_for_the_shortfall_batch_jobs_do_not_explain(kq):
+    jobs = [dict(id=1, use=30000.0), dict(id=2, use=5000.0, timed=True), dict(id=3, use=1000.0)]
+    grants = {1: 20000.0, 2: 3000.0, 3: 2000.0}          # batch #1 is 10 G over its grant; timed #2 2 G over
+    # 20 G buffer, 2 G free: an 8 G shortfall; batch overshoot explains all of it
+    assert kq.timed_share(jobs, grants, room=2000.0, buffer=20000.0) == 0.0
+    # 30 G short: batch overshoot explains a third
+    assert kq.timed_share(jobs, grants, room=-20000.0, buffer=20000.0) == pytest.approx(2 / 3)
+    # no batch job over its grant: all of it counts
+    assert kq.timed_share(jobs[1:], grants, room=2000.0, buffer=20000.0) == 1.0
 
 
 def test_batch_jobs_get_whole_steps_or_wait_and_evict_for_timed_only_when_really_short(kq):
@@ -599,9 +613,9 @@ def test_lease_plan_freezes_growers_when_the_buffer_is_eaten(kq):
 
 def test_timed_jobs_waiting_for_cpus_freeze_the_newest_batch_job(kq, tmp_path):
     d = _lease_daemon(kq, tmp_path, cpu_freeze_every_s=0, threads=512, reserve_cpu=0)  # admits both on a busy host
-    kq.runnable_threads = lambda: 0          # independent of how busy the test host is
+    d.host.runnable_threads = lambda: 0          # independent of how busy the test host is
     _clk = [0]
-    kq.cpu_ticks = lambda: (0, _clk.__setitem__(0, _clk[0] + 4000) or _clk[0])   # and of other users' load
+    d.host.cpu_ticks = lambda: (0, _clk.__setitem__(0, _clk[0] + 4000) or _clk[0])   # and of other users' load
     submit(kq, "sleep 60", name="old", qos="batch")
     submit(kq, "sleep 60", name="new", qos="batch")
     submit(kq, "sleep 60", name="timed", qos="timed")        # timed_wait only means something while one runs
@@ -682,6 +696,7 @@ def test_jobs_that_are_not_memory_heavy_move_one_cpu_step_down(kq, tmp_path):
     submit(kq, "python3 -c " + repr(prog).replace("\\n", "\n"), name="t", qos="timed", mem="6G")
     drive(kq, d, lambda: len(d.cgroups) == 2)
     d.ratios, d.ratios_ts = {"t": 0.01}, time.time() + 3600   # its owner's history now says: light after all
+    d.forecast_ratios = {"t": [0.01] * 3}
     d.demote_ts = 0.0
     drive(kq, d, lambda: d.demoted == {1, 2}, secs=20)
     tids = lambda i: [int(x) for x in open(d.cgroups[i] + "/cgroup.threads").read().split()]
@@ -700,7 +715,7 @@ def _lease_daemon(kq, tmp_path, **cfg):
     d = kq.Daemon()
     if not d.use_cgroup(kq.config()):
         pytest.skip("no delegated cgroup memory controller here")
-    kq.user_pressure = lambda: 0.0     # the live host's user manager pressure must not pause the tests' reclaims
+    d.host.user_pressure = lambda: 0.0     # the live host's user manager pressure must not pause the tests' reclaims
     return d
 
 
@@ -879,11 +894,11 @@ def test_batch_cpu_admission_needs_a_lasting_dip_and_its_quantile_adapts(kq):
     def idle_cpus():
         clock[0] += 4000
         return 0, clock[0]
-    kq.cpu_ticks = idle_cpus
     conf = json.load(open(kq.CONF)); conf.update(threads=64, reserve_cpu=0, runq_window_s=600, heavy_boost=False)
     json.dump(conf, open(kq.CONF, "w"))
     d = kq.Daemon()
-    kq.runnable_threads = lambda: 0
+    d.host.cpu_ticks = idle_cpus
+    d.host.runnable_threads = lambda: 0
     submit(kq, "sleep 20", name="busy", qos="batch")
     drive(kq, d, lambda: states(d)["busy"] == "running")      # (with nothing running, one job always starts)
     now = time.time()
@@ -896,9 +911,9 @@ def test_batch_cpu_admission_needs_a_lasting_dip_and_its_quantile_adapts(kq):
 
 def test_a_batch_job_starved_of_cpu_is_frozen_compressed_and_thawed_when_there_is_room(kq, tmp_path):
     d = _lease_daemon(kq, tmp_path, cpu_freeze_every_s=0, threads=512, reserve_cpu=0)
-    kq.runnable_threads = lambda: 0          # independent of how busy the test host is
+    d.host.runnable_threads = lambda: 0          # independent of how busy the test host is
     _clk = [0]
-    kq.cpu_ticks = lambda: (0, _clk.__setitem__(0, _clk[0] + 4000) or _clk[0])   # and of other users' load
+    d.host.cpu_ticks = lambda: (0, _clk.__setitem__(0, _clk[0] + 4000) or _clk[0])   # and of other users' load
     submit(kq, "python3 -c 'import time\na = bytearray(300 << 20)\nfor i in range(0, len(a), 4096): a[i] = 1\n"
                "time.sleep(40)'", name="b", qos="batch", mem="400M")
     submit(kq, "sleep 40", name="later", qos="batch")
@@ -927,11 +942,11 @@ def test_light_batch_jobs_fill_spare_cpus_and_heavy_ones_wait_for_the_run_queue(
     def idle_cpus():
         clock[0] += 4000
         return 0, clock[0]
-    kq.cpu_ticks = idle_cpus
-    kq.runnable_threads = lambda: 0
     conf = json.load(open(kq.CONF)); conf.update(threads=64, reserve_cpu=0, runq_window_s=600, cgroup="off")
     json.dump(conf, open(kq.CONF, "w"))
     d = kq.Daemon()
+    d.host.cpu_ticks = idle_cpus
+    d.host.runnable_threads = lambda: 0
     submit(kq, "sleep 20", name="busy", qos="timed")
     drive(kq, d, lambda: states(d)["busy"] == "running")
     now = time.time()
@@ -950,18 +965,18 @@ def test_a_waiting_filler_holds_no_room_for_itself(kq):
     def idle_cpus():
         clock[0] += 4000
         return 0, clock[0]
-    kq.cpu_ticks = idle_cpus
-    kq.runnable_threads = lambda: 200                        # no spare CPU right now: fillers wait
     conf = json.load(open(kq.CONF)); conf.update(threads=64, reserve_cpu=0, cgroup="off", starve_after_s=0)
     json.dump(conf, open(kq.CONF, "w"))
     d = kq.Daemon()
+    d.host.cpu_ticks = idle_cpus
+    d.host.runnable_threads = lambda: 200                        # no spare CPU right now: fillers wait
     submit(kq, "sleep 20", name="busy", qos="timed")
     drive(kq, d, lambda: states(d)["busy"] == "running")
     submit(kq, "sleep 20", name="filler", qos="batch", cpus=2, mem="1G", prio=5)   # first in line, long "starving"
     submit(kq, "sleep 20", name="timed", qos="timed", cpus=1, mem="1G")
     drive(kq, d, lambda: states(d)["timed"] == "running")
     assert states(d)["filler"] == "queued"
-    kq.runnable_threads = lambda: 0                          # CPUs spare: it starts
+    d.host.runnable_threads = lambda: 0                          # CPUs spare: it starts
     drive(kq, d, lambda: states(d)["filler"] == "running")
     d.c.execute("UPDATE jobs SET state='cancelled' WHERE state IN ('queued','running')")
 
@@ -972,11 +987,11 @@ def test_fillers_start_while_a_starving_head_waits_for_cpu(kq):
     def idle_cpus():
         clock[0] += 4000
         return 0, clock[0]
-    kq.cpu_ticks = idle_cpus
-    kq.runnable_threads = lambda: 0
     conf = json.load(open(kq.CONF)); conf.update(threads=64, reserve_cpu=0, cgroup="off", starve_after_s=0)
     json.dump(conf, open(kq.CONF, "w"))
     d = kq.Daemon()
+    d.host.cpu_ticks = idle_cpus
+    d.host.runnable_threads = lambda: 0
     submit(kq, "sleep 20", name="busy", qos="timed")
     drive(kq, d, lambda: states(d)["busy"] == "running")
     submit(kq, "sleep 20", name="head", qos="timed", prio=5, mem="1G")       # waits: timed jobs are short of CPU
@@ -1021,9 +1036,9 @@ def test_a_memory_limit_reverted_behind_kaeqs_back_is_set_again_and_told_to_syst
 def test_timed_wait_does_not_outlive_the_timed_jobs(kq, tmp_path):
     """With no timed job running nobody waits: a stale timed_wait must not keep batch jobs frozen or block timed starts."""
     d = _lease_daemon(kq, tmp_path, cpu_freeze_every_s=0, threads=512, reserve_cpu=0, thaw_min_run_s=0)
-    kq.runnable_threads = lambda: 0          # independent of how busy the test host is
+    d.host.runnable_threads = lambda: 0          # independent of how busy the test host is
     _clk = [0]
-    kq.cpu_ticks = lambda: (0, _clk.__setitem__(0, _clk[0] + 4000) or _clk[0])   # and of other users' load
+    d.host.cpu_ticks = lambda: (0, _clk.__setitem__(0, _clk[0] + 4000) or _clk[0])   # and of other users' load
     submit(kq, "sleep 60", name="b", qos="batch", mem="100M")
     drive(kq, d, lambda: states(d)["b"] == "running" and 1 in d.cgroups, secs=20)
     d.timed_wait = 0.5                                 # left over from timed jobs that have ended: freezes it
@@ -1052,11 +1067,11 @@ def test_a_starving_head_waiting_for_memory_is_not_overtaken_by_short_jobs(kq):
     def idle_cpus():
         clock[0] += 4000
         return 0, clock[0]
-    kq.cpu_ticks = idle_cpus
-    kq.runnable_threads = lambda: 0
     conf = json.load(open(kq.CONF)); conf.update(threads=64, reserve_cpu=0, cgroup="off", starve_after_s=0, heavy_boost=False)
     json.dump(conf, open(kq.CONF, "w"))
     d = kq.Daemon()
+    d.host.cpu_ticks = idle_cpus
+    d.host.runnable_threads = lambda: 0
     now = time.time()
     for i in range(6):          # history: owner "s" runs short jobs (so it may backfill)
         d.c.execute("INSERT INTO jobs(owner,cmd,cpus,mem_mb,timeout_s,state,submitted,started,finished) "
@@ -1080,3 +1095,108 @@ def test_a_starving_head_waiting_for_memory_is_not_overtaken_by_short_jobs(kq):
     d.admit(kq.config(), time.time(), 5 * 1024.0, 0.0, 3)
     assert states(d)["huge"] == "queued" and states(d)["short2"] == "running"
     d.c.execute("UPDATE jobs SET state='cancelled' WHERE state IN ('queued','running')")
+
+
+def test_a_retried_job_is_leased_in_its_new_scope(kq, tmp_path):
+    """An attempt's scope is gone when it ends; the next attempt must not be read through the old one, or its
+    memory is never leased (held at its first grant) and counts as only declared."""
+    d = _lease_daemon(kq, tmp_path)
+    submit(kq, "python3 -c 'import time\na = bytearray(300 << 20)\nfor i in range(0, len(a), 4096): a[i] = 1\n"
+               "time.sleep(1)\nraise SystemExit(1)'", name="r", qos="batch", mem="200M", retries=1)
+    drive(kq, d, lambda: states(d)["r"] == "running" and d.cgroups.get(1), secs=20)
+    first = d.cgroups[1]
+    drive(kq, d, lambda: d.c.execute("SELECT attempt FROM jobs").fetchone()[0] == 2 and states(d)["r"] == "running"
+          and d.cgroups.get(1) and d.cgroups[1] != first, secs=40)
+    assert os.path.isdir(d.cgroups[1])
+    drive(kq, d, lambda: d.c.execute("SELECT grant_mb FROM jobs").fetchone()[0] > 300, secs=20)   # its lease grows
+    d.c.execute("UPDATE jobs SET state='cancelled'")
+    kq.kill_tree(d.c.execute("SELECT pid FROM jobs").fetchone()[0], d.cgroups.get(1))
+
+
+def test_the_daemon_reports_its_own_failure_symptoms(kq, tmp_path):
+    import argparse
+    clock = [0]
+
+    def idle_cpus():
+        clock[0] += 4000
+        return 0, clock[0]
+    conf = json.load(open(kq.CONF)); conf.update(health_after_s=100, health_frozen_s=600, health_timed_idle_s=600)
+    json.dump(conf, open(kq.CONF, "w"))
+    d = kq.Daemon()
+    d.host.cpu_ticks = idle_cpus
+    submit(kq, "sleep 30", name="b", qos="batch")
+    drive(kq, d, lambda: states(d)["b"] == "running")
+    cfg, now = kq.config(), time.time()
+    d.c.execute("UPDATE jobs SET frozen_since=? WHERE name='b'", (now - 4000,))      # frozen over an hour
+    d.timed_wait = 0.5                                                              # with no timed job running
+    run = lambda: d.c.execute("SELECT * FROM jobs WHERE state='running'").fetchall()
+    d.health_ts = 0.0
+    d.health(cfg, now, run())
+    assert any("frozen" in h for h in d.sys["health"])                             # at once (past its threshold)
+    assert not any("timed_wait" in h for h in d.sys["health"])                     # not yet: it must last
+    d.health(cfg, now + 200, run())
+    assert any("timed_wait" in h for h in d.sys["health"])
+    ev = d.c.execute("SELECT kind, msg FROM events WHERE kind='health'").fetchall()
+    assert len(ev) == 1 and "frozen" in ev[0]["msg"]                               # the job's owner is told, once
+    d.health(cfg, now + 400, run())
+    assert len(d.c.execute("SELECT * FROM events WHERE kind='health'").fetchall()) == 1   # not again within the hour
+    # kaeq wait: exit 3 for health warnings alone (jobs still run)
+    with pytest.raises(SystemExit) as e:
+        kq.cmd_wait(argparse.Namespace(owner="t", timeout="5s"))
+    assert e.value.code == 3
+    # a cancelled job's open freeze is closed into its frozen time
+    kq.cmd_cancel(argparse.Namespace(ids=["1"], owner=None, tag=None))
+    j = d.c.execute("SELECT * FROM jobs WHERE name='b'").fetchone()
+    assert j["frozen_since"] == 0 and j["frozen_s"] >= 3999
+
+
+def test_a_daemon_start_closes_freezes_left_open_on_ended_jobs(kq):
+    c = kq.db()
+    c.execute("INSERT INTO jobs(owner,cmd,cpus,mem_mb,timeout_s,state,submitted,started,finished,frozen_s,frozen_since) "
+              "VALUES('t','x',1,1,60,'cancelled',0,100,500,10,300)")
+    c.commit()
+    kq.Daemon()
+    j = c.execute("SELECT frozen_s, frozen_since FROM jobs").fetchone()
+    assert j["frozen_since"] == 0 and j["frozen_s"] == pytest.approx(10 + 200)
+
+
+def test_a_running_jobs_expected_size_comes_from_evidence_before_its_declaration(kq):
+    cfg = dict(kq.DEFAULTS)
+    # three of its owner's jobs finished at 0.1-0.3 of --mem: --mem x median x margin
+    assert kq.expected_size(16000, [0.1, 0.2, 0.3], 900, 30, cfg) == pytest.approx(16000 * 0.2 * cfg["mem_learn_margin"])
+    # no history, young: its declaration
+    assert kq.expected_size(16000, None, 900, 30, cfg) == 16000
+    # no history, past forecast_trust_s: a margin over what it has shown
+    assert kq.expected_size(16000, [0.5], 900, 900, cfg) == pytest.approx(900 * cfg["forecast_trust_margin"])
+    # never below what it has used
+    assert kq.expected_size(1000, [0.1, 0.1, 0.1], 5000, 30, cfg) == 5000
+    # the old rule, by settings: declared --mem
+    old = dict(cfg, forecast_min_jobs=10 ** 9, forecast_trust_s=10 ** 9)
+    assert kq.expected_size(16000, [0.1, 0.2, 0.3], 900, 900, old) == 16000
+
+
+def test_set_changes_queued_jobs_and_only_the_timeout_of_running_ones(kq):
+    import argparse
+    c = kq.db()
+    now = time.time()
+    for name, state, tag in (("q1", "queued", "big"), ("q2", "queued", "big"), ("q3", "queued", "small"),
+                             ("r1", "running", "big"), ("d1", "failed", "big")):
+        c.execute("INSERT INTO jobs(owner,name,tag,cmd,cpus,mem_mb,timeout_s,state,submitted,started,deadline) "
+                  "VALUES('t',?,?,'x',4,8192,3600,?,?,?,?)",
+                  (name, tag, state, now, now if state == "running" else None, now + 3600 if state == "running" else None))
+    c.commit()
+    ns = dict(ids=[], owner="t", tag="big", timeout=None, mem=None, cpus=None, running=False)
+    kq.cmd_set(argparse.Namespace(**dict(ns, timeout="2x", mem="12G")))
+    kq.cmd_set(argparse.Namespace(**dict(ns, ids=["2"], tag=None, cpus="8")))
+    kq.cmd_set(argparse.Namespace(**dict(ns, timeout="5h", running=True)))
+    j = {r["name"]: r for r in c.execute("SELECT * FROM jobs").fetchall()}
+    assert (j["q1"]["timeout_s"], j["q1"]["mem_mb"], j["q1"]["cpus"]) == (5 * 3600, 12288, 4)
+    assert (j["q2"]["timeout_s"], j["q2"]["mem_mb"], j["q2"]["cpus"]) == (5 * 3600, 12288, 8)
+    assert (j["q3"]["timeout_s"], j["q3"]["mem_mb"]) == (3600, 8192)                  # other tag untouched
+    assert (j["r1"]["timeout_s"], j["r1"]["mem_mb"]) == (5 * 3600, 8192)              # running: timeout only
+    assert j["r1"]["deadline"] == pytest.approx(j["r1"]["started"] + 5 * 3600)
+    assert j["d1"]["timeout_s"] == 3600                                              # finished jobs: retry's job
+    with pytest.raises(SystemExit):
+        kq.cmd_set(argparse.Namespace(**dict(ns, ids=[], owner=None, tag=None, timeout="2h")))   # no selection
+    with pytest.raises(SystemExit):
+        kq.cmd_set(argparse.Namespace(**dict(ns, timeout="soon")))

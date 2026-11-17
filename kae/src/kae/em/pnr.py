@@ -30,6 +30,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from kae import materials as MAT
 from kae.excite import dc as DC
 from kae.route.critical_physics import RHO_CU, ipc2221_width
 
@@ -40,7 +41,7 @@ from .kicad import BoardMesh
 MU0 = 4e-7 * math.pi
 
 
-def strip_L_per_mm(w, h, t=0.035):
+def strip_L_per_mm(w, h, t=MAT.CU_1OZ_MM):
     """Air microstrip inductance per mm (H/mm), Hammerstad-Jensen with the thickness correction."""
     w = np.maximum(w, 1e-3)
     h = np.maximum(h, 1e-3)
@@ -362,6 +363,7 @@ class PhysRouter:
         resistive part is the DC band's."""
         from kae.excite import harm as HA
         self.wts, self.harm, self.Lks, self.u_c = {}, {}, {}, {}
+        self.noise_capped, caps = {}, {}            # pairs priced at the evaluator's implausibility cap
         ncp = len(next(iter(self.cval.values()), [None]))
         tot = np.zeros(ncp)
         slope = {}
@@ -387,9 +389,14 @@ class PhysRouter:
                 self.u_c[(o.name, s.name)] = us
                 self.harm[(o.name, s.name)] = float(us[0])
                 if self.pair_terms is not None:      # the intent's cost, in its currency
-                    tot += self.policy.pair_cost(self.pair_terms[(o.name, s.name)], us * o.bound)
-                    hard_rows += [(t, f"{o.name} <- {s.name}", w, lim, v) for t, w, lim, v in
-                                  self.policy.pair_hard(self.pair_terms[(o.name, s.name)], us * o.bound)]
+                    terms, inst = self.pair_terms[(o.name, s.name)], f"{o.name} <- {s.name}"
+                    nc = self.policy.noise_cap(o, us * o.bound)
+                    cap = caps[(o.name, s.name)] = nc["cap_V"] if nc else None
+                    if nc:
+                        self.noise_capped[inst] = (nc, terms)
+                    tot += self.policy.pair_cost(terms, us * o.bound, cap)
+                    hard_rows += [(t, inst, w, lim, v) for t, w, lim, v in
+                                  self.policy.pair_hard(terms, us * o.bound, cap)]
                 else:
                     tot += np.where(us <= 1, us, us + 4 * (us - 1) ** 2)
                 if o.kind not in UNPRICED or self.pair_terms is not None:
@@ -415,7 +422,7 @@ class PhysRouter:
             if self.pair_terms is not None:
                 # the intent's cost per volt of the pair's peak (V = u x bound), per henry of L_ks
                 V = us * bound
-                d = self.policy.dC_dV(self.pair_terms[pk], V)
+                d = self.policy.dC_dV(self.pair_terms[pk], V, caps.get(pk))
                 self.wts[key] = sg * float(np.mean([d[c] * g[c] * bound for c in idx]))
             else:
                 self.wts[key] = sg * float(np.mean([phi_prime(us[c]) * g[c] for c in idx]))
@@ -720,7 +727,7 @@ class PhysRouter:
         mn, opt, mx = self.sp.width_limits(n, layer)
         mesh = getattr(self, "mesh", None)
         names = getattr(self, "layer_names", None) or []
-        t = mesh.layers[names.index(layer)].t if mesh is not None and layer in names else 0.035
+        t = mesh.layers[names.index(layer)].t if mesh is not None and layer in names else MAT.CU_1OZ_MM
         try:
             s = float(self.sp._generic_need(n, "track", layer) or 0.2)
         except Exception:                     # noqa: BLE001 - a clearance only weighs the area
@@ -796,7 +803,8 @@ class PhysRouter:
         if hard and fields:
             self.solve_fields()
         return self.policy.hazards(getattr(self, "hard_rows", []) if fields else [], checked_pairs=fields,
-                                   checked_dc=fields and getattr(self, "dc_obs", None) is not None)
+                                   checked_dc=fields and getattr(self, "dc_obs", None) is not None,
+                                   capped=getattr(self, "noise_capped", {}) if fields else {})
 
     def report(self):
         """The routing report the commander reads: counts and the shared hazards list."""
@@ -904,7 +912,7 @@ class PhysRouter:
         return res2
 
     # ------------------------------------------------------------------ verified candidates
-    _STATE = ("prices", "pot_at", "K", "_warm", "wts", "harm", "u_c", "H", "H_hard", "hard_rows", "H_typ", "H_corners", "_sig", "dc_obs", "Lks", "mesh", "op", "islands", "ref_ids", "layer_names", "_H",
+    _STATE = ("prices", "pot_at", "K", "_warm", "wts", "harm", "u_c", "H", "H_hard", "hard_rows", "noise_capped", "H_typ", "H_corners", "_sig", "dc_obs", "Lks", "mesh", "op", "islands", "ref_ids", "layer_names", "_H",
               "_pred", "_L0", "_predL", "capf", "spec_m", "spec_hops", "_cut_w", "spec_pred")
 
     def _snap(self):

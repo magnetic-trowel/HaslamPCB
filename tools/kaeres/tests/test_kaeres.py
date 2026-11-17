@@ -40,8 +40,8 @@ def test_method_table_means_over_common_boards():
     out = kaeres.method_table(rows, ["a", "b"], "t")
     assert "DRC errors / board, 1 common boards" in out[2] and "physics Σu, 1 common boards" in out[2]
     cells = {ln.split(" | ")[0].strip("| "): ln.split(" | ") for ln in out[4:6]}
-    assert cells["a"][8:10] == ["5.00 (2)", "0.00"] and cells["b"][8:10] == ["2.00 (1)", "2.00"]
-    assert cells["a"][16:18] == ["5.000 (2)", "1.000"] and cells["b"][16:18] == ["3.000 (1)", "3.000"]
+    assert cells["a"][9:11] == ["5.00 (2)", "0.00"] and cells["b"][9:11] == ["2.00 (1)", "2.00"]
+    assert cells["a"][17:19] == ["5.000 (2)", "1.000"] and cells["b"][17:19] == ["3.000 (1)", "3.000"]
 
 
 def _r(method, board, attempt, clean, status="ok", unconnected=None):
@@ -54,7 +54,7 @@ def test_method_table_reports_k_and_cpk_over_attempts():
     rows = [_r("a", "b1", 0, False), _r("a", "b1", 1, True), _r("a", "b2", 0, False), _r("a", "b2", 1, False)]
     out = kaeres.method_table(rows, ["a"], "t")
     cells = out[4].split(" | ")
-    assert cells[1:6] == ["2", "2", "0.000", "2", "0.500"]   # boards, ok, cp1, k, cpk
+    assert cells[1:7] == ["2", "2", "0.000", "—", "2", "0.500"]   # boards, ok, cp1, xc, k, cpk
 
 
 def test_paired_table_tests_cp1_and_cpk_and_lists_flips():
@@ -364,3 +364,184 @@ def test_rephysics_job_fails_when_no_run_could_be_rebuilt(tmp_path, monkeypatch,
     assert kaeres.cmd_rephysics_job(a) == 1
     out = capsys.readouterr().out
     assert "0 physics evaluation(s)" in out and "unexpected keyword" in out and "no run could be rebuilt" in out
+
+
+def _xr(method, board, xc, kind="route"):
+    return dict(_r(method, board, 0, False), xc=xc, kind=kind)
+
+
+def test_xc_is_clean_net_of_the_route_inputs_errors():
+    drc = dict(errors_by_type=dict(courtyards_overlap=2, solder_mask_bridge=1))
+    row = dict(valid=True, unconnected=0, errors_by_type='{"courtyards_overlap": 2}')
+    assert kaeres.clean_net_of_input(row, drc) is True
+    assert kaeres.clean_net_of_input(dict(row, errors_by_type='{"courtyards_overlap": 3}'), drc) is False
+    assert kaeres.clean_net_of_input(dict(row, errors_by_type='{"clearance": 1}'), drc) is False
+    assert kaeres.clean_net_of_input(dict(row, unconnected=1), drc) is False
+    assert kaeres.clean_net_of_input(dict(row, valid=False), drc) is False
+    assert kaeres.clean_net_of_input(row, None) is None
+    assert kaeres.clean_net_of_input(row, dict(errors_by_type=None)) is None   # input DRC never measured
+    assert kaeres.clean_net_of_input(dict(row, errors_by_type="{}"), dict(errors_by_type={})) is True
+
+
+def test_method_table_marks_xc_of_placing_methods():
+    rows = [_xr("router", "b1", True), _xr("router", "b2", False), _xr("placer", "b1", True, "joint-fixed"),
+            _xr("placer", "b2", True, "joint-fixed"), _xr("unknown", "b1", None)]
+    out = kaeres.method_table(rows, ["router", "placer", "unknown"], "t")
+    assert "xc (clean net of input; † placing method, not comparable)" in out[2]
+    assert out[4].split(" | ")[4] == "0.500" and out[5].split(" | ")[4] == "1.000†" and out[6].split(" | ")[4] == "—"
+
+
+def test_winnable_table_counts_the_sets_and_cp1_on_winnable_boards():
+    def r(m, b, clean, win):
+        return dict(_r(m, b, 0, clean), winnable=win)
+    rows = [r("a", "w1", True, True), r("a", "w2", False, True), r("a", "w3", True, True), r("a", "lost", False, False), r("a", "u", True, None),
+            r("b", "w1", False, True), r("b", "w2", False, True), r("b", "lost", True, False)]
+    out = kaeres.winnable_table(rows, ["a", "b"], 9)
+    assert "Winnable: 3 of 5 boards. 1 have" in out[2] and "(9)" in out[2]
+    assert out[6].split(" | ")[1:] == ["5", "0.600", "3", "0.667", "0 of 1 |"]
+    assert out[7].split(" | ")[1:] == ["3", "0.333", "2", "0.000", "1 of 1 |"]    # b: only the two winnable boards it ran
+    assert kaeres.winnable_table([r("a", "x", True, None)], ["a"]) == []
+
+
+def test_fixed_input_placement_errors_reads_the_joint_fixed_input(monkeypatch):
+    monkeypatch.setattr(kaeres, "exp_task_id", lambda e, b, kind: f"{kind}-{b}")
+    tasks = {"joint-fixed-bad": dict(record=dict(tasks={"place-fixed": dict(input_drc=dict(errors_by_type=dict(clearance=2, unresolved_variable=1)))})),
+             "joint-fixed-ok": dict(record=dict(tasks={"place-fixed": dict(input_drc=dict(errors_by_type=dict(unresolved_variable=1)))}))}
+    monkeypatch.setattr(kaeres, "task_meta", lambda b, tid: tasks.get(tid))
+    assert kaeres.fixed_input_placement_errors({}, "bad") == dict(clearance=2)
+    assert kaeres.fixed_input_placement_errors({}, "ok") == {}
+    assert kaeres.fixed_input_placement_errors({}, "absent") is None
+
+
+def test_placement_error_types_match_the_scorer():
+    import ast
+    src = (Path(__file__).resolve().parents[3] / "bench" / "src" / "kaebench" / "score.py").read_text()
+    node = next(n for n in ast.parse(src).body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "PLACEMENT_ERROR_TYPES")
+    assert ast.literal_eval(node.value) == kaeres.PLACEMENT_ERROR_TYPES
+
+
+def test_physics_valued_excludes_flat_three_modules_and_caps_u():
+    ph = dict(modules=dict(a=dict(u=0.5), b=dict(u=None), c=dict(u=7.0)))
+    assert kaeres.physics_valued(ph) == (5.5, 2)
+    assert kaeres.physics_valued(dict(modules=dict(a=dict(u=None)))) == (None, 0)
+    assert kaeres.physics_valued({}) == (None, 0)
+
+
+def test_u_cap_matches_the_scorecard():
+    import re as _re
+    src = (Path(__file__).resolve().parents[3] / "kae" / "src" / "kae" / "joint" / "scorecard.py").read_text()
+    assert float(_re.search(r"^U_CAP = ([0-9.]+)", src, _re.M).group(1)) == kaeres.PHYSICS_U_CAP
+
+
+def test_physics_table_means_only_over_boards_with_observations():
+    def r(m, b, tot, val, obs, vs=None, vvs=None):
+        return dict(method=m, board=b, attempt=0, physics_total=tot, physics_valued_total=val, physics_observations=obs,
+                    physics_vs_human=vs, physics_valued_vs_human=vvs)
+    rows = [r("a", "b1", 4.0, 1.0, 2, 1.0, 2.0), r("a", "b2", 6.0, None, 0, 1.0, None), r("human", "b1", 3.0, 1.0, 2, 1.0, 1.0)]
+    out = kaeres.physics_table(rows, ["human", "a"])
+    assert out[6].split(" | ")[:3] == ["| human", "1", "0"]
+    cells = out[7].split(" | ")
+    assert cells[:8] == ["| a", "2", "1", "2.0", "4.000", "1.000", "1.000", "2.000 |"]
+
+
+def test_intent_totals_leave_out_loss_part_and_count_observations(tmp_path):
+    status = dict(tiers=dict(cost=30.0), terms=[dict(tier="cost", obs="loss.copper", contribution=20.0),
+                                                dict(tier="cost", obs="loss.part", contribution=10.0)])
+    assert kaeres.intent_totals(status, dict(observations=[1, 2])) == (30.0, 20.0, 2)
+    assert kaeres.intent_totals(dict(tiers=None), {}) == (None, None, 0)
+    (tmp_path / "b1").mkdir(); (tmp_path / "b2").mkdir()
+    import json
+    (tmp_path / "b1" / "human.status.json").write_text(json.dumps(status))
+    (tmp_path / "b1" / "human.ev.json").write_text(json.dumps(dict(observations=[1])))
+    (tmp_path / "b1" / "abcdef012345.status.json").write_text(json.dumps(dict(status, tiers=dict(cost=40.0))))
+    (tmp_path / "b1" / "abcdef012345.ev.json").write_text(json.dumps(dict(observations=[1])))
+    (tmp_path / "b2" / "human.status.json").write_text(json.dumps(dict(tiers=dict(cost=0.0), terms=[])))
+    (tmp_path / "b2" / "human.ev.json").write_text(json.dumps(dict(observations=[])))
+    rows = [dict(attempt=0, board="b1", run="x", method_id="m", method="human"), dict(attempt=0, board="b2", run="x", method_id="m", method="human"),
+            dict(attempt=0, board="b1", run="r", method_id="abcdef012345", method="arm")]
+    out = kaeres.intent_table(rows, ["human", "arm"], tmp_path)
+    assert out[6].split(" | ")[:6] == ["| human", "2", "1", "30.0", "20.0", "1.000 |"]
+    assert out[7].split(" | ")[:6] == ["| arm", "1", "0", "40.0", "30.0", "1.500 |"]
+
+
+def test_mfg_of_prefers_a_refilled_measurement():
+    ed = dict(a=dict(mfg=dict(refilled=False, fab_class_jlcpcb="hdi"), at="2026-11-09"),
+              b=dict(mfg=dict(refilled=True, fab_class_jlcpcb="standard"), at="2026-11-01"), c=dict(score=dict(clean=True)))
+    assert kaeres.mfg_of(ed)["fab_class_jlcpcb"] == "standard"
+    assert kaeres.mfg_of(dict(c=dict(score={}))) == {}
+
+
+def test_mfg_table_is_silent_without_measurements_and_labels_not_targets():
+    r0 = dict(_r("a", "b1", 0, True), mfg_fab_class_jlcpcb=None, mfg_acute_per_m=None)
+    assert kaeres.mfg_table([r0], ["a"]) == []
+    c = {f"mfg_{k}": v for k, v in dict(ca_short_per_m_pours=2.0, width_at_class_min=0.9, copper_pair_diff_pp=30.0, copper_flag=True, vip_small_signal=2,
+                                        fab_class_jlcpcb="standard", phantom_share=0.1, exp_breakout_40um=0.001, acute_per_m=1.5).items()}
+    out = kaeres.mfg_table([dict(_r("a", "b1", 0, True), **c)], ["a", "absent"])
+    assert "not targets" in out[0] and "Manufacturability" in out[0]
+    assert out[6].split(" | ")[1:6] == ["1", "2.000", "0.900", "30.0", "1"] and "1 / 0 / 0 / 0" in out[6]
+
+
+def test_method_timeout_cap_is_a_method_param():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("kaeres_cap", Path(__file__).resolve().parents[1] / "kaeres.py")
+    K = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(K)
+    m = lambda **p: dict(recipe=dict(params=dict(timeout_s="7200", timeout_scale="sqrt-fp40", **p)))  # noqa: E731
+    row = dict(footprints=360)                     # sqrt(9) = 3: 21,600 s uncapped
+    assert K.method_timeout(m(), row) == 4 * 3600
+    assert K.method_timeout(m(timeout_cap_s="30000"), row) == 21600
+    assert K.method_timeout(m(timeout_cap_s="30000"), dict(footprints=20)) == 7200
+
+
+def _fake_prepare(tmp_path, monkeypatch, spec=11):
+    """_prepare with a fake harness of task spec `spec`; returns (call, number of kaebench runs)."""
+    runs = []
+    monkeypatch.setattr(kaeres, "_venv", lambda hc: (tmp_path / "code", tmp_path / "venv"))
+    monkeypatch.setattr(kaeres, "harness_task_spec", lambda hc: spec)
+    monkeypatch.setattr(kaeres, "kicad_version", lambda: "10.0.7")
+    monkeypatch.setenv("KAERES_TASK_CACHE", str(tmp_path / "cache"))
+
+    def fake_run(cmd, log, env, timeout):
+        work = Path(cmd[cmd.index("--workdir") + 1])
+        task = work / "tasks" / cmd[cmd.index("--only") + 1]
+        _touch(task / "route" / "input" / "board.kicad_pcb")
+        (task / "task.json").write_text('{"tasks": {"route": {}}}')
+        runs.append(cmd)
+        return 0, False
+    monkeypatch.setattr(kaeres, "run_logged", fake_run)
+
+    def call(job, board_text="(kicad_pcb a)"):
+        ws = tmp_path / job
+        src = ws / "src" / "b1"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "board.kicad_pcb").write_text(board_text)
+        steps = {}
+        task, rc, to = kaeres._prepare("b1", "h" * 40, ["route"], ws, {}, ws / "log", steps)
+        return task, steps
+    return call, runs
+
+
+def test_a_second_job_copies_the_preparation_of_the_same_board_files(tmp_path, monkeypatch):
+    """Jobs of one board prepared the same task again and again (each 20-340 s of KiCad DRCs)."""
+    call, runs = _fake_prepare(tmp_path, monkeypatch)
+    t1, s1 = call("job1")
+    t2, s2 = call("job2")
+    assert len(runs) == 1 and "cached" not in s1["prepare"] and s2["prepare"]["cached"]
+    assert (t2 / "task.json").read_text() == (t1 / "task.json").read_text()
+    assert (t2 / "route" / "input" / "board.kicad_pcb").exists()
+    call("job3", board_text="(kicad_pcb b)")      # other board bytes: prepared afresh
+    assert len(runs) == 2
+
+
+def test_no_task_cache_before_deterministic_preparation(tmp_path, monkeypatch):
+    """Before task spec 10 prepare drew random uuids: a copy is not what the job would prepare."""
+    call, runs = _fake_prepare(tmp_path, monkeypatch, spec=9)
+    call("job1")
+    call("job2")
+    assert len(runs) == 2 and not (tmp_path / "cache").exists()
+    call2, runs2 = _fake_prepare(tmp_path / "off", monkeypatch)
+    monkeypatch.setenv("KAERES_TASK_CACHE", "off")
+    call2("job1")
+    call2("job2")
+    assert len(runs2) == 2

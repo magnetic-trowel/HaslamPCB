@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from shapely.geometry import Point
 
+from kae.circuit.names import GND_RE
 from kae.physics import exact as EX
 from kae.physics import priors as PR
 from kae.physics.boardview import body_z
@@ -33,8 +34,6 @@ from kae.physics.boardview import body_z
 from .critical_grid import Anchor
 from .critical_physics import INF, Loop, dielectric_er, heat_hazard, ipc2221_width, trace_capacitance_pf
 from kae.physics.kernels import lprime_hj
-
-GND_RE = re.compile(r'(^|[^A-Z])(A|D|P|S|C)?GND|^/?VSS|^0V$|GROUND|EARTH', re.I)
 
 
 # ----------------------------------------------------------------------------- module
