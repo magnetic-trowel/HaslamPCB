@@ -45,3 +45,15 @@ builds decide nothing on their own.
   build) are excluded from the decision and never pooled; its queued jobs are cancelled.
 - Boards (63), arms, k = 1, primary, guards and decision rules unchanged. No smoke: the rebase changed no code of either arm.
 - **Still worth running:** PR #83 is not merged, so the harm check still gates it; about 60 CPU-h (queue triage).
+
+## Addendum 2026-11-17 (m3), before any run on this build: main 22ff779a and Freerouting f1c41d3
+Main (kae #105) and the pin moved after `negrail-abs-m` was submitted: the fork now counts the optimizer's search steps and
+pour fills inside `autorouter.max_work`, and kae stops charging optimizer passes on top of that and sets the new
+weights. Checked before deciding: on a small board where no budget binds the bridge's copper came out item for item
+the same on both builds, but the charged clock did not (53.3 s against 39.1 s). Its arms run the restart portfolio under counted work, and the number of attempts and their budgets follow the charged clock. So its outputs change
+on the new build.
+- Migrated: branch `physics-net-volts-abs-m3` (rebased on main 22ff779a, no conflict; the -m2 branch is left as it
+  was). Arms: main = kae 22ff779a, abs = kae 1555c20c; restart.py from 22ff779a. Freerouting fork f1c41d3, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `negrail-abs-m3` (owner `exp-negrail-abs-m3`), new method ids. The runs of `negrail-abs-m` (58 jobs done) are on the
+  previous build and excluded from the decision; its jobs are cancelled.
+- Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
