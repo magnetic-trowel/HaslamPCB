@@ -13,8 +13,8 @@ A cell (`kae.excite.sources._cell`) is a unit current source across its switch; 
 |---|---|---|
 | `L_loop` | `Im z(f_e) / (2π f_e)`, f_e the edge band (≤ 10 MHz, `observe.gentle_f`) | ev.json `cells[].L_loop_nH`; board solve: `rings`, `loss.loop` label |
 | `R_loop(f)` | `Re z(f)` at f_sw, 3·f_sw, 5·f_sw (a trapezoid's odd harmonics) | `cells[].R_loop_mohm` (f_sw), `cells[].R_harmonics` |
-| overshoot peak | `|Z(f_sw)|·(2/π)·|sin πD|·I + L_loop·I/t_i` per corner (`harm.peak`) | `cells[].overshoot_V` {typ, worst}; board solve: `overshoot.peak` |
-| `loss.loop` | `½·L_loop·I²·f_sw` per corner (max(L_loop, 0): a negative copper share costs nothing, the cell stays) | observation |
+| overshoot peak | `|Z(f_sw)|·(2/π)·|sin πD|·I + L_loop·I_pk/t_i` per corner (`harm.peak`; I_pk the turn-off current) | `cells[].overshoot_V` {typ, worst}; board solve: `overshoot.peak` |
+| `loss.loop` | `½·L_loop·I_pk²·f_sw` per corner (I_pk = I + ΔI/2 when the inductor is in the circuit, else I) (max(L_loop, 0): a negative copper share costs nothing, the cell stays) | observation |
 | `loss.loop_ac` | with a refined window: `Σₙ |cₙ|²/2 · R_loop(n·f_sw)`, `cₙ = (2I/nπ)·|sin nπD|·sinc(n·f_sw·t_i)` (199 harmonics), R_loop(f) from the window's solves at f_sw, 3 f_sw, 5 f_sw (lateral crowding toward the return in the field solve, crowding through the thickness by `kae.em.skin`), log-log between them and `∝ √f` above 5 f_sw; it reduces to `I²·D·(1−D)·R` for flat R. Without a window: `I²·D·(1−D)·R_loop(f_sw)` of the board solve, no skin (a lower bound) | observation (`scope.R_harmonics_mohm`) |
 | `loss.copper_ac` | the inductor's ripple (§ 7): `Σₙ cₙ²·P₁(n·f_sw)` | observation |
 | `loss.swnode` | `½·C_sw·V²·f_sw`, C_sw from the electrostatic solve | observation |
@@ -85,7 +85,7 @@ Two-pad parts are lumped branches between their pads' terminals (`mesh.Lumped`):
 
 ## 6. Absolute loss scale: ½·L·I²·f understates
 
-`loss.loop = ½·L·I²·f_sw` is the energy of the loop's inductance at turn-off. EPC measures more than 4 % efficiency over 0.4 → 2.9 nH at 12 → 1.2 V, 1 MHz, about 0.4 W/nH at an assumed 20 A against ½·L·I²·f's 0.2 W/nH: the rest is slower commutation and the overshoot's own loss [P, I] ([kae-hot-loops](../../research/routing/kae-hot-loops.md#what-experts-do-and-why-quantified)). The factor depends on the cell (integrated vs discrete switches, gate drive), not on the layout, so for one cell it is a constant: layout ratios and rankings hold; watts across cells of different classes do not compare. Not retuned: a per-class switching model is an open question.
+`loss.loop = ½·L·I_pk²·f_sw` is the energy of the loop's inductance at turn-off, at the inductor's peak I_pk = I + ΔI/2; turn-on is not charged, its inductance acting as a snubber ([converter-currents § 4](converter-currents.md#4-turn-off-current-what-the-hot-loops-inductance-costs)). EPC measures more than 4 % efficiency over 0.4 → 2.9 nH at 12 → 1.2 V, 1 MHz, about 0.4 W/nH at an assumed 20 A against ½·L·I²·f's 0.2 W/nH, 0.26 W/nH at I_pk with 30 % ripple: the rest is slower commutation and the overshoot's own loss [P, I] ([kae-hot-loops](../../research/routing/kae-hot-loops.md#what-experts-do-and-why-quantified)). The factor depends on the cell (integrated vs discrete switches, gate drive), not on the layout, so for one cell it is a constant: layout ratios and rankings hold; watts across cells of different classes do not compare. Not retuned: a per-class switching model is an open question.
 
 ## 7. Board-level AC copper loss: the split between loss.loop_ac and loss.copper_ac
 
