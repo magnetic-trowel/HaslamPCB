@@ -289,10 +289,19 @@ FR_SCALE_EXP = 1.43
 FR_SCALE_MIN, FR_SCALE_MAX = 0.05, 3.0
 FR_PASS_S = 0.012            # nominal seconds per pass started and board pin
 FR_UNROUTED_S = 6.7e-5       # ... per unrouted connection (at the pass's start) and board pin
+FR_FILL_S = 2.7e-4           # nominal seconds per unit of pour fill work (the fork's work_fill_weight: per fill
+                             # computed and per clearance shape cut out of it, in the passes and the optimizer).
+                             # 2.98e-4 (routing passes, least squares) and 2.97e-4 (an optimizer pass) on a
+                             # 432-pin board with plane nets (2026-11-17), 2.6e-4 with FR_OPT_STEP below; before,
+                             # its passes took 3x their charge and its optimizer 24x
+FR_OPT_STEP = 5.0            # an optimizer search step in search steps of a routing pass (the fork's
+                             # work_optimizer_step_weight): 4.3-5.4x on 182 and 328 pins without pours
 FR_OPT_MAX_PASSES = 10       # work mode: the optimizer's pass cap (it otherwise stops on its improvement
                              # threshold, or on the wall-clock ceiling: not deterministic)
-_WORK_LINE = re.compile(r"Auto-routing pass #\d+: \d+ search steps and (\d+) work units so far")
+_WORK_LINE = re.compile(r"(?:Auto-routing pass #\d+: \d+ search steps and|Optimizer work after pass #\d+:) "
+                        r"(\d+) work units so far")
 _HOOK = {}
+_OPT_HOOK = {}
 
 
 def has_work_budget(cmd=None):
@@ -301,10 +310,7 @@ def has_work_budget(cmd=None):
     import zipfile
     if os.environ.get("KAE_FR_WORK_BUDGET") == "0":
         return False
-    argv = cmd or command()
-    jar = next((a for a in argv if a.endswith(".jar")), None)
-    if jar is None and argv:
-        jar = str(Path(argv[0]).resolve().parent.parent / "lib" / "freerouting.jar")
+    jar = _jar(cmd)
     if jar not in _HOOK:
         ok = False
         try:
@@ -315,6 +321,50 @@ def has_work_budget(cmd=None):
             ok = False
         _HOOK[jar] = ok
     return _HOOK[jar]
+
+
+def _jar(cmd=None):
+    """The Freerouting build's jar: on the command line, or lib/freerouting.jar next to its launcher."""
+    argv = cmd or command()
+    jar = next((a for a in argv if a.endswith(".jar")), None)
+    if jar is None and argv:
+        jar = str(Path(argv[0]).resolve().parent.parent / "lib" / "freerouting.jar")
+    return jar
+
+
+def takes_setting(name, cmd=None):
+    """Whether the Freerouting build takes autorouter.`name` (its AutorouterSettings class holds the name)."""
+    import zipfile
+    jar = _jar(cmd)
+    key = (name, jar)
+    if key not in _OPT_HOOK:
+        ok = False
+        try:
+            with zipfile.ZipFile(jar) as z:
+                ok = any(name.encode() in z.read(n) for n in z.namelist()
+                         if n.endswith("settings/AutorouterSettings.class"))
+        except (OSError, zipfile.BadZipFile, TypeError):
+            ok = False
+        _OPT_HOOK[key] = ok
+    return _OPT_HOOK[key]
+
+
+def counts_optimizer_work(cmd=None):
+    """Whether the Freerouting build counts its optimizer's work into autorouter.max_work and logs
+    it ("Optimizer work after pass #N: W work units so far in the job."): then a run's last work
+    count covers its optimizer, and _charge charges no optimizer passes on top."""
+    import zipfile
+    jar = _jar(cmd)
+    if jar not in _OPT_HOOK:
+        ok = False
+        try:
+            with zipfile.ZipFile(jar) as z:
+                ok = any(b"Optimizer work after pass" in z.read(n)
+                         for n in z.namelist() if n.endswith("BatchOptimizer.class"))
+        except (OSError, zipfile.BadZipFile, TypeError):
+            ok = False
+        _OPT_HOOK[jar] = ok
+    return _OPT_HOOK[jar]
 
 
 def _overhead(dsn):
@@ -349,23 +399,30 @@ def pass_weights(pins, rate):
     return FR_PASS_S / step, FR_UNROUTED_S / step
 
 
+def fill_weight(pins, rate):
+    """The fork's work_fill_weight on this board (work units per unit of pour fill work), for
+    FR_FILL_S; None when FR_FILL_S is not set."""
+    return None if FR_FILL_S is None else FR_FILL_S / (rate * work_scale(pins))
+
+
 def _charge(run, dsn, pins):
     """Charge a finished run by what it did: its start-up, its pass loop's work units (a build with
     the work budget logs them; scaled to the board, work_scale) or else its passes x pins^2, and its
-    optimizer passes."""
+    optimizer passes, unless the build counts those in its work units (counts_optimizer_work)."""
     size = pins ** 2
     kb = _overhead(dsn)
     budget.charge("fr_run", 1)
     budget.charge("fr_dsn_kb", kb)
     w = _WORK_LINE.findall(run.log or "")
-    if w and has_work_budget():
+    counted = bool(w) and has_work_budget()
+    if counted:
         # in search steps of the reference board (RATES["fr_work"] nominal seconds each); in time mode
         # (counted only) the fork's own default weights, so a calibration reads the steps from the log
         budget.charge("fr_work", job_work(w) * work_scale(pins))
     else:
         budget.charge("fr_pass_pin2", max(1, len(PASS_DONE.findall(run.log or ""))) * size)
     opt = (run.report.get("phases") or {}).get("opt_passes") or 0
-    if opt:
+    if opt and not (counted and counts_optimizer_work()):
         budget.charge("fr_opt_pass_pin2", opt * size)
 
 
@@ -392,6 +449,12 @@ def route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin_
         settings.update({"autorouter.max_work": str(max(1, int(left / (rates["fr_work"] * work_scale(pins))))),
                          "autorouter.work_pass_weight": f"{pw:.6g}",
                          "autorouter.work_unrouted_weight": f"{uw:.6g}"})
+        # the optimizer's steps and the pour fills, on a build that prices them
+        fw = fill_weight(pins, rates["fr_work"])
+        if fw is not None and takes_setting("work_fill_weight"):
+            settings["autorouter.work_fill_weight"] = f"{fw:.6g}"
+        if takes_setting("work_optimizer_step_weight"):
+            settings["autorouter.work_optimizer_step_weight"] = f"{FR_OPT_STEP:.6g}"
         cap = passes
     else:
         cap = max(1, int(budget_s / max(1e-9, rates["fr_pass_pin2"] * size)))
@@ -620,6 +683,8 @@ def _optimizer_stop(log):
         return "below_threshold"
     if "Optimizer stage timed out" in log:
         return "timed_out"
+    if "Stopping the optimizer before pass" in log:      # the job's work budget, spent in its passes
+        return "work_budget"
     if "Skipping optimization stage" in log:
         return "skipped"
     return None
@@ -689,7 +754,8 @@ def _summary(d, log=""):
     """The parts of Freerouting's result file the bridge reports, plus why each stage stopped:
     `autorouter_stop` is the fork's StopReason for the chosen attempt (COMPLETED: nothing left
     to route; STAGNATION / NO_IMPROVEMENT: its score stopped improving; TIMED_OUT: the clock;
-    MAX_PASSES), `optimizer_stop` is below_threshold, timed_out or skipped."""
+    MAX_PASSES), `optimizer_stop` is below_threshold, timed_out, work_budget (the job's work budget, spent
+    in the optimizer's passes) or skipped."""
     if not d:
         return {}
     use = d.get("resource_usage") or {}
