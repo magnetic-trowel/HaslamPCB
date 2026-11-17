@@ -102,3 +102,7 @@ as experiment `fr-neck-gated-ab3` at this commit on the new pin; nothing else ch
 
 ## Addendum 2026-11-17: re-registered on main 9e54baed as `fr-neck-gated-ab4`, before any job ran
 #108 does not reach these arms (route.cli only); the move is for #106 (the harness warms the numba caches), identical outputs. `fr-neck-gated-ab3` was registered but never submitted. Arms, boards, pin (f1c41d3), analysis and decision rule are unchanged.
+
+## Smoke on the final pin (2026-11-17, xerxes 544 pads with pours, control arm, py-spy only, f1c41d3)
+16 attempts: wall/charged 1.02-2.17 (median about 1.2); the run took 20.5 min for 1,083 s nominal (1.14x); no
+`kae.budget.gap` line; kept board clean. Run on b38746a9 (main 22ff779a); 9e54baed changes nothing on this path.
