@@ -1080,13 +1080,26 @@ class Daemon:
         jobs, for owners with at least mem_pool_min_jobs of them (refreshed every minute)."""
         if now - self.profiles_ts < 60:
             return self.profiles
-        out = {}
+        avg = lambda hs: [sum(h[k] / sum(h) for h in hs) / len(hs) for k in range(MEM_BINS)]
+        out, prior = {}, None
         for o in {j["owner"] for j in running}:
             hs = [json.loads(r[0]) for r in self.c.execute(
                 "SELECT mem_hist FROM jobs WHERE owner=? AND mem_hist IS NOT NULL ORDER BY finished DESC LIMIT 50", (o,))]
             hs = [h for h in hs if sum(h)]
             if len(hs) >= cfg["mem_pool_min_jobs"]:
-                out[o] = [sum(h[k] / sum(h) for h in hs) / len(hs) for k in range(MEM_BINS)]
+                out[o] = avg(hs)
+            elif cfg["mem_pool_prior_jobs"]:
+                # a campaign without history of its own yet: the average profile of all recent jobs, so its jobs'
+                # growth is pooled like everyone's instead of each counting its whole headroom (a new campaign of
+                # 8 jobs set 57 G aside that way, and a 17 G head starved with 136 G free)
+                if prior is None:
+                    ps = [json.loads(r[0]) for r in self.c.execute(
+                        "SELECT mem_hist FROM jobs WHERE mem_hist IS NOT NULL ORDER BY finished DESC LIMIT ?",
+                        (cfg["mem_pool_prior_jobs"],))]
+                    ps = [h for h in ps if sum(h)]
+                    prior = avg(ps) if len(ps) >= 50 else []
+                if prior:
+                    out[o] = prior
         self.profiles, self.profiles_ts = out, now
         return out
 

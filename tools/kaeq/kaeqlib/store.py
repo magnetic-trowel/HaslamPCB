@@ -104,6 +104,7 @@ DEFAULTS = {
     "mem_pool_margin": 1.1,  # pooled jobs may reach their observed peak x this (others: peak_margin)
     "mem_pool_rho": 0.5,     # prior correlation between jobs of one owner (0 = independent, 1 = in lockstep); the
                              # daemon measures it from concurrent jobs' RSS and uses the prior only as 2 pseudo-pairs
+    "mem_pool_prior_jobs": 500,  # an owner with fewer: the average profile of the last this many jobs of all owners (0: none)
     "mem_pool_min_jobs": 3,  # finished jobs with a histogram an owner needs before its jobs are pooled
     # admission and warm-up on what jobs really use: once an owner has mem_learn_min_jobs finished jobs, a new job
     # of it needs its --mem x (p95 of the owner's peak/--mem) x mem_learn_margin, never more than --mem
@@ -272,6 +273,8 @@ CREATE INDEX IF NOT EXISTS jobs_state ON jobs(state);
 CREATE TABLE IF NOT EXISTS events(
  id INTEGER PRIMARY KEY, ts REAL, owner TEXT, job INTEGER, kind TEXT, msg TEXT,
  delivered INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, name TEXT, seen REAL);
+CREATE TABLE IF NOT EXISTS progress(owner TEXT PRIMARY KEY, step INTEGER, finished INTEGER DEFAULT 0, failed INTEGER DEFAULT 0);
 """
 
 
@@ -306,7 +309,7 @@ def db(restore=False):
     c.execute("PRAGMA journal_mode=WAL")
     c.executescript(SCHEMA)
     have = {r[1] for r in c.execute("PRAGMA table_info(jobs)")}
-    for col in ("root", "branch", "sha", "rel", "links", "mem_hist"):  # upgrade an older database
+    for col in ("root", "branch", "sha", "rel", "links", "mem_hist", "session"):  # upgrade an older database
         if col not in have:
             c.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
     if "qos" not in have:
@@ -317,6 +320,8 @@ def db(restore=False):
     for col in ("frozen_s", "frozen_since", "cpu_s", "lost_run_s", "lost_cpu_s", "cpu_wait_s", "cpu_stall_s", "cpu_peak", "squeezed_mb"):
         if col not in have:
             c.execute(f"ALTER TABLE jobs ADD COLUMN {col} REAL DEFAULT 0")
+    c.execute("CREATE INDEX IF NOT EXISTS jobs_session ON jobs(session)")
+
     return c
 
 
