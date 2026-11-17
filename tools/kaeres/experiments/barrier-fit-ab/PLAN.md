@@ -96,3 +96,19 @@ of what is left, and a probe names the parts its greedy legalizer found no spot 
 parts otherwise). The methods and experiments registered at e810834 (`barrier-fit-smoke`, `barrier-fit-ab`) were never
 submitted; the test runs as `barrier-fit2-smoke`, `barrier-fit2-ab` (and `barrier-fit2-ab-ext`) at the commit
 `setup.sh` was run with.
+
+## Addendum 2026-11-17, before any run on the new build: current components
+Project rule (2026-11-17): every experiment runs on current main and the current Freerouting pin; results from older
+builds decide nothing on their own.
+- **Code.** `place-barrier-moves` is rebased onto main c81770e1 as `place-barrier-moves-m2` (the original branch is
+  left as it was). Only documentation conflicted: main already holds the voids-and-barriers research page and the area
+  README, and main's versions are kept. Both arms run kae and harness ac5ed859, the rebased commit before this addendum
+  (the fit_split change is ed592882, was ef6cc04). `test_place_barriers.py` and `test_place_pipeline.py` pass.
+- **Freerouting:** the pinned fork 9a5512d, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- **New experiment `barrier-fit2-ab-m`** (owner `exp-barrier-fit2-ab-m`), new method ids, both arms of a board in one job
+  (the first submission had split them by arm). The 55 finished jobs of `barrier-fit2-ab` are on the old build and are
+  excluded from the decision; its queued jobs are cancelled. The extension, if look 1 calls for it, runs as
+  `barrier-fit2-ab-m-ext` on the same commit and pin.
+- Boards (stage 1, 120), arms, k = 1, metrics, the two looks and their alphas unchanged.
+- **Still worth running:** ab2 left opens -10.4 % with only legality failing, and fit2 targets that failure; the
+  default is still open on main. About 470 CPU-h (queue triage).
