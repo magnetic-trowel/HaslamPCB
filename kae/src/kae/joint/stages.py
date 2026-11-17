@@ -895,7 +895,7 @@ def last_mile_line(lm):
 def route_stops(rep):
     """Why a bridge or route_open call stopped: Freerouting's autorouter (COMPLETED,
     STAGNATION, NO_IMPROVEMENT, TIMED_OUT, MAX_PASSES), its optimizer (below_threshold,
-    timed_out, skipped), the bridge's repair rounds (clean, no improvement, time, round cap)."""
+    timed_out, work_budget, skipped), the bridge's repair rounds (clean, no improvement, time, round cap)."""
     r = rep.get("router") or {}
     rr = r.get("report") or {}
     out = dict(autorouter=r.get("autorouter_stop") or rr.get("autorouter_stop"),
