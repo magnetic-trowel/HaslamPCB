@@ -125,3 +125,15 @@ User decision: the joint loop keeps or reverts each step (windows, finishing tri
 - Batch 1 (seed 0, then seed 1) goes in only if, on both boards:
   - W0 finishes inside its wall ceiling;
   - W0's measured CPU is in line with R's.
+
+## Addendum (2026-11-17, before any batch-1 run): compute is matched by counted allowance only
+User decision: every arm gets the same counted-work allowance, as everywhere else. In the last smoke R stopped well inside its allowance; that is R's own behaviour.
+- Measured CPU per arm is reported as a cost, next to opens and DRC errors. It is not a gate, and the "CPU at most 1.10 x R's" guard on a Wall win is withdrawn.
+- Smoke8, on fork f1c41d3 with the ranked judge: no run hit its wall ceiling. R / W0 / Wall:
+
+| board | measured CPU (s) | opens | DRC errors |
+|---|---|---|---|
+| bestelampe | 4,169 / 5,405 / 4,479 | 4 / 2 / 0 | 26 / 25 / 22 |
+| dasduino coreplus | 6,916 / 10,979 / 10,739 | 4 / 8 / 11 | 34 / 35 / 35 |
+
+- Main 8a2c748f (#83, physics.build prices a negative rail by its magnitude) reaches the placer's physics terms. It is merged, and batch 1 runs at the commit that includes it.
