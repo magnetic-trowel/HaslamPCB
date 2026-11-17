@@ -662,6 +662,7 @@ def cmd_exp_create(a):
     kicad = kicad_version()
     evs = evaluators_for(harness, kae, kicad)
     e = dict(schema=SCHEMA, name=a.name, reuse_runs=bool(a.reuse_runs), description=a.description or "", created=now(),
+             session=os.environ.get("KAEQ_SESSION") or os.environ.get("CLAUDE_CODE_SESSION_ID"),  # who looks after it
              methods=[dict(id=m["id"], name=m["name"]) for m in ms], attempts=a.attempts,
              harness=dict(commit=harness, link=github_link("https://github.com/magnetic-trowel/kicad-auto-everything", harness)),
              kae=dict(commit=kae, link=github_link("https://github.com/magnetic-trowel/kicad-auto-everything", kae)),

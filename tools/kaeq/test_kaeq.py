@@ -16,6 +16,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 def kq(tmp_path, monkeypatch):
     monkeypatch.setenv("KAEQ_HOME", str(tmp_path))
     monkeypatch.setenv("KAEQ_OWNER", "t")
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)   # tests choose their session (KAEQ_SESSION)
+    monkeypatch.delenv("KAEQ_SESSION", raising=False)
     sys.path.insert(0, HERE)
     for m in [m for m in sys.modules if m == "kaeqlib" or m.startswith("kaeqlib.")]:
         del sys.modules[m]          # kaeqlib.store reads KAEQ_HOME when imported: a fresh import per test
@@ -1200,3 +1202,67 @@ def test_set_changes_queued_jobs_and_only_the_timeout_of_running_ones(kq):
         kq.cmd_set(argparse.Namespace(**dict(ns, ids=[], owner=None, tag=None, timeout="2h")))   # no selection
     with pytest.raises(SystemExit):
         kq.cmd_set(argparse.Namespace(**dict(ns, timeout="soon")))
+
+
+def test_jobs_belong_to_the_session_that_submitted_them_and_others_leave_them_alone(kq, monkeypatch, capsys):
+    import argparse
+    monkeypatch.setenv("KAEQ_SESSION", "aaaaaaaa-1111")
+    kq.cmd_session_name(argparse.Namespace(name="Placement"))
+    submit(kq, "true", owner="exp-a")
+    submit(kq, "true", owner="exp-a")
+    monkeypatch.setenv("KAEQ_SESSION", "bbbbbbbb-2222")
+    submit(kq, "true", owner="exp-b")
+    c = kq.db()
+    assert [r["session"] for r in c.execute("SELECT session FROM jobs ORDER BY id")] == ["aaaaaaaa-1111"] * 2 + ["bbbbbbbb-2222"]
+    ns = dict(ids=[], owner="exp-a", tag=None, force=False)
+    for f, extra in ((kq.cmd_cancel, {}), (kq.cmd_prio, dict(prio=5)),
+                     (kq.cmd_set, dict(timeout="2x", mem=None, cpus=None, running=False))):
+        with pytest.raises(SystemExit) as e:
+            f(argparse.Namespace(**ns, **extra))
+        assert "Placement" in str(e.value)                     # names the owner, refuses
+    kq.cmd_prio(argparse.Namespace(**dict(ns, force=True), prio=5))
+    assert c.execute("SELECT prio FROM jobs WHERE owner='exp-a'").fetchone()[0] == 5
+    kq.cmd_set(argparse.Namespace(**dict(ns, owner="exp-b"), timeout="2h", mem=None, cpus=None, running=False))  # own: fine
+    with pytest.raises(SystemExit):                            # nor does it listen to another session's owner
+        kq.cmd_wait(argparse.Namespace(owner="exp-a", timeout="1s", every=25, force=False))
+    kq.cmd_result(argparse.Namespace(ids=["1"], owner=None, tag=None, tail=1))
+    assert "belong to session Placement" in capsys.readouterr().out
+
+
+def test_a_session_waits_on_all_its_jobs_and_reads_notes_when_it_returns(kq, monkeypatch, capsys):
+    import argparse
+    monkeypatch.setenv("KAEQ_SESSION", "aaaaaaaa-1111")
+    submit(kq, "true", owner="exp-a")
+    submit(kq, "true", owner="exp-c")
+    c = kq.db()
+    c.execute("UPDATE jobs SET state='failed', finished=? WHERE id=1", (time.time(),))
+    kq.event(c, c.execute("SELECT * FROM jobs WHERE id=1").fetchone(), "failed", "#1 FAILED rc=1")
+    c.commit()
+    monkeypatch.setenv("KAEQ_SESSION", "bbbbbbbb-2222")
+    kq.cmd_note(argparse.Namespace(target="exp-a", text=["your", "rule", "file", "is", "dropped"], urgent=False))
+    monkeypatch.setenv("KAEQ_SESSION", "aaaaaaaa-1111")
+    w = argparse.Namespace(owner=None, timeout="1s", every=25, force=False)
+    with pytest.raises(SystemExit) as e:
+        kq.cmd_wait(w)
+    out = capsys.readouterr().out
+    assert e.value.code == 1 and "#1 FAILED" in out and "your rule file is dropped" in out
+    assert "exp-a: 1/1 done, 1 failed" in out and "exp-c: 0/1 done" in out   # every campaign of the session
+    c.execute("UPDATE jobs SET state='ok', finished=? WHERE id=2", (time.time(),))
+    c.commit()
+    with pytest.raises(SystemExit) as e:
+        kq.cmd_wait(w)
+    assert e.value.code == 0 and "nothing of yours" in capsys.readouterr().out
+
+
+def test_progress_is_reported_once_per_step_and_not_on_first_sight(kq):
+    c = kq.db()
+    for i in range(8):
+        c.execute("INSERT INTO jobs(owner,cmd,state,submitted) VALUES('exp-a','x','queued',?)", (time.time(),))
+    c.commit()
+    assert kq.new_milestones(c, ["exp-a"], 25) == []          # first sight: starts from here
+    c.execute("UPDATE jobs SET state='ok' WHERE id<=2")
+    assert kq.new_milestones(c, ["exp-a"], 25) == ["exp-a: 25% done (2/8)"]
+    assert kq.new_milestones(c, ["exp-a"], 25) == []          # once
+    c.execute("UPDATE jobs SET state='ok' WHERE id<=8")
+    assert kq.new_milestones(c, ["exp-a"], 25) == []          # all done is wait's exit 0, not a milestone
+    assert kq.S.quarter(3, 8, 0) == 0

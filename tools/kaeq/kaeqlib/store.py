@@ -272,6 +272,8 @@ CREATE INDEX IF NOT EXISTS jobs_state ON jobs(state);
 CREATE TABLE IF NOT EXISTS events(
  id INTEGER PRIMARY KEY, ts REAL, owner TEXT, job INTEGER, kind TEXT, msg TEXT,
  delivered INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, name TEXT, seen REAL);
+CREATE TABLE IF NOT EXISTS milestones(owner TEXT PRIMARY KEY, step INTEGER);
 """
 
 
@@ -306,7 +308,7 @@ def db(restore=False):
     c.execute("PRAGMA journal_mode=WAL")
     c.executescript(SCHEMA)
     have = {r[1] for r in c.execute("PRAGMA table_info(jobs)")}
-    for col in ("root", "branch", "sha", "rel", "links", "mem_hist"):  # upgrade an older database
+    for col in ("root", "branch", "sha", "rel", "links", "mem_hist", "session"):  # upgrade an older database
         if col not in have:
             c.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
     if "qos" not in have:
@@ -317,6 +319,7 @@ def db(restore=False):
     for col in ("frozen_s", "frozen_since", "cpu_s", "lost_run_s", "lost_cpu_s", "cpu_wait_s", "cpu_stall_s", "cpu_peak", "squeezed_mb"):
         if col not in have:
             c.execute(f"ALTER TABLE jobs ADD COLUMN {col} REAL DEFAULT 0")
+    c.execute("CREATE INDEX IF NOT EXISTS jobs_session ON jobs(session)")
     return c
 
 
