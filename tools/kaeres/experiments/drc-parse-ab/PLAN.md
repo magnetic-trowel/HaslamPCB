@@ -68,3 +68,15 @@ builds decide nothing on their own.
 - The 49 boards were chosen from the old pinned fork's outputs (open bracketed nets); kept as they are, since the parser
   sites are reached on any board whose open nets carry brackets. Arms, k = 2, outcomes and decision rules unchanged.
 - **Still worth running:** the parser change is not in main; this is its guard before a PR, about 60 CPU-h.
+
+## Addendum 2026-11-17 (m3), before any run on this build: main 22ff779a and Freerouting f1c41d3
+Main (kae #105) and the pin moved after `drc-parse-ab-m` was submitted: the fork now counts the optimizer's search steps and
+pour fills inside `autorouter.max_work`, and kae stops charging optimizer passes on top of that and sets the new
+weights. Checked before deciding: on a small board where no budget binds the bridge's copper came out item for item
+the same on both builds, but the charged clock did not (53.3 s against 39.1 s). Its arms run the bridge under counted work on boards where the repair and last-mile budgets bind (open nets, hard boards), and those budgets follow the charged clock. So its outputs change
+on the new build.
+- Migrated: branch `simp-drc-parse-m3` (rebased on main 22ff779a, no conflict; the -m2 branch is left as it
+  was). Arms: C = bridge at main 22ff779a, P = bridge at 4676027d; harness 22ff779a. Freerouting fork f1c41d3, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `drc-parse-ab-m3` (owner `exp-drc-parse-ab-m3`), new method ids. The runs of `drc-parse-ab-m` (9 jobs done) are on the
+  previous build and excluded from the decision; its jobs are cancelled.
+- Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
