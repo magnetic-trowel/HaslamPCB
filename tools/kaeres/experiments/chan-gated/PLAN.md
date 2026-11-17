@@ -139,3 +139,15 @@ builds decide nothing on their own. This replaces "keeps d137fd1 in every arm" a
   guards, gate, infeasibility exclusion and looks unchanged.
 - **Still worth running:** the gate subgroup (overlaps >= 20: -12 % [-19, -4]) is the open question; `place_w_chan` is
   off on main. About 300 CPU-h (queue triage).
+
+## Addendum 2026-11-17 (m3), before any run on this build: main 22ff779a and Freerouting f1c41d3
+Main (kae #105) and the pin moved after `chan-gated-m` was submitted: the fork now counts the optimizer's search steps and
+pour fills inside `autorouter.max_work`, and kae stops charging optimizer passes on top of that and sets the new
+weights. Checked before deciding: on a small board where no budget binds the bridge's copper came out item for item
+the same on both builds, but the charged clock did not (53.3 s against 39.1 s). Its arms place and route under one counted budget, and the routing stages' budgets follow the charged clock. So its outputs change
+on the new build.
+- Migrated: branch `chan-gated-m3` (main merged in: main 22ff779a, no conflict; the -m2 branch is left as it
+  was). Both arms at kae and harness be0fc43f, the merge commit before this addendum. Freerouting fork f1c41d3, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `chan-gated-m3` (owner `exp-chan-gated-m3`), new method ids. The runs of `chan-gated-m` (4 jobs done) are on the
+  previous build and excluded from the decision; its jobs are cancelled.
+- Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
