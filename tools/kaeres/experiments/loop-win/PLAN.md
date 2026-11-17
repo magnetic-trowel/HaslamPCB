@@ -114,3 +114,14 @@ The A/B therefore measures the acceptance rule as well as the windows. The fix i
 - Matching would need the loop to accept by the harness order too. That trades DRC errors for opens, which is a design question for the user.
 
 Batch 1 waits for that decision.
+
+## Addendum (2026-11-17, before any batch-1 run): one ranked judge in both arms
+User decision: the joint loop keeps or reverts each step (windows, finishing tries, the last mile) by the ranked judge the delivered results use. That is `kae.rank.board_rank`, which `restart.py` also uses: legal, clean, open connections, new DRC errors. Routed physics decides only on an equal rank.
+- Branch `joint-ranked-accept` (a PR) carries the change; loop-win merges it.
+- R and every W arm now judge boards by the same rule, so the A/B measures the windows and not the rule.
+- The loop's `phys_slack` option is gone.
+- Runs of the loop-win smokes up to smoke7 used the old rule and are not compared with runs made after it.
+- The smoke is rerun (`loop-win-smoke8`) on fork f1c41d3 with KAE_BUDGET_PROFILE=1 and KAE_BUDGET_GAP=10.
+- Batch 1 (seed 0, then seed 1) goes in only if, on both boards:
+  - W0 finishes inside its wall ceiling;
+  - W0's measured CPU is in line with R's.
