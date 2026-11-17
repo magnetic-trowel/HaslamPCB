@@ -517,7 +517,7 @@ def test_kicad_loop_writes_the_best_judged_placement_back(monkeypatch):
     assert clean and res.report["kicad_written_round"] == 1
 
 
-def test_mask_only_aperture_across_two_zone_fills_is_a_bridge():
+def test_mask_only_aperture_across_two_zone_fills_is_a_bridge(monkeypatch):
     """KiCad 10 (drc_test_provider_solder_mask.cpp, checkMaskAperture): a simple mask aperture
     (a mask graphic with no copper, e.g. a mask-only logo) bridges when it exposes two distinct
     positive nets; zone fills count (stickhub: LOGO4 on B.Mask across the GND and +5V fills).
@@ -525,8 +525,11 @@ def test_mask_only_aperture_across_two_zone_fills_is_a_bridge():
     from shapely.geometry import box
     from kae.board.model import Zone
     from kae.place import exact
+    # counted work and one worker: on wall-clock time under a loaded full-suite run, legalization
+    # stopped elsewhere, R1 landed elsewhere and the aperture missed the fill edge (flaky)
+    monkeypatch.setenv("KAE_BUDGET", "work")
     P, st = _pile()
-    legalize(P, st, time_s=30.0, workers=2, seed=0)
+    legalize(P, st, time_s=30.0, workers=1, seed=0)
     from kae.place.problem import geom_to_lib
     logo = next(p for p in P.parts if p.ref == "R1")
     # the aperture 3.6 mm from R1 towards the board's middle (clear of its pads, on the board

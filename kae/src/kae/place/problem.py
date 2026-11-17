@@ -399,12 +399,12 @@ def board_texts(board):
     from pathlib import Path
 
     from kae.board import sexpr
-    from kae.board.kicad_file import _shape_layers, _text_box
+    from kae.board.kicad_file import _shape_layers, _text_box, parse_board
     path = getattr(board, "path", "")
     if not path or not Path(path).exists():
         return {}
     try:
-        tree = sexpr.parse(sexpr.strip_blocks(Path(path).read_text(encoding="utf-8", errors="replace")))
+        tree = parse_board(Path(path).read_text(encoding="utf-8", errors="replace"))
     except (ValueError, OSError):
         return {}
     out = {}
@@ -424,12 +424,12 @@ def _fixed_copper_shapes(board):
     from pathlib import Path
 
     from kae.board import sexpr
-    from kae.board.kicad_file import GR_SHAPES, shape_pieces
+    from kae.board.kicad_file import GR_SHAPES, parse_board, shape_pieces
     path = getattr(board, "path", "")
     if not path or not Path(path).exists():
         return []
     try:
-        tree = sexpr.parse(sexpr.strip_blocks(Path(path).read_text(encoding="utf-8", errors="replace")))
+        tree = parse_board(Path(path).read_text(encoding="utf-8", errors="replace"))
     except (ValueError, OSError):
         return []
     out = []

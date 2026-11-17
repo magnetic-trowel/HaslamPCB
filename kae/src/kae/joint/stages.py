@@ -702,7 +702,8 @@ class KaeStages:
                              net_weights={n: float(o.get("net_mult", 2.0)) for sp in window.spots
                                           if sp.kind == "unrouted" for n in sp.nets},
                              phys_mult=float(o.get("phys_mult", 2.0)) ** min(attempt, 2),
-                             physics=not o.get("no_physics"), log=lambda m: self.log(f"replace: {m}"))
+                             physics=not o.get("no_physics"), board_path=str(self.input), opts=o,
+                             log=lambda m: self.log(f"replace: {m}"))
         rep["replace"] = {k: v for k, v in res.report.items() if k not in ("window",)}
         if not res.poses and (window.parts or res.report.get("rejected")):
             rep["outcome"] = res.report.get("rejected") or res.report.get("skipped") or "no part moved"

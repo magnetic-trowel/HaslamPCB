@@ -30,6 +30,7 @@ until satisfied, so the next repair round moves the culprit and later checks kee
 """
 from __future__ import annotations
 
+from kae import budget
 from kae.budget import Deadline, now as clock_now
 import time
 
@@ -742,12 +743,16 @@ class ExactModel:
                 out.append(dict(type=kind, refs=[P.parts[q].ref for q in idx], parts=list(idx), detail=detail))
             if first:
                 raise _Stop
+        n = 1                       # counted work: the call (its shapes, the envelope) and each pair
         try:
             self._env(i, A, add)
             for j in self.neighbours(A["env"], skip=i):
+                n += 1
                 self._pair(i, A, j, self.sh[j], add)
         except _Stop:
             pass
+        finally:
+            budget.charge("exact_pair", n)
         return out
 
 
