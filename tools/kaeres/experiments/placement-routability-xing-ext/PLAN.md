@@ -137,3 +137,15 @@ builds decide nothing on their own. This replaces "keeps d137fd1 in every arm to
 - **Still worth running:** -7 % [-15, +3] is unknown, `place_w_xing` is off on main, and seeds on the same boards are the
   cheapest power. About 145-300 CPU-h (plan; queue triage). If the CI still spans effects that matter, the plan's new-
   boards alternative applies, not a reread.
+
+## Addendum 2026-11-17 (m3), before any run on this build: main 22ff779a and Freerouting f1c41d3
+Main (kae #105) and the pin moved after `xing-ext-m` was submitted: the fork now counts the optimizer's search steps and
+pour fills inside `autorouter.max_work`, and kae stops charging optimizer passes on top of that and sets the new
+weights. Checked before deciding: on a small board where no budget binds the bridge's copper came out item for item
+the same on both builds, but the charged clock did not (53.3 s against 39.1 s). Its arms place and route under one counted budget, and the routing stages' budgets follow the charged clock. So its outputs change
+on the new build.
+- Migrated: branch `xing-ext-m3` (main merged in: main 22ff779a, no conflict; the -m2 branch is left as it
+  was). Both arms at kae and harness f3fed149, the merge commit before this addendum. Freerouting fork f1c41d3, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `xing-ext-m3` (owner `exp-xing-ext-m3`), new method ids. The runs of `xing-ext-m` (3 jobs done) are on the
+  previous build and excluded from the decision; its jobs are cancelled.
+- Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
