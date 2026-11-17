@@ -90,3 +90,7 @@ as experiment `fr-ripup-ab3` at this commit on the new pin; nothing else changed
 
 ## Addendum 2026-11-17: re-registered on main 9e54baed as `fr-ripup-ab4`, before any job ran
 #108 does not reach these arms (route.cli only); the move is for #106 (the harness warms the numba caches), identical outputs. `fr-ripup-ab3` was registered but never submitted. Arms, boards, pin (f1c41d3), analysis and decision rule are unchanged.
+
+## Smoke on the final pin (2026-11-17, usbarmory 1,176 pads with pours and planes, ripup200 arm, py-spy only, f1c41d3)
+17 attempts: wall/charged median 1.86, max 2.42; the run took 1:13:45 for 1,987 s nominal (2.2x, under the 4x ceiling);
+no `kae.budget.gap` line. Run on 36c72b6b (main 22ff779a); 9e54baed and 8a2c748f change nothing on this route-only path.
