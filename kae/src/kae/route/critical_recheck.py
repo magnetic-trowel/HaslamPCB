@@ -713,7 +713,7 @@ def locked_only(board_routed, dst):
     from . import critical_write as W
     items = W.routing(board_routed)
     W.edit(board_routed, dst, remove=[r["uuid"] for r in items if not r["locked"]])
-    for ext in (".kicad_pro", ".kicad_dru", ".kicad_prl"):
+    for ext in (".kicad_pro", ".kicad_dru", ".kicad_prl", ".kae_intent.json"):
         s = Path(board_routed).with_suffix(ext)
         if s.exists():
             import shutil

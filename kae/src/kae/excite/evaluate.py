@@ -68,6 +68,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     ideal copper). Harm sizes (kae.excite.harm) are evaluated at the typical point and at seeded
     corners of the intervals (kae.excite.beliefs). lumped: two-pad parts are branches of the copper
     model and only the other parts' pads are injected."""
+    from .beliefs import board_facts
+    intent = board_facts(intent, path)
     from kae.board.kicad_file import load
     from kae.circuit import brief as B
     from kae.em import solve as ES
@@ -658,7 +660,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     from .beliefs import load_intent
     r = evaluate(a.board, a.pitch, tuple(a.window) if a.window else None, nsub=a.nsub, log=lambda m: print(m, file=sys.stderr),
-                 lumped=not a.no_lumped, intent=load_intent(a.intent), seed=a.seed)
+                 lumped=not a.no_lumped, intent=load_intent(a.intent) if a.intent else None, seed=a.seed)
     print_total(r["total"])
     print("assumptions:")
     for p in r["ledger"]:

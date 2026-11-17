@@ -320,7 +320,7 @@ def write(src_path, dst_path, poses, mode="auto", log=None):
 def _copy_project(path_in, path_out):
     """Keep the project files beside the output (KiCad reads rules from them)."""
     pi, po = Path(path_in), Path(path_out)
-    for ext in (".kicad_pro", ".kicad_dru"):
+    for ext in (".kicad_pro", ".kicad_dru", ".kae_intent.json"):
         src = pi.with_suffix(ext)
         dst = po.with_suffix(ext)
         if src.exists() and not dst.exists() and src.resolve() != dst.resolve():
