@@ -58,7 +58,8 @@ RATES = {
     "fr_pass_pin2": 9e-5,       # builds without max_work: one Freerouting pass per pin^2 (fitted on 65-328 pins;
                                 # a fresh board's first pass costs 10-30x a later one, so this undercounts it)
     "fr_opt_pass_pin2": 9e-5,   # one optimizer pass per pin^2 (uncalibrated; the fork's master also optimizes a
-                                # partly routed board, unless the work budget is spent)
+                                # partly routed board, unless the work budget is spent). Not charged for a build
+                                # that counts its optimizer's work in fr_work (freerouting.counts_optimizer_work)
     "drc_run": 3.5,             # one KiCad DRC (with zone refill): its start-up and a small board's checks
     "drc_mb": 0.6,              # ... per MB of board file (49 DRCs 2026-11-14, 0.3-71 MB: 2-4.4 s up to 2 MB,
                                 # 9 s on a dense 1.2 MB board, 42-46 s at 71 MB; 4.27 s per MB and nothing per
