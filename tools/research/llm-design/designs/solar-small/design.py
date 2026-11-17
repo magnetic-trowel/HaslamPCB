@@ -335,6 +335,59 @@ def calcs(d):
     c("fuse_margin", 0.7 / 2.0, "", "charge max / fuse rating", limit=0.75)
 
 
+def operating(d):
+    """Operating facts, environment and priced terms for kae (written as solar-small.kae_intent.json)."""
+    k = d.kae
+    # rails: typical volts (range_V defaults to each net's v= interval), their sources and efficiencies
+    k.net("PV_IN", 18.0, why="12 V-class panel at its MPP, ~18 V (REQ-1); hiccup holds it within +/-5 % of the "
+          "DAC-set point; 0-25 V range")
+    k.net("SYS", 13.5, range_V=(11.5, 15.0), source="U101", from_="PV_IN", kind="switching", eta=(0.80, 0.93),
+          why="battery side: lead-acid / 4S LiFePO4 11.5-15 V; LTC3130 efficiency 80-93 % (DS p.1 curve, "
+              "14.4 V -> 12 V, 1-500 mA)")
+    k.net("BAT_P", 13.5, range_V=(11.5, 15.0), why="battery terminal behind F201")
+    k.net("+3V3", 3.33, source="U301", from_="SYS", kind="switching", eta=(0.80, 0.92),
+          why="TPS62933: 0.8 V x (1 + 1 M / 316 k); PFM efficiency 80-92 % at 10-350 mA (DS Fig. 8)")
+    k.net("+3V3_SW", 3.3, source="Q301", from_="+3V3", kind="linear", eta=(0.98, 1.0),
+          why="sensor rail through the AO3401A switch (60 mOhm)")
+    k.net("CHG/VCC_CHG", 4.0, source="U101", from_="PV_IN", kind="linear", eta=(0.15, 0.3),
+          why="LTC3130 internal 4 V VCC LDO (DS p.11)")
+    # converters
+    k.part("U101", f_sw_Hz=1.2e6, v_sw_max_V=27.5, why="LTC3130 DS 3130f: 1.2 MHz PWM (p.1); PVIN/VOUT abs max "
+           "27.5 V (p.2)")
+    k.part("U301", f_sw_Hz=500e3, v_sw_max_V=32.0, why="TPS62933 DS SLUSEA4D: RT floating = 500 kHz (Table 9-1); "
+           "SW abs max 32 V DC (6.1)")
+    for cls in ("buck", "boost"):
+        k.cell("U101", cls, I_A=(0.01, 0.6, 0.85), vin="PV_IN", vout="SYS",
+               why="LTC3130 4-switch buck-boost, one inductor: average inductor current up to the 660 mA (850 mA "
+                   "typ) ILIM limit in hiccup bursts and full sun (typical 0.6 A: a 10 W panel at 13.5 V); ~10 mA in "
+                   "light bursts")
+    k.cell("U301", "buck", I_A=(0.002, 0.05, 0.35), vin="SYS", vout="+3V3",
+           why="ESP32-C6 deep sleep (~2 mA incl. module regulator) to Wi-Fi TX peaks ~350 mA [S, Espressif C6 "
+               "datasheet typical]")
+    # environment: the cables the board actually has (A-2); no enclosure claim yet
+    k.cable("J101", 3.0, why="panel lead, <= 3 m (A-2)")
+    k.cable("J201", 1.0, why="battery lead, ~1 m (A-2)")
+    k.cable("J202", 1.0, why="battery NTC lead, ~1 m")
+    # terms beyond neutral/1 (copper loss at 1 mW_eq/mW): what this charger needs from the layout
+    k.term("T-FB", "limit", "pickup.peak", where={"net": "CHG/FB"}, max="5 mV", rate="5 mW_eq/mV",
+           why="U101 FB (1.0 V reference) sets the charge voltage at 13.7x: 5 mV of pickup is 69 mV (0.5 %) at the "
+               "battery; worth 5 mW of copper loss per mV", source="LTC3130 DS p.11 FB; REQ-2")
+    k.term("T-RUN", "limit", "pickup.peak", where={"net": "CHG/RUN"}, max="20 mV", rate="2 mW_eq/mV",
+           why="RUN hysteresis is 100 mV (DS p.20); pickup near it re-triggers the hiccup comparator early and "
+               "wastes 12 ms soft-start ramps", source="LTC3130 DS p.20")
+    k.term("T-FB3", "limit", "pickup.peak", where={"net": "PWR/FB3"}, max="16 mV", rate="1 mW_eq/mV",
+           why="U301 FB 0.8 V: 2 % = 16 mV, the TPS62933's own accuracy band", source="TPS62933 DS FB 788-812 mV")
+    k.term("T-SHUNT", "report", "pickup.peak", where={"part": "R201"}, max="10 uV",
+           why="LTC2959 offset is <= 10 uV (DS Rev. A); the coulomb counter integrates, so HF pickup averages out "
+               "unless rectified: reported, not priced", source="LTC2959 DS VOS")
+    k.term("T-OS101", "hard", "overshoot.peak", where={"part": "U101"}, max="27.5 V",
+           source="LTC3130 DS p.2 abs max", why="switch rating")
+    k.term("T-OS301", "hard", "overshoot.peak", where={"part": "U301"}, max="32 V",
+           source="TPS62933 DS 6.1 abs max", why="switch rating")
+    k.term("T-TJ", "hard", "temp.junction", where={"part": "U*"}, max="125 C",
+           source="LTC3130, TPS62933 DS: TJ max 125 C", why="junction rating")
+
+
 def board(d):
     d.board("main", width_mm=80, height_mm=60, layers=2, thickness_mm=1.6, copper_oz=1.0,
             holes=[Hole(3.5, 3.5, 3.2), Hole(76.5, 3.5, 3.2), Hole(3.5, 56.5, 3.2), Hole(76.5, 30.5, 3.2)],
@@ -371,6 +424,7 @@ def build():
     control(d)
     calcs(d)
     waivers(d)
+    operating(d)
     board(d)
     placement(d)
     return d

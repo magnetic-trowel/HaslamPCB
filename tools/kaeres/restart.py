@@ -279,7 +279,7 @@ def task_rules(inp, board):
     """Put the task's project files (.kicad_pro, .kicad_dru) beside `board`, and remove any the
     task has none of: a rules file the method left there must not judge it (as kaebench's
     install_rules). Before, an attempt's own .kicad_dru stayed when the input had none."""
-    for ext in (".kicad_pro", ".kicad_dru"):
+    for ext in (".kicad_pro", ".kicad_dru", ".kae_intent.json"):
         src, dst = inp.with_suffix(ext), board.with_suffix(ext)
         if src.exists():
             shutil.copy2(src, dst)
@@ -1128,7 +1128,7 @@ def run_policy(ap, a):
         d.mkdir(exist_ok=True)
         src, o = d / "best_in.kicad_pcb", d / "out.kicad_pcb"
         shutil.copy2(prev["out"], src)
-        for ext in (".kicad_pro", ".kicad_dru"):    # the task's rules
+        for ext in (".kicad_pro", ".kicad_dru", ".kae_intent.json"):    # the task's rules
             if inp.with_suffix(ext).exists():
                 shutil.copy2(inp.with_suffix(ext), src.with_suffix(ext))
                 shutil.copy2(inp.with_suffix(ext), o.with_suffix(ext))

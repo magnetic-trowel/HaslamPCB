@@ -1106,7 +1106,7 @@ class PowerCopper:
                 groups[u] = owner
                 chunks.append(W.track_sexpr(net, layer, w, a, b, uid=u, locked=False))
         Path(dst).write_text(W._insert(text, chunks), encoding="utf-8")
-        for ext in (".kicad_pro", ".kicad_dru"):
+        for ext in (".kicad_pro", ".kicad_dru", ".kae_intent.json"):
             s, t = self.path.with_suffix(ext), Path(dst).with_suffix(ext)
             if s.exists() and s.resolve() != t.resolve():
                 shutil.copy2(s, t)
@@ -1441,7 +1441,7 @@ def run(input_path, output_path, opts=None, workdir=None, timeout=1800, log=prin
         shutil.copy2(cand, out)
     else:
         shutil.copy2(staged, out)
-    for ext in (".kicad_pro", ".kicad_dru"):
+    for ext in (".kicad_pro", ".kicad_dru", ".kae_intent.json"):
         s_ = inp.with_suffix(ext)
         if s_.exists() and s_.resolve() != out.with_suffix(ext).resolve():
             shutil.copy2(s_, out.with_suffix(ext))

@@ -143,9 +143,11 @@ def main(argv=None):
             if k not in critical.DEFAULTS:
                 raise SystemExit(f"--opt {k}: not a kae.route.critical option ({', '.join(sorted(critical.DEFAULTS))})")
             opts[k] = v
-        if a.intent:
-            from kae.excite.beliefs import load_intent
-            opts.update(critical.intent_opts(load_intent(a.intent)))
+        from kae.excite.beliefs import load_intent
+        from kae.intent.facts import for_board
+        doc = load_intent(a.intent) if a.intent else for_board(a.input)[0]
+        if doc:
+            opts.update(critical.intent_opts(doc))
         rep = critical.run(a.input, a.output, seed=a.seed, time_s=a.time, opts=opts, rounds=a.rounds,
                            workdir=a.workdir, bridge=not a.no_bridge,
                            bridge_opts=dict(_bridge_opts(a.bridge_opt), planes=a.planes, pad_shapes=a.pad_shapes))
