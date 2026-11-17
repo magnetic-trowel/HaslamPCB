@@ -133,3 +133,8 @@ on the new build.
   previous build and excluded from the decision; its jobs are cancelled.
 - Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
 - 2026-11-17 (main 9e54baed, #106 + #108): kept as registered. #108 changes only kae.joint.scorecard.accept, which the joint loop calls for windows, the finishing stage and its last-mile close; these arms never reach it (staged chassis `--max-iters 0` has no finishing stage, or bridge/placement only), the module stage's re-laid-copper guard keeps the old rule unchanged (physics_guard), and restart.py's judge returns the same key. #106 is harness-only.
+
+## Addendum 2026-11-17 (trim)
+Approved by the user 2026-11-17 after the analysis of finished rows from older builds (explore-2611 results); written before any result of this build is read.
+- adafruit eyelights (no legal spot for the matrix; inert on -m) and bombarie tens (inert on -m) are dropped: 36 boards at k = 2. Boards with zero opens in the control stay as a harm guard.
+- **Extension (pre-registered):** if the result is unknown, extend with more matrix boards, not more seeds, since the between-board SD dominates (about 0.47 per board). Primary and decision rule unchanged.
