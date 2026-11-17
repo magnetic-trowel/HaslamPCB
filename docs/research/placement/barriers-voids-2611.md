@@ -3,9 +3,9 @@
 # Voids, slots and all-layer keepouts as barriers (2026-11-09)
 
 Scope: E104, E105: keeping parts and nets off barriers the router cannot cross. Not here: the region scan method -> stage 1.
-Keys: barrier split, fit_split, barrier-fit-ab, region capacity, true region split, voids, slots, HV keepout, rule area, barrier_split, barrier_net_weight, kae.place.barriers, barrier-ab, E104, E105
+Keys: barrier split, fit_split, barrier_weight_mode, avoidable crossing, anchored crossing, detour weight, barrier-avoid-ab, barrier-detour-ab, dead end, barrier-fit-ab, region capacity, true region split, voids, slots, HV keepout, rule area, barrier_split, barrier_net_weight, kae.place.barriers, barrier-ab, E104, E105
 
-**Status:** `barrier-weight-ab2` done: `barrier_net_weight` stays 1. `barrier-split-ab2` done: `barrier_split=1` not adopted (legality guard). `barrier_split=2` (fit probe) pre-registered as `barrier-fit-ab` ([PLAN](https://github.com/magnetic-trowel/kicad-auto-everything/blob/8c30deedd782474dcda32cc20dcfc0a8cd020405/tools/kaeres/experiments/barrier-fit-ab/PLAN.md)); results pending.
+**Status:** the barrier net weight is a dead end (three tests: `barrier-weight-ab2`, `barrier-avoid-ab-m`, `barrier-detour-ab`; [Barrier net weight: a dead end](#barrier-net-weight-a-dead-end-2026-11-17)); `barrier_net_weight` stays 1. `barrier-split-ab2` done: `barrier_split=1` not adopted (legality guard). `barrier_split=2` (fit probe) pre-registered as `barrier-fit-ab` ([PLAN](https://github.com/magnetic-trowel/kicad-auto-everything/blob/8c30deedd782474dcda32cc20dcfc0a8cd020405/tools/kaeres/experiments/barrier-fit-ab/PLAN.md)); results pending.
 
 **Branch:** `place-barrier-moves`, first commit [db300d4](https://github.com/magnetic-trowel/kicad-auto-everything/commit/db300d480027797c7209c9e781056136ab2006dc) (2026-11-08), last [8c30dee](https://github.com/magnetic-trowel/kicad-auto-everything/commit/8c30deedd782474dcda32cc20dcfc0a8cd020405) (2026-11-14). The code, plans and scripts named here are at [8c30dee](https://github.com/magnetic-trowel/kicad-auto-everything/tree/8c30deedd782474dcda32cc20dcfc0a8cd020405), not on main.
 
@@ -45,5 +45,32 @@ Placement-only reruns of the split on the prepared task inputs (ab2 code) and th
 
 So the fix is a real fit test, not fewer moves: `fit_split` (`barrier_split=2`) probes each region with the placer's seed and legalizer, moves the parts a region finds no spot for to the region they are most tied to, probes again, and places the board whole if a region still cannot hold its parts. On len42 audiout it moves 4 parts in 2 rounds, cuts signal nets across regions 33 -> 22 and the placement is legal.
 
+## Barrier net weight: a dead end (2026-11-17)
+Code: `kae.place.barriers.classify`, `reweight_crossing` and `barrier_weight_mode` on branch `place-barrier-detour` ([2f33ef6](https://github.com/magnetic-trowel/kicad-auto-everything/commit/2f33ef6b)). Every test is placement only except ab2. Each test was pre-registered before it ran.
+
+Definitions (every MST edge of a signal net with at most 60 pins whose straight line crosses a void or an all-copper track keepout):
+- **avoidable**: a movable endpoint part has a free spot within its half-size + 15 mm of the partner pin. The spot is inside the outline and off fixed parts and barriers. From it the part's pin sees the partner pin, and the move adds no crossing to the nearest fixed pin of each of the part's other signal nets.
+- **anchored**: both ends are on fixed parts.
+- **detour**: the shortest path round the crossed barrier pieces (visibility graph over their outline and hole vertices) less the straight line.
+
+| Test | Weight | Boards × seeds | Primary | Effect (95 % CI, board-clustered) | Guards |
+|---|---|---|---|---|---|
+| `barrier-weight-ab2` (2026-11-13) | `all`: 3× on every crossing net | 80 × 1, routed, restarts | opens (per board, Δlog1p) | +3.1 % (−4.5 % to +11.8 %), MDE 12 %; crossing nets 377 → 382 | `legal` −1 board |
+| `barrier-avoid-ab-m` ([plan](https://github.com/magnetic-trowel/kicad-auto-everything/blob/2103c028/tools/kaeres/experiments/barrier-avoid-ab/PLAN.md)) | `avoidable`: 3× on nets with an avoidable crossing | 40 × 3, placement only | avoidable crossings | −3.0 % (−10.6 % to +4.3 %), MDE 11 % | HPWL +2.4 % (+0.9 % to +4.0 %): harm; small-hole keyboards about +11 % |
+| `barrier-detour-ab` ([plan](https://github.com/magnetic-trowel/kicad-auto-everything/blob/b68b898c/tools/kaeres/experiments/barrier-detour-ab/PLAN.md)) | `detour`: `min(3, 1 + detour / net HPWL)` | 19 boards with ≥ 1 mm detour per avoidable crossing × 12 | avoidable crossings | +2.7 % (−2.3 % to +7.9 %), MDE 7.1 % | HPWL +0.5 % (−0.3 % to +1.7 %); keyboard stratum (5 × 3) HPWL −0.5 % |
+
+Facts:
+1. **Most crossings ab2 weighted were anchored or nearly free.** On the 40 boards ab2's seed reweighted, the seed state had 664 crossing edges: 352 avoidable and 227 anchored. On 13 boards the avoidable crossings cost at most 0.43 mm of detour each (keyboards with small switch holes); 18 boards are at 1.1-41 mm.
+2. **Real detours are small next to the nets' half-perimeters.** The mean `detour` factor applied was 1.19, and 13 % of paired runs came out identical in both arms.
+3. **A strong weight made the board worse.** The one board with a strong factor (connaxio espoir, 2.29) got +18 % avoidable crossings and +9.5 % HPWL under `detour`, and +37 % crossings under `avoidable`.
+4. **Gating removed the keyboard harm but no crossings.** Small-hole keyboards lost the +11 % HPWL under `detour`, but no test reduced crossings.
+
+**Why a net weight cannot move parts across a void.** A net weight multiplies the HPWL of the nets that cross. In the annealer that is a force pulling the net's pins together along the straight line, which is the line that crosses the void. To uncross, a part must jump to the other side, past the void and the fixed parts around it. That move first lengthens all its other nets, so the weighted cost rises before it falls, and the annealer at low temperature rejects it. Raising the weight tightens the crossing net where it already is. HPWL also does not see the detour, so the part's current side looks no worse than the other.
+
+**Verdict:** dead end. Net reweighting does not reduce barrier crossings: −3.0 % with an HPWL harm at a flat 3×, and no fall larger than 2.3 % when weighted by detour. `barrier_weight_mode` stays `all` and `barrier_net_weight` stays 1. The reports keep the crossing measures (`avoidable_edges`, `anchored_edges`, `detour_mm`, `detour_unknown`).
+
+**Fix found on the way** ([2f33ef6](https://github.com/magnetic-trowel/kicad-auto-everything/commit/2f33ef6b)): a keepout frame along the edge with spurs into the board is one piece whose hole holds both pins (ohwr fmc-dio). The detour then took only the outer ring's vertices and read 0 mm. It now goes round the holes (146 mm on that board's 59 edges); an enclosed pin is unknown.
+
 ## Open questions
+- **Void-aware relocation (open lead):** a move that puts a part with an avoidable crossing at the free spot `classify` already finds by its partner. The move is accepted on the full cost with the detour priced as wirelength (a detour-aware incremental net cost), not through a static weight. Test it placement only on boards with at least 1 mm detour per avoidable crossing, after a seed scan beyond the 40 ab2 boards to find more of them.
 `barrier_split=2`: results of `barrier-fit-ab` on 120 (up to 211) fresh true-split boards.
