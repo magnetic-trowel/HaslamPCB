@@ -86,3 +86,21 @@ prepare step; `scan-candidates.jsonl`). No pad cap, no one-per-family thinning (
 
 ## Cost (information)
 34 boards x 2 arms x 2 attempts x 1-3 CPU-h (the earlier runs: about 2.5 CPU-h per run on a 1,000-pad board).
+
+## Addendum 2026-11-16 (before any A/B run): pre-run checks, a driver reservation, 4 more boards
+- **Placement-only check** (placement stage alone, counted work, seeds 0-3, kicad-cli judge; C and the fixed code,
+  mask 3, on the 9 legality boards and the 5 bus smoke boards): illegal placements C 24, fixed 29, old code 29 of 56.
+  Equal on 12 of 14 boards (om-flexgrid, om-60 and the keypad are now gated out and match C exactly). Worse on
+  pppov-2 (0 -> 3 of 4: LEDs D5/D9/D13/D17 over the matrix's own driver U1, a movable part the lattice took the seed
+  spot of) and serial-7-segment (1 -> 3, a bus board). Fix at the setup commit: the movable drivers of a matrix (parts
+  on its row and column nets) keep their seed footprints free, like a bus's ends. Its re-check on pppov-2,
+  serial-7-segment, fastbeam and both icepi-zero boards runs beside the A/B; the A/B's illegal-start guard decides.
+- **Smoke** (one restart run per arm, seeds 0-3, fastbeam for the matrix arm; py-spy and JFR): wall time is the
+  placement legalizer (`legalize._ripup_at`, 26-83 % of sampled time) and waiting on Freerouting (up to 52 %); the
+  array pre-step is not visible. Peak RSS per process 1-2 GB, so jobs run at 4 CPUs (parallel 4) and their measured
+  memory. No cheap speedup in code this experiment owns. fastbeam's matrix arm had more first-wave opens than C
+  (105/76/126/95 vs 70/47/42/45); recorded here before the run, decided by the A/B.
+- **Boards:** the whole-corpus scan (9,349 usable boards outside the tagged set, `--fast`, then the full scan on its
+  hits) found 4 more matrix boards, all with a pinnable matrix on the task input: aerospace-venoms bccc-sao (24 LEDs),
+  jana-marie haj-coaster (58 + 20 LEDs), madcatse mad5160 (36 RAM sockets), rishi-k-s metrocard (48 LEDs). They join
+  `boards.txt` (now 38) as the fresh sample, reported apart from the 34 replication boards and pooled.
