@@ -67,13 +67,13 @@ def board_labels(board):
     """Board-level silkscreen texts of a board (kae.board Board or a path): [{text, tokens,
     side (0 F, 1 B), geom (estimated box), xy}]."""
     from kae.board import sexpr
-    from kae.board.kicad_file import _text_box, load
+    from kae.board.kicad_file import _text_box, load, parse_board
     if not hasattr(board, "footprints"):
         board = load(board)
     path = getattr(board, "path", "")
     if not path or not Path(path).exists():
         return []
-    tree = sexpr.parse(sexpr.strip_blocks(Path(path).read_text(encoding="utf-8", errors="replace")))
+    tree = parse_board(Path(path).read_text(encoding="utf-8", errors="replace"))
     out = []
     for n in tree:
         if type(n) is not list or not n or n[0] != "gr_text":

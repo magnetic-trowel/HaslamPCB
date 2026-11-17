@@ -23,7 +23,7 @@ board's bounding box, so those load with on_board=False. Board.outline adds the 
 graphics of on-board footprints (as pcbnew does); off-board footprints keep theirs in
 `Footprint.edge_cuts`.
 """
-from kae.budget import work_mode
+from kae.budget import charge, work_mode
 import functools
 import json
 import math
@@ -215,6 +215,122 @@ def _map_pieces(pieces, fn):
 
 GRAPHIC_LAYERS = ("F.Cu", "B.Cu", "F.Mask", "B.Mask")
 SILK_LAYERS = ("F.SilkS", "B.SilkS")
+
+
+# ----------------------------------------------------------------------------- legacy names
+# What KiCad 10's reader (PCB_IO_KICAD_SEXPR_PARSER, 10.0 branch) renames when it loads an
+# old board, so kae sees the names pcbnew does. Files KiCad 6+ wrote are untouched: their
+# layer names are canonical and their stamps are past the overbar change.
+OVERBAR_BEFORE = 20210606     # older files write overbars as ~RTS~ (or ~RTS), KiCad 10 as ~{RTS}
+_COPPER_TYPES = ("signal", "power", "mixed", "jumper", "auxiliary", "front", "back")   # LAYER::ParseType
+_CANONICAL_CU = re.compile(r"^(?:F\.Cu|B\.Cu|In(?:[1-9]|[12]\d|30)\.Cu)$")
+# createOldLayerMapping: translated non-copper names some KiCad 4/5 versions wrote
+_TRANSLATED_LAYERS = {
+    "Adesivo.Retro": "B.Adhes", "Adesivo.Fronte": "F.Adhes", "Pasta.Retro": "B.Paste",
+    "Pasta.Fronte": "F.Paste", "Serigrafia.Retro": "B.SilkS", "Serigrafia.Fronte": "F.SilkS",
+    "Maschera.Retro": "B.Mask", "Maschera.Fronte": "F.Mask", "Grafica": "Dwgs.User",
+    "Commenti": "Cmts.User", "Eco1": "Eco1.User", "Eco2": "Eco2.User", "Contorno.scheda": "Edge.Cuts",
+    "Kleju_Dolna": "B.Adhes", "Kleju_Gorna": "F.Adhes", "Pasty_Dolna": "B.Paste", "Pasty_Gorna": "F.Paste",
+    "Opisowa_Dolna": "B.SilkS", "Opisowa_Gorna": "F.SilkS", "Maski_Dolna": "B.Mask", "Maski_Gorna": "F.Mask",
+    "Rysunkowa": "Dwgs.User", "Komentarzy": "Cmts.User", "ECO1": "Eco1.User", "ECO2": "Eco2.User",
+    "Krawedziowa": "Edge.Cuts",
+    "Dessous.Adhes": "B.Adhes", "Dessus.Adhes": "F.Adhes", "Dessous.Pate": "B.Paste", "Dessus.Pate": "F.Paste",
+    "Dessous.SilkS": "B.SilkS", "Dessus.SilkS": "F.SilkS", "Dessous.Masque": "B.Mask", "Dessus.Masque": "F.Mask",
+    "Dessin.User": "Dwgs.User", "Contours.Ci": "Edge.Cuts",
+}
+
+
+def new_overbar(s):
+    """KiCad's ConvertToNewOverbarNotation (common/string_utils.cpp), step for step:
+    `~RTS~` and `~RTS` (ended by a space, '}', ')' or the end) become `~{RTS}`, `~~` is
+    a tilde, and a string that already holds `~{` (or `~~{`) is returned unchanged."""
+    if s == "~":
+        return s
+    out, over, i, n = [], False, 0, len(s)
+    while i < n:
+        ch = s[i]
+        if ch == "~":
+            nxt = s[i + 1] if i + 1 < n else ""
+            if nxt == "~":
+                if i + 2 < n and s[i + 2] == "{":
+                    # KiCad appends "~~{}", steps one character and meets "~{": unchanged
+                    return s
+                out.append("~")
+                i += 2
+                continue
+            if nxt == "{":
+                return s
+            out.append("}" if over else "~{")
+            over = not over
+            i += 1
+            continue
+        if ch in " })" and over:
+            out.append("}")
+            over = False
+        out.append(ch)
+        i += 1
+    if over:
+        out.append("}")
+    return "".join(out)
+
+
+def layer_aliases(tree):
+    """{file layer name: KiCad's name} for the names KiCad 10 renames (parseLayers): the
+    leading copper entries of the layer table are F.Cu, In1.Cu, ... B.Cu by position (a
+    KiCad 5 board writes a renamed layer under its user name, `(1 GND power)`), and some
+    KiCad 4/5 versions wrote translated non-copper names. Canonical names keep their
+    meaning, so a KiCad 6+ table gives {}."""
+    lay = first(tree, "layers")
+    entries = [e for e in (lay[1:] if lay else []) if type(e) is list and len(e) >= 3 and type(e[1]) is str]
+    cu = []
+    for e in entries:
+        if e[2] not in _COPPER_TYPES:
+            break
+        cu.append(e[1])
+    alias = {}
+    for i, name in enumerate(cu):
+        if _CANONICAL_CU.match(name):
+            continue
+        alias[name] = "F.Cu" if i == 0 else "B.Cu" if i == len(cu) - 1 else f"In{i}.Cu"
+    for e in entries[len(cu):]:
+        if e[1] in _TRANSLATED_LAYERS:
+            alias[e[1]] = _TRANSLATED_LAYERS[e[1]]
+    return alias
+
+
+def legacy_names(tree):
+    """Rename, in place, what KiCad 10 renames when it loads an old board: layer names
+    (layer_aliases) everywhere, and for files stamped before OVERBAR_BEFORE the overbar
+    notation of net names (net table, pads, net-class add_net; KiCad leaves a zone's
+    net_name as written). Returns the tree."""
+    alias = layer_aliases(tree)
+    overbar = int(_f(value(tree, "version"), 0)) < OVERBAR_BEFORE
+    if not alias and not overbar:
+        return tree
+    lay = first(tree, "layers")
+    for e in (lay[1:] if lay else []):
+        if type(e) is list and len(e) >= 2 and e[1] in alias:
+            e[1] = alias[e[1]]
+    stack = [tree]
+    while stack:
+        node = stack.pop()
+        head = node[0] if node else None
+        if alias and head in ("layer", "layers"):
+            for i in range(1, len(node)):
+                if type(node[i]) is str and node[i] in alias:
+                    node[i] = alias[node[i]]
+        elif overbar and head == "net" and len(node) >= 3 and type(node[2]) is str:
+            node[2] = new_overbar(node[2])
+        elif overbar and head == "add_net" and len(node) >= 2 and type(node[1]) is str:
+            node[1] = new_overbar(node[1])
+        stack.extend(c for c in node if type(c) is list)
+    return tree
+
+
+def parse_board(text):
+    """A .kicad_pcb's text as a tree, zone fills and embedded files skipped
+    (sexpr.strip_blocks), with legacy names as KiCad 10 reads them (legacy_names)."""
+    return legacy_names(sexpr.parse(sexpr.strip_blocks(text)))
 
 
 class _Reader:
@@ -470,7 +586,15 @@ class _Reader:
         px = fx + u * c + v * sn
         py = fy - u * sn + v * c
         layers = self.expand_layers((first(pd, "layers") or ["layers"])[1:])
-        return Pad(number=number, net=self.net(pd), kind=kind, shape=shape, size=(sx, sy),
+        on_cu = any(ly.endswith(".Cu") for ly in layers)
+        if kind == "np_thru_hole" or not on_cu:
+            number = ""   # PAD::CanHaveNumber: KiCad clears NPTH and aperture pads' numbers on load
+        if kind == "np_thru_hole" and shape in ("circle", "oval") and offset == (0.0, 0.0):
+            hx, hy = slot if slot else (drill, drill)
+            if sx <= hx and (shape == "circle" or sy <= hy):
+                on_cu = False   # PAD::IsOnCopperLayer: an NPTH pad without an annular ring
+        net = self.net(pd) if on_cu else ""   # BOARD_CONNECTED_ITEM::SetNetCode: no copper, no net
+        return Pad(number=number, net=net, kind=kind, shape=shape, size=(sx, sy),
                    lx=u, ly=s * v, lrot=norm_deg(s * (arot - frot)), x=px, y=py, layers=layers,
                    drill=drill, pinfunction=value(pd, "pinfunction", "") or "",
                    pintype=value(pd, "pintype", "") or "",
@@ -682,11 +806,20 @@ class _Reader:
                 if atoms else "thermal"
         attr = first(z, "attr")
         self.zones.append(Zone(
-            uuid=uuid, name=name, net=self.net(z) or (value(z, "net_name", "") or ""), layers=lys,
+            uuid=uuid, name=name, net=self._zone_net(z), layers=lys,
             outline=outline, priority=int(_f(value(z, "priority"), 0)),
             clearance=_f(value(cp or [], "clearance"), 0.0), min_thickness=_f(value(z, "min_thickness"), 0.0),
             connect=mode, teardrop=attr is not None and first(attr, "teardrop") is not None,
             locked=flag(z, "locked"), footprint=fp_uuid))
+
+    def _zone_net(self, z):
+        """A zone's net as KiCad reads it: a legacy (net_name) that differs from the net
+        code's name wins (KiCad finds or adds a net of that name). net_name is not
+        overbar-converted, so a pre-20210606 zone on `~RST` lands on a net `~RST` apart
+        from the pads' `~{RST}`, as in pcbnew."""
+        net = self.net(z)
+        legacy = value(z, "net_name", "") or ""
+        return legacy if legacy and legacy != net else net
 
     # ------------------------------------------------------------------ routing
     def track(self, node, arc):
@@ -1093,7 +1226,7 @@ def load(path, *, arc_tol=geom.ARC_TOL, rules=True):
     """Read a .kicad_pcb (and its sibling .kicad_pro / .kicad_dru) into a Board."""
     path = Path(path)
     text = path.read_text(encoding="utf-8", errors="replace")
-    tree = sexpr.parse(sexpr.strip_blocks(text))
+    tree = parse_board(text)
     if not tree or tree[0] not in ("kicad_pcb",):
         raise ValueError(f"{path}: not a KiCad board")
     rd = _Reader(tree, path, arc_tol)
@@ -1179,6 +1312,7 @@ def load(path, *, arc_tol=geom.ARC_TOL, rules=True):
 
     gen = value(tree, "generator", "") or ""
     gv = value(tree, "generator_version")
+    charge("board_mb", len(text) / 1e6)    # counted work: parsing, footprints' silk and pads into shapes
     return Board(path=str(path), version=rd.version, footprints=fps, nets=nets, outline=outline,
                  keepouts=rd.keepouts, zones=rd.zones, tracks=tracks, vias=vias, stackup=rd.stackup,
                  rules=rules_obj, generator=f"{gen} {gv}".strip() if gv else gen,

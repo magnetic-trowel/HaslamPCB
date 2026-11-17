@@ -115,6 +115,8 @@ def main(argv=None):
     t0 = clock_now()
     log = lambda m: print(f"[kae.crit] {m}", file=sys.stderr, flush=True)   # noqa: E731
     if a.cmd == "route":
+        from kae.budget import start_run
+        start_run(float(a.time))     # the wall ceiling under counted budgets, and the clock's report at exit
         from kae.route import critical
         opts = dict(rails=a.rails, kinds=tuple(k for k in a.kinds.split(",") if k), keep=a.keep,
                     guards=tuple(k for k in a.guards.split(",") if k and k != "none"),
