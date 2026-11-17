@@ -211,25 +211,200 @@ def _pins(dsn):
 PASS_DONE = re.compile(r"Auto-routing pass #\d+ on board .* was completed")
 
 
+_TS = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}) ")
+_ROUTE_PASS = re.compile(r"Auto-routing pass #\d+ on board .* was completed in ([0-9.]+) seconds"
+                         r"(?: with score [0-9.]+ \((\d+) unrouted)?(?:.*?allocated ([0-9.]+) GB)?")
+_PASS_STEPS = re.compile(r"Auto-routing pass #\d+: (\d+) search steps so far in the pass loop")
+_STAGE_START = re.compile(r"Auto-routing stage started .* for (\d+) unrouted")
+_STAGE_DONE = re.compile(r"(Auto-routing|Optimization) stage (?:completed|interrupted)[^,]*?(?:,| ).*?completed in ([0-9.]+) seconds")
+
+
+def phases(log, wall_s):
+    """Where a Freerouting run's wall time went, from its log: `outside_s` before its first and after its
+    last log line (JVM start and exit), `load_s` up to the routing stage, the routing passes (`route_pass_s`
+    each), `opt_passes` and `opt_s` of the optimizer (it runs only on a fully routed board), `other_s` the
+    rest (fanout, saving). For calibrating kae.budget's rates (tools/research/budget/fr_calibrate.py)."""
+    from datetime import datetime
+    ts, first_route, first_opt = [], None, None
+    route_pass, stage = [], {}
+    opt_passes = 0
+    unrouted0, unrouted, alloc, steps = None, [], [], []
+    for ln in (log or "").splitlines():
+        m = _TS.match(ln)
+        if not m:
+            continue
+        t = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S.%f").timestamp()
+        ts.append(t)
+        if first_route is None and "Auto-routing stage started" in ln:
+            first_route = t
+            if (u := _STAGE_START.search(ln)):
+                unrouted0 = int(u.group(1))
+        if first_opt is None and "Optimization stage started" in ln:
+            first_opt = t
+        if (k := _PASS_STEPS.search(ln)):
+            steps.append(int(k.group(1)))
+        if (r := _ROUTE_PASS.search(ln)):
+            route_pass.append(float(r.group(1)))
+            unrouted.append(int(r.group(2)) if r.group(2) else None)
+            alloc.append(float(r.group(3)) if r.group(3) else None)
+        elif "Optimizer pass #" in ln and "Optimizer pass #" in ln.split("] ", 1)[-1][:20]:
+            opt_passes += 1
+        if (d := _STAGE_DONE.search(ln)):
+            stage[d.group(1)] = float(d.group(2))
+    span = (ts[-1] - ts[0]) if ts else 0.0
+    route_s, opt_s = stage.get("Auto-routing", sum(route_pass)), stage.get("Optimization", 0.0)
+    return dict(wall_s=round(wall_s, 2), outside_s=round(max(0.0, wall_s - span), 2),
+                load_s=round(first_route - ts[0], 2) if first_route and ts else None,
+                route_passes=len(route_pass), route_pass_s=[round(x, 2) for x in route_pass], route_s=round(route_s, 2),
+                unrouted0=unrouted0, unrouted_after=unrouted, alloc_gb=alloc, steps=steps,
+                opt_passes=opt_passes, opt_s=round(opt_s, 2),
+                other_s=round(max(0.0, span - route_s - opt_s - ((first_route - ts[0]) if first_route and ts else 0.0)), 2))
+
+
+def _record(run, dsn, pins, budget_s, passes, settings):
+    """Phases into the run's report; one JSON line per run to KAE_FR_RECORD when it is set."""
+    ph = phases(run.log, run.seconds)
+    run.report["phases"] = ph
+    path = os.environ.get("KAE_FR_RECORD")
+    if path:
+        rec = dict(dsn=str(dsn), pins=pins, dsn_kb=round(Path(dsn).stat().st_size / 1e3, 1) if Path(dsn).exists() else None,
+                   mode=budget.clock().mode, budget_s=budget_s, passes=passes, settings=settings or {},
+                   state=run.report.get("final_state"), autorouter_stop=run.report.get("autorouter_stop"),
+                   optimizer_stop=run.report.get("optimizer_stop"), timed_out=run.timed_out, **ph)
+        with open(path, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+
+
+# Freerouting's pass loop under counted budgets (fork autorouter.max_work, work_pass_weight,
+# work_unrouted_weight): a pass costs, in nominal seconds,
+#     RATES["fr_work"] x work_scale(pins) x search steps + FR_PASS_S x pins + FR_UNROUTED_S x unrouted x pins
+# A search step costs more on a larger board, (pins / FR_SCALE_REF_PINS) ** FR_SCALE_EXP up to FR_SCALE_MAX:
+# per-pass fits over 76-1,484 pins (tools/research/budget/fr_fit.py, 2026-11-14) put a step at 3e-6 s on
+# 148 pins, 7e-6 s on 430, 2.2e-5 s on 821 and 1.4-3e-5 s on 1,184-1,484 (hence the cap). One rate per
+# work unit for all boards (the model before) charged a 821-pin board's routing at under half its time and
+# a 148-pin board's at three times it. The fork counts work units = steps + weights x pins per pass, so a
+# run's weights are these seconds over its board's step (pass_weights).
+FR_SCALE_REF_PINS = 430.0
+FR_SCALE_EXP = 1.43
+FR_SCALE_MIN, FR_SCALE_MAX = 0.05, 3.0
+FR_PASS_S = 0.012            # nominal seconds per pass started and board pin
+FR_UNROUTED_S = 6.7e-5       # ... per unrouted connection (at the pass's start) and board pin
+FR_OPT_MAX_PASSES = 10       # work mode: the optimizer's pass cap (it otherwise stops on its improvement
+                             # threshold, or on the wall-clock ceiling: not deterministic)
+_WORK_LINE = re.compile(r"Auto-routing pass #\d+: \d+ search steps and (\d+) work units so far")
+_HOOK = {}
+
+
+def has_work_budget(cmd=None):
+    """Whether the Freerouting build takes autorouter.max_work (the jar holds its setting name).
+    KAE_FR_WORK_BUDGET=0 says no for any build (to compare builds on the same arguments)."""
+    import zipfile
+    if os.environ.get("KAE_FR_WORK_BUDGET") == "0":
+        return False
+    argv = cmd or command()
+    jar = next((a for a in argv if a.endswith(".jar")), None)
+    if jar is None and argv:
+        jar = str(Path(argv[0]).resolve().parent.parent / "lib" / "freerouting.jar")
+    if jar not in _HOOK:
+        ok = False
+        try:
+            with zipfile.ZipFile(jar) as z:
+                ok = any(n.endswith("settings/AutorouterSettings.class") and b"work_unrouted_weight" in z.read(n)
+                         for n in z.namelist() if n.endswith(".class") and "AutorouterSettings" in n)
+        except (OSError, zipfile.BadZipFile, TypeError):
+            ok = False
+        _HOOK[jar] = ok
+    return _HOOK[jar]
+
+
+def _overhead(dsn):
+    try:
+        kb = Path(dsn).stat().st_size / 1e3
+    except OSError:
+        kb = 0.0
+    return kb
+
+
+def job_work(counts):
+    """The work units a job logged: its last count, or with a build that counted each pass loop from
+    zero (kae-fr-maxwork-9cf145d: the fallback loops), the sum of each loop's last count."""
+    total, prev = 0, 0
+    for c in map(int, counts):
+        if c < prev:
+            total += prev
+        prev = c
+    return total + prev
+
+
+def work_scale(pins):
+    """A search step's nominal seconds on a board of `pins` pins relative to RATES["fr_work"] (the
+    step on FR_SCALE_REF_PINS pins)."""
+    return min(FR_SCALE_MAX, max(FR_SCALE_MIN, (pins / FR_SCALE_REF_PINS) ** FR_SCALE_EXP))
+
+
+def pass_weights(pins, rate):
+    """The fork's work_pass_weight and work_unrouted_weight on this board (work units, each a search
+    step of rate x work_scale(pins) nominal seconds), for FR_PASS_S and FR_UNROUTED_S."""
+    step = rate * work_scale(pins)
+    return FR_PASS_S / step, FR_UNROUTED_S / step
+
+
+def _charge(run, dsn, pins):
+    """Charge a finished run by what it did: its start-up, its pass loop's work units (a build with
+    the work budget logs them; scaled to the board, work_scale) or else its passes x pins^2, and its
+    optimizer passes."""
+    size = pins ** 2
+    kb = _overhead(dsn)
+    budget.charge("fr_run", 1)
+    budget.charge("fr_dsn_kb", kb)
+    w = _WORK_LINE.findall(run.log or "")
+    if w and has_work_budget():
+        # in search steps of the reference board (RATES["fr_work"] nominal seconds each); in time mode
+        # (counted only) the fork's own default weights, so a calibration reads the steps from the log
+        budget.charge("fr_work", job_work(w) * work_scale(pins))
+    else:
+        budget.charge("fr_pass_pin2", max(1, len(PASS_DONE.findall(run.log or ""))) * size)
+    opt = (run.report.get("phases") or {}).get("opt_passes") or 0
+    if opt:
+        budget.charge("fr_opt_pass_pin2", opt * size)
+
+
 def route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin_s=None, hard_s=None,
           log_path=None):
-    """_route (below). In work mode (kae.budget) the budget is a pass cap, budget_s / the nominal
-    seconds of one pass over this .dsn: Freerouting is deterministic while its job timeout does not
-    fire, so the timeout is only the run's wall ceiling, and the passes done are charged."""
-    size = _pins(dsn) ** 2
+    """_route (below). In work mode (kae.budget) the budget becomes Freerouting's own work budget
+    (autorouter.max_work: it stops cleanly before the pass that would start past it, a counted stop
+    the same on any host) less its start-up, and the optimizer gets a pass cap; a build without that
+    setting gets a pass cap, budget_s / the nominal seconds of a pass. The job timeout is then only
+    the run's wall ceiling. Either way a finished run is charged by what it did (_charge)."""
+    pins = _pins(dsn)
+    size = pins ** 2
     if not budget.work_mode():
         run = _route(dsn, ses, workdir, passes=passes, settings=settings, budget_s=budget_s, margin_s=margin_s,
                      hard_s=hard_s, log_path=log_path)
-        budget.charge("fr_pass_pin2", max(1, len(PASS_DONE.findall(run.log or ""))) * size)    # counted only
+        _record(run, dsn, pins, budget_s, passes, settings)
+        _charge(run, dsn, pins)               # counted only
         return run
-    cap = max(1, int(budget_s / max(1e-9, budget.clock().rates["fr_pass_pin2"] * size)))
-    passes = min(passes, cap) if passes else cap
+    rates = budget.clock().rates
+    settings = dict(settings or {})
+    if has_work_budget():
+        left = budget_s - rates["fr_run"] - rates["fr_dsn_kb"] * _overhead(dsn)
+        pw, uw = pass_weights(pins, rates["fr_work"])
+        settings.update({"autorouter.max_work": str(max(1, int(left / (rates["fr_work"] * work_scale(pins))))),
+                         "autorouter.work_pass_weight": f"{pw:.6g}",
+                         "autorouter.work_unrouted_weight": f"{uw:.6g}"})
+        cap = passes
+    else:
+        cap = max(1, int(budget_s / max(1e-9, rates["fr_pass_pin2"] * size)))
+        cap = min(passes, cap) if passes else cap
+    settings.setdefault("optimizer.max_passes", str(FR_OPT_MAX_PASSES))
     wall = budget.wall_timeout(budget_s)
-    run = _route(dsn, ses, workdir, passes=passes, settings=settings, budget_s=wall, margin_s=30.0,
+    run = _route(dsn, ses, workdir, passes=cap, settings=settings, budget_s=wall, margin_s=30.0,
                  hard_s=wall + GRACE_S, log_path=log_path)
-    done = len(PASS_DONE.findall(run.log or ""))
-    budget.charge("fr_pass_pin2", max(1, done) * size)
-    run.report["passes_done"], run.report["passes_cap"] = done, passes
+    run.report["passes_done"], run.report["passes_cap"] = len(PASS_DONE.findall(run.log or "")), cap
+    if settings.get("autorouter.max_work"):
+        run.report["max_work"] = int(settings["autorouter.max_work"])
+    _record(run, dsn, pins, budget_s, cap, settings)
+    _charge(run, dsn, pins)
     return run
 
 

@@ -26,7 +26,7 @@ from shapely.geometry import LineString, Point
 
 from kae.board import geom as bgeom
 from kae.board import sexpr, transform
-from kae.board.kicad_file import GR_SHAPES, shape_pieces
+from kae.board.kicad_file import GR_SHAPES, parse_board, shape_pieces
 
 EPS = 0.02   # mm: ends closer than this meet
 
@@ -37,7 +37,7 @@ def _board_pieces(board):
     opens, rings = [], []
     path = getattr(board, "path", "")
     if path and Path(path).exists():
-        tree = sexpr.parse(sexpr.strip_blocks(Path(path).read_text(encoding="utf-8", errors="replace")))
+        tree = parse_board(Path(path).read_text(encoding="utf-8", errors="replace"))
         for node in tree:
             if type(node) is list and node and node[0] in GR_SHAPES and sexpr.value(node, "layer") == "Edge.Cuts":
                 try:

@@ -112,5 +112,6 @@ fixed in these tasks, not from placement.
 ## Settings
 
 `zone_pull` (default 0; 3 was tested), `zone_keepout` (default 1), both via `--set` or KAE_ text variables
-([router limits](../routing/README.md)). Recipes: `tools/kaeres/experiments/zone-ab.sh`,
+([router limits](../routing/README.md)). The joint loop's window re-placements
+(`kae.joint.replace`) read the same settings as the first placement. Recipes: `tools/kaeres/experiments/zone-ab.sh`,
 `zone-keepout-ab.sh` on `place-zone-aware`.
