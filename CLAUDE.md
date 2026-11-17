@@ -59,8 +59,8 @@ kaebench report kae-work/results/<run> kae-work/results/<baseline-run>
 Several Claude sessions run experiments here at once; tokens are the scarce resource. Details: the `kaeq` skill.
 - Your jobs record your session (`$CLAUDE_CODE_SESSION_ID`). Look after only your own jobs and experiments: never
   wait on, retry, cancel, analyse or report on another session's (`kaeq sessions` shows whose is whose).
-- Wait with `kaeq wait` in the background: it wakes you on a campaign's first failure, at 25% and at its end, and
-  when nothing is due for hours it exits with one time to schedule a single `send_later` for. No
+- After submitting, stop: the kaeq dispatcher messages you at a campaign's first failure, its 25% mark and its end.
+  (Without a dispatcher, `kaeq wait` in the background does the same; see the skill.) No
   polling: no `send_later`/`ScheduleWakeup`/`Monitor`/sleep loops, no repeated `kaeq status`, `kaeqtop` or log tails.
 - Tell another session about a problem in its work with `kaeq note <session-or-owner> "..."`; it reads it when its
   wait returns. Message a session directly only to answer its question or when you are blocked on it: one message

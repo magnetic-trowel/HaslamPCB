@@ -121,7 +121,9 @@ def cmd_submit(a):
     rng = f"#{ids[0]}" if len(ids) == 1 else f"#{ids[0]}..#{ids[-1]} ({len(ids)} jobs)"
     where = f"code={snap['root'] and os.path.basename(snap['root'])}@{snap['branch']}:{snap['sha'][:7]} (frozen now)" if snap["sha"] else "code=live dir"
     print(f"queued {rng} owner={owner} {where} ({ahead} ahead)" + (
-        f", session {S.label(c, me)}. One `kaeq wait` (run in the background) covers all of this session's jobs"
+        (f", session {S.label(c, me)}. The kaeq dispatcher will message this session at a campaign's first "
+         "failure, its 25% mark and its end: no need to wait or poll" if dispatcher_running() else
+         f", session {S.label(c, me)}. One `kaeq wait` (run in the background) covers all of this session's jobs")
         if me else f". Get failures pushed to you: kaeq wait --owner {owner}"))
 
 
@@ -336,6 +338,102 @@ def next_news(c, owners, every, now):
     return best
 
 
+def event_lines(rows, cap):
+    out = [r["msg"] for r in rows[:cap]]
+    if len(rows) > cap:
+        out.append(f"(+{len(rows) - cap} more; `kaeq status` / `kaeq result ID`)")
+    return out
+
+
+def report_lines(c, owners, notes, news, urgent):
+    """What a session is told when it is woken: failures and other events held since the last wake-up, campaign news,
+    notes, and each campaign's progress. Marks what it prints as delivered."""
+    rows = pending_many(c, owners)
+    out = event_lines([r for r in rows if r["kind"] in PROBLEM], 8) + event_lines([r for r in rows if r["kind"] not in PROBLEM], 4)
+    out += news + [n["msg"] for n in urgent + pending_many(c, notes)]
+    if owners:
+        out.append("progress:")
+        out += [progress_line(c, o) for o in owners[:12]]
+    return out
+
+
+DISPATCH_LOCK = os.path.join(HOME, "dispatch.lock")
+
+
+def dispatcher_running():
+    """Whether a `kaeq dispatch` holds its lock: then it tells sessions about their jobs, and they need not wait."""
+    try:
+        with open(DISPATCH_LOCK, "a") as f:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(f, fcntl.LOCK_UN)
+            return False
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+
+
+def cmd_dispatch(a):
+    """Watch every session's jobs at once, block until one or more sessions should be woken, print a message for
+    each and exit (0); 2 after --timeout with nothing to send. Meant for one small relay session that runs this in
+    the background and sends each block to its session: then no session waits or polls on its own. Wakes a session
+    for the first failure in a campaign, its --every % mark, its end, an urgent note, or its last job finishing.
+    Blocks look like `=== to: NAME (session ID)` ... `=== end`."""
+    with open(DISPATCH_LOCK, "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            sys.exit("kaeq: another `kaeq dispatch` is running")
+        dispatch_loop(a)
+
+
+def dispatch_loop(a):
+    every = a.every
+    t_end = time.time() + parse_dur(a.timeout) if a.timeout else None
+    c = db()
+    busy = {r[0] for r in c.execute("SELECT DISTINCT session FROM jobs WHERE session IS NOT NULL "
+                                   "AND state IN ('queued','running')")}   # sessions with something running now
+    while True:
+        c = db()
+        now = time.time()
+        sids = [r[0] for r in c.execute("SELECT DISTINCT session FROM jobs WHERE session IS NOT NULL AND "
+                                        "(state IN ('queued','running') OR finished>?)", (now - 7 * 86400,))]
+        sids += [r[0][len(S.NOTE_PREFIX):] for r in c.execute(
+            "SELECT DISTINCT owner FROM events WHERE delivered=0 AND owner LIKE ?", (S.NOTE_PREFIX + "%",))]
+        blocks = []
+        for sid in dict.fromkeys(sids):
+            owners, notes = session_owners(c, sid), [S.NOTE_PREFIX + sid]
+            active = c.execute("SELECT COUNT(*) FROM jobs WHERE session=? AND state IN ('queued','running')",
+                               (sid,)).fetchone()[0]
+            failed = first_failures(c, owners)
+            urgent = pending_many(c, notes, kinds=("urgent",))
+            news = campaign_news(c, owners, every)
+            ended = sid in busy and not active
+            idle_note = not active and pending_many(c, notes, mark=False)    # nothing running: notes go now
+            if active:
+                busy.add(sid)
+            else:
+                busy.discard(sid)
+            if failed or urgent or news or ended or idle_note:
+                lines = report_lines(c, owners, notes, news, urgent)
+                if ended:
+                    lines.append("nothing of yours is queued or running now")
+                blocks.append((sid, lines))
+        if blocks:
+            for sid, lines in blocks:
+                print(f"=== to: {S.label(c, sid)} (session {sid})")
+                print("kaeq: news about your jobs (from the dispatcher; no reply needed).")
+                print("\n".join(lines))
+                print("You will be messaged again at a campaign's next failure, its 25% mark or its end: "
+                      "do not wait, poll or schedule wake-ups for your jobs.")
+                print("=== end")
+            sys.exit(0)
+        if t_end is not None and now > t_end:
+            sys.exit(2)
+        c.close()
+        time.sleep(a.interval)
+
+
 def cmd_wait(a):
     """Block until this session should look at its jobs, print why, and exit (run it in the background). It wakes
     for: the first failure in a campaign (exit 1; later failures there are held until the next wake-up or
@@ -356,6 +454,10 @@ def cmd_wait(a):
     else:
         S.register(c, me)
         fixed = None
+    if fixed is None and dispatcher_running():
+        print("kaeq dispatch is running: it will message this session at a campaign's first failure, its 25% mark "
+              "and its end. Stop here; don't wait, poll or schedule wake-ups.")
+        sys.exit(6)
     notes = [S.NOTE_PREFIX + me] if me else []
     horizon = parse_dur(getattr(a, "horizon", None) or "100m")
     replan = 0.0          # when to look at the forecast again
@@ -374,17 +476,7 @@ def cmd_wait(a):
             active = c.execute("SELECT COUNT(*) FROM jobs WHERE session=? AND state IN ('queued','running')", (me,)).fetchone()[0]
         timeout = t_end is not None and time.time() > t_end
         if failed or urgent or news or not active or timeout:
-            rows = pending_many(c, owners)
-            print_events([r for r in rows if r["kind"] in PROBLEM], cap=8)
-            print_events([r for r in rows if r["kind"] not in PROBLEM], cap=4)
-            for h in news:
-                print(h)
-            for n in urgent + pending_many(c, notes):
-                print(n["msg"])
-            if owners:
-                print("progress:")
-                for o in owners[:12]:
-                    print(progress_line(c, o))
+            print("\n".join(report_lines(c, owners, notes, news, urgent)))
             if not active:
                 print("nothing of yours is queued or running")
                 sys.exit(0)
@@ -760,6 +852,12 @@ def main(argv=None):
                                                      "time to schedule a wake-up for (0: always block)")
     s.add_argument("--force", action="store_true", help="listen to another session's owner anyway")
     s.set_defaults(f=cmd_wait)
+
+    s = sub.add_parser("dispatch", help="watch all sessions' jobs; print a message block for each session to wake, "
+                                        "then exit (for one relay session)")
+    s.add_argument("--every", type=int, default=25), s.add_argument("--timeout", default="115m")
+    s.add_argument("--interval", type=float, default=10.0)
+    s.set_defaults(f=cmd_dispatch)
 
     s = sub.add_parser("note", help="leave a note for the session that owns TARGET (session name/id or an owner); "
                                     "read when its `kaeq wait` returns")

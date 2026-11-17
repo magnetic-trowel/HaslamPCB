@@ -25,9 +25,14 @@ kaeq note <session|owner> "..."   # tell another session something about its job
 kaeq sessions                  # who owns which campaigns, how far along, who is listening
 ```
 
-## Waiting: one background `kaeq wait`, no polling
+## Waiting: let the dispatcher message you; otherwise one background `kaeq wait`
 
-After submitting, start `kaeq wait` in the background (Bash `run_in_background: true`, `timeout: 7200000`). It
+Usually a relay session runs `kaeq dispatch`, which watches every session's jobs. Then `kaeq submit` says so, and
+the dispatcher **messages you** at a campaign's first failure, its 25% mark and its end (plus urgent notes). Just
+stop after submitting: don't wait, poll or schedule anything. When its message arrives, act on it and stop again.
+`kaeq wait` exits 6 at once while a dispatcher runs.
+
+Without a dispatcher, after submitting, start `kaeq wait` in the background (Bash `run_in_background: true`, `timeout: 7200000`). It
 covers every job this session submitted, under any owner. It wakes you only for a campaign's first result, its first
 failure, 25% of it done, and its end, and it decides how to wait:
 - **5: nothing is due within 100 minutes** (queue forecast; checked again every 10 minutes while it blocks). It

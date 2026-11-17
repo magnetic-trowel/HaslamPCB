@@ -1303,3 +1303,35 @@ def test_wait_hands_back_a_wake_up_time_when_nothing_is_due_soon(kq, monkeypatch
     c.commit()
     monkeypatch.setattr(kq, "job_end_times", lambda c, now: {"exp-a": ends[1:]})    # 7 left
     assert kq.next_news(c, ["exp-a"], 25, now) == (ends[1], "exp-a", "is 25% done")   # 2 of 8: the second end
+
+
+def test_the_dispatcher_writes_one_message_per_session_that_should_wake(kq, monkeypatch, capsys):
+    import argparse
+    for sid, owner in (("aaaaaaaa-1111", "exp-a"), ("bbbbbbbb-2222", "exp-b")):
+        monkeypatch.setenv("KAEQ_SESSION", sid)
+        for _ in range(4):
+            submit(kq, "true", owner=owner)
+    monkeypatch.delenv("KAEQ_SESSION")
+    c = kq.db()
+    kq.campaign_news(c, ["exp-a", "exp-b"], 25)                 # both seen
+    c.execute("UPDATE jobs SET state='failed', finished=? WHERE id=1", (time.time(),))
+    kq.event(c, c.execute("SELECT * FROM jobs WHERE id=1").fetchone(), "failed", "#1 FAILED rc=1")
+    c.commit()
+    d = argparse.Namespace(every=25, timeout="1s", interval=0.1)
+    with pytest.raises(SystemExit) as e:
+        kq.cmd_dispatch(d)
+    out = capsys.readouterr().out
+    assert e.value.code == 0 and out.count("=== to:") == 1 and "(session aaaaaaaa-1111)" in out
+    assert "#1 FAILED" in out and "exp-a: 1/4 done, 1 failed" in out
+    with pytest.raises(SystemExit) as e:                        # nothing new for anyone: times out quietly
+        kq.cmd_dispatch(d)
+    assert e.value.code == 2 and "=== to:" not in capsys.readouterr().out
+    # while a dispatcher runs, a session's own `kaeq wait` steps aside
+    import fcntl
+    with open(kq.DISPATCH_LOCK, "a") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        monkeypatch.setenv("KAEQ_SESSION", "bbbbbbbb-2222")
+        assert kq.dispatcher_running()
+        with pytest.raises(SystemExit) as e:
+            kq.cmd_wait(argparse.Namespace(owner=None, timeout=None, every=25, force=False, horizon="100m"))
+        assert e.value.code == 6
