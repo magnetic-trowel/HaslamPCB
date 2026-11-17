@@ -57,3 +57,4 @@ on the new build.
 - New experiment `negrail-abs-m3` (owner `exp-negrail-abs-m3`), new method ids. The runs of `negrail-abs-m` (58 jobs done) are on the
   previous build and excluded from the decision; its jobs are cancelled.
 - Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
+- 2026-11-17 (main 9e54baed, #106 + #108): kept as registered. #108 changes only kae.joint.scorecard.accept, which the joint loop calls for windows, the finishing stage and its last-mile close; these arms never reach it (staged chassis `--max-iters 0` has no finishing stage, or bridge/placement only), the module stage's re-laid-copper guard keeps the old rule unchanged (physics_guard), and restart.py's judge returns the same key. #106 is harness-only.
