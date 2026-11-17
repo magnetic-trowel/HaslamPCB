@@ -60,9 +60,7 @@ Now (`evaluate.open_cell_observations`), an open cell has explicit observations 
 
 0.0625 mm is within 0.5 % (L) and 3 % (R) of 0.03125 mm; 0.125 mm is up to 11 % off (max98357), 0.25 mm up to 27 % (govish). **Margin** (corrected values at 0.0625 mm, margins 3, 6, 12 mm against the default): within 3 % on four boards, +9 % at 3 mm on govish.
 
-**Run time** (8 threads; 69 evaluations of 23 boards, human and two routed arms): the windows take a median 104 s per board (0–72 min), 49 % of the evaluation's time (up to 92 %); a 1-cell 31 × 31 mm 2-layer board (bq25306, the window is the whole board because module J1 takes 16 % of the loop's current) spends 400 s in the window against 25 s in the board solve. Profile of that run (py-spy): 90 % in the window solves, of it COCG preconditioner 21 %, sparse products 15 %, FFT operator 25 %, factorization 12 %. Windows over 1.2 M cells × layers coarsen; one that would coarsen to the board's own pitch keeps the board's values (`window.refined = false`, no harmonics: 12-layer arvsom). `--cell-pitch 0.125` cuts the window time about 4× at up to 11 % L error; `--no-cells` skips it.
-
-**Window cap tried and reverted.** Windows on the loop's own pads (brief `loop` plus margin, 25 % leak allowed) instead of every part carrying 5 % of the cell's current moved L_loop by up to 16 % (circuitmonkey human −16 %, noggin C −12 %; median 2.4 %) on 16 cells for 18 % less window time: the truncation correction is first order, so parts that carry a share of the current stay inside.
+**Run time and a reverted window cap:** windows take a median 104 s per board, 49 % of an evaluation; `--cell-pitch 0.125` cuts that about 4× at up to 11 % L error, `--no-cells` skips it; a window on the loop's own pads moved L_loop up to 16 % and was reverted ([hot-loop-evaluation-runs § 1](../../research/physics/hot-loop-evaluation-runs.md#1-window-run-time-and-the-reverted-window-cap)).
 
 **Scope `losses`** (`--scope losses`, `evaluate(scope="losses")`) solves only what the loss terms need: the cells' own bands (f_sw and the edge band) with their overshoot observers, the switch-node capacitance, the DC and heat bands (the heat band's copper temperatures scale the DC loss, TCR) and the cell windows. Every other source and observer is still set up, so the mesh, terminals and network are the full evaluation's and the values computed are bit-identical to it.
 
@@ -70,45 +68,11 @@ Now (`evaluate.open_cell_observations`), an open cell has explicit observations 
 |---|---|
 | overshoot.peak, loss.loop, loss.loop_ac, the cells' rows (L_loop, R_loop at f_sw, 3 f_sw, 5 f_sw), loss.swnode, loss.copper, loss.part, drop.rail, heat.track, temp.junction | supply.peak, pickup.peak, cable_cm.v (every non-cell source's solves, every noise and EMI observer) |
 
-This evaluator has no board-level AC copper loss outside the cells (ripple in caps, inductor ripple in rails): `loss.copper` is the DC band's; only `kae.excite.wideband` adds switching harmonics to it. kae.intent marks terms on dropped kinds incomplete (`scope losses: …`), never zero.
-
-Equivalence and time [C, 8 threads, full against `--scope losses`]: every kept observation and every cell row bit-identical (max relative difference 0) on five boards.
-
-| Board | Kept observations | Full | losses |
-|---|---|---|---|
-| librewave-ecp5 human (8 layers, 25 sources, 3 cells) | 12 | 6,192 s | 1,140 s (cells 786 s) |
-| bq25306 human | 7 | 217 s | 184 s |
-| qubik-bmps C | 4 | 74 s | 70 s |
-| max98357 A | 9 | 55 s | 66 s |
-| powerboost human | 24 | 45 s | 49 s |
-
-On small boards the windows dominate and both modes take the same time; the saving is on boards with many sources and observers, whose 25–100 MHz bands are skipped.
+This evaluator has no board-level AC copper loss outside the cells (ripple in caps, inductor ripple in rails): `loss.copper` is the DC band's; only `kae.excite.wideband` adds switching harmonics to it. kae.intent marks terms on dropped kinds incomplete (`scope losses: …`), never zero. Kept observations are bit-identical to the full evaluation on five boards; the saving is on boards with many sources (librewave-ecp5 6,192 → 1,140 s) ([hot-loop-evaluation-runs § 1](../../research/physics/hot-loop-evaluation-runs.md#1-window-run-time-and-the-reverted-window-cap)).
 
 ## 4. Validation on human layouts
 
-Human layouts of the 24 converter boards of the hot-loop diagnosis, with arms A (rf-legacy) and C (rf-finish) of route-finish-ab; intents compiled-9867d0b; evaluator at this branch [C, run 2026-11-14; boards still running are left out].
-
-| Measure | Value |
-|---|---|
-| Cells with a value or an explicit open | all; human: 19 valued, 13 open |
-| Human opens | openhornet IC2: its VIN pin has no copper in the human file (real); kestrel-esc's 12 half-bridge cells open in every arm, their injection lands on U1's merged 10V/3V3/BATN pins: a cell-recognition artifact upstream of the evaluator, counted, never compared |
-| Window vs board, pairwise order of two layouts of a cell (L and R, ties < 3 % skipped) | 81 agree, 1 disagrees (it8951 R, human vs C: 14.4 vs 14.9 mΩ on the board, 14.5 vs 13.8 in the window) |
-| Window / board, all valued cells | L 0.64–1.40 (median 0.93), R 0.85–1.64 (median 0.99) |
-| Human L_loop, integrated converters (buck, boost, class-D bridges) | 0.24–2.35 nH, median 1.2: TI SNVA803's < 0.5 nH (vertical loop) to > 1 nH (lateral), EPC's 0.4–2.9 nH range [P]; outliers are 2-layer layouts with long loops (it8951 boost 6.1 nH, esp32 flight controller 18.8 nH, moto:bit bridge 7.4 nH) |
-| Human R_loop at f_sw | 1.9–102 mΩ, median 4.8 mΩ |
-
-Paired against human (`hotloop.paired`, open cells ranked worst):
-
-| | cells valued in both, board solve | same cells, window | all cells, window, opens counted |
-|---|---|---|---|
-| A / human, L_loop | 1.25 (16) | 1.30 | 1.34 (20 compared; A open 15, human 13, both 12) |
-| A / human, R_loop | 1.76 | 1.56 | 1.71 |
-| C / human, L_loop | 1.10 (12) | 1.16 | 1.38 (C open 18) |
-| C / human, R_loop | 1.31 | 1.41 | 1.96 |
-
-Counting open cells moves C from 1.10× to 1.38× human: the arm that left more hot loops open had looked better.
-
-**Effect of the harmonic sum on `loss.loop_ac`** (typical corner, 76 valued cells of 23 boards, against the old fundamental formula on the board solve's R): median ×1.06, ×0.54 to ×2.71 [C]. Up: gecko5 U13/U14 ×2.0–2.7, noggin ×1.3–1.8, qubik ×1.4–1.5, bq25306 ×1.3–1.6. Down: arvsom and audio-latency ×0.7–0.9, where the layout's R share falls with frequency as the current moves to the nearest capacitor.
+Window and board solve order two layouts of a cell alike in 81 of 82 pairs; human L_loop of integrated converters 0.24–2.35 nH (median 1.2), inside TI SNVA803's and EPC's ranges [C, P]; counting open cells moves arm C from 1.10× to 1.38× human L_loop. Tables, the harmonic sum's effect on `loss.loop_ac` and the human-layout runs: [hot-loop-evaluation-runs § 2](../../research/physics/hot-loop-evaluation-runs.md#2-validation-on-human-layouts-2026-11-14).
 
 ## 5. Capacitor bodies: not modelled, and why
 
@@ -141,18 +105,7 @@ No region is counted twice. Left out: the cross term where both AC currents shar
 
 **Hand check** (fixture buck, 12 V, D 0.275, 4.7 µH, 1.1 MHz): ΔI = 0.462 A; R_eff at f_sw 9.8 mΩ against ~8.8 mΩ by hand (5.8 mm of 0.5 mm track outside the pads at 0.98 mΩ/mm, two 0.3 mm barrels at ~1.05 mΩ, ~1 mΩ of plane); loss = ΔI²/12·R_eff within 3 % (`test_the_inductor_ripple_copper_loss_matches_a_hand_estimate`).
 
-**On the converter boards** (human layouts, `--scope losses`; 11 of 24 boards finished when written) [C]:
-- `loss.copper_ac / loss.copper` (typical corner, boards with both): median 0.00056, 0.00022–0.0019 (3 boards: powerboost, govish, it8951). Most of these boards have no DC flow modelled (`DC: no rail with a source and a load`), so the ratio rests on few boards.
-- `loss.copper_ac / loss.loop_ac` per cell: median 0.019, 0.003–2.25 (7 cells); above 1 only on chip-lcd's boost, whose loop losses are 0.1–0.2 µW.
-- Class-D and filterless bridges (max98357, circuitmonkey, noggin) have no inductor in their structure: no ripple term, noted.
-- Physics agrees: ripple RMS is ΔI/√12, ~10 % of a CCM load current, through mΩ of output copper, against the full pulsed current RMS I·√(D(1−D)) in the hot loop.
-
-**Against `kae.excite.wideband`** (its `ac_loss.copper_W`: every AC source's harmonics through the reduced model at 0.25 mm, skin on; no ripple source either):
-| Board | wideband | `loss.loop_ac` + `loss.copper_ac` | Why they differ |
-|---|---|---|---|
-| bq25306 human | 0.235 mW | 0.230 + 0.018 = 0.248 mW | the cell's term agrees within 2 %; wideband adds the cores' currents, has no ripple |
-| qubik-bmps human | 0.210 mW | 0.141 + 0.003 = 0.144 mW | wideband builds its circuit without the operating facts' pin facts (a different brief), solves every harmonic to 172 MHz where `loss.loop_ac` extrapolates √f above 5 f_sw, and stays at 0.25 mm (the window reads R 8 % lower here) |
-| powerboost human | — | 0.086 + 0.011 mW | wideband fails with no sources (no pin facts: no cell found) |
+Measured on the converter boards (copper_ac against copper and loop_ac, and against `kae.excite.wideband`): [hot-loop-evaluation-runs § 3](../../research/physics/hot-loop-evaluation-runs.md#3-ac-copper-loss-on-the-converter-boards).
 
 ## Use the solver, not the routed-copper estimator, for comparisons
 
