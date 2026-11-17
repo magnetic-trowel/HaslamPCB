@@ -121,3 +121,4 @@ builds decide nothing on their own.
 
 ## Addendum 2026-11-17 (stop)
 Approved by the user 2026-11-17 after the analysis of finished rows from older builds (explore-2611 results); written before any result of this build is read. The queued jobs of `diffpair-ab4-m` are cancelled; the jobs already running finish and are reported as they are, without a decision. See results/learn-diffpair.md (explore-2611) for why; any further pair-routing test is a new pre-registered plan.
+- The finished jobs (about 15-16 boards on this build) are read as an interim of look 1, a confirmation of the older builds' F/FS guard failure, not as a decision. The next stage comes only after the pair stage is redesigned and charged under counted work (arms C, F-prime and P on boards with at most 100 opens, no Ct).
