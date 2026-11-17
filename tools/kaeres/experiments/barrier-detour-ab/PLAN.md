@@ -86,3 +86,5 @@ The chassis is unchanged from barrier-avoid-ab-m: same command, flags and budget
 240 runs are the smoke for job size: median wall 184 s, at most 619 s, about one CPU per job, and no ceiling hits.
 No new py-spy profile: the placement stage under this chassis has run in full already, and each extra stage
 here (`classify`, `detour`) takes under 1 s per run (0.8 s on ohwr, the largest barrier set).
+
+- 2026-11-17 (identity check, main 22ff779a + Freerouting f1c41d3): kept as registered. kae #105 changes only route/freerouting.py and budget charges for Freerouting runs, and this placement-only test (kae.cli place, no probe, no Freerouting) never reaches them, so its outputs on the new main are those of its registered commit.
