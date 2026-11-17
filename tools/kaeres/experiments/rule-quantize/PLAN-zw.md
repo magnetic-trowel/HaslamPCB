@@ -88,3 +88,6 @@ on the new build.
 - New experiment `rule-quantize-zw-m3` (owner `exp-rule-quantize-zw-m3`), new method ids. The runs of `rule-quantize-zw-m` (7 jobs done) are on the
   previous build and excluded from the decision; its jobs are cancelled.
 - Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
+
+## Addendum 2026-11-17 (end): stopped
+Approved by the user 2026-11-17 after the analysis of finished rows from older builds (explore-2611 results); written before any result of this build is read. ZQ2 left no zero-width copper in 19 of 19 runs (old and -m builds) while ZM left some on 5 boards, and ZQ2's guards against ZM passed on the -m build (opens 0.952 [0.862, 1.000], errors 0.925 [0.790, 1.000]). ZQ was inert. The zero-width fix ships with the rule-quantize branch tip; its current-build no-harm check is the guard-only stage (PLAN.md, addendum 2026-11-17 guard-only). `rule-quantize-zw-m3` is cancelled before any run.
