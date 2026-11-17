@@ -116,3 +116,24 @@ plus preparation, scoring and physics. Information, not a cap.
   kae and harness code of d21a9ac unchanged, so any speedup found is a later method, not this one. The profile is
   reported when it runs.
 - Submitted 138 jobs (46 boards × 3 seed pairs, both arms in each job), owner `exp-xing-ext`.
+
+## Addendum 2026-11-17 (2), before any run on the new build: current components
+Project rule (2026-11-17): every experiment runs on current main and the current Freerouting pin; results from older
+builds decide nothing on their own. This replaces "keeps d137fd1 in every arm to the end" above.
+- **Code.** `xing-ext-m2` is this branch with `place-crossing-term` (the xing term, as in d21a9ac; d21a9ac's other
+  additions, routing history and the channel setting, are off by default and not part of either arm) and main
+  c81770e1 merged in, no conflict. Both arms run kae and harness 7c0e2e3f, the commit before this addendum.
+  `test_place_crossings.py`, `test_place_engine.py` and `test_place_anneal.py` pass.
+- **Freerouting:** the pinned fork 9a5512d, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`.
+- **Counted work** (`KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1`): nominal budget = the old wall budget
+  (900 s x sqrt(fp/40)), harness timeout 4x as the wall ceiling.
+- **Primary.** Seeds 0-2 ran on other kae code and Freerouting 2e1125a, so the pooled estimate is no longer the
+  current method's. The primary is seeds 3-8 alone (k = 6, this build), which the plan already named as the fallback:
+  MDE80 about 10.7 % on the 45 feasible boards. The pooled number and seeds 0-2 alone are reported as history only.
+  Everything else (boards, arms, seeds 3-8, job layout of two seeds per job with both arms, guards, infeasibility
+  exclusion, one analysis) is unchanged.
+- **New experiment `xing-ext-m`** (owner `exp-xing-ext-m`), new method ids. No run of `xing-ext` had finished; its
+  queued jobs are cancelled. chan-gated's xingchan3 arm still waits on this result.
+- **Still worth running:** -7 % [-15, +3] is unknown, `place_w_xing` is off on main, and seeds on the same boards are the
+  cheapest power. About 145-300 CPU-h (plan; queue triage). If the CI still spans effects that matter, the plan's new-
+  boards alternative applies, not a reread.
