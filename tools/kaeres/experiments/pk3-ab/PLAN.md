@@ -99,3 +99,7 @@ as experiment `pk3-ab-p2` at this commit on the new pin; nothing else changed.
 
 ## Addendum 2026-11-17: re-registered on main 9e54baed as `pk3-ab-p3`, before any job ran
 #108 (the joint loop keeps or reverts each step by the shared ranked judge kae.rank.board_rank) reaches the Pk3 arm's windows and finish. `pk3-ab-p2` was registered but never submitted. Arms, boards, pin (f1c41d3), analysis and decision rule are unchanged.
+
+## Addendum 2026-11-17: re-registered on main 8a2c748f as `pk3-ab-p4`, before any job ran
+#83 (negative rails priced by magnitude in kae.physics.build) reaches the placer's physics terms (place_terms) and the joint loop's physics card in every arm. `pk3-ab-p3` was registered, never submitted.
+Smoke on 7fb99fb1 (Pk3 arm, pocketbeagle, f1c41d3, py-spy only): 5 attempts, wall/charged median 1.59, max 2.68; run 55 min for 3,170 s nominal allowance (1.04x); no `kae.budget.gap` line; finish kept 18 opens.
