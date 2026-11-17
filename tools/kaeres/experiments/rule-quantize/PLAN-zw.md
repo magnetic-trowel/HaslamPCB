@@ -72,3 +72,7 @@ with `(width 0)`).
   commits, so every run compiled cold (about 90 s). `warm.sh` builds the three caches from the methods' own venvs
   before the full run starts. The caches hold compiled machine code for identical sources, so results do not
   change. Sizing is kaeres' estimate; the smoke jobs peaked at about 7 GB with parallel 4.
+
+## Addendum 2026-11-17: current components
+See the addendum of the same date in [PLAN.md](PLAN.md): rebased on main c81770e1 (ZM main, ZQ 13568d89, ZQ2
+91dfc301), Freerouting 9a5512d, counted work, new experiment `rule-quantize-zw-m`; old-build runs excluded.
