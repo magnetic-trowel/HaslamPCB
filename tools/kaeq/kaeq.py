@@ -258,21 +258,21 @@ def campaign_news(c, owners, every):
         total, done, bad, run = owner_counts(c, o)
         if not total:
             continue
-        row = c.execute("SELECT step, finished FROM milestones WHERE owner=?", (o,)).fetchone()
+        row = c.execute("SELECT step, finished FROM progress WHERE owner=?", (o,)).fetchone()
         q = min(1, S.quarter(done, total, every))
         if row is None:
-            c.execute("INSERT INTO milestones(owner, step, finished, failed) VALUES(?,?,?,0)", (o, q, int(done == total)))
+            c.execute("INSERT INTO progress(owner, step, finished, failed) VALUES(?,?,?,0)", (o, q, int(done == total)))
             continue
         step, fin = row
         if done == total and not fin:
             st = dict(c.execute("SELECT state, COUNT(*) FROM jobs WHERE owner=? GROUP BY state", (o,)).fetchall())
             hits.append(f"{o}: finished, " + ", ".join(f"{n} {k}" for k, n in sorted(st.items())))
-            c.execute("UPDATE milestones SET finished=1, step=1 WHERE owner=?", (o,))
+            c.execute("UPDATE progress SET finished=1, step=1 WHERE owner=?", (o,))
         elif done < total and fin:
-            c.execute("UPDATE milestones SET finished=0 WHERE owner=?", (o,))      # new jobs: report their end too
+            c.execute("UPDATE progress SET finished=0 WHERE owner=?", (o,))      # new jobs: report their end too
         elif q > step and done < total:
             hits.append(f"{o}: {100 * done // total}% done ({done}/{total}" + (f", {bad} failed)" if bad else ")"))
-            c.execute("UPDATE milestones SET step=? WHERE owner=?", (q, o))
+            c.execute("UPDATE progress SET step=? WHERE owner=?", (q, o))
     c.commit()
     return hits
 
@@ -285,10 +285,10 @@ def first_failures(c, owners):
         if not c.execute("SELECT 1 FROM events WHERE delivered=0 AND owner=? AND kind IN (%s) LIMIT 1"
                          % ",".join("?" * len(PROBLEM)), (o, *PROBLEM)).fetchone():
             continue
-        row = c.execute("SELECT failed FROM milestones WHERE owner=?", (o,)).fetchone()
+        row = c.execute("SELECT failed FROM progress WHERE owner=?", (o,)).fetchone()
         if not row or not row[0]:
             out.append(o)
-            c.execute("INSERT INTO milestones(owner, step, finished, failed) VALUES(?,0,0,1) "
+            c.execute("INSERT INTO progress(owner, step, finished, failed) VALUES(?,0,0,1) "
                       "ON CONFLICT(owner) DO UPDATE SET failed=1", (o,))
     c.commit()
     return out
@@ -325,7 +325,7 @@ def next_news(c, owners, every, now):
         if not e:
             continue
         total, done, bad, run = owner_counts(c, o)
-        row = c.execute("SELECT step FROM milestones WHERE owner=?", (o,)).fetchone()
+        row = c.execute("SELECT step FROM progress WHERE owner=?", (o,)).fetchone()
         cand = [(e[-1], "finishes")]
         if done == 0:
             cand.append((e[0], "has its first result"))
@@ -351,9 +351,14 @@ def report_lines(c, owners, notes, news, urgent):
     rows = pending_many(c, owners)
     out = event_lines([r for r in rows if r["kind"] in PROBLEM], 8) + event_lines([r for r in rows if r["kind"] not in PROBLEM], 4)
     out += news + [n["msg"] for n in urgent + pending_many(c, notes)]
-    if owners:
-        out.append("progress:")
-        out += [progress_line(c, o) for o in owners[:12]]
+    shown = []
+    for o in owners:
+        total, done, bad, run = owner_counts(c, o)
+        if total:
+            shown.append((done == total, o))
+    if shown:
+        out.append("progress (active campaigns first):")
+        out += [progress_line(c, o) for _, o in sorted(shown)[:10]]
     return out
 
 
@@ -454,7 +459,7 @@ def cmd_wait(a):
     else:
         S.register(c, me)
         fixed = None
-    if fixed is None and dispatcher_running():
+    if dispatcher_running() and not getattr(a, "force", False):
         print("kaeq dispatch is running: it will message this session at a campaign's first failure, its 25% mark "
               "and its end. Stop here; don't wait, poll or schedule wake-ups.")
         sys.exit(6)
@@ -560,7 +565,7 @@ def cmd_retry(a):
     rows = sel_jobs(c, a, None if a.ids else PROBLEM)
     leave_to_owner(c, rows, a, "retry")
     for o in {j["owner"] for j in rows}:      # the next failure there wakes the session again
-        c.execute("UPDATE milestones SET failed=0 WHERE owner=?", (o,))
+        c.execute("UPDATE progress SET failed=0 WHERE owner=?", (o,))
     for j in rows:
         if j["state"] in ACTIVE:
             continue

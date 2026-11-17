@@ -273,7 +273,7 @@ CREATE TABLE IF NOT EXISTS events(
  id INTEGER PRIMARY KEY, ts REAL, owner TEXT, job INTEGER, kind TEXT, msg TEXT,
  delivered INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, name TEXT, seen REAL);
-CREATE TABLE IF NOT EXISTS milestones(owner TEXT PRIMARY KEY, step INTEGER, finished INTEGER DEFAULT 0, failed INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS progress(owner TEXT PRIMARY KEY, step INTEGER, finished INTEGER DEFAULT 0, failed INTEGER DEFAULT 0);
 """
 
 
@@ -320,10 +320,7 @@ def db(restore=False):
         if col not in have:
             c.execute(f"ALTER TABLE jobs ADD COLUMN {col} REAL DEFAULT 0")
     c.execute("CREATE INDEX IF NOT EXISTS jobs_session ON jobs(session)")
-    have = {r[1] for r in c.execute("PRAGMA table_info(milestones)")}
-    for col in ("finished", "failed"):
-        if col not in have:
-            c.execute(f"ALTER TABLE milestones ADD COLUMN {col} INTEGER DEFAULT 0")
+
     return c
 
 
