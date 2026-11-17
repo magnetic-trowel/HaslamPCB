@@ -125,3 +125,28 @@ on the new build.
   previous build and excluded from the decision; its jobs are cancelled.
 - Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
 - 2026-11-17 (main 9e54baed, #106 + #108): kept as registered. #108 changes only kae.joint.scorecard.accept, which the joint loop calls for windows, the finishing stage and its last-mile close; these arms never reach it (staged chassis `--max-iters 0` has no finishing stage, or bridge/placement only), the module stage's re-laid-copper guard keeps the old rule unchanged (physics_guard), and restart.py's judge returns the same key. #106 is harness-only.
+
+## Addendum 2026-11-17 (m4), before any run on this build: PR #83, inert boards, per-attempt primary
+Approved by the user 2026-11-17 after the analysis of finished rows from older builds (explore-2611 results); written
+before any result of this build is read. No `barrier-fit2-ab-m3` job had run.
+- **Why a new build.** Main 8a2c748f merges PR #83 (the placer prices a negative rail by its magnitude), which changes
+  the placer's terms on 28 of this test's remaining boards (Eurorack and synth modules), so both arms move to the new
+  main. #106 and #108 change nothing on this path. Branch `place-barrier-moves-m4` (rebased, no conflict); both arms at
+  kae and harness fa6411e4, the commit before this addendum; Freerouting fork f1c41d3, counted work, as in -m3.
+- **Inert boards dropped.** When the split is skipped (no split, over capacity, or unfit), F runs the control's path and
+  the pair is an exact zero. 11 boards were inert on both earlier builds and are dropped (`barrier_known_inert.txt` of
+  the analysis), leaving 109 (`stage1-m4.boards.txt`). Before any of their jobs runs, a placement-only probe of the
+  split decision runs on the 109 boards (`barriers.true_split`, then `fit_split` on the task input or the corpus
+  board, seeds 0-3, the probes' share of a full first-wave attempt's budget). A board is dropped when the split is
+  absent or over capacity, or `fit_split` gives it up on all four seeds; the others stay. The dropped boards are listed
+  in this file with the probe's result before any result is read, and the analysis counts them as exact zeros where a
+  whole-stage effect is reported.
+- **Primary amended** (decision rules of 2026-11-16): per-attempt opens paired by seed (each restart attempt's fresh
+  first-wave opens from `restarts.json`), per board the mean of Δlog1p(opens) F − C, reported as exp(mean) − 1 with a
+  4,000-draw board bootstrap 95 % CI and the MDE80. No 5 % bar: a CI below 0 with the guards holding is a gain; a CI
+  above 0 is harm; otherwise unknown, and the extension runs if effects that matter remain in the CI. Delivered total
+  opens, `legal`, DRC errors (total and per type, guard at the measured A/A spread) and cp1 are guards and reported as
+  before; guard 2 (`legal` not down by more than 3 pp) stands. Read apart now, at 0 CPU-h: fabriziotappero esp32-li-ion
+  (legal to illegal on both earlier builds) and the three replicated harms (len42-synth-adder, tommie1236 keypad, mprosk
+  wow-and-flutter); they decide whether fit2 needs a fix before any default.
+- New experiment `barrier-fit2-ab-m4` (owner `exp-barrier-fit2-ab-m4`); `barrier-fit2-ab-m3` is cancelled.
