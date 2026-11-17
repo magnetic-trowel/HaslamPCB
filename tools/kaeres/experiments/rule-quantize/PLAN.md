@@ -146,3 +146,24 @@ on the new build.
   previous build and excluded from the decision; its jobs are cancelled.
 - Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
 - 2026-11-17 (main 9e54baed, #106 + #108): kept as registered. #108 changes only kae.joint.scorecard.accept, which the joint loop calls for windows, the finishing stage and its last-mile close; these arms never reach it (staged chassis `--max-iters 0` has no finishing stage, or bridge/placement only), the module stage's re-laid-copper guard keeps the old rule unchanged (physics_guard), and restart.py's judge returns the same key. #106 is harness-only.
+
+## Addendum 2026-11-17 (guard-only), before any run of this stage
+Approved by the user 2026-11-17 after the analysis of finished rows from older builds (explore-2611 results); written
+before any result of this stage exists. `rule-quantize-guard-m3` is cancelled and replaced by this guard-only stage.
+- **Why guard-only.** Q is a correctness fix: widths and vias that were rounded past a rule's minimum or maximum now stay
+  inside it. Rule-quantize-mech settled the mechanism (0 grid width and ring errors against C's 171 + 199 per run), and
+  two builds showed no harm on errors or on width and ring errors. The opens moves were chaotic: their sign flipped
+  between builds, which is trajectory divergence under counted budgets, not a causal effect.
+- **Code.** `rule-quantize-m4`: the branch rebased onto main 8a2c748f (no conflict). Q is 6d88a8b7, the commit a PR
+  would ship (the old tip 7033bdbe: Q plus the zero-width fix; the later commits are documentation). C is main
+  8a2c748f. Harness 8a2c748f. Freerouting fork f1c41d3, counted work (`--time 900`, ceiling 3,600 s), as in the
+  guard's -m3 recipe.
+- **Boards:** `guard-only.txt`, the 55 guard boards left after dropping the 13 that came out identical in both arms on
+  every attempt (inert). k = 1 (seed 0). Experiment `rule-quantize-guard-m4`, owner `exp-rule-quantize-guard-m4`.
+- **Guards (decide), Q against C, paired by board,** geometric-mean ratio of log(x+1) with a 95 % board bootstrap CI:
+  DRC errors in total, defects (opens + errors), and per type: track_width, annular_width, connection_width and every
+  other type with at least 20 errors over C's runs. A guard fails when the CI's upper end is above +5 %. Opens: the same
+  statistic, reported with its CI. Opens harm is declared only if the CI's lower end is above +5 %, because the
+  earlier builds showed opens moving in both directions.
+- **Decision:** no harm, so PR the `rule-quantize` branch at Q (it supersedes bridge-ses-width; close #66). A failed
+  guard holds the PR until the boards behind it are read.
