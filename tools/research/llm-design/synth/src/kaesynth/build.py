@@ -204,6 +204,16 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
         kicad = {"ran": False, "reason": "KiCad symbol libraries not found; schematic not written"}
     else:
         kicad = {"ran": False, "reason": "missing symbols; schematic not written"}
+    if not d.kae.empty():
+        # the operating intent kae reads beside the board (kae.intent.facts): <slug>.kae_intent.json
+        from .kae_intent import kae_available
+        doc, problems = d.kae.document()
+        (outdir / f"{d.slug}.kae_intent.json").write_text(json.dumps(doc, indent=1) + "\n")
+        for prob in problems:
+            findings.append(Finding("kae_intent.invalid", "error", prob))
+        if not kae_available():
+            findings.append(Finding("kae_intent.unchecked", "warning", "kae is not importable (put kae/src on "
+                                    "PYTHONPATH): the intent file was checked by kaesynth only"))
     checker.findings = findings
     checker.apply_waivers(final=True)
     findings = checker.findings

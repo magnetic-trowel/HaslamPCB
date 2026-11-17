@@ -850,7 +850,7 @@ def write(text, dst, project_board):
     dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(text, encoding="utf-8")
-    for ext in (".kicad_pro", ".kicad_dru"):
+    for ext in (".kicad_pro", ".kicad_dru", ".kae_intent.json"):
         s = Path(project_board).with_suffix(ext)
         if s.exists() and s.resolve() != dst.with_suffix(ext).resolve():
             shutil.copy2(s, dst.with_suffix(ext))

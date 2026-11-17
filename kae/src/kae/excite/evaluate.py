@@ -186,6 +186,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     if scope not in (None, "losses"):
         raise ValueError(f"scope {scope!r}: None or 'losses'")
     loops = scope == "losses"
+    from .beliefs import board_facts
+    intent = board_facts(intent, path)
     from kae.board.kicad_file import load
     from kae.circuit import brief as B
     from kae.em import solve as ES
@@ -1282,7 +1284,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     from .beliefs import load_intent
     r = evaluate(a.board, a.pitch, tuple(a.window) if a.window else None, nsub=a.nsub, log=lambda m: print(m, file=sys.stderr),
-                 lumped=not a.no_lumped, intent=load_intent(a.intent), seed=a.seed,
+                 lumped=not a.no_lumped, intent=load_intent(a.intent) if a.intent else None, seed=a.seed,
                  max_cells=int(a.max_cells) if a.max_cells else None, cells=not a.no_cells, cell_pitch=a.cell_pitch,
                  cell_skin=not a.no_cell_skin, drc=False if a.no_drc else a.drc, scope=a.scope,
                  add_parts=a.add_part, remove_parts=a.remove_part)

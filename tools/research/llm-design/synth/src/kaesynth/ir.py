@@ -546,6 +546,15 @@ class Design:
         self._pin_cache = {}
         self.libs = None             # (SymbolLibs, FootprintLibs), set by finalize/build
         self.finalized = False
+        self._kae = None
+
+    @property
+    def kae(self):
+        """The design's operating intent for kae (kaesynth.kae_intent.KaeIntent): facts, environment, terms."""
+        if self._kae is None:
+            from .kae_intent import KaeIntent
+            self._kae = KaeIntent(self)
+        return self._kae
 
     # -- structure --------------------------------------------------------------------------
     def block(self, name, **kw):
