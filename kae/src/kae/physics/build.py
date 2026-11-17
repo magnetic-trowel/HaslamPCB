@@ -32,6 +32,8 @@ import re
 
 import numpy as np
 
+from kae import materials as MAT
+
 from . import priors as PR
 from .kernels import fin_params
 from .structures import (
@@ -51,8 +53,7 @@ from .structures import (
     ThermalField,
     _Coupled,
 )
-
-GND_RE = re.compile(r'(^|[^A-Z])(A|D|P|S|C)?GND|^/?VSS|^0V$|GROUND|EARTH', re.I)
+from kae.circuit.names import GND_RE
 
 
 def _volts(name):
@@ -942,7 +943,7 @@ def _thermal(ctx, specs):
     tc, fill = [], []
     for ly in bv.copper:
         cov = max([f for n, f in _layer_cov(bv, ly).items()] or [0.0])
-        tc.append(bv.tcu.get(ly, 0.035))
+        tc.append(bv.tcu.get(ly, MAT.CU_1OZ_MM))
         fill.append(PR.THERMAL['plane_fill'] if cov >= 0.5 else PR.THERMAL['signal_fill'])
     fr4 = max(bv.thickness - sum(tc), 0.1)
     gs, lam = fin_params(tc, fill, fr4, PR.THERMAL['k_cu'], PR.THERMAL['k_fr4'], PR.THERMAL['h_top'], PR.THERMAL['h_bot'])

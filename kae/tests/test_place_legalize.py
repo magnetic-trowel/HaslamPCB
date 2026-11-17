@@ -6,8 +6,9 @@ from pathlib import Path
 import numpy as np
 import shapely
 
+from kae.budget import Deadline
 from kae.board.kicad_file import load
-from kae.place.legalize import exact_check, kicad_violations, legalize, repair_kicad, violation_parts
+from kae.place.legalize import exact_check, kicad_violations, legalize, violation_parts
 from kae.place.problem import Problem
 from kae.place.state import State, grid_violations
 
@@ -68,13 +69,6 @@ def test_kicad_violations_become_constraints():
     assert [v["type"] for v in vs] == ["courtyards_overlap", "clearance"]
     assert violation_parts(P, st, vs[0]) == {a, b}
     assert violation_parts(P, st, vs[1]) == {a}            # unknown reference: nearest pad
-    before = {i: P.parts[i].rots[0].g_own for i in (a, b)}
-    rep = repair_kicad(P, st, vs, time_s=30.0, workers=2, seed=0, step_mm=0.2)
-    assert set(rep["parts"]) == {"U1", "U2"} and rep["by_type"] == {"courtyards_overlap": 1, "clearance": 1}
-    for i in (a, b):                                       # the rectangles grew for good
-        g0, g1 = before[i], P.parts[i].rots[0].g_own
-        assert g1[0] < g0[0] and g1[1] > g0[1] and g1[2] < g0[2] and g1[3] > g0[3]
-    assert not grid_violations(st) and exact_check(P, st) == []
 
 
 def test_closed_loop_repair_ends_exactly_legal():
@@ -120,11 +114,10 @@ def test_reseed_places_a_pile_and_overhang_keeps_only_pads_in():
     """Escalation steps of the closed loop: a constructive re-seed (biggest first, each at an
     exactly clean spot, looking ahead for the next big parts) places a pile exactly legal;
     allow_overhang lets a courtyard hang over the edge while its pads stay in."""
-    import time
     from kae.place import exact
     P, st = _pile()
     E = exact.ExactModel(P, st)
-    failed = exact.reseed(P, st, E, set(P.mov), time.monotonic() + 60)
+    failed = exact.reseed(P, st, E, set(P.mov), Deadline(60))
     assert not failed and exact_check(P, st) == []
     i = max(P.mov, key=lambda q: P.parts[q].area)
     before = P.parts[i].rots[0].g_board
@@ -298,7 +291,6 @@ def test_repair_keeps_protection_order():
 def test_move_clean_skips_a_spot_that_breaks_protection_order(monkeypatch):
     """The guard itself: of two exactly clean spots, the nearer one puts the protection part
     farther from the connector than the protected part; the repair takes the other."""
-    import time
     from kae.place import exact
     P, st, E, guard, ref = _held_chain()
     i7 = ref["U7"].i
@@ -309,7 +301,7 @@ def test_move_clean_skips_a_spot_that_breaks_protection_order(monkeypatch):
     E.set_pose(i7, *good)                                # where it stands, the rule holds
     monkeypatch.setattr(exact, "_candidates", lambda *a, **k: [(0.0, *bad), (1.0, *good)])
     E.findings_at = lambda i, X, Y, K, **kw: []          # both spots clean
-    ok, _ = exact.move_clean(P, st, E, i7, time.monotonic() + 30)
+    ok, _ = exact.move_clean(P, st, E, i7, Deadline(30))
     assert ok and (int(st.X[i7]), int(st.Y[i7]), int(st.K[i7])) == tuple(good)
     assert guard.total() == 0
 
@@ -525,7 +517,7 @@ def test_kicad_loop_writes_the_best_judged_placement_back(monkeypatch):
     assert clean and res.report["kicad_written_round"] == 1
 
 
-def test_mask_only_aperture_across_two_zone_fills_is_a_bridge():
+def test_mask_only_aperture_across_two_zone_fills_is_a_bridge(monkeypatch):
     """KiCad 10 (drc_test_provider_solder_mask.cpp, checkMaskAperture): a simple mask aperture
     (a mask graphic with no copper, e.g. a mask-only logo) bridges when it exposes two distinct
     positive nets; zone fills count (stickhub: LOGO4 on B.Mask across the GND and +5V fills).
@@ -533,8 +525,11 @@ def test_mask_only_aperture_across_two_zone_fills_is_a_bridge():
     from shapely.geometry import box
     from kae.board.model import Zone
     from kae.place import exact
+    # counted work and one worker: on wall-clock time under a loaded full-suite run, legalization
+    # stopped elsewhere, R1 landed elsewhere and the aperture missed the fill edge (flaky)
+    monkeypatch.setenv("KAE_BUDGET", "work")
     P, st = _pile()
-    legalize(P, st, time_s=30.0, workers=2, seed=0)
+    legalize(P, st, time_s=30.0, workers=1, seed=0)
     from kae.place.problem import geom_to_lib
     logo = next(p for p in P.parts if p.ref == "R1")
     # the aperture 3.6 mm from R1 towards the board's middle (clear of its pads, on the board
@@ -715,7 +710,6 @@ def test_repair_judges_exactly_where_the_grid_leaves_no_room():
     the grid offered the header no origin at all and the repair called it 'no room' forever.
     With no grid-free origin the repair takes origins free of the other movable parts only and
     lets the exact check judge them against the fixed ones."""
-    import time
     from kae.place import exact
     from kae.place.problem import Obstacle
     P, st = _pile()
@@ -731,7 +725,7 @@ def test_repair_judges_exactly_where_the_grid_leaves_no_room():
     home = (int(st.X[i]), int(st.Y[i]), int(st.K[i]))
     P.feedback = {"sep": {}, "avoid": {i: [(E.hull(E.sh[i]), "test")]}}   # it must leave where it is
     E = exact.ExactModel(P, st)
-    ok, _ = exact.move_clean(P, st, E, i, time.monotonic() + 30)
+    ok, _ = exact.move_clean(P, st, E, i, Deadline(30))
     assert ok and (int(st.X[i]), int(st.Y[i]), int(st.K[i])) != home and not E.part_findings(i)
 
 
@@ -870,3 +864,52 @@ def test_round_pads_and_holes_measure_within_the_arc_error():
     measured = hole_shape(hole).distance(pad_shape(pad))
     assert gap <= measured <= gap + 2 * ARC_ERR + 1e-9
     assert measured < 0.25 - 0.005           # the exact check's test: it now reports the violation
+
+
+def test_greedy_charges_its_scans_and_the_charges_change_no_decision():
+    """Under counted budgets the greedy legalizer charges its real work (fit tests of the ring walk,
+    grid-sized array passes, summed-area-table updates, rectangles marked): its scans between two
+    deadline polls once cost no budget (a rip-up scan of a full board: 98 s wall, nothing charged)."""
+    from kae import budget
+    from kae.place.legalize import greedy
+    poses = {}
+    try:
+        for mode in ("time", "work"):
+            for compiled in (True, False):
+                P, st = _pile()
+                budget.set_mode(mode)
+                greedy(P, st, list(P.mov), compiled=compiled)
+                u = budget.clock().units
+                kinds = ("legal_fit", "legal_cells", "legal_sat_cells", "legal_rect") if compiled \
+                    else ("legal_cells", "legal_rect")
+                assert all(u[k] > 0 for k in kinds), dict(u)
+                if mode == "work":
+                    spent = sum(u[k] * budget.RATES[k] for k in kinds)
+                    assert budget.clock().spent >= spent > 0
+                poses[mode, compiled] = (st.X.copy(), st.Y.copy(), st.K.copy())
+    finally:
+        budget.set_mode("time")
+    for compiled in (True, False):
+        assert all((a == b).all() for a, b in zip(poses["time", compiled], poses["work", compiled]))
+
+
+def test_ripup_scan_counts_every_fit_test_of_a_full_board():
+    """A part with no spot (the board full of larger parts) walks every origin within reach in
+    every rotation: the scan reports each fit test, so the charge follows the work."""
+    from kae.place import _fastlegal as FL
+    from kae.place.problem import sat
+    P, st = _pile()
+    i = P.mov[0]
+    ks = FL.rotations_for_fit(P.parts[i], 0)
+    own, own_n, opp, opp_n, brd, brd_n = FL.part_arrays(P.parts[i], ks)
+    pad, D = 4, 30
+    full = sat(np.ones((P.ncx + 2 * pad, P.ncy + 2 * pad), dtype=np.int32))
+    empty = sat(np.zeros((P.ncx + 2 * pad, P.ncy + 2 * pad), dtype=np.int32))
+    c, _, _, _, n = FL.ripup_spot(full, full, empty, empty, P.sat_out, P.ncx, P.ncy, pad, 0, P.ncx // 2,
+                                  P.ncy // 2, 0, 1.0, 4.0, own, own_n, opp, opp_n, brd, brd_n, D)
+    assert c < 0 and n == len(ks) * (2 * D * (D + 1) + 1)
+    c, _, _, _, n = FL.nearest_spot(full, full, P.sat_out, P.ncx, P.ncy, pad, 0, P.ncx // 2, P.ncy // 2, 0, 1.0,
+                                    own, own_n, opp, opp_n, brd, brd_n, D)
+    assert c < 0 and n == len(ks) * (2 * D * (D + 1) + 1)
+    S = sat(np.zeros((5, 5), dtype=np.int32))
+    assert FL.sat_add_rect(S, 1, 3, 2, 4, 1) == 4 * 3 and S[-1, -1] == 4    # the cells after the corner

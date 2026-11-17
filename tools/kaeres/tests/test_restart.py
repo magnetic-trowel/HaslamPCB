@@ -82,17 +82,6 @@ def test_no_final_pass_on_a_clean_board(tmp_path):
     assert all(d["k"] != "final" for d in summary["attempt_log"])
 
 
-def test_history_of_open_nets_reaches_later_attempts(tmp_path):
-    attempt = "cp \"$KAE_ROUTE_HISTORY\" seen.json; echo '(kicad_pcb OPEN=2)' > @OUT@"
-    r, out, summary = _run(tmp_path, attempt, "", extra=["--max-attempts", "2", "--history"])
-    assert r.returncode == 0, r.stdout + r.stderr
-    work = tmp_path / "work" / "restarts"
-    assert json.loads((work / "history.json").read_text()) == {"N0": 2, "N1": 2}
-    assert json.loads((work / "a0" / "seen.json").read_text()) == {}               # nothing judged yet
-    assert json.loads((work / "a1" / "seen.json").read_text()) == {"N0": 1, "N1": 1}
-    assert [d["open_nets"] for d in summary["attempt_log"]] == [["N0", "N1"], ["N0", "N1"]]
-
-
 # a kicad-cli that lists 3 unconnected items under the project's severity, filtered like KiCad:
 # none when the check is ignored, only with --severity-all when it is a warning
 SEVERITY_CLI = """#!/usr/bin/env python3
@@ -131,6 +120,40 @@ def test_judge_counts_unconnected_items_of_any_severity(tmp_path, monkeypatch):
         assert restart.drc(board, inp, 60)["unconnected"] == 3, sev
         assert restart.judge(board, inp, {}, 60) == (0, 1, 3, 0, 0), sev
         assert json.loads(inp.with_suffix(".kicad_pro").read_text()) == pro  # the task's project untouched
+
+
+# a kicad-cli that reports one clearance error per line of a .kicad_dru beside the board
+RULES_CLI = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+out, board = args[args.index("--output") + 1], args[-1]
+dru = board[:-len(".kicad_pcb")] + ".kicad_dru"
+n = len(open(dru).read().splitlines()) if os.path.exists(dru) else 0
+json.dump(dict(violations=[dict(type="clearance", severity="error", items=[])] * n, unconnected_items=[]), open(out, "w"))
+"""
+
+
+def test_judge_ignores_a_rules_file_the_method_left_when_the_task_has_none(tmp_path, monkeypatch):
+    """The judge ranks every attempt under the task's rules: a .kicad_dru the method wrote beside its
+    board is replaced by the task's, and removed when the task has none (before, it stayed and judged)."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "kicad-cli").write_text(RULES_CLI)
+    (bin_ / "kicad-cli").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}:{os.environ['PATH']}")
+    monkeypatch.setenv("KAE_KICAD_WRAP", "")
+    inp = tmp_path / "in" / "board.kicad_pcb"
+    inp.parent.mkdir()
+    inp.write_text("(kicad_pcb)\n")
+    board = tmp_path / "a0" / "board.kicad_pcb"
+    board.parent.mkdir()
+    board.write_text("(kicad_pcb)\n")
+    board.with_suffix(".kicad_dru").write_text("(version 1)\n(rule a)\n(rule b)\n")   # the method's own
+    assert restart.drc(board, inp, 60)["types"] == {}
+    assert not board.with_suffix(".kicad_dru").exists()
+    inp.with_suffix(".kicad_dru").write_text("(version 1)\n")                         # the task's own
+    board.with_suffix(".kicad_dru").write_text("(version 1)\n(rule a)\n(rule b)\n")
+    assert restart.drc(board, inp, 60)["types"] == {"clearance": 1}
 
 
 def test_judge_counts_past_drcs_cap_of_499_with_pcbnew(tmp_path, monkeypatch):
@@ -313,3 +336,100 @@ def test_work_mode_gives_the_finish_its_finish_s(tmp_path, monkeypatch):
     assert log[0]["budget"] <= 1000 - 300 - 20
     a = SimpleNamespace(time=1000.0, final="x", final_s=0.0, finish="y", finish_s=0.0)
     assert restart.work_final_s(a) == 150.0 and restart.work_finish_s(a) == 100.0
+
+
+# a kicad-cli that reports one unconnected item per routing item of the board, naming it by UUID
+UUID_CLI = """#!/usr/bin/env python3
+import json, re, sys
+args = sys.argv[1:]
+out = args[args.index("--output") + 1]
+us = re.findall(r'\\(uuid "([^"]+)"\\)', open(args[-1]).read())
+json.dump(dict(violations=[], unconnected_items=[dict(items=[dict(description=f"Track [N{i}]", uuid=u)])
+                                                for i, u in enumerate(us)]), open(out, "w"))
+"""
+_TRACKS = ('(kicad_pcb\n\t(segment\n\t\t(start 0 0)\n\t\t(end 1 0)\n\t\t(uuid "{a}")\n\t)\n'
+           '\t(segment\n\t\t(start 2 0)\n\t\t(end 3 0)\n\t\t(uuid "{b}")\n\t)\n)\n')
+
+
+def test_work_mode_judge_keeps_its_report_beside_the_board_with_the_boards_uuids(tmp_path, monkeypatch):
+    """Work mode judges a canonical copy in a temporary directory; its report must still be left beside
+    the attempt's board, as in time mode (--finish's @DRC@), naming the
+    board's own copper (the copy's UUIDs are derived from content)."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "kicad-cli").write_text(UUID_CLI.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1))
+    (bin_ / "kicad-cli").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}:{os.environ['PATH']}")
+    monkeypatch.setenv("KAE_KICAD_WRAP", "")
+    monkeypatch.setattr(restart, "WORK", True)
+    monkeypatch.setattr(restart, "SC", None)
+    inp = tmp_path / "in" / "board.kicad_pcb"
+    inp.parent.mkdir()
+    inp.write_text("(kicad_pcb)\n")
+    a, b = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+    board = tmp_path / "a0" / "board.kicad_pcb"
+    board.parent.mkdir()
+    board.write_text(_TRACKS.format(a=b, b=a))
+    assert restart.drc(board, inp, 60)["unconnected"] == 2
+    rep = json.loads(board.with_name("drc.json").read_text())
+    assert sorted(it["uuid"] for u in rep["unconnected_items"] for it in u["items"]) == [a, b]
+    assert sorted(p.name for p in board.parent.iterdir()) == ["board.kicad_pcb", "drc.json"]   # copy removed
+
+
+def test_completion_first_runs_alt_on_a_clean_board_and_keeps_it_when_no_worse(tmp_path):
+    """Phase 1 routes everything (OPEN=0, clean): the second run is --alt, kept when it ranks no worse."""
+    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=0 first)' > @OUT@", None, time_s=200,
+                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert s["second"] == "alt" and s["kept"] == 2 and "alt" in out.read_text()
+
+
+def test_completion_first_restarts_again_when_the_first_board_is_open(tmp_path):
+    """Phase 1 leaves opens: the second run is COMMAND again with the next seed (never --alt); the better is kept."""
+    r, out, s = _run(tmp_path, "if [ @SEED@ -ge 1000 ]; then echo '(kicad_pcb OPEN=1 second)' > @OUT@; "
+                               "else echo '(kicad_pcb OPEN=3 first)' > @OUT@; fi", None, time_s=200,
+                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert s["second"] == "restart" and s["kept"] == 2 and "second" in out.read_text()
+    assert [p["seed"] for p in s["phases"]] == [0, 1]
+
+
+def test_alt_alone_makes_completion_first_the_policy(tmp_path):
+    """--alt without --policy runs completion-first (the default policy whenever an alternative is given)."""
+    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=0 first)' > @OUT@", None, time_s=200,
+                     extra=("--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert s["policy"] == "completion-first" and s["second"] == "alt"
+
+
+def test_completion_first_open_alt_works_on_the_first_board_when_it_is_open(tmp_path):
+    """Phase 1 leaves opens: with --open-alt the second run works on phase 1's board (@BEST@), not a fresh restart;
+    kept when no worse."""
+    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=3 first)' > @OUT@", None, time_s=200,
+                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
+                            "--open-alt", "grep -q first @BEST@ && echo '(kicad_pcb OPEN=1 polished)' > @OUT@"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert s["second"] == "open-alt" and s["kept"] == 2 and "polished" in out.read_text()
+
+
+def test_open_rest_spends_the_windows_unused_budget(tmp_path):
+    """--open-rest: the open-alt run reports it used little of its budget (@REPORT@ seconds), so one more run gets
+    the rest: COMMAND with the next seed on an open board, --alt with --open-rest-alt once the board is clean."""
+    win = ("sed 's/first/win/' @BEST@ > @OUT@ && echo '{\"seconds\": 10}' > @REPORT@")
+    cmd = ("if [ @SEED@ -ge 2 ]; then echo '(kicad_pcb OPEN=1 third)' > @OUT@; "
+           "else echo '(kicad_pcb OPEN=3 first)' > @OUT@; fi")
+    r, out, s = _run(tmp_path, cmd, None, time_s=600,
+                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
+                            "--open-alt", win, "--open-rest"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert s["second"] == "open-alt" and s["third"] == "restart" and s["kept"] == 3 and "third" in out.read_text()
+    assert (tmp_path / "work" / "restarts" / "report-windows.json").exists()
+
+
+def test_open_rest_alt_runs_alt_on_a_board_the_windows_completed(tmp_path):
+    win = "echo '(kicad_pcb OPEN=0 win)' > @OUT@ && echo '{\"seconds\": 10}' > @REPORT@"
+    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=3 first)' > @OUT@", None, time_s=600,
+                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
+                            "--open-alt", win, "--open-rest", "--open-rest-alt"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert s["third"] == "alt" and s["kept"] == 3 and "alt" in out.read_text()

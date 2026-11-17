@@ -34,18 +34,15 @@ centre when none is legal. Nothing here knows the board; it is plane geometry on
 from __future__ import annotations
 
 import math
-import re
 
 from shapely.geometry import LineString, Point
+
+from kae.circuit.names import GND_RE, PWR_RE  # rails and grounds: their joints carry current
 
 MODES = ("centre", "edge")
 MAX_ANGLE = 20.0          # degrees off the edge normal a direct piece may enter at
 EPS = 1e-6
 
-# rails and grounds: their joints carry current (kae.physics.provisional_brief's name rules)
-GND_RE = re.compile(r'(^|[^A-Z])(A|D|P|S|C)?GND|^/?VSS|^0V$|GROUND|EARTH', re.I)
-PWR_RE = re.compile(r'^/?(\+?\d+(\.\d+)?V\d*|\+[A-Z0-9_.]+|V(CC|DD|BUS|IN|SYS|BAT|MOT|M|PP|REG|CORE|CAP|S)[A-Z0-9_.]*|'
-                    r'[AD]V(DD|CC)[A-Z0-9_]*|\d+V\d+|[0-9]+V[0-9]*_?[A-Z]*)$', re.I)
 
 
 def current_net(net):

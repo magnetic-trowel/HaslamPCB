@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Routed physics of one task's boards (human reference and each router's scored board).
 
-Same measure as tools/research/joint/joint_physics.py (the "module physics" numbers in the
-joint results): the brief and place terms are built once from the route task's input (the
+Same measure as tools/research/joint/joint_physics.py (tag archive/research-prototypes-2611; the
+"module physics" numbers in the joint results): the brief and place terms are built once from the route task's input (the
 human placement), so module ids pair across boards; each board is measured with
 kae.route.critical_recheck.board_physics (fills="kicad", fast fidelity) and summarized by
 kae.joint.scorecard.physics_total (sum of min(u, 5), modules without a value at 3). Also

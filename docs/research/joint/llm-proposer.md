@@ -21,7 +21,7 @@ Premise: language models handle relations much better than coordinates. No model
 
 ## Results
 
-Routing ([pnr_llm/RESULTS.md](../../../tools/research/pnr_llm/RESULTS.md); L = legal, u = DRC unconnected items):
+Routing ([pnr_llm/RESULTS.md](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/pnr_llm/RESULTS.md); L = legal, u = DRC unconnected items):
 
 | board | seq | blocker ctl | random ctl | **LLM** (rounds) | anneal (v3, 120 s) | human, routed |
 |---|---|---|---|---|---|---|
@@ -49,7 +49,9 @@ Cost: ~3k–5k tokens per round (1.4k–2.6k image + summary, 60–220 output, e
 
 ## Code
 
-[`tools/research/pnr_llm/llmloop.py`](../../../tools/research/pnr_llm/llmloop.py) (render, summary, move resolver, verifier, controls), `emit.py` (hands boards to the harness). Move logs were in git-ignored `kae-work/`, not published; the RESULTS appendix quotes the key moves.
+- **Archived:** [`pnr_llm`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/pnr_llm) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/kicad-auto-everything/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [1e53ff1](https://github.com/magnetic-trowel/kicad-auto-everything/commit/1e53ff126883570507cb8f7400556e52c200ff25) (2026-10-27, import from the research branch, path fixes only). Run it from a checkout of the tag.
+
+[`tools/research/pnr_llm/llmloop.py`](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/pnr_llm/llmloop.py) (render, summary, move resolver, verifier, controls), `emit.py` (hands boards to the harness). Move logs were in git-ignored `kae-work/`, not published; the RESULTS appendix quotes the key moves.
 
 ## Related
 

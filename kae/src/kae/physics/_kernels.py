@@ -8,6 +8,8 @@ import math
 
 import numpy as np
 
+from kae import materials as MAT
+
 try:
     jit = _JIT          # noqa: F821  (injected by kae.physics.jit before execution)
 except NameError:       # imported directly: plain Python
@@ -15,11 +17,11 @@ except NameError:       # imported directly: plain Python
         return f
 
 INF = math.inf
-MU = 0.1                 # mu0 / 4 pi, nH/mm
-ETA0 = 376.730313        # ohm
-C0 = 299.792458          # mm/ns
-TCU = 0.035
-EPS0 = 8.8541878128e-3     # pF/mm
+MU = MAT.MU0_4PI_NH_MM   # mu0 / 4 pi, nH/mm
+ETA0 = MAT.ETA0_OHM      # ohm
+C0 = MAT.C0_MM_NS        # mm/ns
+TCU = MAT.CU_1OZ_MM
+EPS0 = MAT.EPS0_PF_MM    # pF/mm
 A2_NEAR = 0.3 ** 2       # mm^2: closest approach of two distinct conductors' axes (coupling)
 
 

@@ -43,7 +43,7 @@ Same code = the joint loop's iteration 0 ([kae-joint-loop](kae-joint-loop.md)), 
 ## Code
 
 - `PYTHONPATH=kae/src python -m kae.joint.cli run IN OUT --time S --seed N --max-iters 0 --no-modules` (the merit command), or `python -m kae.cli place` followed by `python -m kae.route.cli route`.
-- `kae/src/kae/joint/{cli,loop,stages}.py`, `kae/src/kae/place/`, `kae/src/kae/route/`. A/B driver: `tools/research/joint/run_joint_ab.sh`; physics read-out `tools/research/joint/joint_physics.py`.
+- `kae/src/kae/joint/{cli,loop,stages}.py`, `kae/src/kae/place/`, `kae/src/kae/route/`. A/B driver: `tools/research/joint/run_joint_ab.sh`; physics read-out [`tools/research/joint/joint_physics.py`](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/joint/joint_physics.py) (archived; successor `tools/kaeres/physics_board.py`).
 
 ## Related
 

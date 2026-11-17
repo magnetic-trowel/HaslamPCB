@@ -568,10 +568,22 @@ def test_lease_plan_uses_the_timed_forecast_and_thaws_compressed_jobs_only_with_
 
 
 def test_the_timed_forecast_z_adapts_to_lost_work(kq):
-    cfg = dict(overcommit_window_s=21600, overcommit_loss_target=0.02)
+    cfg = dict(overcommit_window_s=21600, overcommit_loss_target=0.02, timed_z_max=3.0)
     assert kq.adapt_z(2.0, [(0, 0.0, 0.0), (3600, 100000.0, 5000.0)], cfg, now=3600)[0] == 2.5
+    assert kq.adapt_z(3.0, [(0, 0.0, 0.0), (3600, 100000.0, 5000.0)], cfg, now=3600)[0] == 3.0   # capped
     assert kq.adapt_z(2.0, [(0, 0.0, 0.0), (3600, 100000.0, 100.0)], cfg, now=3600)[0] == 1.75
     assert kq.adapt_z(2.0, [(0, 0.0, 0.0), (3600, 10.0, 5.0)], cfg, now=3600) == (2.0, None)
+
+
+def test_an_eviction_counts_against_timed_z_only_for_the_shortfall_batch_jobs_do_not_explain(kq):
+    jobs = [dict(id=1, use=30000.0), dict(id=2, use=5000.0, timed=True), dict(id=3, use=1000.0)]
+    grants = {1: 20000.0, 2: 3000.0, 3: 2000.0}          # batch #1 is 10 G over its grant; timed #2 2 G over
+    # 20 G buffer, 2 G free: an 8 G shortfall; batch overshoot explains all of it
+    assert kq.timed_share(jobs, grants, room=2000.0, buffer=20000.0) == 0.0
+    # 30 G short: batch overshoot explains a third
+    assert kq.timed_share(jobs, grants, room=-20000.0, buffer=20000.0) == pytest.approx(2 / 3)
+    # no batch job over its grant: all of it counts
+    assert kq.timed_share(jobs[1:], grants, room=2000.0, buffer=20000.0) == 1.0
 
 
 def test_batch_jobs_get_whole_steps_or_wait_and_evict_for_timed_only_when_really_short(kq):
@@ -1161,3 +1173,30 @@ def test_a_running_jobs_expected_size_comes_from_evidence_before_its_declaration
     # the old rule, by settings: declared --mem
     old = dict(cfg, forecast_min_jobs=10 ** 9, forecast_trust_s=10 ** 9)
     assert kq.expected_size(16000, [0.1, 0.2, 0.3], 900, 900, old) == 16000
+
+
+def test_set_changes_queued_jobs_and_only_the_timeout_of_running_ones(kq):
+    import argparse
+    c = kq.db()
+    now = time.time()
+    for name, state, tag in (("q1", "queued", "big"), ("q2", "queued", "big"), ("q3", "queued", "small"),
+                             ("r1", "running", "big"), ("d1", "failed", "big")):
+        c.execute("INSERT INTO jobs(owner,name,tag,cmd,cpus,mem_mb,timeout_s,state,submitted,started,deadline) "
+                  "VALUES('t',?,?,'x',4,8192,3600,?,?,?,?)",
+                  (name, tag, state, now, now if state == "running" else None, now + 3600 if state == "running" else None))
+    c.commit()
+    ns = dict(ids=[], owner="t", tag="big", timeout=None, mem=None, cpus=None, running=False)
+    kq.cmd_set(argparse.Namespace(**dict(ns, timeout="2x", mem="12G")))
+    kq.cmd_set(argparse.Namespace(**dict(ns, ids=["2"], tag=None, cpus="8")))
+    kq.cmd_set(argparse.Namespace(**dict(ns, timeout="5h", running=True)))
+    j = {r["name"]: r for r in c.execute("SELECT * FROM jobs").fetchall()}
+    assert (j["q1"]["timeout_s"], j["q1"]["mem_mb"], j["q1"]["cpus"]) == (5 * 3600, 12288, 4)
+    assert (j["q2"]["timeout_s"], j["q2"]["mem_mb"], j["q2"]["cpus"]) == (5 * 3600, 12288, 8)
+    assert (j["q3"]["timeout_s"], j["q3"]["mem_mb"]) == (3600, 8192)                  # other tag untouched
+    assert (j["r1"]["timeout_s"], j["r1"]["mem_mb"]) == (5 * 3600, 8192)              # running: timeout only
+    assert j["r1"]["deadline"] == pytest.approx(j["r1"]["started"] + 5 * 3600)
+    assert j["d1"]["timeout_s"] == 3600                                              # finished jobs: retry's job
+    with pytest.raises(SystemExit):
+        kq.cmd_set(argparse.Namespace(**dict(ns, ids=[], owner=None, tag=None, timeout="2h")))   # no selection
+    with pytest.raises(SystemExit):
+        kq.cmd_set(argparse.Namespace(**dict(ns, timeout="soon")))

@@ -21,7 +21,6 @@ so a run that is killed still leaves its best board. Returns a JSON-able report.
 """
 from kae.budget import now as clock_now
 import json
-import os
 import shutil
 import tempfile
 import time
@@ -129,8 +128,6 @@ DEFAULT_OPTS = dict(
                              # escapes, and the certificate of balls no routing can escape (report "blocked")
     escape_share=0.15,       # of the time left: the plane escapes' and escape plans' share at most
     escape_min_s=45.0,       # but the escape plans get this much at least (cached for a restart's later attempts)
-    escape_lay="dog_bones",  # laid before routing: the fixed dog-bones, or "plan" (the plan's vias and escapes;
-                             # 2x the opens under Freerouting on gecko5education and nekoink)
     blocked=True,            # at the end, diagnose the connections still open (kae.route.blocked): the report's
                              # "blocked" names the board rule (or kae default) that makes each impossible
     blocked_s=30.0,          # with blocked: seconds kept for it at most (taken from the repair rounds)
@@ -239,7 +236,9 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
             if got.get("escape"):
                 # the escape plan per package (per ball: layer, side, via, exit), and what no routing
                 # can escape under the board's rules (the "blocked" section's packages)
-                report["escape"] = {k: v for k, v in got["escape"].items() if k != "blocked"}
+                report["escape"] = {k: v for k, v in got["escape"].items() if k not in ("blocked", "hazards")}
+                # kae's own via blocking an escape the rules allow (escape.own_via): a hazard
+                report.setdefault("hazards", []).extend(got["escape"].get("hazards") or [])
                 if got["escape"]["blocked"]:
                     report["blocked_packages"] = got["escape"]["blocked"]
             if got["added"]:
@@ -270,11 +269,7 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
                         for n in (pr["p"], pr["n"])}
             report["wire_types"] = dict(translate.set_wire_types(tree, opts["wire_type"], nets=nets),
                                         type=opts["wire_type"], scope=scope)
-        first, hist_path = route_first(opts)
-        opts["route_first"] = first
-        report["permuted"] = translate.permute(tree, seed, first=first)
-        if hist_path:
-            report["route_first"] = dict(history=str(hist_path), nets=first)
+        report["permuted"] = translate.permute(tree, seed)
         report["plan"] = plan_summary(p)
         dsn = wd / "board.dsn"
         specctra.write(tree, dsn)
@@ -588,27 +583,6 @@ def last_mile_only(input_path, board_path, output_path, time_s=120.0, seed=0, wo
             shutil.rmtree(wd, ignore_errors=True)
         else:
             report["workdir"] = str(wd)
-
-
-ROUTE_FIRST_MAX = 8   # nets of a failure history routed first at most (opts route_first_max)
-
-
-def route_first(opts):
-    """(nets to route first, history path) from a failure history: a JSON {net: times an earlier
-    attempt left it open} at opts history, else at $KAE_ROUTE_HISTORY (the restart wrapper's
-    --history): the ROUTE_FIRST_MAX most often open. ([], None) without one; an unreadable one
-    counts as empty."""
-    path = opts.get("history") or os.environ.get("KAE_ROUTE_HISTORY")
-    if not path:
-        return [], None
-    try:
-        hist = json.loads(Path(path).read_text())
-    except (OSError, ValueError):
-        hist = {}
-    # a few nets only: with every net once open (a first wave of 30-70 open), the history fixed the
-    # whole placement order and every later attempt routed alike (kata0510 rp2040: 7, 7, 7, 7 open)
-    return translate.route_first(hist if isinstance(hist, dict) else {},
-                                 limit=int(opts.get("route_first_max", ROUTE_FIRST_MAX))), path
 
 
 def router_budget(left_s, opts):

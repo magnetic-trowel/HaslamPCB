@@ -254,6 +254,8 @@ def _try(gr, sp, net, src, others, win, widths):
             continue
         for vc in VIA_COSTS:
             rt = gr.connect(net, src, dst, w, cu, via=len(cu) > 1, window=grid, via_cost=vc)
+            # one search's rasters (each layer's costs over the window) cost by the window's cells
+            charge("lastmile_cells", grid.nx * grid.ny * len(cu))
             if rt is None or not (rt.segs or rt.vias):
                 break
             new = _commit(sp, rt)
@@ -658,21 +660,15 @@ def plane_escapes(board, info, plan, fills, out, sev=None, log=print, deadline=N
         # ball grids, and the certificate of what no routing can escape under the rules
         from . import escape
         eo = dict(escape_opts or {}, _board=str(board))
-        # what is laid: the fixed dog-bones (default; measured better under Freerouting than any
-        # laid plan) or the plan's own vias and escapes (escape_lay "plan"); the plan and its
-        # certificate are computed either way (escape_plan false: neither)
-        lay_plan = eo.get("escape_lay") == "plan"
-        eo["escape_lay"] = lay_plan
+        # the fixed dog-bones are laid (measured better under Freerouting than any laid plan);
+        # the plan and its certificate are computed for the report (escape_plan false: neither)
         # the plan needs its LP whatever the share: escape_min_s at least (a restart's later
         # attempts reuse it from the cache, escape._cache_get)
         esc = dict(packages=[], blocked=[], laid=0, wanted=0) if eo.get("escape_plan") is False else escape.run(sp, info, eo, log=log,
                          deadline=None if deadline is None else clock_now() + max(
                              float(eo.get("escape_min_s", 45.0)), 0.7 * max(0.0, deadline - clock_now())))
         rep["escape"] = esc
-        if not lay_plan:
-            rep["dog_bones"] = escape.dog_bones(sp, info, log=log)    # after the plan: it plans the bare board
-        else:
-            rep["dog_bones"] = (sum(p.get("vias_laid", 0) for p in esc["packages"]), esc["wanted"])
+        rep["dog_bones"] = escape.dog_bones(sp, info, log=log)    # after the plan: it plans the bare board
     from . import constraints as CN
     if fp and CN.setting_env("escape_ground_vias", board, escape_opts):
         rep["ground_vias"] = ground_vias(sp, b, plan, fp, log=log)

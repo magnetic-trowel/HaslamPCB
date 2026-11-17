@@ -12,7 +12,6 @@
   Incremental: the overlap of a box with the bins factorizes into x and y weights, so a
   net's contribution is an outer product; a move re-adds only the touched nets and the
   moved parts' pads, inside the bins they cover, before and after.
-- `routability_report(P, st)`: signal-only HPWL and RUDY peak/overflow for reports.
 """
 from __future__ import annotations
 
@@ -237,13 +236,3 @@ class Congestion:
     def peak(self):
         return float(self.utilization().max()) if self.Dn.size else 0.0
 
-
-def routability_report(P, st, cong_args=None):
-    """Signal-only HPWL (H11) and RUDY numbers of a placement, for reports."""
-    from .anneal import Annealer
-    ann = Annealer(P, st.copy(), terms=None, w_cong=1.0, **({"cong_args": cong_args} if cong_args else {}))
-    c = ann.cong
-    util = c.utilization()
-    return dict(hpwl=round(st.hpwl(), 2), hpwl_signal=round(st.hpwl(signal_only=True), 2),
-                rudy_peak=round(float(util.max()), 3), rudy_mean=round(float(util.mean()), 3),
-                rudy_p95=round(float(np.percentile(util, 95)), 3), rudy_overflow=round(c.total(), 5))
