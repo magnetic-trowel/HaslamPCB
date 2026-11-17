@@ -235,7 +235,7 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
             # correction cannot be trusted: the board solve's values stand, with no harmonics (reported,
             # layout-independent like the window)
             R0 = round(max(g[1].real, 0.0) * 1e3, 4)
-            peaks = [HA.peak(g[1], g[0], v["I_A"], v.get("D", 0.5), v["t_i_s"])[0]
+            peaks = [HA.peak(g[1], g[0], v["I_A"], v.get("D", 0.5), v["t_i_s"], v.get("I_pk_A"))[0]
                      for v in ({k[1]: x for k, x in cp.items()} for cp in cps[s.name])]
             rows.append(dict(row, state="ok", L_loop_nH=round(g[0] * 1e9, 4), R_loop_mohm=R0,
                              R_harmonics=[dict(n=1, f_MHz=round(f_fund / 1e6, 4), R_mohm=R0)],
@@ -264,11 +264,11 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
         peaks = []
         for c in range(len(cps[s.name])):
             val = {k[1]: v for k, v in cps[s.name][c].items()}
-            peaks.append(HA.peak(Zf, Le, val["I_A"], val.get("D", 0.5), val["t_i_s"])[0])
+            peaks.append(HA.peak(Zf, Le, val["I_A"], val.get("D", 0.5), val["t_i_s"], val.get("I_pk_A"))[0])
         val0 = {k[1]: v for k, v in cps[s.name][0].items()}
         rows.append(dict(row, state="ok", L_loop_nH=round(Le * 1e9, 4), R_loop_mohm=R[0]["R_mohm"], R_harmonics=R,
                          overshoot_V=dict(typ=round(peaks[0], 4), worst=round(max(peaks), 4)),
-                         di_dt_A_per_ns=round(val0["I_A"] / val0["t_i_s"] * 1e-9, 4),
+                         di_dt_A_per_ns=round(val0.get("I_pk_A", val0["I_A"]) / val0["t_i_s"] * 1e-9, 4),
                          f_edge_MHz=round(f_edge / 1e6, 4),
                          window=dict(box=[round(x, 3) for x in win], pitch=pc, margin_mm=margin, grown=grown,
                                      L_raw_nH=round(z[f_edge].imag / w_e * 1e9, 4), trunc_L_nH=round(dLe * 1e9, 4),

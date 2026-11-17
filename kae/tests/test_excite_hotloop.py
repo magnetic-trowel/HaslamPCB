@@ -277,6 +277,20 @@ def test_the_inductor_ripple_copper_loss_matches_a_hand_estimate(tmp):
     assert row["obs"] == "loss.copper_ac" and row["contribution"] > 0             # priced like loss.copper
 
 
+def test_the_hot_loop_loss_is_charged_at_the_turnoff_current(tmp):
+    """The fixture buck's switch turns off at the inductor's peak I + dI/2 (kae.physics.converter.turnoff_current):
+    loss.loop = 1/2 L_loop I_pk^2 f_sw at every corner, with dI as the ripple observation reads it."""
+    ev = _ev("closed", tmp)
+    (lp,) = _obs(ev, "loss.loop")
+    (rp,) = _obs(ev, "loss.copper_ac")
+    led = {r["name"]: r for r in ev["ledger"] if str(r.get("subject", "")).startswith("cell:")} \
+        if isinstance(ev["ledger"], list) else {}
+    I, f = led["I_A"]["typ"], led["f_sw_Hz"]["typ"]
+    dI = min(12.0 * 0.275 * 0.725 / (rp["scope"]["L_H"] * f), 2 * I)
+    assert lp["values"][0] == pytest.approx(0.5 * lp["scope"]["L_loop_H"] * (I + dI / 2) ** 2 * f, rel=1e-6)
+    assert "I_pk" in lp["label"]
+
+
 def test_the_ripple_loss_is_deterministic_across_file_order(tmp):
     a = _obs(_ev("long", tmp), "loss.copper_ac")[0]["values"]
     p = write_hotloop_board(f"{tmp}/long-rev2", "long", reverse=True)

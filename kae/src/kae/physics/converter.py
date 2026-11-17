@@ -169,6 +169,17 @@ def operating(topology, V_in, V_out, I_out, eta=ETA[1], L=None, f_sw=None, leg=N
     return op
 
 
+def turnoff_current(I_L, dI):
+    """The current the switch turns off: the inductor's peak I_L + dI/2 (dI capped at 2 I_L, the DCM boundary,
+    where the peak is 2 I_L and the switch turns on at zero). The hard commutation is the turn-off: the loop's
+    inductance then holds 1/2 L I_pk^2, which rings out across the switch (overshoot L dI/dt at I_pk). At turn-on
+    the same inductance limits the current's rise and lowers the switch's overlap loss (a turn-on snubber), so
+    switching loss is insensitive to it there (Bai 2003, sec. 3.6, 4.4.3): no second 1/2 L I_valley^2 is charged."""
+    if dI is None or dI <= 0:
+        return I_L
+    return I_L + min(dI, 2 * I_L) / 2
+
+
 def output_from_inductor(topology, I_L, D):
     """I_out a cell delivers at inductor current I_L and duty D (the inverse of operating's I_L)."""
     if topology in ("boost", "boost_led", "inverting_buck_boost"):

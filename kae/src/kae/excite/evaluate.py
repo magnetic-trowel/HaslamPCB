@@ -60,6 +60,28 @@ def ledger_for(bd, brief, srcs, intent=None):
     return P, L
 
 
+def _turnoff_currents(bd, brief, srcs, P, cps, bands):
+    """Each cell's turn-off current at each corner, (subject, "I_pk_A"): the inductor's peak I + dI/2
+    (kae.physics.converter.turnoff_current, dI from kae.excite.ripple at the corner's V, D, f_sw and the inductor's
+    circuit value at the fundamental). Cells without an inductor in their circuit keep I (no key)."""
+    from kae.physics.converter import turnoff_current
+    from . import ripple as RP
+    for s in srcs:
+        if s.kind != "cell" or "I" not in (P.get(s.name) or {}):
+            continue
+        e, _ = RP.inductor_elem(bd, brief, s)
+        f0 = (bands.get(s.name) or {}).get("fund")
+        if e is None or not f0:
+            continue
+        L = (e.z(2 * math.pi * f0)).imag / (2 * math.pi * f0)
+        if not L > 0:
+            continue
+        sub = P[s.name]["I"].subject
+        for cp in cps[s.name]:
+            val = {k[1]: v for k, v in cp.items()}
+            cp[(sub, "I_pk_A")] = turnoff_current(val.get("I_A", 0.0), RP.ripple_amplitude(val, L))
+
+
 OUTER_PREPREG_MM = 0.2    # 4-layer build without a stackup: L1-L2 and L3-L4 (docs/topics/rules/stackup.md: OSH Park 7.87 mil
                           # with a 39 mil core; Ott S/G/P/S, signal-plane < 0.010", core > 0.040")
 
@@ -371,6 +393,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     pairs = [pr for pr in pairs if pr["s"].name not in open_cells]
     # harms at the typical point and at the corners of each aggressor's intervals
     cps = {s.name: corners(P[s.name].values(), n=n_corners, seed=seed) for s in srcs}
+    _turnoff_currents(bd, brief, srcs, P, cps, bands)
     ncp = n_corners + 3
     harms = []
     observations = []
@@ -411,10 +434,12 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             lv = []
             for c in range(ncp):
                 val = {k[1]: v for k, v in cps[s.name][c].items()}
-                lv.append(0.5 * Lp * val.get("I_A", 0.0) ** 2 * val.get("f_sw_Hz", 0.0))
+                lv.append(0.5 * Lp * val.get("I_pk_A", val.get("I_A", 0.0)) ** 2 * val.get("f_sw_Hz", 0.0))
             ob = O.observation(bd, o, s, lv, [0.0] * ncp)
+            pk = "I_pk" if any(k[1] == "I_pk_A" for k in cps[s.name][0]) else "I"
             ob.update(id="loss.loop", unit="W", reference=dict(value=None, basis="none: a loss is priced, not bounded"),
-                      label=f"hot-loop loss of {s.name}: 1/2 L_loop I^2 f_sw, L_loop {pr['Le'] * 1e9:.3g} nH (copper)")
+                      label=f"hot-loop loss of {s.name}: 1/2 L_loop {pk}^2 f_sw at turn-off, L_loop {pr['Le'] * 1e9:.3g} nH "
+                            f"(copper)")
             ob["scope"]["kind"] = "loop_loss"
             ob["scope"]["L_loop_H"] = pr["Le"]
             observations.append(ob)

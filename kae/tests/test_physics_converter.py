@@ -126,3 +126,15 @@ def test_dc_input_current_of_a_boost_and_a_buck():
     inj = DC.injections(pl, {("dc:J2", "I_A"): 1.0, "cell:c": {"I_A": 1.0, "D": 5.0 / 12.0}})
     assert inj["J1.1"] == pytest.approx(5.0 / (12.0 * 0.9))
     assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_turnoff_current_is_the_inductor_peak_and_dcm_caps_it():
+    assert CV.turnoff_current(1.5015, 0.2191) == pytest.approx(1.5015 + 0.2191 / 2)
+    assert CV.turnoff_current(0.1, 0.5) == pytest.approx(0.2)        # DCM boundary: dI capped at 2 I_L
+    assert CV.turnoff_current(1.0, None) == 1.0                       # inductor unknown: the average
+
+
+def test_overshoot_edge_term_at_the_turnoff_current():
+    from kae.excite import harm as HA
+    v, vf, ve = HA.peak(0.01, 1e-9, 1.0, 0.5, 2e-9, I_off=1.2)
+    assert ve == pytest.approx(1e-9 * 1.2 / 2e-9) and vf == pytest.approx(0.01 * 2 / 3.141592653589793 * 1.0)
