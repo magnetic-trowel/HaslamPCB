@@ -46,18 +46,19 @@ RATES = {
                                 # the joint loop's place stage with the compiled moves at their rate)
     "cpsat_dtime": 5.0,         # one unit of CP-SAT deterministic time with its model's build (measured 3.8-4.5 s
                                 # on 65-328 pins; 5.2-5.4 s on 430 and 821 pins, 2026-11-14)
-    "fr_work": 7.1e-6,          # one Freerouting search step on a 430-pin board (fork autorouter.max_work);
+    "fr_work": 9.2e-6,          # one Freerouting search step on a 430-pin board (fork autorouter.max_work);
                                 # kae.route.freerouting scales it with the board (work_scale: pins^1.43, at most
                                 # 3x) and charges its passes by pins (FR_PASS_S, FR_UNROUTED_S). Fitted
-                                # 2026-11-14 on 596 passes, 76-1,484 pins (tools/research/budget/fr_fit.py);
-                                # 1.02e-5 per work unit before, one rate for all boards: a 821-pin board's
-                                # routing took 2.2x its charge, a 148-pin board's 0.3x
+                                # 2026-11-14 on 596 passes, 76-1,484 pins (tools/research/budget/fr_fit.py) at
+                                # 7.1e-6 on the fork's kae-work-budget build (abefc74 on d137fd1); the fork's
+                                # master with the work budget (c957b62) takes 1.30x as long per step: 1.06-1.31x
+                                # per board, run side by side with abefc74 on the same Stage 2 inputs (2026-11-16)
     "fr_run": 3.9,              # one Freerouting run's start-up and teardown (JVM, loading the .dsn)
     "fr_dsn_kb": 0.009,         # ... per kB of .dsn
     "fr_pass_pin2": 9e-5,       # builds without max_work: one Freerouting pass per pin^2 (fitted on 65-328 pins;
                                 # a fresh board's first pass costs 10-30x a later one, so this undercounts it)
-    "fr_opt_pass_pin2": 9e-5,   # one optimizer pass per pin^2 (uncalibrated: no calibration run reached the
-                                # optimizer, which runs only on a fully routed board)
+    "fr_opt_pass_pin2": 9e-5,   # one optimizer pass per pin^2 (uncalibrated; the fork's master also optimizes a
+                                # partly routed board, unless the work budget is spent)
     "drc_run": 3.5,             # one KiCad DRC (with zone refill): its start-up and a small board's checks
     "drc_mb": 0.6,              # ... per MB of board file (49 DRCs 2026-11-14, 0.3-71 MB: 2-4.4 s up to 2 MB,
                                 # 9 s on a dense 1.2 MB board, 42-46 s at 71 MB; 4.27 s per MB and nothing per
