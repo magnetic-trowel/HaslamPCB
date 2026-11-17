@@ -120,3 +120,22 @@ before any result was read.
 - With one contrast, the Holm correction is no longer needed. The primary (per-board mean Δlog1p(opens) over seeds,
   bootstrap CI, ratio of sums, sign-flip p), the guards, the gate, the infeasibility exclusion and the looks (one
   analysis, plus the one pre-registered extension to seeds 3-5) are unchanged.
+
+## Addendum 2026-11-17 (2), before any run on the new build: current components
+Project rule (2026-11-17): every experiment runs on current main and the current Freerouting pin; results from older
+builds decide nothing on their own. This replaces "keeps d137fd1 in every arm" above.
+- **Code.** Main c81770e1 is merged into the branch as `chan-gated-m2` (a merge rather than a rebase: the branch itself
+  merges `place-crossing-term` and `place-w-chan`; no conflict; the original branch is left as it was). Both arms run
+  kae and harness 02e33b4d, the merge commit before this addendum (it holds 22047948's channel term and report).
+  `test_place_anneal.py`, `test_place_channel.py`, `test_place_crossings.py` and `test_place_engine.py` pass.
+- **Freerouting:** the pinned fork 9a5512d, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`.
+- **Counted work** (`KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1`), the project's recipe now: the nominal budget is
+  the old wall budget (900 s x sqrt(fp/40)) and the harness timeout is 4x that, as the wall ceiling. Jobs stay class
+  timed.
+- **New experiment `chan-gated-m`** (owner `exp-chan-gated-m`), new method ids, two arms (control, chan3 as in the
+  addendum above), one job per board, seeds 0-2 interleaved. The runs of `chan-gated` (old build, some running) are
+  excluded from the decision and never pooled; its jobs are cancelled.
+- Boards (144, gated on the screen's overlap counts, a placement measure taken before routing), arms, seeds, primary,
+  guards, gate, infeasibility exclusion and looks unchanged.
+- **Still worth running:** the gate subgroup (overlaps >= 20: -12 % [-19, -4]) is the open question; `place_w_chan` is
+  off on main. About 300 CPU-h (queue triage).
