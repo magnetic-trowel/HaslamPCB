@@ -6,10 +6,11 @@ The question: on boards whose main job is a switching regulator, do the hot-loop
 
 ## Code and setup
 
-- **Code:** branch `hotloop-sw` = `origin/hotloop-route` (`hotloop_clear`, approach D at 8e073c99 and later, and the cells-first stage) merged with `origin/hotloop-eval` (c4d7417b: open-cell fixes, caps, skin-corrected `loss.loop_ac`, `--scope losses`, `--drc`). In the one conflict (`excite/cellquote.py`) the eval branch's physical-bounds check is kept.
+- **Code:** branch `hotloop-sw` = `origin/main` merged into `origin/hotloop-route` (`hotloop_clear`, approach D at 8e073c99 and later, and the cells-first stage) merged with `origin/hotloop-eval` (c4d7417b: open-cell fixes, caps, skin-corrected `loss.loop_ac`, `--scope losses`, `--drc`). In the one conflict (`excite/cellquote.py`) the eval branch's physical-bounds check is kept.
 - **Freerouting:** fork 9a5512d (`KAE_BRIDGE_FREEROUTING`) in every arm.
 - **Wrapper:** the restart portfolio of confirm-default-ab's N, with `--final` last mile and `--finish`, 900 s × sqrt(footprints/40), parallel 4, one attempt per board. The kaeq class is timed, at priority 5 at most.
-- **Budget: wall time, not counted work.** kae's counted-work budget (`KAE_BUDGET=work`) prices 9a5512d's optimizer and pour fills correctly only with main's #105 (`freerouting.py`, 8eaaee3d and 430d79fc). That change is not on `hotloop-route` or `hotloop-eval`, so this run uses wall-clock budgets as hotloop-ab did; every arm is treated the same.
+- **Budget: counted work** (`kae.budget`). `KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1` is set for restart.py and every kae process. `--time` is the nominal 900 s × sqrt(footprints/40), at most 4 h, so the same budget does the same work whatever the host load. The harness timeout is 4× that, the wall ceiling; a run that hits it reports `ceiling_hit` and counts as failed. This is why `hotloop-sw` merges `origin/main` (#105: Freerouting 9a5512d's optimizer and pour fills priced inside the counted budget).
+- **Merge with main:** `restart.py` keeps route-finish-default's finish in the time left (no reserve, the final pass's judgement slack, finish skipped under 30 s) together with main's work-mode `--final-s` and `--finish-s` and its completion-first policy. In work mode, the final pass and the finish get their shares of `--time` (15 % and 10 %).
 - **Boards:** `final60.txt` (60 boards, selected by another session in `sw-select`). Intents and operating facts: `intent-sw80/compiled-<sha>`, recorded at registration.
 
 | Arm | Settings (all set explicitly; `KAE_HOTLOOP_KEEPOUT=0 KAE_HOTLOOP_VIAS=0 KAE_HOTLOOP_POURS=0` in every arm) |

@@ -10,6 +10,9 @@
 #   D   hsw clear          KAE_HOTLOOP_CLEAR=1 (approach D: each cell's return cleared after routing)
 #   CD  hsw cells clear    KAE_HOTLOOP_CELLS=1 KAE_HOTLOOP_CLEAR=1
 # Freerouting: FORK (default the production fork 9a5512d) as KAE_BRIDGE_FREEROUTING for every arm.
+# Budgets in counted work (kae.budget, main's #105): KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1 for restart.py
+# and every kae process; restart.py --time is the nominal 900 s x sqrt(footprints/40) (at most 4 h), and the
+# harness timeout ({timeout}) is its 4x wall ceiling.
 #
 # Everything else as route-finish-ab: restart.py --parallel 4 --first-s 60 --scale-first --slack 1.15 --resume 0.5,
 # 900 s x sqrt(footprints/40) (at most 4 h), Freerouting fork FORK, operating facts by content hash, step cache.
@@ -31,8 +34,8 @@ OPH=$(cat "$OPSRC"/*.operating.json | sha256sum | cut -c1-12)
 OPD=$HOME/.cache/kaebench/rf-ab-operating-$OPH
 [ -d "$OPD" ] || { mkdir -p "$OPD.tmp$$" && cp "$OPSRC"/*.operating.json "$OPD.tmp$$"/ && mv "$OPD.tmp$$" "$OPD"; }
 
-rs() { echo "{py:kae} {code:harness}/tools/kaeres/restart.py --input {input} --output {output} --time {timeout} --seed {attempt} --parallel 4 --first-s 60 --scale-first --slack 1.15 --resume 0.5 $* --"; }
-PRE="export RFAB_OP=$KH/rf-ab-operating-$OPH/\$(basename \$(dirname \$(dirname \$(dirname \$(dirname {input}))))).operating.json; ls -l \$RFAB_OP;"
+rs() { echo "{py:kae} {code:harness}/tools/kaeres/restart.py --input {input} --output {output} --time \$(( {timeout} / 4 )) --seed {attempt} --parallel 4 --first-s 60 --scale-first --slack 1.15 --resume 0.5 $* --"; }
+PRE="export KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1; export RFAB_OP=$KH/rf-ab-operating-$OPH/\$(basename \$(dirname \$(dirname \$(dirname \$(dirname {input}))))).operating.json; ls -l \$RFAB_OP;"
 POST="; rc=\$?; for f in summary report; do test -f restarts/\$f.json && echo RFAB_\$f && cat restarts/\$f.json && echo && echo RFAB_end; done; exit \$rc"
 CP="cp -r $KH/$NUMBA numba 2>/dev/null;"
 OP="--set operating=\$RFAB_OP"
@@ -46,7 +49,7 @@ add() {  # NAME DESCRIPTION ENV ROUTE_FLAGS FINISH(0/1) [EXTRA --param K=V]
   if [ "$fin" = 1 ]; then wrap=$(rs --final "'$LM'" --finish "'$FN'"); else wrap=$(rs --final "'$LM'"); fi
   local inner="$CP if [ \"\$KAE_RESUME\" = 1 ]; then $E -m kae.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@ $OP $rflags; else $E -m kae.route.cli route @IN@ @OUT@ --seed @SEED@ --time @TIME@ $OP $rflags; fi"
   $K method add "$name" --kind route --description "$desc; restart portfolio (tools/kaeres/restart.py) as route-finish-ab; operating facts rf-ab-operating-$OPH" \
-    --command "$PRE $wrap '$inner'$POST" --param timeout_s=900 --param timeout_scale=sqrt-fp40 --param parallel=4 \
+    --command "$PRE $wrap '$inner'$POST" --param timeout_s=3600 --param timeout_scale=sqrt-fp40 --param timeout_cap_s=57600 --param parallel=4 \
     "${extra[@]}" --code kae=.@$SHA --harness $SHA >/dev/null
   echo "method: $name"
 }
