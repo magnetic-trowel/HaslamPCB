@@ -545,3 +545,32 @@ def test_no_task_cache_before_deterministic_preparation(tmp_path, monkeypatch):
     call2("job1")
     call2("job2")
     assert len(runs2) == 2
+
+
+def test_publish_numba_cache_adds_missing_kernels_only(tmp_path, monkeypatch):
+    """The kernels a method compiled in its work dirs fill the warm cache its template names; kernels
+    the cache already has are left as they are, and a template without one publishes nothing."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    cache = tmp_path / "home" / ".cache" / "kaebench" / "numba-x-1234567"
+    sub = "place_0123abcd"
+    run = tmp_path / "results" / "cmd-m1"
+    for d in (run / "attempt-0" / "numba", run / "attempt-0" / "restarts" / "k1" / "numba"):
+        (d / sub).mkdir(parents=True)
+        for f in ("engine.step-40.py312.nbi", "engine.step-40.py312.1.nbc", "engine.step-40.py312.2.nbc",
+                  "engine.cost-[a]-9.py312.nbi", "engine.cost-[a]-9.py312.1.nbc"):
+            (d / sub / f).write_text(f + str(d))
+    (cache / sub).mkdir(parents=True)
+    (cache / sub / "engine.cost-[a]-9.py312.nbi").write_text("old")
+    m = dict(id="m1", recipe=dict(runner=dict(template="cp -r $HOME/.cache/kaebench/numba-x-1234567 numba 2>/dev/null; "
+                                                     "env NUMBA_CACHE_DIR=$PWD/numba {py:kae} -m kae.joint.cli run")))
+    assert kaeres.publish_numba_cache(m, run) == 1
+    assert sorted(p.name for p in (cache / sub).iterdir()) == [
+        "engine.cost-[a]-9.py312.nbi", "engine.step-40.py312.1.nbc", "engine.step-40.py312.2.nbc", "engine.step-40.py312.nbi"]
+    assert (cache / sub / "engine.cost-[a]-9.py312.nbi").read_text() == "old"
+    assert kaeres.publish_numba_cache(m, run) == 0
+    # a kernel another job is publishing (its claim is there) is left to that job
+    (cache / sub / "engine.step-40.py312.nbi").unlink()
+    (cache / sub / "engine.step-40.py312.claim").touch()
+    assert kaeres.publish_numba_cache(m, run) == 0
+    assert not (cache / sub / "engine.step-40.py312.nbi").exists()
+    assert kaeres.publish_numba_cache(dict(id="m2", recipe=dict(runner=dict(template="kae route"))), run) == 0
