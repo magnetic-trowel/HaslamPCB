@@ -873,7 +873,8 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     from . import barriers as barriersmod
     w_bar = float(setting("barrier_net_weight", board_path, opts))
     if w_bar > 1.0:
-        rep["barrier_reweight"] = barriersmod.reweight_crossing(P, seed_state, w_bar)
+        rep["barrier_reweight"] = barriersmod.reweight_crossing(P, seed_state, w_bar,
+                                                                mode=setting("barrier_weight_mode", board_path, opts))
     # ---- anneal
     final = seed_state
     if anneal:

@@ -15,6 +15,10 @@ poses merged. Connected regions need no constraint: copper goes around a slot.
 **Soft term** (`reweight_crossing`, only `barrier_net_weight` > 1): a net crossing a barrier on a board
 that is not split is a detour the placer does not see. Nets whose MST edges cross a barrier at the seed
 get their weight multiplied; `crossings` reports what is left. Slots (oval drills) are holes, not walls.
+`barrier_weight_mode` "avoidable" multiplies only nets with a crossing a movable part could avoid (`classify`:
+it has a free spot by its partner's pin that adds no crossing to its fixed neighbours); "detour" multiplies them
+by 1 + the measured detour around the barrier over the net's half-perimeter (at most the weight). A keyboard's
+matrix between locked switches keeps its weight in both.
 
 Assignment (`assign`): each anchored part (locked, or the task's fixed interface) sits in the region
 holding most of its pads. A movable part takes the region of the parts it talks to, by breadth-first
@@ -28,10 +32,12 @@ those opens whatever the method does, the human layout included.
 from __future__ import annotations
 
 import dataclasses
+import math
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 
+import numpy as np
 import shapely
 from shapely.geometry import LineString, Point, Polygon
 
@@ -470,7 +476,14 @@ def _mst_edges(pts):
 def crossing_nets(P, st, barrier):
     """[net index] of signal nets with an MST edge whose straight line crosses `barrier`, and how
     many edges do (Problem P at state st; barrier: shapely geometry)."""
-    nets, n_edges = [], 0
+    edges = crossing_edges(P, st, barrier)
+    return sorted({e[0] for e in edges}), len(edges)
+
+
+def crossing_edges(P, st, barrier):
+    """[(net index, (part, pad), (part, pad), xy a, xy b)]: the MST edges of signal nets whose straight
+    line crosses `barrier`."""
+    out = []
     for net in P.nets:
         if net.kind in ("ground", "power") or len(net.pins) < 2 or len(net.pins) > MST_MAX_PINS:
             continue
@@ -478,16 +491,12 @@ def crossing_nets(P, st, barrier):
         for (i, k) in net.pins:
             xy = st.pins_xy(i)[k]
             pts.append((float(xy[0]), float(xy[1])))
-        hit = 0
         for a, b in _mst_edges(pts):
             if pts[a] == pts[b]:
                 continue
             if barrier.intersects(LineString([pts[a], pts[b]])):
-                hit += 1
-        if hit:
-            nets.append(net.i)
-            n_edges += hit
-    return nets, n_edges
+                out.append((net.i, net.pins[a], net.pins[b], pts[a], pts[b]))
+    return out
 
 
 def barrier_union(board):
@@ -499,21 +508,230 @@ def barrier_union(board):
     return u
 
 
-def reweight_crossing(P, st, weight):
-    """Multiply the weight of the signal nets crossing a barrier at state st. Report."""
+# ---------------------------------------------------------------- avoidable crossings and detours
+AVOID_REACH = 15.0           # mm beyond a part's own half-size within which it looks for a spot by its partner pin
+AVOID_SPOTS = 400            # most candidate spots tried per part and partner
+DETOUR_SIMPLIFY = 0.2        # mm: barrier outlines simplified this much before the shortest path around them
+
+
+class Barriers:
+    """The barriers of a board as the avoidable-crossing test sees them: the union (prepared), the
+    pieces (for the detour), and per side a summed-area table of the grid cells a part may not take
+    whatever the movable parts do (outside the outline, fixed obstacles, barriers)."""
+
+    def __init__(self, P, union=None):
+        from .problem import sat
+        self.P = P
+        self.u = union if union is not None else barrier_union(P.board)
+        self.pieces = [g for g in getattr(self.u, "geoms", [self.u]) if g is not None and not g.is_empty]
+        self.tree = shapely.STRtree(self.pieces)
+        g = P.g
+        cx = P.ox + (np.arange(P.ncx) + 0.5) * g
+        cy = P.oy + (np.arange(P.ncy) + 0.5) * g
+        XX, YY = np.meshgrid(cx, cy, indexing="ij")
+        # a cell any part of which is in a barrier: centres within the half-diagonal of one
+        wall = shapely.contains_xy(self.u.buffer(g * 0.70711), XX, YY)
+        self.sat = []
+        for side in (0, 1):
+            m = ~np.asarray(P.inside, dtype=bool) | wall
+            for ob in P.obstacles:
+                if ob.side == side:
+                    i0, i1, j0, j1 = ob.g
+                    m[max(0, i0):max(0, i1), max(0, j0):max(0, j1)] = True
+            self.sat.append(sat(m))
+        self._hull = {}
+
+    def crosses(self, a, b):
+        return a != b and self.u.intersects(LineString([a, b]))
+
+    def free(self, i, k, X, Y):
+        """Part i at rotation index k with its origin at grid (X, Y) takes no blocked cell."""
+        from .problem import sat_query
+        P = self.P
+        p = P.parts[i]
+        r = p.rots[k]
+        si = 0 if p.s > 0 else 1
+        for side, rects in ((si, (r.g_own,)), (1 - si, tuple(r.g_opp or ()))):
+            for (a, b, c, d) in rects:
+                if sat_query(self.sat[side], X + a, X + b, Y + c, Y + d, P.ncx, P.ncy):
+                    return False
+        return True
+
+    def spot_by(self, i, k, pad, q, anchors, st):
+        """A free origin for movable part i (rotation k) from which its pad `pad` sees pin q without crossing
+        a barrier and that crosses no more lines to the fixed pins `anchors` (pad, xy) than the part does
+        where it is; None when there is none within reach."""
+        P = self.P
+        r = P.parts[i].rots[k]
+        here = st.pins_xy(i)
+        base = sum(self.crosses((float(here[kp][0]), float(here[kp][1])), a) for kp, a in anchors)
+        half = 0.5 * max(r.own[2] - r.own[0], r.own[3] - r.own[1])
+        reach = half + AVOID_REACH
+        step = max(P.g, 2.0 * reach / math.sqrt(AVOID_SPOTS))
+        n = int(reach // step)
+        px, py = float(r.pins[pad][0]), float(r.pins[pad][1])
+        cand = sorted(((dx * step) ** 2 + (dy * step) ** 2, dx, dy) for dx in range(-n, n + 1) for dy in range(-n, n + 1))
+        for _, dx, dy in cand:
+            # the pad lands near q; the origin is the pad's position less its offset
+            X, Y = P.grid_of(q[0] + dx * step - px, q[1] + dy * step - py)
+            if not self.free(i, k, X, Y):
+                continue
+            ox, oy = P.ox + X * P.g, P.oy + Y * P.g
+            pin = (ox + px, oy + py)
+            if self.crosses(pin, q):
+                continue
+            if sum(self.crosses((ox + float(r.pins[kp][0]), oy + float(r.pins[kp][1])), a) for kp, a in anchors) > base:
+                continue
+            return (X, Y)
+        return None
+
+    def detour(self, a, b):
+        """Shortest path from a to b around the barrier pieces the straight line crosses, less the straight
+        line (mm). The pieces are taken by their convex hull when neither end is inside it, else by their
+        simplified outline; other barriers on the way are not seen."""
+        seg = LineString([a, b])
+        hit = [self.pieces[j] for j in self.tree.query(seg, predicate="intersects")]
+        if not hit:
+            return 0.0
+        key = tuple(sorted(id(h) for h in hit))
+        if key not in self._hull:
+            g = shapely.union_all(hit)
+            self._hull[key] = (g.convex_hull, g.simplify(DETOUR_SIMPLIFY))
+        hull, simple = self._hull[key]
+        obst = hull if not (hull.covers(Point(a)) or hull.covers(Point(b))) else simple
+        return max(0.0, _around(a, b, obst) - seg.length)
+
+
+def _around(a, b, obst):
+    """Length of the shortest path from a to b that does not pass through the interior of `obst`
+    (visibility graph over its outline vertices, Dijkstra)."""
+    import heapq
+    inner = obst.buffer(-1e-4)
+    if inner.is_empty:
+        return math.dist(a, b)
+    shapely.prepare(inner)
+    rings = [obst] if obst.geom_type == "Polygon" else list(getattr(obst, "geoms", []))
+    vs = [tuple(c) for poly in rings for c in list(poly.exterior.coords)[:-1]]
+    nodes = [tuple(a), tuple(b)] + vs
+
+    def ok(p, q):
+        return p == q or not inner.intersects(LineString([p, q]))
+    dist = [math.inf] * len(nodes)
+    dist[0] = 0.0
+    heap = [(0.0, 0)]
+    while heap:
+        d, u = heapq.heappop(heap)
+        if u == 1:
+            return d
+        if d > dist[u]:
+            continue
+        for v in range(1, len(nodes)):
+            if v == u:
+                continue
+            nd = d + math.dist(nodes[u], nodes[v])
+            if nd < dist[v] and ok(nodes[u], nodes[v]):
+                dist[v] = nd
+                heapq.heappush(heap, (nd, v))
+    return math.dist(a, b)      # no way round (a closed ring): the straight line stands, detour 0
+
+
+def _anchors(P, st, i):
+    """[(pad of part i, xy)]: for each signal net of part i, the nearest pin on a fixed part (the pins its
+    pose answers to whatever the placer does)."""
+    out = []
+    here = st.pins_xy(i)
+    by_net = defaultdict(list)
+    for kp, n in enumerate(P.parts[i].pad_net if P.parts[i].pad_net is not None else ()):
+        if n >= 0:
+            by_net[int(n)].append(kp)
+    for n, kps in by_net.items():
+        net = P.nets[n]
+        if net.kind in ("ground", "power") or len(net.pins) > MST_MAX_PINS:
+            continue
+        fixed = [(j, k) for (j, k) in net.pins if j != i and not P.parts[j].movable]
+        if not fixed:
+            continue
+        kp = kps[0]
+        xy = (float(here[kp][0]), float(here[kp][1]))
+        best = min((tuple(map(float, st.pins_xy(j)[k])) for j, k in fixed), key=lambda f: math.dist(f, xy))
+        out.append((kp, best))
+    return out
+
+
+def classify(P, st, bars, edges):
+    """Each crossing edge with: avoidable (a movable endpoint has a free spot by its partner's pin, from where
+    it neither crosses to that pin nor adds a crossing to its own fixed neighbours), anchored (both ends on fixed
+    parts) and detour (mm). [(net, avoidable, anchored, detour, straight length)]."""
+    out = []
+    anchors = {}
+    for (n, (i, ki), (j, kj), a, b) in edges:
+        mi, mj = P.parts[i].movable, P.parts[j].movable
+        avoid = False
+        for (m, km, q) in ((i, ki, b), (j, kj, a)) if mi or mj else ():
+            if not P.parts[m].movable:
+                continue
+            if m not in anchors:
+                anchors[m] = _anchors(P, st, m)
+            if bars.spot_by(m, int(st.K[m]), km, q, anchors[m], st) is not None:
+                avoid = True
+                break
+        out.append((n, avoid, not (mi or mj), bars.detour(a, b), math.dist(a, b)))
+    return out
+
+
+def reweight_crossing(P, st, weight, mode="all"):
+    """Multiply the weight of the signal nets crossing a barrier at state st. Report.
+    mode "all": every crossing net by `weight`. mode "avoidable": only nets with an avoidable crossing
+    (`classify`), by `weight`. mode "detour": those nets by 1 + their avoidable detour over the net's
+    half-perimeter, at most `weight` (the annealer sees the detour as wirelength). In both, nets between
+    fixed parts across a void (a keyboard's switch matrix) and parts with no spot by their partner keep
+    their weight."""
     u = barrier_union(P.board)
     if u is None or weight <= 1.0:
         return dict(barriers=0)
-    nets, edges = crossing_nets(P, st, u)
-    for j in nets:
-        P.nets[j].weight *= weight
-    return dict(barriers=len(all_barriers(P.board)), nets=len(nets), edges=edges, weight=weight)
+    edges = crossing_edges(P, st, u)
+    nets = sorted({e[0] for e in edges})
+    if mode not in ("avoidable", "detour"):
+        for j in nets:
+            P.nets[j].weight *= weight
+        return dict(barriers=len(all_barriers(P.board)), nets=len(nets), edges=len(edges), weight=weight)
+    t0 = time.monotonic()
+    cls = classify(P, st, Barriers(P, u), edges)
+    det = defaultdict(float)
+    for (n, avoid, _, d, _) in cls:
+        if avoid:
+            det[n] += d
+    factors = {}
+    for n, d in det.items():
+        pts = np.array([st.pins_xy(i)[k] for (i, k) in P.nets[n].pins])
+        hp = float(np.ptp(pts[:, 0]) + np.ptp(pts[:, 1]))
+        f = weight if mode == "avoidable" or hp <= 0 else min(weight, 1.0 + d / hp)
+        if f > 1.0:
+            P.nets[n].weight *= f
+            factors[n] = f
+    return dict(barriers=len(all_barriers(P.board)), nets=len(nets), edges=len(edges), weight=weight, mode=mode,
+                avoidable_edges=sum(1 for c in cls if c[1]), anchored_edges=sum(1 for c in cls if c[2]),
+                reweighted=len(factors), factor_mean=round(sum(factors.values()) / len(factors), 3) if factors else None,
+                detour_mm=round(sum(c[3] for c in cls), 2), s=round(time.monotonic() - t0, 2))
 
 
 def crossings(P, st):
-    """Report: signal nets and MST edges crossing a barrier at state st."""
+    """Report: signal nets and MST edges crossing a barrier at state st; of the edges, those a movable part
+    could avoid and those between fixed parts, and the detour around the barriers (mm, all edges and the
+    avoidable ones)."""
     u = barrier_union(P.board)
     if u is None:
         return None
-    nets, edges = crossing_nets(P, st, u)
-    return dict(nets=len(nets), edges=edges)
+    edges = crossing_edges(P, st, u)
+    rep = dict(nets=len({e[0] for e in edges}), edges=len(edges))
+    if not edges:
+        return dict(rep, avoidable_edges=0, avoidable_nets=0, anchored_edges=0, detour_mm=0.0, avoidable_detour_mm=0.0)
+    t0 = time.monotonic()
+    try:
+        cls = classify(P, st, Barriers(P, u), edges)
+    except Exception as e:        # a report, never a failed placement
+        return dict(rep, error=f"{type(e).__name__}: {e}")
+    return dict(rep, avoidable_edges=sum(1 for c in cls if c[1]), avoidable_nets=len({c[0] for c in cls if c[1]}),
+                anchored_edges=sum(1 for c in cls if c[2]), detour_mm=round(sum(c[3] for c in cls), 2),
+                avoidable_detour_mm=round(sum(c[3] for c in cls if c[1]), 2),
+                straight_mm=round(sum(c[4] for c in cls), 2), s=round(time.monotonic() - t0, 2))
