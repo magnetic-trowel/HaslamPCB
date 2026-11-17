@@ -23,6 +23,7 @@ from __future__ import annotations
 import numpy as np
 
 from kae import materials as MAT
+from kae.physics import converter as CV
 
 from .beliefs import Param, corners, intent_value
 
@@ -169,14 +170,13 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             c = f["cell"]
             v = cv.get(c["src"]) or {}
             IL, D, V = v.get("I_A", 1.0), min(max(v.get("D", 0.5), 0.02), 0.98), v.get("V_V", dcp.volts.get(r) or 5.0)
-            I_out = IL * (1 - D) if c["cls"] == "boost" else IL
             ron = val.get((f"heat:{c['ctrl']}", "R_on_ohm"), R_ON[1])
             # the switch conducts I_L for D; with no rectifier part the synchronous one inside the
             # controller conducts it for the rest (1 - D), as the DC flow injects it (kae.excite.dc)
             cond = IL ** 2 * ron * (D if c["rect"] else 1.0)
             add(c["ctrl"], cond + V * IL * (v.get("t_i_s", 3e-9) + v.get("t_v_s", 1e-9)) * v.get("f_sw_Hz", 1e6))
             if c["rect"]:
-                add(c["rect"], val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * (I_out if c["cls"] == "boost" else IL * (1 - D)))
+                add(c["rect"], val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * CV.rectifier_current(c.get("top") or c["cls"], IL, D))
             continue
         I_out = sum(inj.get(q, 0.0) for q in f.get("out") or [])
         if I_out <= 0:
@@ -358,7 +358,7 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
                     continue
                 if demand > 0:
                     D = min(max(cv[s.name].get("D", 0.5), 0.02), 0.98)
-                    il = demand / (1 - D) if cell["cls"] == "boost" else demand
+                    il = CV.inductor_from_output(cell.get("top") or cell["cls"], demand, D)
                 else:
                     pi = next((p for p in (P.get(s.name) or {}).values() if getattr(p, "name", "") == "I_A"), None)
                     il = pi.lo if pi is not None else il0

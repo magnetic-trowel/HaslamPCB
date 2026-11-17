@@ -36,6 +36,8 @@ import re
 
 import numpy as np
 
+from kae.physics import converter as CV
+
 from .beliefs import Param
 
 LOSS_SHARE = 0.01       # copper may dissipate 1 % of the delivered power (prior requirement)
@@ -168,7 +170,10 @@ def plan(board, brief, bd, P, srcs, intent=None):
         if sname is None or sname not in P:
             continue
         sw = st.get("switches") or {}
+        src_ = next((x for x in srcs if x.name == sname), None)
+        eta = (src_.meta.get("eta") if src_ is not None else None) or CV.ETA[1]      # typical (kae.excite.params)
         c = dict(id=st["id"], cls=st["class"], src=sname, vin=st.get("vin"), vout=st.get("vout"), sw=st.get("sw"),
+                 top=CV.topology_of(st["class"], st)[0] or st["class"], eta=float(eta),
                  ctrl=ref_of.get(st.get("controller")), rect=ref_of.get(sw.get("rectifier")),
                  parts={ref_of.get(u) for u, _ in st.get("loop") or []} | {ref_of.get(st.get("controller")),
                                                                          ref_of.get(st.get("inductor"))})
@@ -421,7 +426,7 @@ def load_currents(pl, cv):
     for ld in pl.loads:
         if "cell" in ld:
             IL, D = _cell_vals(ld["cell"], cv)
-            xs.append(ld["share"] * (IL * (1 - D) if ld["cell"]["cls"] == "boost" else IL))
+            xs.append(ld["share"] * CV.output_from_inductor(_top(ld["cell"]), IL, D))
         else:
             xs.append(cv.get(ld["key"], 0.0))
     # each rail's total, through the chain's conversion ratios
@@ -449,8 +454,22 @@ def _ratio(pl, r, cv):
         return (pl.volts.get(r) or 1.0) / (cv.get((f["eta"].subject, "eta"), ETA[1]) * (pl.volts.get(f["rin"]) or 1.0))
     if f["kind"] == "cell":
         _, D = _cell_vals(f["cell"], cv)
-        return 1 / (1 - D) if f["cell"]["cls"] == "boost" else D
+        return _cell_in(f["cell"], 1.0, D)
     return 1.0
+
+
+def _top(c):
+    return c.get("top") or c["cls"]
+
+
+def _cell_in(c, x, D):
+    """A cell's input current delivering x (kae.physics.converter): a boost's its inductor current x / (1 - D),
+    D = 1 - V_in eta / V_out holding its losses; a buck's from the power balance, D x / eta (D = V_out / V_in)."""
+    top = _top(c)
+    IL = CV.inductor_from_output(top, x, D)
+    if top in ("boost", "boost_led"):
+        return CV.input_from_inductor(top, IL, D)
+    return CV.input_from_inductor(top, IL, D) / c.get("eta", 1.0)
 
 
 def injections(pl, cv):
@@ -493,8 +512,8 @@ def injections(pl, cv):
             c = f["cell"]
             _, D = _cell_vals(c, cv)
             ctrl, sw = c["ctrl"], c["sw"]
-            if c["cls"] == "boost":
-                IL = x / (1 - D)
+            if _top(c) in ("boost", "boost_led"):
+                IL = CV.inductor_from_output(_top(c), x, D)
                 _add(inj, on(ctrl, sw), -D * IL)                 # the switch: D I_L from the switch node
                 _add(inj, gnd(ctrl), D * IL)                     # to ground
                 if not c["rect"]:                                # synchronous: the rectifier inside too
@@ -502,12 +521,14 @@ def injections(pl, cv):
                     _add(inj, on(ctrl, r), x)
                 deliver(c["vin"], IL, depth + 1)                # the input feeds the inductor (lumped)
             else:
-                _add(inj, on(ctrl, c["vin"]), -D * x)            # the high side: D I_out from the input
-                _add(inj, on(ctrl, sw), D * x)
+                xin = _cell_in(c, x, D)
+                _add(inj, on(ctrl, c["vin"]), -xin)              # the input: D I_out / eta (the power balance)
+                _add(inj, on(ctrl, sw), D * x)                   # the high side: D I_out into the switch node
+                _add(inj, gnd(ctrl), xin - D * x)                # the cell's own losses, back through its ground
                 if not c["rect"]:
                     _add(inj, gnd(ctrl), -(1 - D) * x)
                     _add(inj, on(ctrl, sw), (1 - D) * x)
-                deliver(c["vin"], D * x, depth + 1)
+                deliver(c["vin"], xin, depth + 1)
     for ld, x in zip(pl.loads, load_currents(pl, cv)):
         _add(inj, ld["sup"], -x)
         _add(inj, ld["gnd"], x)
