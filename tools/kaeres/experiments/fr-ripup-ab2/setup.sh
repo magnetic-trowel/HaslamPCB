@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../../../.."
 K="python3 tools/kaeres/kaeres.py"
 SHA=${SHA:?commit}
 S7=${SHA:0:7}
-NAME=${NAME:-fr-ripup-ab3}
+NAME=${NAME:-fr-ripup-ab4}
 TAG=${TAG:-frr2}
 FRREPO=https://github.com/magnetic-trowel/freerouting
 FRC=f1c41d35da1c2aafa4a933ccdae1a61c52d8fd47
