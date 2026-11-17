@@ -246,30 +246,103 @@ def progress_line(c, owner):
     return f"  {owner}: {done}/{total} done" + (f", {bad} failed" if bad else "") + (f", {run} running" if run else "")
 
 
-def new_milestones(c, owners, every):
-    """Campaigns that passed another `every` % of their jobs since the session last heard. A campaign seen for the
-    first time, or one that grew (more jobs queued), starts from where it is, without a report."""
+def campaign_news(c, owners, every):
+    """What a session should hear about its campaigns, each thing once: a campaign passing `every` % of its jobs (once,
+    the first step only), and a campaign finishing (nothing of it queued or running). A campaign seen for the first
+    time starts from where it is, without a report; one that gets new jobs after finishing is reported again when
+    those finish. Returns report lines."""
     hits = []
     for o in owners:
         total, done, bad, run = owner_counts(c, o)
-        q = S.quarter(done, total, every)
-        row = c.execute("SELECT step FROM milestones WHERE owner=?", (o,)).fetchone()
-        if row is None or q < row[0]:
-            c.execute("INSERT OR REPLACE INTO milestones(owner, step) VALUES(?,?)", (o, q))
-        elif q > row[0] and done < total:
-            c.execute("UPDATE milestones SET step=? WHERE owner=?", (q, o))
+        if not total:
+            continue
+        row = c.execute("SELECT step, finished FROM milestones WHERE owner=?", (o,)).fetchone()
+        q = min(1, S.quarter(done, total, every))
+        if row is None:
+            c.execute("INSERT INTO milestones(owner, step, finished, failed) VALUES(?,?,?,0)", (o, q, int(done == total)))
+            continue
+        step, fin = row
+        if done == total and not fin:
+            st = dict(c.execute("SELECT state, COUNT(*) FROM jobs WHERE owner=? GROUP BY state", (o,)).fetchall())
+            hits.append(f"{o}: finished, " + ", ".join(f"{n} {k}" for k, n in sorted(st.items())))
+            c.execute("UPDATE milestones SET finished=1, step=1 WHERE owner=?", (o,))
+        elif done < total and fin:
+            c.execute("UPDATE milestones SET finished=0 WHERE owner=?", (o,))      # new jobs: report their end too
+        elif q > step and done < total:
             hits.append(f"{o}: {100 * done // total}% done ({done}/{total}" + (f", {bad} failed)" if bad else ")"))
+            c.execute("UPDATE milestones SET step=? WHERE owner=?", (q, o))
     c.commit()
     return hits
 
 
+def first_failures(c, owners):
+    """Owners whose jobs failed for the first time since the session last heard of a failure in them (or since its
+    last `kaeq retry` of them): one wake-up per campaign, later failures wait for the next one."""
+    out = []
+    for o in owners:
+        if not c.execute("SELECT 1 FROM events WHERE delivered=0 AND owner=? AND kind IN (%s) LIMIT 1"
+                         % ",".join("?" * len(PROBLEM)), (o, *PROBLEM)).fetchone():
+            continue
+        row = c.execute("SELECT failed FROM milestones WHERE owner=?", (o,)).fetchone()
+        if not row or not row[0]:
+            out.append(o)
+            c.execute("INSERT INTO milestones(owner, step, finished, failed) VALUES(?,0,0,1) "
+                      "ON CONFLICT(owner) DO UPDATE SET failed=1", (o,))
+    c.commit()
+    return out
+
+
+def job_end_times(c, now):
+    """{owner: expected end times of its unfinished jobs, in order}: the queue replayed forward with each job's
+    expected run time, as kaeqtop's FINISH column."""
+    bsys = (daemon_status() or {}).get("sys", {})
+    cfg = config()
+    running = c.execute("SELECT * FROM jobs WHERE state='running'").fetchall()
+    queued = c.execute("SELECT * FROM jobs WHERE state='queued'").fetchall()
+    if not running and not queued:
+        return {}
+    edur = expected_durations(c, list(running) + list(queued), now, runtime_model(c))
+    mem = {j["id"]: float(j["mem_mb"]) for j in queued}
+    mem.update({j["id"]: float(max(j["mem_mb"], j["peak_mb"] or 0)) for j in running})
+    cpus = {j["id"]: float(j["cpus"]) for j in list(running) + list(queued)}
+    threads = bsys.get("threads") or cfg["threads"]
+    pool = (bsys.get("pinned") or threads - bsys.get("reserve_cpu", cfg["reserve_cpu"])) - bsys.get("others", 0.0)
+    room = bsys.get("avail", 0.0) - bsys.get("unrealized", 0.0) - bsys.get("reserve_mem", 0.0)
+    ends = {}
+    forecast_queue(running, queued, {k: v[0] for k, v in edur.items()}, mem, cpus,
+                   sum(mem[j["id"]] for j in running) + max(0.0, room), pool, now, ends=ends)
+    return ends
+
+
+def next_news(c, owners, every, now):
+    """(when, owner, what) of the earliest thing worth waking the session for: a campaign's first result (catches a
+    campaign that fails throughout), its `every` % mark if not reported yet, or its end. None if nothing is due."""
+    ends, best = job_end_times(c, now), None
+    for o in owners:
+        e = ends.get(o)
+        if not e:
+            continue
+        total, done, bad, run = owner_counts(c, o)
+        row = c.execute("SELECT step FROM milestones WHERE owner=?", (o,)).fetchone()
+        cand = [(e[-1], "finishes")]
+        if done == 0:
+            cand.append((e[0], "has its first result"))
+        k = -(-total * every // 100) - done if every and not (row and row[0]) else 0
+        if 1 <= k <= len(e):
+            cand.append((e[k - 1], f"is {every}% done"))
+        t, what = min(cand)
+        if best is None or t < best[0]:
+            best = (t, o, what)
+    return best
+
+
 def cmd_wait(a):
-    """Block until something needs this session, then print it and exit (run in the background):
-    1 = problems (failed jobs), 3 = only health warnings about running jobs, 4 = progress (a campaign passed another
-    --every %) or an urgent note, 0 = nothing of this session's is queued or running any more, 2 = --timeout passed
-    with nothing to report. Except after 0, call it again. In a Claude Code session it covers all of this session's
-    jobs (every owner it submitted under); --owner narrows it to one owner. Notes other sessions left
-    (`kaeq note`) are printed whenever it returns."""
+    """Block until this session should look at its jobs, print why, and exit (run it in the background). It wakes
+    for: the first failure in a campaign (exit 1; later failures there are held until the next wake-up or
+    `kaeq retry`), a campaign passing --every % (25) of its jobs, once (4), a campaign finishing (4), an urgent note
+    (4), and nothing of this session's queued or running any more (0). Health warnings and plain notes never wake
+    it; they are printed at the next wake-up. No time limit unless --timeout is given (exit 2). Except after 0,
+    start it again. In a Claude Code session it covers all of the session's jobs; --owner narrows it to one owner."""
     me = current_session()
     c = db()
     if a.owner or not me:
@@ -284,22 +357,27 @@ def cmd_wait(a):
         S.register(c, me)
         fixed = None
     notes = [S.NOTE_PREFIX + me] if me else []
-    t_end = time.time() + parse_dur(a.timeout)
+    horizon = parse_dur(getattr(a, "horizon", None) or "100m")
+    replan = 0.0          # when to look at the forecast again
+    limit = getattr(a, "timeout", None)
+    t_end = time.time() + parse_dur(limit) if limit else None
     while True:
         c = db()
         owners = fixed or session_owners(c, me)
-        rows = pending_many(c, owners)
+        failed = first_failures(c, owners)
         urgent = pending_many(c, notes, kinds=("urgent",))
-        hits = new_milestones(c, owners, getattr(a, "every", 25))
+        news = campaign_news(c, owners, getattr(a, "every", 25))
         if fixed or not me:
             active = c.execute(f"SELECT COUNT(*) FROM jobs WHERE owner IN ({','.join('?' * len(owners))}) "
                                "AND state IN ('queued','running')", owners).fetchone()[0]
         else:
             active = c.execute("SELECT COUNT(*) FROM jobs WHERE session=? AND state IN ('queued','running')", (me,)).fetchone()[0]
-        timeout = time.time() > t_end
-        if rows or urgent or hits or not active or timeout:
-            print_events(rows)
-            for h in hits:
+        timeout = t_end is not None and time.time() > t_end
+        if failed or urgent or news or not active or timeout:
+            rows = pending_many(c, owners)
+            print_events([r for r in rows if r["kind"] in PROBLEM], cap=8)
+            print_events([r for r in rows if r["kind"] not in PROBLEM], cap=4)
+            for h in news:
                 print(h)
             for n in urgent + pending_many(c, notes):
                 print(n["msg"])
@@ -311,8 +389,21 @@ def cmd_wait(a):
                 print("nothing of yours is queued or running")
                 sys.exit(0)
             print(f"({active} still active; start `kaeq wait` again in the background)")
-            sys.exit(1 if any(r["kind"] in PROBLEM for r in rows) else 3 if rows and all(r["kind"] == "health" for r in rows)
-                     else 4 if hits or urgent or rows else 2)
+            sys.exit(1 if failed else 4 if news or urgent else 2)
+        now = time.time()
+        if horizon and not limit and now >= replan:   # nothing to report now: is anything due soon enough to block for?
+            replan = now + 600
+            nxt = next_news(c, owners, getattr(a, "every", 25), now)
+            if nxt and nxt[0] - now > horizon:
+                utc = time.strftime("%Y-%m-%dT%H:%M:00Z", time.gmtime(nxt[0]))
+                print(f"next: {nxt[1]} {nxt[2]} around {time.strftime('%a %H:%M', time.localtime(nxt[0]))} "
+                      f"(in {fdur(nxt[0] - now)}, queue forecast). Nothing to see before then.")
+                print("progress:")
+                for o in owners[:12]:
+                    print(progress_line(c, o))
+                print(f"Schedule ONE wake-up for then and stop: send_later(at=\"{utc}\", message=\"Start `kaeq wait` "
+                      f"in the background\"). Failures meanwhile are reported then.")
+                sys.exit(5)
         c.close()
         time.sleep(5)
 
@@ -376,6 +467,8 @@ def cmd_retry(a):
             a.owner = a.owner or default_owner()
     rows = sel_jobs(c, a, None if a.ids else PROBLEM)
     leave_to_owner(c, rows, a, "retry")
+    for o in {j["owner"] for j in rows}:      # the next failure there wakes the session again
+        c.execute("UPDATE milestones SET failed=0 WHERE owner=?", (o,))
     for j in rows:
         if j["state"] in ACTIVE:
             continue
@@ -659,11 +752,12 @@ def main(argv=None):
     owner_opt(s), s.add_argument("--tag"), s.add_argument("--limit", type=int, default=12)
     s.set_defaults(f=cmd_status, ids=None)
 
-    s = sub.add_parser("wait", help="block until this session's jobs need it (run in the background): exit 1 problems, "
-                                    "3 health warnings, 4 progress or urgent note, 0 nothing active, 2 timeout")
-    owner_opt(s), s.add_argument("--timeout", default="110m", help="return after this with nothing to report (default "
-                                                                 "110m: under a background command's 2-hour limit)")
-    s.add_argument("--every", type=int, default=25, help="report each campaign's progress every this many %% (0: off)")
+    s = sub.add_parser("wait", help="block until this session's jobs need it (run in the background): exit 1 first "
+                                    "failure in a campaign, 4 a campaign 25%% done or finished, or an urgent note, 0 nothing active")
+    owner_opt(s), s.add_argument("--timeout", help="return after this with nothing to report (default: no limit)")
+    s.add_argument("--every", type=int, default=25, help="report a campaign once when this many %% of it is done (0: off)")
+    s.add_argument("--horizon", default="100m", help="if nothing is expected within this, exit 5 at once with the "
+                                                     "time to schedule a wake-up for (0: always block)")
     s.add_argument("--force", action="store_true", help="listen to another session's owner anyway")
     s.set_defaults(f=cmd_wait)
 

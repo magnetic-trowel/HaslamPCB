@@ -27,19 +27,26 @@ kaeq sessions                  # who owns which campaigns, how far along, who is
 
 ## Waiting: one background `kaeq wait`, no polling
 
-Keep exactly one `kaeq wait` running in the background (Bash `run_in_background: true`, `timeout: 7200000`). It covers
-every job this session submitted, under any owner, costs no tokens while it blocks, and the harness wakes you when it
-exits:
-- 1: jobs failed (printed): fix, `kaeq retry`, start `kaeq wait` again;
-- 3: health warnings about running jobs: read, act if needed, start it again;
-- 4: progress: a campaign passed another 25% (`--every`), or an urgent note: look if useful, start it again;
-- 2: nothing to report for 110 minutes: start it again;
-- 0: nothing of yours is queued or running: analyse your results.
-Every exit prints each campaign's progress and any notes other sessions left you.
+After submitting, start `kaeq wait` in the background (Bash `run_in_background: true`, `timeout: 7200000`). It
+covers every job this session submitted, under any owner. It wakes you only for a campaign's first result, its first
+failure, 25% of it done, and its end, and it decides how to wait:
+- **5: nothing is due within 100 minutes** (queue forecast; checked again every 10 minutes while it blocks). It
+  exits and prints a time. Schedule exactly ONE
+  wake-up for that time (`send_later(at=...)`, message "Start `kaeq wait` in the background") and do nothing else
+  until it fires. A day-long campaign costs a handful of wake-ups, not one every two hours. Failures in between are
+  reported at that wake-up.
+- Otherwise it blocks (no tokens) and exits with:
+  - 1: the first failure in a campaign (later failures there are held until you `kaeq retry` or the next wake-up):
+    fix, `kaeq retry`, start `kaeq wait` again;
+  - 4: a campaign is 25% done (once: check its first results look sane), a campaign finished (analyse it), or an
+    urgent note: act, then start it again;
+  - 0: nothing of yours is queued or running.
+  If Claude Code stops it at its 2-hour limit (a forecast was wrong), just start it again: look at nothing else.
+Health warnings and notes never wake you; they are printed at the next wake-up, with each campaign's progress.
 
-Do not poll the queue: no `send_later`, `ScheduleWakeup`, `CronCreate` or `Monitor` loops, no `sleep`/`until` loops,
-and no repeated `kaeq status`, `kaeqtop` or log tails to see how jobs are doing. Each such wake-up re-reads your whole
-context; `kaeq wait` tells you when there is something to see.
+Do not poll the queue: no other `send_later`, `ScheduleWakeup`, `CronCreate` or `Monitor` loops, no `sleep`/`until`
+loops, and no repeated `kaeq status`, `kaeqtop` or log tails to see how jobs are doing. Each such wake-up re-reads
+your whole context; `kaeq wait` tells you when there is something to see.
 
 ## Your jobs only; notes instead of messages
 

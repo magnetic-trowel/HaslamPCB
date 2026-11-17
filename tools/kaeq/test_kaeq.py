@@ -1142,10 +1142,10 @@ def test_the_daemon_reports_its_own_failure_symptoms(kq, tmp_path):
     assert len(ev) == 1 and "frozen" in ev[0]["msg"]                               # the job's owner is told, once
     d.health(cfg, now + 400, run())
     assert len(d.c.execute("SELECT * FROM events WHERE kind='health'").fetchall()) == 1   # not again within the hour
-    # kaeq wait: exit 3 for health warnings alone (jobs still run)
+    # kaeq wait: health warnings alone do not wake the session (jobs still run); they come with the next wake-up
     with pytest.raises(SystemExit) as e:
-        kq.cmd_wait(argparse.Namespace(owner="t", timeout="5s"))
-    assert e.value.code == 3
+        kq.cmd_wait(argparse.Namespace(owner="t", timeout="1s"))
+    assert e.value.code == 2
     # a cancelled job's open freeze is closed into its frozen time
     kq.cmd_cancel(argparse.Namespace(ids=["1"], owner=None, tag=None))
     j = d.c.execute("SELECT * FROM jobs WHERE name='b'").fetchone()
@@ -1254,15 +1254,52 @@ def test_a_session_waits_on_all_its_jobs_and_reads_notes_when_it_returns(kq, mon
     assert e.value.code == 0 and "nothing of yours" in capsys.readouterr().out
 
 
-def test_progress_is_reported_once_per_step_and_not_on_first_sight(kq):
+def test_a_campaign_is_reported_at_a_quarter_and_when_it_finishes_and_failures_wake_once(kq, monkeypatch):
+    import argparse
     c = kq.db()
     for i in range(8):
         c.execute("INSERT INTO jobs(owner,cmd,state,submitted) VALUES('exp-a','x','queued',?)", (time.time(),))
     c.commit()
-    assert kq.new_milestones(c, ["exp-a"], 25) == []          # first sight: starts from here
+    assert kq.campaign_news(c, ["exp-a"], 25) == []           # first sight: starts from here
     c.execute("UPDATE jobs SET state='ok' WHERE id<=2")
-    assert kq.new_milestones(c, ["exp-a"], 25) == ["exp-a: 25% done (2/8)"]
-    assert kq.new_milestones(c, ["exp-a"], 25) == []          # once
-    c.execute("UPDATE jobs SET state='ok' WHERE id<=8")
-    assert kq.new_milestones(c, ["exp-a"], 25) == []          # all done is wait's exit 0, not a milestone
-    assert kq.S.quarter(3, 8, 0) == 0
+    assert kq.campaign_news(c, ["exp-a"], 25) == ["exp-a: 25% done (2/8)"]
+    c.execute("UPDATE jobs SET state='ok' WHERE id<=6")
+    assert kq.campaign_news(c, ["exp-a"], 25) == []           # only the first quarter
+    c.execute("UPDATE jobs SET state='ok' WHERE id<=7")
+    c.execute("UPDATE jobs SET state='failed' WHERE id=8")
+    assert kq.campaign_news(c, ["exp-a"], 25) == ["exp-a: finished, 1 failed, 7 ok"]
+    assert kq.campaign_news(c, ["exp-a"], 25) == []
+    # failures: the first one in a campaign wakes the session; the next ones wait until it has retried
+    for jid in (7, 8):
+        kq.event(c, c.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone(), "failed", f"#{jid} FAILED")
+    c.commit()
+    assert kq.first_failures(c, ["exp-a"]) == ["exp-a"]
+    kq.pending_many(c, ["exp-a"])                              # the wake-up printed them
+    kq.event(c, c.execute("SELECT * FROM jobs WHERE id=7").fetchone(), "failed", "#7 FAILED again")
+    c.commit()
+    assert kq.first_failures(c, ["exp-a"]) == []
+    kq.ensure_daemon = lambda: None
+    kq.cmd_retry(argparse.Namespace(ids=["8"], owner=None, tag=None, mem=None, timeout=None, cpus=None, retries=0,
+                                    disk=None, force=False))
+    assert kq.first_failures(c, ["exp-a"]) == ["exp-a"]       # after a retry, the next failure wakes it again
+
+
+def test_wait_hands_back_a_wake_up_time_when_nothing_is_due_soon(kq, monkeypatch, capsys):
+    import argparse
+    monkeypatch.setenv("KAEQ_SESSION", "aaaaaaaa-1111")
+    for _ in range(8):
+        submit(kq, "true", owner="exp-a")
+    c = kq.db()
+    now = time.time()
+    kq.campaign_news(c, ["exp-a"], 25)                         # seen: no report on first sight
+    ends = [now + 3600 * h for h in (5, 6, 7, 8, 20, 21, 22, 23)]
+    monkeypatch.setattr(kq, "job_end_times", lambda c, now: {"exp-a": ends})
+    assert kq.next_news(c, ["exp-a"], 25, now) == (ends[0], "exp-a", "has its first result")
+    with pytest.raises(SystemExit) as e:
+        kq.cmd_wait(argparse.Namespace(owner=None, timeout=None, every=25, force=False, horizon="100m"))
+    out = capsys.readouterr().out
+    assert e.value.code == 5 and "has its first result" in out and 'send_later(at="' in out
+    c.execute("UPDATE jobs SET state='ok', finished=? WHERE id=1", (now,))
+    c.commit()
+    monkeypatch.setattr(kq, "job_end_times", lambda c, now: {"exp-a": ends[1:]})    # 7 left
+    assert kq.next_news(c, ["exp-a"], 25, now) == (ends[1], "exp-a", "is 25% done")   # 2 of 8: the second end
