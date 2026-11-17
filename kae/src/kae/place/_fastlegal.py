@@ -40,12 +40,13 @@ def sat_add_rect(S, i0, i1, j0, j1, v):
     if j1 > nj:
         j1 = nj
     if i1 <= i0 or j1 <= j0:
-        return
+        return 0
     for i in range(i0 + 1, ni + 1):
         wi = (i if i < i1 else i1) - i0
         for j in range(j0 + 1, nj + 1):
             wj = (j if j < j1 else j1) - j0
             S[i, j] += v * wi * wj
+    return (ni - i0) * (nj - j0)
 
 
 @_jit
@@ -105,11 +106,12 @@ def _fits(T0, T1, SO, ncx, ncy, pad, si, X, Y, k, own, own_n, opp, opp_n, brd, b
 
 @_jit
 def nearest_spot(S0, S1, SO, ncx, ncy, pad, si, X0, Y0, K0, w_rot, own, own_n, opp, opp_n, brd, brd_n, max_d):
-    """Nearest origin (L1 + w_rot when turning) where the part fits: (cost, X, Y, k), cost
-    -1 when none within max_d."""
+    """Nearest origin (L1 + w_rot when turning) where the part fits: (cost, X, Y, k, checks), cost
+    -1 when none within max_d; checks = origin-and-rotation fit tests made (the counted work)."""
     nk = own.shape[0]
     best_c = -1.0
     bx = by = bk = 0
+    n = 0
     for d in range(max_d + 1):
         if best_c >= 0 and d > best_c:
             break
@@ -125,23 +127,25 @@ def nearest_spot(S0, S1, SO, ncx, ncy, pad, si, X0, Y0, K0, w_rot, own, own_n, o
                     c = d + (w_rot if k != K0 else 0.0)
                     if best_c >= 0 and c >= best_c:
                         continue
+                    n += 1
                     if _fits(S0, S1, SO, ncx, ncy, pad, si, X, Y, k, own, own_n, opp, opp_n, brd, brd_n):
                         best_c = c
                         bx = X
                         by = Y
                         bk = k
-    return best_c, bx, by, bk
+    return best_c, bx, by, bk, n
 
 
 @_jit
 def ripup_spot(H0, H1, C0, C1, SO, ncx, ncy, pad, si, X0, Y0, K0, w_rot, w_cost, own, own_n, opp, opp_n, brd,
                brd_n, max_d):
     """Origin minimizing L1 + turning + w_cost x cells of evictable parts (tables C) the
-    own rectangle covers, among origins free in the hard tables H: (cost, X, Y, k), -1 when
-    none within max_d."""
+    own rectangle covers, among origins free in the hard tables H: (cost, X, Y, k, checks), -1
+    when none within max_d; checks = origin-and-rotation fit tests made (the counted work)."""
     nk = own.shape[0]
     best_c = -1.0
     bx = by = bk = 0
+    n = 0
     for d in range(max_d + 1):
         if best_c >= 0 and d > best_c:
             break
@@ -157,6 +161,7 @@ def ripup_spot(H0, H1, C0, C1, SO, ncx, ncy, pad, si, X0, Y0, K0, w_rot, w_cost,
                     c0 = d + (w_rot if k != K0 else 0.0)
                     if best_c >= 0 and c0 >= best_c:
                         continue
+                    n += 1
                     if not _fits(H0, H1, SO, ncx, ncy, pad, si, X, Y, k, own, own_n, opp, opp_n, brd, brd_n):
                         continue
                     C = C0 if si == 0 else C1
@@ -170,7 +175,7 @@ def ripup_spot(H0, H1, C0, C1, SO, ncx, ncy, pad, si, X0, Y0, K0, w_rot, w_cost,
                         bx = X
                         by = Y
                         bk = k
-    return best_c, bx, by, bk
+    return best_c, bx, by, bk, n
 
 
 def rotations_for_fit(p, k_now):

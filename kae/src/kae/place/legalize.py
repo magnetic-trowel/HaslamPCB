@@ -17,7 +17,7 @@ board stays the judge.
 """
 from __future__ import annotations
 
-from kae.budget import Deadline
+from kae.budget import Deadline, charge
 import math
 import os
 import re
@@ -195,11 +195,14 @@ def _occupancy(P, st, skip, pad):
     occ = [np.zeros((P.ncx + 2 * pad, P.ncy + 2 * pad), dtype=np.int32) for _ in (0, 1)]
     for ob in P.obstacles:
         _mark(occ[ob.side], ob.g, pad, 1)
+    n = len(P.obstacles)
     for i in P.mov:
         if i in skip:
             continue
         for side, r, _ in st.grid_rects(i):
             _mark(occ[side], r, pad, 1)
+            n += 1
+    charge("legal_rect", n)
     return occ
 
 
@@ -265,31 +268,38 @@ def _nearest_spot(P, p, X0, Y0, K0, occ, pad, w_rot, span, cost_occ=None, w_cost
     ks = rotations_for_fit(p, K0)
     while True:
         xa, xb, ya, yb = X0 - R, X0 + R, Y0 - R, Y0 + R
+        passes = 0                          # window-sized array passes (the counted work)
         for k in ks:
             r = p.rots[k]
             ok = np.ones((xb - xa + 1, yb - ya + 1), dtype=bool)
             for brd in (r.g_boards or (r.g_board,)):
                 ok &= _inside_origins(P, brd, xa, xb, ya, yb)
+                passes += 1
                 if not ok.any():
                     break
             if not ok.any():
                 continue
             for o in (r.g_own_rects or (r.g_own,)):
                 ok &= _free_origins(occ[si], o, pad, xa, xb, ya, yb)
+                passes += 1
             for o in r.g_opp:
                 if not ok.any():
                     break
                 ok &= _free_origins(occ[1 - si], o, pad, xa, xb, ya, yb)
+                passes += 1
             if not ok.any():
                 continue
             xs, ys = np.nonzero(ok)
             cost = (np.abs(xs + xa - X0) + np.abs(ys + ya - Y0) + (w_rot if k != K0 else 0.0)).astype(float)
+            passes += 1
             if cost_occ is not None:
                 for o in (r.g_own_rects or (r.g_own,)):
                     cost += w_cost * _covered(cost_occ[si], o, pad, xa, xb, ya, yb)[xs, ys]
+                    passes += 1
             j = int(np.argmin(cost))
             if best is None or cost[j] < best[0]:
                 best = (float(cost[j]), int(xs[j] + xa), int(ys[j] + ya), k)
+        charge("legal_cells", passes * (xb - xa + 1) * (yb - ya + 1))
         # a spot within R of the origin can still lose to one just outside when the best
         # cost exceeds R (L1 vs the square window): widen once more in that case
         if (best is not None and best[0] <= R) or R >= span:
@@ -329,6 +339,7 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
     skip = set(parts)
     occ = _occupancy(P, st, skip, pad)
     S = [sat(occ[0]), sat(occ[1])]
+    charge("legal_cells", 2 * occ[0].size)
     SO = P.sat_out
     max_d = P.ncx + P.ncy + 4 * pad
     arrs = {}
@@ -341,8 +352,10 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
         return arrs[key]
 
     def add(i, v):
+        n = 0
         for side, (a, b, c, d), _ in st.grid_rects(i):
-            FL.sat_add_rect(S[side], a + pad, b + pad, c + pad, d + pad, v)
+            n += FL.sat_add_rect(S[side], a + pad, b + pad, c + pad, d + pad, v)
+        charge("legal_sat_cells", n)
 
     def local(i):
         # the ring walk is cheap only nearby (its cost grows with the square of the reach);
@@ -355,9 +368,10 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
         if reach >= max_d:
             return _global_spot(i)
         ks, own, own_n, opp, opp_n, brd, brd_n = arrays(i)
-        c, X, Y, k = FL.nearest_spot(S[0], S[1], SO, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1, int(st.X[i]),
-                                     int(st.Y[i]), ks.index(int(st.K[i])), float(w_rot), own, own_n, opp, opp_n,
-                                     brd, brd_n, int(min(reach, max_d)))
+        c, X, Y, k, n = FL.nearest_spot(S[0], S[1], SO, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1, int(st.X[i]),
+                                        int(st.Y[i]), ks.index(int(st.K[i])), float(w_rot), own, own_n, opp, opp_n,
+                                        brd, brd_n, int(min(reach, max_d)))
+        charge("legal_fit", n)
         return None if c < 0 else (c, X, Y, ks[k])
 
     def _global_spot(i):
@@ -370,12 +384,14 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
         xs = np.arange(nx)[:, None]
         ys = np.arange(ny)[None, :]
         dist = np.abs(xs - X0) + np.abs(ys - Y0)
+        passes = 1                          # board-sized array passes (the counted work)
         best = None
         for k in FL.rotations_for_fit(p, K0):
             r = p.rots[k]
             ok = np.ones((nx, ny), dtype=bool)
             for brd in (r.g_boards or (r.g_board,)):
                 ok &= _inside_origins(P, brd, 0, nx - 1, 0, ny - 1)
+                passes += 1
             if not ok.any():
                 continue
             for side, rect in [(si, o) for o in (r.g_own_rects or (r.g_own,))] + [(1 - si, o) for o in r.g_opp]:
@@ -384,15 +400,18 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
                 cnt = (T[b + pad:b + pad + nx, d + pad:d + pad + ny] - T[a + pad:a + pad + nx, d + pad:d + pad + ny]
                        - T[b + pad:b + pad + nx, c + pad:c + pad + ny] + T[a + pad:a + pad + nx, c + pad:c + pad + ny])
                 ok &= cnt == 0
+                passes += 1
                 if not ok.any():
                     break
             if not ok.any():
                 continue
             cost = np.where(ok, dist + (w_rot if k != K0 else 0.0), np.inf)
+            passes += 1
             j = int(np.argmin(cost))
             c = float(cost.flat[j])
             if best is None or c < best[0]:
                 best = (c, j // ny, j % ny, k)
+        charge("legal_cells", passes * nx * ny)
         return best
     start = {i: (int(st.X[i]), int(st.Y[i])) for i in parts}
     placed_set, queue = set(), []
@@ -422,18 +441,23 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
         soft = [np.zeros_like(occ[0]) for _ in (0, 1)]
         for ob in P.obstacles:
             _mark(hard[ob.side], ob.g, pad, 1)
+        n = len(P.obstacles)
         for j in P.mov:
             if j == i or (j in skip and j not in placed_set):
                 continue
             tgt = soft if P.parts[j].area < p.area else hard
             for side, r, _ in st.grid_rects(j):
                 _mark(tgt[side], r, pad, 1)
+                n += 1
+        charge("legal_rect", n)
         H = [sat(hard[0]), sat(hard[1])]
         C = [sat(soft[0]), sat(soft[1])]
+        charge("legal_cells", 4 * hard[0].size)
         ks, own, own_n, opp, opp_n, brd, brd_n = arrays(i)
-        c, X, Y, k = FL.ripup_spot(H[0], H[1], C[0], C[1], SO, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1,
-                                   int(st.X[i]), int(st.Y[i]), ks.index(int(st.K[i])), float(w_rot), 4.0, own, own_n,
-                                   opp, opp_n, brd, brd_n, int(min(reach, max_d)))
+        c, X, Y, k, n = FL.ripup_spot(H[0], H[1], C[0], C[1], SO, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1,
+                                      int(st.X[i]), int(st.Y[i]), ks.index(int(st.K[i])), float(w_rot), 4.0, own,
+                                      own_n, opp, opp_n, brd, brd_n, int(min(reach, max_d)))
+        charge("legal_fit", n)
         return None if c < 0 else (c, X, Y, ks[k], "ripup")
     while queue:
         if out_of_time or (time_s is not None and dl.passed()):
@@ -548,12 +572,15 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
             soft = [np.zeros_like(occ[0]) for _ in (0, 1)]
             for ob in P.obstacles:
                 _mark(hard[ob.side], ob.g, pad, 1)
+            n = len(P.obstacles)
             for j in P.mov:
                 if j == i or (j in skip and j not in placed_set):
                     continue
                 tgt = soft if P.parts[j].area < p.area else hard
                 for side, r, _ in st.grid_rects(j):
                     _mark(tgt[side], r, pad, 1)
+                    n += 1
+            charge("legal_rect", n)
             best = _nearest_spot(P, p, int(st.X[i]), int(st.Y[i]), int(st.K[i]), hard, pad, w_rot, span,
                                  cost_occ=soft, w_cost=4.0)
             if best is None:
