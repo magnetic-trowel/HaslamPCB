@@ -3,7 +3,8 @@
 """A board's two structured inputs from its spec (numbers a model or a designer states about the board):
 
   OPERATING  kae.excite.evaluate --intent: what the board does electrically. radios.<ref> = kind, cells.<cell id>.{V_V,
-             f_sw_Hz, I_A (the spec's I_switch_A, else I_out_A), t_i_s}, parts.<ref>.{I_A, I_sustained_A} (loads and output connectors; the sustained draw sets temperatures), nets.<rail>.source,
+             f_sw_Hz, I_out_A, V_in_V, V_out_V, eta, I_switch_A (stated only: an override), t_i_s; I_A for
+             cells that are no DC-DC converter}, parts.<ref>.{I_A, I_sustained_A} (loads and output connectors; the sustained draw sets temperatures), nets.<rail>.source,
              requirements.thermal.{T_amb_C, airflow_h_W_m2K, heatsinks}, requirements.assembly.{process,
              hand_solder_ok, reflow_only_parts}. Each replaces one of the evaluator's priors. With --pintypes,
              pins.<ref>.<pad> = [type, name]: the schematic's pin facts the summary was built with, which the
@@ -160,6 +161,43 @@ def field_bases(item):
     return f" [fields: {', '.join(parts)}]" if parts else ""
 
 
+def cell_topology(S, cid, vout=None):
+    """(topology, leg) of a cell section (kae.physics.converter.topology_of): its class from the id; a buck and a
+    boost cell of one controller sharing an inductor are the two legs of a 4-switch buck-boost."""
+    from kae.physics import converter as CV
+    bits = str(cid).split(":")
+    cls, ctrl = (bits[1], bits[2]) if len(bits) >= 3 else (None, None)
+    st = {}
+    if cls in ("buck", "boost"):
+        other = S.sections.get(f"cell:{'boost' if cls == 'buck' else 'buck'}:{ctrl}")
+        mine = S.sections.get(cid) or {}
+        ind = lambda x: {p for p in x.get("parts") or [] if str(p).startswith("L")}
+        if other and ind(mine) & ind(other):
+            st = {"topology": "buck_boost_4switch"}
+    return CV.topology_of(cls, st, vout)
+
+
+def bus_volts(top, leg, vin, vout):
+    """A cell's bus (its switch node's swing): a buck's input, a boost's output, an inverting stage's both."""
+    vo = abs(vout) if vout else None
+    if top in ("boost", "boost_led") or (top == "buck_boost_4switch" and leg == "boost"):
+        return vo or vin
+    if top in ("buck",) or (top == "buck_boost_4switch" and leg == "buck"):
+        return vin or vo
+    if top in ("inverting_buck_boost", "sepic", "cuk") and vin and vo:
+        return vin + vo
+    return max(v for v in (vin, vo) if v)
+
+
+def rail_eta(op, cid):
+    """The stated efficiency [lo, hi] of the rail this cell's controller sources (op nets.<rail>.eta), or None."""
+    ctrl = str(cid).split(":")[2] if str(cid).count(":") >= 2 else None
+    for n, fact in (op.get("nets") or {}).items():
+        if ctrl and fact.get("source") == ctrl and fact.get("eta"):
+            return list(fact["eta"])
+    return None
+
+
 def compile_spec(spec, summary):
     S = Spec(spec, summary)
     op = {"parts": {}, "nets": {}, "cells": {}, "requirements": {}}
@@ -254,23 +292,45 @@ def compile_spec(spec, summary):
             S.rejected.append(f"{w}: cell {cid!r} is not one of the board's cell sections")
             continue
         vin, vout = S.num(c, "V_in_V", "V", w), S.num(c, "V_out_V", "V", w)
-        # the cell's commutated current: the inductor's (a boost's input current, not its output); I_out_A when
-        # the spec does not state it (a buck's inductor carries its output current)
         f, t = S.num(c, "f_sw_Hz", "Hz", w), S.num(c, "t_edge_s", "s", w)
-        I = S.num(c, "I_switch_A", "A", w) or S.num(c, "I_out_A", "A", w)
+        Iout, Isw = S.num(c, "I_out_A", "A", w), S.num(c, "I_switch_A", "A", w)
+        top, leg = cell_topology(S, cid, vout)
         cell = {}
         if vin or vout:
-            vb = max(v for v in (vin, vout) if v)
+            vb = bus_volts(top, leg, vin, vout)
             cell["V_V"] = [round(0.9 * vb, 6), round(1.1 * vb, 6)]
         if f:
             cell["f_sw_Hz"] = [round(0.8 * f, 3), round(1.2 * f, 3)]
-        if I:
-            cell["I_A"] = [round(0.3 * I, 6), round(I, 6)]
+        extra = ""
+        if top is None:
+            # no DC-DC converter (a half bridge, a motor or class-D driver): its output current is what it switches
+            if Isw or Iout:
+                cell["I_A"] = [round(0.3 * (Isw or Iout), 6), round(Isw or Iout, 6)]
+        else:
+            # the operating facts; the evaluator converts I_out_A to the commutated current by the cell's topology
+            # (kae.physics.converter: a boost's switch carries its input current); I_switch_A, stated, overrides
+            if Iout:
+                cell["I_out_A"] = [round(0.3 * Iout, 6), round(Iout, 6)]
+            if vin:
+                cell["V_in_V"] = vin
+            if vout:
+                cell["V_out_V"] = vout
+            eta = rail_eta(op, cid)
+            if eta:
+                cell["eta"] = eta
+            if Isw:
+                cell["I_switch_A"] = [round(0.3 * Isw, 6), round(Isw, 6)]
+                extra = f"; I_switch_A {Isw:g} A stated by the spec (override)"
+            if Iout and vin and vout:
+                from kae.physics import converter as CV
+                cc = CV.from_intent(dict(cell, I_switch_A=None), top, leg)
+                extra += (f"; derived (kae.physics.converter) I_switch {cc.I[1]:.4g}-{cc.I[2]:.4g} A: {cc.basis}"
+                          if cc else "")
         if t:
             cell["t_i_s"] = [t / 2, t * 2]
         if cell:
             op["cells"][cid] = cell
-            opwhy[f"cells.{cid}"] = why(c, "converter operating point") + field_bases(c)
+            opwhy[f"cells.{cid}"] = why(c, "converter operating point") + field_bases(c) + extra
         vmax = S.num(c, "switch_V_max_V", "V", w)
         if vmax:
             terms.append(dict(id=f"O{i}", tier="hard", obs="overshoot.peak", where={"observer": f"overshoot:{cid}"},
