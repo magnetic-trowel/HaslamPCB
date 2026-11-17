@@ -95,3 +95,23 @@ intervals over everything. No look in between; no change to arms, boards or rule
 ## Cost (information)
 About 0.3 CPU-h per run at 900-1140 s: 120 boards x 5 arms x 2 attempts, about 330 CPU-h (P cheaper with the step
 cache); the extension about 270 CPU-h more.
+
+## Addendum 2026-11-17, before any run on the new build: current components
+Project rule (2026-11-17): every experiment runs on current main and the current Freerouting pin; results from older
+builds decide nothing on their own.
+- **Code.** Main c81770e1 is merged into the branch as `diffpair-ab4-m2` (a merge rather than a rebase: the branch
+  merges `diffpair-route`, `bus-post-relay`, `bridge-ses-width` and others; the original branch is left as it was). One
+  code conflict, in `route/bridge.py`: main removed the failure history (`route_first`, #89), so the merged bridge keeps
+  the branch's wire-type block and calls `translate.permute(tree, seed)` as main does; no arm used the history.
+  `SUBJECTS.md` is main's. Every arm runs kae and harness 524701ac, the merge commit. The pair, specctra, wire-type,
+  last-mile and repair tests pass.
+- **Freerouting:** the pinned fork 9a5512d, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING` in every arm.
+- **Wall-clock budgets are kept** (900, 1080 and 1140 s as in the table): the pair stage (`kae.route.pair_route`) charges
+  no counted work, so under `KAE_BUDGET=work` its own time limit would not bind, and the arms would no longer be the ones
+  registered. Jobs stay class timed, every arm of a board in one job.
+- **New experiment `diffpair-ab4-m`** (owner `exp-diffpair-ab4-m`), new method ids, `KAE_STEP_CACHE` as before. The 94
+  finished jobs of `diffpair-ab4` (the interim count included) are on the old build and excluded from the decision;
+  its jobs are cancelled. Look 1 is read on the new runs only, after round 1 on all 120 boards.
+- Boards (120), arms, attempts 0-1, outcomes, decision rules, looks and extension unchanged.
+- **Still worth running:** pair routing is not in main and the interim read is not a result; about 325 CPU-h for round 1
+  on the old estimate (queue triage), more now that the 47 finished boards run again.
