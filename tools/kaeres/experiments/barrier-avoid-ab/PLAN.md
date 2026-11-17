@@ -107,3 +107,20 @@ the smoke's peak.
 
 ## Cost (information, not a limit)
 480 placement runs, each about 300-900 nominal s plus kaebench scoring: about 80-130 CPU-h.
+
+## Addendum 2026-11-17, before any run on the new build: current components and two arms
+- **Arms trimmed** (queue triage, approved by the user 2026-11-17; recorded here before any result): W-old (`all`, ab2's
+  arm) and W-detour (about the control on small voids, factor 1.004 in the plan's own trial) are dropped. The test is C
+  against W-avoid, primary 1 only; no multiplicity correction is needed for one contrast.
+- **Current components** (project rule, 2026-11-17: current main, current Freerouting pin; old-build results decide
+  nothing). `place-barrier-avoidable` is rebased onto main c81770e1 as `place-barrier-avoidable-m2` (the original branch
+  is left as it was). Only documentation conflicted (main's voids-and-barriers page and area README are kept). Both arms
+  run kae and harness 6b22e409, the rebased commit before this addendum (`barrier_weight_mode` is a2b62b2e, was part of
+  510d8f8). `test_place_barriers.py`, `test_place_pipeline.py` and `test_cli.py` pass. Placement only: no Freerouting
+  in this test; the routed confirmation, if it runs, uses the pin 9a5512d.
+- **New experiment `barrier-avoid-ab-m`** (owner `exp-barrier-avoid-ab-m`), new method ids, one job per board with both
+  arms, seeds 0-2 interleaved. No run of `barrier-avoid-ab` had finished; its queued jobs and the old-build profile
+  (owner `exp-barrier-avoid`) are cancelled.
+- Boards (40), seeds 0-2, counted work, metrics and the decision rule for primary 1 otherwise unchanged.
+- **Still worth running:** barrier-weight ab2 found no effect with the mechanism missing on its boards; this is the
+  cheap placement-only screen that decides whether a routed test is worth it. About 50 CPU-h.
