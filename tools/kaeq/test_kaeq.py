@@ -1263,6 +1263,7 @@ def test_a_campaign_is_reported_at_a_quarter_and_when_it_finishes_and_failures_w
     assert kq.campaign_news(c, ["exp-a"], 25) == []           # first sight: starts from here
     c.execute("UPDATE jobs SET state='ok' WHERE id<=2")
     assert kq.campaign_news(c, ["exp-a"], 25) == ["exp-a: 25% done (2/8)"]
+    assert kq.QUARTER_CHECK in kq.report_lines(c, ["exp-a"], [], ["exp-a: 25% done (2/8)"], [])
     c.execute("UPDATE jobs SET state='ok' WHERE id<=6")
     assert kq.campaign_news(c, ["exp-a"], 25) == []           # only the first quarter
     c.execute("UPDATE jobs SET state='ok' WHERE id<=7")
@@ -1335,3 +1336,20 @@ def test_the_dispatcher_writes_one_message_per_session_that_should_wake(kq, monk
         with pytest.raises(SystemExit) as e:
             kq.cmd_wait(argparse.Namespace(owner=None, timeout=None, every=25, force=False, horizon="100m"))
         assert e.value.code == 6
+
+
+def test_a_campaign_without_history_is_pooled_with_the_profile_of_all_recent_jobs(kq):
+    import json
+    d = kq.Daemon(host=kq.Host())
+    c = d.c
+    flat = json.dumps([1] * kq.MEM_BINS)
+    for i in range(60):
+        c.execute("INSERT INTO jobs(owner,cmd,state,submitted,finished,mem_hist) VALUES('old','x','ok',?,?,?)",
+                  (i, i, flat))
+    c.execute("INSERT INTO jobs(owner,cmd,state,submitted) VALUES('new','x','running',0)")
+    c.commit()
+    running = c.execute("SELECT * FROM jobs WHERE state='running'").fetchall()
+    cfg = kq.config()
+    assert d.owner_profiles(cfg, 1e6, running)["new"] == pytest.approx([1 / kq.MEM_BINS] * kq.MEM_BINS)
+    d.profiles_ts = 0
+    assert "new" not in d.owner_profiles(dict(cfg, mem_pool_prior_jobs=0), 2e6, running)

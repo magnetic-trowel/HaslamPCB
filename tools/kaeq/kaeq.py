@@ -351,6 +351,8 @@ def report_lines(c, owners, notes, news, urgent):
     rows = pending_many(c, owners)
     out = event_lines([r for r in rows if r["kind"] in PROBLEM], 8) + event_lines([r for r in rows if r["kind"] not in PROBLEM], 4)
     out += news + [n["msg"] for n in urgent + pending_many(c, notes)]
+    if any("% done (" in h for h in news):
+        out.append(QUARTER_CHECK)
     shown = []
     for o in owners:
         total, done, bad, run = owner_counts(c, o)
@@ -361,6 +363,14 @@ def report_lines(c, owners, notes, news, urgent):
         out += [progress_line(c, o) for _, o in sorted(shown)[:10]]
     return out
 
+
+QUARTER_CHECK = (
+    "At 25%: evaluate now, while three quarters of the compute is still unspent. Analyse the finished jobs as you would "
+    "at the end (the campaign's report or analysis script, arms compared), then spot-check a few boards by hand: "
+    "scores, drc.json errors by type, logs, a render. Look for crashes, timeouts, ceiling hits, arms that did nothing "
+    "and numbers that cannot be right. If something is broken, `kaeq cancel --owner <it>`, fix it and resubmit; if "
+    "the early results show a setting or budget that would make the rest cheaper or more informative, change it "
+    "now (`kaeq set`, or cancel and resubmit). Then stop; you will be messaged again when it finishes.")
 
 DISPATCH_LOCK = os.path.join(HOME, "dispatch.lock")
 

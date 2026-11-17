@@ -104,6 +104,7 @@ DEFAULTS = {
     "mem_pool_margin": 1.1,  # pooled jobs may reach their observed peak x this (others: peak_margin)
     "mem_pool_rho": 0.5,     # prior correlation between jobs of one owner (0 = independent, 1 = in lockstep); the
                              # daemon measures it from concurrent jobs' RSS and uses the prior only as 2 pseudo-pairs
+    "mem_pool_prior_jobs": 500,  # an owner with fewer: the average profile of the last this many jobs of all owners (0: none)
     "mem_pool_min_jobs": 3,  # finished jobs with a histogram an owner needs before its jobs are pooled
     # admission and warm-up on what jobs really use: once an owner has mem_learn_min_jobs finished jobs, a new job
     # of it needs its --mem x (p95 of the owner's peak/--mem) x mem_learn_margin, never more than --mem
