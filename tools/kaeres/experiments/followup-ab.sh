@@ -5,7 +5,11 @@
 # Two placement A/Bs after decide-ab (decide-ab.sh on branch decide-ab), every arm at one commit ($SHA,
 # branch place-physics-repair: main plus the repair_physics switch, off by default) with counted-work
 # budgets (KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1; the harness timeout is the 4x wall ceiling,
-# a run that hits it reports ceiling_hit and has failed) and the pinned Freerouting fork d137fd1.
+# a run that hits it reports ceiling_hit and has failed) and the pinned Freerouting fork 9a5512d (fork master
+# plus counted work: kae.route.freerouting.has_work_budget finds autorouter.max_work in the jar, so the bridge
+# budgets its passes in work units with no flag; KAE_FR_WORK_BUDGET=0 would turn that off).
+# Version 2 (the *2 experiments) runs at main after #91-#101 plus #102 (greedy legaliser charge); the first
+# set (p6-repair-staged, p6-repair-place, j10-joint-window at 31c8223, d137fd1) was cancelled unrun.
 #
 #   SHA=<commit> followup-ab.sh register     # method add + exp create, smokes and full runs (no job)
 #   followup-ab.sh exps smoke|full           # the experiment names
@@ -17,8 +21,8 @@
 # docs/research/placement/kae-exact-legality.md). With it on, the exact repair (move_clean, reseed) takes
 # the lowest-physics of the first few clean spots within 2 mm of the nearest, and legalization windows keep
 # each decap by its IC's pin. Arms set env KAE_REPAIR_PHYSICS.
-#   p6-repair-staged: kae staged (restarts), joint-fixed, 213 merit boards, k=2
-#   p6-repair-place:  kae place with physics + Freerouting probe, place task, 213 merit boards, k=2
+#   p6-repair-staged2: kae staged (restarts), joint-fixed, 213 merit boards, k=2
+#   p6-repair-place2:  kae place with physics + Freerouting probe, place task, 213 merit boards, k=2
 # Deciding metric: physics Σu (scorecard total_linear, its decap part; kaeres physics_valued_total),
 # paired per board and attempt, 1 vs 0. Adopt 1 (default on) only if
 #   - median per-board ratio of decap Σu (1/0) < 1 and the paired sign test or Wilcoxon p < 0.05, with no
@@ -35,7 +39,7 @@
 # the 0 settings (cp1 2% -> 4-7%, completion 81% -> 84-86%). This re-run has counted budgets and #54.
 # Job time-outs: kaeres sizes each job as the sum of its runs' 4x ceilings (+1 h), in 2-5 jobs per board,
 # so no arm is dropped unless a run hits its own ceiling.
-#   j10-joint-window: control / bump0 / rmargin0
+#   j10-joint-window2: control / bump0 / rmargin0
 # Deciding metric: completion (connections routed) and cp1/cpk per arm vs control, paired per board over
 # 3 seeds. Change a default to 0 only if its arm beats control on completion with paired p < 0.05 and cp1
 # not lower (noise +-2 pp), legal_strict and boards with shorts not worse, errors by type not worse
@@ -44,9 +48,9 @@
 #
 # Analysis (after both finish):
 #   K="python3 tools/kaeres/kaeres.py"
-#   $K exp report p6-repair-staged; $K exp report p6-repair-place; $K exp report j10-joint-window
-#   for x in p6-repair-staged p6-repair-place; do python3 tools/kaeres/experiments/followup-ab/ab_analyze.py $x; done
-#   python3 tools/kaeres/experiments/followup-ab/ab_analyze.py j10-joint-window --base control
+#   $K exp report p6-repair-staged2; $K exp report p6-repair-place2; $K exp report j10-joint-window2
+#   for x in p6-repair-staged2 p6-repair-place2; do python3 tools/kaeres/experiments/followup-ab/ab_analyze.py $x; done
+#   python3 tools/kaeres/experiments/followup-ab/ab_analyze.py j10-joint-window2 --base control
 # (paired per board over the attempts every arm finished; physics = kaeres physics valued total and its decap
 # modules; place runs also the placer's scorecard and decap part of its physics_trace)
 set -euo pipefail
@@ -54,7 +58,7 @@ cd "$(dirname "$0")/../../.."
 K=${K:-python3 tools/kaeres/kaeres.py}
 B=tools/kaeres/experiments/followup-ab
 KH='$HOME/.cache/kaebench'                          # expanded at run time, in the sandbox
-FORK="$KH/kae-freerouting-fork-d137fd1/bin/freerouting"
+FORK="$KH/kae-freerouting-fork-9a5512d/bin/freerouting"
 FRENV="KAE_BRIDGE_FREEROUTING=$FORK KAE_FREEROUTING=$FORK"
 WENV="env KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1"
 
@@ -86,7 +90,7 @@ radd() {  # NAME KIND DESCRIPTION ENV WRAP_OPTS JOINT_ARGS
   local E; E=$(inner_env "$env")
   local fin="$CP $E -m kae.route.cli lastmile @IN@ @BEST@ @OUT@ --seed @SEED@ --time @TIME@"
   local inner="$CP if [ \"\$KAE_RESUME\" = 1 ]; then $E -m kae.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@; else $E -m kae.joint.cli run @IN@ @OUT@ --seed @SEED@ --time @TIME@ $jargs; fi"
-  madd "$name" --kind "$kind" --description "$desc; restart portfolio (tools/kaeres/restart.py), counted work (nominal 900 s x sqrt(fp/40), ceiling 4x), Freerouting d137fd1" \
+  madd "$name" --kind "$kind" --description "$desc; restart portfolio (tools/kaeres/restart.py), counted work (nominal 900 s x sqrt(fp/40), ceiling 4x), Freerouting 9a5512d" \
     --command "$(wrap "$fin" $wopts) '$inner'" --param timeout_s=3600 --param timeout_scale=sqrt-fp40 \
     --param timeout_cap_s=57600 --param parallel=4 "${CODE[@]}"
 }
@@ -125,14 +129,14 @@ register() {
   # every experiment is created before any of them runs (kaeres refuses methods with runs elsewhere);
   # a smoke's run on its one board is then also that board's attempt-0 run of the full experiment
   local D="followup-ab.sh at $S7"
-  exp p6-repair-staged-smoke $B/smoke.boards.txt 1 "smoke of p6-repair-staged ($D), 1 board, k=1" "$ST0" "$ST1"
-  exp p6-repair-place-smoke $B/smoke.boards.txt 1 "smoke of p6-repair-place ($D), 1 board, k=1" "$PL0" "$PL1"
-  exp j10-joint-window-smoke $B/smoke.boards.txt 1 "smoke of j10-joint-window ($D), 1 board, k=1" "$JC" "$JB" "$JR"
-  exp p6-repair-staged $B/merit213.boards.txt 2 \
+  exp p6-repair-staged2-smoke $B/smoke.boards.txt 1 "smoke of p6-repair-staged2 ($D), 1 board, k=1" "$ST0" "$ST1"
+  exp p6-repair-place2-smoke $B/smoke.boards.txt 1 "smoke of p6-repair-place2 ($D), 1 board, k=1" "$PL0" "$PL1"
+  exp j10-joint-window2-smoke $B/smoke.boards.txt 1 "smoke of j10-joint-window2 ($D), 1 board, k=1" "$JC" "$JB" "$JR"
+  exp p6-repair-staged2 $B/merit213.boards.txt 2 \
     "P6 (audit): repair_physics 0 vs 1, kae staged (restarts) on joint-fixed, 213 merit boards, k=2, counted work; $D" "$ST0" "$ST1"
-  exp p6-repair-place $B/merit213.boards.txt 2 \
+  exp p6-repair-place2 $B/merit213.boards.txt 2 \
     "P6 (audit): repair_physics 0 vs 1, kae place with physics (Freerouting probe), place task, 213 merit boards, k=2, counted work; $D" "$PL0" "$PL1"
-  exp j10-joint-window $B/joint-open.boards.txt 3 \
+  exp j10-joint-window2 $B/joint-open.boards.txt 3 \
     "J10 re-run: joint loop bump_mm 0.25/0 and replace_margin 0.3/0 vs one control, the 71 boards the joint loop leaves open, k=3, counted work; $D" \
     "$JC" "$JB" "$JR"
 }
@@ -148,8 +152,8 @@ case ${1:-} in
   register) register ;;
   warm) warm "${2:-}" ;;
   exps) case ${2:-} in
-          smoke) echo p6-repair-staged-smoke p6-repair-place-smoke j10-joint-window-smoke ;;
-          full) echo p6-repair-staged p6-repair-place j10-joint-window ;;
+          smoke) echo p6-repair-staged2-smoke p6-repair-place2-smoke j10-joint-window2-smoke ;;
+          full) echo p6-repair-staged2 p6-repair-place2 j10-joint-window2 ;;
           *) echo "exps smoke|full" >&2; exit 2 ;;
         esac ;;
   *) echo "usage: $0 register|warm|exps smoke|full" >&2; exit 2 ;;
