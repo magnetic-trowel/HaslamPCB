@@ -137,3 +137,4 @@ User decision: every arm gets the same counted-work allowance, as everywhere els
 | dasduino coreplus | 6,916 / 10,979 / 10,739 | 4 / 8 / 11 | 34 / 35 / 35 |
 
 - Main 8a2c748f (#83, physics.build prices a negative rail by its magnitude) reaches the placer's physics terms. It is merged, and batch 1 runs at the commit that includes it.
+- Seeds: all six arms run seeds 0 and 1 in one experiment (`loop-win`, attempts 2). A second experiment for seed 1 alone would queue seed 0 again, so the per-change arms get their second seed as well. The primary and every rule above are unchanged.
