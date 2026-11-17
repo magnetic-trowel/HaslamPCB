@@ -115,3 +115,5 @@ builds decide nothing on their own.
 - Boards (120), arms, attempts 0-1, outcomes, decision rules, looks and extension unchanged.
 - **Still worth running:** pair routing is not in main and the interim read is not a result; about 325 CPU-h for round 1
   on the old estimate (queue triage), more now that the 47 finished boards run again.
+
+- 2026-11-17 (identity check, main 22ff779a + Freerouting f1c41d3): kept as registered. diffpair-ab4-m runs on wall-clock budgets: kae #105 changes only the work-mode settings and counted charges, and fork f1c41d3's new stops all test autorouter.max_work, which the bridge sets only under counted work; without it the new code only counts and logs. Outputs on the new build are those of 524701a with 9a5512d (wall-clock variation aside, which no identity run can remove), so the experiment keeps running.
