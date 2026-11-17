@@ -124,3 +124,5 @@ the smoke's peak.
 - Boards (40), seeds 0-2, counted work, metrics and the decision rule for primary 1 otherwise unchanged.
 - **Still worth running:** barrier-weight ab2 found no effect with the mechanism missing on its boards; this is the
   cheap placement-only screen that decides whether a routed test is worth it. About 50 CPU-h.
+
+- 2026-11-17 (identity check, main 22ff779a + Freerouting f1c41d3): kept as registered. kae #105 changes only route/freerouting.py and budget charges for Freerouting runs, and this placement-only test (kae.cli place, no probe, no Freerouting) never reaches them, so its outputs on the new main are those of its registered commit. (barrier-avoid-ab-m finished: 40/40 jobs.)
