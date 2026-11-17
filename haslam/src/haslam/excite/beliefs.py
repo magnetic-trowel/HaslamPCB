@@ -79,6 +79,15 @@ def load_intent(path):
     return json.loads(Path(path).read_text())
 
 
+def board_facts(intent, board_path):
+    """The facts the physics reads for a board: `intent` (a facts dict or a haslam.intent/1 document) when given,
+    else the board's own intent file beside it (haslam.intent.facts); {} when there is neither."""
+    from haslam.intent import facts as F
+    if intent is None:
+        intent, _ = F.for_board(board_path)
+    return F.facts_of(intent)
+
+
 def parts_table():
     """The curated part table: list of {match (regex), data {name: value | [lo, hi]}, source}."""
     if not PARTS_FILE.exists():
@@ -140,6 +149,8 @@ def intent_value(intent, section, key, name):
     v = ((intent or {}).get(section) or {}).get(key, {}).get(name)
     if v is None:
         return None
+    if isinstance(v, list) and len(v) == 3:          # [lo, typ, hi] (haslam.intent.facts)
+        return (float(v[1]), float(v[0]), float(v[2]))
     if isinstance(v, list):
         lo, hi = float(v[0]), float(v[-1])
         return (math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2, lo, hi)

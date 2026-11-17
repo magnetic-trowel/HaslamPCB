@@ -32,6 +32,7 @@ import json
 import math
 import sys
 import time
+from pathlib import Path
 
 from .evidence import evidence_json
 from .netlist import Netlist
@@ -202,8 +203,32 @@ def _priority(s: dict) -> tuple[float, str]:
 
 
 # ------------------------------------------------------------------------------- build
-def build(board, *, use_sheets: bool = True) -> dict:
-    """The brief for a haslam.board Board (or any object with Contract 1 field names)."""
+def build(board, *, use_sheets: bool = True, facts=None) -> dict:
+    """The brief for a haslam.board Board (or any object with Contract 1 field names).
+
+    facts: the commander's operating facts (haslam.intent.facts), applied before priorities are set. None reads
+    the board's own intent file (`<board>.haslam_intent.json` beside it) when there is one; False ignores it."""
+    b = _build(board, use_sheets=use_sheets)
+    if facts is False:
+        return b
+    from haslam.intent import facts as F
+    origin = "intent"
+    if facts is None:
+        doc, path = F.for_board(getattr(board, 'path', None))
+        facts, origin = F.facts_of(doc), (f"intent file {Path(path).name}" if path else "intent")
+    if not facts:
+        return b
+    F.apply(b, F.facts_of(facts), origin=origin)
+    for s in b['structures']:
+        s['priority'] = round(_priority(s)[0], 2)
+    order = sorted(b['structures'], key=lambda s: (-s['priority'], s['id']))
+    b['placement_order'] = [{'id': s['id'], 'priority': s['priority'], 'confidence': s['confidence']} for s in order
+                            if s['kind'] not in ('thermal_victim',)]
+    b['summary']['rails'] = {n: d.get('volts') for n, d in b['nets'].items() if d.get('role') == 'rail'}
+    return b
+
+
+def _build(board, *, use_sheets: bool = True) -> dict:
     t0 = time.perf_counter()
     nl = Netlist.from_board(board)
     if not use_sheets:

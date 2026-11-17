@@ -82,6 +82,8 @@ def _wave_params(P, s, val):
 
 def evaluate(path, pitch=0.25, nsub=2, intent=None, n_corners=16, seed=0, log=print, tol=1e-3, capacitive=True,
              skin=True):
+    from .beliefs import board_facts
+    intent = board_facts(intent, path)
     from haslam.board import transform
     from haslam.board.kicad_file import load
     from haslam.circuit import brief as B
@@ -363,7 +365,7 @@ def main(argv=None):
     ap.add_argument("-o")
     a = ap.parse_args(argv)
     from .beliefs import load_intent
-    r = evaluate(a.board, a.pitch, nsub=a.nsub, intent=load_intent(a.intent), seed=a.seed, tol=a.tol, capacitive=not a.no_capacitive,
+    r = evaluate(a.board, a.pitch, nsub=a.nsub, intent=load_intent(a.intent) if a.intent else None, seed=a.seed, tol=a.tol, capacitive=not a.no_capacitive,
                  skin=not a.no_skin_correction,
                  log=lambda m: print(m, file=sys.stderr, flush=True))
     from .evaluate import print_total
