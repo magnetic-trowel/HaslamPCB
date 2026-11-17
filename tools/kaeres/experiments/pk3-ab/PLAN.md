@@ -90,3 +90,8 @@ Every arm runs the placer (`kae.joint.cli run --max-iters 0`, without `--start`)
 change the outputs. Under the rule "current main plus the current pin", branch `pk3-ab-m2` merges main
 c81770e1 into pk3-ab, the methods are re-registered at its commit, and the queued jobs of `pk3-ab` are cancelled
 (only its smoke had run). Arms, boards, analysis, power and decision rule are unchanged.
+
+## Addendum: moved to Freerouting fork f1c41d3 before any job ran
+The fork now charges optimizer work to autorouter.max_work (on 9a5512d the optimizer ran uncounted, up to
+10 passes, and could reach the 4x wall ceiling). Unstarted jobs of `pk3-ab-m` were cancelled and the methods re-registered
+as experiment `pk3-ab-p2` at this commit on the new pin; nothing else changed.
