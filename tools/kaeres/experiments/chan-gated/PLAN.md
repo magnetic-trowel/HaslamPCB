@@ -113,7 +113,9 @@ seeds of `final_edge` > 0), else it is dropped before submission and the run has
 On the user's go (queue triage, 2026-11-17) the run is trimmed to two arms: control (370040899c4e) and chan3
 (87bb75a6cdbc), seeds 0-2, one interleaved job per board (144 jobs). The 288 jobs submitted earlier were cancelled
 before any result was read.
-- chan3edge is dropped: its motivating board does not use the edge term (addendum above).
+- chan3edge is dropped: its motivating board does not use the edge term (addendum above). This overrides the
+  pre-registered rule, which had kept the arm: 120 of the 144 gated boards have edge-band pads at w = 0. The edge
+  term remains untested.
 - xingchan3 waits for the xing extension (xing-ext); it is not part of this run.
 - With one contrast, the Holm correction is no longer needed. The primary (per-board mean Δlog1p(opens) over seeds,
   bootstrap CI, ratio of sums, sign-flip p), the guards, the gate, the infeasibility exclusion and the looks (one
