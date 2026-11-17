@@ -1,11 +1,12 @@
 # SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""scan_gated.py KAE_SRC BOARDS.txt OUT.jsonl
+"""scan_gated.py KAE_SRC BOARDS.txt OUT.jsonl [--fast]
 The gated detector (kae.place.arrays.macros, as committed with this file) on each board's task input:
 the corpus board with the task's fixed parts locked (the spec-11 joint-fixed task record's fixed_mech where
 kaeres has one, else kae.place.mech_rules.classify on the loaded footprints plus the board's own locks, the
 pure-Python part of the prepare step's classify-mech). Writes, per board: matrices pinned (mask 1), buses
-(mask 2), skipped groups and why."""
+(mask 2), skipped groups and why. --fast: the detectors on the footprints alone (no Problem: net kinds guessed
+from pin counts), a prefilter for a whole-corpus scan; its hits are scanned again without it."""
 import glob
 import json
 import os
@@ -40,16 +41,43 @@ def fixed_refs(b, bd):
     return out, "mech_rules"
 
 
+def fast(bd):
+    from collections import defaultdict
+    from kae.place.problem import net_class_guess
+    pins = defaultdict(int)
+    for f in bd.footprints:
+        for p in f.pads:
+            if p.net:
+                pins[p.net] += 1
+    kinds = {k: net_class_guess(k, v, max(1, len(bd.footprints))) for k, v in pins.items()}
+    mov = [f for f in bd.footprints if f.pads and not f.locked]
+    by = {f.uuid: f for f in mov}
+    rep = dict(matrices=[], buses=[], skipped=[])
+    mats = A.matrices(mov, kinds)
+    for g in mats:
+        f = by[next(iter(g.cells))]
+        info = dict(ref=f.ref, parts=len(g.cells), lib=f.lib_id, kind="matrix")
+        (rep["skipped"].append(dict(info, why="user-interface parts")) if A.is_ui_part(f) else rep["matrices"].append(info))
+    taken = {u for g in mats for u in g.cells}
+    for g in A.buses(mov, kinds, exclude=taken, pin_fps=[f for f in bd.footprints if f.pads]):
+        f = by[next(iter(g.cells))]
+        rep["buses"].append(dict(ref=f.ref, parts=len(g.cells), lib=f.lib_id))
+    return rep
+
+
 def main():
-    with open(sys.argv[3], "w") as h:
+    with open(sys.argv[3], "a") as h:
         for b in [x.strip() for x in open(sys.argv[2]) if x.strip()]:
             try:
                 bd = load(f"{CORPUS}/{b}/board.kicad_pcb")
                 fixed, src = fixed_refs(b, bd)
                 for f in bd.footprints:
                     f.locked = f.ref in fixed
-                P = Problem.build(bd)
-                _, rep = A.macros(P, kinds=A.MATRIX | A.BUS)
+                if "--fast" in sys.argv:
+                    rep = fast(bd)
+                else:
+                    P = Problem.build(bd)
+                    _, rep = A.macros(P, kinds=A.MATRIX | A.BUS)
                 row = dict(board=b, src=src, fixed=len(fixed), pads=sum(len(f.pads) for f in bd.footprints),
                            matrices=[m["parts"] for m in rep["matrices"]], buses=[m["parts"] for m in rep["buses"]],
                            skipped=[(s["kind"], s["parts"], s["why"], s["lib"]) for s in rep["skipped"]],
