@@ -70,3 +70,17 @@ def test_board_json_round_trip():
     d["footprints"][0]["new_field"] = 1
     d["new_board_field"] = 2
     assert Board.from_dict(d).footprints[0].ref == b.footprints[0].ref
+
+
+def test_a_quote_inside_an_unquoted_atom_is_an_ordinary_character():
+    """KiCad's lexer opens a quoted string only at the start of a token: a KiCad 5 field such as
+    `'/"` is one atom. Reading its '"' as a string start swallowed the following footprints
+    (39 of 507 on one corpus board)."""
+    from kae.board import sexpr
+    t = ('(kicad_pcb (module A (fp_text value \'/" (at 0 0)) (pad 1 smd)) '
+         '(module B (fp_text value "x y" (at 1 1))) (net 0 "a\\"b"))')
+    r = sexpr.parse(t)
+    assert [m[1] for m in sexpr.kids(r, "module")] == ["A", "B"]
+    assert r[1][2] == ["fp_text", "value", "'/\"", ["at", "0", "0"]]
+    assert r[2][2][2] == "x y" and r[3] == ["net", "0", 'a"b']
+    assert sexpr.block_end(t, t.index("(module A")) == t.index(" (module B")

@@ -385,6 +385,44 @@ def test_the_router_keeps_hard_terms_out_of_the_cost_and_reports_them():
     assert not [h for h in p.hazards([(t, "x", 0.04, l, 0.0) for t, _, l, _ in rows]) if h["severity"] == "block"]
 
 
+def test_the_router_caps_an_implausible_noise_prediction_as_the_evaluator_does():
+    """marneo: the router predicted 3.56 V of supply noise on a 5 V rail and raised a hard_term_violated block
+    the evaluator would have priced at its cap (kae.excite.observe.implausible). The router now prices it at
+    the same cap and reports it as capped (no block); a plausible violation still blocks."""
+    import numpy as np
+    from kae.excite import observe as O
+    from kae.intent import route as IR
+    hard = {"id": "H", "tier": "hard", "obs": "supply.peak", "max": "250 mV", "why": "core rail", "source": "ds"}
+    lim = {"id": "L", "tier": "limit", "obs": "supply.peak", "max": "0.1 V", "rate": "100 mW_eq/V", "why": "w"}
+    p = IR.Policy({"terms": [hard, lim]})
+    terms = [(hard, None, 0.25, "hard"), (lim, 100.0, 0.1, "limit")]
+    sup = O.Observer("supply:U1:+5V", "supply", "a", "g", bound=0.25, meta=dict(ref="U1", rail="+5V", V=5.0))
+    inst = "supply:U1:+5V <- core:U1"
+    V = np.array([0.4, 3.56])
+    nc = p.noise_cap(sup, V)
+    assert nc["cap_V"] == pytest.approx(O.IMPLAUSIBLE_RAIL_FRAC * 5.0) and nc["worst_V"] == pytest.approx(3.56)
+    # priced as kae.intent.objective prices it: values clipped at the cap, flat (no slope) above it
+    assert p.pair_cost(terms, V, nc["cap_V"]) == pytest.approx([100 * 0.3, 100 * 2.4])
+    assert list(p.dC_dV(terms, V, nc["cap_V"])) == pytest.approx([100.0 + IR.Policy.HARD_SLOPE, 0.0])
+    rows = p.pair_hard(terms, V, nc["cap_V"])
+    assert rows[0][1] == pytest.approx(2.5)
+    hz = p.hazards([(t, inst, w, l, v) for t, w, l, v in rows], capped={inst: (nc, terms)})
+    assert not [h for h in hz if h["code"] == "hard_term_violated"]
+    capped = [h for h in hz if h["code"] == "noise_prediction_capped"]
+    assert len(capped) == 1 and capped[0]["severity"] == "warn" and capped[0]["evidence"]["hard_terms"] == ["H"]
+    assert capped[0]["evidence"]["cap_V"] == pytest.approx(2.5) and "implausible" in capped[0]["message"]
+    # a capped pair under a limit only: info, not silent
+    only = [(lim, 100.0, 0.1, "limit")]
+    hz = p.hazards([], capped={inst: (nc, only)})
+    assert [h["severity"] for h in hz if h["code"] == "noise_prediction_capped"] == ["info"]
+    # a plausible violation (0.4 V on the 5 V rail) is not capped and still blocks
+    V = np.array([0.1, 0.4])
+    assert p.noise_cap(sup, V) is None
+    rows = p.pair_hard(terms, V, None)
+    hz = p.hazards([(t, inst, w, l, v) for t, w, l, v in rows], capped={})
+    assert [h["code"] for h in hz if h["severity"] == "block"] == ["hard_term_violated"]
+
+
 def test_hard_terms_the_router_cannot_compute_are_flagged_unchecked():
     from kae.intent import route as IR
     tj = {"id": "TJ", "tier": "hard", "obs": "temp.junction", "max": "125 °C", "why": "rating"}
