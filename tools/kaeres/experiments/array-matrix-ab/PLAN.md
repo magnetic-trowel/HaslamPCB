@@ -120,3 +120,15 @@ builds decide nothing on their own. This replaces "keeps d137fd1 in both arms" a
 - Boards (38), arms, k = 2, primary and decision rule unchanged.
 - **Still worth running:** the matrix gain (x0.81 [0.69, 0.91] post hoc on 43 boards) is the reason to gate the knob;
   the default is still off on main. About 275 CPU-h (queue triage).
+
+## Addendum 2026-11-17 (m3), before any run on this build: main 22ff779a and Freerouting f1c41d3
+Main (kae #105) and the pin moved after `array-matrix-ab-m` was submitted: the fork now counts the optimizer's search steps and
+pour fills inside `autorouter.max_work`, and kae stops charging optimizer passes on top of that and sets the new
+weights. Checked before deciding: on a small board where no budget binds the bridge's copper came out item for item
+the same on both builds, but the charged clock did not (53.3 s against 39.1 s). Its arms run the restart portfolio under counted work, and the number of attempts and their budgets follow the charged clock. So its outputs change
+on the new build.
+- Migrated: branch `array-macros-gated-m3` (rebased on main 22ff779a, no conflict; the -m2 branch is left as it
+  was). Both arms at kae and harness c8f8c2e3, the commit before this addendum. Freerouting fork f1c41d3, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `array-matrix-ab-m3` (owner `exp-array-matrix-ab-m3`), new method ids. The runs of `array-matrix-ab-m` (6 jobs done) are on the
+  previous build and excluded from the decision; its jobs are cancelled.
+- Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
