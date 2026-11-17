@@ -76,3 +76,15 @@ with `(width 0)`).
 ## Addendum 2026-11-17: current components
 See the addendum of the same date in [PLAN.md](PLAN.md): rebased on main c81770e1 (ZM main, ZQ 13568d89, ZQ2
 91dfc301), Freerouting 9a5512d, counted work, new experiment `rule-quantize-zw-m`; old-build runs excluded.
+
+## Addendum 2026-11-17 (m3), before any run on this build: main 22ff779a and Freerouting f1c41d3
+Main (kae #105) and the pin moved after `rule-quantize-zw-m` was submitted: the fork now counts the optimizer's search steps and
+pour fills inside `autorouter.max_work`, and kae stops charging optimizer passes on top of that and sets the new
+weights. Checked before deciding: on a small board where no budget binds the bridge's copper came out item for item
+the same on both builds, but the charged clock did not (53.3 s against 39.1 s). Its arms run the restart portfolio under counted work, and the number of attempts and their budgets follow the charged clock. So its outputs change
+on the new build.
+- Migrated: branch `rule-quantize-m3` (rebased on main 22ff779a, no conflict; the -m2 branch is left as it
+  was). Arms: ZM = main 22ff779a, ZQ = 6b2a86ec, ZQ2 = 7033bdbe; harness 22ff779a. Freerouting fork f1c41d3, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `rule-quantize-zw-m3` (owner `exp-rule-quantize-zw-m3`), new method ids. The runs of `rule-quantize-zw-m` (7 jobs done) are on the
+  previous build and excluded from the decision; its jobs are cancelled.
+- Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
