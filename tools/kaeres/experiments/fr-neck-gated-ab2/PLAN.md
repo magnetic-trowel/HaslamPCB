@@ -93,3 +93,8 @@ is profiled again on the new pin before the full run.
 - **Ceiling risk:** 33 unprofiled parallel-4 runs of other experiments on the same pin and chassis ran at a
   median 1.72x their budget (p90 3.48x, max 3.69x) with no 4x ceiling hit. So the full run goes ahead. Runs that
   hit `ceiling_hit` are reported per arm and, if any, retried before analysis.
+
+## Addendum: moved to Freerouting fork f1c41d3 before any job ran
+The fork now charges optimizer work to autorouter.max_work (on 9a5512d the optimizer ran uncounted, up to
+10 passes, and could reach the 4x wall ceiling). Unstarted jobs of `fr-neck-gated-ab2` were cancelled and the methods re-registered
+as experiment `fr-neck-gated-ab3` at this commit on the new pin; nothing else changed.
