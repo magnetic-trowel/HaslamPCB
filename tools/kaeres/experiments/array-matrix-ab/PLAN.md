@@ -104,3 +104,19 @@ prepare step; `scan-candidates.jsonl`). No pad cap, no one-per-family thinning (
   hits) found 4 more matrix boards, all with a pinnable matrix on the task input: aerospace-venoms bccc-sao (24 LEDs),
   jana-marie haj-coaster (58 + 20 LEDs), madcatse mad5160 (36 RAM sockets), rishi-k-s metrocard (48 LEDs). They join
   `boards.txt` (now 38) as the fresh sample, reported apart from the 34 replication boards and pooled.
+
+## Addendum 2026-11-17, before any run on the new build: current components
+Project rule (2026-11-17): every experiment runs on current main and the current Freerouting pin; results from older
+builds decide nothing on their own. This replaces "keeps d137fd1 in both arms" above.
+- **Code.** `array-macros-gated` is rebased onto main c81770e1 as `array-macros-gated-m2` (the original branch is left as
+  it was). One code conflict in `place/pipeline.py`: main added the `anchor_tight` step and a `build()` helper where the
+  branch pins the arrays; the arrays are pinned first, as before, and main's `build()` and anchoring follow. Main's
+  research page and area README are kept for the documentation conflicts. Both arms run kae and harness 6ba81b1c, the
+  rebased commit before this addendum (was 841169a). `test_place_arrays.py` and `test_place_pipeline.py` pass.
+- **Freerouting:** the pinned fork 9a5512d, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- **New experiment `array-matrix-ab-m`** (owner `exp-array-matrix-ab-m`), new method ids, one job per board running both
+  arms, attempts interleaved (the first submission had split them by arm). No run of `array-matrix-ab` had finished;
+  its queued jobs are cancelled.
+- Boards (38), arms, k = 2, primary and decision rule unchanged.
+- **Still worth running:** the matrix gain (x0.81 [0.69, 0.91] post hoc on 43 boards) is the reason to gate the knob;
+  the default is still off on main. About 275 CPU-h (queue triage).
