@@ -76,3 +76,10 @@ estimate is at least 1 % in favour of Pk3.
 - One smoke board per arm is profiled before the full run (py-spy on the restart's inner pythons, JFR on Freerouting).
 - Expected cost (information): about 205 h of nominal allowance per arm over 160 boards. R stops early on clean
   boards; the finish arms run their slot on every board. In all, about 500-650 CPU-h.
+
+## Smoke profile (2026-11-16, pocketbeagle, one per arm, before the full run)
+- k0..k2 and `--final` were identical in all three arms: 66 / 63 / 29 / 22 opens. So the arms pair as designed.
+- R's fresh k = 3 reached 61; the kept board stayed at 22. Rresume and Pk3 each kept a finish board at 21.
+- Wall time was 2:40 per arm under py-spy and JFR. Peak RSS was 1.36 GB.
+- Freerouting took 91 % of the sampled time, last mile and repair 4 %, and numba, HiGHS, CP-SAT and placement
+  about 1 % each. No cheap speedup on the kae side.
