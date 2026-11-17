@@ -123,3 +123,20 @@ Approved by the user (queue triage, 2026-11-17), to save CPU in the shared queue
   - MA vs MA gated on dense-hi is answered by construction (identical code) rather than measured. The one
     multi-region board is read on its own.
 - 129 jobs cancelled. The full run now has 197 queued jobs plus the smoke and profile.
+
+## Addendum 2026-11-17 (2), before any run on the new build: current components
+Project rule (2026-11-17): every experiment runs on current main and the current Freerouting pin; results from older
+builds decide nothing on their own.
+- **Code.** `margin-gate` is rebased onto main c81770e1 as `margin-gate-m2` (no conflict; the original branch is left as
+  it was). Every arm runs kae and harness 84756122, the rebased commit before this addendum (it holds the gate, the
+  plan and the first addendum). `test_place_margin_gate.py`, `test_place_problem.py` and `test_place_pipeline.py` pass.
+- **Freerouting:** the pinned fork 9a5512d, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- **New experiment `margin-gate-m`** (owner `exp-margin-gate-m`), new method ids, all of a board's arms in one job. The
+  trim of the first addendum is kept: the 20 sparse boards are left out (143 boards), and the MA run is not submitted on
+  the 89 dense-hi boards with one region or none (kept on resummit seismos 5corestencil). Nothing of `margin-gate` or
+  `margin-gate-smoke` had produced a result; their queued jobs (full run, smoke, profile) are cancelled.
+- The smoke and profile on the old build never ran. The full run is submitted without them, as the previous submission
+  was; the first finished jobs are read end to end (scores, Freerouting 9a5512d in the log) before any analysis.
+- Arms, k = 1, hypotheses, primary, guards and the A/A source unchanged.
+- **Still worth running:** margin-ab left MA at -7.5 % [-15.1, -0.9], unknown, and the gated default is still open on
+  main. About 490 CPU-h after the trim (queue triage).
