@@ -107,3 +107,5 @@ Project rule (2026-11-17): every experiment runs on current main and the current
   (owner `exp-phist-b-m`). Boards, arms, seeds, phases, primary, guards and the observability check are unchanged.
 - **Still worth running:** place-history is unknown (vs cong30 -4.5 % [-13, +5], underpowered); this is the cheap
   paired design on 8 extreme boards, about 15 CPU-h.
+
+- 2026-11-17 (m3, before any registered run): main 22ff779a merged and Freerouting f1c41d3 in setup.sh and attempt.sh (kae #105 changes counted Freerouting charges, so the methods register on these). The smoke (kaeq #105905) ran on 9a5512d: it stands as a plumbing, profile and equivalence check of the logging change, not as a result.
