@@ -287,7 +287,14 @@ def macros(P, used=(), log=None, kinds=MATRIX | BUS):
                 off = {i: ((cells[i][1] - ca) * px, (cells[i][0] - ra) * py, 0) for i in members}
                 layouts.append(_layout(P, off, 0.0))
             mac = Macro(members=members, anchor=anchor, layouts=layouts, structs=[])
-            mac.array = dict(kind="matrix")
+            # the matrix's drivers: movable parts on its row and column nets (pppov-2's U1 was legalized
+            # into the lattice when its seed spot was taken)
+            nets = {P.parts[i].fp.pads[k].net for i in members for k in range(len(P.parts[i].fp.pads))
+                    if P.parts[i].fp.pads[k].net and kinds_of.get(P.parts[i].fp.pads[k].net) not in ("ground", "power")}
+            mset = set(members)
+            drivers = sorted({p.i for p in P.parts if p.movable and p.i not in mset
+                              and any(pd.net in nets for pd in p.fp.pads)})
+            mac.array = dict(kind="matrix", ends=tuple(drivers))
         out.append(mac)
         rep["matrices" if grp.kind == "matrix" else "buses"].append(info)
     if log and (out or rep["skipped"]):
@@ -460,12 +467,12 @@ def _bus_plan(P, mac, st):
 
 def _reserved(P, st, macs):
     """[(side, grid rect)] of the seed footprints the macros must keep free: movable parts of at least
-    RESERVE_MM2 and the movable end parts of buses (not members of a macro)."""
+    RESERVE_MM2, the movable end parts of buses and the movable drivers of matrices (parts on their row
+    and column nets), not members of a macro."""
     members = {i for m in macs for i in m.members}
     want = {i for i in P.mov if P.parts[i].area >= RESERVE_MM2}
     for m in macs:
-        if getattr(m, "array", {}).get("kind") == "bus":
-            want |= {i for i in m.array["ends"] if P.parts[i].movable}
+        want |= {i for i in getattr(m, "array", {}).get("ends", ()) if P.parts[i].movable}
     return [(sd, r) for i in sorted(want - members) for sd, r, _ in st.grid_rects(i)]
 
 
