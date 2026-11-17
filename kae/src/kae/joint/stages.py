@@ -24,6 +24,7 @@ Stage by stage:
 """
 from __future__ import annotations
 
+from kae import budget
 from kae.budget import now as clock_now
 import json
 import math
@@ -73,7 +74,7 @@ STAGE_KEYS = frozenset({
     "writer", "edge_mate", "angle_step", "module_time", "window_module_time", "drop_modules_attempt",
     # window re-placement and rip-up
     "replace_time", "replace_margin", "cong_mult", "history_scale", "bump_mm", "legal_mm", "net_mult",
-    "phys_mult", "big_pads", "max_cross",
+    "phys_mult", "big_pads", "max_cross", "legal_exact",
     # routing
     "window_router", "window_route_s", "window_route_max_s", "window_passes", "window_rounds",
     "window_restart_open", "window_last_mile", "min_route_s", "finish_rounds", "finish_last_mile",
@@ -382,9 +383,19 @@ class KaeStages:
         base = float(self.opts.get("window_route_s", 60.0))
         cap = float(self.opts.get("window_route_max_s", max(base, 0.05 * float(self.opts.get("budget_s") or 0))))
         cur = self.window_route_s
-        if r.get("autorouter_stop") == "TIMED_OUT" or r.get("timed_out"):
+        timed_out, sec = r.get("autorouter_stop") == "TIMED_OUT" or r.get("timed_out"), r.get("seconds")
+        if budget.work_mode():
+            # counted budgets: Freerouting's budget is a pass cap, and its wall seconds depend on the
+            # host's load. The budget bound when the cap stopped it short of its own pass limit; its
+            # time is the work charged for it (incremental's "router" step)
+            asked = int(((r.get("settings") or {}).get("autorouter.max_passes")) or 0)
+            done, pcap = r.get("passes_done"), r.get("passes_cap")
+            timed_out = bool(r.get("timed_out")) or (pcap is not None and done is not None and done >= pcap
+                                                     and (not asked or pcap < asked))
+            sec = (rep.get("steps") or {}).get("router")
+        if timed_out:
             new = min(cap, 2 * cur)
-        elif r.get("seconds") is not None and r["seconds"] < 0.25 * cur:
+        elif sec is not None and sec < 0.25 * cur:
             new = max(base, cur / 2)
         else:
             new = cur
@@ -541,7 +552,7 @@ class KaeStages:
                                  blocked=rep.get("blocked"))
         return new
 
-    def diagnose(self, lay, drc_report, it, time_s):
+    def diagnose(self, lay, drc_report, it, time_s, nets=None, log=None):
         """kae.route.blocked on a board (as the bridge runs it on its final board): per open
         connection the board rule (or kae default), fixed copper or congestion that keeps it
         open, with the admissible relaxations. `drc_report`: the board's KiCad DRC report
@@ -559,7 +570,7 @@ class KaeStages:
         except Exception as e:  # noqa: BLE001 - a diagnosis never costs the board
             return dict(error=f"{type(e).__name__}: {e}")
         return BR.diagnose(lay.board, self.input, self.input, info, plan, drc_report, sev, d, deadline=deadline,
-                           log=self.log)
+                           log=log or self.log, nets=nets)
 
     # ------------------------------------------------------------------ evaluate
     def evaluate(self, lay, it):
@@ -703,6 +714,7 @@ class KaeStages:
                                           if sp.kind == "unrouted" for n in sp.nets},
                              phys_mult=float(o.get("phys_mult", 2.0)) ** min(attempt, 2),
                              physics=not o.get("no_physics"), board_path=str(self.input), opts=o,
+                             legal_exact=bool(int(o.get("legal_exact", 0))),
                              log=lambda m: self.log(f"replace: {m}"))
         rep["replace"] = {k: v for k, v in res.report.items() if k not in ("window",)}
         if not res.poses and (window.parts or res.report.get("rejected")):

@@ -28,6 +28,15 @@ The placer's own machinery does the work (kae.place: Problem, State, make_anneal
    what is illegal, then the greedy legalizer), then the placer's exact closed loop scoped
    to the window's parts (exact.repair(allowed=window parts)), as kae.place.pipeline
    .local_replace ends. A window that ends illegal returns no poses.
+   The grid is conservative (cells round outward), so a part can be grid-illegal at a pose
+   the exact model and KiCad accept: the incumbent itself can be grid-illegal, and then no
+   spot inside the window is grid-legal either. The report says so (`home_grid_illegal`: the
+   window's parts grid-illegal at their incumbent poses). With `legal_exact` the exact model
+   decides instead: a window still grid-illegal after greedy goes to the exact closed loop and
+   stands if the exact check is clean (KiCad's DRC judges the board after routing anyway).
+   Findings the incumbent already had between the same parts do not count against the window
+   (a part the input leaves overlapping fixed parts, with no spot free of them, made every
+   window holding it illegal).
 """
 from __future__ import annotations
 
@@ -65,6 +74,11 @@ def _right(rot):
     return min(a, 90.0 - a) < 1e-6
 
 
+def _sig(e):
+    """An exact finding's identity: its type and the parts it names."""
+    return e.get("type"), tuple(sorted(e.get("refs") or ()))
+
+
 def window_board(board, parts):
     """A copy of the board model where every footprint not in `parts` is locked."""
     want = set(parts)
@@ -75,13 +89,14 @@ def window_board(board, parts):
 def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, terms=None, physics=True,
                    cong_mult=2.0, history_scale=1.0, bump_mm=0.25, bump_refs=(), margin=0.3, moves_per_part=6000,
                    legal_refs=(), legal_mm=0.15, drc_report=None, net_weights=None,
-                   phys_mult=1.0, board_path=None, opts=None, log=None):
+                   phys_mult=1.0, board_path=None, opts=None, legal_exact=False, log=None):
     """See the module docstring. `board` is a kae.board.model.Board at the current poses;
     `window` a feedback.Window. `terms`: place terms built on the full board (the brief's
     structures), else built here when `physics`. `drc_report`: KiCad's report of the current
     board (its placement errors become exact constraints); `net_weights`: {net: factor}.
     `board_path`, `opts`: the run's board and options, for its own settings (zone_pull,
-    zone_keepout: a project KAE_ text variable or an opts value wins over the default)."""
+    zone_keepout: a project KAE_ text variable or an opts value wins over the default).
+    `legal_exact`: the exact model, not the grid, decides a window's legality (module docstring)."""
     from kae.place import clusters
     from kae.place import exact as exactmod
     from kae.place.anneal import make_annealer
@@ -127,17 +142,22 @@ def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, term
     for net in P.nets:
         net.weight *= float((net_weights or {}).get(net.name, 1.0))
     st = State(P)
+    home = {}
     for i in sub:
         p = P.parts[i]
         X, Y = P.grid_of(p.x0, p.y0)
         rots = [r.rot for r in p.rots]
         k = min(range(len(rots)), key=lambda kk: min(abs(rots[kk] - p.rot0) % 360, 360 - abs(rots[kk] - p.rot0) % 360))
         st.X[i], st.Y[i], st.K[i] = X, Y, k
+        home[i] = (X, Y, k)
     if drc_report:
         try:
             rep["kicad_feedback"] = exactmod.kicad_feedback(P, st, drc_report)
         except Exception as e:  # noqa: BLE001 - the bumps still carry KiCad's verdict
             log(f"kicad feedback failed ({type(e).__name__}: {e})")
+    home_ex = set()
+    if legal_exact:   # the incumbent's own exact findings (e.g. a part the input overlaps with fixed parts)
+        home_ex = {_sig(e) for e in exact_check(P, st, parts=sub, max_items=500)}
     x0, y0, x1, y1 = window.rect
     gwin = (int(math.floor((x0 - P.ox) / P.g)), int(math.ceil((x1 - P.ox) / P.g)),
             int(math.floor((y0 - P.oy) / P.g)), int(math.ceil((y1 - P.oy) / P.g)))
@@ -174,6 +194,12 @@ def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, term
         bad = grid_violations(st)
     rep["legal_grid"] = not bad
     if bad:
+        # report only: is the incumbent itself grid-illegal (then no grid spot may exist)?
+        hs = st.copy()
+        for i, (X, Y, k) in home.items():
+            hs.X[i], hs.Y[i], hs.K[i] = X, Y, k
+        rep["home_grid_illegal"] = sorted(P.parts[i].ref for i in grid_violations(hs))
+    if bad and not legal_exact:
         rep["rejected"] = "illegal after repair"
         rep["seconds"] = round(clock_now() - t0, 2)
         return Result(report=rep)
@@ -183,7 +209,20 @@ def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, term
         cl = exactmod.repair(P, st, time_s=left, allowed=set(sub))
         cl.pop("findings", None)
         rep["closed_loop"] = cl
-        ex = exact_check(P, st, parts=sub) if not grid_violations(st, parts=sub) else ["grid"]
+        ex = exact_check(P, st, parts=sub) if (legal_exact or not grid_violations(st, parts=sub)) else ["grid"]
+    if legal_exact and ex and home_ex:
+        # findings the incumbent already had, between the same parts, are not the window's doing
+        rep["exact_inherited"] = sum(1 for e in ex if _sig(e) in home_ex)
+        ex = [e for e in ex if _sig(e) not in home_ex]
+        if not ex:
+            rep["legal_by"] = "exact, as the incumbent"
+    if bad and not ex:
+        rep.setdefault("legal_by", "exact")   # grid-illegal, exactly clean: the exact model decides
+    elif bad:
+        rep["rejected"] = "illegal after repair"
+        rep["exact"] = ex
+        rep["seconds"] = round(clock_now() - t0, 2)
+        return Result(report=rep)
     rep["exact"] = ex
     if ex:
         rep["rejected"] = f"{len(ex)} exact violations"
