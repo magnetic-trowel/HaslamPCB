@@ -182,3 +182,7 @@
 {"board": "will127534-lora-concentrator-radio", "src": "task", "fixed": 4, "pads": 391, "matrices": [], "buses": [9, 8], "skipped": [], "mat_libs": []}
 {"board": "will127534-lora-concentrator-radio-pizero", "src": "task", "fixed": 3, "pads": 350, "matrices": [], "buses": [10], "skipped": [], "mat_libs": []}
 {"board": "will127534-lora-concentrator-radio-rpi", "src": "task", "fixed": 3, "pads": 408, "matrices": [], "buses": [9, 9], "skipped": [], "mat_libs": []}
+{"board": "aerospace-venoms-bccc-temperature-sao-bccc-sao-rp2350a", "src": "mech_rules", "fixed": 6, "pads": 330, "matrices": [24], "buses": [], "skipped": [], "mat_libs": ["Custom_LED_footprint:LED-SMD_L1.7-W1.1-R-RD_BULE"]}
+{"board": "jana-marie-haj-coaster-coaster-backboard", "src": "mech_rules", "fixed": 11, "pads": 436, "matrices": [58, 20], "buses": [], "skipped": [], "mat_libs": ["LED_SMD:LED_0603_1608Metric", "otter:FC-B1010RGBT-HG"]}
+{"board": "madcatse-mad5160-mad5160", "src": "mech_rules", "fixed": 19, "pads": 2467, "matrices": [36], "buses": [], "skipped": [], "mat_libs": ["mad5150:Ram_socket_IC"]}
+{"board": "rishi-k-s-metrocard-prototype-metrocard", "src": "mech_rules", "fixed": 1, "pads": 144, "matrices": [48], "buses": [], "skipped": [], "mat_libs": ["LED_SMD:LED_1206_3216Metric"]}

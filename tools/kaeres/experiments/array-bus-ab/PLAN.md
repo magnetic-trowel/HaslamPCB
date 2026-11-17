@@ -55,3 +55,16 @@ other 4 are 3 boards not run before and gecko5education, whose matrix is not pin
 
 ## Cost (information)
 About 100 boards x 2 arms x 1-3 CPU-h.
+
+## Addendum 2026-11-16 (before any A/B run): pre-run checks
+- **Orientation** (placement only, seeds 0-3, the measure of `busorient.py`): every pinned bus on the smoke and
+  legality boards now runs side by side (median angle 90 degrees on all 4 seeds of 16 groups; humans 90 on 14 of
+  them), in a straight column (minor/major spread 0.0), at 1.2-3.0 mm pitch (humans 0.9-2.5). rpi-dpi-hat's 16-part
+  bus found no legal spot on any seed (C's path).
+- **Smoke** (restart run, first-wave seeds 0-3, C vs A): bluthen 0/0/0/0 opens in both arms (array-macro-ab's A:
+  16-18); rpi-dpi-hat identical; mp3-trigger 2/33/25/5 vs 15/7/31/22; serial-7-segment 5/3/3/0 vs 6/3/3/6 (illegal
+  starts 1 vs 3); 74hc595-breakout 0/0/2/0 vs 2/3/9/3. The old harm is gone on bluthen and smaller elsewhere, but
+  not gone; recorded before the run, decided by the A/B. The matrix drivers' reservation (array-matrix-ab addendum)
+  is in the setup commit and does not touch buses.
+- The whole-corpus scan found 127 more boards with a bus (fast scan); they are not in this run and are the pool to
+  extend into if the result is "unknown".
