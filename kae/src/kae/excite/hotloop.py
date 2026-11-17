@@ -279,6 +279,9 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
         log(f"cell {s.name}: window {win[2] - win[0]:.1f} x {win[3] - win[1]:.1f} mm at {pc:g} mm: L_loop "
             f"{Le * 1e9:.3f} nH (board {g[0] * 1e9:.3f}), R_loop {R[0]['R_mohm']:.3f} mOhm at f_sw, "
             f"{time.time() - t0:.1f}s")
+    for r in rows:
+        if r.get("state") == "ok" and r.get("L_loop_nH") is not None and r["L_loop_nH"] <= 0:
+            flag_invalid(r)
     return rows
 
 
@@ -315,6 +318,19 @@ def ac_loop_loss(I, D, f_sw, t_i, R):
     return float(np.sum(c ** 2 / 2 * R(n * f_sw)))
 
 
+def flag_invalid(row):
+    """A row whose L_loop is not positive: no inductance but the layout's share passing a resonance of the capacitor
+    network near the edge band (olimex dcdc: +2.70 nH at 5 MHz, -2.62 at 10, +1.33 at 30 on the board solve). Its L
+    and overshoot are moved aside (L_invalid_nH), never reported; R_loop stays (the fundamental's resistance is
+    unaffected)."""
+    row["state"] = "invalid"
+    row["L_invalid_nH"] = row.pop("L_loop_nH")
+    row.pop("overshoot_V", None)
+    row["why"] = (f"L_loop {row['L_invalid_nH']} nH at the edge band is not an inductance: the layout's share passes a "
+                  f"resonance of the capacitor network near f_e")
+    return row
+
+
 def summary(rows):
     """{state: count} and the cells' primaries, one line each (for logs and the status)."""
     out = []
@@ -345,7 +361,7 @@ def paired(pairs):
         for src, x in sorted(a.items()):
             y = next((r for r in rb if r["source"] == src), None)
             counts["cells"] += 1
-            if y is None or "not_computed" in (x["state"], y["state"]) or "open_in_window" in (x["state"], y["state"]):
+            if y is None or {"not_computed", "open_in_window", "invalid"} & {x["state"], y["state"]}:
                 counts["not_computed"] += 1
                 continue
             oa, ob = x["state"] == "open", y["state"] == "open"

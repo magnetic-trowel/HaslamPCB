@@ -501,6 +501,28 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                                  pitch=cell_pitch or HL.CELL_PITCH, global_pairs=gp, global_pitch=pitch,
                                  open_cells=open_cells, uncomputed=uncomputed, skin=cell_skin, log=log)
         log(f"cells: {len(cell_rows)} hot loops in {time.time() - t_c:.1f}s")
+    # a cell whose L_loop is not positive (its row, else the board solve) is no inductance: its loss.loop and
+    # overshoot.peak are marked invalid (kae.intent leaves them unpriced, the term incomplete), never reported as values
+    bad_L = {r["source"]: r["why"] for r in cell_rows if r.get("state") == "invalid"}
+    rowed = {r["source"] for r in cell_rows if r.get("state") in ("ok", "invalid")}
+    for pr in pairs:
+        if pr["o"].kind == "overshoot" and pr["s"].name not in rowed and pr["Le"] <= 0:
+            bad_L[pr["s"].name] = (f"L_loop {pr['Le'] * 1e9:.4g} nH at the edge band is not an inductance: the layout's "
+                                   f"share passes a resonance of the capacitor network near f_e")
+    for ob in observations:
+        if ob["id"] in ("loss.loop", "overshoot.peak") and ob["scope"].get("source") in bad_L and not ob.get("open"):
+            ob["invalid"] = bad_L[ob["scope"]["source"]]
+    for name, why in sorted(bad_L.items()):
+        notes.append(f"{name}: {why}: loss.loop and overshoot.peak not reported")
+    # a cell the brief found but the circuit could not excite (no switch found, no pad on its bus) gets a row saying so:
+    # never silently absent from the cells a comparison counts
+    have = {r["source"] for r in cell_rows} | {s.name for s in srcs if s.kind == "cell"}
+    for st in brief.get("structures") or []:
+        if st.get("kind") != "commutation_cell" or f"cell:{st.get('id')}" in have:
+            continue
+        why = next((a for a in bd.assumptions if a.startswith(f"{st.get('id')}:")), "not excited")
+        cell_rows.append(dict(cell=st.get("id"), source=f"cell:{st.get('id')}", state="not_computed", why=why))
+        notes.append(f"cell:{st.get('id')}: not evaluated: {why}")
     # every cell's AC loop loss as a sum over harmonics with skin and proximity crowding: R(f) from its window where it
     # has a refined one, else from the board solve at f_sw, 3 f_sw, 5 f_sw with the skin correction (_board_R_rows)
     from . import hotloop as HL

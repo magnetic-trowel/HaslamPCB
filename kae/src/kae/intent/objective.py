@@ -356,6 +356,11 @@ def evaluate(ev, intent=None, brief=None):
         if "rate" in t:
             r, rdim = U.rate(t["rate"], cur)
         inst = []
+        bad = sorted({obs[i]["scope"].get("source") for i in hit if obs[i].get("invalid")})
+        if bad:
+            # an observation the evaluator marks invalid (a cell's L_loop that is no inductance) is no value: the term
+            # is incomplete for it, never priced with it
+            hit = [i for i in hit if not obs[i].get("invalid")]
         for i in hit:
             ob = obs[i]
             vals = _in(ob, dim) if dim else ob["values"]
@@ -368,7 +373,7 @@ def evaluate(ev, intent=None, brief=None):
             row["assumed"] = True
         if t["id"] in lost:
             row["overridden_by"] = sorted(lost[t["id"]])          # more specific terms price those observations
-        gap = _gap(t, missing, opened)
+        gap = _gap(t, missing, opened) + [f"{b}: invalid" for b in bad]
         if ev.get("scope") == "losses":
             out_ = [k for k in KINDS if fnmatch.fnmatch(k, t["obs"]) and k not in SCOPE_LOSSES]
             if out_:
