@@ -94,3 +94,16 @@ The logging commit must change no output: on the smoke board, a `hist` attempt (
 before the logging (5548da6, twice) and at the logging commit gives item-identical boards (placement and
 copper without uuids) under counted work. The smoke also profiles one board per arm (py-spy on the python
 steps, JFR on Freerouting) and sizes the jobs.
+
+## Addendum 2026-11-17, before any run: current components
+Project rule (2026-11-17): every experiment runs on current main and the current Freerouting pin. This replaces
+"keeps d137fd1 in every arm and phase" above.
+- **Code.** Main c81770e1 is merged into the branch as `phist-b-m2` (no conflict; the original branch is left as it
+  was). The equivalence base of the smoke (the loop's place history before the logging change, 5548da6a) gets the same
+  merge as `phist-b-base-m2`. The maps method and both arms run the commit `setup.sh` is run with on `phist-b-m2`.
+- **Freerouting:** the pinned fork 9a5512d in `setup.sh` and `attempt.sh` (set as `KAE_FREEROUTING` and
+  `KAE_BRIDGE_FREEROUTING`); the smoke's profiled runs use a JFR wrapper of the same build. Counted work as before.
+- Nothing had run: the smoke on the old build (kaeq owner `exp-phist-b`) is cancelled and run again on these commits
+  (owner `exp-phist-b-m`). Boards, arms, seeds, phases, primary, guards and the observability check are unchanged.
+- **Still worth running:** place-history is unknown (vs cong30 -4.5 % [-13, +5], underpowered); this is the cheap
+  paired design on 8 extreme boards, about 15 CPU-h.

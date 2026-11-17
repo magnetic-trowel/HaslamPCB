@@ -15,7 +15,7 @@ K=${K:-python3 tools/kaeres/kaeres.py}
 run() { if [ -n "${DRY:-}" ]; then printf '%q ' "$@"; echo; echo; else "$@"; fi; }
 madd() { run $K method add "$@"; }
 KH='$HOME/.cache/kaebench'                     # expanded at run time, in the sandbox
-FORK="$KH/kae-freerouting-fork-d137fd1/bin/freerouting"
+FORK="$KH/kae-freerouting-fork-9a5512d/bin/freerouting"
 WENV="env KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1 KAE_BRIDGE_FREEROUTING=$FORK KAE_FREEROUTING=$FORK"
 A="sh {code:harness}/tools/kaeres/experiments/place-history-b/attempt.sh {py:kae}"
 CODE=(--code "kae=.@$SHA" --harness "$SHA")
@@ -23,13 +23,13 @@ CODE=(--code "kae=.@$SHA" --harness "$SHA")
 # maps: the 4 cong30 wave-1 attempts of the place-history chassis (seeds 0-3, B1 each, in parallel), writing
 # their failed-corridor maps into restarts/phist (kept as phist.tar); the output is the best of the 4
 MAPS="phist-b maps $S7 (wave 1 cong30)"
-madd "$MAPS" --kind joint-fixed --description "place-history B: kae staged cong30 wave 1 (restart.py parallel 4, max-attempts 4, first-s 300 scale-first, seeds 0-3) with place_history=../phist; keeps the maps (phist.tar); counted work, Freerouting d137fd1" \
+madd "$MAPS" --kind joint-fixed --description "place-history B: kae staged cong30 wave 1 (restart.py parallel 4, max-attempts 4, first-s 300 scale-first, seeds 0-3) with place_history=../phist; keeps the maps (phist.tar); counted work, Freerouting 9a5512d" \
   --command "$WENV {py:kae} {code:harness}/tools/kaeres/restart.py --input {input} --output {output} --time \$(( {timeout} / 4 )) --seed {attempt} --parallel 4 --max-attempts 4 --first-s 300 --scale-first --check-placement -- '$A @IN@ @OUT@ @SEED@ maps @TIME@'; rc=\$?; echo \"phist-b: input \$(sha256sum {input} | cut -c1-16)\"; exit \$rc" \
   --param timeout_s=2400 --param timeout_scale=sqrt-fp40 --param timeout_cap_s=200000 --param parallel=4 "${CODE[@]}"
 
 # the two arms: seed 10+attempt; kae staged cong30 for 2 x B1, then a route-only resume for B1 (attempt.sh)
 for arm in cong30 hist; do
-  madd "phist-b $arm $S7" --kind joint-fixed --description "place-history B arm $arm: kae staged (place_w_cong=30$([ $arm = hist ] && echo ', place_history = the frozen wave-1 maps of the input')) seed 10+attempt for 2 x B1, then kae.route.cli route-only resume for B1 (B1 = 300 s x sqrt(fp/40)); counted work, ceiling 4x; Freerouting d137fd1" \
+  madd "phist-b $arm $S7" --kind joint-fixed --description "place-history B arm $arm: kae staged (place_w_cong=30$([ $arm = hist ] && echo ', place_history = the frozen wave-1 maps of the input')) seed 10+attempt for 2 x B1, then kae.route.cli route-only resume for B1 (B1 = 300 s x sqrt(fp/40)); counted work, ceiling 4x; Freerouting 9a5512d" \
     --command "$A {input} {output} {attempt} $arm" \
     --param timeout_s=4000 --param timeout_scale=sqrt-fp40 --param timeout_cap_s=200000 --param parallel=1 "${CODE[@]}"
 done

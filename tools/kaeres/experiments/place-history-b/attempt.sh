@@ -8,13 +8,13 @@
 #                                            for B2 = 2 x B1, then one route-only resume for B1; hist reads the
 #                                            frozen maps of this input (MAPS_ROOT/<sha256 of INPUT, 16 hex>)
 # B1 = 300 s x sqrt(max(1, footprints / 40)), restart.py's first wave (--first-s 300 --scale-first).
-# Counted work (KAE_BUDGET=work), one worker, Freerouting fork d137fd1 (the pin), set explicitly.
+# Counted work (KAE_BUDGET=work), one worker, Freerouting fork 9a5512d (the pin), set explicitly.
 # Smoke-only knobs (no kaeres job sets them): PHIST_PYSPY=DIR profiles each python step with py-spy,
 # (PHIST_SPYBIN: its binary), PHIST_FR=PATH replaces the Freerouting launcher (a JFR wrapper of the same jar), PHIST_MAPS_ROOT.
 set -eu
 PY=$1 IN=$2 OUT=$3 N=$4 ARM=$5
 KH=$HOME/.cache/kaebench
-FR=${PHIST_FR:-$KH/kae-freerouting-fork-d137fd1/bin/freerouting}
+FR=${PHIST_FR:-$KH/kae-freerouting-fork-9a5512d/bin/freerouting}
 export KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1 OMP_NUM_THREADS=1 NUMBA_CACHE_DIR=$PWD/numba
 export KAE_FREEROUTING="$FR" KAE_BRIDGE_FREEROUTING="$FR"
 [ -d numba ] || cp -r "$KH/numba-phist-b" numba 2>/dev/null || true
