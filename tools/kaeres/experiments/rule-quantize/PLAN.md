@@ -112,3 +112,24 @@ right_io, with KiCad DRC run the way the scorer runs it.
 - **right_io:** Freerouting 81 %, last mile 12 % (grid `_connect`), DRC 3 %. C has the same split.
 - **Time and sizing.** The jobs are budget-bound, so no speedup shortens them, and Q adds no measurable time.
   kaeres' default sizing (2 CPUs, about 2-3 GB) matches the measured peak.
+
+## Addendum 2026-11-17, before any run on the new build: current components (guard and zw)
+Project rule (2026-11-17): every experiment runs on current main and the current Freerouting pin; results from older
+builds decide nothing on their own.
+- **Code.** `rule-quantize` is rebased onto main c81770e1 as `rule-quantize-m2` (the original branch is left as it
+  was). Two conflicts, both with main's `bridge-disallow-layers` (#79): `RoutingClass` keeps both its `layers` and its
+  `limits` field (resolved as on `rule-quantize-layers`), and two independent new tests in `test_route_critical.py`.
+  `test_route_quantize.py` and `test_route_critical.py` pass (98 tests). Q is 13568d89 (was e27df322), Q2 91dfc301
+  (was af3cc286); C and ZM are main c81770e1; harness c81770e1.
+- **Freerouting:** the pinned fork 9a5512d, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`.
+- **Counted work** (`KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1`), the project's recipe since these arms were
+  registered: each run's nominal budget is the old wall budget (guard: `--time 900`; zw: 900 s x sqrt(fp/40)), and the
+  harness timeout is 4x that, as the wall ceiling.
+- **New experiments `rule-quantize-guard-m` and `rule-quantize-zw-m`** (owners `exp-rule-quantize-guard-m`,
+  `exp-rule-quantize-zw-m`), new method ids, every arm of a board in one job, side by side. All runs of
+  `rule-quantize-guard` (107 of 136 jobs done) and `rule-quantize-zw` are on the old build and excluded from the
+  decision; their queued jobs are cancelled.
+- Boards (guard-hard.txt, 68; zw.txt, 10), arms, attempts (2), primaries, guards and decision rules unchanged.
+- **Still worth running:** Q is not in main, and the guard is what clears it for a PR; the zw arms decide whether the
+  zero-width fix goes with it. About 160 CPU-h together (queue triage), plus cold numba compiles (the caches are
+  per commit).
