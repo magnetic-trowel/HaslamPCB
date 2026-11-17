@@ -957,8 +957,9 @@ class RepairPhysics:
     with physics terms keeps looking a little longer: the clean spots within `window_mm` (L1, plus
     the rotation charge) of that first one, at most `n` of them and `checks` exact checks more,
     and takes the one whose physics (the placement terms' incremental delta) is lowest; the
-    nearest wins ties (an improvement under `tol` Σu). Each priced spot also charges one
-    deadline check, so the work is counted. Parts no term touches move as before.
+    nearest wins ties (an improvement under `tol` Σu). The work is counted: exact checks as
+    findings_at charges them, each delta as one Python-priced annealer move, the follow step's
+    grid passes as legal_cells. Parts no term touches move as before.
 
     A part that moves takes its decap partners along (`partners`, from P.repair_pairs: a cap and
     its IC): each partner that stayed goes to the clean spot nearest where the same displacement
@@ -985,6 +986,7 @@ class RepairPhysics:
         """A function (X, Y, k) -> change of the physics total if part i stands there, the rest
         where st has them now."""
         poses = {p.uuid: st.pose(p.i) for p in P.parts}
+        budget.charge("anneal_move_py", len(P.parts) / 50.0)     # the poses: ~1/50 of a priced move a part
         uid = P.parts[i].uuid
 
         def at(X, Y, k):
@@ -995,6 +997,7 @@ class RepairPhysics:
             finally:
                 st.X[i], st.Y[i], st.K[i] = home
             self.stats["evaluated"] += 1
+            budget.charge("anneal_move_py")                     # one delta, as the annealer prices a move
             return float(self.terms.delta(poses, [uid], [new]))
         return at
 
@@ -1121,7 +1124,10 @@ def _follow(P, st, E, i, home, deadline, guard, rp, w_rot=4.0, limit=600, skip=(
         st.X[j], st.Y[j] = at[0] + dX, at[1] + dY       # candidates ranked from where i's move puts it
         try:
             S, pad = _tables(P, st, {j})
-            cands = _candidates(P, st, j, S, pad, list(range(len(P.parts[j].rots))), w_rot, limit)
+            ks = list(range(len(P.parts[j].rots)))
+            cands = _candidates(P, st, j, S, pad, ks, w_rot, limit)
+            # the tables' summed areas and a few grid-sized passes per rotation (legalize's unit)
+            budget.charge("legal_cells", 2 * S[0].size + 4 * len(ks) * P.ncx * P.ncy)
         finally:
             st.X[j], st.Y[j], st.K[j] = at
         spot = _priced_spot(P, st, E, j, cands, deadline, rp, lambda X, Y, k: guard.count_at(j, X, Y, k) <= base)
