@@ -83,6 +83,7 @@ pcbnew 4 %; no cheap speedup. One smoke board per arm is profiled again on the n
   hit `ceiling_hit` are reported per arm and, if any, retried before analysis.
 
 ## Addendum: moved to Freerouting fork f1c41d3 before any job ran
-The fork now charges optimizer work to autorouter.max_work (on 9a5512d the optimizer ran uncounted, up to
-10 passes, and could reach the 4x wall ceiling). Unstarted jobs of `fr-ripup-ab2` were cancelled and the methods re-registered
+Fork f1c41d3 (freerouting#13) with kae main 22ff779a (#105) counts both optimizer passes and pour fills inside
+autorouter.max_work, and kae charges them once (on 9a5512d the optimizer ran uncounted, up to 10 passes, and
+could reach the 4x wall ceiling). Unstarted jobs of `fr-ripup-ab2` were cancelled and the methods re-registered
 as experiment `fr-ripup-ab3` at this commit on the new pin; nothing else changed.
