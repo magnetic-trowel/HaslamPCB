@@ -3,7 +3,7 @@
 """A board's two structured inputs from its spec (numbers a model or a designer states about the board):
 
   OPERATING  kae.excite.evaluate --intent: what the board does electrically. radios.<ref> = kind, cells.<cell id>.{V_V,
-             f_sw_Hz, I_A, t_i_s}, parts.<ref>.{I_A, I_sustained_A} (loads and output connectors; the sustained draw sets temperatures), nets.<rail>.source,
+             f_sw_Hz, I_A (the spec's I_switch_A, else I_out_A), t_i_s}, parts.<ref>.{I_A, I_sustained_A} (loads and output connectors; the sustained draw sets temperatures), nets.<rail>.source,
              requirements.thermal.{T_amb_C, airflow_h_W_m2K, heatsinks}, requirements.assembly.{process,
              hand_solder_ok, reflow_only_parts}. Each replaces one of the evaluator's priors. With --pintypes,
              pins.<ref>.<pad> = [type, name]: the schematic's pin facts the summary was built with, which the
@@ -153,6 +153,13 @@ def why(item, what):
     return f"{what} ({basis(item)}: {item.get('why') or 'no reason given'})"
 
 
+def field_bases(item):
+    """A converter's per-field provenance (fields.<key>.basis: board, datasheet, typical or guess), as a suffix."""
+    fb = item.get("fields") or {}
+    parts = [f"{k} {v.get('basis')}" for k, v in fb.items() if isinstance(v, dict) and v.get("basis")]
+    return f" [fields: {', '.join(parts)}]" if parts else ""
+
+
 def compile_spec(spec, summary):
     S = Spec(spec, summary)
     op = {"parts": {}, "nets": {}, "cells": {}, "requirements": {}}
@@ -247,7 +254,10 @@ def compile_spec(spec, summary):
             S.rejected.append(f"{w}: cell {cid!r} is not one of the board's cell sections")
             continue
         vin, vout = S.num(c, "V_in_V", "V", w), S.num(c, "V_out_V", "V", w)
-        f, I, t = S.num(c, "f_sw_Hz", "Hz", w), S.num(c, "I_out_A", "A", w), S.num(c, "t_edge_s", "s", w)
+        # the cell's commutated current: the inductor's (a boost's input current, not its output); I_out_A when
+        # the spec does not state it (a buck's inductor carries its output current)
+        f, t = S.num(c, "f_sw_Hz", "Hz", w), S.num(c, "t_edge_s", "s", w)
+        I = S.num(c, "I_switch_A", "A", w) or S.num(c, "I_out_A", "A", w)
         cell = {}
         if vin or vout:
             vb = max(v for v in (vin, vout) if v)
@@ -260,7 +270,7 @@ def compile_spec(spec, summary):
             cell["t_i_s"] = [t / 2, t * 2]
         if cell:
             op["cells"][cid] = cell
-            opwhy[f"cells.{cid}"] = why(c, "converter operating point")
+            opwhy[f"cells.{cid}"] = why(c, "converter operating point") + field_bases(c)
         vmax = S.num(c, "switch_V_max_V", "V", w)
         if vmax:
             terms.append(dict(id=f"O{i}", tier="hard", obs="overshoot.peak", where={"observer": f"overshoot:{cid}"},
