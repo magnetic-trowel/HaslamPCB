@@ -36,6 +36,7 @@ def fake(monkeypatch, tmp_path):
 def test_work_mode_hands_freerouting_its_work_budget_and_charges_what_it_logged(fake, monkeypatch):
     calls, dsn = fake
     monkeypatch.setattr(F, "has_work_budget", lambda cmd=None: True)
+    monkeypatch.setattr(F, "takes_setting", lambda name, cmd=None: False)
     c = budget.set_mode("work", rates={"poll": 0.0})
     F.route(dsn, dsn.with_suffix(".ses"), dsn.parent, budget_s=100.0)
     s = calls[0]["settings"]
@@ -47,6 +48,7 @@ def test_work_mode_hands_freerouting_its_work_budget_and_charges_what_it_logged(
     assert float(s["autorouter.work_pass_weight"]) == pytest.approx(F.FR_PASS_S / (r["fr_work"] * g), rel=1e-5)
     assert float(s["autorouter.work_unrouted_weight"]) == pytest.approx(F.FR_UNROUTED_S / (r["fr_work"] * g), rel=1e-5)
     assert s["optimizer.max_passes"] == str(F.FR_OPT_MAX_PASSES)
+    assert "autorouter.work_fill_weight" not in s       # a build without the setting does not get it
     assert calls[0]["passes"] == 0                       # no pass cap: the work budget binds
     assert c.units["fr_work"] == pytest.approx(20000 * g) and c.units["fr_run"] == 1 and "fr_pass_pin2" not in c.units
     budget.set_mode("time")
@@ -138,3 +140,22 @@ def test_counts_optimizer_work_reads_the_jar(tmp_path):
         z.writestr("app/freerouting/autoroute/pipeline/BatchOptimizer.class", b"..Optimizer pass #%d..")
     assert F.counts_optimizer_work(["java", "-jar", str(new)])
     assert not F.counts_optimizer_work(["java", "-jar", str(old)])
+
+
+def test_a_build_that_prices_fills_and_optimizer_steps_gets_their_weights(fake, monkeypatch):
+    calls, dsn = fake
+    monkeypatch.setattr(F, "has_work_budget", lambda cmd=None: True)
+    monkeypatch.setattr(F, "takes_setting", lambda name, cmd=None: True)
+    c = budget.set_mode("work", rates={"poll": 0.0})
+    F.route(dsn, dsn.with_suffix(".ses"), dsn.parent, budget_s=100.0)
+    s = calls[0]["settings"]
+    step = c.rates["fr_work"] * F.work_scale(5)
+    assert float(s["autorouter.work_fill_weight"]) == pytest.approx(F.FR_FILL_S / step, rel=1e-5)
+    assert float(s["autorouter.work_optimizer_step_weight"]) == F.FR_OPT_STEP
+    budget.set_mode("time")
+
+
+def test_an_optimizer_stopped_by_the_work_budget_says_so():
+    log = "x INFO [j] Stopping the optimizer before pass #2: the job's work budget is spent (9 of 8 work units)."
+    assert F._optimizer_stop(log) == "work_budget"
+    assert F._optimizer_stop("x INFO [j] Skipping optimization stage: the job's work budget is spent (9 of 8).") == "skipped"
