@@ -106,3 +106,20 @@ boards × 3 arms. Profiled on the smoke (below) before the full run.
 `margin-gate-smoke`: uzixls nanoswinsidc (92 pads, 2 layers, 7.3 pads/cm²/layer) and azonenberg
 reworkctf v2 (572 pads, 4 layers, 5.4), all three arms, k=1, py-spy on the kae processes and JFR on
 Freerouting for one board per arm; read end to end before the full run.
+
+## Addendum 2026-11-17 (before any result): trimmed runs
+Approved by the user (queue triage, 2026-11-17), to save CPU in the shared queue. No result had arrived.
+- **dense-hi:** the ungated MA run is cancelled on 89 of the 90 boards. On these boards the gate keeps the
+  margin. A read-only count of `margin_gate.regions` found 87 boards with one region and 2 with none (no closed
+  outline, or no piece wider than the neck rule). Either way the caps give nothing, so MA gated runs the same
+  code as MA, and an ungated run would be a twin. resummit seismos 5corestencil has 3 regions, so its MA run is
+  kept: there, MA gated vs MA tests the caps.
+- **sparse:** all 20 boards are cancelled. The gate drops the margin there, and margin-ab saw no MA effect on
+  sparse boards.
+- **Effect on the hypotheses:**
+  - (1) is unchanged.
+  - (2) and the barrier comparison (4) are unchanged.
+  - (3)'s A/A floor now comes from dense-lo (40 boards) and the 9 gated-out barrier boards.
+  - MA vs MA gated on dense-hi is answered by construction (identical code) rather than measured. The one
+    multi-region board is read on its own.
+- 129 jobs cancelled. The full run now has 197 queued jobs plus the smoke and profile.
