@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 # pk3-ab (PLAN.md): R vs R with a resumed bridge pass in the k = 3 slot vs P-k3 (P-late's windows finish in that
-# slot), counted work, Freerouting fork 9a5512d (charged under work mode) in every arm.
+# slot), counted work, Freerouting fork f1c41d3 (charged under work mode) in every arm.
 #   SHA=<pushed commit> tools/kaeres/experiments/pk3-ab/setup.sh
 set -euo pipefail
 cd "$(dirname "$0")/../../../.."
@@ -10,9 +10,9 @@ K="python3 tools/kaeres/kaeres.py"
 SHA=${SHA:?commit}
 S7=${SHA:0:7}
 FRREPO=https://github.com/magnetic-trowel/freerouting
-FRC=9a5512da743ae96a751634b55c89c0211087bca0
+FRC=f1c41d35da1c2aafa4a933ccdae1a61c52d8fd47
 KH='$HOME/.cache/kaebench'
-FORK="\$HOME/.cache/kaebench/kae-freerouting-fork-9a5512d/bin/freerouting"
+FORK="\$HOME/.cache/kaebench/kae-freerouting-fork-f1c41d3/bin/freerouting"
 CP="cp -r $KH/numba-pk3-$S7 numba 2>/dev/null;"
 WENV="env KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1"
 E="$WENV NUMBA_CACHE_DIR=\$PWD/numba OMP_NUM_THREADS=1 KAE_BRIDGE_FREEROUTING=$FORK KAE_FREEROUTING=$FORK {py:kae}"
@@ -30,12 +30,12 @@ wrap() {  # extra restart.py flags
 }
 common=(--kind joint-fixed --param timeout_s=$T --param timeout_scale=sqrt-fp40 --param timeout_cap_s=57600 --param parallel=1
         --code kae=.@$SHA --code fr=$FRREPO@$FRC --harness $SHA)
-$K method add "kae pk3 R $S7" --description "staged + restarts (polish-merit's R), counted work, Freerouting fork 9a5512d; pk3-ab at $S7" \
+$K method add "kae pk3 R $S7" --description "staged + restarts (polish-merit's R), counted work, Freerouting fork f1c41d3; pk3-ab at $S7" \
   --command "$(wrap "")" "${common[@]}"
 $K method add "kae pk3 Rresume $S7" --description "R through k = 2, then a resumed bridge pass on the kept board in the k = 3 slot; pk3-ab at $S7" \
   --command "$(wrap "--finish '$RESUME' $SLOT")" "${common[@]}"
 $K method add "kae pk3 Pk3 $S7" --description "R through k = 2, then P-late's windows finish on the kept board in the k = 3 slot; pk3-ab at $S7" \
   --command "$(wrap "--finish '$POL' $SLOT")" "${common[@]}"
-$K exp create pk3-ab-m --boards @tools/kaeres/experiments/pk3-ab/boards.txt --harness $SHA --kae $SHA \
+$K exp create pk3-ab-p2 --boards @tools/kaeres/experiments/pk3-ab/boards.txt --harness $SHA --kae $SHA \
   --description "P-k3 confirmatory: R / R+resume / P-k3 in the k = 3 slot; PLAN.md in tools/kaeres/experiments/pk3-ab" \
   --method "kae pk3 R $S7" --method "kae pk3 Rresume $S7" --method "kae pk3 Pk3 $S7"
