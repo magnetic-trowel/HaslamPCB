@@ -84,3 +84,57 @@ def test_a_job_with_several_pass_loops_is_charged_for_all():
     # 9cf145d counted each pass loop (the fallbacks) from zero; abefc74 counts the job
     assert F.job_work(["100", "250", "40", "90"]) == 340
     assert F.job_work(["100", "250", "340"]) == 340
+
+
+OPT_LOG = LOG + "\n" + "\n".join([
+    "2026-11-11 19:00:03.000 INFO   [j] Optimization stage started on board 'h'. Baseline router score: 6.00, optimizer score: 1.00, incomplete connections: 1, clearance violations: 0.",
+    "2026-11-11 19:00:04.000 INFO   [j] Optimizer pass #1 on board 'h' was completed in 1.00 seconds with the score of 7.0.",
+    "2026-11-11 19:00:04.001 INFO   [j] Optimizer work after pass #1: 26000 work units so far in the job.",
+])
+
+
+def _opt_run(monkeypatch, tmp_path, log):
+    calls = []
+
+    def _route(dsn, ses, workdir, **kw):
+        calls.append(kw)
+        return F.Run(rc=0, ses=None, log=log, seconds=3.0, report={})
+    monkeypatch.setattr(F, "_route", _route)
+    d = tmp_path / "board.dsn"
+    d.write_text(DSN)
+    monkeypatch.setattr(F, "has_work_budget", lambda cmd=None: True)
+    c = budget.set_mode("work", rates={"poll": 0.0})
+    F.route(d, d.with_suffix(".ses"), d.parent, budget_s=100.0)
+    budget.set_mode("time")
+    return c
+
+
+def test_a_build_that_counts_its_optimizer_is_charged_its_work_once(monkeypatch, tmp_path):
+    # the optimizer's work is in the job's last count: no optimizer passes on top of it
+    monkeypatch.setattr(F, "counts_optimizer_work", lambda cmd=None: True)
+    c = _opt_run(monkeypatch, tmp_path, OPT_LOG)
+    assert c.units["fr_work"] == pytest.approx(26000 * F.work_scale(5))
+    assert "fr_opt_pass_pin2" not in c.units
+
+
+def test_a_build_that_does_not_count_its_optimizer_is_charged_its_passes(monkeypatch, tmp_path):
+    monkeypatch.setattr(F, "counts_optimizer_work", lambda cmd=None: False)
+    log = OPT_LOG.rsplit("\n", 1)[0]          # such a build logs no optimizer work
+    c = _opt_run(monkeypatch, tmp_path, log)
+    assert c.units["fr_work"] == pytest.approx(20000 * F.work_scale(5))
+    assert c.units["fr_opt_pass_pin2"] == 25        # one "Optimizer pass #" line x 5 pins^2
+
+
+def test_the_optimizer_work_line_is_read_as_the_jobs_count():
+    assert F.job_work(F._WORK_LINE.findall(OPT_LOG)) == 26000
+
+
+def test_counts_optimizer_work_reads_the_jar(tmp_path):
+    import zipfile
+    new, old = tmp_path / "new.jar", tmp_path / "old.jar"
+    with zipfile.ZipFile(new, "w") as z:
+        z.writestr("app/freerouting/autoroute/pipeline/BatchOptimizer.class", b"..Optimizer work after pass #%d..")
+    with zipfile.ZipFile(old, "w") as z:
+        z.writestr("app/freerouting/autoroute/pipeline/BatchOptimizer.class", b"..Optimizer pass #%d..")
+    assert F.counts_optimizer_work(["java", "-jar", str(new)])
+    assert not F.counts_optimizer_work(["java", "-jar", str(old)])
