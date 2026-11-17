@@ -88,3 +88,4 @@ No new py-spy profile: the placement stage under this chassis has run in full al
 here (`classify`, `detour`) takes under 1 s per run (0.8 s on ohwr, the largest barrier set).
 
 - 2026-11-17 (identity check, main 22ff779a + Freerouting f1c41d3): kept as registered. kae #105 changes only route/freerouting.py and budget charges for Freerouting runs, and this placement-only test (kae.cli place, no probe, no Freerouting) never reaches them, so its outputs on the new main are those of its registered commit.
+- 2026-11-17 (main 9e54baed, #106 + #108): kept as registered. #108 changes only kae.joint.scorecard.accept, which the joint loop calls for windows, the finishing stage and its last-mile close; these arms never reach it (staged chassis `--max-iters 0` has no finishing stage, or bridge/placement only), the module stage's re-laid-copper guard keeps the old rule unchanged (physics_guard), and restart.py's judge returns the same key. #106 is harness-only.
