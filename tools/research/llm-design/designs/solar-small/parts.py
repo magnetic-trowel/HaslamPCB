@@ -180,9 +180,10 @@ FUSE_2A = Fuse(2, 63, "Fuse:Fuse_1206_3216Metric", mpn="0466002.NRHF", manufactu
 
 XT60 = Conn(2, "Connector_AMASS:AMASS_XT60PW-M_1x02_P7.20mm_Horizontal", i_max=30, v_max=500,
             mpn="XT60PW-M", manufacturer="AMASS", datasheet=DS["XT60"], fields=_lcsc("C98732", "expand"),
-            pin_names={"1": "+", "2": "-"},
-            source={"pins": "KiCad AMASS_XT60PW-M footprint: pad 1 = +, pad 2 = - [unverified against the AMASS "
-                            "drawing: check before ordering, Q-1]", "pin_names": "as pins",
+            pin_names={"1": "-", "2": "+"},
+            source={"pins": "KiCad AMASS_XT60PW-M_1x02_P7.20mm_Horizontal silkscreen: '-' at pad 1 (x 0), '+' at pad 2 "
+                            "(x 7.2). AMASS spec XT60PW-M30 (2025V0) PCB layout marks no polarity; the housing's "
+                            "moulded +/- marks decide: check one part on arrival (Q-1)", "pin_names": "as pins",
                     "ratings": "AMASS XT60: 30 A continuous, 500 V [S]"})
 TERM_5_08 = Conn(2, "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2-5.08_1x02_P5.08mm_Horizontal", i_max=10,
                  v_max=250, mpn="KF128-5.08-2P-AA", manufacturer="Cixi Kefa", fields=_lcsc("C474952", "expand"),

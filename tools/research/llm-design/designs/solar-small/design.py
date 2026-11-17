@@ -89,10 +89,14 @@ def intent(d):
     d.assume("A-1", "The battery's own BMS (LiFePO4) balances cells and cuts off at its limits; this board never "
              "charges LiFePO4 below 0 C (ESP32 reads the battery NTC on J202 and pulls CHG_OFF)")
     d.assume("A-2", "Panel cable and battery cable are each < 3 m; no lightning exposure beyond ESD/short surges")
-    d.question("Q-1", "XT60PW-M pad 1 polarity: KiCad's footprint marks pad 1; confirm it is + on the AMASS drawing "
-               "before ordering", blocking=True, default="pad 1 = +")
+    d.question("Q-1", "XT60PW-M polarity: the AMASS spec drawing (XT60PW-M30, 2025V0) marks none; KiCad's footprint "
+               "silkscreen puts '-' at pad 1 and '+' at pad 2 (used here). Confirm against the moulded marks on a "
+               "delivered part", blocking=False, default="pad 1 = -, pad 2 = +",
+               answer="2026-11-17: checked the AMASS drawing (no marks) and KiCad's footprint (pad 1 '-'); "
+                      "physical check on arrival")
     d.question("Q-2", "ADI parts at JLC: LTC3130EMSE (3 in stock) and LTC2959 (0 in stock) on 2026-11-17. Use JLC "
-               "global sourcing (pre-order) or consign parts?", blocking=True, default="JLC global sourcing")
+               "global sourcing (pre-order) or consign parts?", blocking=True, default="JLC global sourcing",
+               answer="user 2026-11-17: pre-order (JLC global sourcing)")
     d.question("Q-3", "FireBeetle 2 ESP32-C6 antenna position: assumed at the non-USB end; keep copper pours off "
                "that end until confirmed from a photo of the board", blocking=False)
     d.hazard("HZ-1", "Panel connected reversed", mitigation="Q101 PMOS in the panel lead blocks; D101 sits after it",
@@ -260,11 +264,17 @@ def control(d):
 def nets(d):
     g(d, "GND", 0, "ground", 1.5)
     d.domain("LV", ref="GND", kind="selv", description="everything; panel <= 25 V, battery <= 15 V")
-    g(d, "PV_RAW", (-25, 25), "power", 1.0, external=True, threats=("reverse_polarity", "esd", "surge"))
+    # The connector-side nets swing negative when a cable is reversed. Each gets its own domain (on GND) so the
+    # ~41 V worst case sets spacing only between it and the rest (a .kicad_dru rule), not for every LV net.
+    d.domain("PVRAW", ref="GND", kind="selv", description="panel lead before Q101; -25..25 V")
+    d.domain("BATRAW", ref="GND", kind="selv", description="battery lead before D201/F201; -16..16 V")
+    d.net("PV_RAW", domain="PVRAW", v=(-25, 25), kind="power", i_max=1.0, external=True,
+          threats=("reverse_polarity", "esd", "surge"))
     g(d, "PV_IN", (0, 25), "power", 1.0)
     g(d, "SYS", (0, 16), "power", 1.0)
     g(d, "BAT_P", (0, 16), "power", 1.0)
-    g(d, "BAT_RAW", (-16, 16), "high_current", 1.0, external=True, threats=("reverse_polarity", "overcurrent", "esd"))
+    d.net("BAT_RAW", domain="BATRAW", v=(-16, 16), kind="high_current", i_max=1.0, external=True,
+          threats=("reverse_polarity", "overcurrent", "esd"))
     g(d, "+3V3", (0, 3.4), "power", 0.5)
     g(d, "+3V3_SW", (0, 3.4), "power", 0.3, external=True, threats=("overcurrent",))
     for nm, kind in (("DAC_FB", "analog"), ("DAC_RUN", "analog"), ("I2C_SDA", "signal"), ("I2C_SCL", "signal"),
@@ -327,7 +337,7 @@ def calcs(d):
 
 def board(d):
     d.board("main", width_mm=80, height_mm=60, layers=2, thickness_mm=1.6, copper_oz=1.0,
-            holes=[Hole(3.5, 3.5, 3.2), Hole(76.5, 3.5, 3.2), Hole(3.5, 56.5, 3.2), Hole(76.5, 56.5, 3.2)],
+            holes=[Hole(3.5, 3.5, 3.2), Hole(76.5, 3.5, 3.2), Hole(3.5, 56.5, 3.2), Hole(76.5, 30.5, 3.2)],
             max_component_height_mm=15,
             notes="2-layer, bottom layer mostly ground. FireBeetle module over the socket; keep pours off the "
                   "module's non-USB end (antenna, Q-3).")
