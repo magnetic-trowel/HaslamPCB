@@ -53,3 +53,18 @@ finished every attempt.
 
 Expected cost: 49 boards x 2 arms x 2 attempts x about 15-40 min wall (counted 900 s) is about 50-130 CPU-h at
 1-2 CPUs per job. Profile one smoke board per arm first (py-spy on the python process).
+
+## Addendum 2026-11-17, before any run on the new build: current components
+Project rule (2026-11-17): every experiment runs on current main and the current Freerouting pin; results from older
+builds decide nothing on their own.
+- **Code.** `simp-drc-parse` is rebased onto main c81770e1 as `simp-drc-parse-m2` (no conflict; the original branch is
+  left as it was). `simp-drc-items` is in main, so C is the bridge at main c81770e1 and P the bridge at 24b9ed0a (was
+  d19411e5: the same three parser commits). Harness c81770e1. The touched sites' tests pass on the rebased branch.
+- **Freerouting:** the pinned fork 9a5512d, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work, `--time
+  900`, wall timeout 3,600 s as before.
+- **New experiment `drc-parse-ab-m`** (owner `exp-drc-parse-ab-m`), new method ids, each board's job running both arms
+  side by side as this plan says (the first submission had split them by arm). The runs of `drc-parse-ab` (old build, 36
+  jobs done) are excluded from the decision; its queued jobs are cancelled.
+- The 49 boards were chosen from the old pinned fork's outputs (open bracketed nets); kept as they are, since the parser
+  sites are reached on any board whose open nets carry brackets. Arms, k = 2, outcomes and decision rules unchanged.
+- **Still worth running:** the parser change is not in main; this is its guard before a PR, about 60 CPU-h.
