@@ -16,7 +16,8 @@ over the copper's branches (filaments and via barrels, not the parts), each laye
 (crowding through the thickness beyond nsub filaments; the lateral crowding toward the return is in the solve).
 The ripple's spectrum, a triangle of peak-to-peak dI rising for D T and falling for (1 - D) T:
     c_n = dI |sin(n pi D)| / (pi^2 n^2 D (1 - D)),   sum_n c_n^2 / 2 = dI^2 / 12,
-    dI = V D (1 - D) / (L f_sw)   (V the switch's bus: buck V_in, boost V_out; CCM; capped at 2 I, the DCM boundary),
+    dI = V D (1 - D) / (L f_sw)   (V the switch's bus: buck V_in, boost V_out; CCM; capped at 2 I, the DCM boundary;
+                                  kae.physics.converter.ripple_pp),
     loss.copper_ac = sum_n c_n^2 P_1(n f_sw),
 P_1 interpolated log-log between the three solves and as sqrt(f) above 5 f_sw (the c_n fall as 1/n^2, so the first
 three odd harmonics carry > 99 % of it at D = 0.5).
@@ -58,11 +59,12 @@ def p1(net, sol_I, f, nsub):
 
 def ripple_amplitude(val, L):
     """dI (A peak to peak) at one corner's values."""
-    V, D, f, I = val.get("V_V", 0.0), min(max(val.get("D", 0.5), 1e-3), 1 - 1e-3), val.get("f_sw_Hz", 0.0), val.get("I_A", 0.0)
-    if not (L > 0 and f > 0):
+    from kae.physics.converter import ripple_pp
+    dI = ripple_pp(val.get("V_V", 0.0), val.get("D", 0.5), L, val.get("f_sw_Hz", 0.0))
+    if dI is None:
         return 0.0
-    dI = V * D * (1 - D) / (L * f)
-    return min(dI, 2 * I) if I > 0 else dI
+    I = val.get("I_A")
+    return min(dI, 2 * I) if I is not None else dI         # a static leg (I = 0) carries no ripple of its own
 
 
 def p1_of_f(fs, ps):
