@@ -1,13 +1,13 @@
 # Hot-loop evaluation: per-cell primaries, open cells, the window solve
 
 Scope: how `kae.excite.evaluate` measures a switching cell's commutation (hot) loop and how `kae.intent` prices it: open cells, the per-cell window solve, its pitch, what it leaves out. Not here: the loop physics and expert layouts -> [pdn-and-commutation](pdn-and-commutation.md#1-commutation-loop-geometry); the router's own loop quote -> [critical-net-routing](../routing/critical-net-routing.md); the hot-loop routing design and A/B -> [kae-hot-loops](../../research/routing/kae-hot-loops.md).
-Keys: hot loop, commutation cell, L_loop, R_loop, overshoot.peak, loss.loop, loss.loop_ac, loss.swnode, open cell, open_cells, cells, window solve, CELL_PITCH, MARGIN_H, kae.excite.hotloop, skin correction, cap body, ESL, ½·L·I²·f, EPC, loss.copper_ac, inductor ripple, kae.excite.ripple, scope losses, AC copper loss
+Keys: hot loop, commutation cell, commutated current, L_loop, R_loop, overshoot.peak, loss.loop, loss.loop_ac, loss.swnode, open cell, open_cells, cells, window solve, CELL_PITCH, MARGIN_H, kae.excite.hotloop, skin correction, cap body, ESL, ½·L·I²·f, EPC, loss.copper_ac, inductor ripple, kae.excite.ripple, scope losses, AC copper loss
 
 Tags: [C] computed by the scripts named; [I] inference; [P] primary source.
 
 ## 1. What a cell is measured as
 
-A cell (`kae.excite.sources._cell`) is a unit current source across its switch; the circuit (`kae.excite.circuit`) splits the commutated current over the cell's capacitors at each frequency. Per cell, with the overshoot observer k at the switch port and the layout's share `z(f) = J_kᵀ·v − J_kᵀ·v_ideal` (copper solve minus the same parts with ideal copper, [functional evaluation](functional-evaluation.md)):
+A cell (`kae.excite.sources._cell`) is a unit current source across its switch; the circuit (`kae.excite.circuit`) splits the commutated current over the cell's capacitors at each frequency. I and D below are the cell's commutated current and duty by topology ([converter-currents](converter-currents.md#1-equations-ccm-steady-state)): a buck at I_out through its input capacitors, a boost (and a boost LED driver) at its input current I_out·V_out/(V_in·η) through its rectifier and output capacitors (the switch sits SW→PGND and the rectifier SW→VOUT, so the solve closes the loop through COUT), a 4-switch leg static in its region at 0. Per cell, with the overshoot observer k at the switch port and the layout's share `z(f) = J_kᵀ·v − J_kᵀ·v_ideal` (copper solve minus the same parts with ideal copper, [functional evaluation](functional-evaluation.md)):
 
 | Quantity | Definition | Where |
 |---|---|---|
@@ -125,7 +125,7 @@ Two-pad parts are lumped branches between their pads' terminals (`mesh.Lumped`):
 
 ## 7. Board-level AC copper loss: the split between loss.loop_ac and loss.copper_ac
 
-A converter carries two AC currents besides its DC: the commutated (pulsed) current between the input capacitors and the switches, and the inductor's triangular ripple through the switch node, inductor, output capacitors and ground. The split is by current, not by region:
+A converter carries two AC currents besides its DC: the commutated (pulsed) current between the hot-loop capacitors (a buck's input, a boost's output) and the switches, and the inductor's triangular ripple through the switch node, inductor, output capacitors and ground. The split is by current, not by region:
 
 | Term | Current | Where it is counted |
 |---|---|---|
@@ -145,7 +145,7 @@ No region is counted twice. Left out: the cross term where both AC currents shar
 - `loss.copper_ac / loss.copper` (typical corner, boards with both): median 0.00056, 0.00022–0.0019 (3 boards: powerboost, govish, it8951). Most of these boards have no DC flow modelled (`DC: no rail with a source and a load`), so the ratio rests on few boards.
 - `loss.copper_ac / loss.loop_ac` per cell: median 0.019, 0.003–2.25 (7 cells); above 1 only on chip-lcd's boost, whose loop losses are 0.1–0.2 µW.
 - Class-D and filterless bridges (max98357, circuitmonkey, noggin) have no inductor in their structure: no ripple term, noted.
-- Physics agrees: ripple RMS is ΔI/√12, ~10 % of a CCM load current, through mΩ of output copper, against the full pulsed current RMS I·√(D(1−D)) in the input loop.
+- Physics agrees: ripple RMS is ΔI/√12, ~10 % of a CCM load current, through mΩ of output copper, against the full pulsed current RMS I·√(D(1−D)) in the hot loop.
 
 **Against `kae.excite.wideband`** (its `ac_loss.copper_W`: every AC source's harmonics through the reduced model at 0.25 mm, skin on; no ripple source either):
 | Board | wideband | `loss.loop_ac` + `loss.copper_ac` | Why they differ |
