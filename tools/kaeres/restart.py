@@ -1107,7 +1107,13 @@ def run_policy(ap, a):
                 work = json.loads(line[9:])
         rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() else None
         log(f"policy phase {k}: rc {r.returncode}, rank {rank}")
-        return dict(k=k, seed=seed, out=o, dir=d, rank=rank, work=work or {}, command=command[:200])
+        alog = []                                   # the phase's own attempts, for the work curve (budget, rank, wall)
+        try:
+            for x in json.loads((d / "restarts" / "summary.json").read_text()).get("attempt_log") or []:
+                alog.append({f: x.get(f) for f in ("k", "seed", "budget", "rank", "wall_s", "resumed_from", "kept")})
+        except (OSError, ValueError):
+            pass
+        return dict(k=k, seed=seed, out=o, dir=d, rank=rank, work=work or {}, command=command[:200], attempt_log=alog)
 
     def open_phase(k, seed, time_s, command, prev):
         """--open-alt on phase 1's board: one command, @IN@ the input, @BEST@ phase 1's board (with the task's
@@ -1177,6 +1183,7 @@ def run_policy(ap, a):
     work = dict(policy="completion-first", second="alt" if alt else "open-alt" if open_alt else "restart", kept=best["k"],
                 third=third,
                 phases=[dict(k=p["k"], seed=p["seed"], rank=p["rank"], command=p["command"],
+                             attempt_log=p.get("attempt_log"),
                              **{x: p.get(x) for x in ("time_s", "used_s")},
                              **{x: p["work"].get(x) for x in ("attempts", "cpu_s", "method_cpu_s", "wall_s")})
                         for p in phases],

@@ -433,3 +433,11 @@ def test_open_rest_alt_runs_alt_on_a_board_the_windows_completed(tmp_path):
                             "--open-alt", win, "--open-rest", "--open-rest-alt"))
     assert r.returncode == 0, r.stdout + r.stderr
     assert s["third"] == "alt" and s["kept"] == 3 and "alt" in out.read_text()
+
+
+def test_completion_first_keeps_each_phase_attempt_log(tmp_path):
+    """Each policy phase's own attempts (budget, rank) are in the policy summary, for work curves."""
+    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=3 first)' > @OUT@", None, time_s=200,
+                     extra=("--policy", "completion-first"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert all(p["attempt_log"] and p["attempt_log"][0]["budget"] for p in s["phases"])
