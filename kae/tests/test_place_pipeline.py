@@ -481,3 +481,18 @@ def test_board_mask_apertures_reach_the_zone_keepout_under_every_severity():
         P = Problem.build(b, severity=sev)
         assert P.is_error("solder_mask_bridge"), sev
         assert isinstance(P.fixed_mask, list)
+
+
+def test_close_loop_without_a_deadline_diagnoses_only_within_its_time(monkeypatch):
+    """kae place passes close_loop no deadline: its diagnoses must still stop at `time_s` (they
+    ran unbounded, 465 s charged after the repair on the servo bonnet at --time 150)."""
+    from kae.place import exact
+    from kae.place.problem import Problem
+    from kae.place.state import State
+    P = Problem.build(kicad_file.load(FIXTURE))
+    st = State(P)
+    monkeypatch.setattr(exact, "repair", lambda P, st, time_s, log=None: dict(stuck=1, stuck_parts=list(P.mov[:3])))
+    called = []
+    monkeypatch.setattr(exact, "diagnose", lambda *a, **k: called.append(1) or dict(reason="unknown"))
+    rep = exact.close_loop(P, st, time_s=0.0)
+    assert called == [] and len(rep.get("diagnosis_skipped") or []) == min(3, len(P.mov))
