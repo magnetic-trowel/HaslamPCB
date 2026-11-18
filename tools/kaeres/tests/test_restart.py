@@ -240,10 +240,10 @@ def test_attempts_defer_their_own_finish_to_the_wrapper(tmp_path):
 
 def test_clear_runs_once_on_the_kept_board_with_its_own_allowance(tmp_path):
     """With --clear, attempts and the final pass get KAE_CLEAR_KEPT=1, and the clear pass runs once on the kept
-    board after --final, with --clear-s as its @TIME@ even though routing used the whole --time; its board is kept
-    when no worse, and its wall time is recorded on its own."""
+    board after --final, with --clear-s as its @TIME@ (not the time routing left); its board is kept when no worse,
+    and its wall time is recorded on its own."""
     r, out, summary = _run(tmp_path, "echo \"(kicad_pcb OPEN=2 C=$KAE_CLEAR_KEPT)\" > @OUT@",
-                           "echo \"(kicad_pcb OPEN=1 C=$KAE_CLEAR_KEPT)\" > @OUT@", time_s=60,
+                           "echo \"(kicad_pcb OPEN=1 C=$KAE_CLEAR_KEPT)\" > @OUT@",
                            extra=["--clear", "echo \"(kicad_pcb OPEN=1 cleared time=@TIME@ C=$KAE_CLEAR_KEPT)\" > @OUT@",
                                   "--clear-s", "77"])
     assert r.returncode == 0, r.stdout + r.stderr
