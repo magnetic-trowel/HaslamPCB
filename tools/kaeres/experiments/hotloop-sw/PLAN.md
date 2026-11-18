@@ -65,3 +65,38 @@ Without a twin, a cell's change counts as better or worse when it is beyond the 
 - All four arms complete, with valid boards and the same DRC count. Jobs peaked at 4.1–4.3 GB on 4 cores; walls were 248–254 s.
 - **Cell stage (C, CD):** routed the cell in 1.7 s (L 1.00 nH, R 4.8 mΩ).
 - **Clear stage (D, CD):** skipped for time on this board ("87 s left, 111 s estimated"; "50 s left, 108 s estimated", about 100 s per cell). As configured, D is the same as N here, and CD the same as C.
+
+**Decision (accepted before registration):** the evaluator changes stand. Every arm uses the same evaluator at 0833f61b or later, so the A/B is valid:
+- the two half-bridges with negative L are open by the intended invalid-L fix;
+- R_loop moves because b56a45d9 redefines it;
+- loss.loop rises for every topology because the turn-off is now at I_pk = I_out + ΔI/2, so bucks rise as well as boosts.
+
+**Follow-up for the evaluator (does not block this run):** the 25 single-cell boards where the `loss.loop_ac` ratio (new/old) differs from the R_loop ratio by 2 % or more:
+
+| board | cell | loss.loop_ac ratio | R_loop ratio |
+|---|---|---|---|
+| hwstar-esp8266-mqtt-battery-monitor-hw-battery-monitor | buck:U3 | 0.956 | 0.931 |
+| hubertciebiada-open-ambient-sensor-oas | buck:U2 | 0.862 | 1.032 |
+| hasanberkdasar-buck-converter-buck-converter | buck:U1 | 1.582 | 1.830 |
+| sporniket-dop-module-dc-stepdown-xl4005-dop-module-dc-stepdown-xl4005 | buck:U101 | 1.166 | 1.423 |
+| team-impulse-biscay-blueeye-mcu | buck:U2 | 2.545 | 1.252 |
+| heypcb-quack-face-quack-face | buck:U1 | 0.989 | 1.033 |
+| themainframe-5g-m2-usb3-interface-pcb-usb3-ngff-carrier | buck:U1 | 1.029 | 1.007 |
+| chl33-dough133-doughlee2 | buck:U_B1 | 1.392 | 1.718 |
+| bazhenov-hrem-hrem | boost:U1 | 2.513 | 0.947 |
+| forestierr-light-trainer-light-trainer | boost:U1 | 2.239 | 1.031 |
+| vorosegyes-birdnest-birdnest-pcb | boost:U3 | 0.778 | 1.596 |
+| jvsalo-footswitch-footswitch | boost:RG1:2 | 1.040 | 1.111 |
+| antmicro-snickerdoodle-hdmi-breakout-snickerdoodle-hdmi-breakout | boost:U2 | 0.957 | 0.984 |
+| zebra-rodeo-marelleo-marelleo | boost:U4 | 0.922 | 0.986 |
+| leodj-shmod24-shmod24 | buck:U6 | 0.972 | 0.762 |
+| mbouyer-domotique-controle | buck:U4 | 0.971 | 0.896 |
+| asterics-esp32-mouse-keyboard-esp32minibt | buck:U1 | 0.636 | 1.001 |
+| hatlabs-sh-wg-hardware-sh-wg | buck:U601 | 1.096 | 1.121 |
+| stephendade-pipowernew-pipowernew | buck:U3 | 0.974 | 0.996 |
+| devoopes-defcon26-meow-dc26-maneki-neko-badge-version2 | buck:U2 | 1.944 | 0.936 |
+| baslqc-xwhatits-capsense-controller-solenoid-driver | boost:U3 | 1.325 | 0.673 |
+| rleh-random-pcbs-ssd1332-27pin-breakout | boost:U201 | 0.717 | 0.984 |
+| tinkerforge-load-cell-v2-bricklet-load-cell-v2 | boost:U2 | 1.200 | 1.016 |
+| ahillbom-tougherpowermonitor-hw-tougherpowermeter-featherwing | buck:U1 | 0.630 | 0.559 |
+| pcbcorpus-azoninc-doorman-doorman | buck:U2 | 1.641 | 1.230 |
