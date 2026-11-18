@@ -272,3 +272,43 @@ def test_thermal_all_keeps_every_pads_corridors_after_a_starved_thermal(monkeypa
     assert repair._thermal_plan(base, {}, "b.kicad_pcb", {"thermal_pads": "all"}, {}, {"p1"}) is base
     got = repair._thermal_plan(base, {}, "b.kicad_pcb", {"thermal_pads": ["p0"]}, {}, {"p0", "p1"})
     assert calls == [["p0", "p1"]] and got.plane_policy == "keep"
+
+
+def test_no_time_for_a_routed_round_still_draws_the_spokes(tmp_path, monkeypatch):
+    """With too little time left for a routed repair round (counted budgets: the router spends its
+    whole share), the starved thermals of round 0 still get their spoke tracks, without the router,
+    and the board with them is kept when KiCad's DRC finds it better."""
+    starved = dict(violations=[dict(type="starved_thermal", severity="error", items=[]) for _ in range(3)],
+                   unconnected_items=[])
+    clean = dict(violations=[], unconnected_items=[])
+    reports = [starved, clean]
+    monkeypatch.setattr(repair.drc, "run", lambda board, out, timeout=900, cache=True: reports.pop(0))
+    edits = []
+
+    def edit_routing(path, dst, **kw):
+        edits.append(kw)
+        if path != dst:
+            dst.write_text(path.read_text())
+        else:
+            dst.write_text(path.read_text() + "+spokes")
+        return {"routing": []}
+    monkeypatch.setattr(repair.pcbnew_io, "edit_routing", edit_routing)
+    monkeypatch.setattr(repair.pcbnew_io, "zone_fills", lambda p: {"zones": []})
+    spoke = dict(net="GND", layer="F.Cu", a=[0, 0], b=[1, 0], width=0.3)
+    monkeypatch.setattr(repair, "analyse", lambda *a, **k: dict(
+        widen={}, items=set(), nets=set(), spokes=[spoke], connect=set(), open={}, thermal=set(), unattributed=[]))
+    monkeypatch.setattr(repair.freerouting, "route", lambda *a, **k: (_ for _ in ()).throw(AssertionError("router")))
+    monkeypatch.setattr(repair, "clock_now", lambda: 1000.0)
+    inp, out = tmp_path / "in.kicad_pcb", tmp_path / "out.kicad_pcb"
+    inp.write_text("board")
+    out.write_text("routed")
+    rep = repair.loop(inp, out, tmp_path / "wd", SimpleNamespace(), {}, {}, deadline=1030.0, log=lambda m: None)
+    assert rep["final"]["errors"] == 0
+    assert rep["rounds"][1]["stopped"] == "time" and rep["rounds"][1]["spokes_only"]["kept"]
+    assert out.read_text() == "routed+spokes"
+    assert edits[-1] == dict(add=[spoke])
+    # below SPOKES_MIN_S nothing is tried
+    reports[:] = [starved]
+    out.write_text("routed")
+    rep = repair.loop(inp, out, tmp_path / "wd2", SimpleNamespace(), {}, {}, deadline=1010.0, log=lambda m: None)
+    assert rep["final"]["errors"] == 3 and "spokes_only" not in rep["rounds"][1] and out.read_text() == "routed"

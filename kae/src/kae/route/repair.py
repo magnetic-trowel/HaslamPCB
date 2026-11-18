@@ -29,7 +29,8 @@ the routing unlocked again, and the result checked by the next round's DRC. A ro
 replaces the output only if it is better (clean; then fewer violations in all; then fewer
 missing connections), so the output never gets worse. Stops when the board is clean, nothing
 more can be done, FAILS rounds in a row were not better, the round limit is reached, or time
-runs out.
+runs out. When the time left is too short for a routed round but enough for one DRC, the
+spoke tracks alone are added (_spokes_round), judged by the same rule.
 """
 from kae.budget import now as clock_now
 import json
@@ -629,6 +630,15 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
         rounds.append(rec)
         if left() - reserve < 45:
             rec["stopped"] = "time"
+            if left() >= SPOKES_MIN_S and needs_fills(best_rep):
+                # no time for a routed round, but spoke tracks need no router: a starved thermal
+                # the first round would have fixed is not left for want of a reroute (under
+                # counted budgets the router spends its whole share, so a short attempt never
+                # reached round 1 and kept every starved thermal: bestelampe 24)
+                got = _spokes_round(output_path, input_path, wd / f"repair{k}", best_rep, info, plan, lmap,
+                                    fixed, check, no_worse, best, rec, log)
+                if got is not None:
+                    best, best_rep, best_dir = got
             break
         rdir = wd / f"repair{k}"
         if rdir.exists():
@@ -824,6 +834,52 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
                 hazards=hazards,
                 drc_dir=None if opts.get("last_mile") else str(best_dir),   # the DRC of the board kept
                 _report=best_rep)   # its DRC report (for kae.route.blocked; the bridge takes it out)
+
+
+SPOKES_MIN_S = 20.0   # time a spokes-only round needs: one refill, one edit and one DRC
+
+
+def _spokes_round(output_path, input_path, rdir, best_rep, info, plan, lmap, fixed, check, no_worse, best, rec,
+                  log=print):
+    """Round k without the router: the spoke tracks analyse() draws for starved thermals and pads
+    cut off from their zone, added to the best board as it is (nothing ripped up). The board
+    replaces `output_path` only by loop()'s rule (better, and no worse in errors). Updates `rec`;
+    returns (summary, report, drc dir) of the board kept, or None."""
+    rdir = Path(rdir)
+    if rdir.exists():
+        shutil.rmtree(rdir)
+    rdir.mkdir(parents=True)
+    try:
+        listing = pcbnew_io.edit_routing(output_path, rdir / "listing.kicad_pcb")["routing"]
+        copper = {r["uuid"]: r for r in listing}
+        routed = {u: r for u, r in copper.items() if not r.get("locked") and u not in fixed}
+        fills = pcbnew_io.zone_fills(drc.stage_board(output_path, input_path, rdir / "fills"))["zones"]
+    except pcbnew_io.PcbnewError as e:
+        rec["spokes_only"] = dict(error=str(e))
+        return None
+    a = analyse(best_rep, routed, info, plan, fills=fills, layer_map=lmap, copper=copper)
+    rec["spokes_only"] = dict(spokes=len(a["spokes"]))
+    if not a["spokes"]:
+        return None
+    cand = drc.stage_board(output_path, input_path, rdir / "fixed")
+    try:
+        pcbnew_io.edit_routing(cand, cand, add=a["spokes"])
+        rep = check(cand, rdir / "drc")
+    except pcbnew_io.PcbnewError as e:   # a spoke on a net or layer the board lacks (PcbnewRefused)
+        rec["spokes_only"]["edit_error"] = str(e)
+        return None
+    except drc.DrcError as e:
+        rec["spokes_only"]["drc_error"] = str(e)
+        return None
+    s_ = drc.summary(rep)
+    kept = _key(s_) > _key(best) and no_worse(s_, best)
+    rec["spokes_only"].update(kept=kept, **s_)
+    log(f"repair round {rec.get('round')} (spokes only, {len(a['spokes'])}): {s_['errors']} errors {s_['by_type']}, "
+        f"{s_['unconnected']} unconnected ({'kept' if kept else 'discarded'})")
+    if not kept:
+        return None
+    shutil.copy2(cand, output_path)
+    return s_, rep, rdir / "drc"
 
 
 def import_tails(cand, input_path, imp, wd, log=print, timeout=60.0):
