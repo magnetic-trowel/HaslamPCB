@@ -44,3 +44,15 @@ The boards of `cf-windows` and `cf-windows-ext` whose phase-1 board was not clea
 
 ## Smoke
 2 boards × 2 arms, with py-spy on one windows phase per arm. Plumbing only.
+
+## Addendum after the smoke and profiling (2026-11-18, before the full run)
+Smoke: git4dcc and stickhub, both arms, every run scored. Profiling: one windows phase per arm on stickhub, 2,000 nominal s.
+- **Fix 3 fires.** On git4dcc the windows tried fell from 162 to 24, and the loop stopped re-trying windows that did nothing.
+- **Fix 1 fires.** On git4dcc it legalized 13 windows, and "illegal after repair" rejections fell from 152 to 0. On stickhub it legalized 3.
+- **Fix 2 is inert under the default window router.**
+  - With `window_router=incremental` (the default) `plan_ripup` is already local: every net is ripped only where moved parts land, plus the old pads. So own-nets changes nothing.
+  - What is ripped is the moved parts' own nets, a median of 14-16. In profiling both arms ripped exactly the same.
+  - It stays on in the arm. The verdict is read for fixes 1 and 3.
+  - Cutting the rip size further would need a different fix: keep a moved part's connections and re-route only their ends.
+- **Kept / tried:** git4dcc 3/162 vs 1/24, stickhub 1/61 vs 0/58. Final opens: git4dcc 27 vs 27, stickhub 27 vs 28. Two boards; no inference.
+- Plumbing is clean. No rule changes.
