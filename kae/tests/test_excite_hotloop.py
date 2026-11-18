@@ -383,3 +383,84 @@ def test_a_cell_quote_outside_physical_bounds_is_invalid_not_a_value():
     a = [dict(source="c", state="invalid"), dict(source="d", state="ok", L_nH=1.0, R_mohm=5.0)]
     b = [dict(source="c", state="ok", L_nH=1.0, R_mohm=5.0), dict(source="d", state="ok", L_nH=2.0, R_mohm=5.0)]
     assert compare(a, b)[0] == {"d": -1}                                 # an invalid quote decides nothing
+
+
+def _fake_bd(pads, kinds, ic_nodes=None):
+    from types import SimpleNamespace
+    from kae.excite.circuit import Circuit
+    pads_of = {}
+    for t, n in pads.items():
+        pads_of.setdefault(n, []).append(t)
+    return SimpleNamespace(circuit=Circuit("GND"), pads_of=pads_of, net_of=dict(pads), part_kind=kinds,
+                           ic_nodes=ic_nodes or {}, rails={"VIN": 12.0}, ground="GND", assumptions=[])
+
+
+def test_a_low_side_fet_above_a_sense_resistor_is_the_cells_switch():
+    """MAX1771, LTC3783, LT3754 boosts: the FET's source sits on a current-sense net, not on ground. The cell is
+    excited between the FET's drain (switch node) and its source, the loop's own pins."""
+    from kae.excite import sources as S
+    bd = _fake_bd({"Q1.2": "SW", "Q1.3": "CS", "Q1.1": "GATE", "R1.1": "CS", "R1.2": "GND", "U1.1": "VIN"},
+                  {"Q1": ("transistor",), "R1": ("resistor",), "U1": ("ic",)})
+    st = {"id": "cell:boost:U1", "class": "boost", "sw": "SW", "rail": "VOUT", "gnd": "GND", "controller": "u1",
+          "integrated_switches": False, "loop": [["q1", "2"], ["q1", "3"]]}
+    src = S._cell(bd, st, {"q1": "Q1", "u1": "U1"})
+    assert src is not None and (src.pa, src.pb) == ("Q1.2", "Q1.3")
+
+
+def test_an_integrated_high_side_switch_without_a_bus_node_enters_at_the_controllers_bus_pad():
+    """pms67's MP2359: the controller's VIN pin had no internal node; the source was driven at the bare net (no pad)
+    and the copper saw 1 A with no way out on every layout. It now enters at the controller's own bus pad."""
+    from kae.excite import sources as S
+    bd = _fake_bd({"U1.5": "VIN", "U1.6": "SW", "U1.2": "GND"}, {"U1": ("ic",)}, {"U1": {"g": "U1:g"}})
+    st = {"id": "cell:buck:U1", "class": "buck", "sw": "SW", "rail": "VIN", "gnd": "GND", "controller": "u1",
+          "integrated_switches": True, "loop": [["u1", ["5"]], ["u1", ["6"]]]}
+    src = S._cell(bd, st, {"u1": "U1"})
+    assert src is not None and src.pa == "U1.5" and src.pb == "U1.6"
+
+
+def test_board_level_copper_shapes_with_a_net_conduct(tmp):
+    """KiCad 8+ connects gr_poly copper that carries a net; aravind7s' ADP2384 board drew its VIN, SW and output
+    copper that way and read open on every one of those nets."""
+    from types import SimpleNamespace
+    from shapely.geometry import box
+    from kae.board.model import Stackup
+    from kae.em.kicad import BoardMesh
+    su = Stackup(copper=["F.Cu", "B.Cu"], cu_thickness=[0.035, 0.035], gaps=[1.5], er=[4.5], thickness=1.6,
+                 source="assumed")
+    b = SimpleNamespace(tracks=[], vias=[], footprints=[], stackup=su, zones=[],
+                        copper={"VIN": {"F.Cu": [box(1, 1, 4, 2)]}})
+    m = BoardMesh(None, (0, 0, 5, 3), 0.25, b=b, fills={}).m
+    assert (m.lab[0] == m.net_id("VIN")).sum() == 12 * 4
+
+
+def test_a_non_positive_l_loop_is_flagged_never_reported():
+    """olimex dcdc: the layout share reads +2.70 nH at 5 MHz, -2.62 at 10 and +1.33 at 30 (a resonance of the input
+    capacitors near the edge band). Such a row is invalid, its L moved aside; kae.intent leaves terms on an invalid
+    observation incomplete."""
+    from kae.excite import hotloop as HL
+    r = HL.flag_invalid(dict(source=CELL, state="ok", L_loop_nH=-2.62, R_loop_mohm=4.9, overshoot_V=dict(typ=1, worst=2)))
+    assert r["state"] == "invalid" and "L_loop_nH" not in r and r["L_invalid_nH"] == -2.62 and "overshoot_V" not in r
+    ev = {"board": "synthetic", "total": {"complete": True}, "questions": [], "observations": [
+        dict(id="loss.loop", unit="W", values=[0.0, 0.0], u=[0, 0], scope=dict(source=CELL, kind="loop_loss"),
+             reference=dict(value=None), label="loop", invalid="L_loop -2.62 nH"),
+        dict(id="loss.copper", unit="W", values=[0.01, 0.01], u=[0, 0], scope=dict(kind="dc_loss"),
+             reference=dict(value=None), label="cu")]}
+    terms = {"terms": [{"id": "P3", "tier": "cost", "obs": "loss.loop", "rate": "1 mW_eq/mW", "why": "loop"}]}
+    row = next(x for x in OB.evaluate(ev, terms, {"parts": {}, "structures": []})["terms"] if x["id"] == "P3")
+    assert row["incomplete"] and row["not_computed"] == [f"{CELL}: invalid"]
+
+
+def test_a_cell_the_circuit_cannot_excite_gets_a_row_saying_why(tmp, monkeypatch):
+    from kae.excite import sources as S
+    monkeypatch.setattr(S, "_cell", lambda bd, s, uuid: bd.assumptions.append(f"{s['id']}: switch not found; cell "
+                                                                             f"not excited"))
+    p = write_hotloop_board(f"{tmp}/unexcited", "closed")
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cells=False)
+    (c,) = ev["cells"]
+    assert c["source"] == CELL and c["state"] == "not_computed" and "switch not found" in c["why"]
+
+
+def test_r_loop_is_the_coppers_own_dissipation_never_negative(tmp):
+    c = _cell(_ev("closed", tmp))
+    assert c["R_loop_mohm"] > 0 and all(h["R_mohm"] > 0 for h in c["R_harmonics"])
+    assert c["global"]["R_loop_mohm"] > 0

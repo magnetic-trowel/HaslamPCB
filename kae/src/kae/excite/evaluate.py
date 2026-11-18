@@ -272,6 +272,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         f"bands {[round(f / 1e6, 3) for f in freqs]} MHz, setup {time.time() - t0:.1f}s")
     solved, solver_stats = {}, []
     cell_names = {s.name for s in srcs if s.kind == "cell"}
+    rcu = {}             # cell -> its copper resistance at f_sw (ohm): the copper's own dissipation
     last = {}            # source -> (f, injections, solution): the start of its next band's solve
     for f in freqs:
         keys = [k for k, (ff, _) in pats.items() if ff == f and (not loops or k[0] in cell_names)]
@@ -295,6 +296,13 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             solved[k] = res
             if res[1].get("x") is not None and not res[1].get("unbalanced"):
                 last[k[0]] = (f, inj, res[1]["x"])
+                if k[0] in cell_names and k[1] == "fund" and res[1].get("I") is not None:
+                    # the cell's copper resistance at f_sw: its current pattern's dissipation in the copper,
+                    # sum R_b |I_b|^2 per A^2 (as solved, no skin correction, like the rest of the board solve): never
+                    # negative, unlike the layout's share Re z, in which the parts' ESR losses shift as the copper moves
+                    # current among them (cyclope's TPS565208 read 0 at 490 kHz)
+                    nb_cu = net.off["l"]
+                    rcu[k[0]] = float(np.sum(net.R[:nb_cu] * np.abs(res[1]["I"][:nb_cu]) ** 2))
         if band_res:
             solver_stats.append(_solver_row(f, band_res, time.time() - t_band))
             log("solver: " + _solver_line(solver_stats[-1]))
@@ -368,7 +376,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 # the layout's share: the copper solve minus the same parts with ideal copper
                 z[band] = O.bilinear(Jk, v) - (O.bilinear(Jk, vid[(s.name, band)]) if lumped else 0.0)
             w_e = 2 * math.pi * res["edge"][0]
-            pairs.append(dict(o=o, s=s, Zf=z["fund"], Le=z["edge"].imag / w_e))
+            pairs.append(dict(o=o, s=s, Zf=z["fund"], Le=z["edge"].imag / w_e, Rcu=rcu.get(s.name)))
     # a cell whose loop closes only through impedance a working loop never has (its copper share's resistance at f_sw
     # above LOOP_LOSS_FRAC V / I, or its reactance at the edge band above V / I) carries no commutated current: its copper is effectively open (it
     # closes through a resistor, a small capacitor, a part's leak). Its values would be no layout's (gecko5 U14 under a
@@ -446,7 +454,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             # the hot loop's copper resistance at the switching frequency (the layout's share, Re Z at the
             # fundamental) carrying the loop's pulsed current: AC RMS I sqrt(D (1 - D)). The raster has no
             # skin or proximity effect, so above a few MHz this is a lower bound.
-            R = max(float(pr["Zf"].real), 0.0)
+            R = pr["Rcu"] if pr.get("Rcu") is not None else max(float(pr["Zf"].real), 0.0)
             rv = []
             for c in range(ncp):
                 val = {k[1]: v for k, v in cps[s.name][c].items()}
@@ -521,11 +529,33 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     if cells and any(s.kind == "cell" for s in srcs):
         from . import hotloop as HL
         t_c = time.time()
-        gp = {pr["s"].name: (pr["Le"], pr["Zf"]) for pr in pairs if pr["o"].kind == "overshoot"}
+        gp = {pr["s"].name: (pr["Le"], pr["Zf"], pr.get("Rcu")) for pr in pairs if pr["o"].kind == "overshoot"}
         cell_rows = HL.cell_rows(path, b, bd, bm, srcs, obs, cps, bands, window, n_cu, nsub=nsub,
                                  pitch=cell_pitch or HL.CELL_PITCH, global_pairs=gp, global_pitch=pitch,
                                  open_cells=open_cells, uncomputed=uncomputed, skin=cell_skin, log=log)
         log(f"cells: {len(cell_rows)} hot loops in {time.time() - t_c:.1f}s")
+    # a cell whose L_loop is not positive (its row, else the board solve) is no inductance: its loss.loop and
+    # overshoot.peak are marked invalid (kae.intent leaves them unpriced, the term incomplete), never reported as values
+    bad_L = {r["source"]: r["why"] for r in cell_rows if r.get("state") == "invalid"}
+    rowed = {r["source"] for r in cell_rows if r.get("state") in ("ok", "invalid")}
+    for pr in pairs:
+        if pr["o"].kind == "overshoot" and pr["s"].name not in rowed and pr["Le"] <= 0:
+            bad_L[pr["s"].name] = (f"L_loop {pr['Le'] * 1e9:.4g} nH at the edge band is not an inductance: the layout's "
+                                   f"share passes a resonance of the capacitor network near f_e")
+    for ob in observations:
+        if ob["id"] in ("loss.loop", "overshoot.peak") and ob["scope"].get("source") in bad_L and not ob.get("open"):
+            ob["invalid"] = bad_L[ob["scope"]["source"]]
+    for name, why in sorted(bad_L.items()):
+        notes.append(f"{name}: {why}: loss.loop and overshoot.peak not reported")
+    # a cell the brief found but the circuit could not excite (no switch found, no pad on its bus) gets a row saying so:
+    # never silently absent from the cells a comparison counts
+    have = {r["source"] for r in cell_rows} | {s.name for s in srcs if s.kind == "cell"}
+    for st in brief.get("structures") or []:
+        if st.get("kind") != "commutation_cell" or f"cell:{st.get('id')}" in have:
+            continue
+        why = next((a for a in bd.assumptions if a.startswith(f"{st.get('id')}:")), "not excited")
+        cell_rows.append(dict(cell=st.get("id"), source=f"cell:{st.get('id')}", state="not_computed", why=why))
+        notes.append(f"cell:{st.get('id')}: not evaluated: {why}")
     # every cell's AC loop loss as a sum over harmonics with skin and proximity crowding: R(f) from its window where it
     # has a refined one, else from the board solve at f_sw, 3 f_sw, 5 f_sw with the skin correction (_board_R_rows)
     from . import hotloop as HL
@@ -810,14 +840,14 @@ def _board_R_rows(bd, bm, net, op, s, o, f0, key, nsub, lumped):
         inj = {p: j for p, j in sol[key].items() if p in bm.m.terminals and abs(j) > 1e-12}
         net.R = _skin_R(net, f, nsub)
         try:
-            (v, info), = ES.potentials_many(bm.m, [inj], f, net=net, op=op, light=True)
+            (v, info), = ES.potentials_many(bm.m, [inj], f, net=net, op=op, light=True, leak=CELL_LEAK)
         finally:
             net.R = R0
         if info["unbalanced"]:
             return None
-        z = O.bilinear(O.pattern(bd, o, f, active=lumped), v) - (O.bilinear(O.pattern(bd, o, f, active=lumped),
-                                                                             O.ideal(bd, sol)) if lumped else 0.0)
-        out.append(dict(n=n, f_MHz=round(f / 1e6, 4), R_mohm=round(max(z.real, 0.0) * 1e3, 4)))
+        # the copper's own dissipation of the cell's current (kae.excite.ripple.p1, skin-corrected R): never negative
+        from . import ripple as RP
+        out.append(dict(n=n, f_MHz=round(f / 1e6, 4), R_mohm=round(2 * RP.p1(net, info["I"], f, nsub) * 1e3, 4)))
     return out
 
 

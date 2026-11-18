@@ -190,8 +190,17 @@ def _cell(bd, s, uuid):
         if swp:
             nodes = bd.ic_nodes[ctrl]
             if high:
-                a = nodes.get(bus) or bus
-                src = c.src(f"cell:{s['id']}", a, sw, pb=swp[0], **meta)
+                a, pa = nodes.get(bus), None
+                if a is None:
+                    # no internal node for the bus (its pin typed as neither supply nor power input): the switch's
+                    # current enters at the controller's own pad on the bus. Driven at the bare net (no pad), it came
+                    # from nowhere and the copper saw it open on every layout (pms67's MP2359, 1 A "with no way out")
+                    a = bus
+                    pa = next((t for t in sorted(bd.pads_of.get(bus, [])) if t.startswith(ctrl + ".")), None)
+                    if pa is None:
+                        bd.assumptions.append(f"{s['id']}: {ctrl} has no pad on the bus {bus}; cell not excited")
+                        return None
+                src = c.src(f"cell:{s['id']}", a, sw, pa=pa, pb=swp[0], **meta)
             else:
                 src = c.src(f"cell:{s['id']}", sw, nodes["g"], pa=swp[0], **meta)
             loop_refs = {uuid.get(u) for u, _ in s.get("loop") or []}
@@ -209,11 +218,26 @@ def _cell(bd, s, uuid):
             return src
     # a discrete switch: the transistor in the loop between the switch node and the far net
     far = bus if high else gnd
+    loop_pins = {}
+    for u, pins in s.get("loop") or []:
+        ref = uuid.get(u)
+        if ref:
+            loop_pins.setdefault(ref, []).extend(pins if isinstance(pins, list) else [pins])
     for u, _ in s.get("loop") or []:
         ref = uuid.get(u)
         if ref and bd.part_kind.get(ref, ("",))[0] == "transistor":
             pa = next((t for t in bd.pads_of.get(sw, []) if t.startswith(ref + ".")), None)
             pb = next((t for t in bd.pads_of.get(far, []) if t.startswith(ref + ".")), None)
+            if pa and not pb:
+                # the switch's far terminal on another net: a current-sense resistor between a low-side FET's source and
+                # ground (MAX1771, LTC3783, LT3754 boosts). The loop's own pin of the transistor that is not on the
+                # switch node is the switch's far end; the commutated current runs on through the sense resistor
+                pb = next((f"{ref}.{n}" for n in loop_pins.get(ref, [])
+                           if f"{ref}.{n}" != pa and bd.net_of.get(f"{ref}.{n}") not in (None, sw)), None)
+                if pb:
+                    far_ = bd.net_of[pb]
+                    a, b = (far_, sw) if high else (sw, far_)
+                    return c.src(f"cell:{s['id']}", a, b, pa=pb if high else pa, pb=pa if high else pb, **meta)
             if pa and pb:
                 a, b = (far, sw) if high else (sw, far)
                 return c.src(f"cell:{s['id']}", a, b, pa=pb if high else pa, pb=pa if high else pb, **meta)
