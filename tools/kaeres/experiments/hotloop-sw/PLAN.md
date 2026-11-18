@@ -202,3 +202,15 @@ The suite counts as passing. The same reading applies to #109357 (60b2d722) and 
 | D | 60 | 193 | 24 | 0 |
 
 - *What the check does not cover:* a piece that finish's gate tried and then reverted leaves no trace in the output. Such a piece would show up only as a difference in finish's search. The fix runs (`hotloop-sw-fix-2f80d85`) test that on boards with such areas, which is why they still finish.
+
+**kae suite at 60b2d722 (#109357):** passes. Its only failure was `test_route_kicad.py::test_router_killed_at_its_deadline_still_yields_a_board`, a test that failed on most runs because of its timing. It is fixed, test-only, in 6617e1e7 on `default-and-fixes` (PR #111), where all three suites pass: kae 1,387, bench 238, kaeres 90.
+
+**Giacobot, the real board (#109358, the cells stage at 60b2d722 on giacobot's task input):**
+- The pour links alone did not keep the pours. The post-cells check found U2.7 (LX2) and U2.9 (LX1) cut off from their pours. It reverted `cell:buck:U2` and kept `cell:boost:U2` routed (8 items, 2.22 nH).
+- After the revert, all four LX pads (U2.7, U2.9, L1.1, L1.2) touch their pours again, and no pad is left cut off.
+- *Wording defect in the hazard:* the second hazard, for U2.9, says that no cell was reverted. In fact the buck cell's revert, made for U2.7, already restored U2.9. Only the message text is wrong. Left as is at the registered SHA.
+
+**C′ and CD′ registered and submitted (2026-11-18):**
+- Experiment `hotloop-sw-c2-60b2d72` at 60b2d722, 60 boards.
+- Routing: 120 kaeq jobs #110095–#110214, owner hsw, timed class, priority 5, `--cpus 4`, `--mem` at 0.75 × the kaeres estimate.
+- Physics follows once the routed boards exist, as for the other arms: `--scope losses`, each run's DRC, `OPSRC=compiled-0833f61`.
