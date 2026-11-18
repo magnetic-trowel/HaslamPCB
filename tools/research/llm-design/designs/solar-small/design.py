@@ -358,9 +358,12 @@ def operating(d):
            "SW abs max 32 V DC (6.1)")
     for cls in ("buck", "boost"):
         k.cell("U101", cls, I_A=(0.01, 0.6, 0.85), vin="PV_IN", vout="SYS",
+               V_V=(4.5, 18.0, 25.0) if cls == "buck" else (11.5, 13.5, 15.0),
                why="LTC3130 4-switch buck-boost, one inductor: average inductor current up to the 660 mA (850 mA "
                    "typ) ILIM limit in hiccup bursts and full sun (typical 0.6 A: a 10 W panel at 13.5 V); ~10 mA in "
-                   "light bursts")
+                   "light bursts. Switched bus: the panel only while the converter runs, above the 5 V default "
+                   "RUN threshold (4.5 V allows the comparator's 10 % hysteresis), up to 25 V; the boost half "
+                   "switches the battery side")
     k.cell("U301", "buck", I_A=(0.002, 0.05, 0.35), vin="SYS", vout="+3V3",
            why="ESP32-C6 deep sleep (~2 mA incl. module regulator) to Wi-Fi TX peaks ~350 mA [S, Espressif C6 "
                "datasheet typical]")
