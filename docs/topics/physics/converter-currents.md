@@ -69,6 +69,7 @@ A hard-switched CCM cell commutates twice per period: the active switch turns of
 - A two-event sum ½·L·f·(I_pk² + I_valley²) ≈ L·I_L²·f is not charged: it counts the turn-on energy that the snubbing returns. The rectifier's reverse recovery and the switch node's C_oss are separate terms (`loss.swnode`, ½·C·V²·f).
 - EPC WP010 [P]: 0.4 → 2.9 nH costs over 4 % efficiency at 1 MHz and raises overshoot from 30 % to 100 % of V_in; it gives no per-event split. The rest of the gap to ½·L·I²·f is slower commutation and the overshoot's own loss ([hot-loop-evaluation § 6](hot-loop-evaluation.md#6-absolute-loss-scale-½li²f-understates)) [I].
 - The fundamental term of `overshoot.peak` and `loss.loop_ac` keep the average I_L: they are the trapezoid's spectrum, whose amplitude is the average.
+- Effect on human layouts: loss.loop median 1.16× (1.00–1.78), overshoot up to 1.33× ([hot-loop-evaluation-runs § 4](../../research/physics/hot-loop-evaluation-runs.md#4-converter-current-changes-on-human-layouts-2026-11-17)) [C].
 - A cell without an inductor in its circuit model keeps I_L (no ripple known). The router's cell watts (`critical_modules.cell_operating`) keep I_L: a constant factor per cell, no ranking change.
 
 ## Open questions

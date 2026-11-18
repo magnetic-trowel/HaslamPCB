@@ -4,7 +4,7 @@
 
 **Status:** measurements behind [hot-loop-evaluation](../../topics/physics/hot-loop-evaluation.md); model against model, no hardware.
 **First published:** 2026-11-14 to 2026-11-17 on branches `hotloop-eval`, `hotloop-sw`; moved here from the topic doc on `converter-currents`.
-Keys: hot-loop window run time, window cap reverted, scope losses equivalence, hot-loop validation human layouts, loss.loop_ac harmonic sum effect, loss.copper_ac on converter boards, wideband comparison
+Keys: turn-off current I_pk effect, buck input current eta effect, hot-loop window run time, window cap reverted, scope losses equivalence, hot-loop validation human layouts, loss.loop_ac harmonic sum effect, loss.copper_ac on converter boards, wideband comparison
 
 ## 1. Window run time and the reverted window cap
 
@@ -64,3 +64,30 @@ Counting open cells moves C from 1.10× to 1.38× human: the arm that left more 
 | bq25306 human | 0.235 mW | 0.230 + 0.018 = 0.248 mW | the cell's term agrees within 2 %; wideband adds the cores' currents, has no ripple |
 | qubik-bmps human | 0.210 mW | 0.141 + 0.003 = 0.144 mW | wideband builds its circuit without the operating facts' pin facts (a different brief), solves every harmonic to 172 MHz where `loss.loop_ac` extrapolates √f above 5 f_sw, and stays at 0.25 mm (the window reads R 8 % lower here) |
 | powerboost human | — | 0.086 + 0.011 mW | wideband fails with no sources (no pin facts: no cell found) |
+
+## 4. Converter-current changes on human layouts (2026-11-17)
+
+Branch `converter-currents`, `--scope losses`, typical corner (loss sums, overshoot and drop maxima), status tiers summed [C]. A = base 37c5307 with `compiled-9867d0b`; B = 51eaed9 with `compiled-51eaed9` (boost input current, η in the boost duty, buck input current D·I_out/η); C = 248e030 (loss.loop and the overshoot edge at the turn-off current I_pk = I + ΔI/2). B/A on 14 of the 22 buck-only converter boards (the 8 with evaluations over ~1 h not re-run: arvsom, sdi-mipi, kocer, sinara, pumpbot, polarfire, J2032, USB armory); C/B on those and three boost boards ("0→x": no A run). "-": no such observation.
+
+| board | B/A loss.copper | B/A drop.rail | B/A loss.part | B/A total | C/B loss.loop | C/B overshoot | C/B total |
+|---|---|---|---|---|---|---|---|
+| adafruit-adafruit-powerboost-500-c | 0→0.0101 | 0→0.00549 | 0→0.0609 | 0→166 | 1.175 | 1.082 | 1.001 |
+| aifryz-sensor-hub-sensor-hub | 1.000 | 1.000 | 1.000 | 1.000 | 1.784 | 1.331 | 1.002 |
+| antmicro-audio-latency-tester-boar | - | - | - | 1.000 | 1.166 | 1.066 | 1.017 |
+| buildacubesat-project-bac-hardware | - | - | 1.000 | 1.000 | 1.606 | 1.262 | 1.004 |
+| computergeek1507-kicad-designs-pi- | 1.000 | 1.000 | 1.000 | 1.000 | - | - | 1.000 |
+| dimoustroufis-librewave-ecp5-libre | - | - | - | 1.000 | 1.437 | 1.169 | 1.094 |
+| govish-fusion-pack-buck-converter- | 1.035 | 1.000 | 1.000 | 1.000 | 1.199 | 1.093 | 1.000 |
+| heypcb-kestrel-esc-kestrel-esc | 0.821 | 0.900 | 1.000 | 0.996 | 1.017 | 1.000 | 1.000 |
+| jrsteensen-openhornet-controller-a | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| librespacefoundation-qubik-qubik-b | - | - | - | 1.000 | 1.150 | 1.071 | 1.058 |
+| logisim-evolution-gecko5education- | 1.006 | 1.000 | 1.000 | 0.975 | 1.096 | 1.050 | 1.000 |
+| martinberlin-h-cinread-it8951-mini | 0→0.0174 | 0→0.00922 | 0→0.515 | 0→1.16e+03 | 1.052 | 1.025 | 1.000 |
+| robertpheller-rpi-rrcircuits-stm32 | - | - | - | 1.000 | 1.000 | 1.000 | 1.000 |
+| seniordesignmay1607-pcb-hdmi2rgb-h | 1.061 | 1.015 | 1.000 | 1.025 | 1.000 | 1.000 | 1.000 |
+| shazmeenshz-esp32-flight-controlle | 1.003 | 1.000 | 1.006 | 0.975 | 1.073 | 1.035 | 1.001 |
+| sparkfun-micro-bit-moto-bit-sparkf | 1.014 | 0.999 | 1.000 | 1.031 | 1.536 | 1.000 | 1.002 |
+| zephray-nekoink-pcb-2 | - | - | - | 0→7.3 | 1.369 | 1.144 | 1.062 |
+
+- Buck input current (B/A): DC copper loss 0.82–1.06×, board totals within ±3 %. Kestrel's 0.82: the cell's loss current now returns through its controller's ground pins, against the synchronous rectifier's ground current, shortening the net return.
+- Turn-off current (C/B): loss.loop median 1.16× (1.00–1.78), overshoot 1.00–1.33×, board totals ≤ +9.4 % (librewave). Cells with no inductor in their circuit (jrsteensen, robertpheller, hdmi2rgb) do not move.
