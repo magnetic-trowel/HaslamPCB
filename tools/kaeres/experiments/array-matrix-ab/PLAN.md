@@ -138,3 +138,15 @@ on the new build.
 Approved by the user 2026-11-17 after the analysis of finished rows from older builds (explore-2611 results); written before any result of this build is read.
 - adafruit eyelights (no legal spot for the matrix; inert on -m) and bombarie tens (inert on -m) are dropped: 36 boards at k = 2. Boards with zero opens in the control stay as a harm guard.
 - **Extension (pre-registered):** if the result is unknown, extend with more matrix boards, not more seeds, since the between-board SD dominates (about 0.47 per board). Primary and decision rule unchanged.
+
+## Addendum 2026-11-18 (inert boards found at the 25 % check; no primary result read)
+- madcatse mad5160 and watterott vcard-v10: the macros arm equals the control in every restart attempt. Cause: a
+  legitimate gate, not a bug. Re-running the pin step at c8f8c2e3 on their task inputs, the 9 x 4 RAM-socket matrix
+  (10.7 x 21 mm cells) and the 8 x 12 LED matrix both end in `no_legal_spot` with no grid candidate at all: the seed
+  footprints the pin step keeps free (movable parts of at least 100 mm2 and the matrix's own drivers, 65 rectangles on
+  vcard) leave no lattice-sized free box. With that reservation off, both would pin (mad5160 40 mm from its seed). The
+  screen (`scan_gated.py`) runs detection only, not the pin step, so it cannot see this.
+- They are inert and are excluded the same way as eyelights and bombarie: 34 boards at k = 2. Their runs stay on disk
+  as an A/A check (identical outputs).
+- Whether the reservation is too strict is an open question for the mechanism (it trades the lattice against the
+  drivers' room); it is not changed under this experiment.
