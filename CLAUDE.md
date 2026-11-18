@@ -43,8 +43,8 @@ kaebench report kae-work/results/<run> kae-work/results/<baseline-run>
 ```
 
 - Fast iteration: `--splits A` (≤ 31 pads) or `--only id1,id2`; full runs take hours.
-- Run long jobs detached and poll them instead of holding a foreground command:
-  `tmux new -d -s bench 'kaebench run ... > kae-work/<run>.log 2>&1'`, then `tail` the log.
+- Run long jobs through `kaeq` (below) and wait with one background `kaeq wait`; don't hold a foreground
+  command or poll a log.
 - Host-specific paths (KiCad, Freerouting, data dirs) go in a git-ignored `CLAUDE.local.md`.
 - Re-using `--name` resumes a run; use a new name after changing a method.
 - Per-attempt artifacts: `kae-work/results/<run>/<adapter>/<kind>/<id>/attempt-N/`
@@ -53,6 +53,18 @@ kaebench report kae-work/results/<run> kae-work/results/<baseline-run>
   Results of every method on every board, with the code that made them: `tools/kaeres/README.md` (`~/kae-baselines/boards/<id>/runs/`).
 - New methods plug in with `--command` (reads `{input}`, writes `{output}`) or a class in
   `bench/src/kaebench/adapters.py`.
+
+## Many sessions share this host and its queue
+
+Several Claude sessions run experiments here at once; tokens are the scarce resource. Details: the `kaeq` skill.
+- Your jobs record your session (`$CLAUDE_CODE_SESSION_ID`). Look after only your own jobs and experiments: never
+  wait on, retry, cancel, analyse or report on another session's (`kaeq sessions` shows whose is whose).
+- After submitting, stop: the kaeq dispatcher messages you at a campaign's first failure, its 25% mark and its end.
+  (Without a dispatcher, `kaeq wait` in the background does the same; see the skill.) No
+  polling: no `send_later`/`ScheduleWakeup`/`Monitor`/sleep loops, no repeated `kaeq status`, `kaeqtop` or log tails.
+- Tell another session about a problem in its work with `kaeq note <session-or-owner> "..."`; it reads it when its
+  wait returns. Message a session directly only to answer its question or when you are blocked on it: one message
+  with everything, no status updates, FYIs or thanks.
 
 ## Rules for closed-loop work
 

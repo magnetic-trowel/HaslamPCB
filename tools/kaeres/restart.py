@@ -137,6 +137,19 @@ def _drc_items():
 
 
 DI = _drc_items()
+
+
+def _rank():
+    """kae's board ranking (kae/src/kae/rank.py, stdlib only), loaded by path from this checkout: the joint
+    loop keeps its steps by the same rule as this judge."""
+    f = Path(__file__).resolve().parents[2] / "kae" / "src" / "kae" / "rank.py"
+    spec = importlib.util.spec_from_file_location("kae_rank", f)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+RANK = _rank()
 BUSY = [lambda: False]   # whether any attempt is computing (main sets it)
 
 
@@ -472,8 +485,8 @@ def outside(board):
 
 
 def judge(board, inp, base, timeout, placement=False, base_pairs=()):
-    """Rank key (lower is better) in the harness's order: legal, clean, then fewer unconnected,
-    then fewer DRC errors beyond the input's own (per type). With `placement`, parts outside the
+    """Rank key (lower is better, kae.rank.board_rank) in the harness's order: legal, clean, then fewer
+    unconnected, then fewer DRC errors beyond the input's own (per type). With `placement`, parts outside the
     outline, or parts on top of each other that the input (`base_pairs`) does not already have,
     make it illegal; the last field counts both. None when there is no board."""
     d = drc(board, inp, timeout)
@@ -483,8 +496,7 @@ def judge(board, inp, base, timeout, placement=False, base_pairs=()):
     out = outside(board) if placement else 0
     if placement:
         out += len(set(map(tuple, d.get("overlaps", ()))) - set(map(tuple, base_pairs)))
-    clean = out == 0 and new == 0 and d["unconnected"] == 0
-    return (1 if out else 0, 0 if clean else 1, d["unconnected"], new, out)
+    return RANK.board_rank(d["unconnected"], new, out)
 
 
 def charge_env(info):

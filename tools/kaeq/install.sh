@@ -11,6 +11,7 @@ install -m 755 "$here/kaeq.py" ~/.local/share/kaeq/kaeq.py
 rm -rf ~/.local/share/kaeq/kaeqlib && mkdir -p ~/.local/share/kaeq/kaeqlib
 install -m 644 "$here"/kaeqlib/*.py ~/.local/share/kaeq/kaeqlib/
 install -m 755 "$here/kaeqtop.py" ~/.local/share/kaeq/kaeqtop.py
+install -m 644 "$here/relay.md" ~/.local/share/kaeq/relay.md   # the relay session's instructions (kaeq dispatch)
 # what is deployed: commit, branch, local changes, whether main has it (kaeq doctor, kaeqtop, the daemon's health check)
 python3 - "$here" <<'PY'
 import json, subprocess, sys, time, os
