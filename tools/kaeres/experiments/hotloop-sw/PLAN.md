@@ -147,3 +147,12 @@ Expected gain about 25–35 %, still tens of seconds per cell. Making clear take
 - kae: the new deferral test called `clear_hook` without `deadline`. That is fixed (c4bd8788) and the suite is re-running.
 
 Both fixes touch tests only, so the arms are registered at 908e21ff, the code the re-smoke ran.
+
+**kae suite at the registered code:** the retry (#108902, with c4bd8788) passed everything except `test_route_kicad.py::test_router_killed_at_its_deadline_still_yields_a_board`. That test depends on timing and is flaky from before this branch: it failed 2 of 3 runs at ee2e273f and passed 3 of 3 at b8703501. It passed in this suite's first run at 908e21ff, and the new deferral test passes with its fix. The suite counts as passing.
+
+## Registered and submitted (2026-11-18)
+
+- **Experiment:** `hotloop-sw` at 908e21ff, 60 boards. Methods: N a43704439a45, C bc1c76f00cfb, D 3ea52515fb83, CD 013b38bc8dd5. DRC evaluator 7868e10b621b.
+- **Smoke board reused:** the smoke board's four runs (same code and recipe, run side by side under counted work) are kept (`--reuse-runs`).
+- **Routing:** 118 kaeq jobs (two per board), timed class, priority 5, `--cpus 4`, `--mem` at 0.75 × the kaeres estimate.
+- **Human physics:** 60 jobs. N, C, D and CD follow once the routed boards exist, all with `--scope losses`, each run's DRC (`RFAB_DRC_EVAL`) and `OPSRC=compiled-0833f61`.

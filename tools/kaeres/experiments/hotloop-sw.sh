@@ -68,7 +68,7 @@ add "$CD" "as '$N' with KAE_HOTLOOP_CELLS=1 KAE_HOTLOOP_CLEAR=1" "$Z KAE_HOTLOOP
 desc="hot-loop A/B on simple switching-regulator boards at $S7: N default, C cells first, D clear, CD both; Freerouting $(basename $(dirname $(dirname $FORK))). Recipe: tools/kaeres/experiments/hotloop-sw.sh; plan hotloop-sw/PLAN.md. Operating facts rf-ab-operating-$OPH"
 M=(--method "$N" --method "$C" --method "$DD" --method "$CD")
 case "$STAGE" in
-  full) $K exp create hotloop-sw "${M[@]}" --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
+  full) $K exp create hotloop-sw "${M[@]}" ${REUSE_RUNS:+--reuse-runs} --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "$desc" >/dev/null ;;
   smoke) $K exp create hotloop-sw-smoke-$S7 "${M[@]}" --boards "${BOARD:?BOARD}" --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "smoke (${BOARD}) of the $desc" >/dev/null ;;
