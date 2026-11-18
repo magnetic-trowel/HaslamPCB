@@ -1090,6 +1090,16 @@ class PowerCopper:
         self.stats["widened_arcs"] = self.stats.get("widened_arcs", 0) + 1
         self.stats["widened_mm"] += sum(abs(rad * sw * (x1 - x0) / L) for x0, x1, w in merged if w > t.width + 1e-9)
 
+    def _pour_keepouts(self, layer):
+        """The rule areas on `layer` that forbid copper pours (kae.board.model.Keepout.copperpour), grown by VTOL,
+        as one shape; None when there are none. A rule area on "*.Cu" or "F&B.Cu" covers its layers."""
+        def on(k):
+            ls = k.layers or []
+            return layer in ls or "*.Cu" in ls or ("F&B.Cu" in ls and layer in ("F.Cu", "B.Cu"))
+        shapes = [k.outline for k in getattr(self.board, "keepouts", []) or []
+                  if k.copperpour and on(k) and k.outline is not None and not k.outline.is_empty]
+        return unary_union(shapes).buffer(VTOL) if shapes else None
+
     # ---------------------------------------------------------------- 1b. vector growth
     def grow_vector(self, nets=None, out=None):
         """Vector mode: per power/ground net and layer, the free region around the net's copper
@@ -1141,10 +1151,18 @@ class PowerCopper:
             if not cand:
                 continue
             claims = self._share_room(cand, layer)
+            no_pour = self._pour_keepouts(layer) if (out or self.o["vector_out"]) == "zones" else None
             for net, c in cand.items():
                 claim = claims.get(net)
                 if claim is None or claim.is_empty:
                     continue
+                if no_pour is not None and claim.intersects(no_pour):
+                    # a zone may not lie in a rule area that forbids copper pours (the router's keep-outs hold
+                    # only the areas that forbid tracks or vias): the piece is clipped to stay out of it. Only a
+                    # piece that meets one is touched, so a board without such an area writes the same copper
+                    claim = claim.difference(no_pour)
+                    if claim.is_empty:
+                        continue
                 w = sp.clamp_width(net, layer, self.o["vector_strip"])
                 seeds, own_fill = c["seeds"], c["fill"]
                 for piece in getattr(claim, "geoms", [claim]):
