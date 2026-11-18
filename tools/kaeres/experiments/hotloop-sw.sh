@@ -70,8 +70,10 @@ M=(--method "$N" --method "$C" --method "$DD" --method "$CD")
 case "$STAGE" in
   full) $K exp create hotloop-sw "${M[@]}" ${REUSE_RUNS:+--reuse-runs} --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "$desc" >/dev/null ;;
+  fix) $K exp create hotloop-sw-fix-$S7 --method "$C" --method "$CD" --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
+          --env KAE_STEP_CACHE=$STEP_CACHE --description "C and CD re-routed at $S7 on the boards a fix touches, plus identity boards (PLAN.md). $desc" >/dev/null ;;
   smoke) $K exp create hotloop-sw-smoke-$S7 "${M[@]}" --boards "${BOARD:?BOARD}" --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "smoke (${BOARD}) of the $desc" >/dev/null ;;
-  *) echo "STAGE: full or smoke" >&2; exit 2 ;;
+  *) echo "STAGE: full, fix or smoke" >&2; exit 2 ;;
 esac
 echo "experiment created (STAGE=$STAGE); nothing submitted"

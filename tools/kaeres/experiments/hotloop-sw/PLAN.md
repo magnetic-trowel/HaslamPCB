@@ -156,3 +156,21 @@ Both fixes touch tests only, so the arms are registered at 908e21ff, the code th
 - **Smoke board reused:** the smoke board's four runs (same code and recipe, run side by side under counted work) are kept (`--reuse-runs`).
 - **Routing:** 118 kaeq jobs (two per board), timed class, priority 5, `--cpus 4`, `--mem` at 0.75 × the kaeres estimate.
 - **Human physics:** 60 jobs. N, C, D and CD follow once the routed boards exist, all with `--scope losses`, each run's DRC (`RFAB_DRC_EVAL`) and `OPSRC=compiled-0833f61`.
+
+## The invalid board in C and CD, and the cp1 flips (after the first routing)
+
+**Invalid output** (danielmcmillan irrigation, C and CD): finish's power copper wrote a `kae-pc:GND` zone into a board rule area with `(copperpour not_allowed)`, and the scorer correctly marks the output invalid. The cells stage itself wrote no zone; with it on, the routing differs and power copper grows into that area.
+- **Fix:** 2f80d856 on `hotloop-sw`. The vector growth clips any zone piece that meets a pour-forbidding rule area. Such areas never reach the router's keep-outs, because the DSN carries only wire and via keep-outs. Pieces that meet no such area are untouched. Test: `kae/tests/test_route_power_copper_keepout.py`, which fails without the fix.
+- **Equivalence argument:** under counted work the router is deterministic, and the fix changes only zone pieces that meet a pour-forbidding area. Final outputs with such a piece are the invalid ones, which here are danielmcmillan in C and CD only. Finish's gate may have tried and reverted such pieces elsewhere, though, so this is checked, not assumed.
+- **Check:** C and CD are re-run at 2f80d856 on danielmcmillan (the affected board) and on three identity boards: zebra-rodeo marelleo (12 pour-forbidding areas), heypcb quack-face (8) and 4x1md nikon-gps (none). Experiment `hotloop-sw-fix-2f80d85`. If the identity boards match their 908e21ff runs (byte for byte, or on DRC and `kae.route.taut` stats), the 2f80d856 runs replace C and CD on danielmcmillan only. Otherwise C and CD are re-run on all 60.
+
+**The cp1 flips against N** (C and CD flip on the same six boards):
+
+| board | flip | why |
+|---|---|---|
+| danielmcmillan irrigation | loss | the invalid zone above (fixed) |
+| giacobot esp32mp3 | loss | the switch-node pads U2.9 (LX1) and U2.7 (LX2) left unconnected from their own zones. Cell-related: the cells stage lays the switch-node copper, and the LX zones no longer reach the pads. A real defect of the cells stage |
+| julianschuler esp-led-dimmer | loss | one `starved_thermal` on the GND zone (F.Cu) near the cell. Likely the cell's locked copper taking spoke room; small |
+| hpvdt falcon flight-stick | gain | N left 6 MCU signal nets open (OSC, RESET, ADC, USB), far from any cell. Search-path noise: the cells stage changes Freerouting's input, not these nets' room |
+| stephendade pipowernew | gain | N had 22 `starved_thermal` on the GND zones (In1, In2, B.Cu), C none. The cell (`buck:U3`, partial) changes what is routed near those pads. Partly real; not separable without a twin |
+| chl33 dough133 | gain | one `starved_thermal` on +3.3V (In2) in N, none in C. Small; likely search-path |
