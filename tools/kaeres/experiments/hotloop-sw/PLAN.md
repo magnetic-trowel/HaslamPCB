@@ -129,3 +129,21 @@ D's board need not differ from N's on a board where clearing leaves a net open: 
 - quote the cell only after its board passes DRC.
 
 Expected gain about 25–35 %, still tens of seconds per cell. Making clear take seconds would mean dropping the per-cell DRCs and the Freerouting round (option C), a design change for the hot-loop owner.
+
+**Re-smoke at 908e21ff** (same board; the criterion above): passed.
+
+| arm | clear | wall s | cell outcome | pass |
+|---|---|---|---|---|
+| D | ran | 49.1 | kept, "better": R_loop 11.55 → 9.04 mΩ, L 4.15 → 4.14 nH, DRC errors 29 → 25; all 4 ripped nets re-routed | kept (KiCad rank equal) |
+| CD | ran | 82.1 | rejected: `RXDtoTXD0` left open (`hotloop_clear_blocked`); the board stays as routed | kept, the unchanged board (rank equal) |
+
+- No `hotloop_clear_skipped` in either arm.
+- D's board differs from N's.
+- All four arms are complete, with valid outputs, at 4.3–4.4 GB peaks.
+
+**Suites at the registered code:**
+- bench: 238 passed.
+- kaeres: 89 passed, after a fix to the new clear test's budget (a6d8e7e7).
+- kae: the new deferral test called `clear_hook` without `deadline`. That is fixed (c4bd8788) and the suite is re-running.
+
+Both fixes touch tests only, so the arms are registered at 908e21ff, the code the re-smoke ran.
