@@ -116,7 +116,7 @@ def _intent(board_path, opts):
         return None
 
 
-def _session(board_path, info, st, opts, log):
+def _session(board_path, info, st, opts, log, pour_links=False):
     from .critical import Session, intent_opts
     from kae.board import pinfacts as PF
     from kae.board.kicad_file import load
@@ -129,6 +129,7 @@ def _session(board_path, info, st, opts, log):
     PF.apply(board, (intent or {}).get("pins"))
     copts = dict(kinds=("cell",), rails="none", complete_mm=0.0, island_mm=0.0, thermal_spokes=False,
                  place_allocs=False, guards=(), cell_price="W", cell_via_array=bool(st["vias"]), cell_widest_fit=True,
+                 pour_links=pour_links,
                  intent=intent, **intent_opts(intent))
     return Session(board_path, info=info, opts=copts, log=log, board=board)
 
@@ -755,6 +756,92 @@ def cell_hazards(mods):
     return out
 
 
+def _pad_fill_contacts(path, info):
+    """{(pad uuid, layer)} of the pads on a zone's net whose copper touches their net's zone fill on
+    `path` (refilled as kicad-cli's DRC does), this stage's own pours and keep-outs left out."""
+    from shapely.ops import unary_union
+    from kae.board import pcbnew_io as PIO
+    fills = {}
+    for z in PIO.zone_fills(path).get("zones") or []:
+        if hard_zone(z.get("name")) or not z.get("net"):
+            continue
+        for l, rl in (z.get("layers") or {}).items():
+            fills.setdefault((z["net"], l), []).extend(PIO._polys(rl))
+    fills = {k: unary_union(v) for k, v in fills.items() if v}
+    out = set()
+    for pad in info.get("pads") or []:
+        net = pad.get("net")
+        for l, g in (CN._pad_shapes(pad)[1] or {}).items():
+            f = fills.get((net, l))
+            if f is not None and g is not None and not g.is_empty and g.intersection(f).area > 1e-4:
+                out.add((pad.get("uuid"), l))
+    return out
+
+
+def pour_check(s, input_path, info, mods, workdir, log=_log, before=None):
+    """The post-cells check: the cells' copper written to a probe board and every zone refilled; a pad
+    of a zone's net whose copper touched its pour on the input and no longer does has been cut off
+    by a cell's other-net copper (giacobot: +BATT, +3V3 and GND cell tracks beside U2's LX pins
+    left the solid LX pours no way to the pins). The cells with other-net copper inside that pad's
+    zone on that layer are reverted (their copper ripped; the general router lays those nets) and a
+    `hotloop_cell_cut_pour` hazard says so. Returns (hazards, cut pads after the revert)."""
+    from shapely.ops import unary_union
+    from kae import hazards as H
+    from .critical_joint import _rip
+    if not any(m.copper for m in mods):
+        return [], []
+    before = _pad_fill_contacts(input_path, info) if before is None else before
+    probe = Path(workdir) / "hotloop-pourcheck.kicad_pcb"
+    s.write(probe)
+    lost = sorted(before - _pad_fill_contacts(probe, info))
+    if not lost:
+        return [], []
+    pads = {p.get("uuid"): p for p in info.get("pads") or []}
+    zones = [z for z in info.get("zones") or [] if not z.get("rule_area") and z.get("net")
+             and not hard_zone(z.get("name"))]
+    out, gone = [], []
+    for u, l in lost:
+        pad = pads.get(u) or {}
+        net = pad.get("net")
+        rings = [CN._poly(r) for z in zones if z["net"] == net and l in (z.get("layers") or []) for r in z["rings"]]
+        clr = max([float(z.get("clearance") or 0.0) for z in zones if z["net"] == net] + [0.0])
+        area = unary_union([r for r in rings if r is not None]).buffer(clr + 0.05) if rings else None
+        hit = []
+        for m in mods:
+            for it in m.copper:
+                if it.net == net or l not in (it.layers or ()):
+                    continue
+                if area is not None and it.geom.buffer((it.width or 0.0) / 2).intersects(area):
+                    hit.append(m)
+                    break
+        for m in hit:
+            if m.copper:
+                log(f"hotloop: {m.id} cut {pad.get('ref')}.{pad.get('number')} ({net}) off its pour on {l}; reverted")
+                _rip(s, m)
+                m.status = "reverted"
+                m.notes = [f"reverted: its copper cut {pad.get('ref')}.{pad.get('number')} ({net}) off its pour on {l}"]
+        out.append(H.make(
+            "hotloop_cell_cut_pour", "warn", "electrical",
+            f"{pad.get('ref')}.{pad.get('number')} ({net}) touched its zone's fill on {l} on the input, and the "
+            f"hot-loop cells' other-net copper cut it off; "
+            + (f"{', '.join(m.id for m in hit)} reverted, the general router lays those loops."
+               if hit else "no cell's copper is inside that zone, so none was reverted."),
+            objects=[f"{pad.get('ref')}.{pad.get('number')}", *(m.id for m in hit)],
+            evidence=dict(net=net, layer=l, reverted=[m.id for m in hit]),
+            fix="Room between the cell and the pour's pins, or route the loop by hand."))
+    if any(m.status == "reverted" for m in mods):
+        s.write(probe)
+        gone = sorted(before - _pad_fill_contacts(probe, info))
+    else:
+        gone = lost
+    for ext in (".kicad_pcb", ".kicad_pro", ".kicad_dru", ".kicad_prl"):
+        try:
+            probe.with_suffix(ext).unlink()
+        except OSError:
+            pass
+    return out, gone
+
+
 def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
     """The hot-loop stage on a task input. Returns None when every option is off, else a report
     with `board` (the work board the bridge routes; None when nothing was added), `guards` (the
@@ -767,12 +854,15 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
     wd.mkdir(parents=True, exist_ok=True)
     rep = dict(settings=st, board=None, guards=[], cells=[], hazards=[])
     try:
-        s = _session(input_path, info, st, opts, log)
+        # pour links only where cells are laid (stage, cells on); clear's session plans without them
+        s = _session(input_path, info, st, opts, log, pour_links=bool(st["cells"]))
         if st["cells"]:
             budget = st["budget_s"] if time_s is None else min(st["budget_s"], 0.15 * time_s)
             s.route(budget_s=budget)
             mods = [m for m in s.modules if m.kind == "cell"]
             rep["hazards"] += s.hazards() + cell_hazards(mods)
+            hz, rep["pour_cut"] = pour_check(s, input_path, s.info, mods, wd, log=log)
+            rep["hazards"] += hz
         else:
             mods = _plan_cells(s)
             s.modules = mods
