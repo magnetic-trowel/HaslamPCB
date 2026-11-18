@@ -100,3 +100,32 @@ Without a twin, a cell's change counts as better or worse when it is beyond the 
 | tinkerforge-load-cell-v2-bricklet-load-cell-v2 | boost:U2 | 1.200 | 1.016 |
 | ahillbom-tougherpowermonitor-hw-tougherpowermeter-featherwing | buck:U1 | 0.630 | 0.559 |
 | pcbcorpus-azoninc-doorman-doorman | buck:U2 | 1.641 | 1.230 |
+
+## Clear (design D): cost and the decision (before registration)
+
+**Profile** (py-spy on the smoke board, both budget modes): one cell takes about 87 s, close to clear's own estimate of 93–97 s. The time is spread across the stage:
+- KiCad workers waiting on the DRCs: 47 %;
+- the Freerouting repair round: 14 %;
+- the DRC runs: 13 %;
+- the last mile: 8 %;
+- the cell's quote: 7 %.
+
+There is no single hotspot. On that board clear would have rejected its change: 10 foreign items ripped, 3 nets re-routed, `RXDtoTXD0` left open.
+
+**Built** (`hotloop-sw` 908e21ff): `restart.py --clear` clears the kept board once, after `--final` and before `--finish`. It runs with `--clear-s` of its own (360 nominal seconds here, about 3 cells), on top of `--time`: routing gives up nothing, and the time is deterministic under counted work. Attempts and the final pass leave clearing to it (`KAE_CLEAR_KEPT=1`). Its wall time is reported on its own (`clear_wall_s`).
+
+**Decision: option A, run clear as it is** (about 90 s per cell, roughly 10–15 CPU-hours over the 60 boards × 2 arms).
+
+**Re-smoke criterion** for D and CD:
+- no `hotloop_clear_skipped`;
+- the summary shows clear ran (`clear_wall_s` > 0, with an outcome);
+- its keep or reject decision agrees with KiCad's ranking.
+
+D's board need not differ from N's on a board where clearing leaves a net open: keeping N's board is then the right outcome.
+
+**Follow-up (option B, not in this run):**
+- skip the Freerouting repair round when the last mile has already closed every ripped net (about 14 % of the time);
+- reuse the input DRC across cells (`repair.input_errors` runs it per cell, about 5 %);
+- quote the cell only after its board passes DRC.
+
+Expected gain about 25–35 %, still tens of seconds per cell. Making clear take seconds would mean dropping the per-cell DRCs and the Freerouting round (option C), a design change for the hot-loop owner.
