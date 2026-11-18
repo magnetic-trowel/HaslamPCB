@@ -150,6 +150,14 @@ Both fixes touch tests only, so the arms are registered at 908e21ff, the code th
 
 **kae suite at the registered code:** the retry (#108902, with c4bd8788) passed everything except `test_route_kicad.py::test_router_killed_at_its_deadline_still_yields_a_board`. That test depends on timing and is flaky from before this branch: it failed 2 of 3 runs at ee2e273f and passed 3 of 3 at b8703501. It passed in this suite's first run at 908e21ff, and the new deferral test passes with its fix. The suite counts as passing.
 
+**kae suite at 2f80d856 (#109345):** 2 failures and 1,383 passes. One is the flaky deadline test above, which failed here with `KeyError: 'router_quick'` after Freerouting was killed at 23 s.
+
+The other is `test_route_stepcache.py::test_run_hit_replays_outputs_and_charges_its_duration`. It failed with `hit.saved == 0.0`. `saved` is `max(0, charged − real)`, so the cache hit's replay took at least the miss's recorded ~1 s of wall time. That can only be a stall of the job: the batch class can freeze a job, and the host was loaded. It is timing-flaky, not broken by 2f80d856:
+- `stepcache.py`, its test and `restart.py` are identical at 908e21ff and 2f80d856.
+- Run directly with `-x -vv`, the test passed 8 of 8 times at 2f80d856 and 3 of 3 at 908e21ff.
+
+The suite counts as passing. The same reading applies to #109357 (60b2d722) and #109356 (pct-keepout) if this test is their only new failure.
+
 ## Registered and submitted (2026-11-18)
 
 - **Experiment:** `hotloop-sw` at 908e21ff, 60 boards. Methods: N a43704439a45, C bc1c76f00cfb, D 3ea52515fb83, CD 013b38bc8dd5. DRC evaluator 7868e10b621b.
