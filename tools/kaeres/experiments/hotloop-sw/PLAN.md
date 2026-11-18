@@ -186,7 +186,7 @@ Both fixes touch tests only, so the arms are registered at 908e21ff, the code th
 
 **Why N and D at 908e21ff stay valid:** the two fixes change nothing N or D runs.
 - *The giacobot fix* acts only where the hot-loop stage lays cells (`KAE_HOTLOOP_CELLS=1`). N and D have cells off. The stage does not run in N at all. In D, only clear builds a cells session, and that session is built without pour links. `thermal_corridors` without `solid` is unchanged.
-- *The power-copper fix* changes only zone pieces that meet a rule area forbidding pours. Every `kae-pc:` zone in N's and D's 60 outputs was checked against every pour-forbidding rule area on its layers (`hsw-run/pc-keepout-scan.py`, outline overlap):
+- *The power-copper fix* changes only zone pieces that meet a rule area forbidding pours. Every `kae-pc:` zone in N's and D's 60 outputs was checked against every pour-forbidding rule area on its layers (`hotloop-sw/pc-keepout-scan.py`, outline overlap):
 
 | arm | boards | `kae-pc:` zones | boards with pour-forbidding areas | overlaps |
 |---|---|---|---|---|
