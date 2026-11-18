@@ -75,7 +75,7 @@ def window_board(board, parts):
 def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, terms=None, physics=True,
                    cong_mult=2.0, history_scale=1.0, bump_mm=0.25, bump_refs=(), margin=0.3, moves_per_part=6000,
                    legal_refs=(), legal_mm=0.15, drc_report=None, net_weights=None,
-                   phys_mult=1.0, board_path=None, opts=None, log=None):
+                   phys_mult=1.0, board_path=None, opts=None, log=None, legalize_fallback=False):
     """See the module docstring. `board` is a kae.board.model.Board at the current poses;
     `window` a feedback.Window. `terms`: place terms built on the full board (the brief's
     structures), else built here when `physics`. `drc_report`: KiCad's report of the current
@@ -172,6 +172,26 @@ def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, term
     if bad:
         rep["greedy"] = greedy(P, st, sorted(bad), log=None, time_s=max(1.0, 0.15 * time_s))
         bad = grid_violations(st)
+    if bad and legalize_fallback:
+        # window_legalize: legalize the window's placement instead of rejecting it (cfw2b: "illegal after repair"
+        # was the main rejection on hard boards). CP-SAT windows around the violators, then greedy; parts still
+        # illegal go back to their old poses (legal there), and greedy places what that displaced
+        from kae.place.legalize import legalize as _legalize
+        rep["legalize"] = _legalize(P, st, time_s=max(1.0, 0.25 * time_s), workers=1, seed=seed, force=sorted(bad))
+        bad = grid_violations(st)
+        if bad:
+            for i in sorted(bad):
+                p = P.parts[i]
+                X, Y = P.grid_of(p.x0, p.y0)
+                rots = [r.rot for r in p.rots]
+                st.X[i], st.Y[i] = X, Y
+                st.K[i] = min(range(len(rots)), key=lambda kk: min(abs(rots[kk] - p.rot0) % 360,
+                                                                   360 - abs(rots[kk] - p.rot0) % 360))
+            rest = grid_violations(st)
+            if rest:
+                greedy(P, st, sorted(rest), log=None, time_s=max(1.0, 0.1 * time_s))
+            rep["reverted"] = sorted(P.parts[i].ref for i in bad)
+            bad = grid_violations(st)
     rep["legal_grid"] = not bad
     if bad:
         rep["rejected"] = "illegal after repair"

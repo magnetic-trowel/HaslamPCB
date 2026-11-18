@@ -58,7 +58,7 @@ def _pad_xy(fp, pad):
 
 
 def plan_ripup(board, window, moved, owners, module_parts, big_pads=20, max_cross=4, pad_reach=0.3, also=(),
-               supply_nets=(), local=False, new_area=None):
+               supply_nets=(), local=False, new_area=None, own_nets=False):
     """See the module docstring. board: kae.board.model.Board before the move (old poses);
     window: feedback.Window; moved: uuids of the parts that moved; owners: {routing uuid:
     module id} for critical copper; module_parts: {module id: [part uuid]}; also: routing
@@ -66,7 +66,10 @@ def plan_ripup(board, window, moved, owners, module_parts, big_pads=20, max_cros
     supply_nets: ground and rail nets (the brief's roles), always ripped only locally;
     local: every net ripped only locally, for the incremental router, whose cost grows with
     the open connections: with parts moved and `new_area` (their footprints at the new poses,
-    a shapely geometry) the region is that area plus the old pads, not the whole window."""
+    a shapely geometry) the region is that area plus the old pads, not the whole window.
+    own_nets: only the moved parts' own nets (and DRC-blamed items) are ripped; another net crossing the window
+    is ripped only where a moved part lands on it (`new_area`), never whole (cfw2b: crossing nets ripped for a
+    window came back with more opens)."""
     moved = set(moved)
     fp_of = {fp.uuid: fp for fp in board.footprints}
     region = box(*window.rect).buffer(0.25)
@@ -126,6 +129,10 @@ def plan_ripup(board, window, moved, owners, module_parts, big_pads=20, max_cros
             else:
                 remove.add(it.uuid)
                 whole.add(it.net)
+        elif own_nets:
+            if it.uuid in also or (new_area is not None and g.intersects(new_area.buffer(0.25))):
+                remove.add(it.uuid)
+                partial.add(it.net)
         elif g.intersects(region) or it.uuid in also:
             remove.add(it.uuid)
             crossing.setdefault(it.net, 0.0)

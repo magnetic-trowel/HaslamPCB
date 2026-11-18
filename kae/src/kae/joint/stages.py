@@ -66,6 +66,7 @@ def _project(src_board, dst_board):
 # Every `opts` key the stages read (kae.joint.cli rejects a --set key that neither these, the
 # loop's DEFAULTS, the placer's limits (kae.route.constraints.DEFAULTS) nor bridge.KEY name).
 STAGE_KEYS = frozenset({
+    "window_legalize", "window_own_nets",   # window fixes (cfw2b): legalize instead of rejecting; rip only own nets
     "module_clock",       # the module stage keeps its clock (kae.route.critical_joint.optimize_modules clock=True)
     # set by kae.joint.cli from its flags
     "keep", "no_physics", "no_modules", "budget_s", "route_parallel", "first_last_mile", "first_blocked",
@@ -703,6 +704,7 @@ class KaeStages:
                                           if sp.kind == "unrouted" for n in sp.nets},
                              phys_mult=float(o.get("phys_mult", 2.0)) ** min(attempt, 2),
                              physics=not o.get("no_physics"), board_path=str(self.input), opts=o,
+                             legalize_fallback=bool(o.get("window_legalize")),
                              log=lambda m: self.log(f"replace: {m}"))
         rep["replace"] = {k: v for k, v in res.report.items() if k not in ("window",)}
         if not res.poses and (window.parts or res.report.get("rejected")):
@@ -715,7 +717,8 @@ class KaeStages:
                           also={u for sp in window.spots if sp.kind == "error" for u in sp.uuids},
                           supply_nets={n for n, d in ((self.brief or {}).get("nets") or {}).items()
                                        if isinstance(d, dict) and d.get("role") in ("ground", "rail", "power")},
-                          local=self.opts.get("window_router", "incremental") == "incremental", new_area=new_area)
+                          local=self.opts.get("window_router", "incremental") == "incremental", new_area=new_area,
+                          own_nets=bool(o.get("window_own_nets")))
         rep["ripup"] = plan.to_dict()
         if not plan.remove and not res.poses:
             rep["outcome"] = "re-route window: no routing to rip up"

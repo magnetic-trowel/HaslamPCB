@@ -66,6 +66,8 @@ DEFAULTS = dict(
                            # board's open nets still get lastmile.close for at least this long
     diagnose_s=30.0,       # the final board's "blocked" diagnosis: at most this (and 5 % of the budget)
     recycle=True,          # when every window is exhausted and time is left, sample them all again
+    skip_empty_windows=False,  # a window whose repair moved and ripped nothing is not tried again until the board
+                           # changes (cfw2b: up to 180 such windows per hard board, none kept)
     min_cycle_s=5.0,       # ... unless the last cycle took less than this (nothing could be routed)
     patience_cycles=2,     # stop after this many full cycles over the windows in a row accept nothing
 )
@@ -236,6 +238,7 @@ class JointLoop:
         best, best_card, best_fb, best_it = lay, card, fb, 0
         self._save(st, best, output, rep)
         tries = {}
+        empty = set()            # skip_empty_windows: windows whose repair moved and ripped nothing
         max_att = int(o["max_attempts"]) if o["max_attempts"] is not None else 2 + int(time_s // 1800)
         rep["max_attempts"] = max_att
         cycles, cycle_t0, cycle_kept, idle = 0, clock_now(), 0, 0
@@ -262,7 +265,7 @@ class JointLoop:
             o_win = dict(o, max_parts=cap)
             base = [w for w in plan_windows(spots, parts, bounds, margin=o["margin"], max_parts=cap,
                                             max_pins=o["max_pins"], merge_factor=1.0)
-                    if tries.get(w.key, 0) < max_att]
+                    if tries.get(w.key, 0) < max_att and w.key not in empty]
             if not base:
                 # every window tried max_att times: with time left, a new cycle samples them
                 # again under new seeds and the history so far (a long budget keeps searching);
@@ -300,6 +303,8 @@ class JointLoop:
                 self.log(f"repair failed: {type(e).__name__}: {e}\n{traceback.format_exc(limit=6)}")
                 cand, rrep = None, dict(outcome=f"error: {type(e).__name__}: {e}")
             tries[base0.key] = attempt + 1
+            if cand is None and o.get("skip_empty_windows") and not ((rrep.get("ripup") or {}).get("items")):
+                empty.add(base0.key)
             if cand is None:
                 rows.append(dict(iter=it, window=win.to_dict(), accepted=False, why=rrep.get("outcome"),
                                  seconds=round(clock_now() - t, 1), repair=rrep))
@@ -326,6 +331,7 @@ class JointLoop:
                 self._save(st, best, output, rep)
                 self._geom = st.geometry(best)
                 tries = {}               # the board changed: earlier failures may now succeed
+                empty = set()
                 cycle_kept += 1
         rep["stop"] = stop
         rep["cycles"] = cycles + 1
