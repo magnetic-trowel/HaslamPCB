@@ -1353,3 +1353,16 @@ def test_a_campaign_without_history_is_pooled_with_the_profile_of_all_recent_job
     assert d.owner_profiles(cfg, 1e6, running)["new"] == pytest.approx([1 / kq.MEM_BINS] * kq.MEM_BINS)
     d.profiles_ts = 0
     assert "new" not in d.owner_profiles(dict(cfg, mem_pool_prior_jobs=0), 2e6, running)
+
+
+def test_a_timed_start_may_exceed_the_burst_forecast_while_timed_jobs_do_not_wait_for_cpus(kq):
+    d = kq.Daemon(host=kq.Host())
+    cfg = dict(kq.config(), threads=20, reserve_cpu=0)
+    d.others_ema = 0.0
+    d.cpu_profile = lambda r, cfg, now: (2.0, 9.0)           # 4 running: means 8, bursts of 7 each
+    d.learned_cpu = lambda j, cfg, now: (2.0, 4.0, True)
+    running = [dict(qos="timed")] * 4
+    d.timed_wait = 0.0
+    assert d.timed_cpu_fits(dict(qos="timed"), cfg, 0, running)          # 8 + 4 <= 20 though 10 + 15.5 > 20
+    d.timed_wait = 0.01                                                  # they do wait: the forecast rules
+    assert not d.timed_cpu_fits(dict(qos="timed"), cfg, 0, running)
