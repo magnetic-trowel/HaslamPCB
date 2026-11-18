@@ -211,6 +211,7 @@ DEFAULTS = {
     # the newest batch job is frozen (one per cpu_freeze_every_s) until it falls below timed_wait_thaw.
     "cpu_window_s": 600,
     "timed_wait_start": 0.02,
+    "timed_wait_quiet": 0.005,   # below this, measured contention overrides the burst forecast (timed_cpu_fits)
     "timed_wait_freeze": 0.05,
     "timed_wait_thaw": 0.01,
     "cpu_freeze_every_s": 10,
