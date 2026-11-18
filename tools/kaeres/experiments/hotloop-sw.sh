@@ -18,7 +18,7 @@
 # Everything else as route-finish-ab: restart.py --parallel 4 --first-s 60 --scale-first --slack 1.15 --resume 0.5,
 # 900 s x sqrt(footprints/40) (at most 4 h), Freerouting fork FORK, operating facts by content hash, step cache.
 #
-#   SHA=<pushed commit> [STAGE=full|smoke] [BOARD=...] tools/kaeres/experiments/hotloop-sw.sh
+#   SHA=<pushed commit> [STAGE=full|fix|c2|smoke] [BOARD=...|BOARDS=...] tools/kaeres/experiments/hotloop-sw.sh
 # Registers only; submission, physics and analysis: hotloop-sw/PLAN.md section "Running order".
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -72,8 +72,10 @@ case "$STAGE" in
           --env KAE_STEP_CACHE=$STEP_CACHE --description "$desc" >/dev/null ;;
   fix) $K exp create hotloop-sw-fix-$S7 --method "$C" --method "$CD" --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "C and CD re-routed at $S7 on the boards a fix touches, plus identity boards (PLAN.md). $desc" >/dev/null ;;
+  c2) $K exp create hotloop-sw-c2-$S7 --method "$C" --method "$CD" --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
+          --env KAE_STEP_CACHE=$STEP_CACHE --description "C and CD re-routed at $S7 (power-copper keep-out fix and the giacobot pour fix) on all 60 boards, against N and D at 908e21ff (PLAN.md). $desc" >/dev/null ;;
   smoke) $K exp create hotloop-sw-smoke-$S7 "${M[@]}" --boards "${BOARD:?BOARD}" --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "smoke (${BOARD}) of the $desc" >/dev/null ;;
-  *) echo "STAGE: full, fix or smoke" >&2; exit 2 ;;
+  *) echo "STAGE: full, fix, c2 or smoke" >&2; exit 2 ;;
 esac
 echo "experiment created (STAGE=$STAGE); nothing submitted"

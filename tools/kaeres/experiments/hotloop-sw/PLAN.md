@@ -174,3 +174,23 @@ Both fixes touch tests only, so the arms are registered at 908e21ff, the code th
 | hpvdt falcon flight-stick | gain | N left 6 MCU signal nets open (OSC, RESET, ADC, USB), far from any cell. Search-path noise: the cells stage changes Freerouting's input, not these nets' room |
 | stephendade pipowernew | gain | N had 22 `starved_thermal` on the GND zones (In1, In2, B.Cu), C none. The cell (`buck:U3`, partial) changes what is routed near those pads. Partly real; not separable without a twin |
 | chl33 dough133 | gain | one `starved_thermal` on +3.3V (In2) in N, none in C. Small; likely search-path |
+
+## The giacobot fix, and C′ and CD′ (replaces the patch-one-board plan)
+
+**Fix:** 60b2d722 on `hotloop-sw` (on top of 2f80d856), plainly right, so no override and no LLM decision entry.
+- *Pour links.* Each pad that connects solidly to a zone of its net gets one keep-clear strip into that zone's fill (`constraints.thermal_corridors(solid=True)`). The cells stage's Space holds the strips as corridor items that other nets keep out of. Only the cells stage turns them on; clear's session does not.
+- *Post-cells check* (`hotloop.pour_check`). The cells' copper is written to a probe board and every zone is refilled. A zone-net pad that touched its pour on the input and no longer does reverts the cells with other-net copper inside that zone, and raises `hotloop_cell_cut_pour`.
+- *Tests* (`kae/tests/test_route_hotloop_kicad.py`): a minimal copy on the synthetic buck board, where the cell's GND hop crosses a solid +3V3 pour beside U1.1. Both tests fail without the fix. With pour links the hop moves aside and the cell stays routed; with the links off, the check reverts the cell.
+
+**C′ and CD′:** C and CD re-routed on all 60 boards at one code SHA (60b2d722: the keep-out fix and the giacobot fix), experiment `hotloop-sw-c2-60b2d72` (`STAGE=c2`). Physics as the other arms. They are reported against N and D, which stay at 908e21ff. The identity re-runs (`hotloop-sw-fix-2f80d85`) still finish, but they are informative only; nothing is substituted from them.
+
+**Why N and D at 908e21ff stay valid:** the two fixes change nothing N or D runs.
+- *The giacobot fix* acts only where the hot-loop stage lays cells (`KAE_HOTLOOP_CELLS=1`). N and D have cells off. The stage does not run in N at all. In D, only clear builds a cells session, and that session is built without pour links. `thermal_corridors` without `solid` is unchanged.
+- *The power-copper fix* changes only zone pieces that meet a rule area forbidding pours. Every `kae-pc:` zone in N's and D's 60 outputs was checked against every pour-forbidding rule area on its layers (`hsw-run/pc-keepout-scan.py`, outline overlap):
+
+| arm | boards | `kae-pc:` zones | boards with pour-forbidding areas | overlaps |
+|---|---|---|---|---|
+| N | 60 | 193 | 24 | 0 |
+| D | 60 | 193 | 24 | 0 |
+
+- *What the check does not cover:* a piece that finish's gate tried and then reverted leaves no trace in the output. Such a piece would show up only as a difference in finish's search. The fix runs (`hotloop-sw-fix-2f80d85`) test that on boards with such areas, which is why they still finish.
