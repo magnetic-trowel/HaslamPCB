@@ -25,6 +25,7 @@ import functools
 import json
 import math
 import os
+import re
 import select
 import shlex
 import signal
@@ -435,10 +436,67 @@ def _content_order(res):
     return res
 
 
-def _run(op, args, timeout):
-    if _worker_enabled():
-        return _content_order(_run_worker(op, args, timeout))
-    return _content_order(_run_process(op, args, timeout))
+def _run(op, args, timeout, board=None, refill=False):
+    """One operation in KiCad's Python; charged to kae.budget (_charge) by the board it reads."""
+    try:
+        if _worker_enabled():
+            return _content_order(_run_worker(op, args, timeout))
+        return _content_order(_run_process(op, args, timeout))
+    finally:
+        if board is not None:
+            _charge(board, refill)
+
+
+_ZONE = re.compile(r"\n\s*\(zone\b")
+_ZONE_LAYERS = re.compile(r"\(layers?\s+((?:\"[^\"]*\"\s*|[^\s()\"]+\s*)+)\)")
+_BOARD_LAYERS = re.compile(r"\(\d+\s+\"?([^\s\")]+\.Cu)\"?\s")
+
+
+def zone_layers(path):
+    """The copper zones of a board file counted once per copper layer they fill (a pour on "*.Cu"
+    counts the board's copper layers; rule areas and keepouts not at all): the refills that KiCad's
+    zone filler computes for the board. Read from the file's text, so the same file gives the same
+    count anywhere; 0 when it cannot be read."""
+    try:
+        text = Path(path).read_text(errors="replace")
+    except OSError:
+        return 0
+    head = text[:text.find("(net ") if "(net " in text else 20000]
+    ncu = max(1, len(set(_BOARD_LAYERS.findall(head))))
+    n = 0
+    starts = [m.start() for m in _ZONE.finditer(text)]
+    for i, a in enumerate(starts):
+        z = text[a:starts[i + 1] if i + 1 < len(starts) else len(text)]
+        z = z[:z.find("(polygon")] if "(polygon" in z else z[:4000]
+        if "(keepout" in z or "(rule_area" in z:
+            continue
+        m = _ZONE_LAYERS.search(z)
+        names = re.findall(r'"([^"]*)"|(\S+)', m.group(1)) if m else [("F.Cu", "")]
+        names = [a or b for a, b in names]
+        for nm in names:
+            if nm == "*.Cu" or nm == "*.*":
+                n += ncu
+            elif nm == "F&B.Cu":
+                n += 2
+            elif nm.endswith(".Cu"):
+                n += 1
+    return n
+
+
+def _charge(board, refill):
+    """Charge one KiCad-Python operation on `board` (kae.budget): its call and reading and writing
+    the board (pcbnew_op, pcbnew_mb per MB of the file) and, for an operation that refills the zones,
+    each zone layer (zone_fill, zone_layers). Before, none of it was charged: a joint loop on a
+    0.6 MB four-layer board spent 270 s of wall time in 202 such calls (2026-11-17)."""
+    from kae import budget
+    try:
+        mb = Path(board).stat().st_size / 1e6
+    except OSError:
+        mb = 0.0
+    budget.charge("pcbnew_op", 1)
+    budget.charge("pcbnew_mb", mb)
+    if refill:
+        budget.charge("zone_fill", zone_layers(board))
 
 
 def _abs(p):
@@ -448,7 +506,7 @@ def _abs(p):
 def extract(path, courtyards=True, outline=True, timeout=900):
     """pcbnew's authoritative view of a board as a dict (see pcbnew_bridge.extract)."""
     flags = ([] if courtyards else ["--no-courtyards"]) + ([] if outline else ["--no-outline"])
-    return _run("extract", lambda out: [_abs(path), out, *flags], timeout)
+    return _run("extract", lambda out: [_abs(path), out, *flags], timeout, board=path)
 
 
 def _pose_list(poses):
@@ -503,12 +561,13 @@ def write_poses(src_path, dst_path, poses, allow_locked=False, timeout=900, keep
             keep_upright = os.environ.get("KAE_WRITER_KEEP_UPRIGHT", "0") == "1"
         flags = (["--allow-locked"] if allow_locked else []) + (["--keep-upright"] if keep_upright else [])
         return _with_hazards(
-            _run("write-poses", lambda out: [_abs(src_path), pj, out, _abs(dst_path), *flags], timeout), "placement")
+            _run("write-poses", lambda out: [_abs(src_path), pj, out, _abs(dst_path), *flags], timeout,
+                 board=src_path), "placement")
 
 
 def resave(path_in, path_out, timeout=900):
     """pcbnew load + plain save, nothing changed (the baseline for structural diffs)."""
-    return _with_hazards(_run("resave", lambda out: [_abs(path_in), out, _abs(path_out)], timeout), "re-save")
+    return _with_hazards(_run("resave", lambda out: [_abs(path_in), out, _abs(path_out)], timeout, board=path_in), "re-save")
 
 
 # ----------------------------------------------------------------------------- routing
@@ -518,7 +577,7 @@ def export_dsn(path, dsn_path, probes=True, timeout=900):
     net classes, pads with their DSN pin ids, copper graphics, edges, zones and, with
     `probes`, KiCad's rule engine evaluated per net and copper layer."""
     flags = [] if probes else ["--no-probes"]
-    return _run("export-dsn", lambda out: [_abs(path), _abs(dsn_path), out, *flags], timeout)
+    return _run("export-dsn", lambda out: [_abs(path), _abs(dsn_path), out, *flags], timeout, board=path)
 
 
 def import_ses(path, ses_path, dst_path, timeout=900):
@@ -529,7 +588,7 @@ def import_ses(path, ses_path, dst_path, timeout=900):
     {routing, kept (uuids of the items that were there before), renetted, write_check,
     hazards}. kae.route.bridge.import_session also checks the session's wires and vias
     against what landed."""
-    res = _run("import-ses", lambda out: [_abs(path), _abs(ses_path), out, _abs(dst_path)], timeout)
+    res = _run("import-ses", lambda out: [_abs(path), _abs(ses_path), out, _abs(dst_path)], timeout, board=path)
     _with_hazards(res, "routed")
     if res.get("renetted"):
         rn = res["renetted"]
@@ -557,7 +616,7 @@ def edit_routing(path, dst_path, delete=(), widths=None, lock_all=False, unlock_
         with open(ej, "w") as f:
             json.dump(dict(delete=list(delete), width=dict(widths or {}), lock_all=lock_all,
                            unlock_all=unlock_all, add=list(add), keep_locked=list(keep_locked)), f)
-        return _with_hazards(_run("edit-routing", lambda out: [_abs(path), ej, out, _abs(dst_path)], timeout),
+        return _with_hazards(_run("edit-routing", lambda out: [_abs(path), ej, out, _abs(dst_path)], timeout, board=path),
                              "routing edit")
 
 
@@ -565,14 +624,14 @@ def zone_fills(path, timeout=900):
     """Every zone of `path` refilled as kicad-cli's DRC does (--refill-zones). Returns {zones:
     [{uuid, net, name, priority, clearance, teardrop, layers: {layer: [[outer ring, hole
     rings...]]}}]}."""
-    return _run("zone-fills", lambda out: [_abs(path), out], timeout)
+    return _run("zone-fills", lambda out: [_abs(path), out], timeout, board=path, refill=True)
 
 
 def text_shapes(path, timeout=300):
     """Glyph outlines of the visible silkscreen and copper texts of `path` (pcbnew_bridge
     text_shapes). Returns {texts: [{owner (footprint uuid or ''), uuid, layer, text, polys:
     [[outer ring, hole rings...]]}]}, board frame, mm."""
-    return _run("text-shapes", lambda out: [_abs(path), out], timeout)
+    return _run("text-shapes", lambda out: [_abs(path), out], timeout, board=path)
 
 
 def copper_items(path, clusters=False, timeout=300):
@@ -581,7 +640,7 @@ def copper_items(path, clusters=False, timeout=300):
     positions in nm. `clusters`: the zones refilled, each item's `cluster` (items KiCad's connectivity
     joins share one), and `unconnected`, the board's unconnected count."""
     flags = ["--clusters"] if clusters else []
-    return _run("copper-items", lambda out: [_abs(path), out, *flags], timeout)
+    return _run("copper-items", lambda out: [_abs(path), out, *flags], timeout, board=path, refill=clusters)
 
 
 # ----------------------------------------------------------------------------- verify
