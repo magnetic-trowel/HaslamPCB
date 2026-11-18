@@ -799,7 +799,9 @@ def pour_check(s, input_path, info, mods, workdir, log=_log, before=None):
     pads = {p.get("uuid"): p for p in info.get("pads") or []}
     zones = [z for z in info.get("zones") or [] if not z.get("rule_area") and z.get("net")
              and not hard_zone(z.get("name"))]
-    out, gone = [], []
+    # which cells' other-net copper lies in each cut pad's zone, all found before any revert, so a
+    # cell reverted for one pad is still named for the next pad it cut
+    found = []
     for u, l in lost:
         pad = pads.get(u) or {}
         net = pad.get("net")
@@ -814,26 +816,36 @@ def pour_check(s, input_path, info, mods, workdir, log=_log, before=None):
                 if area is not None and it.geom.buffer((it.width or 0.0) / 2).intersects(area):
                     hit.append(m)
                     break
+        found.append((u, l, pad, net, hit))
+    for u, l, pad, net, hit in found:
         for m in hit:
-            if m.copper:
+            if m.status != "reverted":
                 log(f"hotloop: {m.id} cut {pad.get('ref')}.{pad.get('number')} ({net}) off its pour on {l}; reverted")
                 _rip(s, m)
                 m.status = "reverted"
                 m.notes = [f"reverted: its copper cut {pad.get('ref')}.{pad.get('number')} ({net}) off its pour on {l}"]
-        out.append(H.make(
-            "hotloop_cell_cut_pour", "warn", "electrical",
-            f"{pad.get('ref')}.{pad.get('number')} ({net}) touched its zone's fill on {l} on the input, and the "
-            f"hot-loop cells' other-net copper cut it off; "
-            + (f"{', '.join(m.id for m in hit)} reverted, the general router lays those loops."
-               if hit else "no cell's copper is inside that zone, so none was reverted."),
-            objects=[f"{pad.get('ref')}.{pad.get('number')}", *(m.id for m in hit)],
-            evidence=dict(net=net, layer=l, reverted=[m.id for m in hit]),
-            fix="Room between the cell and the pour's pins, or route the loop by hand."))
-    if any(m.status == "reverted" for m in mods):
+    if any(hit for *_, hit in found):
         s.write(probe)
         gone = sorted(before - _pad_fill_contacts(probe, info))
     else:
         gone = lost
+    still = set(gone)
+    out = []
+    for u, l, pad, net, hit in found:
+        name = f"{pad.get('ref')}.{pad.get('number')}"
+        if hit:
+            what = f"{', '.join(m.id for m in hit)} reverted, the general router lays those loops"
+            what += ("; the pad is still cut off after the revert." if (u, l) in still
+                     else ", and the pad touches its pour again.")
+        else:
+            what = "no cell's copper is inside that zone, so none was reverted; the pad is still cut off."
+        out.append(H.make(
+            "hotloop_cell_cut_pour", "warn", "electrical",
+            f"{name} ({net}) touched its zone's fill on {l} on the input, and the hot-loop cells' "
+            f"other-net copper cut it off; " + what,
+            objects=[name, *(m.id for m in hit)],
+            evidence=dict(net=net, layer=l, reverted=[m.id for m in hit], restored=(u, l) not in still),
+            fix="Room between the cell and the pour's pins, or route the loop by hand."))
     for ext in (".kicad_pcb", ".kicad_pro", ".kicad_dru", ".kicad_prl"):
         try:
             probe.with_suffix(ext).unlink()

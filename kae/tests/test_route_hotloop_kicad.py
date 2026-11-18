@@ -143,6 +143,6 @@ def test_a_cell_that_cuts_a_pin_off_its_pour_is_reverted(tmp_path, monkeypatch):
     assert not rep.get("error")
     assert rep["cells"][0]["status"] == "reverted", rep["cells"]
     hz = [h for h in rep["hazards"] if h["code"] == "hotloop_cell_cut_pour"]
-    assert hz and hz[0]["evidence"]["reverted"] == [rep["cells"][0]["id"]]
+    assert hz and hz[0]["evidence"]["reverted"] == [rep["cells"][0]["id"]] and hz[0]["evidence"]["restored"]
     assert rep.get("pour_cut") == []
     assert rep["board"] is None or _touches_pour(rep["board"], 119.69, 109.05)

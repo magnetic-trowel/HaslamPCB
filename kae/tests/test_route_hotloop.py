@@ -415,3 +415,31 @@ def test_clear_hook_defers_to_a_portfolio_that_clears_the_kept_board(tmp_path, m
     assert rep == dict(cells=[], skipped="deferred: the restart portfolio clears the kept board")
     monkeypatch.delenv("KAE_HOTLOOP_CLEAR")
     assert bridge.clear_hook(board, board, tmp_path / "wd", {}, deadline=None) is None
+
+
+def test_pour_check_names_a_cell_for_every_pad_it_cut_and_reports_after_the_revert(tmp_path, monkeypatch):
+    """giacobot: one cell's copper cut two LX pads off their pours. Reverting it for the first pad
+    restores both, so neither hazard may say that no cell was reverted, and both say the pad touches
+    its pour again."""
+    from types import SimpleNamespace as NS
+    from shapely.geometry import LineString
+    from kae.route import critical_joint
+    sq = lambda x0, y0, x1, y1: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+    info = dict(pads=[dict(uuid="p7", ref="U2", number="7", net="LX2"),
+                      dict(uuid="p9", ref="U2", number="9", net="LX1")],
+                zones=[dict(net="LX2", layers=["F.Cu"], rings=[[sq(0, 0, 2, 2)]], clearance=0.2),
+                       dict(net="LX1", layers=["F.Cu"], rings=[[sq(4, 0, 6, 2)]], clearance=0.2)])
+    gnd = NS(net="GND", layers=("F.Cu",), width=0.3, geom=LineString([(1, 1), (5, 1)]))   # through both pours
+    cell = NS(id="cell:buck:U2", copper=[gnd], status="routed", notes=[])
+    other = NS(id="cell:boost:U2", copper=[NS(net="GND", layers=("F.Cu",), width=0.3,
+                                             geom=LineString([(10, 10), (11, 10)]))], status="routed", notes=[])
+    before = {("p7", "F.Cu"), ("p9", "F.Cu")}
+    monkeypatch.setattr(hotloop, "_pad_fill_contacts",
+                        lambda path, info: before if cell.status == "reverted" else set())
+    monkeypatch.setattr(critical_joint, "_rip", lambda s, m: setattr(m, "copper", []))
+    s = NS(write=lambda p: None)
+    hz, gone = hotloop.pour_check(s, None, info, [cell, other], tmp_path, log=lambda *a: None, before=before)
+    assert gone == [] and cell.status == "reverted" and other.status == "routed"
+    assert [h["evidence"]["reverted"] for h in hz] == [["cell:buck:U2"], ["cell:buck:U2"]]
+    assert all(h["evidence"]["restored"] and "touches its pour again" in h["message"] for h in hz)
+    assert not any("none was reverted" in h["message"] for h in hz)
