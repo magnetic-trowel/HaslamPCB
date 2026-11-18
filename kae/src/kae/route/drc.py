@@ -93,8 +93,10 @@ def _run(board, out_json, timeout, cache, mb):
     except subprocess.TimeoutExpired:
         raise DrcError(f"DRC timed out after {timeout}s")
     finally:
+        from kae.board.pcbnew_io import zone_layers
         budget.charge("drc_run", 1)
         budget.charge("drc_mb", mb)
+        budget.charge("drc_zone", zone_layers(board))    # --refill-zones: each zone layer refilled
     if not out_json.exists():
         raise DrcError(f"DRC failed (rc={r.returncode}): {(r.stdout + r.stderr)[-600:]}")
     with open(out_json) as f:
@@ -381,13 +383,15 @@ def _content_key(v):
 
 def uncapped_unconnected(board, timeout=900):
     """pcbnew's unconnected count of `board` after a zone fill (no cap), None when it cannot run."""
-    from kae.board.pcbnew_io import PcbnewError, kicad_python
+    from kae.board.pcbnew_io import PcbnewError, _charge, kicad_python
     try:
         r = subprocess.run([*kicad_python(), "-c", UNCONNECTED_PY, str(board)], capture_output=True, text=True,
                            timeout=budget.wall_timeout(timeout), cwd=Path(board).parent, errors="replace")
         return int(json.loads(r.stdout.strip().splitlines()[-1])["unconnected"])
     except (PcbnewError, OSError, subprocess.TimeoutExpired, ValueError, IndexError, KeyError):
         return None
+    finally:
+        _charge(board, True)        # a KiCad Python of its own: the board loaded and its zones refilled
 
 
 def summary(report):
