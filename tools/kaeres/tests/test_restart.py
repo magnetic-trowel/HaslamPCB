@@ -238,6 +238,24 @@ def test_attempts_defer_their_own_finish_to_the_wrapper(tmp_path):
     assert "K=)" in out2.read_text()
 
 
+def test_clear_runs_once_on_the_kept_board_with_its_own_allowance(tmp_path):
+    """With --clear, attempts and the final pass get KAE_CLEAR_KEPT=1, and the clear pass runs once on the kept
+    board after --final, with --clear-s as its @TIME@ even though routing used the whole --time; its board is kept
+    when no worse, and its wall time is recorded on its own."""
+    r, out, summary = _run(tmp_path, "echo \"(kicad_pcb OPEN=2 C=$KAE_CLEAR_KEPT)\" > @OUT@",
+                           "echo \"(kicad_pcb OPEN=1 C=$KAE_CLEAR_KEPT)\" > @OUT@", time_s=60,
+                           extra=["--clear", "echo \"(kicad_pcb OPEN=1 cleared time=@TIME@ C=$KAE_CLEAR_KEPT)\" > @OUT@",
+                                  "--clear-s", "77"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    text = out.read_text()
+    assert "cleared time=77 C=)" in text, text
+    kinds = [d["k"] for d in summary["attempt_log"]]
+    assert kinds[-2:] == ["final", "clear"], kinds
+    assert summary["clear_kept"] is True and summary["clear_wall_s"] is not None
+    attempt0 = (tmp_path / "work" / "restarts")
+    assert any("C=1" in p.read_text() for p in attempt0.glob("*/board.kicad_pcb")), "attempts must defer clearing"
+
+
 def test_finish_skipped_when_routing_left_too_little_time(tmp_path):
     """No reserve: a finish that would get less than FINISH_RUN_MIN_S is skipped, with a hazard."""
     import time as _t

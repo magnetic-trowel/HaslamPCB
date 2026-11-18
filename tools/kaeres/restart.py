@@ -32,6 +32,13 @@ Finish runs when a clean attempt ends the run early, in the time left, or after 
 whatever remains (at least FINISH_RUN_MIN_S plus one judgement, else it is skipped); the finish
 command's own estimates decide which of its parts fit. Its board replaces the kept one when KiCad
 ranks it no worse. Attempts get KAE_FINISH_KEPT=1 (kae.route.cli route then defers its own finish).
+
+With --clear COMMAND (for kae `python -m kae.route.cli clear @IN@ @BEST@ @OUT@ --time @TIME@`: the hot
+loops' returns cleared of foreign copper, design D of kae.route.hotloop), the board kept after --final is
+cleared once, before --finish, with an allowance of its own (--clear-s, on top of --time: never taken from
+routing; in work mode nominal seconds of counted work). Attempts and the final pass get KAE_CLEAR_KEPT=1, so
+they do not clear themselves. Its board replaces the kept one when KiCad ranks it no worse; its time is
+recorded on its own (summary.json "clear", work "clear_wall_s"), and the time left for --finish is not cut by it.
 summary.json's "finish" says which parts ran and which were skipped; a finish skipped, killed or
 failed, and the finish's own hazards, are added to restarts/report.json's hazards.
 
@@ -654,6 +661,7 @@ def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, s
         info["charge"] = str(d / "charge.jsonl")
     p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
                          start_new_session=True, env=dict(os.environ, KAE_RESUME="1", **charge_env(info), **fr_raw_env(d),
+                                                          **({"KAE_CLEAR_KEPT": "1"} if a.clear and kind != "clear" else {}),
                                                           **(best.get("env") or {})))
     info["arm"], info["env"] = best.get("arm"), best.get("env")
     while reap(p, info) is None:
@@ -686,6 +694,25 @@ def final_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s, base_
     b = work_final_s(a) if WORK else max(20.0, end - time.monotonic() - FINAL_JUDGE_SLACK * judge_est - 10.0)
     return _one_pass(a, "final", a.final, best, inp, base, wd, end, b, judge_est, meter, stop, cpu_s, base_pairs,
                      keep_equal=False)
+
+
+def clear_pass(a, best, inp, base, wd, judge_est, meter, stop, cpu_s, base_pairs=()):
+    """--clear on the board kept after --final, clean or not, with --clear-s of its own (never taken from
+    routing). Its board replaces the kept one when KiCad ranks it no worse. The record carries the clear
+    command's own report (cells cleared, kept or skipped, seconds). None without a board."""
+    if best is None or best.get("rank") is None:
+        return None
+    b = a.clear_s
+    # the pass's own end: its allowance (and, in work mode, its wall ceiling) plus one judgement, after now
+    end_c = time.monotonic() + (WORK_CEILING if WORK else 1.0) * b + GRACE_S + 2 * judge_est + 20.0
+    info = _one_pass(a, "clear", a.clear, best, inp, base, wd, end_c, b, judge_est, meter, stop, cpu_s, base_pairs,
+                     keep_equal=True)
+    rep = _last_json(wd / "clear" / "log")
+    if rep:
+        info["hazards"] = [h for h in rep.get("hazards") or [] if isinstance(h, dict)]
+        info["clear"] = dict(cells=rep.get("cells"), seconds=rep.get("seconds"),
+                             estimate_s_per_cell=rep.get("estimate_s_per_cell"), status=rep.get("status"))
+    return info
 
 
 def finish_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s, base_pairs=()):
@@ -876,6 +903,12 @@ def main():
                          "@TIME@, @DRC@: the judge's DRC report of @BEST@, @DRC_S@: one judgement's seconds), "
                          "in the time routing leaves (nothing reserved); kept when KiCad ranks it no worse, clean "
                          "boards too. Attempts get KAE_FINISH_KEPT=1")
+    ap.add_argument("--clear", default="",
+                    help="command clearing the hot loops' returns on the kept board after --final, before --finish (@IN@, "
+                         "@BEST@, @OUT@, @TIME@), with --clear-s of its own; kept when KiCad ranks it no worse. Attempts "
+                         "and the final pass get KAE_CLEAR_KEPT=1")
+    ap.add_argument("--clear-s", type=float, default=300.0,
+                    help="seconds for the --clear pass, on top of --time (work mode: nominal seconds of counted work)")
     ap.add_argument("--finish-s", type=float, default=0.0,
                     help="seconds for the finish pass in work mode (0: WORK_FINISH_SHARE of --time); in time mode "
                          "the pass's estimate, reported when it is skipped (0: from the input's pad count plus two DRCs)")
@@ -992,6 +1025,7 @@ def main():
         p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
                              start_new_session=True, env=dict(os.environ, KAE_RESUME="1" if resume else "0",
                                                               **({"KAE_FINISH_KEPT": "1"} if a.finish else {}),
+                                                              **({"KAE_CLEAR_KEPT": "1"} if a.clear else {}),
                                                               **charge_env(ch), **fr_raw_env(d), **env_k))
         running[p] = dict(k=k, seed=s, budget=round(b), out=o, t=time.monotonic(),
                           resumed_from=frm["k"] if resume else None, **ch)
@@ -1134,6 +1168,21 @@ def main():
             best = fin
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(best["out"], out)
+    cz, cz_hazards = None, []
+    if a.clear:
+        tc = time.monotonic()
+        cz = clear_pass(a, best, inp, base, wd, judge_est, meter, stop, cpu_s, (b0 or {}).get("overlaps", ()))
+        end += time.monotonic() - tc      # clearing has its own allowance: the time left for --finish is not cut
+        if cz is not None:
+            judge_cpu += cz.pop("judge_cpu_s", 0.0)
+            judge_wall += cz.pop("judge_wall_s", 0.0)
+            own = cz.pop("hazards", None) or []
+            cz_hazards = own if cz.get("kept") else [h for h in own if str(h.get("code", "")).startswith("hotloop_clear")]
+            done.append(cz)
+            if cz.get("kept"):
+                best = cz
+                out.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(best["out"], out)
     fz = finish_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s,
                      (b0 or {}).get("overlaps", ())) if a.finish else None
     carry = best["out"].parent if best else None   # the routed board's own report (blocked, hazards)
@@ -1156,6 +1205,8 @@ def main():
                 wall_to_best_s=best and round(best["t"] + best["wall_s"] - t0, 1),
                 finish=(((fz or {}).get("finish") or ({"skipped": fz["skipped"]} if fz and fz.get("skipped") else None))
                         if a.finish else None))
+    if a.clear:
+        work.update(clear=(cz or {}).get("clear"), clear_wall_s=(cz or {}).get("wall_s"), clear_kept=bool((cz or {}).get("kept")))
     if SC:   # wall_s and the attempts' times above are charged time; real_wall_s is what passed
         tot = dict(hits=SC.STATS["hits"], misses=SC.STATS["misses"], uncacheable=SC.STATS["uncacheable"],
                    charged_s=SC.STATS["charged_s"], saved_s=SC.STATS["saved_s"])
@@ -1183,7 +1234,7 @@ def main():
     shutil.copy2(best["out"], out)
     log(f"kept #{best['k']} (seed {best['seed']}): {best['rank']}")
     carry_report(carry or best["out"].parent, wd)
-    add_hazards(wd / "report.json", fz_hazards)
+    add_hazards(wd / "report.json", cz_hazards + fz_hazards)
     origin_report(best, done, wd)
     return 0
 

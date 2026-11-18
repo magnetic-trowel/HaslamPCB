@@ -21,6 +21,7 @@ so a run that is killed still leaves its best board. Returns a JSON-able report.
 """
 from kae.budget import now as clock_now
 import json
+import os
 import shutil
 import tempfile
 import time
@@ -432,6 +433,10 @@ def clear_hook(board, input_path, workdir, opts, deadline, log=_log, report=None
     from . import hotloop
     if not hotloop.settings(input_path, opts).get("clear") or not Path(board).exists():
         return None
+    if os.environ.get("KAE_CLEAR_KEPT") == "1":
+        # a restart portfolio's attempt or final pass (tools/kaeres/restart.py --clear): the wrapper clears the board
+        # it keeps once, with an allowance of its own, so clearing never depends on the time an attempt has left
+        return dict(cells=[], skipped="deferred: the restart portfolio clears the kept board")
     rep = hotloop.clear(input_path, board, workdir, opts=opts, deadline=deadline, log=log)
     if report is not None:
         report.setdefault("hazards", []).extend(rep.pop("hazards", None) or [])

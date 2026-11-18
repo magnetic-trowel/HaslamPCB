@@ -402,3 +402,16 @@ def test_clear_setting_parses(monkeypatch):
     assert not st["clear"] and not hotloop.active(st)
     st = hotloop.settings(None, {"hotloop_clear": 1})
     assert st["clear"] and not hotloop.active(st)          # D routes as N: no stage, no keep-outs
+
+
+def test_clear_hook_defers_to_a_portfolio_that_clears_the_kept_board(tmp_path, monkeypatch):
+    """KAE_CLEAR_KEPT=1 (tools/kaeres/restart.py --clear): an attempt or final pass does not clear its own board."""
+    from kae.route import bridge
+    board = tmp_path / "board.kicad_pcb"
+    board.write_text("(kicad_pcb)\n")
+    monkeypatch.setenv("KAE_HOTLOOP_CLEAR", "1")
+    monkeypatch.setenv("KAE_CLEAR_KEPT", "1")
+    rep = bridge.clear_hook(board, board, tmp_path / "wd", {})
+    assert rep == dict(cells=[], skipped="deferred: the restart portfolio clears the kept board")
+    monkeypatch.delenv("KAE_HOTLOOP_CLEAR")
+    assert bridge.clear_hook(board, board, tmp_path / "wd", {}) is None
