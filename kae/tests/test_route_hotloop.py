@@ -411,7 +411,7 @@ def test_clear_hook_defers_to_a_portfolio_that_clears_the_kept_board(tmp_path, m
     board.write_text("(kicad_pcb)\n")
     monkeypatch.setenv("KAE_HOTLOOP_CLEAR", "1")
     monkeypatch.setenv("KAE_CLEAR_KEPT", "1")
-    rep = bridge.clear_hook(board, board, tmp_path / "wd", {})
+    rep = bridge.clear_hook(board, board, tmp_path / "wd", {}, deadline=None)
     assert rep == dict(cells=[], skipped="deferred: the restart portfolio clears the kept board")
     monkeypatch.delenv("KAE_HOTLOOP_CLEAR")
-    assert bridge.clear_hook(board, board, tmp_path / "wd", {}) is None
+    assert bridge.clear_hook(board, board, tmp_path / "wd", {}, deadline=None) is None
