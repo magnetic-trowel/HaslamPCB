@@ -100,7 +100,12 @@ def _rl(R, L):
 
 
 def _rlc(R, L, C):
-    return lambda w: R + 1j * w * L + (1 / (1j * w * C) if C else 0)
+    def z(w):
+        return R + 1j * w * L + (1 / (1j * w * C) if C else 0)
+    # above its self-resonance a capacitor part is its ESR and ESL: the edge band's model (Circuit.edge_model, which
+    # uses it for kind "C" only)
+    z.hf = lambda w: R + 1j * w * L
+    return z
 
 
 def _par(z1, z2):
