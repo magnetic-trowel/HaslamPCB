@@ -153,3 +153,15 @@ main, and by the project rule (algorithm changes migrate) the experiment moves.
 
 ## Addendum 2026-11-19 (cutoff)
 User decision 2026-11-19, written before any result of this build is read: boards over 16 CPU-h per board (all of a board's runs; measured on earlier builds of this experiment, else the per-experiment fit of CPU on footprints) leave the A/B tests; a big-board canary set (board-tags suites/canary-big.txt) checks them before merges. Dropped here (8): 0xd6 flip-card rp2350, iorodeo g4 driver cplex-rp2040, iorodeo g4 driver rp2350, iorodeo g4 rp2350 fit-check, logisim gecko5education, madcatse mad5160 (18 CPU-h measured), peetz0r why2025 badge led-matrix, secersh etz-b11 (estimated 16-51). 28 matrix boards remain at k = 2; the MDE (about 24-27 % at 38) grows, so an unknown result is expected and the pre-registered extension (more matrix boards, under the cutoff) follows. Primary and decision rule unchanged.
+
+## Addendum 2026-11-19 (m6), before any run on this build: Freerouting 37b1a8b (freerouting#14) and main 6d726340
+The pin moved to kae-freerouting-fork-37b1a8b: `autorouter.max_work` is checked before each item instead of each pass,
+and a run stopped there keeps its best board. Outputs change only for Freerouting calls whose work budget runs out
+inside a pass (or that time out). Main 6d726340 also makes a Freerouting call's job timeout 4x its own budget (#114).
+In the finished runs of this experiment's earlier counted-work stages, 8 of 9 boards with runs had a Freerouting call stop on its work budget inside the pass loop (logged "Stopping the auto-router before pass"); over the restart experiments' logged calls about half stopped so. So the experiment moves as a whole (no run of `array-matrix-ab-m5` on an affected board can be told apart from the
+rest beforehand, and the changed calls are common).
+- Migrated: branch `array-macros-gated-m6` (rebased on main 6d726340; the earlier branch is left as it
+  was). Both arms at kae and harness 29a13fb9, the commit before this addendum. Freerouting fork 37b1a8b set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `array-matrix-ab-m6` (owner `exp-array-matrix-ab-m6`), new method ids. The runs of `array-matrix-ab-m5` (0 jobs done) are excluded
+  from the decision; its jobs are cancelled.
+- Boards (after the trims and the 16 CPU-h cutoff recorded above), arms, attempts, primary, guards and looks unchanged.
