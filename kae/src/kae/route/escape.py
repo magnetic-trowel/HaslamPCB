@@ -61,7 +61,6 @@ of net lists whose escapes should keep their order on one side.
 blocked (kae.route.blocked's format: cause "rule", summary), laid, wanted}.
 """
 from __future__ import annotations
-from kae.budget import spanned as _spanned
 
 from kae.budget import now as clock_now
 import math
@@ -311,7 +310,6 @@ class _Model:
             data += vals
         return csr_matrix((data, (ri, ci)), shape=(len(rows), self.n))
 
-    @_spanned("escape_lp")
     def solve(self, integer=True, time_limit=MILP_S):
         """(objective, x, duals {tag: |dual|} for the LP) or (None, None, {})."""
         from scipy.optimize import Bounds, LinearConstraint, linprog, milp
@@ -1551,7 +1549,6 @@ def _cache_put(key, value):
         pass
 
 
-@_spanned("escape")
 def run(sp, info, opts=None, log=print, deadline=None):
     """Plan and certify the escapes of every ball grid (not laid); check fine-pitch pad rings.
     Returns {packages, blocked, laid, wanted} (blocked: kae.route.blocked entries), and

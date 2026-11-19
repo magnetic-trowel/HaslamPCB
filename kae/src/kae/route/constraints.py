@@ -38,7 +38,6 @@ engine evaluated per pair of items. `plan(info, board_path)` maps one onto the o
 
 All lengths mm. Requirements are rounded up to 0.1 um (the DSN resolution).
 """
-from kae.budget import spanned as _spanned
 import json
 import math
 from dataclasses import dataclass, field
@@ -386,7 +385,6 @@ def _via_choice(info, rb, net):
 
 
 # ----------------------------------------------------------------------------- planning
-@_spanned("constraints_plan")
 def plan(info, board_path, opts=None):
     """The routing plan for a board (see the module docstring)."""
     opts = dict(opts or {})

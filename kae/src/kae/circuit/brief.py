@@ -26,7 +26,6 @@ Inputs are only what the .kicad_pcb states (names, values, footprints, lib ids, 
 and types, fields, net classes, schematic sheet names); positions are never read.
 """
 from __future__ import annotations
-from kae.budget import spanned as _spanned
 
 import argparse
 import json
@@ -203,7 +202,6 @@ def _priority(s: dict) -> tuple[float, str]:
 
 
 # ------------------------------------------------------------------------------- build
-@_spanned("brief")
 def build(board, *, use_sheets: bool = True) -> dict:
     """The brief for a kae.board Board (or any object with Contract 1 field names)."""
     t0 = time.perf_counter()

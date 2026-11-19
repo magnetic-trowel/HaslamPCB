@@ -30,7 +30,6 @@ up; rounds repeat until nothing is flagged or `rounds` is reached, each
 round judged by KiCad's DRC and kept only if it is no worse.
 """
 from __future__ import annotations
-from kae.budget import spanned as _spanned
 
 from kae.budget import now as clock_now
 import math
@@ -596,7 +595,6 @@ def _in_window(rb, m, window):
 
 
 @EX.final_fidelity          # --physics-fidelity exact / multi: loops by PEEC (kae.physics.exact)
-@_spanned("physics_eval")
 def board_physics(board, brief=None, fills="kicad", kinds=("cell", "path", "decap", "crystal", "chain"), terms=None,
                   window=None, rails=True):
     """Every module's routed value, allocation and u on a finished board (see the module
@@ -681,7 +679,6 @@ def fills_of(board_path):
 
 
 # ----------------------------------------------------------------------------- recheck
-@_spanned("physics_recheck")
 def recheck(board_routed, brief, stage, rise=0.15, fills="kicad", terms=None, cover_drop=0.10, window=None):
     """Modules whose routed utilization rose by more than `rise` over `stage` ({id: u} or
     {id: {u, plane_cover}}), crossed the budget, or whose ground plane under the loop lost

@@ -255,11 +255,7 @@ class _Worker:
         self.buf = b""
         _ALL.add(self)
         try:
-            with budget.span("pcbnew_worker_start"):     # KiCad's Python and `import pcbnew`, uncharged
-                ready = self._line(time.monotonic() + timeout)
-                c = budget.proc_cpu(self.proc.pid)
-                if c is not None:
-                    budget.add_cpu(c)
+            ready = self._line(time.monotonic() + timeout)
         except (_WorkerDied, _WorkerTimeout) as e:
             err = _fd_tail(fd)
             self.close()

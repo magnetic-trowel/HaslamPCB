@@ -12,7 +12,6 @@ Units: a DSN has `(resolution um 10)` and `(unit um)` in KiCad's export, so coor
 widths are micrometres; a SES has its own `(resolution um 10)` (tenths of a micrometre) in
 `routes` and `placement`. `unit_scale(tree)` gives the factor to millimetres.
 """
-from kae.budget import spanned as _spanned
 from kae.budget import work_mode
 import re
 
@@ -52,7 +51,6 @@ def parse(text):
     return cur[0]
 
 
-@_spanned("specctra_read")
 def read(path):
     with open(path, encoding="utf-8", errors="replace") as f:
         tree = parse(f.read())
@@ -116,7 +114,6 @@ def dumps(tree):
     return "\n".join(out) + "\n"
 
 
-@_spanned("specctra_write")
 def write(tree, path):
     with open(path, "w", encoding="utf-8") as f:
         f.write(dumps(tree))

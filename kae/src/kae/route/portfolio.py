@@ -33,7 +33,6 @@ ranked results the router listed first wins, so list the physics-first router fi
         [-- ARGS...]
 """
 from __future__ import annotations
-from kae.budget import spanned as _spanned
 
 import argparse
 import json
@@ -100,7 +99,6 @@ def final_reserve(time_s, drc_s):
     return min(FINAL_MIN_S + 2 * drc_s, FINAL_SHARE * time_s)
 
 
-@_spanned("portfolio")
 def run(inp, out, seed=0, time_s=1800.0, parallel=4, first_s=120.0, growth=2.0,
         router="kae.route.cli", extra=(), workdir=None, log=print, final="kae.route.cli"):
     """`router`: a module name, or a list of module names or (module, [args]) pairs; attempts

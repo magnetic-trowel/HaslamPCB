@@ -208,8 +208,7 @@ class Clock:
             rows = {k: dict(v, charged=dict(v["charged"])) for k, v in self.ledger.items()}
         root = rows.setdefault("", _row())
         root.update(n=1, wall=self.wall(), cpu=cpu - self.c0[0], child_cpu=kids - self.c0[1])
-        root["self_wall"] = root["wall"] - sum(v["wall"] for k, v in rows.items()
-                                               if k and "/" not in k and k[0] not in "~(")
+        root["self_wall"] = root["wall"] - sum(v["wall"] for k, v in rows.items() if k and "/" not in k)
         if self.startup:
             rows["(startup)"] = dict(_row(), n=1, wall=self.startup[0], self_wall=self.startup[0],
                                      cpu=self.startup[1])
@@ -280,8 +279,6 @@ def span(name):
     this thread (paths like "joint/route/freerouting"). Cheap (two clock reads), but meant for stages and
     calls that take milliseconds or more, not inner loops."""
     clock()                      # the process clock starts no later than its first span
-    if not getattr(watch_numba, "on", False) and "numba" in sys.modules:
-        watch_numba()
     st = getattr(_tls, "stack", None)
     if st is None:
         st = _tls.stack = []
@@ -336,37 +333,6 @@ class Spanned:
 
     def __setattr__(self, k, v):
         setattr(self._obj, k, v)
-
-
-def watch_numba():
-    """Book numba's compiles (lazy, on a kernel's first call: inside whatever span called it) to the
-    side row "~numba_compile" as well (rows starting "~" are not part of the span tree)."""
-    if getattr(watch_numba, "on", False) or "numba" not in sys.modules:
-        return
-    try:
-        from numba.core import event as ev
-    except ImportError:
-        return
-
-    class _L(ev.Listener):
-        def __init__(self):
-            self.t = {}
-
-        def on_start(self, e):
-            self.t[threading.get_ident()] = (time.monotonic(), _cpu()[0])
-
-        def on_end(self, e):
-            t0 = self.t.pop(threading.get_ident(), None)
-            if t0 is not None:
-                with _lock:
-                    row = clock().ledger["~numba_compile"]
-                    row["n"] += 1
-                    row["wall"] += time.monotonic() - t0[0]
-                    row["self_wall"] += time.monotonic() - t0[0]
-                    row["cpu"] += _cpu()[0] - t0[1]
-
-    ev.register("numba:compile", _L())
-    watch_numba.on = True
 
 
 def add_cpu(seconds):

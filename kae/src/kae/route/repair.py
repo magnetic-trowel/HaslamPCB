@@ -34,7 +34,6 @@ would have drawn go into the last mile's first round and are judged with its joi
 DRC; only when the last mile does not run are they added alone (_spokes_round), judged by
 the same rule.
 """
-from kae.budget import spanned as _spanned
 from kae.budget import now as clock_now
 import json
 import math
@@ -581,7 +580,6 @@ def _thermal_plan(plan, info, input_path, opts, sev, thermal):
     return plan
 
 
-@_spanned("repair")
 def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
     """Repair `output_path` in place (see the module docstring). Returns a report."""
     wd = Path(wd)
