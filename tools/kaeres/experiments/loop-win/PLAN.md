@@ -141,7 +141,7 @@ User decision: every arm gets the same counted-work allowance, as everywhere els
 
 ## Addendum (2026-11-18): big boards held, not dropped
 Job #108409 hit kaeq's 24 h job timeout. It ran polarfire SoM (473 footprints), seed 0, arms R, Wall and exact, on 8.1 h of nominal allowance. Its scratch went with the timeout, so the arm and stage that overran are unknown. On another board (alphaonex86, under route.cli), Freerouting was charged 8,588 s of work against a 900 s budget: max_work did not stop it.
-- **Held:** the 29 queued jobs on boards with more than 390 footprints were cancelled. Their job lines, with #108409's, are in `held-big-boards.jsonl` (30 lines; 6 boards: polarfire SoM, sdi-mipi, arvsom, jetson J2032, zotino, dvhx). The boards are polarfire SoM 473, sdi-mipi 396, arvsom 452, jetson J2032 833, zotino 722 and dvhx 464 footprints.
+- **Held:** the 29 queued jobs on boards with more than 390 footprints were cancelled. Their job lines, with #108409's, are in `held-big-boards.jsonl` (30 lines). The boards are polarfire SoM 473, sdi-mipi 396, arvsom 452, jetson J2032 833, zotino 722 and dvhx 464 footprints.
 - **Why:** at 3x wall per charged second, a three-arm job on these boards passes 24 h.
 - **When they come back:** once max_work reliably stops Freerouting on big boards. They are resubmitted from that file (`kaeq submit --jobs`, owner exp-loop-win), with the same methods and harness unless the fix changes kae, in which case every arm reruns at the fixed commit.
 - The other 63 boards run as planned. The primary is read on the boards every arm finished, and the held boards are added when they run.
