@@ -99,12 +99,76 @@ def kill_tree(pid, cg=None, sig=signal.SIGKILL):
     try:
         with open(os.path.join(cg, "cgroup.procs")) as f:
             for q in f.read().split():
+                if sig != signal.SIGKILL and sandbox_keeper(q):
+                    continue
                 try:
                     os.kill(int(q), sig)
                 except (ProcessLookupError, PermissionError, ValueError):
                     pass
     except OSError:
         pass
+
+
+def _comm(pid):
+    try:
+        with open(f"/proc/{pid}/comm") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def _ppid(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return int(f.read().rpartition(")")[2].split()[1])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def sandbox_keeper(pid):
+    """A process that a graceful stop must not SIGTERM: bubblewrap, and the shell a sandbox runs its command in.
+    bwrap runs sandboxes with --die-with-parent and its pid 1 ends the sandbox when its child exits, so a SIGTERM
+    to either SIGKILLs the method inside before it saves anything. The processes in the sandbox get the SIGTERM
+    themselves, and bwrap and the shell exit when they do (or are SIGKILLed after the grace)."""
+    c = _comm(pid)
+    return c == "bwrap" or (c in ("sh", "dash", "bash") and _comm(_ppid(pid)) == "bwrap")
+
+
+def tree_alive(pid, cg=None):
+    """Whether any process of a job is left: its scope's processes, else its process group."""
+    if cg:
+        try:
+            with open(os.path.join(cg, "cgroup.procs")) as f:
+                return bool(f.read().split())
+        except OSError:
+            return False   # the scope is gone, and its processes with it
+    try:
+        os.killpg(pid, 0)
+        return True
+    except (ProcessLookupError, TypeError):
+        return False
+    except PermissionError:
+        return True
+
+
+def stop_tree(pid, cg=None, grace_s=0.0, poll=0.25, reap=lambda: None):
+    """Stop a job gracefully: thaw it (a frozen process handles no signal but SIGKILL), SIGTERM every process of it,
+    wait up to grace_s for them to exit (saving what they have), then SIGKILL what is left. reap: polls the job's
+    own process (its exit leaves a zombie that keeps its process group alive). Returns the seconds the job took to
+    exit, None when it had to be killed."""
+    if cg and cg_frozen(cg):
+        cg_freeze(cg, False)
+    t0 = time.monotonic()
+    if grace_s > 0:
+        kill_tree(pid, cg, signal.SIGTERM)
+        while time.monotonic() - t0 < grace_s:
+            reap()
+            if not tree_alive(pid, cg):
+                break
+            time.sleep(poll)
+    left = tree_alive(pid, cg)
+    kill_tree(pid, cg, signal.SIGKILL)
+    return None if left else round(time.monotonic() - t0, 2)
 
 
 def cg_mem(cg):

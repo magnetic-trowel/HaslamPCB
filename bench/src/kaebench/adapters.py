@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import tools
+from . import stopping, tools
 from .boardfiles import (board_path, clamp_dsn_widths, copy_board, fix_dsn_unsized_vias, quote_ses_net_names,
                          ses_complete, strip_ses_placement, unblock_all_power_dsn)
 
@@ -315,7 +315,8 @@ class Command(Adapter):
                                    timeout=int(timeout))
         argv = self.sandbox.wrap(["sh", "-c", cmd], w)
         try:
-            r = tools.run_measured(argv, timeout=timeout, cwd=w)
+            # method.log: its output as it comes, so a killed job leaves it; restart.py's progress lines go to stdout
+            r = tools.run_measured(stopping.tee_argv(argv, w / "method.log"), timeout=timeout, cwd=w)
             log = r.stdout + r.stderr
         except subprocess.TimeoutExpired as e:
             # Like Freerouting's partial session: what the method wrote by the deadline is its output

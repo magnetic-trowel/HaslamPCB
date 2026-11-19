@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """kae.budget: time mode is the wall clock; work mode advances by charged work only, wall time only
 past the safety ceiling, and reports what it counted."""
+import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -72,6 +74,29 @@ def test_deadline_made_past_the_ceiling_has_passed():
         assert late.part(5.0).passed()
     finally:
         budget.set_mode("time")
+
+
+def test_start_run_turns_sigterm_into_an_exit_that_flushes_and_reports(tmp_path):
+    """A run killed with SIGTERM (a job queue's timeout) exits 143 through SystemExit: `finally` blocks and exit
+    handlers run, so buffered output and the clock's report are not lost."""
+    import subprocess
+    import sys
+    prog = ("import os, signal, sys, time\n"
+            "from kae import budget\n"
+            "budget.start_run(10)\n"
+            "budget.charge('poll', 3)\n"
+            "print('buffered line')\n"           # not flushed: a plain SIGTERM would drop it
+            "try:\n"
+            "    os.kill(os.getpid(), signal.SIGTERM); time.sleep(10)\n"
+            "finally:\n"
+            "    os.kill(os.getpid(), signal.SIGTERM)\n"    # a second one (kaeq and restart.py both send it)
+            "    print('cleanup ran')\n")
+    src = Path(budget.__file__).resolve().parents[1]
+    r = subprocess.run([sys.executable, "-c", prog], capture_output=True, text=True, timeout=60,
+                       env=dict(os.environ, PYTHONPATH=str(src), KAE_BUDGET="work"))
+    assert r.returncode == 143
+    assert r.stdout.splitlines()[:2] == ["buffered line", "cleanup ran"]
+    assert r.stdout.splitlines()[-1].startswith("[kae.budget] ")
 
 
 def test_stage_wall_is_a_multiple_of_the_stage_budget_within_the_runs_ceiling(monkeypatch):
