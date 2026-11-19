@@ -99,3 +99,15 @@ main, and by the project rule (algorithm changes migrate) the experiment moves.
 
 ## Addendum 2026-11-19 (cutoff)
 User decision 2026-11-19, written before any result of this build is read: boards over 16 CPU-h per board (all of a board's runs; measured on earlier builds of this experiment, else the per-experiment fit of CPU on footprints) leave the A/B tests; a big-board canary set (board-tags suites/canary-big.txt) checks them before merges. No board of this stage is over the cutoff (estimated); nothing changes.
+
+## Addendum 2026-11-19 (m6), before any run on this build: Freerouting 37b1a8b (freerouting#14) and main 6d726340
+The pin moved to kae-freerouting-fork-37b1a8b: `autorouter.max_work` is checked before each item instead of each pass,
+and a run stopped there keeps its best board. Outputs change only for Freerouting calls whose work budget runs out
+inside a pass (or that time out). Main 6d726340 also makes a Freerouting call's job timeout 4x its own budget (#114).
+Its runs record only the first Freerouting call's stop reason (no budget stop on the 20 boards with runs), but its repair rounds' calls run on what is left of the counted budget, and in the restart experiments, where every call is logged, about half of the calls after the first stopped on the budget inside a pass; affected boards are therefore expected to be common. So the experiment moves as a whole (no run of `drc-parse-ab-m5` on an affected board can be told apart from the
+rest beforehand, and the changed calls are common).
+- Migrated: branch `simp-drc-parse-m6` (rebased on main 6d726340; the earlier branch is left as it
+  was). Arms: C = bridge at main 6d726340, P = bridge at e4e79806; harness 6d726340. Freerouting fork 37b1a8b set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `drc-parse-ab-m6` (owner `exp-drc-parse-ab-m6`), new method ids. The runs of `drc-parse-ab-m5` (1 jobs done) are excluded
+  from the decision; its jobs are cancelled.
+- Boards (after the trims and the 16 CPU-h cutoff recorded above), arms, attempts, primary, guards and looks unchanged.
