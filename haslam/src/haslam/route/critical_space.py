@@ -305,11 +305,14 @@ class Space:
                 self.notes.append(f"thermal corridors unavailable: {type(e).__name__}: {e}")
                 cors = []
             # pour links (opts pour_links, the hot-loop cells stage): solidly connected pads keep a
-            # strip to their zone's fill free of other nets too (thermal_corridors solid)
+            # strip to their zone's fill free of other nets too (thermal_corridors solid), and pads
+            # near their net's copper a lane to it (escape_lanes)
             if self.opts.get("pour_links"):
                 try:
                     cors = list(cors) + [(g, l, q, "pour link") for g, l, q in
                                          CN.thermal_corridors(self.info, plan, None, self.sev, solid=True)]
+                    # and pads that do not touch their net's copper keep their short way to it
+                    cors += [(g, l, q, "escape") for g, l, q in CN.escape_lanes(self.info, plan)]
                 except Exception as e:   # noqa: BLE001 - as above
                     self.notes.append(f"pour links unavailable: {type(e).__name__}: {e}")
             for geo, layer, pad, *why in cors:
