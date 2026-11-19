@@ -118,3 +118,6 @@ main, and by the project rule (algorithm changes migrate) the experiment moves.
 - New experiment `fr-neck-gated-ab5` (owner `exp-fr-neck-gated-ab5`), new method ids. The runs of `fr-neck-gated-ab4` (7 jobs done) are on the
   previous main and excluded from the decision; its jobs are cancelled.
 - Boards (after the trims already recorded above), arms, attempts, primary, guards and looks unchanged.
+
+## Addendum 2026-11-19 (cutoff)
+User decision 2026-11-19, written before any result of this build is read: boards over 16 CPU-h per board (all of a board's runs; measured on earlier builds of this experiment, else the per-experiment fit of CPU on footprints) leave the A/B tests; a big-board canary set (board-tags suites/canary-big.txt) checks them before merges. Exempt: this stage is density-specific (neck-down on dense fine-pitch boards); its one board over the cutoff, sinara sayma-amc (34 CPU-h measured), stays.
