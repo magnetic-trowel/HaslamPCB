@@ -150,3 +150,6 @@ main, and by the project rule (algorithm changes migrate) the experiment moves.
 - New experiment `array-matrix-ab-m5` (owner `exp-array-matrix-ab-m5`), new method ids. The runs of `array-matrix-ab-m3` (9 jobs done) are on the
   previous main and excluded from the decision; its jobs are cancelled.
 - Boards (after the trims already recorded above), arms, attempts, primary, guards and looks unchanged.
+
+## Addendum 2026-11-19 (cutoff)
+User decision 2026-11-19, written before any result of this build is read: boards over 16 CPU-h per board (all of a board's runs; measured on earlier builds of this experiment, else the per-experiment fit of CPU on footprints) leave the A/B tests; a big-board canary set (board-tags suites/canary-big.txt) checks them before merges. Dropped here (8): 0xd6 flip-card rp2350, iorodeo g4 driver cplex-rp2040, iorodeo g4 driver rp2350, iorodeo g4 rp2350 fit-check, logisim gecko5education, madcatse mad5160 (18 CPU-h measured), peetz0r why2025 badge led-matrix, secersh etz-b11 (estimated 16-51). 28 matrix boards remain at k = 2; the MDE (about 24-27 % at 38) grows, so an unknown result is expected and the pre-registered extension (more matrix boards, under the cutoff) follows. Primary and decision rule unchanged.
