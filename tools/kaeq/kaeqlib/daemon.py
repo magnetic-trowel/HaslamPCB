@@ -8,14 +8,44 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
-from .consts import GB, MEM_BINS, TICK
+from .consts import CANCELLING, GB, MEM_BINS, TICK
 from .cpu import adapt_runq_q, burst_fits, quantile
 from .gitsnap import drop_worktree, git, ref
-from .host import Host, TICK_HZ, at_high, cg_anon_refaults, cg_freeze, cg_frozen, cg_high_mb, cg_mem, cg_mem_pressure, cg_pressure, cg_set_high, cg_swap_mb, compress, compress_room_mb, job_cgroup, job_cpus, job_usage, kill_tree, pid_alive, shutil_which, uncompress
+from .host import Host, TICK_HZ, at_high, cg_anon_refaults, cg_freeze, cg_frozen, cg_high_mb, cg_mem, cg_mem_pressure, cg_pressure, cg_set_high, cg_swap_mb, compress, compress_room_mb, job_cgroup, job_cpus, job_usage, kill_tree, pid_alive, shutil_which, stop_tree, uncompress
 from .leases import expected_size, timed_share, keep_flags, adapt_hold, adapt_z, lease_plan, max_rise, mem_hist, owner_correlation, pooled_headroom, warm_headroom
-from .store import BEAT, CONF, DB, HOME, HOST, LOCK, OVERCOMMIT, RISE_HIST, backup_db, close_trace, config, db, deployed, digest, dlog, drop_scratch, du_mb, event, jobdir, load_overcommit, load_rise_hist, pinned_host, rc_path, scratchdir, write_trace
+from .store import BEAT, CONF, DB, HOME, HOST, LOCK, OVERCOMMIT, RISE_HIST, backup_db, close_trace, config, db, deployed, digest, dlog, drop_scratch, du_mb, event, jobdir, load_overcommit, load_rise_hist, mark_stop, pinned_host, rc_path, salvage_scratch, scratchdir, write_trace
 from .units import active_for, fdur, fgb, frozen_for, times
+
+
+def salvage_dir(j):
+    return os.path.join(jobdir(j["id"]), "salvage", f"{j['attempt']}.{j['preempts']}")
+
+
+def stop_job(j, cg, grace, reason, cfg, p=None, requeue=False):
+    """Stop a killed job (a thread of the daemon, or `kaeq cancel`'s detached helper): SIGTERM every process, grace
+    seconds for them to save what they have, SIGKILL; then copy the logs and small results its scratch holds to
+    jobs/<id>/salvage/<attempt>.<preempts>/ (salvage_mb), delete the scratch and, unless it is requeued, its worktree.
+    One line in the job's log says how it ended, so even a job that saved nothing leaves a trace."""
+    took = stop_tree(j["pid"], cg, grace, reap=p.poll if p is not None else lambda: None)
+    if p is not None:
+        try:
+            p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+    got = salvage_scratch(scratchdir(cfg, j["id"]), salvage_dir(j), cfg["salvage_mb"])
+    drop_scratch(cfg, j["id"])
+    if not requeue:
+        drop_worktree(j)
+    how = f"exited {took:.0f}s after SIGTERM" if took is not None else f"SIGKILLed after {grace:.0f}s grace"
+    try:
+        with open(os.path.join(jobdir(j["id"]), "log"), "ab") as f:
+            f.write(f"=== kaeq stopped job {j['id']} attempt {j['attempt']} ({reason}): {how}; scratch "
+                    f"{'salvaged to ' + got if got else 'empty'} at {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n".encode())
+    except OSError:
+        pass
+    dlog(f"stopped #{j['id']} ({reason}): {how}")
 
 
 class Daemon:
@@ -23,6 +53,7 @@ class Daemon:
         self.host = host or Host()
         self.c = db()
         self.popen = {}          # id -> Popen (to reap zombies)
+        self.dying = {}          # id -> thread stopping a killed job (stop_job): SIGTERM, grace, SIGKILL, salvage
         self.others_ema = 0.0
         self.runq_ema = 0.0
         self.runq_hist, self.runq_q, self.runq_q_ts, self.runq_stats = [], None, time.time(), (0.0, 0.0)
@@ -113,6 +144,12 @@ class Daemon:
         lease_on = cfg["mem_pool"] == "lease" and self.use_cgroup(cfg)
         sessions, per_pid = self.host.proc_by_session()
         now = time.time()
+        for j in c.execute("SELECT * FROM jobs WHERE state='cancelled' AND note=?", (CANCELLING,)).fetchall():
+            # `kaeq cancel` of a running job: the daemon stops it, as it does a timeout (it knows the job's scope)
+            if j["pid"]:
+                self.kill(j, "cancelled")
+            self.account(j, now, end="cancelled")
+            c.execute("UPDATE jobs SET note='cancelled', pid=NULL WHERE id=?", (j["id"],))
         running = c.execute("SELECT * FROM jobs WHERE state='running'").fetchall()
         ours_ticks, ours_rss, unrealized = 0, 0.0, 0.0
         usage = {j["id"]: job_usage(j, sessions, per_pid, self.cgroups) for j in running}
@@ -248,7 +285,7 @@ class Daemon:
         floor = max(reserve * cfg["emergency_frac"], cfg["emergency_floor_gb"] * 1024)
         if avail < floor and running:   # the newest batch job, else the newest
             v = max(running, key=lambda j: ((j["qos"] or "timed") != "timed", j["started"]))
-            self.preempt(v, now, f"preempted: free memory {fgb(avail)} < {fgb(floor)}")
+            self.preempt(v, now, f"preempted: free memory {fgb(avail)} < {fgb(floor)}", grace=0)   # no time to spare
             running = [j for j in running if j["id"] != v["id"]]
             avail += v["mem_mb"]
         # emergency: scratch over budget -> preempt the job with the most scratch
@@ -810,11 +847,10 @@ class Daemon:
                            "freezes=0 WHERE id=?", (active_for(r, now), j["id"]))
         self.lease_st.pop(j["id"], None)
 
-    def preempt(self, v, now, note, disk_mb=None):
+    def preempt(self, v, now, note, disk_mb=None, grace=None):
         dlog(f"preempt #{v['id']}: {note}")
-        self.kill(v)
+        self.kill(v, "preempted", requeue=True, grace=grace)
         self.account(v, now, lost=True)
-        drop_scratch(config(), v["id"])
         self.c.execute("UPDATE jobs SET state='queued',pid=NULL,preempts=preempts+1,not_before=?,note=?,disk_mb=?,grant_mb=0 WHERE id=?",
                        (now + 60, note, disk_mb or v["disk_mb"], v["id"]))
 
@@ -936,6 +972,9 @@ class Daemon:
         return out
 
     def start(self, j, cfg):
+        t = self.dying.pop(j["id"], None)
+        if t is not None:      # a requeued job's last attempt is still being stopped: its scratch is in use
+            t.join()
         d = jobdir(j["id"])
         os.makedirs(d, exist_ok=True)
         rc = rc_path(j)
@@ -1036,14 +1075,26 @@ class Daemon:
              f"{'timed' if timed else 'batch'} {j['name'] or j['cmd'][:60]}")
         return True
 
-    def kill(self, j, sig=signal.SIGTERM):
+    def kill(self, j, reason, requeue=False, grace=None):
+        """Stop a job in the background (stop_job): SIGTERM, kill_grace_s (preempt_grace_s when it is requeued) for it
+        to save what it has, SIGKILL, then its scratch is salvaged and deleted. Its state changes at once; a requeued
+        job starts again only once this is done (start)."""
+        cfg = config()
         cg = self.cgroups.get(j["id"]) or (job_cgroup(j["pid"]) if j["pid"] and pid_alive(j["pid"]) else None)
-        if cg and cg_frozen(cg):
-            cg_freeze(cg, False)                     # a frozen job handles no signal but SIGKILL
-        kill_tree(j["pid"], cg, sig)
-        if sig == signal.SIGTERM:  # a hard kill after a short grace
-            time.sleep(0.2)
-            kill_tree(j["pid"], cg, signal.SIGKILL)
+        mark_stop(cfg, j["id"], reason)
+        grace = cfg["preempt_grace_s" if requeue else "kill_grace_s"] if grace is None else grace
+        t = threading.Thread(target=stop_job, args=(dict(j), cg, grace, reason, cfg, self.popen.pop(j["id"], None),
+                                                    requeue), name=f"stop-{j['id']}")
+        t.start()
+        self.dying[j["id"]] = t
+
+    def stopping(self, jid):
+        """Whether a killed job of this id is still being stopped (its scratch and worktree are stop_job's)."""
+        t = self.dying.get(jid)
+        if t is not None and not t.is_alive():
+            del self.dying[jid]
+            t = None
+        return t is not None
 
     def check(self, j, rss, now, cfg, disk=0.0, lease=False):
         c = self.c
@@ -1071,13 +1122,13 @@ class Daemon:
             self.popen.pop(j["id"], None)
             return self.finish(j, 137, peak, lost=True)
         if active_for(j, now) > j["timeout_s"]:     # time frozen waiting for memory does not count
-            self.kill(j)
+            self.kill(j, "timeout")
             return self.finish_fail(j, "timeout", f"exceeded --timeout {fdur(j['timeout_s'])}; raise --timeout or split the job", peak)
         if disk > j["disk_mb"] * cfg["disk_overrun"] + 5 * 1024:
-            self.kill(j)
-            drop_scratch(cfg, j["id"])
+            requeue = j["preempts"] < 2
+            self.kill(j, "disk", requeue=requeue)
             new = int(disk * 1.3) + 1024
-            if j["preempts"] < 2:
+            if requeue:
                 self.account(j, now, lost=True)
                 c.execute("UPDATE jobs SET state='queued',pid=NULL,disk_mb=?,preempts=preempts+1,note=? WHERE id=?",
                           (new, f"killed at scratch {fgb(disk)} > declared {fgb(j['disk_mb'])}; auto-requeued with --disk {fgb(new)}", j["id"]))
@@ -1085,10 +1136,10 @@ class Daemon:
                 self.finish_fail(j, "failed", f"scratch {fgb(disk)} exceeded declared {fgb(j['disk_mb'])}; resubmit with --disk {fgb(new)}")
             return
         if rss > j["mem_mb"] * cfg["mem_overrun"] + 1024 and not lease:  # under a lease, memory.high holds it
-            self.kill(j)
+            requeue = j["preempts"] < 2
+            self.kill(j, "oom", requeue=requeue)
             new = int(rss * 1.3) + 1024
-            drop_scratch(cfg, j["id"])
-            if j["preempts"] < 2:  # one automatic re-queue with a corrected estimate
+            if requeue:  # one automatic re-queue with a corrected estimate
                 self.account(j, now, lost=True)
                 c.execute("UPDATE jobs SET state='queued',pid=NULL,mem_mb=?,preempts=preempts+1,note=? WHERE id=?",
                           (new, f"killed at {fgb(rss)} > declared {fgb(j['mem_mb'])}; auto-requeued with --mem {fgb(new)}", j["id"]))
@@ -1166,7 +1217,9 @@ class Daemon:
     def finish_fail(self, j, state, note, peak=None, rc=None):
         c = self.c
         peak = peak if peak is not None else j["peak_mb"]
-        drop_scratch(config(), j["id"])
+        dying = self.stopping(j["id"])     # a killed job: stop_job salvages and deletes its scratch and worktree
+        if not dying:
+            drop_scratch(config(), j["id"])
         retry = j["retries_left"] > 0 and state != "timeout"
         self.account(j, time.time(), lost=retry, end=state)
         if retry:
@@ -1175,10 +1228,13 @@ class Daemon:
             return
         c.execute("UPDATE jobs SET state=?,rc=?,finished=?,pid=NULL,peak_mb=?,note=? WHERE id=?",
                   (state, rc if rc is not None else -1, time.time(), peak, note, j["id"]))
-        drop_worktree(j)
+        if not dying:
+            drop_worktree(j)
         r = c.execute("SELECT * FROM jobs WHERE id=?", (j["id"],)).fetchone()
         head = f"#{j['id']} {state.upper()} {note} | {j['name'] or j['cmd'][:60]} | {ref(j)} | {times(r)} peak {fgb(peak)}/{fgb(j['mem_mb'])} attempt {j['attempt']}"
-        event(c, j, state, "\n".join([head] + digest(j["id"]) + [f"  log: {os.path.join(jobdir(j['id']), 'log')}  retry: kaeq retry {j['id']}"]))
+        salvage = [f"  salvage (once stopped, within {fdur(config()['kill_grace_s'])}): "
+                   f"{salvage_dir(j)}"] if dying else []
+        event(c, j, state, "\n".join([head] + digest(j["id"]) + salvage + [f"  log: {os.path.join(jobdir(j['id']), 'log')}  retry: kaeq retry {j['id']}"]))
 
     def idle_events(self, now):
         """One 'idle' event when an owner's last active job ends."""

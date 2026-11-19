@@ -574,3 +574,19 @@ def test_publish_numba_cache_adds_missing_kernels_only(tmp_path, monkeypatch):
     assert kaeres.publish_numba_cache(m, run) == 0
     assert not (cache / sub / "engine.step-40.py312.nbi").exists()
     assert kaeres.publish_numba_cache(dict(id="m2", recipe=dict(runner=dict(template="kae route"))), run) == 0
+
+
+def test_plan_chunks_fits_each_job_in_the_queues_timeout():
+    K = kaeres
+    # loop-win polarfire (2026-11-17): 6 methods x 2 attempts of 38,995 s each went out as 5 jobs of
+    # 2-3 arms; a 3-arm job (117,000 s of timeouts) got kaeq's 24 h cap and kept nothing
+    need = [(f"m{i}", a) for i in range(6) for a in (0, 1)]
+    cost = {f"m{i}": 38995 for i in range(6)}
+    over = K.job_overhead_s(43.0)
+    chunks = K.plan_chunks(need, cost, over)
+    assert sorted(p for ch in chunks for p in ch) == sorted(need)
+    assert all(sum(cost[m] for m, _ in ch) + over <= K.JOB_TIMEOUT_MAX_S for ch in chunks)
+    assert len(chunks) == 12                     # 2 arms (78,000 s) + overhead do not fit 24 h either
+    # small boards keep the 2-5 jobs of before
+    small = {f"m{i}": 900 for i in range(6)}
+    assert len(K.plan_chunks(need, small, 3600)) == K.CHUNKS_MIN
