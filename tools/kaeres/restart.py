@@ -1157,6 +1157,11 @@ def run_policy(ap, a):
                     work=dict(attempts=1, wall_s=round(time.monotonic() - w0, 1)))
 
     p1 = phase(1, a.seed, 0.5 * a.time, cmd)
+    if p1["rank"] is not None and p1["out"].exists():
+        # at once, as the restart waves do: a kill during phase 2 (its open-alt may run 4 x its time in wall
+        # seconds) keeps phase 1's board. solar-small: six runs killed in phase 2 left no output at all
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p1["out"], out)
     clean1 = p1["rank"] is not None and p1["rank"][1] == 0
     alt = bool(clean1 and a.alt)
     left = 0.5 * a.time if WORK else a.time - (time.monotonic() - t0)   # work mode: nominal halves

@@ -503,10 +503,18 @@ def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=prin
             net = local.pop(0)
             left |= join_net(net, local, added, removed, before) and net == root
         after = {n: _open_count(sp, fp, n) for n in before}
-        if not txn or sum(after.values()) < sum(before.values()):
+        better = sum(after.values()) < sum(before.values())
+        # greedy (txn False) keeps a pass's joins for the caller's reroute of the nets it ripped; a pass that
+        # ripped nothing and closed nothing only adds copper, and requeueing its net repeats it forever
+        # (solar-small: "SYS: kept, 4 -> 4" and "GND: kept, 4 -> 4" alternating for 3.5 h, each pass
+        # slower as its dead copper piled up)
+        if better or (not txn and any(n != root for n in before)):
             open_now.update(after)
-            # nets still open (a pour in many pieces, a ripped net not re-joined): their turn later
-            queue += [n for n, v in after.items() if v and n not in queue and (n != root or left)]
+            # nets still open (a pour in many pieces, a ripped net not re-joined): their turn later; the
+            # root again only when its own count fell (a pass that changed nothing for it would only
+            # repeat); ripped nets as before (HIST_MAX bounds how often a net is ripped)
+            queue += [n for n, v in after.items() if v and n not in queue
+                      and (n != root or (left and v < before[root]))]
             log(f"last mile {root}: kept, {sum(before.values())} -> {sum(after.values())} open on "
                 f"{len(before)} nets ({joins - saved[4]} joins)")
             continue
