@@ -4,8 +4,8 @@
 
   python ledger.py FILE... [--by tag|argv0|none] [--self] [--min-wall 1] [--json]
 
-FILEs are KAE_LEDGER JSONL files (one process per line), or any log holding `[kae.budget] {...}`
-lines (adapter.log, kaeq job logs). Per span path it prints the count, wall seconds, own wall (less
+FILEs are logs holding kae's `[kae.budget] {...}` exit reports (adapter.log, restart attempt logs,
+kaeq job logs), one per process. Per span path it prints the count, wall seconds, own wall (less
 child spans), CPU of kae's process, CPU of child processes (KiCad, Freerouting), charged seconds
 and two ratios: wall / charged and CPU / charged (CPU = own + child). A ratio far from 1 is a
 mispriced action; a span charged nothing that takes time is uncounted work. The root row "" is
@@ -19,20 +19,14 @@ import sys
 
 
 def records(paths):
+    """(file, report) for each `[kae.budget] {...}` line of the files."""
     for p in paths:
         with open(p, errors="replace") as f:
             for line in f:
-                line = line.strip()
-                if line.startswith("{"):
+                i = line.find("[kae.budget] {")
+                if i >= 0:
                     try:
-                        r = json.loads(line)
-                    except ValueError:
-                        continue
-                    if "report" in r:
-                        yield p, r.get("tag") or "", (r.get("argv") or ["?"])[0], r["report"]
-                elif line.startswith("[kae.budget] "):
-                    try:
-                        yield p, "", "?", json.loads(line[len("[kae.budget] "):])
+                        yield p, json.loads(line[i + len("[kae.budget] "):])
                     except ValueError:
                         continue
 
@@ -40,7 +34,7 @@ def records(paths):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("files", nargs="+")
-    ap.add_argument("--by", choices=("none", "tag", "file", "argv0"), default="none")
+    ap.add_argument("--by-file", action="store_true", help="one table per file")
     ap.add_argument("--min-wall", type=float, default=0.0, help="hide spans under this many wall seconds")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
@@ -48,8 +42,8 @@ def main(argv=None):
         lambda: dict(n=0, wall=0.0, self_wall=0.0, cpu=0.0, child_cpu=0.0, charged=collections.Counter())))
     procs = collections.Counter()
     events = collections.Counter()
-    for path, tag, a0, rep in records(a.files):
-        g = {"none": "", "tag": tag, "file": path, "argv0": a0}[a.by]
+    for path, rep in records(a.files):
+        g = path if a.by_file else ""
         procs[g] += 1
         for e in rep.get("events") or []:
             events[(g, e.get("name"), e.get("what", ""), e.get("span", ""))] += 1

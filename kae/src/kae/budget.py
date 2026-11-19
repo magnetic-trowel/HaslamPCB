@@ -28,9 +28,8 @@ wall seconds, the process's CPU seconds, its waited-for child processes' CPU sec
 and the seconds charged inside it, by kind; spans nest, and a charge goes to the innermost open span of
 its thread. Wall time outside every span is the root's own time, reported as unattributed, so time no
 span covers shows up instead of being booked to whatever is charged next. `event(name, ...)` records a
-timeout, cap or wall stop that fired, with the span it fired in. The ledger is in the clock's report, and
-KAE_LEDGER=path appends the process's report to that JSONL file at exit (tools/research/budget/ledger.py
-sums them).
+timeout, cap or wall stop that fired, with the span it fired in. The ledger is in the clock's report printed
+at exit (`[kae.budget] {...}`; tools/research/budget/ledger.py sums the reports of many runs).
 """
 from __future__ import annotations
 
@@ -306,21 +305,6 @@ def span(name):
             row["child_cpu"] += k - sp.k0 + sp.extra
 
 
-def spanned(name=None):
-    """Decorator: run the function inside span(name or its __name__)."""
-    import functools
-
-    def deco(fn):
-        nm = name or fn.__name__
-
-        @functools.wraps(fn)
-        def inner(*a, **k):
-            with span(nm):
-                return fn(*a, **k)
-        return inner
-    return deco
-
-
 class Spanned:
     """A proxy for an object whose public methods each run in a span of their name (e.g. the joint
     loop's stages: place, route, repair, evaluate)."""
@@ -333,7 +317,11 @@ class Spanned:
         v = getattr(self._obj, k)
         if k.startswith("_") or not callable(v):
             return v
-        return spanned(self._prefix + k)(v)
+
+        def call(*a, **kw):
+            with span(self._prefix + k):
+                return v(*a, **kw)
+        return call
 
     def __setattr__(self, k, v):
         setattr(self._obj, k, v)
@@ -375,19 +363,6 @@ def event(name, **info):
     return clock().event(name, **info)
 
 
-def _write_ledger():
-    path = os.environ.get("KAE_LEDGER")
-    if not path:
-        return
-    rec = dict(argv=sys.argv, pid=os.getpid(), ppid=os.getppid(), tag=os.environ.get("KAE_LEDGER_TAG", ""),
-               report=clock().report())
-    try:
-        with open(path, "a") as f:
-            f.write(json.dumps(rec) + "\n")
-    except OSError as e:
-        print(f"[kae.budget] cannot write ledger {path}: {e}", file=sys.stderr)
-
-
 def _print_gap(kind, units, gap):
     import sys
     import traceback
@@ -397,9 +372,6 @@ def _print_gap(kind, units, gap):
 
 
 _clock = None
-if os.environ.get("KAE_LEDGER"):
-    import atexit
-    atexit.register(_write_ledger)
 
 
 def clock():
@@ -429,11 +401,10 @@ def set_ceiling(budget_s):
 
 
 def start_run(budget_s):
-    """A CLI's entry: set the wall ceiling for this run's budget and print the clock's report at exit."""
+    """A CLI's entry: set the wall limits for this run's budget and print the clock's report at exit."""
+    import atexit
     set_ceiling(budget_s)
-    if work_mode() or clock().profile:
-        import atexit
-        atexit.register(lambda: print("[kae.budget] " + json.dumps(clock().report()), flush=True))
+    atexit.register(lambda: print("[kae.budget] " + json.dumps(clock().report()), flush=True))
 
 
 def now(kind="poll"):
