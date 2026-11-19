@@ -279,3 +279,47 @@ Board loss terms (per board, the sum of that observable's terms):
 - The outliers (ratios of 10³–10⁴: giacobot in C and CD, which C′ fixes, plus jericholab in D and two others) are open loops, where the evaluator's loop loss blows up. Medians are robust to them, but each one gets a look in the final C′/CD′ analysis.
 - Open cells: C 11 and CD 11 against N's 4 (danielmcmillan included). D has 5.
 - *Preliminary reading:* C (and CD) cut L_loop and R_loop about 17–19 % against N, and loop losses about 14–15 %, in both topologies and both layer counts. They also bring the median cell from worse than human (N 1.10 L, 1.15 R) to slightly better. Clear on its own (D) changes almost nothing. Copper loss outside the loops is unchanged against N. The final reading waits for C′ and CD′.
+
+## Round 2: C″ (branch `hotloop-cells2`, pre-registered 2026-11-19, before any C″ result)
+
+**Code:** `hotloop-cells2` off `default-and-fixes` (PR #111, 582448d6).
+- *Routing fix* (cf39ddca): escape lanes keep a pin's short way to its own net's zone or pad clear in the cells stage's Space, and a reachability backstop reverts a cell that closes a pin's way anyway (`hotloop_cell_blocks_pin`). This is open-authenticator's defect in C′.
+- *Evaluator fixes,* each in its own commit:
+  - (a) a connected loop read as L < 0 (markwestbroek U6, murex IC1);
+  - (b) an open loop on a DRC-connected board (pcbcorpus orbit).
+
+**Arms:** C″ (cells first at the round-2 SHA) routed and evaluated on all 60 boards. N and human are reused, as set out below. D and CD are not continued (the final report: no effect at their cost).
+
+**Reused results, and why each is valid:**
+- *N's routed boards (908e21ff).* The changes since then that could reach N are:
+  - the power-copper keep-out clip (the scan above found 0 overlaps on N's 60 boards);
+  - restart.py's ranking moving to `kae.rank.board_rank`;
+  - critical.py's `abs(volts)` (critical tightening is off);
+  - escape docstrings;
+  - the cells-stage changes (cells are off in N).
+
+  Counted-work routing is deterministic. N is re-routed at the round-2 SHA on 5 boards (`hotloop-sw-nid-<sha>`, `STAGE=nid`): zebra-rodeo marelleo (12 pour-forbidding areas), duanestorey hifi-amp (a −12 V rail), heypcb quack-face (8 areas), giacobot and julianschuler. If all 5 match 908e21ff on geometry (sorted, uuids aside) and score, N's 60 boards stand. Otherwise N is re-routed on all 60.
+- *Physics of human and N.* Only the two evaluator fixes change numbers. The boards they touch (markwestbroek, murex, pcbcorpus orbit) are re-evaluated for human, N and C′, plus 5 control boards per arm.
+  - If no control's loss terms or cell L/R move beyond the floors below, every other existing evaluation stands.
+  - Otherwise all of human and N are re-evaluated.
+- *No A/A twin:* counted-work routing is deterministic, so a twin would be identical, and the evaluator is deterministic too.
+
+**Pre-registered gates and floors** (the same as round 1):
+- *Routing, C″ against N* (gated):
+  - completion: CI lower bound above −0.005;
+  - cp1 and `clean_strict`: CI lower bound above −0.02, and McNemar p ≥ 0.05 or better;
+  - DRC errors per board: sign-flip p ≥ 0.05, or lower;
+  - no new error type with more than 5 occurrences;
+  - no invalid output.
+- *Cells, C″ against N and against human* (reported):
+  - per-cell L_loop and R_loop, by topology and layer count;
+  - median ratio with a 95 % CI resampling repositories;
+  - cells better, worse and within tolerance;
+  - open cells per arm, each extra one explained.
+- *Tolerances and floors:*
+  - cell L_loop 0.5 % and R_loop 3 % (window convergence, pre-registered in round 1);
+  - board `loss.copper` 0.5 % (`FLOOR`, pre-registered);
+  - `loss.copper_ac` 0.5 % (chosen in round 1, registered here);
+  - `loss.loop` and `loss.loop_ac` 3 %, the R_loop tolerance, since both scale with R_loop (chosen in round 1, registered here).
+  - A board term's verdict: "signal" when the 95 % CI of the median ratio lies past the floor, "noise" when it lies inside it, otherwise "unresolved". Every board with a ratio above 10× gets a cause.
+- *Reading:* C″ is worth adopting as the default when it passes the routing gates and both L_loop and R_loop medians against N are below 1 with more cells better than worse, and no extra open cell is a real routing defect of the cells stage.
