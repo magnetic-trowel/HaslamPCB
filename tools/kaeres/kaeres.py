@@ -852,9 +852,11 @@ def _stop_reason():
 
 
 def _on_sigterm(*_):
+    # no locks in here: the job gets SIGTERM more than once (kaeq signals every process, and the kaeq wrapper's group)
     if STOP:
         return
-    STOP.update(reason=_stop_reason(), at=time.monotonic(), when=now())
+    STOP["at"] = time.monotonic()
+    STOP.update(reason=_stop_reason(), when=now())
     os.write(1, f"kaeres: SIGTERM ({STOP['reason']}): stopping; each method's attempts so far are stored "
                 f"as incomplete runs\n".encode())
     for g in list(CHILD):

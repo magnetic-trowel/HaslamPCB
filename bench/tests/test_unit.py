@@ -849,7 +849,7 @@ def test_run_measured_stop_passes_sigterm_on_and_keeps_the_output(tmp_path, monk
     the tee file has it as it came, and echo'd lines reach stdout at once."""
     import threading
     import time
-    monkeypatch.setattr(tools, "STOP", threading.Event())
+    monkeypatch.setattr(tools, "STOP", tools.Flag())
     prog = ("import signal, sys, time\n"
             "def term(*_):\n"
             "    print('[restart x] SIGTERM: saving', flush=True); time.sleep(0.5); print('saved', flush=True); sys.exit(143)\n"
@@ -872,7 +872,7 @@ def test_run_measured_stop_passes_sigterm_on_and_keeps_the_output(tmp_path, monk
 def test_run_measured_stop_kills_a_command_that_ignores_sigterm(monkeypatch):
     import threading
     import time
-    monkeypatch.setattr(tools, "STOP", threading.Event())
+    monkeypatch.setattr(tools, "STOP", tools.Flag())
     monkeypatch.setattr(tools, "STOP_GRACE_S", 1.0)
     threading.Timer(0.5, tools.STOP.set).start()
     t0 = time.monotonic()
@@ -883,7 +883,7 @@ def test_run_measured_stop_kills_a_command_that_ignores_sigterm(monkeypatch):
 
 def test_runner_records_a_stopped_attempt_as_killed_and_starts_no_more(tmp_path, monkeypatch):
     import threading
-    monkeypatch.setattr(tools, "STOP", threading.Event())
+    monkeypatch.setattr(tools, "STOP", tools.Flag())
 
     class Stopper(adapters.Adapter):
         name = "stopper"
@@ -906,3 +906,19 @@ def test_runner_records_a_stopped_attempt_as_killed_and_starts_no_more(tmp_path,
     assert (tmp_path / "a0" / "work").exists()                     # kept for the store's incomplete run
     row1 = runner._attempt(task, rec, Stopper(), "route", 1, 60, tmp_path / "a1", None, False)
     assert row1["status"] == "not_started" and not (tmp_path / "a1").exists()
+
+
+def test_repeated_sigterms_set_stop_without_deadlock(monkeypatch):
+    """kaeq signals every process of a job and kaeres passes the signal on too: the handler gets it twice, and once
+    deadlocked inside threading.Event.set (a lock taken by the first call). Now it only sets a flag."""
+    import signal
+    from kaebench import cli
+    monkeypatch.setattr(tools, "STOP", tools.Flag())
+    old = signal.getsignal(signal.SIGTERM)
+    try:
+        cli._stop_on_sigterm()
+        for _ in range(3):
+            os.kill(os.getpid(), signal.SIGTERM)
+        assert tools.STOP.is_set()
+    finally:
+        signal.signal(signal.SIGTERM, old)

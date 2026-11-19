@@ -51,7 +51,21 @@ _usage = threading.local()
 # Set when the harness is told to stop (SIGTERM: a job queue's timeout or cancel, see cli.run): run_measured then
 # passes SIGTERM on to the command, gives it STOP_GRACE_S to save what it has, and ends it like a timeout (Stopped),
 # so the attempt keeps its log and partial output; the runner starts no more attempts.
-STOP = threading.Event()
+class Flag:
+    """A flag a signal handler may set: threading.Event.set takes a lock, and a second SIGTERM arriving while the
+    handler held it (kaeq signals the whole job, and its parent passes the signal on too) deadlocked the harness."""
+
+    def __init__(self):
+        self._on = False
+
+    def set(self):
+        self._on = True
+
+    def is_set(self):
+        return self._on
+
+
+STOP = Flag()
 STOP_GRACE_S = 30.0
 
 _LAUNCHER = r"""
