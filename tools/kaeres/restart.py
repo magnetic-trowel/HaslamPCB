@@ -117,6 +117,29 @@ def _rank():
 
 RANK = _rank()
 BUSY = [lambda: False]   # whether any attempt is computing (main sets it)
+# SIGTERM (the job is being killed: a queue timeout or cancel): TERM holds when it came. Running attempts get it too
+# (each in a session of its own, so it is passed on), have TERM_GRACE_S to save what they have, are then killed and
+# not judged; nothing new starts, and summary.json and KAE_WORK are written with what was done ("killed").
+TERM = []
+TERM_GRACE_S = 10.0
+ATTEMPT_PIDS = set()   # process groups of running attempts and passes
+
+
+def _on_term(*_):
+    if TERM:
+        return
+    TERM.append(time.monotonic())
+    os.write(1, f"[restart {time.strftime('%H:%M:%S')}] SIGTERM: stopping, keeping what was done\n".encode())
+    for g in list(ATTEMPT_PIDS):
+        try:
+            os.killpg(g, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def term_over():
+    """SIGTERM came more than TERM_GRACE_S ago: what still runs is killed."""
+    return bool(TERM) and time.monotonic() > TERM[0] + TERM_GRACE_S
 
 
 def hold(seconds, tick=lambda: None):
@@ -210,6 +233,7 @@ def reap(p, info, block=False):
         return None
     p.returncode = os.waitstatus_to_exitcode(status)
     info["ru_cpu_s"] = ru.ru_utime + ru.ru_stime
+    ATTEMPT_PIDS.discard(p.pid)
     return p.returncode
 
 
@@ -641,8 +665,10 @@ def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, s
         info["charge"] = str(d / "charge.jsonl")
     p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
                          start_new_session=True, env=dict(os.environ, KAE_RESUME="1", **charge_env(info), **fr_raw_env(d)))
+    ATTEMPT_PIDS.add(p.pid)
     while reap(p, info) is None:
-        if time.monotonic() + saved(info) > min(t + (WORK_CEILING if WORK else 1.0) * b + GRACE_S, end - judge_est - 5):
+        if term_over() or time.monotonic() + saved(info) > min(t + (WORK_CEILING if WORK else 1.0) * b + GRACE_S,
+                                                               end - judge_est - 5):
             stop(p, info)
             info["killed"] = True
             break
@@ -654,7 +680,7 @@ def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, s
         info["step_cache"] = SC.charges(info["charge"])
     info["wall_s"] = round(time.monotonic() - t, 1)
     c0, w0 = child_cpu(), time.monotonic()
-    rank = judge(o, inp, base, max(10.0, end - w0 - 5), a.check_placement, base_pairs)
+    rank = None if TERM else judge(o, inp, base, max(10.0, end - w0 - 5), a.check_placement, base_pairs)
     info.update(rank=rank, judge_cpu_s=child_cpu() - c0, judge_wall_s=time.monotonic() - w0)
     info["kept"] = rank is not None and (rank <= tuple(best["rank"]) if keep_equal else rank < tuple(best["rank"]))
     log(f"{kind} pass rc {p.returncode} {rank}: {'kept' if info['kept'] else 'not better'}")
@@ -666,7 +692,7 @@ def final_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s, base_
     the end (at least what final_reserve kept free) less one judgement and the finish's reserve.
     Returns its record (kept: whether KiCad's DRC ranks its board better than the kept one), None
     when there is nothing to do (no board, or a clean one)."""
-    if best is None or best.get("rank") is None or best["rank"][:2] == (0, 0):
+    if best is None or best.get("rank") is None or best["rank"][:2] == (0, 0) or TERM:
         return None
     fin_res = (finish_estimate(a, inp, judge_est) + judge_est + 10.0) if a.finish else 0.0
     b = work_final_s(a) if WORK else max(20.0, end - time.monotonic() - judge_est - 10.0 - fin_res)
@@ -679,7 +705,7 @@ def finish_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s, base
     Its board replaces the kept one when KiCad ranks it no worse (finishing shapes copper; it does
     not aim to change the rank). The record carries the finish's own report summary (which parts
     ran, were skipped or failed; its DRC runs). None without a board."""
-    if best is None or best.get("rank") is None:
+    if best is None or best.get("rank") is None or TERM:
         return None
     b = work_finish_s(a) if WORK else max(20.0, end - time.monotonic() - judge_est - 10.0)
     info = _one_pass(a, "finish", a.finish, best, inp, base, wd, end, b, judge_est, meter, stop, cpu_s, base_pairs,
@@ -825,6 +851,7 @@ def main():
     ap.add_argument("--alt", default="", help="completion-first: the command of the second run on a clean board")
     ap.add_argument("command", nargs=argparse.REMAINDER)
     a = ap.parse_args()
+    signal.signal(signal.SIGTERM, _on_term)
     if a.alt and not a.policy:
         a.policy = "completion-first"     # --alt makes completion-first the policy (completion-first verdict, 2026-11)
     if a.policy:
@@ -880,7 +907,7 @@ def main():
             b = min(a.first_s * a.growth ** (k // a.parallel), left())
             frm = best if (a.resume > 0 and k >= a.parallel and best is not None and best["rank"] is not None
                            and k % a.parallel < round(a.resume * a.parallel)) else None
-        if b < 20 or (a.max_attempts and k >= a.max_attempts):
+        if b < 20 or (a.max_attempts and k >= a.max_attempts) or TERM:
             return False
         d = wd / f"a{k}"
         d.mkdir(exist_ok=True)
@@ -898,6 +925,7 @@ def main():
         p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
                              start_new_session=True, env=dict(os.environ, KAE_RESUME="1" if resume else "0",
                                                               **charge_env(ch), **fr_raw_env(d)))
+        ATTEMPT_PIDS.add(p.pid)
         running[p] = dict(k=k, seed=s, budget=round(b), out=o, t=time.monotonic(),
                           resumed_from=frm["k"] if resume else None, **ch)
         if sh is not None:
@@ -950,13 +978,15 @@ def main():
             time.sleep(1)
         meter.sample([p.pid for p in running if "hold" not in running[p]])
         now = time.monotonic()
-        if WORK and any(alive(p.pid) and now <= i["t"] + i["budget"] * WORK_CEILING + GRACE_S for p, i in running.items()):
+        if not TERM and WORK and any(alive(p.pid) and now <= i["t"] + i["budget"] * WORK_CEILING + GRACE_S
+                                     for p, i in running.items()):
             continue                 # the batch is judged whole, in launch order
         for p, info in list(running.items()):
             if "hold" not in info:
                 spent = now + saved(info)   # the attempt's own clock: charged time counts as elapsed
                 over = (spent > info["t"] + info["budget"] * WORK_CEILING + GRACE_S) if WORK else (
                     spent > info["t"] + info["budget"] * a.slack + GRACE_S or spent > deadline() + GRACE_S)
+                over = over or term_over()
                 if reap(p, info) is None and not over:
                     continue
                 if p.returncode is None:
@@ -966,13 +996,16 @@ def main():
                 info["hold"] = min(now, info.pop("dead_at", now)) + saved(info)
                 if SC:
                     info["step_cache"] = SC.charges(info["charge"])
-            if time.monotonic() < info["hold"]:
+            if time.monotonic() < info["hold"] and not TERM:
                 continue
             del info["hold"]
             del running[p]
             info["wall_s"] = round(time.monotonic() - info["t"], 1)
             c0, w0 = child_cpu(), time.monotonic()
-            if w0 + judge_est > end - 5:
+            if TERM:
+                rank = None   # the job is being killed: no time to judge it
+                info["not_judged"] = "killed"
+            elif w0 + judge_est > end - 5:
                 rank = None   # no time left to judge it: the best so far stays the output
                 info["not_judged"] = "time"
             else:
@@ -1045,7 +1078,7 @@ def main():
                 judge_wall_s=round(judge_wall, 1), wall_s=round(time.monotonic() - t0, 1), budget_s=a.time,
                 parallel=a.parallel, peak_rss_mb=max([d.get("peak_rss_mb", 0) for d in done] + [0]),
                 wall_to_best_s=best and round(best["t"] + best["wall_s"] - t0, 1),
-                finish=(fz or {}).get("finish") if a.finish else None)
+                finish=(fz or {}).get("finish") if a.finish else None, **({"killed": True} if TERM else {}))
     if SC:   # wall_s and the attempts' times above are charged time; real_wall_s is what passed
         tot = dict(hits=SC.STATS["hits"], misses=SC.STATS["misses"], uncacheable=SC.STATS["uncacheable"],
                    charged_s=SC.STATS["charged_s"], saved_s=SC.STATS["saved_s"])
@@ -1063,6 +1096,9 @@ def main():
         summary["fr_raw"] = fr_raw
     (wd / "summary.json").write_text(json.dumps(summary, indent=1))
     print("KAE_WORK " + json.dumps(work), flush=True)
+    if TERM:
+        log(f"killed: {len(done)} attempt(s) recorded, best so far {best and best['k']} kept in the output")
+        return 143
     if best is None:
         log("no attempt produced a board")
         return 1
@@ -1111,13 +1147,13 @@ def run_policy(ap, a):
         d.mkdir(exist_ok=True)
         o = d / "out.kicad_pcb"
         log(f"policy phase {k}: seed {seed}, {time_s:.0f}s: {command[:80]}")
-        with open(d / "log", "w") as f:
+        with open(d / "log", "w") as f:     # (in this process group: a SIGTERM to the job reaches it)
             r = subprocess.run(_phase_argv(ap, a, time_s, seed, o, command), cwd=d, stdout=f, stderr=subprocess.STDOUT)
         work = None
         for line in (d / "log").read_text(errors="replace").splitlines():
             if line.startswith("KAE_WORK "):
                 work = json.loads(line[9:])
-        rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() else None
+        rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() and not TERM else None
         log(f"policy phase {k}: rc {r.returncode}, rank {rank}")
         return dict(k=k, seed=seed, out=o, dir=d, rank=rank, work=work or {}, command=command[:200])
 
@@ -1157,6 +1193,17 @@ def run_policy(ap, a):
                     work=dict(attempts=1, wall_s=round(time.monotonic() - w0, 1)))
 
     p1 = phase(1, a.seed, 0.5 * a.time, cmd)
+    if TERM:   # killed during phase 1: its own summary is in restarts/policy1; record that here and stop
+        work = dict(policy="completion-first", killed=True, phases=[dict(k=1, seed=p1["seed"], **{
+            x: p1["work"].get(x) for x in ("attempts", "cpu_s", "method_cpu_s", "wall_s")})],
+            attempts=p1["work"].get("attempts") or 0, cpu_s=p1["work"].get("cpu_s"),
+            method_cpu_s=p1["work"].get("method_cpu_s"), wall_s=round(time.monotonic() - t0, 1), budget_s=a.time)
+        (wd / "summary.json").write_text(json.dumps(work, indent=1, default=str))
+        print("KAE_WORK " + json.dumps(work, default=str), flush=True)
+        if p1["out"].exists():
+            out.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(p1["out"], out)
+        return 143
     clean1 = p1["rank"] is not None and p1["rank"][1] == 0
     alt = bool(clean1 and a.alt)
     left = 0.5 * a.time if WORK else a.time - (time.monotonic() - t0)   # work mode: nominal halves
@@ -1173,7 +1220,7 @@ def run_policy(ap, a):
         best = p1
     phases = [p1, p2]
     third = None
-    if open_alt and a.open_rest:
+    if open_alt and a.open_rest and not TERM:
         # --open-rest: the windows' unused budget (they stop when no window is left) goes to one more run: --alt
         # when the kept board is clean and --open-rest-alt is set (kept when no worse), else COMMAND with the next
         # seed (kept when strictly better); per lane, as the restart phases count it
@@ -1195,7 +1242,8 @@ def run_policy(ap, a):
                 attempts=sum(p["work"].get("attempts") or 0 for p in phases),
                 cpu_s=round(sum(p["work"].get("cpu_s") or 0 for p in phases), 1),
                 method_cpu_s=round(sum(p["work"].get("method_cpu_s") or 0 for p in phases), 1),
-                wall_s=round(time.monotonic() - t0, 1), best_rank=best["rank"], budget_s=a.time)
+                wall_s=round(time.monotonic() - t0, 1), best_rank=best["rank"], budget_s=a.time,
+                **({"killed": True} if TERM else {}))
     for n in ("report.json", "report-origin.json"):
         if (best["dir"] / "restarts" / n).exists():
             shutil.copy2(best["dir"] / "restarts" / n, wd / n)

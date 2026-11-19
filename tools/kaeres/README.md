@@ -37,6 +37,7 @@ Consequences:
     tasks/<task-id>/task.json         prepared task (board sha256, task spec, KiCad); human DRC
     tasks/<task-id>/content.json      content hash of the prepared task, per harness commit that prepared it
     prepare-failures/<harness>.json   when a harness could not build the task
+    incomplete/<slug>.<method-id8>.a<attempt>.j<kaeq job>/   a killed job's attempt, for diagnosis only (see Killed jobs)
     runs/<slug>.<method-id8>.a<attempt>/
       run.json                        method, task, harness commit, timing, CPU, router outcome
       output.kicad_pcb.gz             the method's output board
@@ -56,6 +57,22 @@ Consequences:
 ```
 
 Run folders read as `fr-fork-master.3f9a1c2e.a0`: the method's name, then its id, then the attempt.
+
+## Killed jobs
+
+A kaeq job that is killed (its `--timeout`, `kaeq cancel`, a memory or scratch overrun) gets SIGTERM and kaeq's
+`kill_grace_s` before SIGKILL. The job passes it on: kaebench stops the running attempt (`tools.STOP`; its command gets
+SIGTERM and 30 s) and records it as `killed` with its log and its board so far, unscored, and starts no more;
+`restart.py` stops its attempts (10 s), judges none, and writes `summary.json` and `KAE_WORK` with `killed`; kae exits
+through `SystemExit(143)`, so its `finally` blocks and the budget report (`[kae.budget]`; with `KAE_BUDGET_GAP`, the
+gap lines in each attempt's log) still come out. Then every method's attempt goes to
+`boards/<id>/incomplete/<run>.j<job>/`: `run.json` (status `killed_<reason>`: timeout, cancelled, oom, disk,
+preempted; `incomplete` says how far it got), the adapter log or the method's live `method.log`, `restarts.json` and
+each attempt's log, `output.kicad_pcb.gz` (the board so far), `drc.json` if it was scored, and the job's log, within
+20 MB per job (logs first, a big one only its tail). They are not runs: nothing that reads `runs/` (reports, `exp
+status`, `missing`) sees them, so a retry runs every method again; `kaeres board ID` lists them. A SIGKILL leaves
+no store entry, but the job's kaeq log has each step and attempt as it started (`[start] ...`, restart.py's
+`[restart ...]` lines) and kaeq salvages the scratch's logs (`~/.kaeq/jobs/<id>/salvage/`).
 
 ## Commands
 

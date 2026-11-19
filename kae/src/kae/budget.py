@@ -208,10 +208,26 @@ def set_ceiling(budget_s):
 def start_run(budget_s):
     """A CLI's entry: set the wall ceiling for this run's budget and print the clock's report at exit."""
     set_ceiling(budget_s)
+    _exit_on_sigterm()
     if work_mode() or clock().profile:
         import atexit
         import json
         atexit.register(lambda: print("[kae.budget] " + json.dumps(clock().report()), flush=True))
+
+
+def _exit_on_sigterm():
+    """SIGTERM (a job being killed: a queue's timeout or cancel) exits like sys.exit(143) instead of at once, so
+    `finally` blocks stop child processes (Freerouting) and the exit handlers run: buffered output is flushed and the
+    clock's report printed, so a killed run still says what it did. Only in the main thread, and only where nothing
+    else handles SIGTERM."""
+    import signal
+    if threading.current_thread() is not threading.main_thread() or signal.getsignal(signal.SIGTERM) != signal.SIG_DFL:
+        return
+
+    def stop(*_):
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)   # a second SIGTERM ends it at once
+        raise SystemExit(143)
+    signal.signal(signal.SIGTERM, stop)
 
 
 def now(kind="poll"):

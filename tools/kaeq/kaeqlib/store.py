@@ -255,6 +255,11 @@ DEFAULTS = {
     "scratch_dir": "",       # per-job scratch dirs ($KAEQ_SCRATCH), deleted when the job ends; "" = /var/tmp/$USER/kaeq-scratch
     "scratch_gb": 100,       # scratch disk budget over all jobs
     "disk_overrun": 3.0,     # kill a job whose scratch exceeds declared * this (+5 GB)
+    # killing a job (--timeout, cancel, memory, disk): SIGTERM first, so it can save what it has, SIGKILL after this
+    "kill_grace_s": 120,
+    "preempt_grace_s": 10,   # the same for a job requeued to make room (memory, disk), which runs again anyway;
+                             # none when free memory is below the emergency floor
+    "salvage_mb": 20,        # a killed job's scratch: logs and small results copied to jobs/<id>/salvage/ up to this
 }
 
 
@@ -458,6 +463,74 @@ def scratchdir(cfg, jid):
 def drop_scratch(cfg, jid):
     import shutil
     shutil.rmtree(scratchdir(cfg, jid), ignore_errors=True)
+
+
+STOP_FILE = ".kaeq-stop"   # in a job's scratch dir: why kaeq is stopping it (timeout, cancelled, oom, disk, preempted)
+
+
+def mark_stop(cfg, jid, reason):
+    """Tell a job why it gets SIGTERM ($KAEQ_SCRATCH/.kaeq-stop), so it can record that with what it saves."""
+    try:
+        with open(os.path.join(scratchdir(cfg, jid), STOP_FILE), "w") as f:
+            f.write(reason + "\n")
+    except OSError:
+        pass
+
+
+TEXT_EXT = (".log", ".json", ".jsonl", ".txt", ".csv", ".md", ".rpt", ".err", ".out")
+
+
+def _is_text(p):
+    return p.endswith(TEXT_EXT) or os.path.basename(p) in ("log", "stdout", "stderr")
+
+
+def salvage_scratch(src, dst, cap_mb):
+    """Copy what a killed job's scratch dir holds for diagnosis into dst before it is deleted, within cap_mb (counted
+    before compression): text (logs, reports; gzipped; of a log over a quarter of the cap only its tail) newest first,
+    then other files (boards, sessions) smallest first. dst/manifest.json lists every file kept or dropped. Returns
+    dst, or None when there was nothing to copy."""
+    import gzip
+    import shutil
+    files = []
+    for root, dirs, names in os.walk(src):
+        for n in names:
+            p = os.path.join(root, n)
+            try:
+                st = os.lstat(p)
+            except OSError:
+                continue
+            if not os.path.islink(p) and os.path.isfile(p):
+                files.append((p, st.st_size, st.st_mtime))
+    if not files:
+        return None
+    files.sort(key=lambda f: (0, -f[2]) if _is_text(f[0]) else (1, f[1]))
+    cap = int(cap_mb * (1 << 20))
+    left, kept, dropped = cap, [], []
+    for p, size, _ in files:
+        rel = os.path.relpath(p, src)
+        text = _is_text(p)
+        take = min(size, left, cap // 4) if text else size
+        if (text and take <= 0 and size > 0) or (not text and size > left):
+            dropped.append(dict(file=rel, bytes=size))
+            continue
+        out = os.path.join(dst, rel + (".gz" if text else ""))
+        try:
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            if text:
+                with open(p, "rb") as f, gzip.open(out, "wb", compresslevel=6) as g:
+                    f.seek(size - take)
+                    shutil.copyfileobj(f, g)
+            else:
+                shutil.copy2(p, out)
+        except OSError as e:
+            dropped.append(dict(file=rel, bytes=size, error=str(e)))
+            continue
+        left -= take
+        kept.append(dict(file=rel, bytes=size, **({"tail_bytes": take} if take < size else {})))
+    os.makedirs(dst, exist_ok=True)
+    with open(os.path.join(dst, "manifest.json"), "w") as f:
+        json.dump(dict(cap_mb=cap_mb, kept=kept, dropped=dropped), f, indent=1)
+    return dst
 
 
 def du_mb(path):

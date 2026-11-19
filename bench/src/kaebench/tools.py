@@ -48,10 +48,17 @@ class ToolError(RuntimeError):
 
 _usage = threading.local()
 
+# Set when the harness is told to stop (SIGTERM: a job queue's timeout or cancel, see cli.run): run_measured then
+# passes SIGTERM on to the command, gives it STOP_GRACE_S to save what it has, and ends it like a timeout (Stopped),
+# so the attempt keeps its log and partial output; the runner starts no more attempts.
+STOP = threading.Event()
+STOP_GRACE_S = 30.0
+
 _LAUNCHER = r"""
-import os, sys, time, resource
+import os, signal, sys, time, resource
 fd = int(sys.argv[1]); argv = sys.argv[2:]
 os.set_inheritable(fd, False)
+signal.signal(signal.SIGTERM, signal.SIG_IGN)  # a stopping job's SIGTERM is for the command: stay to reap and report it
 try:  # orphans of the command (bwrap's pid 1) are re-parented here, so their CPU is reaped and counted
     import ctypes
     ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0)  # PR_SET_CHILD_SUBREAPER
@@ -61,6 +68,7 @@ er, ew = os.pipe()
 pid = os.fork()
 if pid == 0:
     try:
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
         os.setpgid(0, 0)
         os.execvp(argv[0], argv)
     except OSError as e:
@@ -143,6 +151,56 @@ class Stalled(subprocess.TimeoutExpired):
         return f"Command {self.cmd!r} made no CPU progress for {self.stall} seconds"
 
 
+class Stopped(subprocess.TimeoutExpired):
+    """The harness was told to stop (STOP) and ended the command: SIGTERM, then SIGKILL after STOP_GRACE_S."""
+
+    def __str__(self):
+        return f"Command {self.cmd!r} stopped: the harness got SIGTERM"
+
+
+def _tree_pids(pid):
+    """A live process and its descendants (Linux /proc)."""
+    out, stack = [], [pid]
+    while stack:
+        q = stack.pop()
+        if q in out:
+            continue
+        out.append(q)
+        try:
+            for t in os.listdir(f"/proc/{q}/task"):
+                with open(f"/proc/{q}/task/{t}/children") as f:
+                    stack += [int(c) for c in f.read().split()]
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def _comm(pid):
+    try:
+        with open(f"/proc/{pid}/comm") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def _terminate_tree(pid):
+    """SIGTERM a command's process tree, except bubblewrap and the shell a sandbox runs the command in: bwrap runs
+    the sandbox --die-with-parent and its pid 1 ends the sandbox when that shell exits, so a SIGTERM to either
+    SIGKILLs the method inside before it saves anything. They exit when the method does."""
+    for q in _tree_pids(pid):
+        c = _comm(q)
+        if c == "bwrap":
+            continue
+        try:
+            with open(f"/proc/{q}/stat") as f:
+                parent = int(f.read().rpartition(")")[2].split()[1])
+            if c in ("sh", "dash", "bash") and _comm(parent) == "bwrap":
+                continue
+            os.kill(q, signal.SIGTERM)
+        except (OSError, ValueError, IndexError):
+            pass
+
+
 # A command whose process tree uses less than this share of one core over the whole stall
 # window is waiting on something that will not come (KiCad's zone filler polls a deadlocked
 # job graph at ~0.4% of a core).
@@ -171,14 +229,19 @@ def _tree_cpu_s(pid):
     return ticks / _CLK_TCK
 
 
-def run_measured(cmd, timeout=None, cwd=None, env=None, stall=None):
+def run_measured(cmd, timeout=None, cwd=None, env=None, stall=None, tee=None, echo=None):
     """subprocess.run(cmd, capture_output=True, text=True) that also accounts the process
     tree's CPU time and peak RSS (wait4, via _LAUNCHER), and kills the whole tree on
     timeout (raises subprocess.TimeoutExpired like subprocess.run).
 
     With `stall` (seconds), the tree is also killed once it has used less than
     STALL_CPU_SHARE of one core over the last `stall` seconds, and Stalled (a
-    TimeoutExpired) is raised: a hang is cut short instead of waiting out the timeout."""
+    TimeoutExpired) is raised: a hang is cut short instead of waiting out the timeout.
+
+    Once STOP is set, the tree gets SIGTERM, STOP_GRACE_S to exit, then SIGKILL, and Stopped
+    (a TimeoutExpired, with the output so far) is raised. `tee`: a file that gets the output
+    as it comes (a log that survives a kill of the harness); `echo(line)`: lines it returns
+    true for are also printed to stdout as they come (progress)."""
     cmd = [os.fspath(c) for c in cmd]
     rfd, wfd = os.pipe()
     try:
@@ -188,9 +251,23 @@ def run_measured(cmd, timeout=None, cwd=None, env=None, stall=None):
     finally:
         os.close(wfd)
     chunks = {}
+    tee_f = open(tee, "a", encoding="utf-8", errors="replace") if tee else None
+    tee_lock = threading.Lock()
 
     def read(name, f):
-        chunks[name] = f.read()
+        if not (tee_f or echo):
+            chunks[name] = f.read()
+            return
+        got = []
+        for line in f:
+            got.append(line)
+            with tee_lock:
+                if tee_f:
+                    tee_f.write(line)
+                    tee_f.flush()
+                if echo and echo(line):
+                    print(line.rstrip("\n"), flush=True)
+        chunks[name] = "".join(got)
 
     readers = [threading.Thread(target=read, args=(n, f), daemon=True)
                for n, f in (("out", p.stdout), ("err", p.stderr))]
@@ -198,7 +275,7 @@ def run_measured(cmd, timeout=None, cwd=None, env=None, stall=None):
         t.start()
     start = time.monotonic()
     deadline = start + timeout if timeout else None
-    timed_out = stalled = False
+    timed_out = stalled = stopped = False
     early = b""
     samples, next_sample = [], start
     try:
@@ -214,11 +291,14 @@ def run_measured(cmd, timeout=None, cwd=None, env=None, stall=None):
                     samples.pop(0)
                 t0, c0 = samples[0]
                 stalled = now - t0 >= stall and samples[-1][1] - c0 < STALL_CPU_SHARE * (now - t0)
-            if stalled or (deadline and now > deadline):
+            if STOP.is_set() and not stopped:
+                stopped, stop_end = True, now + STOP_GRACE_S
+                _terminate_tree(p.pid)   # the launcher ignores it; the command's tree below it gets it
+            if stalled or (deadline and now > deadline) or (stopped and now > stop_end):
                 timed_out = True
                 # Kill the command's group first so the launcher can still reap it and
                 # report its usage; then the launcher itself.
-                early = _read_fd(rfd, block=False)
+                early += _read_fd(rfd, block=False)
                 rep = _parse_report(early)
                 for g in [int(rep["pid"][0])] if "pid" in rep else []:
                     try:
@@ -248,6 +328,8 @@ def run_measured(cmd, timeout=None, cwd=None, env=None, stall=None):
             pass
     for t in readers:
         t.join(timeout=30)
+    if tee_f:
+        tee_f.close()
     out, err = chunks.get("out", ""), chunks.get("err", "")
     if "done" in rep:
         st, ut, syt, mx = rep["done"]
@@ -261,6 +343,8 @@ def run_measured(cmd, timeout=None, cwd=None, env=None, stall=None):
         raise OSError(e, os.strerror(e), cmd[0])
     if stalled:
         raise Stalled(cmd, timeout, stall, output=out, stderr=err)
+    if stopped:
+        raise Stopped(cmd, timeout, output=out, stderr=err)
     if timed_out:
         raise subprocess.TimeoutExpired(cmd, timeout, output=out, stderr=err)
     return subprocess.CompletedProcess(cmd, p.returncode, out, err)

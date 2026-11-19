@@ -23,7 +23,7 @@ import subprocess
 import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))   # kaeqlib sits next to this file
-from kaeqlib.consts import GB, MEM_BINS, TICK  # noqa: E402
+from kaeqlib.consts import CANCELLING, GB, MEM_BINS, TICK  # noqa: E402
 from kaeqlib.units import parse_cpus, parse_size, parse_dur, fgb, fdur, frozen_for, active_for, times  # noqa: E402
 from kaeqlib.leases import timed_share, expected_size, keep_flags, mem_hist, pooled_headroom, max_rise, pearson, owner_correlation, warm_headroom, lease_plan, adapt_z, adapt_hold  # noqa: E402
 from kaeqlib.cpu import quantile, adapt_runq_q, burst_fits  # noqa: E402
@@ -605,14 +605,17 @@ def cmd_cancel(a):
     leave_to_owner(c, rows, a, "cancel")
     for j in rows:
         now = time.time()      # (an open freeze ends with the job: its time goes into frozen_s)
-        c.execute("UPDATE jobs SET state='cancelled',finished=?,note='cancelled',frozen_s=frozen_s+"
-                  "CASE WHEN frozen_since>0 THEN ?-frozen_since ELSE 0 END,frozen_since=0 WHERE id=?", (now, now, j["id"]))
-        drop_worktree(j)
-        if j["state"] == "running":
-            kill_tree(j["pid"], job_cgroup(j["pid"]) if j["pid"] and pid_alive(j["pid"]) else None)
-            drop_scratch(config(), j["id"])
+        run = j["state"] == "running"   # the daemon stops it within a tick: SIGTERM, kill_grace_s, SIGKILL, salvage
+        c.execute("UPDATE jobs SET state='cancelled',finished=?,note=?,frozen_s=frozen_s+"
+                  "CASE WHEN frozen_since>0 THEN ?-frozen_since ELSE 0 END,frozen_since=0 WHERE id=?",
+                  (now, CANCELLING if run else "cancelled", now, j["id"]))
+        if not run:
+            drop_worktree(j)
     c.commit()
-    print(f"cancelled {len(rows)} job(s)")
+    if any(j["state"] == "running" for j in rows):
+        ensure_daemon()
+    print(f"cancelled {len(rows)} job(s)" + (f"; running ones get SIGTERM and up to {fdur(config()['kill_grace_s'])} to "
+                                              "save their work" if any(j["state"] == "running" for j in rows) else ""))
 
 
 def cmd_prio(a):

@@ -842,3 +842,67 @@ def test_command_keeps_restart_reports_as_artifacts(tmp_path):
     (tmp_path / "elsewhere").write_text("secret")
     assert sorted(p.name for p in adapters._restart_reports(w)) == ["report.json", "summary.json"]
     assert adapters._restart_reports(tmp_path / "empty") == []
+
+
+def test_run_measured_stop_passes_sigterm_on_and_keeps_the_output(tmp_path, monkeypatch, capsys):
+    """tools.STOP (the harness got SIGTERM): the command gets SIGTERM and time to save, its output so far is kept,
+    the tee file has it as it came, and echo'd lines reach stdout at once."""
+    import threading
+    import time
+    monkeypatch.setattr(tools, "STOP", threading.Event())
+    prog = ("import signal, sys, time\n"
+            "def term(*_):\n"
+            "    print('[restart x] SIGTERM: saving', flush=True); time.sleep(0.5); print('saved', flush=True); sys.exit(143)\n"
+            "signal.signal(signal.SIGTERM, term)\n"
+            "print('[restart x] start #0', flush=True)\n"
+            "time.sleep(60)\n")
+    threading.Timer(1.0, tools.STOP.set).start()
+    t0 = time.monotonic()
+    with pytest.raises(tools.Stopped) as e:
+        tools.run_measured([sys.executable, "-c", prog], timeout=120, tee=tmp_path / "method.log",
+                           echo=lambda line: line.startswith("[restart "))
+    assert time.monotonic() - t0 < 20
+    assert "saved" in e.value.stdout and "start #0" in e.value.stdout
+    assert (tmp_path / "method.log").read_text().splitlines() == ["[restart x] start #0", "[restart x] SIGTERM: saving",
+                                                                  "saved"]
+    assert capsys.readouterr().out.splitlines() == ["[restart x] start #0", "[restart x] SIGTERM: saving"]
+    assert tools.usage_take()["processes"] == 1      # the launcher stayed to reap and account it
+
+
+def test_run_measured_stop_kills_a_command_that_ignores_sigterm(monkeypatch):
+    import threading
+    import time
+    monkeypatch.setattr(tools, "STOP", threading.Event())
+    monkeypatch.setattr(tools, "STOP_GRACE_S", 1.0)
+    threading.Timer(0.5, tools.STOP.set).start()
+    t0 = time.monotonic()
+    with pytest.raises(tools.Stopped):
+        tools.run_measured(["sh", "-c", "trap '' TERM; sleep 60"], timeout=120)
+    assert time.monotonic() - t0 < 15
+
+
+def test_runner_records_a_stopped_attempt_as_killed_and_starts_no_more(tmp_path, monkeypatch):
+    import threading
+    monkeypatch.setattr(tools, "STOP", threading.Event())
+
+    class Stopper(adapters.Adapter):
+        name = "stopper"
+
+        def run(self, kind, input_dir, workdir, attempt, timeout, reference=None):
+            tools.STOP.set()     # as if SIGTERM came while it ran
+            out = Path(workdir) / "output"
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "board.kicad_pcb").write_text("(kicad_pcb)")
+            return adapters.AdapterResult(out / "board.kicad_pcb", "partial log", dict(timed_out=True, partial=True))
+
+    task = tmp_path / "task"
+    (task / "route" / "input").mkdir(parents=True)
+    (task / "route" / "input" / "board.kicad_pcb").write_text("(kicad_pcb)")
+    rec = dict(id="b", split="A")
+    row = runner._attempt(task, rec, Stopper(), "route", 0, 60, tmp_path / "a0", None, False)
+    assert row["status"] == "killed" and row["stopped_status"] == "ok" and "score" not in row
+    assert (tmp_path / "a0" / "output" / "board.kicad_pcb").exists()
+    assert (tmp_path / "a0" / "adapter.log").read_text() == "partial log"
+    assert (tmp_path / "a0" / "work").exists()                     # kept for the store's incomplete run
+    row1 = runner._attempt(task, rec, Stopper(), "route", 1, 60, tmp_path / "a1", None, False)
+    assert row1["status"] == "not_started" and not (tmp_path / "a1").exists()

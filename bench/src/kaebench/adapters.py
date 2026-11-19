@@ -213,7 +213,7 @@ class Freerouting(Adapter):
         artifacts = [dsn, ses, result]
         rc, timed_out = None, False
         try:
-            r = tools.run_measured(cmd, timeout=remaining, cwd=w, env=env)
+            r = tools.run_measured(cmd, timeout=remaining, cwd=w, env=env, tee=w / "method.log")
             log, rc = r.stdout + r.stderr, r.returncode
         except subprocess.TimeoutExpired as e:
             # On big boards Freerouting often writes its session file at its own deadline and
@@ -315,7 +315,9 @@ class Command(Adapter):
                                    timeout=int(timeout))
         argv = self.sandbox.wrap(["sh", "-c", cmd], w)
         try:
-            r = tools.run_measured(argv, timeout=timeout, cwd=w)
+            # method.log: its output as it comes, so a killed job leaves it; restart.py's progress lines go to stdout
+            r = tools.run_measured(argv, timeout=timeout, cwd=w, tee=w / "method.log",
+                                   echo=lambda line: line.startswith("[restart "))
             log = r.stdout + r.stderr
         except subprocess.TimeoutExpired as e:
             # Like Freerouting's partial session: what the method wrote by the deadline is its output
