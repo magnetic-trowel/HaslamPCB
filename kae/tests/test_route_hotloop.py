@@ -443,3 +443,45 @@ def test_pour_check_names_a_cell_for_every_pad_it_cut_and_reports_after_the_reve
     assert [h["evidence"]["reverted"] for h in hz] == [["cell:buck:U2"], ["cell:buck:U2"]]
     assert all(h["evidence"]["restored"] and "touches its pour again" in h["message"] for h in hz)
     assert not any("none was reverted" in h["message"] for h in hz)
+
+
+def _walled_bst(tmp_path):
+    """U1.6 (BST) walled in by other-net tracks on three sides (no room for a via), open on its right
+    towards a zone of its own net 0.16 mm away: open-authenticator's U4.2 in miniature."""
+    s = F.session(tmp_path, kinds=("cell",), rails="none")
+    zone = [[[123.0, 108.3], [124.2, 108.3], [124.2, 109.5], [123.0, 109.5], [123.0, 108.3]]]
+    s.info["zones"] = list(s.info["zones"]) + [dict(owner="", name="", layers=["F.Cu"], rings=[zone], rule_area=False,
+                                                    net="Net-(U1-BST)", priority=1, clearance=0.2, min_thickness=0.25,
+                                                    pad_connection="full", teardrop=False)]
+    for a, b in (((121.3, 108.25), (123.1, 108.25)), ((121.3, 108.25), (121.3, 109.55))):
+        s.space.add_track("GND", "F.Cu", 0.2, a, b, owner=("wall", 0))
+    pad = next(p for p in s.info["pads"] if p["ref"] == "U1" and p["number"] == "6")
+    return s, pad
+
+
+def test_reach_check_reverts_the_cell_that_closes_a_pins_only_way(tmp_path):
+    s, pad = _walled_bst(tmp_path)
+    m = CM.Module(id="cell:test:U1", kind="cell", spec={}, parts=[], status="routed")
+    m.copper = [s.space.add_track("VIN", "F.Cu", 0.2, (123.05, 108.2), (123.05, 109.6), owner=("hop", "x"))]
+    hz, still = hotloop.reach_check(s, s.info, [m], log=lambda *a: None)
+    assert m.status == "reverted" and not m.copper and not still
+    assert [h["code"] for h in hz] == ["hotloop_cell_blocks_pin"]
+    assert hz[0]["objects"][0] == "U1.6" and hz[0]["evidence"]["restored"]
+
+
+def test_reach_check_leaves_a_cell_that_closes_nothing(tmp_path):
+    s, pad = _walled_bst(tmp_path)
+    m = CM.Module(id="cell:test:U1", kind="cell", spec={}, parts=[], status="routed")
+    m.copper = [s.space.add_track("VIN", "F.Cu", 0.2, (124.6, 108.2), (124.6, 109.6), owner=("hop", "x"))]
+    hz, still = hotloop.reach_check(s, s.info, [m], log=lambda *a: None)
+    assert m.status == "routed" and m.copper and not hz
+
+
+def test_escape_lanes_keep_a_pins_short_way_to_its_zone(tmp_path):
+    from kae.route import constraints as CN
+    s, pad = _walled_bst(tmp_path)
+    lanes = [(g, l) for g, l, q in CN.escape_lanes(s.info) if q is pad]
+    assert len(lanes) == 1 and lanes[0][1] == "F.Cu"
+    g = lanes[0][0]
+    assert g.intersects(Point(122.92, 109.05)) and g.intersects(Point(123.05, 109.05))   # pad edge to zone
+    assert not g.intersects(Point(122.0, 109.05).buffer(0.1)) or g.area < 0.5
