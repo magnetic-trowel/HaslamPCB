@@ -72,3 +72,20 @@ def test_deadline_made_past_the_ceiling_has_passed():
         assert late.part(5.0).passed()
     finally:
         budget.set_mode("time")
+
+
+def test_stage_wall_is_a_multiple_of_the_stage_budget_within_the_runs_ceiling(monkeypatch):
+    budget.set_mode("time")
+    assert budget.stage_wall(30.0) == 30.0                      # time mode: the budget is the wall
+    c = budget.set_mode("work")
+    t = [100.0]
+    monkeypatch.setattr(budget.time, "monotonic", lambda: t[0])
+    c.t0 = 100.0
+    budget.set_ceiling(900.0)                                   # 3,600 s of wall for the run
+    assert budget.stage_wall(500.0) == budget.CEILING_FACTOR * 500.0
+    assert budget.stage_wall(5.0) == budget.STAGE_WALL_FLOOR
+    t[0] += 3000.0                                              # 600 s to the ceiling: the ceiling binds
+    assert budget.stage_wall(500.0) == 600.0
+    budget.note_wall_stop("freerouting")
+    assert c.report()["wall_stops"] == {"freerouting": 1}
+    budget.set_mode("time")
