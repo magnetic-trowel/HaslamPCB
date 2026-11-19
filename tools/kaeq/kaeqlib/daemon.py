@@ -55,6 +55,7 @@ class Daemon:
         self.cpu_s, self.cpu_ts = {}, 0.0
         self.cpuj = {}           # job id -> CPU samples every 10 s: {t, cpu, some, full, rates: [(t, cores)], ...}
         self.timed_wait = 0.0    # share of time timed jobs had a thread waiting for a CPU (smoothed, ~30 s)
+        self.admit_why = None    # why the next job did not start at the last admission (kaeqtop shows it)
         self.cpu_freeze_ts, self.calm_since = 0.0, 0.0
         self.runq_class, self.runq_class_ts = {}, 0.0
         self.cpu_learn, self.cpu_learn_ts = {}, 0.0
@@ -234,6 +235,7 @@ class Daemon:
                         runq_qv=quantile([r for t, r, _ in self.runq_hist if t >= now - cfg["runq_window_s"]],
                                          self.runq_q or cfg["runq_q"]),
                         runq_over=self.runq_stats[0], runq_idle=self.runq_stats[1], runq_class=self.runq_class,
+                        admit=self.admit_why, timed_wait=round(self.timed_wait, 3),
                         pool_rho={o: [round(r, 2), n] for o, (r, n) in self.rho.items()},
                         mem_ratio={o: round(q, 3) for o, q in self.ratios.items()},
                         mem_mode=mode, mem_rise=self.rise, mem_single=single, mem_warm=warm_need,
@@ -648,7 +650,14 @@ class Daemon:
         cap = (len(pool) if pool else cfg["threads"] - cfg["reserve_cpu"]) - self.others_ema
         timed = [self.cpu_profile(r, cfg, now) for r in running if (r["qos"] or "timed") == "timed"]
         m, p, _ = self.learned_cpu(j, cfg, now)
-        return burst_fits(timed, (m, p), cap)
+        if burst_fits(timed, (m, p), cap):
+            return True
+        # The burst forecast is a prediction; how long timed jobs wait for a CPU is the evidence. While they have
+        # hardly waited (under timed_wait_quiet), a start needs only the means to fit with this job at its peak:
+        # the forecast held 1,700 timed jobs back for hours with 40 CPUs idle and timed jobs waiting 0.0% of the
+        # time (peaks learned before KiCad's thread pool was capped). Starting raises the wait if bursts do
+        # collide, and timed_wait_start then pauses starts again.
+        return self.timed_wait < cfg["timed_wait_quiet"] and sum(a for a, _ in timed) + p <= cap
 
     def cpu_freeze(self, cfg, now, running):
         """Timed jobs waiting for CPUs (timed_wait above timed_wait_freeze): freeze the newest running batch job,
@@ -833,6 +842,7 @@ class Daemon:
             per_owner[j["owner"]] = j["n"]
         started = 0
         short = None
+        self.admit_why = None
         while queued and started < cfg["starts_per_tick"] and n_running < cfg["max_running"]:
             queued.sort(key=lambda j: (-j["prio"], per_owner.get(j["owner"], 0), j["submitted"]))
             fits = lambda j: (self.need_mb(j, cfg) <= mem_room and j["disk_mb"] <= disk_room
@@ -859,6 +869,7 @@ class Daemon:
                             and (mem_room - self.need_mb(j, cfg) >= self.need_mb(head, cfg)
                                  or not reserve_head and not self.is_filler(j, cfg))), None)
             if fit is None:
+                self.admit_why = self.why_not(head, cfg, now, running, mem_room, cpu_room, disk_room, short is not None)
                 # jobs that fit in memory but wait for CPUs: what the runq_q controller weighs idle CPUs against
                 self.cpu_waiting = any(self.need_mb(j, cfg) <= mem_room and j["cpus"] > cpu_room for j in queued[:50])
                 break
@@ -873,6 +884,39 @@ class Daemon:
                 n_running += 1
                 started += 1
                 per_owner[fit["owner"]] = per_owner.get(fit["owner"], 0) + 1
+
+    def why_not(self, j, cfg, now, running, mem_room, cpu_room, disk_room, held):
+        """The admission gate that keeps job j (the head of the queue) from starting, in words, with its numbers."""
+        out = dict(id=j["id"], owner=j["owner"], prio=j["prio"], name=j["name"] or j["cmd"][:40], gates=[])
+        g = out["gates"]
+        need = self.need_mb(j, cfg)
+        if need > mem_room:
+            g.append(f"needs {need / 1024:.1f}G RAM, {max(0.0, mem_room) / 1024:.1f}G room")
+        if j["disk_mb"] > disk_room:
+            g.append(f"needs {j['disk_mb'] / 1024:.1f}G scratch, {max(0.0, disk_room) / 1024:.1f}G free")
+        if (j["qos"] or "timed") == "timed":
+            if self.timed_wait >= cfg["timed_wait_start"]:
+                g.append(f"timed jobs waited for a CPU {self.timed_wait:.1%} of the time "
+                         f"(timed starts pause at {cfg['timed_wait_start']:.0%})")
+            else:
+                pool = job_cpus(cfg)
+                cap = (len(pool) if pool else cfg["threads"] - cfg["reserve_cpu"]) - self.others_ema
+                timed = [self.cpu_profile(r, cfg, now) for r in running if (r["qos"] or "timed") == "timed"]
+                m, p, _ = self.learned_cpu(j, cfg, now)
+                if not self.timed_cpu_fits(j, cfg, now, running):
+                    mean = sum(x for x, _ in timed) + m
+                    burst = sum(max(0.0, b - a) ** 2 for a, b in timed + [(m, p)]) ** 0.5
+                    g.append(f"timed CPU use {mean:.0f} + pooled bursts {burst:.0f} would exceed {cap:.0f} CPUs"
+                             + (f", and timed jobs waited for a CPU {self.timed_wait:.1%} of the time"
+                                if self.timed_wait >= cfg["timed_wait_quiet"] else ""))
+        elif not self.is_filler(j, cfg) and j["cpus"] > cpu_room:
+            g.append(f"needs {j['cpus']:g} CPUs, {max(0.0, cpu_room):.0f} free (run queue)")
+        if held and not g:
+            g.append("room is held for a starving job ahead of it; only short jobs may backfill")
+        if not g:
+            g.append("no gate found (it should start next tick)")
+        out["ts"] = now
+        return out
 
     def is_filler(self, j, cfg):
         """A batch job that runs at SCHED_IDLE (heavy_boost: expected under keep_gb): it takes only spare CPU."""
@@ -1080,13 +1124,26 @@ class Daemon:
         jobs, for owners with at least mem_pool_min_jobs of them (refreshed every minute)."""
         if now - self.profiles_ts < 60:
             return self.profiles
-        out = {}
+        avg = lambda hs: [sum(h[k] / sum(h) for h in hs) / len(hs) for k in range(MEM_BINS)]
+        out, prior = {}, None
         for o in {j["owner"] for j in running}:
             hs = [json.loads(r[0]) for r in self.c.execute(
                 "SELECT mem_hist FROM jobs WHERE owner=? AND mem_hist IS NOT NULL ORDER BY finished DESC LIMIT 50", (o,))]
             hs = [h for h in hs if sum(h)]
             if len(hs) >= cfg["mem_pool_min_jobs"]:
-                out[o] = [sum(h[k] / sum(h) for h in hs) / len(hs) for k in range(MEM_BINS)]
+                out[o] = avg(hs)
+            elif cfg["mem_pool_prior_jobs"]:
+                # a campaign without history of its own yet: the average profile of all recent jobs, so its jobs'
+                # growth is pooled like everyone's instead of each counting its whole headroom (a new campaign of
+                # 8 jobs set 57 G aside that way, and a 17 G head starved with 136 G free)
+                if prior is None:
+                    ps = [json.loads(r[0]) for r in self.c.execute(
+                        "SELECT mem_hist FROM jobs WHERE mem_hist IS NOT NULL ORDER BY finished DESC LIMIT ?",
+                        (cfg["mem_pool_prior_jobs"],))]
+                    ps = [h for h in ps if sum(h)]
+                    prior = avg(ps) if len(ps) >= 50 else []
+                if prior:
+                    out[o] = prior
         self.profiles, self.profiles_ts = out, now
         return out
 
