@@ -220,8 +220,9 @@ def _two_pad_nets(names):
 
 def test_a_net_that_never_improves_stops_and_charges_its_work(tmp_path, monkeypatch):
     """A join that leaves the open count where it was (atrivatech ch32v003 D+: 2 -> 2 open, queued
-    again 205 times until the wall ceiling) is retried at most RETRY_NO_PROGRESS times, and each
-    turn's connectivity passes are charged to the counted-work budget."""
+    again 205 times until the wall ceiling) is not retried: a greedy pass that closed and ripped nothing
+    is undone (solar-small: 3.5 h of "kept, 4 -> 4"); other nets that do not improve are retried at most
+    RETRY_NO_PROGRESS times. Each turn's connectivity passes are charged to the counted-work budget."""
     from types import SimpleNamespace
     from haslam import budget
     p = F.write_board(tmp_path)
@@ -241,7 +242,7 @@ def test_a_net_that_never_improves_stops_and_charges_its_work(tmp_path, monkeypa
     finally:
         budget.set_mode("time")
     turns = [m for m in lines if m.startswith(f"last mile {NET}:")]
-    assert len(turns) == 1 + LM.RETRY_NO_PROGRESS
+    assert len(turns) == 1 and ": undone, 2 -> 2" in turns[0]
     assert rep["reached"] == [NET] * len(turns)
     assert len(calls) <= len(turns) * 8          # max_parts joins a turn at most
     assert clk.units["lastmile_part_nodes"] > 0 and clk.by_kind["lastmile_part_nodes"] > 0
