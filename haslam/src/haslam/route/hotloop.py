@@ -862,8 +862,8 @@ def _reach(pad, cop, layer, items, info, window):
     items on that layer): the free room a track of its net's width can use (other nets' copper kept at
     its clearance) that holds the pad and meets another piece of its net, a zone of its net, or the
     window's edge (a way on that the window does not see), or a place for a via of its net (a way
-    on another layer, beside the pad; the fixture buck's U1.1 sits inside its own cell's loop and
-    leaves by a via)."""
+    on another layer, beside or in the pad; the fixture buck's U1.1 sits inside its own cell's loop
+    and leaves by a via)."""
     from shapely.geometry import box
     from shapely.ops import unary_union
     net = pad.get("net")
@@ -899,8 +899,9 @@ def _reach(pad, cop, layer, items, info, window):
         return True
     if room.intersects(win.exterior.buffer(w)):
         return True
-    # a via beside the pad, not in it (Freerouting and the repair router put none in an SMD pad)
-    vfree = win.difference(unary_union([g.buffer(clr + via_r) for g in raw] + [cop.buffer(via_r)]))
+    # a via beside the pad or in it: the last mile leaves a walled-in pad through a via in the pad
+    # (olimex urc: C' joined U1.3 to R4 that way, between the cell's GND copper and U1's other pins)
+    vfree = win.difference(unary_union([g.buffer(clr + via_r) for g in raw])) if raw else win
     return unary_union(comps).intersects(vfree)
 
 
