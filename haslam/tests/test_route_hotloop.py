@@ -446,9 +446,11 @@ def test_pour_check_names_a_cell_for_every_pad_it_cut_and_reports_after_the_reve
 
 
 def _walled_bst(tmp_path):
-    """U1.6 (BST) walled in by other-net tracks on three sides (no room for a via), open on its right
-    towards a zone of its own net 0.16 mm away: open-authenticator's U4.2 in miniature."""
+    """U1.6 (BST) walled in by other-net tracks on three sides, open on its right towards a zone of its own
+    net 0.16 mm away: open-authenticator's U4.2 in miniature. The net class's vias (1.2 mm) fit neither
+    beside the pad nor in it, as open-authenticator's 0.8 mm vias do not fit its 0.24 mm pads."""
     s = F.session(tmp_path, kinds=("cell",), rails="none")
+    s.info["netclasses"] = {"Default": dict(s.info["netclasses"]["Default"], via_diameter=1.2)}
     zone = [[[123.0, 108.3], [124.2, 108.3], [124.2, 109.5], [123.0, 109.5], [123.0, 108.3]]]
     s.info["zones"] = list(s.info["zones"]) + [dict(owner="", name="", layers=["F.Cu"], rings=[zone], rule_area=False,
                                                     net="Net-(U1-BST)", priority=1, clearance=0.2, min_thickness=0.25,
