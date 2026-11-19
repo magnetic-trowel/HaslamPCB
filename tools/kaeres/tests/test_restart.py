@@ -449,8 +449,10 @@ def test_sigterm_stops_attempts_and_writes_the_summary_of_what_was_done(tmp_path
     inp.write_text("(kicad_pcb OPEN=5)\n")
     work = tmp_path / "work"
     work.mkdir()
-    attempt = ("python3 -c \"import signal,sys,time; signal.signal(signal.SIGTERM, lambda *a: (print('attempt saved', "
-               "flush=True), sys.exit(143))); print('attempt running', flush=True); time.sleep(120)\"")
+    # the method saves for 3 s after its shell has died (the shell does not exec it: `; true`)
+    attempt = ("python3 -c \"import signal,sys,time; signal.signal(signal.SIGTERM, lambda *a: (time.sleep(3), "
+               "print('attempt saved', flush=True), sys.exit(143))); print('attempt running', flush=True); "
+               "time.sleep(120)\"; true")
     p = subprocess.Popen([sys.executable, str(RESTART), "--input", str(inp), "--output", str(tmp_path / "out.kicad_pcb"),
                           "--time", "600", "--parallel", "2", "--first-s", "300", "--", attempt], cwd=work,
                          env=dict(os.environ, PATH=f"{bin_}:{os.environ['PATH']}", KAE_KICAD_WRAP=""),
@@ -465,5 +467,5 @@ def test_sigterm_stops_attempts_and_writes_the_summary_of_what_was_done(tmp_path
     summary = json.loads((work / "restarts" / "summary.json").read_text())
     assert summary["killed"] and summary["attempts"] == 2
     assert all(a["not_judged"] == "killed" and a["rc"] in (143, -15) for a in summary["attempt_log"])
-    assert all("attempt saved" in lg.read_text() for lg in logs)
+    assert all("attempt saved" in a["failure"]["log_tail"] for a in summary["attempt_log"])   # waited for it
     assert any(line.startswith("KAE_WORK ") and '"killed": true' in line for line in out.splitlines())

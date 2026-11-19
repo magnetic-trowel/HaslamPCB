@@ -142,6 +142,18 @@ def term_over():
     return bool(TERM) and time.monotonic() > TERM[0] + TERM_GRACE_S
 
 
+def saving(p):
+    """After a SIGTERM, an attempt is done only once its whole session is: the shell it runs in may exit at once while
+    the method below it still writes its report (and the sandbox would end it the moment this wrapper exits)."""
+    if not TERM:
+        return False
+    try:
+        os.killpg(p.pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
 def hold(seconds, tick=lambda: None):
     """Spend `seconds` of charged time a cache hit saved: in real time while an attempt computes
     (it would have computed meanwhile), skipped at once when none does."""
@@ -666,7 +678,7 @@ def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, s
     p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
                          start_new_session=True, env=dict(os.environ, KAE_RESUME="1", **charge_env(info), **fr_raw_env(d)))
     ATTEMPT_PIDS.add(p.pid)
-    while reap(p, info) is None:
+    while reap(p, info) is None or saving(p):
         if term_over() or time.monotonic() + saved(info) > min(t + (WORK_CEILING if WORK else 1.0) * b + GRACE_S,
                                                                end - judge_est - 5):
             stop(p, info)
@@ -987,9 +999,9 @@ def main():
                 over = (spent > info["t"] + info["budget"] * WORK_CEILING + GRACE_S) if WORK else (
                     spent > info["t"] + info["budget"] * a.slack + GRACE_S or spent > deadline() + GRACE_S)
                 over = over or term_over()
-                if reap(p, info) is None and not over:
+                if (reap(p, info) is None or saving(p)) and not over:
                     continue
-                if p.returncode is None:
+                if p.returncode is None or saving(p):
                     stop(p, info)
                 info.update(cpu_s=cpu_s(p, info), peak_rss_mb=meter.rss_mb(p.pid))
                 # its slot stays taken for the time its hits saved, from when it exited
