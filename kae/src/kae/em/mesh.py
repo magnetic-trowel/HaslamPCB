@@ -217,7 +217,10 @@ class Mesh:
     def paint_line(self, layer, net, pts, width):
         """A track narrower than a few cells: a 4-connected chain of cells along its centre line, so it
         conducts at any pitch. Its bars carry the track's true width and length (Network applies them to
-        R and to the self inductance), unless the cells were copper of the net already (a pour)."""
+        R and to the self inductance), unless the cells were copper of the net already (a pour).
+        A track of zero width is no copper (nothing is etched), so it paints nothing."""
+        if not width or width <= 0:
+            return
         k = self.net_id(net)
         lab = self.lab[layer]
         p = self.pitch
