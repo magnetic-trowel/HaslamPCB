@@ -84,3 +84,15 @@ on the new build.
 
 ## Addendum 2026-11-17 (trim)
 Approved by the user 2026-11-17 after the analysis of finished rows from older builds (explore-2611 results); written before any result of this build is read. Eight boards are dropped: identical copper on every pair in every build where they ran, or no output in both arms: adafruit pybadge (no open bracketed net), adafruit pygamer, adafruit rp2040 prop-maker feather, adafruit fruit-jam, owon-lilliput scopefun v2, groupgets kimchi-micro, oro-os link, antmicro artix-dc-scm. `drc-parse-ab-m3` continues on the other 41 boards at k = 2; primary, guards and decision rules unchanged. Boards like alphaonex86 socket7 (many open bus nets, a large last-mile backlog) are read apart. If its last-mile regression recurs, the verdict is "fix last-mile ordering, then keep the parser", not a rejection of the parser.
+
+## Addendum 2026-11-19 (m5), before any run on this build: main 4c9e5293 (last-mile fix, #112)
+Main moved after `drc-parse-ab-m3` was submitted. PR #112 changes the last mile's algorithm: `lastmile.close` re-queues a net
+only when its open count falls below its lowest so far, or once after a no-progress turn, and `repair._last_mile`
+rounds start with the nets no earlier round reached. (Its connectivity charge, PR #113's spoke tracks in the last
+mile's first round and the KiCad-call charges came in the same range.) Its bridge runs reach both changed paths: in the finished logs of the bridge and joint experiments that keep them, 20-60 % of boards hit the changed paths (drc-parse-ab-m3 4 of 20, rule-quantize-guard-m4 6 of 33, chan-gated-m3 12 of 20, xing-ext-m3 3 of 6 boards: a net given a turn after two turns without progress, or a round's deadline leaving later-named nets that the next round skipped). So outputs change on the new
+main, and by the project rule (algorithm changes migrate) the experiment moves.
+- Migrated: branch `simp-drc-parse-m5` (rebased on main 4c9e5293; the earlier branch is left as it
+  was). One conflict in lastmile.py: main's caller-name map now uses this branch's drc_items.board_nets (same mapping). Arms: C = bridge at main 4c9e5293, P = bridge at e0920182; harness 4c9e5293. Freerouting fork f1c41d3 (the pin, unchanged), counted work as before.
+- New experiment `drc-parse-ab-m5` (owner `exp-drc-parse-ab-m5`), new method ids. The runs of `drc-parse-ab-m3` (20 jobs done) are on the
+  previous main and excluded from the decision; its jobs are cancelled.
+- Boards (after the trims already recorded above), arms, attempts, primary, guards and looks unchanged.
