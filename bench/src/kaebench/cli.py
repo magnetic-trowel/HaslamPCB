@@ -20,7 +20,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from . import __version__, adapters, fetch, manifest, prepare, report, runner, tools
+from . import __version__, adapters, fetch, manifest, prepare, report, runner, stopping, tools
 
 
 def _split(s):
@@ -200,12 +200,13 @@ def _arms(a, sandbox):
 
 def _stop_on_sigterm():
     """SIGTERM (a job queue's timeout or cancel) stops the run gracefully: the running attempts get it too, keep
-    what they have as status `killed` (tools.STOP), and no more start."""
+    what they have as status `killed` (stopping.STOP), and no more start."""
     def stop(*_):
-        if not tools.STOP.is_set():
+        if not stopping.STOP.is_set():
+            stopping.STOP.set()
             os.write(2, b"kaebench: SIGTERM: stopping the running attempts, keeping what they have\n")
-        tools.STOP.set()
     signal.signal(signal.SIGTERM, stop)
+    stopping.watch()
 
 
 def cmd_run(a):
@@ -230,7 +231,7 @@ def cmd_run(a):
                          timeout=a.timeout, jobs=a.jobs, probe=probe, only=_split(a.only),
                          splits=_split(a.splits), qualified_only=not a.all, name=a.name,
                          keep_work=a.keep_work, min_movable=a.min_movable)
-    if tools.STOP.is_set():
+    if stopping.STOP.is_set():
         print(f"stopped (SIGTERM); attempts so far: {run_dir}", flush=True)
         return 143
     summary, _ = report.report([run_dir])

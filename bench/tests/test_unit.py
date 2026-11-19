@@ -844,56 +844,63 @@ def test_command_keeps_restart_reports_as_artifacts(tmp_path):
     assert adapters._restart_reports(tmp_path / "empty") == []
 
 
-def test_run_measured_stop_passes_sigterm_on_and_keeps_the_output(tmp_path, monkeypatch, capsys):
-    """tools.STOP (the harness got SIGTERM): the command gets SIGTERM and time to save, its output so far is kept,
-    the tee file has it as it came, and echo'd lines reach stdout at once."""
+
+SAVER = ("import signal, sys, time\n"
+         "def term(*_):\n"
+         "    print('[restart x] SIGTERM: saving', flush=True); time.sleep(0.5); print('saved', flush=True); sys.exit(143)\n"
+         "signal.signal(signal.SIGTERM, term)\n"
+         "print('[restart x] start #0', flush=True)\n"
+         "time.sleep(60)\n")
+
+
+def test_stop_passes_sigterm_to_the_method_and_keeps_its_output(tmp_path, monkeypatch):
+    """stopping.STOP (the harness got SIGTERM): the method below run_measured gets SIGTERM and time to save, the
+    launcher stays to reap it, its output so far is returned, and the tee's live log and echo have it."""
     import threading
     import time
-    monkeypatch.setattr(tools, "STOP", tools.Flag())
-    prog = ("import signal, sys, time\n"
-            "def term(*_):\n"
-            "    print('[restart x] SIGTERM: saving', flush=True); time.sleep(0.5); print('saved', flush=True); sys.exit(143)\n"
-            "signal.signal(signal.SIGTERM, term)\n"
-            "print('[restart x] start #0', flush=True)\n"
-            "time.sleep(60)\n")
-    threading.Timer(1.0, tools.STOP.set).start()
+    from kaebench import stopping
+    monkeypatch.setattr(stopping, "STOP", stopping.Flag())
+    stopping.watch(poll=0.05)
+    echo = tmp_path / "echo"
+    argv = stopping.tee_argv([sys.executable, "-c", SAVER], tmp_path / "method.log", echo=False)
+    argv[5:5] = ["--echo", str(echo)]
+    threading.Timer(1.5, stopping.STOP.set).start()
     t0 = time.monotonic()
-    with pytest.raises(tools.Stopped) as e:
-        tools.run_measured([sys.executable, "-c", prog], timeout=120, tee=tmp_path / "method.log",
-                           echo=lambda line: line.startswith("[restart "))
+    r = tools.run_measured(argv, timeout=120)
     assert time.monotonic() - t0 < 20
-    assert "saved" in e.value.stdout and "start #0" in e.value.stdout
+    assert r.returncode == 143 and "saved" in r.stdout and "start #0" in r.stdout
     assert (tmp_path / "method.log").read_text().splitlines() == ["[restart x] start #0", "[restart x] SIGTERM: saving",
                                                                   "saved"]
-    assert capsys.readouterr().out.splitlines() == ["[restart x] start #0", "[restart x] SIGTERM: saving"]
-    assert tools.usage_take()["processes"] == 1      # the launcher stayed to reap and account it
+    assert echo.read_text().splitlines() == ["[restart x] start #0", "[restart x] SIGTERM: saving"]
+    assert tools.usage_take()["processes"] == 1      # the launcher reaped and accounted it
 
 
-def test_run_measured_stop_kills_a_command_that_ignores_sigterm(monkeypatch):
+def test_stop_kills_a_method_that_ignores_sigterm_after_the_grace(monkeypatch):
     import threading
     import time
-    monkeypatch.setattr(tools, "STOP", tools.Flag())
-    monkeypatch.setattr(tools, "STOP_GRACE_S", 1.0)
-    threading.Timer(0.5, tools.STOP.set).start()
+    from kaebench import stopping
+    monkeypatch.setattr(stopping, "STOP", stopping.Flag())
+    monkeypatch.setattr(stopping, "STOP_GRACE_S", 1.0)
+    stopping.watch(poll=0.05)
+    threading.Timer(0.5, stopping.STOP.set).start()
     t0 = time.monotonic()
-    with pytest.raises(tools.Stopped):
-        tools.run_measured(["sh", "-c", "trap '' TERM; sleep 60"], timeout=120)
+    tools.run_measured(["sh", "-c", "trap '' TERM; sleep 60"], timeout=120)
     assert time.monotonic() - t0 < 15
 
 
 def test_runner_records_a_stopped_attempt_as_killed_and_starts_no_more(tmp_path, monkeypatch):
-    import threading
-    monkeypatch.setattr(tools, "STOP", tools.Flag())
+    from kaebench import stopping
+    monkeypatch.setattr(stopping, "STOP", stopping.Flag())
 
     class Stopper(adapters.Adapter):
         name = "stopper"
 
         def run(self, kind, input_dir, workdir, attempt, timeout, reference=None):
-            tools.STOP.set()     # as if SIGTERM came while it ran
+            stopping.STOP.set()     # as if SIGTERM came while it ran
             out = Path(workdir) / "output"
             out.mkdir(parents=True, exist_ok=True)
             (out / "board.kicad_pcb").write_text("(kicad_pcb)")
-            return adapters.AdapterResult(out / "board.kicad_pcb", "partial log", dict(timed_out=True, partial=True))
+            return adapters.AdapterResult(out / "board.kicad_pcb", "partial log", dict(rc=143))
 
     task = tmp_path / "task"
     (task / "route" / "input").mkdir(parents=True)
@@ -912,13 +919,19 @@ def test_repeated_sigterms_set_stop_without_deadlock(monkeypatch):
     """kaeq signals every process of a job and kaeres passes the signal on too: the handler gets it twice, and once
     deadlocked inside threading.Event.set (a lock taken by the first call). Now it only sets a flag."""
     import signal
-    from kaebench import cli
-    monkeypatch.setattr(tools, "STOP", tools.Flag())
+    from kaebench import cli, stopping
+    monkeypatch.setattr(stopping, "STOP", stopping.Flag())
+    monkeypatch.setattr(stopping, "watch", lambda: None)
     old = signal.getsignal(signal.SIGTERM)
     try:
         cli._stop_on_sigterm()
         for _ in range(3):
             os.kill(os.getpid(), signal.SIGTERM)
-        assert tools.STOP.is_set()
+        assert stopping.STOP.is_set()
     finally:
         signal.signal(signal.SIGTERM, old)
+
+
+def test_evaluator_files_are_untouched_by_the_stop_path():
+    """tools.py is part of the DRC evaluator's identity (kaeres SCORER_PATHS): the stop path lives in stopping.py."""
+    assert "STOP" not in (Path(tools.__file__)).read_text()

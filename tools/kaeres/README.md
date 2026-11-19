@@ -61,7 +61,7 @@ Run folders read as `fr-fork-master.3f9a1c2e.a0`: the method's name, then its id
 ## Killed jobs
 
 A kaeq job that is killed (its `--timeout`, `kaeq cancel`, a memory or scratch overrun) gets SIGTERM and kaeq's
-`kill_grace_s` before SIGKILL. The job passes it on: kaebench stops the running attempt (`tools.STOP`; its command gets
+`kill_grace_s` before SIGKILL. The job passes it on: kaebench stops the running attempt (`kaebench.stopping`, outside the evaluator's files; its command gets
 SIGTERM and 30 s) and records it as `killed` with its log and its board so far, unscored, and starts no more;
 `restart.py` stops its attempts (10 s), judges none, and writes `summary.json` and `KAE_WORK` with `killed`; kae exits
 through `SystemExit(143)`, so its `finally` blocks and the budget report (`[kae.budget]`; with `KAE_BUDGET_GAP`, the

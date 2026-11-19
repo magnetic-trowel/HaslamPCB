@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__, tools
+from . import __version__, stopping, tools
 from .boardfiles import board_path, copy_board, install_rules
 from .prepare import INPUT_KIND, MIN_TASK_SPEC, OPTIONAL_INPUTS, PLACE_INPUTS, TASK_SPEC, load_tasks
 from .score import SCORE_VERSION, score_joint_task, score_place_task, score_route_task, score_routing
@@ -35,7 +35,7 @@ def _attempt(task_dir, rec, adapter, kind, attempt, timeout, adir, probe, keep_w
     done = adir / "attempt.json"
     if done.exists():
         return json.loads(done.read_text())
-    if tools.STOP.is_set():   # the harness is stopping (SIGTERM): no new attempts
+    if stopping.STOP.is_set():   # the harness is stopping (SIGTERM): no new attempts
         return dict(adapter=adapter.name, kind=kind, id=rec["id"], attempt=attempt, status="not_started", runtime_s=0.0)
     if adir.exists():
         shutil.rmtree(adir)
@@ -76,7 +76,7 @@ def _attempt(task_dir, rec, adapter, kind, attempt, timeout, adir, probe, keep_w
     row["method_usage"] = tools.usage_take()  # CPU and peak RSS of every process the method ran
     if row["runtime_s"] > timeout * 1.05:
         row["over_time"] = True
-    if tools.STOP.is_set():
+    if stopping.STOP.is_set():
         # stopped from outside (SIGTERM): what the method had is kept for diagnosis, unscored (a DRC can take an
         # hour), and its work dir too (logs, the board so far); `stopped_status` is what the adapter made of it
         row["stopped_status"], row["status"] = row["status"], "killed"
