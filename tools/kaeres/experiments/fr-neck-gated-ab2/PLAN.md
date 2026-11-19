@@ -106,3 +106,15 @@ as experiment `fr-neck-gated-ab3` at this commit on the new pin; nothing else ch
 ## Smoke on the final pin (2026-11-17, xerxes 544 pads with pours, control arm, py-spy only, f1c41d3)
 16 attempts: wall/charged 1.02-2.17 (median about 1.2); the run took 20.5 min for 1,083 s nominal (1.14x); no
 `kae.budget.gap` line; kept board clean. Run on b38746a9 (main 22ff779a); 9e54baed changes nothing on this path.
+
+## Addendum 2026-11-19 (m5), before any run on this build: main 4c9e5293 (last-mile fix, #112)
+Main moved after `fr-neck-gated-ab4` was submitted. PR #112 changes the last mile's algorithm: `lastmile.close` re-queues a net
+only when its open count falls below its lowest so far, or once after a no-progress turn, and `repair._last_mile`
+rounds start with the nets no earlier round reached. (Its connectivity charge, PR #113's spoke tracks in the last
+mile's first round and the KiCad-call charges came in the same range.) Its arms run the restart portfolio, whose attempts and final pass call the last mile; per-attempt logs are not kept, but in the finished logs of the bridge and joint experiments that keep them, 20-60 % of boards hit the changed paths (drc-parse-ab-m3 4 of 20, rule-quantize-guard-m4 6 of 33, chan-gated-m3 12 of 20, xing-ext-m3 3 of 6 boards), so affected boards are taken to be common here as well. So outputs change on the new
+main, and by the project rule (algorithm changes migrate) the experiment moves.
+- Migrated: branch `fr-neck-gated-m5` (rebased on main 4c9e5293; the earlier branch is left as it
+  was). Both arms at kae and harness eb2314d2, the commit before this addendum. Freerouting fork f1c41d3 (the pin, unchanged), counted work as before.
+- New experiment `fr-neck-gated-ab5` (owner `exp-fr-neck-gated-ab5`), new method ids. The runs of `fr-neck-gated-ab4` (7 jobs done) are on the
+  previous main and excluded from the decision; its jobs are cancelled.
+- Boards (after the trims already recorded above), arms, attempts, primary, guards and looks unchanged.
