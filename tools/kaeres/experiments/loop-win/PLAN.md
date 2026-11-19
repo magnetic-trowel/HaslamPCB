@@ -162,3 +162,15 @@ What changes:
 - `loop-win` moves to a new commit (main 4c9e5293 merged into `loop-win-v6`) and a new experiment, `loop-win2`, with the same 69 boards, both seeds, six arms and rules.
 - `loop-win`'s queued jobs are cancelled. Its finished runs are not read.
 - The held big-board jobs are rewritten for `loop-win2` in `held-big-boards.jsonl`; the reasons in the 2026-11-18 addendum stand.
+
+## Addendum 2026-11-19 (m6), before any run on this build: Freerouting 37b1a8b (freerouting#14) and main 6d726340
+The pin moved to kae-freerouting-fork-37b1a8b: `autorouter.max_work` is checked before each item instead of each pass,
+and a run stopped there keeps its best board. Outputs change only for Freerouting calls whose work budget runs out
+inside a pass (or that time out). Main 6d726340 also makes a Freerouting call's job timeout 4x its own budget (#114).
+Of loop-win's and its smokes' finished counted-work runs, 3 of 3 boards with runs had a Freerouting call stop on its work budget inside the pass loop. The 6 held big boards (over 390 footprints) stay held: freerouting#14 meets this file's condition for their return (max_work now stops Freerouting inside a pass), but the user's 16 CPU-h board cutoff for A/B tests (2026-11-19) now governs; their job lines are rewritten for loop-win3 in held-big-boards.jsonl and are not submitted. So the experiment moves as a whole (no run of `loop-win2` on an affected board can be told apart from the
+rest beforehand, and the changed calls are common).
+- Migrated: branch `loop-win-m6` (main merged in: main 6d726340; the earlier branch is left as it
+  was). Every arm at kae and harness 0ffd143e, the merge commit before this addendum (one conflict, two independent new tests in test_restart.py, both kept; test_restart.py passes). Freerouting fork 37b1a8b set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `loop-win3` (owner `exp-loop-win3`), new method ids. The runs of `loop-win2` (0 jobs done) are excluded
+  from the decision; its jobs are cancelled.
+- Boards (after the trims and the 16 CPU-h cutoff recorded above), arms, attempts, primary, guards and looks unchanged.
