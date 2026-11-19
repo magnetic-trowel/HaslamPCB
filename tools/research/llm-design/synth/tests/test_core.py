@@ -245,7 +245,7 @@ def test_i_through_and_one_hop_protector():
     assert not any(x.check == "rating.current" and tvs.ref in x.objects for x in fl)
 
 
-def test_stack_spacing_is_per_domain_pair():
+def test_stack_spacing_is_per_net_pair():
     from kaesynth.emit.project import NetClasses, dru_text
     d = stack(n=16, v=(2.5, 4.2))
     b = d.block("mon")
@@ -262,7 +262,11 @@ def test_stack_spacing_is_per_domain_pair():
     nc = NetClasses(d).build()
     assert max(c["clearance"] for c in nc.classes.values()) == 0.2      # no 0.6 mm on the AFE pins
     text = dru_text(d, nc)
-    assert "IR:functional.B1.0.6mm" in text                          # far ends of the stack: 60+ V
+    # far ends of the stack (60+ V) are spaced, as net pairs; adjacent taps (one cell) are not
+    far = [ln for ln in text.splitlines() if ln.startswith("# functional spacing GND to") and "T16" in ln]
+    assert far
+    assert not any(ln.startswith("# functional spacing T15 to") and "T16" in ln.split(":")[0]
+                   for ln in text.splitlines())
     assert "memberOfFootprint('U101')" in text                       # its own pads are exempt
 
 
@@ -325,7 +329,7 @@ def test_functional_rule_not_skipped_by_netclass_clearance():
     d.finalize()
     text = dru_text(d, NetClasses(d).build())
     i_inh = text.index('"IR:barrier.B1.B2.inherited"')
-    fn = [ln for ln in text.splitlines() if ln.startswith('(rule "IR:functional.B1.') and "0.6mm" in ln]
+    fn = [ln for ln in text.splitlines() if ln.startswith('(rule "IR:functional.') and "0.6mm" in ln]
     assert fn and text.index(fn[0]) > i_inh               # the 0.6 mm IPC rule comes after (wins)
 
 
