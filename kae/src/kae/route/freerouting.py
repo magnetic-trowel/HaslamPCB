@@ -460,9 +460,15 @@ def route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin_
         cap = max(1, int(budget_s / max(1e-9, rates["fr_pass_pin2"] * size)))
         cap = min(passes, cap) if passes else cap
     settings.setdefault("optimizer.max_passes", str(FR_OPT_MAX_PASSES))
-    wall = budget.wall_timeout(budget_s)
+    # the job timeout is only a safety stop: CEILING_FACTOR x this call's budget (budget.stage_wall),
+    # not the whole run's ceiling, so a run whose counted stop fails still leaves the rest of the run
+    # its time; Freerouting stops between items there and writes what it has
+    wall = budget.stage_wall(budget_s)
     run = _route(dsn, ses, workdir, passes=cap, settings=settings, budget_s=wall, margin_s=30.0,
                  hard_s=wall + GRACE_S, log_path=log_path)
+    if run.timed_out or run.report.get("final_state") == "TIMED_OUT":
+        run.report["wall_stop"] = True
+        budget.note_wall_stop("freerouting")
     run.report["passes_done"], run.report["passes_cap"] = len(PASS_DONE.findall(run.log or "")), cap
     if settings.get("autorouter.max_work"):
         run.report["max_work"] = int(settings["autorouter.max_work"])
@@ -666,12 +672,14 @@ def _replay(key, ses, result, workdir, budget_s, margin, hard_s, log_path, passe
 
 def _autorouter_stop(log, final_state):
     """Why the autorouter's pass loop ended (the fork's StopReason), from its log: it logs
-    stagnation and no-improvement stops; a job past its deadline ends TIMED_OUT; otherwise the
+    stagnation, no-improvement and work-budget stops; a job past its deadline ends TIMED_OUT; otherwise the
     loop ran out of work (COMPLETED: every connection it could attempt was routed)."""
     if "not able to improve the board" in log:
         return "NO_IMPROVEMENT"
     if "has not improved by more than" in log:
         return "STAGNATION"
+    if "its work budget is spent" in log:              # autorouter.max_work, before a pass or (e3de56f) in one
+        return "WORK_BUDGET"
     if final_state == "TIMED_OUT":
         return "TIMED_OUT"
     return "COMPLETED" if final_state else None

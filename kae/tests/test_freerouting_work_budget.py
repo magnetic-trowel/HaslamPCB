@@ -159,3 +159,42 @@ def test_an_optimizer_stopped_by_the_work_budget_says_so():
     log = "x INFO [j] Stopping the optimizer before pass #2: the job's work budget is spent (9 of 8 work units)."
     assert F._optimizer_stop(log) == "work_budget"
     assert F._optimizer_stop("x INFO [j] Skipping optimization stage: the job's work budget is spent (9 of 8).") == "skipped"
+
+
+def test_work_mode_job_timeout_is_this_calls_wall_limit_not_the_runs_ceiling(fake, monkeypatch):
+    # socket7 (2026-11-18): a 900 s run's Freerouting got the job timeout up to the run's 3,600 s
+    # ceiling, and its failed counted stop used 2,600 s of it
+    calls, dsn = fake
+    monkeypatch.setattr(F, "has_work_budget", lambda cmd=None: True)
+    monkeypatch.setattr(F, "takes_setting", lambda name, cmd=None: False)
+    c = budget.set_mode("work", rates={"poll": 0.0})
+    budget.set_ceiling(900.0)
+    F.route(dsn, dsn.with_suffix(".ses"), dsn.parent, budget_s=100.0)
+    assert calls[0]["budget_s"] == pytest.approx(budget.CEILING_FACTOR * 100.0)
+    assert "wall_stops" not in c.report()
+    F.route(dsn, dsn.with_suffix(".ses"), dsn.parent, budget_s=10.0)
+    assert calls[1]["budget_s"] == budget.STAGE_WALL_FLOOR
+    budget.set_mode("time")
+
+
+def test_a_run_stopped_at_its_wall_limit_is_reported(monkeypatch, tmp_path):
+    def _route(dsn, ses, workdir, **kw):
+        return F.Run(rc=0, ses=None, log=LOG, seconds=400.0, report={"final_state": "TIMED_OUT"})
+    monkeypatch.setattr(F, "_route", _route)
+    monkeypatch.setattr(F, "has_work_budget", lambda cmd=None: True)
+    monkeypatch.setattr(F, "takes_setting", lambda name, cmd=None: False)
+    d = tmp_path / "board.dsn"
+    d.write_text(DSN)
+    c = budget.set_mode("work", rates={"poll": 0.0})
+    run = F.route(d, d.with_suffix(".ses"), tmp_path, budget_s=100.0)
+    assert run.report["wall_stop"] is True
+    assert c.report()["wall_stops"] == {"freerouting": 1}
+    budget.set_mode("time")
+
+
+def test_autorouter_stop_reads_the_work_budget_stop():
+    assert F._autorouter_stop("Stopping the auto-router before pass #3: its work budget is spent (5 of 4 "
+                              "work units).", "COMPLETED") == "WORK_BUDGET"
+    assert F._autorouter_stop("Stopping the auto-router in pass #1: its work budget is spent (5 of 4 "
+                              "work units).", "COMPLETED") == "WORK_BUDGET"
+    assert F._autorouter_stop("", "COMPLETED") == "COMPLETED"
