@@ -152,6 +152,16 @@ class Mesh:
         inside = shapely.contains_xy(geom, X, Y)
         cov = inside.astype(float)
         edge = ndimage.binary_dilation(inside) & ~ndimage.binary_erosion(inside)
+        # and every cell the outline itself crosses: copper that holds no cell centre (a 0.25 mm pad whose long edges
+        # run through a row of centres at 0.25 mm pitch, or a sliver between centres) had no inside cell to find its
+        # edge from and read empty, so a track ending on such a pad off its centre cell was cut off from it while
+        # KiCad connected it (a buck-boost's VOUT, GND and L1 pads, routed into at their ends)
+        bxy = shapely.get_coordinates(shapely.segmentize(geom, self.pitch / self.SUB))     # every ring, densified
+        if len(bxy):
+            bj = np.floor((bxy[:, 1] - self.y0) / self.pitch).astype(np.int64)
+            bi = np.floor((bxy[:, 0] - self.x0) / self.pitch).astype(np.int64)
+            ok = (bj >= 0) & (bj < self.ny) & (bi >= 0) & (bi < self.nx)
+            edge[bj[ok], bi[ok]] = True
         edge |= ndimage.binary_dilation(edge)
         jj, ii = np.nonzero(edge)
         if len(jj):
@@ -305,6 +315,8 @@ class Mesh:
                     m[j, i] = True
             else:
                 m = self.cells_in(geom) if mask is None else mask
+                if mask is None and not m.any():
+                    m = self.coverage(geom) >= self.MIN_COV     # copper that holds no cell centre: the cells it paints
             lab = self.lab[l]
             m = m & ((lab >= 0) if net is None else (lab == self.net_id(net)))
             cells += [(l, int(j), int(i)) for j, i in zip(*np.nonzero(m))]
