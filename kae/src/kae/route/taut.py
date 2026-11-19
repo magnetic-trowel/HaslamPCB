@@ -35,6 +35,7 @@ count above the input's; violations naming a changed net revert that net (and, e
 whose new copper is then too close to the restored copper), then by distance, then batch by batch.
 """
 from __future__ import annotations
+from kae.budget import spanned as _spanned
 
 from kae.budget import now as clock_now
 import argparse
@@ -1040,6 +1041,7 @@ class Taut:
             self.sp.invalidate(l)
 
     # ---------------------------------------------------------------- passes
+    @_spanned("taut")
     def run_passes(self):
         t0 = clock_now()
         for k in range(self.o["passes"]):
@@ -1475,6 +1477,7 @@ def board_stats(board_path, info=None, power=None, ground=None):
 
 
 # ----------------------------------------------------------------------------- DRC-gated run
+@_spanned("taut_run")
 def run(input_path, output_path, opts=None, workdir=None, timeout=1800, log=print, gate=True):
     """The DRC-gated pass (module docstring). `gate=False` (kae.route.finish): no DRC; every net's
     tightened copper is written and returned as kae.route.journal entries (one per net) in

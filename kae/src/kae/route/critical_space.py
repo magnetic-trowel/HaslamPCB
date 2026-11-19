@@ -30,6 +30,7 @@ Every length is mm. KiCad stores nanometres, and pads come as polygons that lie 
 true shape (ERROR_OUTSIDE), so a TOL of 2 um above each requirement is safe.
 """
 from __future__ import annotations
+from kae.budget import spanned as _spanned
 
 import math
 from dataclasses import dataclass, field
@@ -155,6 +156,7 @@ class Space:
     effective.Rules(info, board.path, plan): the bridge's own numbers.
     """
 
+    @_spanned("space_build")
     def __init__(self, board, info, plan=None, sev=None, opts=None, rules=None):
         self.opts = dict(opts or {})
         self.sev = sev or {}

@@ -35,6 +35,7 @@ unconnected count above the input's; violations naming an added item revert that
 the board is still worse the pass falls back stage by stage to the input.
 """
 from __future__ import annotations
+from kae.budget import spanned as _spanned
 
 from kae.budget import now as clock_now
 import argparse
@@ -1328,6 +1329,7 @@ def journal_keys(pc, kinds):
     return keys
 
 
+@_spanned("power_copper")
 def run(input_path, output_path, opts=None, workdir=None, timeout=1800, log=print, gate=True):
     """The DRC-gated pass: plan, write, check, revert what made DRC worse. Returns a report.
     `gate=False` (kae.route.finish): no DRC; the whole plan is written and returned as

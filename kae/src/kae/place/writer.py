@@ -26,6 +26,7 @@ keys (kicad_file.footprint_keys), so boards with repeated or missing uuids and K
 tstamps work as they do with the pcbnew writer.
 """
 from __future__ import annotations
+from kae.budget import spanned as _spanned
 
 import os
 import re
@@ -287,6 +288,7 @@ def pcbnew_ready(timeout=60):
         return False
 
 
+@_spanned("place_write")
 def write(src_path, dst_path, poses, mode="auto", log=None):
     """Write poses ({uuid: (x, y, rot, side)}) into a copy of src_path saved as dst_path, with
     the chosen writer ('auto', 'pcbnew' or 'sexpr'; env KAE_WRITER overrides). Returns a

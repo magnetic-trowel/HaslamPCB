@@ -47,6 +47,7 @@ the whole import), via shapes get their real diameters back, and wiring points t
 snap moved (Freerouting returns the unfixed ones it keeps) get their KiCad coordinates back.
 Fixed wiring is never returned: KiCad's import keeps locked copper byte for byte.
 """
+from kae.budget import spanned as _spanned
 import math
 import random
 
@@ -648,6 +649,7 @@ def mark_plane_layers(layers, cu, info, planes=None):
     return made
 
 
+@_spanned("translate")
 def apply(tree, plan, info):
     """Rewrite a parsed KiCad DSN `tree` in place according to `plan`. Returns a summary."""
     cu = plan.copper
@@ -892,6 +894,7 @@ def _shuffle(tree, rnd):
 
 
 # ----------------------------------------------------------------------------- session
+@_spanned("fix_session")
 def fix_session(ses_tree, plan):
     """Prepare Freerouting's session for KiCad: drop the placement, quote net names, restore
     real via diameters. Returns a summary."""

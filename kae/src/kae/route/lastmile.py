@@ -34,6 +34,7 @@ Lengths are mm. Nothing here changes how a board is scored: the caller keeps a r
 when KiCad's DRC on the re-opened board is better.
 """
 from __future__ import annotations
+from kae.budget import spanned as _spanned
 
 from kae.budget import charge
 from kae.budget import now as clock_now
@@ -404,6 +405,7 @@ def round_robin(nets, reached):
     return sorted(nets, key=lambda n: (reached.get(n, -1), n))
 
 
+@_spanned("lastmile")
 def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=print, max_parts=8, soft=(),
           max_joins=MAX_JOINS, deadline=None, rip=True, txn=True):
     """Join the parts of the open nets of `board` (`nets`, default every net with more

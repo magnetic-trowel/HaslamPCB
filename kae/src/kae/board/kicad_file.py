@@ -23,6 +23,7 @@ board's bounding box, so those load with on_board=False. Board.outline adds the 
 graphics of on-board footprints (as pcbnew does); off-board footprints keep theirs in
 `Footprint.edge_cuts`.
 """
+from kae.budget import spanned as _spanned
 from kae.budget import charge, span, work_mode
 import functools
 import json
@@ -327,6 +328,7 @@ def legacy_names(tree):
     return tree
 
 
+@_spanned("parse_board")
 def parse_board(text):
     """A .kicad_pcb's text as a tree, zone fills and embedded files skipped
     (sexpr.strip_blocks), with legacy names as KiCad 10 reads them (legacy_names)."""

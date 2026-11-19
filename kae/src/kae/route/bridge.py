@@ -19,6 +19,7 @@
 The output is written as soon as a routed board exists and replaced only by better ones,
 so a run that is killed still leaves its best board. Returns a JSON-able report.
 """
+from kae.budget import spanned as _spanned
 from kae.budget import now as clock_now
 import json
 import shutil
@@ -168,6 +169,7 @@ def severities(board_path):
         return {}
 
 
+@_spanned("bridge")
 def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None, log=_log):
     t0 = clock_now()
     fork = stepcache.fork_context(input_path, seed, time_s, opts)   # KAE_STEP_CACHE: fork points

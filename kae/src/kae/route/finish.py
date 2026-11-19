@@ -36,6 +36,7 @@ skipped. The result is cached in the step cache (KAE_STEP_CACHE) by input board,
 code and options, unless a part was skipped or the gate stopped for time.
 """
 from __future__ import annotations
+from kae.budget import spanned as _spanned
 
 from kae.budget import start_run as _start_run
 from kae.budget import now as clock_now
@@ -125,6 +126,7 @@ def _summary(part, rep):
     return out
 
 
+@_spanned("finish")
 def run(input_path, output_path, project=None, opts=None, workdir=None, time_s=None, base_report=None,
         drc_s=None, log=print):
     """Finish the routed board `input_path` into `output_path` (with `project`'s .kicad_pro and

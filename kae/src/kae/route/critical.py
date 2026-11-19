@@ -26,6 +26,7 @@ Joint use (the month plan's joint loop):
   returns the modules to re-tweak.
 """
 from __future__ import annotations
+from kae.budget import spanned as _spanned
 
 from kae.budget import now as clock_now
 import json
@@ -638,6 +639,7 @@ def to_json(rep):
 
 
 # ----------------------------------------------------------------------------- full pipeline
+@_spanned("critical")
 def run(input_path, output_path, seed=0, time_s=900.0, opts=None, bridge_opts=None, rounds=0, workdir=None,
         log=_log, bridge=True):
     """Critical routing, then the bridge around the locked copper, then (rounds > 0) the

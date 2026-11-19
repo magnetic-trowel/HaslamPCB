@@ -30,6 +30,7 @@ do not idle away a long timeout. The annealer budgets CPU seconds; CP-SAT stages
 seconds with `workers` threads.
 """
 from __future__ import annotations
+from kae.budget import spanned as _spanned
 
 import collections
 
@@ -375,6 +376,7 @@ def _rung_summary(res, seconds):
                 seconds=round(seconds, 1))
 
 
+@_spanned("place")
 def place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, log=None, anneal=True,
           edge_mate=False, anneal_args=None, angle_step=None, fixed=(), board_path=None, opts=None,
           verify=None):
@@ -1035,6 +1037,7 @@ def _zone_summary(r):
     return {k: v for k, v in r.items() if k != "by_net"}
 
 
+@_spanned("anchor_search")
 def _anchor_tight_parts(P, rep, log, board_path=None):
     """Big parts with no spot the grid calls free of the fixed geometry alone (outline, locked
     parts, rule areas; every other movable part aside): the annealer and the legalizer can
