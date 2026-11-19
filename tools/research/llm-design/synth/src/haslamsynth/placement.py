@@ -45,6 +45,10 @@ class BoardSpec:
     enclosure: str = ""
     coating: str = ""                  # e.g. "acrylic conformal coat, IPC-CC-830"
     keepouts: list = field(default_factory=list)   # [{"rect": [x0,y0,x1,y1], "what": ..., "layers": ...}]
+    # fab minimums written to the board setup (.kicad_pro rules); the clearance is also the floor of every net
+    # class (default 0.2 mm). Fine-pitch parts (0.5 mm) need less than KiCad's 0.2 mm defaults to escape
+    min_track_mm: float = None
+    min_clearance_mm: float = None
     notes: str = ""
 
     def as_dict(self):

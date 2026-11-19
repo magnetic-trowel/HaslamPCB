@@ -141,14 +141,16 @@ def charger(d):
             "VDAC0 = 0, 11.97 V at 2.42 V, 13.73 V with the DAC off. RUN: hiccup centre VPV = 1.0 x (1 + R5/R6) + "
             "(1.0 - VDAC1) x R5/R7 with R5 10 M, R6 2.49 M, R7 590 k: 5.0 V with the DAC off, 21.9 V at VDAC1 = 0; "
             "on/off at 1.05/0.95 x the centre. Q102 forces RUN low (charge off, 0.5 uA).",
-            nets=[("SW1", (-0.7, 25.7), "switching", {"i_max": 1.2, "i_peak": 1.7}),
+            # SW1 swings 0..PVIN (<= 25 V, REQ-1) plus a body-diode drop either way; BST1/BST2 ride on their switch
+            # nodes, charged from the 4 V VCC LDO (DS p.11): the switch nodes' ringing is the hard overshoot term
+            nets=[("SW1", (-0.7, 25.5), "switching", {"i_max": 1.2, "i_peak": 1.7}),
                   ("SW2", (-0.7, 15.7), "switching", {"i_max": 1.2, "i_peak": 1.7}),
                   ("VCC_CHG", (0, 4.2), "power"), ("RUN", (0, 5.5), "analog"), ("FB", (0, 2.6), "analog"),
                   ("ILIM", (0, 4.2), "signal")])
     d.domain("BST1", ref="CHG/SW1", kind="elv", description="LTC3130 BST1 rides on SW1")
     d.domain("BST2", ref="CHG/SW2", kind="elv", description="LTC3130 BST2 rides on SW2")
-    b.b.net("BST1", v=(0, 4.5), kind="signal", domain="BST1")
-    b.b.net("BST2", v=(0, 4.5), kind="signal", domain="BST2")
+    b.b.net("BST1", v=(0, 4.2), kind="signal", domain="BST1")
+    b.b.net("BST2", v=(0, 4.2), kind="signal", domain="BST2")
     b.add(P.LTC3130, "U101", {"GND": "GND", "EP": "GND", "BST1": "BST1", "SW1": "SW1", "PVIN": "PV_IN",
                               "VIN": "PV_IN", "RUN": "RUN", "VCC": "VCC_CHG", "MPPC": "VCC_CHG", "FB": "FB",
                               "ILIM": "ILIM", "MODE": "GND", "EXTVCC": "GND", "VOUT": "SYS", "BST2": "BST2",
@@ -392,8 +394,11 @@ def operating(d):
 
 
 def board(d):
-    d.board("main", width_mm=80, height_mm=60, layers=2, thickness_mm=1.6, copper_oz=1.0,
-            holes=[Hole(3.5, 3.5, 3.2), Hole(76.5, 3.5, 3.2), Hole(3.5, 56.5, 3.2), Hole(76.5, 30.5, 3.2)],
+    # 120 x 90 mm (27 % courtyard density) to get a routed, physics-scored layout first; shrink later.
+    # 80 x 60 mm was 60 % full: 21 open connections around the 0.5 mm-pitch ICs.
+    d.board("main", width_mm=120, height_mm=90, layers=2, thickness_mm=1.6, copper_oz=1.0,
+            holes=[Hole(3.5, 3.5, 3.2), Hole(116.5, 3.5, 3.2), Hole(3.5, 86.5, 3.2), Hole(116.5, 52.0, 3.2)],
+            min_track_mm=0.127, min_clearance_mm=0.15,
             max_component_height_mm=15,
             notes="2-layer, bottom layer mostly ground. FireBeetle module over the socket; keep pours off the "
                   "module's non-USB end (antenna, Q-3).")
