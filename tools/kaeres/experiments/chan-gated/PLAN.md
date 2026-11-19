@@ -157,3 +157,15 @@ on the new build.
 Approved by the user 2026-11-17 after the analysis of finished rows from older builds (explore-2611 results); written before any result of this build is read.
 - **Boards:** only the 86 boards whose screen overlap count (mean of seeds 0-2) is 20 or more stay; the 58 boards at 10-19 are cancelled. The earlier gain and the only tight evidence are at >= 20; the 10-19 band rested on 6 boards and would dilute the pooled effect. The 10-19 band becomes a later stage if chan3 wins at >= 20. Arms (control, chan3), seeds 0-2, primary and guards unchanged; the MDE at 86 boards is reported with the result.
 - **Later 2x2 (pre-registered now, run only after this result):** xing (`--set place_w_xing=2`) and xing+chan3 arms on the same 86 boards and seeds, at this experiment's commit, reusing its control and chan3 runs. It estimates both main effects and their interaction, and the xing arm tells a chan3-specific gain from "any perturbation helps dense boards". This replaces the earlier xingchan3 plan.
+
+## Addendum 2026-11-19 (m5), before any run on this build: main 4c9e5293 (last-mile fix, #112)
+Main moved after `chan-gated-m3` was submitted. PR #112 changes the last mile's algorithm: `lastmile.close` re-queues a net
+only when its open count falls below its lowest so far, or once after a no-progress turn, and `repair._last_mile`
+rounds start with the nets no earlier round reached. (Its connectivity charge, PR #113's spoke tracks in the last
+mile's first round and the KiCad-call charges came in the same range.) Its staged route runs the bridge's last mile: in the finished logs of the bridge and joint experiments that keep them, 20-60 % of boards hit the changed paths (drc-parse-ab-m3 4 of 20, rule-quantize-guard-m4 6 of 33, chan-gated-m3 12 of 20, xing-ext-m3 3 of 6 boards: a net given a turn after two turns without progress, or a round's deadline leaving later-named nets that the next round skipped). So outputs change on the new
+main, and by the project rule (algorithm changes migrate) the experiment moves.
+- Migrated: branch `chan-gated-m5` (main merged in: main 4c9e5293; the earlier branch is left as it
+  was). Both arms at kae and harness fa5c8d64, the merge commit before this addendum; the 86 boards with >= 20 overlaps. Freerouting fork f1c41d3 (the pin, unchanged), counted work as before.
+- New experiment `chan-gated-m5` (owner `exp-chan-gated-m5`), new method ids. The runs of `chan-gated-m3` (20 jobs done) are on the
+  previous main and excluded from the decision; its jobs are cancelled.
+- Boards (after the trims already recorded above), arms, attempts, primary, guards and looks unchanged.
