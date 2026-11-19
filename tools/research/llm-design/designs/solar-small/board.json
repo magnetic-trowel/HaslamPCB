@@ -1,15 +1,15 @@
 {
-  "outline": [80, 60],
-  "holes": [[3.5, 3.5], [76.5, 3.5], [3.5, 56.5], [76.5, 30.5]],
+  "outline": [120, 90],
+  "holes": [[3.5, 3.5], [116.5, 3.5], [3.5, 86.5], [116.5, 52.0]],
   "fixed": {
-    "M301": {"x": 25.21, "y": 35.87, "rot": 0, "note": "FireBeetle socket: module x 20-80, y 34.6-60, USB-C at the east edge"},
-    "J201": {"x": 63.54, "y": 14.0, "rot": 270, "note": "XT60PW-M battery, mating face on the east edge"},
-    "J101": {"x": 5.2, "y": 16.0, "rot": 90, "note": "panel terminal block, wire entry (local -y) facing the west edge"},
-    "J202": {"x": 70.0, "y": 30.0, "rot": 0, "note": "battery NTC, JST PH"},
-    "J301": {"x": 30.0, "y": 2.5, "rot": 90, "note": "generic sensor header (DNP), north edge"}
+    "M301": {"x": 65.21, "y": 64.37, "rot": 0, "note": "FireBeetle socket: module x 60-120, y 63.1-88.5 (1.5 mm in from the south edge: its 1.7 mm pads keep 1.9 mm to the edge), USB-C at the east edge"},
+    "J201": {"x": 103.54, "y": 20.0, "rot": 270, "note": "XT60PW-M battery, mating face on the east edge"},
+    "J101": {"x": 5.2, "y": 25.0, "rot": 90, "note": "panel terminal block, wire entry (local -y) facing the west edge"},
+    "J202": {"x": 112.0, "y": 42.0, "rot": 0, "note": "battery NTC, JST PH, clear of H4"},
+    "J301": {"x": 45.0, "y": 3.0, "rot": 90, "note": "generic sensor header (DNP), north edge"}
   },
   "zones": [{"net": "GND", "layer": "B.Cu", "name": "GND_B"}, {"net": "GND", "layer": "F.Cu", "name": "GND_F"}],
-  "keepouts": [{"rect": [20, 34.6, 27, 60], "layers": ["F.Cu", "B.Cu"], "no": ["copper"],
-                "name": "FireBeetle antenna end (Q-3, assumed)"}],
-  "seed_area": [6, 8, 60, 33]
+  "keepouts": [{"rect": [60, 63.1, 64.0, 88.5], "layers": ["F.Cu", "B.Cu"], "no": ["pours"],
+                "name": "FireBeetle antenna end (Q-3, assumed): no pour under it; tracks and the header pads allowed"}],
+  "seed_area": [10, 8, 100, 60]
 }
