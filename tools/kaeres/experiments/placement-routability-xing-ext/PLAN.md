@@ -165,3 +165,6 @@ main, and by the project rule (algorithm changes migrate) the experiment moves.
 - New experiment `xing-ext-m5` (owner `exp-xing-ext-m5`), new method ids. The runs of `xing-ext-m3` (15 jobs done) are on the
   previous main and excluded from the decision; its jobs are cancelled.
 - Boards (after the trims already recorded above), arms, attempts, primary, guards and looks unchanged.
+
+## Addendum 2026-11-19 (cutoff)
+User decision 2026-11-19, written before any result of this build is read: boards over 16 CPU-h per board (all of a board's runs; measured on earlier builds of this experiment, else the per-experiment fit of CPU on footprints) leave the A/B tests; a big-board canary set (board-tags suites/canary-big.txt) checks them before merges. Dropped here (5): antmicro sdi-mipi (18 CPU-h measured), dvhx soldering-exercise, logisim gecko5education, sinara zotino, soldered dasduino coreplus (estimated 17-36). 40 boards remain, seeds 3-8; the MDE is reported at 40 boards. Primary and guards unchanged.
