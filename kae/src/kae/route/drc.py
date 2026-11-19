@@ -81,6 +81,11 @@ def run(board, out_json, timeout=900, cache=True):
 
 
 def _run(board, out_json, timeout, cache, mb):
+    with budget.span("drc"):
+        return _run_drc(board, out_json, timeout, cache, mb)
+
+
+def _run_drc(board, out_json, timeout, cache, mb):
     cmd = [*kicad_cli(), "pcb", "drc", "--format", "json", "--refill-zones", "--severity-all",
            "--units", "mm", "-o", str(out_json), str(board)]
     try:
@@ -91,6 +96,7 @@ def _run(board, out_json, timeout, cache, mb):
         else:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=board.parent, errors="replace")
     except subprocess.TimeoutExpired:
+        budget.event("timeout", what="kicad drc", limit_s=timeout)
         raise DrcError(f"DRC timed out after {timeout}s")
     finally:
         from kae.board.pcbnew_io import zone_layers

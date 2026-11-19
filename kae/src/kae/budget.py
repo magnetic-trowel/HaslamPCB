@@ -22,11 +22,23 @@ ceiling (`set_ceiling`, CEILING_FACTOR x the run's budget): past it `now()` is i
 deadline has passed, stages wind down, and the report says `ceiling_hit` (the run has failed: a
 stage did work it did not charge). Every deadline check charges a small fixed amount ("poll"), so a loop that
 only polls still ends, after a counted number of checks.
+
+The ledger (both modes, always on): `with span("name"):` marks a stretch of work. Each span records its
+wall seconds, the process's CPU seconds, its waited-for child processes' CPU seconds (KiCad, Freerouting)
+and the seconds charged inside it, by kind; spans nest, and a charge goes to the innermost open span of
+its thread. Wall time outside every span is the root's own time, reported as unattributed, so time no
+span covers shows up instead of being booked to whatever is charged next. `event(name, ...)` records a
+timeout, cap or wall stop that fired, with the span it fired in. The ledger is in the clock's report, and
+KAE_LEDGER=path appends the process's report to that JSONL file at exit (tools/research/budget/ledger.py
+sums them).
 """
 from __future__ import annotations
 
+import contextlib
+import json
 import math
 import os
+import sys
 import threading
 import time
 from collections import defaultdict
@@ -126,11 +138,19 @@ class Clock:
         self.last = self.t0
         self.ceiling = None                  # wall seconds after which now() is infinite (work mode)
         self.ceiling_hit = False
+        self.ceiling_where = None            # the span open when the ceiling was first hit
+        self.ledger = defaultdict(_row)      # span path ("a/b") -> totals (span(), _row)
+        self.events = []                     # timeouts, caps and stops that fired (event())
+        self.c0 = _cpu()
+        self.startup = _process_age()         # (wall, cpu) of this process before the clock started
 
     def charge(self, kind, units=1.0):
         """Count `units` of `kind` work; in work mode they advance the clock at RATES[kind]."""
         s = units * self.rates.get(kind, 0.0)
+        st = getattr(_tls, "stack", None)
         with _lock:
+            row = self.ledger[st[-1].path if st else ""]
+            row["charged"][kind] = row["charged"].get(kind, 0.0) + s
             if self.profile:                 # the time since the previous clock event went to this work
                 t = time.monotonic()
                 self.wall_by_kind[kind] += t - self.last
@@ -155,7 +175,11 @@ class Clock:
             return time.monotonic()
         self.charge(kind)
         if self.ceiling is not None and self.wall() > self.ceiling:
-            self.ceiling_hit = True
+            if not self.ceiling_hit:
+                self.ceiling_hit = True
+                st = getattr(_tls, "stack", None)
+                self.ceiling_where = st[-1].path if st else ""
+                self.event("wall_ceiling", limit_s=self.ceiling)
             return math.inf
         return self.spent
 
@@ -166,6 +190,35 @@ class Clock:
         n = self.now()
         return -1.0 if n == math.inf else deadline - n
 
+    def event(self, name, **info):
+        """Record that a timeout, cap or stop fired (name, the open span, the run's wall and charged time)."""
+        st = getattr(_tls, "stack", None)
+        e = dict(name=name, span=st[-1].path if st else "", wall_s=round(self.wall(), 2),
+                 charged_s=round(self.spent, 2), **info)
+        with _lock:
+            self.events.append(e)
+        return e
+
+    def ledger_rows(self):
+        """The ledger: per span path, its count, wall, own wall (less its child spans), CPU of this process,
+        CPU of waited-for child processes, and charged seconds by kind. The root ("") row's own wall is
+        the time no span covered; its CPU is the process's total."""
+        cpu, kids = _cpu()
+        with _lock:
+            rows = {k: dict(v, charged=dict(v["charged"])) for k, v in self.ledger.items()}
+        root = rows.setdefault("", _row())
+        root.update(n=1, wall=self.wall(), cpu=cpu - self.c0[0], child_cpu=kids - self.c0[1])
+        root["self_wall"] = root["wall"] - sum(v["wall"] for k, v in rows.items() if k and "/" not in k)
+        if self.startup:
+            rows["(startup)"] = dict(_row(), n=1, wall=self.startup[0], self_wall=self.startup[0],
+                                     cpu=self.startup[1])
+        out = {}
+        for k, v in sorted(rows.items()):
+            out[k] = dict(n=v["n"], wall=round(v["wall"], 3), self_wall=round(v["self_wall"], 3),
+                          cpu=round(v["cpu"], 3), child_cpu=round(v["child_cpu"], 3),
+                          charged={a: round(b, 4) for a, b in sorted(v["charged"].items()) if b})
+        return out
+
     def report(self):
         w = self.wall()
         out = dict(mode=self.mode, wall_s=round(w, 2), charged_s=round(self.spent, 2),
@@ -173,9 +226,162 @@ class Clock:
                    charged_by_kind={k: round(v, 2) for k, v in self.by_kind.items()})
         if self.mode == "work":
             out.update(ceiling_s=self.ceiling, ceiling_hit=self.ceiling_hit)
+            if self.ceiling_hit:
+                out["ceiling_where"] = self.ceiling_where
         if self.profile:
             out["wall_by_kind"] = {k: round(v, 3) for k, v in self.wall_by_kind.items()}
+        out["ledger"] = self.ledger_rows()
+        if self.events:
+            out["events"] = list(self.events)
         return out
+
+
+_tls = threading.local()
+
+
+def _row():
+    return dict(n=0, wall=0.0, self_wall=0.0, cpu=0.0, child_cpu=0.0, charged={})
+
+
+def _process_age():
+    """(wall seconds since this process started, its CPU seconds so far): imports, numba's cache loads and
+    whatever ran before the clock was made. None off Linux."""
+    try:
+        with open("/proc/self/stat") as f:
+            start = int(f.read().rsplit(")", 1)[1].split()[19]) / os.sysconf("SC_CLK_TCK")
+        with open("/proc/uptime") as f:
+            up = float(f.read().split()[0])
+        return max(0.0, up - start), _cpu()[0]
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _cpu():
+    """(this process's CPU seconds, all threads; its waited-for child processes' CPU seconds)."""
+    t = os.times()
+    return t.user + t.system, t.children_user + t.children_system
+
+
+class _Span:
+    __slots__ = ("path", "t0", "c0", "k0", "kids", "extra")
+
+    def __init__(self, path):
+        self.path = path
+        self.kids = 0.0          # wall seconds of direct child spans
+        self.extra = 0.0         # CPU seconds of other processes the span reported (add_cpu)
+        self.t0 = time.monotonic()
+        self.c0, self.k0 = _cpu()
+
+
+@contextlib.contextmanager
+def span(name):
+    """Book the wall, CPU and charged seconds of the enclosed work to `name`, nested in the open span of
+    this thread (paths like "joint/route/freerouting"). Cheap (two clock reads), but meant for stages and
+    calls that take milliseconds or more, not inner loops."""
+    clock()                      # the process clock starts no later than its first span
+    st = getattr(_tls, "stack", None)
+    if st is None:
+        st = _tls.stack = []
+    sp = _Span(f"{st[-1].path}/{name}" if st else name)
+    st.append(sp)
+    try:
+        yield sp
+    finally:
+        st.pop()
+        t = time.monotonic()
+        c, k = _cpu()
+        wall = t - sp.t0
+        if st:
+            st[-1].kids += wall
+        with _lock:
+            row = clock().ledger[sp.path]
+            row["n"] += 1
+            row["wall"] += wall
+            row["self_wall"] += wall - sp.kids
+            row["cpu"] += c - sp.c0
+            row["child_cpu"] += k - sp.k0 + sp.extra
+
+
+def spanned(name=None):
+    """Decorator: run the function inside span(name or its __name__)."""
+    import functools
+
+    def deco(fn):
+        nm = name or fn.__name__
+
+        @functools.wraps(fn)
+        def inner(*a, **k):
+            with span(nm):
+                return fn(*a, **k)
+        return inner
+    return deco
+
+
+class Spanned:
+    """A proxy for an object whose public methods each run in a span of their name (e.g. the joint
+    loop's stages: place, route, repair, evaluate)."""
+
+    def __init__(self, obj, prefix=""):
+        object.__setattr__(self, "_obj", obj)
+        object.__setattr__(self, "_prefix", prefix)
+
+    def __getattr__(self, k):
+        v = getattr(self._obj, k)
+        if k.startswith("_") or not callable(v):
+            return v
+        return spanned(self._prefix + k)(v)
+
+    def __setattr__(self, k, v):
+        setattr(self._obj, k, v)
+
+
+def add_cpu(seconds):
+    """Credit the open span with CPU seconds of a process it waited on that os.times() does not see (a
+    long-lived worker's forked child: kae.board.pcbnew_io), as child CPU."""
+    st = getattr(_tls, "stack", None)
+    if st:
+        st[-1].extra += max(0.0, float(seconds))
+
+
+def proc_cpu(pid):
+    """CPU seconds used so far by live process `pid`, its live descendants and their reaped children
+    (/proc stat utime, stime, cutime, cstime; descendants from /proc/<pid>/task/*/children, so a process
+    under a container starter counts), or None."""
+    tck = os.sysconf("SC_CLK_TCK")
+    total, todo, seen = 0, [int(pid)], set()
+    while todo:
+        p = todo.pop()
+        if p in seen:
+            continue
+        seen.add(p)
+        try:
+            with open(f"/proc/{p}/stat") as f:
+                fs = f.read().rsplit(")", 1)[1].split()
+            total += sum(int(x) for x in fs[11:15])
+            for t in os.listdir(f"/proc/{p}/task"):
+                with open(f"/proc/{p}/task/{t}/children") as f:
+                    todo.extend(int(c) for c in f.read().split())
+        except (OSError, ValueError, IndexError):
+            if p == int(pid):
+                return None
+    return total / tck
+
+
+def event(name, **info):
+    return clock().event(name, **info)
+
+
+def _write_ledger():
+    path = os.environ.get("KAE_LEDGER")
+    if not path:
+        return
+    rec = dict(argv=sys.argv, pid=os.getpid(), ppid=os.getppid(), tag=os.environ.get("KAE_LEDGER_TAG", ""),
+               report=clock().report())
+    try:
+        with open(path, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except OSError as e:
+        print(f"[kae.budget] cannot write ledger {path}: {e}", file=sys.stderr)
 
 
 def _print_gap(kind, units, gap):
@@ -187,6 +393,9 @@ def _print_gap(kind, units, gap):
 
 
 _clock = None
+if os.environ.get("KAE_LEDGER"):
+    import atexit
+    atexit.register(_write_ledger)
 
 
 def clock():
@@ -215,7 +424,6 @@ def start_run(budget_s):
     set_ceiling(budget_s)
     if work_mode() or clock().profile:
         import atexit
-        import json
         atexit.register(lambda: print("[kae.budget] " + json.dumps(clock().report()), flush=True))
 
 

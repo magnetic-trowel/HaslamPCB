@@ -23,7 +23,7 @@ board's bounding box, so those load with on_board=False. Board.outline adds the 
 graphics of on-board footprints (as pcbnew does); off-board footprints keep theirs in
 `Footprint.edge_cuts`.
 """
-from kae.budget import charge, work_mode
+from kae.budget import charge, span, work_mode
 import functools
 import json
 import math
@@ -1223,6 +1223,12 @@ def _extent(fp):
 
 
 def load(path, *, arc_tol=geom.ARC_TOL, rules=True):
+    """_load (below), booked to the ledger's span "board_load" (kae.budget.span)."""
+    with span("board_load"):
+        return _load(path, arc_tol=arc_tol, rules=rules)
+
+
+def _load(path, *, arc_tol=geom.ARC_TOL, rules=True):
     """Read a .kicad_pcb (and its sibling .kicad_pro / .kicad_dru) into a Board."""
     path = Path(path)
     text = path.read_text(encoding="utf-8", errors="replace")

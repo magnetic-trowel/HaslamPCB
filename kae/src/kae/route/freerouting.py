@@ -428,6 +428,22 @@ def _charge(run, dsn, pins):
 
 def route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin_s=None, hard_s=None,
           log_path=None):
+    """_route_budgeted, booked to the ledger's span "freerouting" (kae.budget.span), with an event for
+    a run that hit its job timeout or was killed."""
+    with budget.span("freerouting"):
+        run = _route_budgeted(dsn, ses, workdir, passes=passes, settings=settings, budget_s=budget_s,
+                              margin_s=margin_s, hard_s=hard_s, log_path=log_path)
+        rep = run.report or {}
+        if run.timed_out:
+            budget.event("killed", what="freerouting", limit_s=hard_s, seconds=run.seconds)
+        elif rep.get("final_state") == "TIMED_OUT" or rep.get("autorouter_stop") == "TIMED_OUT":
+            budget.event("timeout", what="freerouting job_timeout", limit_s=rep.get("job_timeout_s"),
+                         seconds=run.seconds)
+        return run
+
+
+def _route_budgeted(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin_s=None, hard_s=None,
+                    log_path=None):
     """_route (below). In work mode (kae.budget) the budget becomes Freerouting's own work budget
     (autorouter.max_work: it stops cleanly before the pass that would start past it, a counted stop
     the same on any host) less its start-up, and the optimizer gets a pass cap; a build without that
@@ -496,7 +512,8 @@ def _route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin
     # the wait for a slot is part of the caller's budget: Freerouting gets what is left of it,
     # and after the budget it runs without a slot (a wait without end would hang the caller)
     # (work mode: a wait costs no budget, so it waits as long as the wall ceiling allows)
-    slot = _Slot(timeout=max(1.0, budget_s - margin - 5.0)).__enter__()
+    with budget.span("slot_wait"):
+        slot = _Slot(timeout=max(1.0, budget_s - margin - 5.0)).__enter__()
     waited = slot.waited or 0.0
     if slot.gave_up:
         print(f"[kae.route {time.strftime('%H:%M:%S')}] warning: no Freerouting slot within {waited:.0f}s; "

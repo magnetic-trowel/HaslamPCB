@@ -19,6 +19,7 @@ and pcbnew state as a process of its own per call, without KiCad's start-up each
 process keeps one worker per thread calling at once. KAE_PCBNEW_WORKER=0 starts a process
 per call instead.
 """
+from kae import budget
 from kae.budget import wall_timeout, work_mode
 import atexit
 import functools
@@ -408,9 +409,14 @@ def _run_worker(op, args, timeout):
             if left <= 0:
                 raise PcbnewError(f"pcbnew {op} timed out after {timeout}s")
             w = _acquire(left)  # raises PcbnewError when no worker starts
+            c0 = budget.proc_cpu(w.proc.pid)
             try:
                 status, rc = w.request(argv, err, max(1e-3, t_end - time.monotonic()))
+                c1 = budget.proc_cpu(w.proc.pid)
+                if None not in (c0, c1):
+                    budget.add_cpu(c1 - c0)     # the forked child's CPU, reaped by the worker
             except _WorkerTimeout:
+                budget.event("timeout", what=f"pcbnew {op}", limit_s=timeout)
                 w.kill()
                 raise PcbnewError(f"pcbnew {op} timed out after {timeout}s")
             except _WorkerDied:
@@ -438,13 +444,14 @@ def _content_order(res):
 
 def _run(op, args, timeout, board=None, refill=False):
     """One operation in KiCad's Python; charged to kae.budget (_charge) by the board it reads."""
-    try:
-        if _worker_enabled():
-            return _content_order(_run_worker(op, args, timeout))
-        return _content_order(_run_process(op, args, timeout))
-    finally:
-        if board is not None:
-            _charge(board, refill)
+    with budget.span(f"pcbnew:{op}"):
+        try:
+            if _worker_enabled():
+                return _content_order(_run_worker(op, args, timeout))
+            return _content_order(_run_process(op, args, timeout))
+        finally:
+            if board is not None:
+                _charge(board, refill)
 
 
 _ZONE = re.compile(r"\n\s*\(zone\b")
