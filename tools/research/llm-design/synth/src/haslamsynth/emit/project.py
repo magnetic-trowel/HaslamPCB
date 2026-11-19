@@ -72,6 +72,8 @@ class NetClasses:
                     worst[a] = max(worst.get(a, 0), m)
                     worst[b] = max(worst.get(b, 0), m)
         coated = bool(d.board_spec and d.board_spec.coating)
+        floor = (d.board_spec.min_clearance_mm if d.board_spec and d.board_spec.min_clearance_mm else 0.2)
+        self.floor = floor
         col = "B4" if coated else "B2"
         oz = d.board_spec.copper_oz if d.board_spec else 1.0
         for n in nets:
@@ -86,8 +88,8 @@ class NetClasses:
                 width = max(width or 0, n.width_mm)
                 if not n.netclass:
                     cls = f"{base}_W{str(n.width_mm).replace('.', 'p')}"
-            clr = max(0.2, ipc2221b_spacing(worst.get(n, 0), col))
-            c = self.classes.setdefault(cls, {"name": cls, "clearance": 0.2, "track_width": 0.25,
+            clr = max(floor, ipc2221b_spacing(worst.get(n, 0), col))
+            c = self.classes.setdefault(cls, {"name": cls, "clearance": floor, "track_width": 0.25,
                                               "domain": dom.name if dom else None, "nets": []})
             c["clearance"] = max(c["clearance"], clr)
             if width:
@@ -99,7 +101,7 @@ class NetClasses:
     def project_json(self, template):
         pro = json.loads(json.dumps(template))
         ns = pro.setdefault("net_settings", {})
-        classes = [{"name": "Default", "clearance": 0.2, "track_width": 0.25, "via_diameter": 0.6,
+        classes = [{"name": "Default", "clearance": getattr(self, "floor", 0.2), "track_width": 0.25, "via_diameter": 0.6,
                     "via_drill": 0.3, "priority": 2147483647}]
         for i, c in enumerate(sorted(self.classes.values(), key=lambda c: c["name"])):
             if c["name"] == "Default":
@@ -130,9 +132,15 @@ def write_project(outdir, design, symtable, netclasses, slug=None, parts=None, f
     import os
     slug = slug or design.slug
     parts = design.all_parts() if parts is None else parts
+    rules = {}
+    bs = design.board_spec
+    if bs and bs.min_track_mm:
+        rules["min_track_width"] = bs.min_track_mm
+    if bs and bs.min_clearance_mm:
+        rules["min_clearance"] = bs.min_clearance_mm
     template = {
         "board": {"design_settings": {"defaults": {}, "diff_pair_dimensions": [], "drc_exclusions": [],
-                                      "rules": {}, "track_widths": [], "via_dimensions": []}},
+                                      "rules": rules, "track_widths": [], "via_dimensions": []}},
         "boards": [],
         "libraries": {"pinned_footprint_libs": [], "pinned_symbol_libs": []},
         "meta": {"filename": f"{slug}.kicad_pro", "version": 3},
@@ -248,31 +256,49 @@ def dru_text(design, netclasses):
     declared = {frozenset((b.a, b.b)) for b in design.barriers}
     spaced = set(declared)              # domain pairs some rule spaces apart
     doms = [x for x in design.domains.values() if by_domain.get(x.name)]
-    grouped = {}                        # (domain, mm) -> [(other domain, worst V)]
+    # Functional spacing is per net pair, from that pair's own worst voltage: a rule per domain pair
+    # takes the worst pair of the two domains for every net in them (solar-small: SW2 at -0.7 V against
+    # BST1's 29.7 V set 0.6 mm between BST1 and GND, 29.7 V apart, whose pins sit 0.5 mm apart in the
+    # LTC3130's own package: unroutable). Nets are named as KiCad names them (A.NetName).
+    pairs = {}                          # (net a, mm) -> [(net b, worst V)]
+    nets_of = {}
+    for n in design.all_nets():
+        if n.pins and design.domain_of(n) is not None:
+            nets_of.setdefault(design.domain_of(n).name, []).append(n)
     for i, da in enumerate(doms):
         for db in doms[i + 1:]:
             if frozenset((da.name, db.name)) in declared:
                 continue
             v = ck.domain_pair_vmax(da, db)
-            if v is None:
+            if v is None or ipc2221b_spacing(v, col) <= 0.2:
                 continue
-            mm = ipc2221b_spacing(v, col)
-            # emit even when a net class already has this clearance: a matching custom rule
-            # (e.g. a looser inherited barrier) overrides net-class clearance in KiCad
-            if mm <= 0.2:
-                continue
-            grouped.setdefault((da.name, mm), []).append((db.name, v))
-            spaced.add(frozenset((da.name, db.name)))
+            for na in nets_of.get(da.name, ()):
+                for nb in nets_of.get(db.name, ()):
+                    r = ck.vdiff(na, nb)
+                    if r is None:
+                        continue
+                    vv = max(abs(r[0]), abs(r[1]))
+                    mm = ipc2221b_spacing(vv, col)
+                    # emit even when a net class already has this clearance: a matching custom rule
+                    # (e.g. a looser inherited barrier) overrides net-class clearance in KiCad
+                    if mm <= 0.2:
+                        continue
+                    a_, b_ = sorted((kicad_net_name(na), kicad_net_name(nb)))
+                    pairs.setdefault((a_, mm), []).append((b_, vv))
+                    spaced.add(frozenset((da.name, db.name)))
     general = []      # (clearance, creepage, lines): functional and inherited rules
-    for (a, mm), others in grouped.items():
-        names = {o for o, _ in others}
-        ca, cb = classes({a}, "A"), classes(names, "B")
-        ca2, cb2 = classes(names, "A"), classes({a}, "B")
+
+    def q(name):
+        return name.replace("'", "\\'")
+    for (a, mm), others in sorted(pairs.items()):
+        names = sorted({o for o, _ in others})
+        ors = " || ".join(f"B.NetName == '{q(n)}'" for n in names)
+        ors2 = " || ".join(f"A.NetName == '{q(n)}'" for n in names)
         worst = max(v for _, v in others)
         general.append((mm, 0.0, [
-            f"# functional spacing {a} to {', '.join(sorted(names))}: worst {worst:.4g} V, IPC-2221B {col}",
+            f"# functional spacing {a} to {', '.join(names)}: worst {worst:.4g} V, IPC-2221B {col}",
             f'(rule "IR:functional.{a}.{mm:g}mm"',
-            f'  (condition "({ca} && {cb}) || ({ca2} && {cb2})")',
+            f'  (condition "(A.NetName == \'{q(a)}\' && ({ors})) || (B.NetName == \'{q(a)}\' && ({ors2}))")',
             f"  (constraint clearance (min {mm:g}mm)))", ""]))
     emitted = []
     for direct in (False, True):
