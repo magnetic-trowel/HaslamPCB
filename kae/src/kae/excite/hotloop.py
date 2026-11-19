@@ -23,11 +23,16 @@ solve minus the same window at the board's pitch), the two-grid correction (trun
 order). Both terms are reported (window.L_raw_nH, window.trunc_L_nH; R likewise at f_sw, whose truncation term is
 applied to the harmonics too).
 
-Per frequency the quantities are those of the board solve, on the window's copper: the layout's share
-z = J_k^T v - J_k^T v_ideal of the overshoot observer k for the cell's own pattern; L_loop = Im z / w at the edge
-band, R_loop(f) = Re z at f_sw, 3 f_sw and 5 f_sw (a trapezoid's odd harmonics), with each copper layer's
-resistance corrected for skin and proximity crowding beyond the nsub filaments (kae.em.skin, one-sided crowding:
-a loop over its return plane). The overshoot peak per corner is kae.excite.harm.peak with the window's L_loop and
+Per frequency the quantities are those of the board solve, on the window's copper, for the cell's own pattern (its
+current, re-split over the caps by the copper): L_loop = I^H L I at the edge band with the capacitors at their edge
+model (ESR + ESL, kae.excite.circuit.Circuit.edge_model), the copper's stored magnetic energy per A^2
+(kae.em.solve.stored_inductance), and R_loop(f) = sum R |I|^2, its dissipation, at f_sw, 3 f_sw and 5 f_sw (a
+trapezoid's odd harmonics), with each copper layer's resistance corrected for skin and proximity crowding beyond the
+nsub filaments (kae.em.skin, one-sided crowding: a loop over its return plane). Neither is the layout's share
+z = J_k^T v - J_k^T v_ideal at the overshoot observer k: z also holds the parts' energy as the copper moves current
+among the caps, and with the caps' C a small ceramic below its self-resonance at f_e beside a big one above it is a
+tank the copper tunes (kae.excite.evaluate._edge_loops: murex's buck read -3.5 nH at 10 MHz on a connected layout).
+z at f_sw stays the overshoot's fundamental term. The overshoot peak per corner is kae.excite.harm.peak with the window's L_loop and
 Z(f_sw): L di/dt with the switch's edge time plus the fundamental's share, the same model the board solve prices.
 """
 from __future__ import annotations
@@ -64,14 +69,16 @@ def _pad_box(bm, tokens):
     return (min(xs), min(ys), max(xs), max(ys)) if xs else None
 
 
-def window_pads(bd, s, o, freqs):
+def window_pads(bd, s, o, freqs, edge=None):
     """The pads that set a cell's window: every pad of a part through which SHARE of the peak pad current of the
     cell's own pattern or of its overshoot observer's passes (half its pads' summed |J|: a connector or module
-    takes its share over many pins), at any of `freqs`, in the copper-free circuit (the same for every layout)."""
+    takes its share over many pins), at any of `freqs`, in the copper-free circuit (the same for every layout; at f == edge its edge model)."""
     out = set()
+    bde = _edge_bd(bd) if edge in freqs else bd
     for f in freqs:
-        sol = bd.circuit.solve(f, [s])[s.name]
-        for J in (sol["J"], O.pattern(bd, o, f)):
+        x = bde if f == edge else bd
+        sol = x.circuit.solve(f, [s])[s.name]
+        for J in (sol["J"], O.pattern(x, o, f)):
             big = max((abs(j) for j in J.values()), default=0.0)
             part = {}
             for p, j in J.items():
@@ -97,15 +104,27 @@ def _skin_R(net, f, nsub):
     return R
 
 
-def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log):
+def _edge_bd(bd):
+    """bd with its circuit at the edge model (Circuit.edge_model: capacitors at ESR + ESL)."""
+    import copy
+    out = copy.copy(bd)
+    out.circuit = bd.circuit.edge_model()
+    return out
+
+
+def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log, edge=None):
     """{f: z} (the layout's share at the overshoot observer) for the cell's pattern in window `win`, or
-    (None, why) when the window's copper leaves the pattern open. Also the mesh's size."""
+    (None, why) when the window's copper leaves the pattern open; the info's rcu and lcu: {f: the copper's
+    dissipation (ohm) and stored-energy inductance (H) of the pattern}. At f == edge the circuit is at its edge model
+    (capacitors at ESR + ESL, kae.excite.evaluate._edge_loops): lcu[edge] is the window's L_loop. Also the mesh."""
     from kae.em import solve as ES
     from kae.em.kicad import BoardMesh
     from .circuit import lump_into
     bm = BoardMesh(path, win, pitch, nsub=nsub, b=b, fills=fills)
-    sols = {f: bd.circuit.solve(f, [s])[s.name] for f in freqs}
-    pats = {f: O.pattern(bd, o, f, active=True) for f in freqs}
+    bde = _edge_bd(bd) if edge in freqs else bd
+    bdf = {f: bde if f == edge else bd for f in freqs}
+    sols = {f: bdf[f].circuit.solve(f, [s])[s.name] for f in freqs}
+    pats = {f: O.pattern(bdf[f], o, f, active=True) for f in freqs}
     pads = set()
     for f in freqs:
         pads |= {p for p, j in sols[f]["Ja"].items() if abs(j) > 1e-9} | {p for p, j in pats[f].items() if abs(j) > 1e-9}
@@ -120,13 +139,18 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log):
         if t not in bm.m.terminals:
             raise KeyError(t)
         return t
-    lump_into(bd.circuit, tpad, lambda a, c, zf, nm: bm.m.part(a, c, name=nm, zf=zf))
-    net = ES.Network(bm.m)
-    op = ES.Operator(net)
+    base = list(bm.m.lumped)
+    nets = {}
+    for c in {id(x.circuit): x.circuit for x in bdf.values()}.values():
+        bm.m.lumped = list(base)
+        lump_into(c, tpad, lambda a, c_, zf, nm: bm.m.part(a, c_, name=nm, zf=zf))
+        n_ = ES.Network(bm.m)
+        nets[id(c)] = (n_, ES.Operator(n_))
     from .evaluate import _band_start
-    R0 = net.R
-    out, dropped, prev, rcu = {}, 0.0, None, {}
+    out, dropped, prev, rcu, lcu = {}, 0.0, None, {}, {}
     for f in freqs:                      # ascending: each starts from the last one's solution (_band_start)
+        net, op = nets[id(bdf[f].circuit)]
+        R0 = net.R
         Ja = sols[f]["Ja"]
         inj = {p: j for p, j in Ja.items() if p in bm.m.terminals and abs(j) > 1e-12}
         tot = sum(abs(j) for j in Ja.values()) or 1.0
@@ -145,17 +169,20 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log):
         # the copper's own dissipation of the pattern (the R it was solved with): R_loop, never negative
         R_used = _skin_R(net, f, nsub) if skin else net.R
         nb_cu = net.off["l"]
-        rcu[f] = float(np.sum(R_used[:nb_cu] * np.abs(info.pop("I")[:nb_cu]) ** 2))
+        I = info.pop("I")
+        rcu[f] = float(np.sum(R_used[:nb_cu] * np.abs(I[:nb_cu]) ** 2))
+        # the copper's inductance of the pattern: its stored magnetic energy I^H L I, L_loop, never negative
+        lcu[f] = ES.stored_inductance(net, op, I)
         Jk = pats[f]
-        vid = O.ideal(bd, sols[f])
+        vid = O.ideal(bdf[f], sols[f])
         out[f] = O.bilinear(Jk, v) - O.bilinear(Jk, vid)
-    return out, dict(dropped=dropped, rcu=rcu), bm.m
+    return out, dict(dropped=dropped, rcu=rcu, lcu=lcu), bm.m
 
 
-def _truncation_too_large(g, zc, f_fund, f_edge):
-    """True when the window at the board's pitch (zc) differs from the board solve (g = (Le, Zf)) by more than
-    TRUNC_MAX of the board's L_loop or R_loop: the window's copper then closes the loop elsewhere than the board's."""
-    Lc = zc[f_edge].imag / (2 * math.pi * f_edge)
+def _truncation_too_large(g, zc, Lc, f_fund):
+    """True when the window at the board's pitch (zc, its L_loop Lc) differs from the board solve (g = (Le, Zf)) by
+    more than TRUNC_MAX of the board's L_loop or R_loop: the window's copper then closes the loop elsewhere than the
+    board's."""
     Rg, Rc = g[1].real, zc[f_fund].real
     return (abs(g[0] - Lc) > max(TRUNC_MAX * abs(g[0]), TRUNC_FLOOR[0])
             or abs(Rg - Rc) > max(TRUNC_MAX * abs(Rg), TRUNC_FLOOR[1]))
@@ -166,11 +193,10 @@ def _g_R(g):
     return g[2] if len(g) > 2 and g[2] is not None else max(g[1].real, 0.0)
 
 
-def _corrected_L(g, z, zc, f_edge):
-    """The window's L_loop (H) at f_edge with its truncation (board solve minus the window at the board's pitch)
-    removed: the two-grid value cell_rows reports."""
-    w_e = 2 * math.pi * f_edge
-    return z[f_edge].imag / w_e + (g[0] - zc[f_edge].imag / w_e if zc is not None else 0.0)
+def _corrected_L(g, L, Lc):
+    """The window's L_loop L (H) at the edge band with its truncation (board solve minus the window at the board's
+    pitch, Lc) removed: the two-grid value cell_rows reports."""
+    return L + (g[0] - Lc if Lc is not None else 0.0)
 
 
 def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2, pitch=CELL_PITCH,
@@ -206,26 +232,29 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
         f_fund, f_edge = bands[s.name]["fund"], bands[s.name]["edge"]
         fh = [n * f_fund for n in HARMONICS]
         freqs = sorted(set(fh) | {f_edge})
-        box_ = _pad_box(bm, window_pads(bd, s, o, [f_fund, f_edge]))
+        box_ = _pad_box(bm, window_pads(bd, s, o, [f_fund, f_edge], edge=f_edge))
         if box_ is None:
             rows.append(dict(row, state="not_computed", why="no pad of the cell in the copper model"))
             continue
-        res, margin, grown = None, margin0, 0
+        res, margin, grown, Lw, Lc = None, margin0, 0, None, None
         while True:
             win = (max(board_window[0], box_[0] - margin), max(board_window[1], box_[1] - margin),
                    min(board_window[2], box_[2] + margin), min(board_window[3], box_[3] + margin))
             pc, _ = coarsen_pitch(win, pitch, n_cu, MAX_CELLS)
             if global_pitch and pc >= global_pitch:
                 break                        # no finer than the board solve: nothing to refine
-            z, info, m = _solve_window(path, b, bd, s, o, win, pc, nsub, bm.fills, freqs, skin, log)
+            z, info, m = _solve_window(path, b, bd, s, o, win, pc, nsub, bm.fills, freqs, skin, log, edge=f_edge)
             whole = win == tuple(board_window)
             zc, infc = None, None
             if z is not None and global_pitch:
                 # the same window at the board's pitch, for the truncation correction below; it must close too (a
                 # neck the fine raster resolves and the coarse one loses: the board solve then closes outside)
                 zc, infc, _ = _solve_window(path, b, bd, s, o, win, global_pitch, nsub, bm.fills, [f_fund, f_edge],
-                                            False, log)
-            bad = zc is not None and _truncation_too_large(g, zc, f_fund, f_edge)
+                                            False, log, edge=f_edge)
+            # the window's L_loop at the edge band at both pitches: the copper's stored energy (lcu)
+            Lw = info["lcu"][f_edge] if z is not None else None
+            Lc = infc["lcu"][f_edge] if zc is not None else None
+            bad = zc is not None and _truncation_too_large(g, zc, Lc, f_fund)
             if (z is not None and (zc is not None or not global_pitch) and not bad) or whole or grown >= MAX_GROW:
                 break
             margin *= 2
@@ -233,10 +262,10 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
         why = None
         if global_pitch and pc >= global_pitch:
             why = f"over the budget of {MAX_CELLS:.3g} cells x layers below the board's pitch"
-        elif z is not None and zc is not None and _truncation_too_large(g, zc, f_fund, f_edge):
+        elif z is not None and zc is not None and _truncation_too_large(g, zc, Lc, f_fund):
             why = (f"the window's truncation exceeds {TRUNC_MAX:g} of the board's value (window grown {grown} times "
                    f"to {margin:g} mm): it misses where the loop closes")
-        elif z is not None and _corrected_L(g, z, zc, f_edge) <= 0 < g[0]:
+        elif z is not None and _corrected_L(g, Lw, Lc) <= 0 < g[0]:
             why = "the corrected window L_loop is not positive"
         if why:
             # the window over its cell budget (many layers, far parts) at the board's pitch, or a window whose
@@ -257,16 +286,15 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
             rows.append(dict(row, state="open_in_window", why="the loop closes in the board solve but not in its "
                              f"window grown {grown} times to {margin:g} mm"))
             continue
-        w_e = 2 * math.pi * f_edge
         # the window's truncation, measured at the board's pitch: the board solve minus the same window at that pitch
         # (no skin correction in either, as the board solve has none). Added to the fine solve, it leaves the fine
         # pitch's correction of the board solve (two-grid: truncation and pitch errors add to first order)
         dLe, dZf, dR = 0.0, 0j, 0.0
         if zc is not None:
-            dLe = g[0] - zc[f_edge].imag / w_e
+            dLe = g[0] - Lc
             dZf = g[1] - zc[f_fund]
             dR = _g_R(g) - (infc or {}).get("rcu", {}).get(f_fund, _g_R(g))
-        Le = z[f_edge].imag / w_e + dLe
+        Le = Lw + dLe
         Zf = z[f_fund] + dZf
         # R_loop: the copper's dissipation of the cell's current (window, skin) with the truncation's (board minus the
         # window at the board's pitch, both without skin) added; never below zero
@@ -283,7 +311,7 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
                          di_dt_A_per_ns=round(val0.get("I_pk_A", val0["I_A"]) / val0["t_i_s"] * 1e-9, 4),
                          f_edge_MHz=round(f_edge / 1e6, 4),
                          window=dict(box=[round(x, 3) for x in win], pitch=pc, margin_mm=margin, grown=grown,
-                                     L_raw_nH=round(z[f_edge].imag / w_e * 1e9, 4), trunc_L_nH=round(dLe * 1e9, 4),
+                                     L_raw_nH=round(Lw * 1e9, 4), trunc_L_nH=round(dLe * 1e9, 4),
                                      R_raw_mohm=round(rw.get(f_fund, 0.0) * 1e3, 4),
                                      trunc_R_mohm=round(dR * 1e3, 4), corrected=zc is not None, refined=True,
                                      cells=int(m.nx * m.ny * len(m.layers)), dropped_injection=round(info["dropped"], 5),
@@ -331,15 +359,15 @@ def ac_loop_loss(I, D, f_sw, t_i, R):
 
 
 def flag_invalid(row):
-    """A row whose L_loop is not positive: no inductance but the layout's share passing a resonance of the capacitor
-    network near the edge band (olimex dcdc: +2.70 nH at 5 MHz, -2.62 at 10, +1.33 at 30 on the board solve). Its L
-    and overshoot are moved aside (L_invalid_nH), never reported; R_loop stays (the fundamental's resistance is
-    unaffected)."""
+    """A row whose L_loop is not positive. L_loop is the copper's stored energy (never negative), so only a pattern
+    that stores none (no copper carries it) gets here; before, L_loop was the layout's share Im z / w, which passes a
+    resonance of the capacitor network near the edge band (olimex dcdc: +2.70 nH at 5 MHz, -2.62 at 10, +1.33 at 30
+    on the board solve). Its L and overshoot are moved aside (L_invalid_nH), never reported; R_loop stays."""
     row["state"] = "invalid"
     row["L_invalid_nH"] = row.pop("L_loop_nH")
     row.pop("overshoot_V", None)
-    row["why"] = (f"L_loop {row['L_invalid_nH']} nH at the edge band is not an inductance: the layout's share passes a "
-                  f"resonance of the capacitor network near f_e")
+    row["why"] = (f"L_loop {row['L_invalid_nH']} nH at the edge band is not an inductance: no copper stores the "
+                  f"cell's current")
     return row
 
 

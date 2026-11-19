@@ -462,6 +462,23 @@ def solve(mesh, freqs, tol=1e-8, maxiter=400):
                 stats=net.stats(), network=net, currents=cur)
 
 
+def stored_inductance(net, op, I):
+    """I^H L I (H per A^2 of the source that drove I): twice the magnetic energy the branch currents I store in the
+    copper, over its filaments and vias (L_p and the narrow bars' corrections) and the lumped parts given by R, L, C
+    (a thin track's bridge, at its L). Parts lumped as a circuit model (zf: the board's capacitors, inductors and
+    packages) are not copper and are left out. L is a symmetric positive semi-definite inductance matrix, so this is
+    never negative at any frequency, whatever the parts around the copper do (unlike the port's reactance, which a
+    capacitor network's resonance can turn negative)."""
+    I = np.asarray(I)
+    nl = net.off["l"]
+    LI = op.L_apply(I) + net.Lc_apply(I)
+    E = float(np.vdot(I[:nl], LI[:nl]).real)
+    for k, (_, _, q) in enumerate(net.lump):
+        if q.zf is None:
+            E += abs(I[nl + k]) ** 2 * q.L
+    return E
+
+
 def potentials(mesh, injections, f, read=None, tol=TOL, net=None, op=None):
     """Terminal potentials (V) for currents injected at terminals ({terminal: A}, summing to zero on
     each connected island), at frequency f. A terminal on an island without injection reads nan:

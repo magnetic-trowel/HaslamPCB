@@ -11,10 +11,10 @@ A cell (`kae.excite.sources._cell`) is a unit current source across its switch; 
 
 | Quantity | Definition | Where |
 |---|---|---|
-| `L_loop` | `Im z(f_e) / (2π f_e)`, f_e the edge band (≤ 10 MHz, `observe.gentle_f`) | ev.json `cells[].L_loop_nH`; board solve: `rings`, `loss.loop` label |
-| `R_loop(f)` | `Re z(f)` at f_sw, 3·f_sw, 5·f_sw (a trapezoid's odd harmonics) | `cells[].R_loop_mohm` (f_sw), `cells[].R_harmonics` |
+| `L_loop` | `Iᴴ·L·I` at f_e, the edge band (≤ 10 MHz, `observe.gentle_f`), with the capacitors at their edge model, ESR + ESL (`Circuit.edge_model`): the copper's stored magnetic energy per A² of the cell's current as the copper splits it over the caps (`em.solve.stored_inductance`, `evaluate._edge_loops`), never negative. Not `Im z(f_e)/ω` with the caps' C: a ceramic still below its self-resonance at f_e beside a bigger one above it is a tank the copper tunes, and z swings either way (murex's buck, 100 nF beside 2 × 22 µF: −3.5 nH at 10 MHz on a connected layout; markwestbroek's U6: 3.3 nH at 10 MHz, 9.4 at f_sw). With one cap the two agree (0.03 %) | ev.json `cells[].L_loop_nH`; board solve: `rings`, `loss.loop` label |
+| `R_loop(f)` | `Σ R·|I|²` at f_sw, 3·f_sw, 5·f_sw (a trapezoid's odd harmonics): the copper's dissipation, never negative (`Re z` also holds the parts' ESR shifts) | `cells[].R_loop_mohm` (f_sw), `cells[].R_harmonics` |
 | overshoot peak | `|Z(f_sw)|·(2/π)·|sin πD|·I + L_loop·I_pk/t_i` per corner (`harm.peak`; I_pk the turn-off current) | `cells[].overshoot_V` {typ, worst}; board solve: `overshoot.peak` |
-| `loss.loop` | `½·L_loop·I_pk²·f_sw` per corner (I_pk = I + ΔI/2 when the inductor is in the circuit, else I) (max(L_loop, 0): a negative copper share costs nothing, the cell stays) | observation |
+| `loss.loop` | `½·L_loop·I_pk²·f_sw` per corner (I_pk = I + ΔI/2 when the inductor is in the circuit, else I) (L_loop is never negative; a cell whose copper stores nothing stays, at 0) | observation |
 | `loss.loop_ac` | with a refined window: `Σₙ |cₙ|²/2 · R_loop(n·f_sw)`, `cₙ = (2I/nπ)·|sin nπD|·sinc(n·f_sw·t_i)` (199 harmonics), R_loop(f) from the window's solves at f_sw, 3 f_sw, 5 f_sw (lateral crowding toward the return in the field solve, crowding through the thickness by `kae.em.skin`), log-log between them and `∝ √f` above 5 f_sw; it reduces to `I²·D·(1−D)·R` for flat R. Without a window: `I²·D·(1−D)·R_loop(f_sw)` of the board solve, no skin (a lower bound) | observation (`scope.R_harmonics_mohm`) |
 | `loss.copper_ac` | the inductor's ripple (§ 7): `Σₙ cₙ²·P₁(n·f_sw)` | observation |
 | `loss.swnode` | `½·C_sw·V²·f_sw`, C_sw from the electrostatic solve | observation |

@@ -464,3 +464,40 @@ def test_r_loop_is_the_coppers_own_dissipation_never_negative(tmp):
     c = _cell(_ev("closed", tmp))
     assert c["R_loop_mohm"] > 0 and all(h["R_mohm"] > 0 for h in c["R_harmonics"])
     assert c["global"]["R_loop_mohm"] > 0
+
+
+def test_l_loop_is_an_inductance_through_a_cap_resonance(tmp, monkeypatch):
+    """A 150 nF cap (ESL 0.3 nH) at U1's own pins beside the 10 uF C1 at the end of the VIN track. At the 10 MHz edge
+    band with the caps' C the small one is capacitive and C1 (above its self-resonance) inductive, and the track's
+    few nH tune their anti-resonance below 10 MHz: the layout's share Im z / w read -3.8 nH and the cell was flagged
+    invalid, as murex's buck was on a connected layout (-3.5 nH). L_loop is the copper's stored energy with the caps
+    at their edge model (ESR + ESL): positive, and the edge current takes the cap at the pins, so the copper holds
+    almost none of it. With C1 alone it is the share as before (3.568 nH)."""
+    from kae.excite import models as M
+    assert abs(_cell(_ev("closed", tmp))["global"]["L_loop_nH"] - 3.568) < 0.01
+    build = M.build
+
+    def with_cap(b, brief):
+        bd = build(b, brief)
+        bd.circuit.z("Cx", "GND", "VIN", M._rlc(0.005, 0.3e-9, 150e-9), pa="U1.4", pb="U1.3", kind="C")
+        return bd
+    monkeypatch.setattr(M, "build", with_cap)
+    p = write_hotloop_board(f"{tmp}/cap-resonance", "closed")
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.125,
+                  scope="losses")
+    c = _cell(ev)
+    assert c["state"] == "ok" and 0 < c["L_loop_nH"] < 0.1 and 0 < c["global"]["L_loop_nH"] < 0.1
+    assert not any(o.get("invalid") for o in _obs(ev, "loss.loop"))
+
+
+def test_the_edge_model_drops_only_capacitor_parts_capacitance():
+    """Circuit.edge_model: a capacitor part at ESR + ESL; a diode's or switch node's capacitance stays."""
+    from kae.excite.circuit import Circuit
+    from kae.excite.models import _rlc
+    c = Circuit("GND")
+    c.z("C1", "VIN", "GND", _rlc(0.005, 0.5e-9, 100e-9), kind="C")
+    c.z("D1", "SW", "GND", _rlc(1.0, 1e-9, 30e-12), kind="D")
+    e = c.edge_model()
+    w = 2 * 3.141592653589793 * 10e6
+    assert e.elems[0].z(w) == pytest.approx(0.005 + 1j * w * 0.5e-9)
+    assert e.elems[1].z(w) == c.elems[1].z(w) and c.elems[0].z(w).imag < 0

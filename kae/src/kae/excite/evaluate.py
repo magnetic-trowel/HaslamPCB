@@ -273,6 +273,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     solved, solver_stats = {}, []
     cell_names = {s.name for s in srcs if s.kind == "cell"}
     rcu = {}             # cell -> its copper resistance at f_sw (ohm): the copper's own dissipation
+    lcu = {}             # cell -> its copper inductance at the edge band (H): the copper's own stored energy
     last = {}            # source -> (f, injections, solution): the start of its next band's solve
     for f in freqs:
         keys = [k for k, (ff, _) in pats.items() if ff == f and (not loops or k[0] in cell_names)]
@@ -312,6 +313,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             info.pop("x", None), info.pop("I", None), info.pop("net", None), info.pop("op", None)
         for sn in [sn for sn in last if max(bands[sn].values()) <= f]:
             del last[sn]
+    if lumped:
+        lcu = _edge_loops(bd, bm, base, tpad, srcs, bands, solved, cell_names, log)
     notes = ([pitch_note] if pitch_note else []) + list(mesh_notes)
     if stack_text:
         notes.append(stack_text)
@@ -376,7 +379,12 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 # the layout's share: the copper solve minus the same parts with ideal copper
                 z[band] = O.bilinear(Jk, v) - (O.bilinear(Jk, vid[(s.name, band)]) if lumped else 0.0)
             w_e = 2 * math.pi * res["edge"][0]
-            pairs.append(dict(o=o, s=s, Zf=z["fund"], Le=z["edge"].imag / w_e, Rcu=rcu.get(s.name)))
+            # Lz: the layout's share at the edge band (the open check below); Le: a cell's own loop at its copper's
+            # stored energy with the capacitors at their edge model (lcu, _edge_loops); other pairs (a mutual) at the
+            # share
+            Lz = z["edge"].imag / w_e
+            own = o.kind == "overshoot" and s.name in lcu
+            pairs.append(dict(o=o, s=s, Zf=z["fund"], Le=lcu[s.name] if own else Lz, Lz=Lz, Rcu=rcu.get(s.name)))
     # a cell whose loop closes only through impedance a working loop never has (its copper share's resistance at f_sw
     # above LOOP_LOSS_FRAC V / I, or its reactance at the edge band above V / I) carries no commutated current: its copper is effectively open (it
     # closes through a resistor, a small capacitor, a part's leak). Its values would be no layout's (gecko5 U14 under a
@@ -389,9 +397,9 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         z_load = V / I
         w_e = 2 * math.pi * bands[s.name]["edge"]
         # resistance at f_sw above OPEN_R_FRAC V / I, or reactance at the edge band above V / I: no working loop
-        R_cu, X_cu = max(pr["Zf"].real, 0.0), abs(pr["Le"]) * w_e
+        R_cu, X_cu = max(pr["Zf"].real, 0.0), abs(pr["Lz"]) * w_e
         if R_cu > OPEN_R_FRAC * z_load or X_cu > z_load:
-            where = (f"the loop closes only through R {R_cu:.3g} ohm at f_sw, L {pr['Le'] * 1e9:.4g} nH at "
+            where = (f"the loop closes only through R {R_cu:.3g} ohm at f_sw, L {pr['Lz'] * 1e9:.4g} nH at "
                      f"{bands[s.name]['edge'] / 1e6:.3g} MHz: beyond a working loop for the cell's load V / I = "
                      f"{z_load:.3g} ohm (R above {OPEN_R_FRAC:g} V / I, or |X| above V / I)")
             notes.append(f"{s.name}: copper effectively open: {where}: its harms are not computed; its hot loop is "
@@ -435,9 +443,9 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                           basis=o.basis, src_class=o.src_class, **(parts_ or {})))
         if o.kind == "overshoot":
             # the hot loop's efficiency cost: its copper inductance's energy, dumped into the switch at
-            # every turn-off (1/2 L I^2 per cycle), at each corner's operating current and frequency. A copper
-            # share at or below zero (the copper's mutual coupling cancelling some of the parts' own inductance)
-            # costs nothing, but the cell keeps its observation: a cell left out would leave the comparison
+            # every turn-off (1/2 L I^2 per cycle), at each corner's operating current and frequency. L_loop is the
+            # copper's stored energy (never negative); a zero (no copper solved) costs nothing, but the cell keeps
+            # its observation: a cell left out would leave the comparison
             Lp = max(pr["Le"], 0.0)
             lv = []
             for c in range(ncp):
@@ -540,8 +548,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     rowed = {r["source"] for r in cell_rows if r.get("state") in ("ok", "invalid")}
     for pr in pairs:
         if pr["o"].kind == "overshoot" and pr["s"].name not in rowed and pr["Le"] <= 0:
-            bad_L[pr["s"].name] = (f"L_loop {pr['Le'] * 1e9:.4g} nH at the edge band is not an inductance: the layout's "
-                                   f"share passes a resonance of the capacitor network near f_e")
+            bad_L[pr["s"].name] = (f"L_loop {pr['Le'] * 1e9:.4g} nH at the edge band is not an inductance: no copper "
+                                   f"stores the cell's current")
     for ob in observations:
         if ob["id"] in ("loss.loop", "overshoot.peak") and ob["scope"].get("source") in bad_L and not ob.get("open"):
             ob["invalid"] = bad_L[ob["scope"]["source"]]
@@ -649,6 +657,43 @@ def _dc_system(holder, op):
         from kae.em import solve as ES
         holder["sys"] = ES.System(op, 0.0)
     return holder["sys"]
+
+
+def _edge_loops(bd, bm, base, tpad, srcs, bands, solved, cell_names, log):
+    """{cell: L_loop (H)}: each cell's copper inductance at its edge band, the stored magnetic energy I^H L I per A^2
+    of its current (kae.em.solve.stored_inductance) with the capacitors at their edge model (Circuit.edge_model: ESR
+    and ESL, above self-resonance, as at the switching edge). Never negative, and no resonance of the capacitor network
+    enters it. The layout's share Im z / w with the capacitors' C is no inductance there: a small ceramic still below
+    its self-resonance at f_e beside a big one above it is a tank the copper tunes, and its reactive energy swung the
+    share to -3.5 nH (murex's buck, 100 nF beside 2 x 22 uF, at 10 MHz on a connected layout) and pulled it to a
+    third of its value at f_sw on another board (markwestbroek's U6: 3.3 nH at 10 MHz, 9.4 at f_sw, 9.8 at 5 MHz).
+    Cells whose edge band was not solved or is open get none (their share stands)."""
+    from kae.em import solve as ES
+    from .circuit import lump_into
+    want = [s for s in srcs if s.name in cell_names and (s.name, "edge") in solved
+            and solved[(s.name, "edge")][0] is not None]
+    if not want:
+        return {}
+    t0 = time.time()
+    hc = bd.circuit.edge_model()
+    ac = bm.m.lumped
+    bm.m.lumped = list(base)
+    try:
+        lump_into(hc, tpad, lambda a, c, zf, nm: bm.m.part(a, c, name=nm, zf=zf))
+        net = ES.Network(bm.m)
+    finally:
+        bm.m.lumped = ac
+    op = ES.Operator(net)
+    out = {}
+    for f in sorted({bands[s.name]["edge"] for s in want}):
+        ss = [s for s in want if bands[s.name]["edge"] == f]
+        injs = [{p: j for p, j in hc.solve(f, [s])[s.name]["Ja"].items() if p in bm.m.terminals} for s in ss]
+        for s, (_, info) in zip(ss, ES.potentials_many(bm.m, injs, f, net=net, op=op, light=True,
+                                                       leak=[CELL_LEAK] * len(ss))):
+            if not info["unbalanced"] and info.get("I") is not None:
+                out[s.name] = ES.stored_inductance(net, op, info["I"])
+    log(f"cells' edge loops (capacitors at ESR + ESL): {len(out)} in {time.time() - t0:.1f}s")
+    return out
 
 
 def _band_start(prev, inj, f, n_br):
