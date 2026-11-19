@@ -6,6 +6,7 @@ import os
 import platform
 import random
 import shutil
+import sys
 import subprocess
 import threading
 import time
@@ -14,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__, tools
+from . import __version__, stopping, tools
 from .boardfiles import board_path, copy_board, install_rules
 from .prepare import INPUT_KIND, MIN_TASK_SPEC, OPTIONAL_INPUTS, PLACE_INPUTS, TASK_SPEC, load_tasks
 from .score import SCORE_VERSION, score_joint_task, score_place_task, score_route_task, score_routing
@@ -34,6 +35,8 @@ def _attempt(task_dir, rec, adapter, kind, attempt, timeout, adir, probe, keep_w
     done = adir / "attempt.json"
     if done.exists():
         return json.loads(done.read_text())
+    if stopping.STOP.is_set():   # the harness is stopping (SIGTERM): no new attempts
+        return dict(adapter=adapter.name, kind=kind, id=rec["id"], attempt=attempt, status="not_started", runtime_s=0.0)
     if adir.exists():
         shutil.rmtree(adir)
     work = adir / "work"
@@ -52,6 +55,7 @@ def _attempt(task_dir, rec, adapter, kind, attempt, timeout, adir, probe, keep_w
     row = dict(adapter=adapter.name, kind=kind, id=rec["id"], split=rec["split"], attempt=attempt,
                repo=rec.get("repo"), tags=rec.get("tags", []), score_version=SCORE_VERSION, load_avg_start=os.getloadavg())
     tools.usage_take()  # start this attempt's accounting from zero
+    print(f"[start] {adapter.name} {rec['id']} {kind} #{attempt}", flush=True)   # a trace even if the job is killed
     t0 = time.monotonic()
     try:
         res = adapter.run(kind, inp, work, attempt, timeout, reference=reference)
@@ -72,6 +76,16 @@ def _attempt(task_dir, rec, adapter, kind, attempt, timeout, adir, probe, keep_w
     row["method_usage"] = tools.usage_take()  # CPU and peak RSS of every process the method ran
     if row["runtime_s"] > timeout * 1.05:
         row["over_time"] = True
+    if stopping.STOP.is_set():
+        # stopped from outside (SIGTERM): what the method had is kept for diagnosis, unscored (a DRC can take an
+        # hour), and its work dir too (logs, the board so far); `stopped_status` is what the adapter made of it
+        row["stopped_status"], row["status"] = row["status"], "killed"
+        if res and res.output:
+            (adir / "output").mkdir(parents=True, exist_ok=True)
+            shutil.copy2(res.output, board_path(adir / "output"))
+        row["load_avg_end"] = os.getloadavg()
+        done.write_text(json.dumps(row, indent=1))
+        return row
     if res and res.output:
         out_dir = adir / "output"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -335,6 +349,7 @@ def run(tasks_dir, results_dir, adapter=None, kinds=("route",), k=1, timeout=600
             progress(f"[{i}/{len(futs)}] {row['adapter']} {row['id']} {row['kind']} #{row['attempt']}: "
                      f"{row['status']} clean={s.get('clean', s.get('legal'))} unconn={s.get('unconnected')}"
                      f" err={s.get('errors')} t={row['runtime_s']}s")
+            sys.stdout.flush()
     rows.sort(key=lambda r: (r["adapter"], r["kind"], r["id"], r["attempt"]))
     with open(run_dir / "results.jsonl", "w") as f:
         for r in rows:

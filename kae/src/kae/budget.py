@@ -126,6 +126,7 @@ class Clock:
         self.last = self.t0
         self.ceiling = None                  # wall seconds after which now() is infinite (work mode)
         self.ceiling_hit = False
+        self.wall_stops = defaultdict(int)   # stages stopped at their own wall limit (stage_wall), by stage
 
     def charge(self, kind, units=1.0):
         """Count `units` of `kind` work; in work mode they advance the clock at RATES[kind]."""
@@ -173,6 +174,8 @@ class Clock:
                    charged_by_kind={k: round(v, 2) for k, v in self.by_kind.items()})
         if self.mode == "work":
             out.update(ceiling_s=self.ceiling, ceiling_hit=self.ceiling_hit)
+            if self.wall_stops:
+                out["wall_stops"] = dict(self.wall_stops)
         if self.profile:
             out["wall_by_kind"] = {k: round(v, 3) for k, v in self.wall_by_kind.items()}
         return out
@@ -213,10 +216,28 @@ def set_ceiling(budget_s):
 def start_run(budget_s):
     """A CLI's entry: set the wall ceiling for this run's budget and print the clock's report at exit."""
     set_ceiling(budget_s)
+    _exit_on_sigterm()
     if work_mode() or clock().profile:
         import atexit
         import json
         atexit.register(lambda: print("[kae.budget] " + json.dumps(clock().report()), flush=True))
+
+
+def _exit_on_sigterm():
+    """SIGTERM (a job being killed: a queue's timeout or cancel) exits like sys.exit(143) instead of at once, so
+    `finally` blocks stop child processes (Freerouting) and the exit handlers run: buffered output is flushed and the
+    clock's report printed, so a killed run still says what it did. Only in the main thread, and only where nothing
+    else handles SIGTERM. Later SIGTERMs are ignored: a killed job's processes get it more than once (kaeq signals
+    every process, restart.py passes it on to the attempt), and a second one must not cut the exit short; kaeq's
+    SIGKILL after its grace is the hard stop."""
+    import signal
+    if threading.current_thread() is not threading.main_thread() or signal.getsignal(signal.SIGTERM) != signal.SIG_DFL:
+        return
+
+    def stop(*_):
+        signal.signal(signal.SIGTERM, lambda *_: None)
+        raise SystemExit(143)
+    signal.signal(signal.SIGTERM, stop)
 
 
 def now(kind="poll"):
@@ -264,6 +285,29 @@ def wall_timeout(seconds):
     if c.mode == "time":
         return seconds
     return max(60.0, c.ceiling - c.wall()) if c.ceiling is not None else max(3600.0, float(seconds))
+
+
+STAGE_WALL_FLOOR = 120.0     # wall seconds a stage's own limit (stage_wall) never goes below: start-up
+
+
+def stage_wall(seconds):
+    """Wall seconds a subprocess stage given `seconds` of budget may run before it is told to stop
+    and return its best so far: the same (time mode); CEILING_FACTOR x `seconds`, at least
+    STAGE_WALL_FLOOR and never past the run's ceiling (work mode). Under counted work a stage
+    ends on its counted budget long before this; a stage that reaches it did work it did not
+    charge (a stop that failed, or a price far too low), and gets note_wall_stop. Without it one
+    stage could use the whole run's ceiling: wall_timeout gives it everything up to the ceiling."""
+    if not work_mode():
+        return seconds
+    return min(wall_timeout(seconds), max(STAGE_WALL_FLOOR, CEILING_FACTOR * float(seconds)))
+
+
+def note_wall_stop(stage):
+    """Record that `stage` was stopped at its wall limit (stage_wall): the clock's report lists it
+    under wall_stops, as a run whose counted budget did not bind there (its result depends on the
+    host's speed and load)."""
+    with _lock:
+        clock().wall_stops[stage] += 1
 
 
 def cpu_now():
