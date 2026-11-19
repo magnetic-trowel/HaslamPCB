@@ -282,29 +282,39 @@ Board loss terms (per board, the sum of that observable's terms):
 
 ## Round 2: C″ (branch `hotloop-cells2`, pre-registered 2026-11-19, before any C″ result)
 
-**Code:** `hotloop-cells2` off `default-and-fixes` (PR #111, 582448d6).
-- *Routing fix* (cf39ddca): escape lanes keep a pin's short way to its own net's zone or pad clear in the cells stage's Space, and a reachability backstop reverts a cell that closes a pin's way anyway (`hotloop_cell_blocks_pin`). This is open-authenticator's defect in C′.
-- *Evaluator fixes,* each in its own commit:
-  - (a) a connected loop read as L < 0 (markwestbroek U6, murex IC1);
-  - (b) an open loop on a DRC-connected board (pcbcorpus orbit).
+**Code: one SHA, 0e7e4eec,** for routing and for every evaluation. It is `default-and-fixes` (PR #111, 582448d6) plus:
+- *cf39ddca, fe309206, dcbe005c: the routing fix.*
+  - Escape lanes keep a pin's short way to its own net's zone clear in the cells stage's Space. The lanes run to zones only: lanes to the pin's own pads walled in ericmullally's PG and Vaux.
+  - A reachability backstop reverts a cell that closes a pin's way anyway (`hotloop_cell_blocks_pin`). A via site beside the pad or in it counts as a way: olimex's C′ joined U1.3 through a via in the pad.
+  - This is open-authenticator's defect in C′.
+  - Stage sweep on the 60 inputs: 4 cells reverted on 3 boards.
+    - giacobot: the pour cut.
+    - jericholab: VAUX and EN, which C′ and D left unconnected.
+    - olimex: before the via-in-pad rule only.
+- *Three evaluator fixes,* each its own commit with the why:
+  - fc2f1aa4 (= a9357a17): pads holding no cell centre were not painted, a false open on pcbcorpus orbit.
+  - 06540924 (= a2009365): a zero-width track paints nothing.
+  - 0e6103dd (= cbe4a00b): L_loop is the copper's stored energy with the caps at ESR + ESL, so no capacitor-tank resonance enters it. This was murex's and markwestbroek's negative L.
+- *0e7e4eec:* the router's quote (`kae.excite.cellquote`) takes L and R as the evaluator does.
 
-**Arms:** C″ (cells first at the round-2 SHA) routed and evaluated on all 60 boards. N and human are reused, as set out below. D and CD are not continued (the final report: no effect at their cost).
+**Arms:** C″ (cells first at 0e7e4eec) is routed on all 60 boards. N's routed boards are reused (below). D and CD are not continued: the final report found no effect at their cost.
 
-**Reused results, and why each is valid:**
-- *N's routed boards (908e21ff).* The changes since then that could reach N are:
+**Reused, and why it is valid: N's routed boards (908e21ff).**
+- The changes since then that could reach N are:
   - the power-copper keep-out clip (the scan above found 0 overlaps on N's 60 boards);
   - restart.py's ranking moving to `kae.rank.board_rank`;
   - critical.py's `abs(volts)` (critical tightening is off);
   - escape docstrings;
-  - the cells-stage changes (cells are off in N).
+  - the cells-stage changes (cells are off in N);
+  - the quote (used only by clear, which is off in N).
+- Counted-work routing is deterministic. N is re-routed at 0e7e4eec on 5 boards (`hotloop-sw-nid-0e7e4ee`): zebra-rodeo marelleo (12 pour-forbidding areas), duanestorey hifi-amp (a −12 V rail), heypcb quack-face (8 areas), giacobot and julianschuler.
+- If all 5 match 908e21ff on geometry (sorted, uuids aside) and score, N's 60 boards stand. Otherwise N is re-routed on all 60.
 
-  Counted-work routing is deterministic. N is re-routed at the round-2 SHA on 5 boards (`hotloop-sw-nid-<sha>`, `STAGE=nid`): zebra-rodeo marelleo (12 pour-forbidding areas), duanestorey hifi-amp (a −12 V rail), heypcb quack-face (8 areas), giacobot and julianschuler. If all 5 match 908e21ff on geometry (sorted, uuids aside) and score, N's 60 boards stand. Otherwise N is re-routed on all 60.
-- *Physics of human and N.* Only the two evaluator fixes change numbers. The boards they touch (markwestbroek, murex, pcbcorpus orbit) are re-evaluated for human, N and C′, plus 5 control boards per arm.
-  - If no control's loss terms or cell L/R move beyond the floors below, every other existing evaluation stands.
-  - Otherwise all of human and N are re-evaluated.
-- *No A/A twin:* counted-work routing is deterministic, so a twin would be identical, and the evaluator is deterministic too.
+**Not reused: every physics evaluation.** The false-open fix changes the raster wherever a pad's edge crosses a cell, which is common on QFN/DFN pads. The L_loop fix changes every cell with two or more caps. So human, N and C″ are all evaluated at 0e7e4eec on all 60 boards (measures in a new folder, `hsw-run2`). No round-1 physics number is compared with a round-2 one.
 
-**Pre-registered gates and floors** (the same as round 1):
+**No A/A twin:** routing under counted work and the evaluator are both deterministic.
+
+**Pre-registered gates and floors** (as in round 1):
 - *Routing, C″ against N* (gated):
   - completion: CI lower bound above −0.005;
   - cp1 and `clean_strict`: CI lower bound above −0.02, and McNemar p ≥ 0.05 or better;
@@ -320,6 +330,10 @@ Board loss terms (per board, the sum of that observable's terms):
   - cell L_loop 0.5 % and R_loop 3 % (window convergence, pre-registered in round 1);
   - board `loss.copper` 0.5 % (`FLOOR`, pre-registered);
   - `loss.copper_ac` 0.5 % (chosen in round 1, registered here);
-  - `loss.loop` and `loss.loop_ac` 3 %, the R_loop tolerance, since both scale with R_loop (chosen in round 1, registered here).
+  - `loss.loop` and `loss.loop_ac` 3 %, the R_loop tolerance, since both scale with it (chosen in round 1, registered here).
   - A board term's verdict: "signal" when the 95 % CI of the median ratio lies past the floor, "noise" when it lies inside it, otherwise "unresolved". Every board with a ratio above 10× gets a cause.
 - *Reading:* C″ is worth adopting as the default when it passes the routing gates and both L_loop and R_loop medians against N are below 1 with more cells better than worse, and no extra open cell is a real routing defect of the cells stage.
+
+**Follow-ups, out of scope for this run:**
+- *The PDN resonance between caps* (a bulk cap above its self-resonance beside a ceramic below it) is real ringing. Since 0e6103dd it enters no L_loop and is priced nowhere. It needs its own observation.
+- *Every existing baseline* with two or more caps on a cell must be re-evaluated at the L_loop fix (`~/kae-baselines` evals before 0e6103dd).
