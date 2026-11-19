@@ -87,7 +87,7 @@ def _run(board, out_json, timeout, cache, mb):
         if cache and stepcache.enabled():   # KAE_STEP_CACHE: a board DRC'd before, with the same rules, replays its report
             r = stepcache.run("kicad-drc", cmd, inputs=stepcache.kicad_inputs(board), outputs={"report": out_json},
                               wd=board.parent, timeout=timeout, tool=stepcache.kicad_version(kicad_cli()),
-                              cwd=board.parent)
+                              cwd=board.parent, runner=lambda *a, **k: proc.run("kicad-drc", *a, **k))
         else:
             r = proc.run("kicad-drc", cmd, capture_output=True, text=True, timeout=timeout, cwd=board.parent,
                          errors="replace")
