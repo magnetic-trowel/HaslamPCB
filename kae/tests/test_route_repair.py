@@ -349,7 +349,7 @@ def test_spokes_with_no_routed_round_go_into_the_last_miles_first_round(tmp_path
             out.write_text(board.read_text() + "+join")
         return dict(joined=joined, failed=0, ripped=[], added=["j"] * joined, nets={})
     monkeypatch.setattr(lastmile, "close", close)
-    monkeypatch.setattr(lastmile, "open_nets", lambda rep: None)
+    monkeypatch.setattr(lastmile, "open_nets", lambda rep: [])   # a list, as open_nets returns: round_robin sorts it
     monkeypatch.setattr(repair, "clock_now", lambda: 1000.0)
     inp, out = tmp_path / "in.kicad_pcb", tmp_path / "out.kicad_pcb"
     inp.write_text("board")
