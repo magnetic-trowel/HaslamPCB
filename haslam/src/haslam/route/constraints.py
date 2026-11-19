@@ -1362,12 +1362,14 @@ def escape_lanes(info, p=None, reach=1.5):
     own net's copper keeps its short way there (pour_links, the hot-loop cells stage).
 
     For each pad with a net, on each of its copper layers: when no zone of its net covers the pad
-    there, the shortest straight piece from the pad to the nearest zone of its net (else to the
-    nearest other pad of its net) on that layer, if that is at most `reach` mm and crosses no other
-    net's pad, widened to the net's track width plus its clearance each side and run on into the
-    zone by its minimum width. open-authenticator: U4's L1 pins (U4.2, U4.4) sit 0.2-0.55 mm below
-    their own L1 zones and join them by short tracks; the cell's GND via between the pins and the
-    zone corners took that gap and both pins were left unconnected."""
+    there, the shortest straight piece from the pad to the nearest zone of its net on that layer, if
+    that is at most `reach` mm and crosses no other net's pad, widened to the net's track width plus
+    its clearance each side and run on into the zone by its minimum width. open-authenticator: U4's
+    L1 pins (U4.2, U4.4) sit 0.2-0.55 mm below their own L1 zones and join them by short tracks; the
+    cell's GND via between the pins and the zone corners took that gap and both pins were left
+    unconnected. Lanes to the nearest other pad of the net are not laid: on ericmullally's power
+    supply they left IC1's cells only paths that walled in PG and Vaux (both cells reverted by the
+    reachability backstop, which catches a pin cut off from its pads without them)."""
     from shapely.ops import nearest_points
     zones = [z for z in info.get("zones") or [] if not z.get("rule_area") and z.get("net") and not z.get("teardrop")]
     zgeo = {}
@@ -1398,14 +1400,6 @@ def escape_lanes(info, p=None, reach=1.5):
                 d = cop.distance(zg)
                 if d <= reach and (best is None or d < best[0]):
                     best = (d, zg, mt)
-            if best is None:      # no zone in reach: the nearest other pad of its net
-                for i in tree.query(cop.buffer(reach)):
-                    q, g = items[int(i)]
-                    if q is pad or q.get("net") != net:
-                        continue
-                    d = cop.distance(g)
-                    if d <= reach and (best is None or d < best[0]):
-                        best = (d, g, 0.0)
             if best is None or best[0] <= 1e-6:
                 continue
             a, b = nearest_points(cop, best[1])
