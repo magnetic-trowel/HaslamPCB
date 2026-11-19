@@ -187,9 +187,14 @@ def frame(c, cfg, sampler, args, width):
             why.append(f"needs {h['cpus']:g} CPUs, {max(0, cpu_room):.0f} free"
                        + (" (threads already queue for a CPU)" if bsys.get("runnable", 0) > threads - rcpu - h["cpus"] else ""))
         starving = now - h["submitted"] > cfg["starve_after_s"]
-        L.append(f"Next: #{h['id']} {h['owner']} prio {h['prio']} ({h['name'] or h['cmd'][:40]})")
-        L.append("      " + ("; ".join(why) + (" -> room is held for it; only short jobs may backfill" if starving else "")
-                             if why else "fits now: starts within a tick or two"))
+        aw = bsys.get("admit")
+        if aw and now - aw.get("ts", 0) < 120:      # the daemon's own reason, from its last admission
+            L.append(f"Next: #{aw['id']} {aw['owner']} prio {aw['prio']} ({aw['name']})")
+            L.append("      waits: " + "; ".join(aw["gates"]))
+        else:
+            L.append(f"Next: #{h['id']} {h['owner']} prio {h['prio']} ({h['name'] or h['cmd'][:40]})")
+            L.append("      " + ("; ".join(why) + (" -> room is held for it; only short jobs may backfill" if starving else "")
+                                 if why else "nothing holds it back: jobs are starting"))
     L.append("")
 
     # per owner

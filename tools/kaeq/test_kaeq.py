@@ -16,6 +16,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 def kq(tmp_path, monkeypatch):
     monkeypatch.setenv("KAEQ_HOME", str(tmp_path))
     monkeypatch.setenv("KAEQ_OWNER", "t")
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)   # tests choose their session (KAEQ_SESSION)
+    monkeypatch.delenv("KAEQ_SESSION", raising=False)
     sys.path.insert(0, HERE)
     for m in [m for m in sys.modules if m == "kaeqlib" or m.startswith("kaeqlib.")]:
         del sys.modules[m]          # kaeqlib.store reads KAEQ_HOME when imported: a fresh import per test
@@ -1140,10 +1142,10 @@ def test_the_daemon_reports_its_own_failure_symptoms(kq, tmp_path):
     assert len(ev) == 1 and "frozen" in ev[0]["msg"]                               # the job's owner is told, once
     d.health(cfg, now + 400, run())
     assert len(d.c.execute("SELECT * FROM events WHERE kind='health'").fetchall()) == 1   # not again within the hour
-    # kaeq wait: exit 3 for health warnings alone (jobs still run)
+    # kaeq wait: health warnings alone do not wake the session (jobs still run); they come with the next wake-up
     with pytest.raises(SystemExit) as e:
-        kq.cmd_wait(argparse.Namespace(owner="t", timeout="5s"))
-    assert e.value.code == 3
+        kq.cmd_wait(argparse.Namespace(owner="t", timeout="1s"))
+    assert e.value.code == 2
     # a cancelled job's open freeze is closed into its frozen time
     kq.cmd_cancel(argparse.Namespace(ids=["1"], owner=None, tag=None))
     j = d.c.execute("SELECT * FROM jobs WHERE name='b'").fetchone()
@@ -1200,3 +1202,167 @@ def test_set_changes_queued_jobs_and_only_the_timeout_of_running_ones(kq):
         kq.cmd_set(argparse.Namespace(**dict(ns, ids=[], owner=None, tag=None, timeout="2h")))   # no selection
     with pytest.raises(SystemExit):
         kq.cmd_set(argparse.Namespace(**dict(ns, timeout="soon")))
+
+
+def test_jobs_belong_to_the_session_that_submitted_them_and_others_leave_them_alone(kq, monkeypatch, capsys):
+    import argparse
+    monkeypatch.setenv("KAEQ_SESSION", "aaaaaaaa-1111")
+    kq.cmd_session_name(argparse.Namespace(name="Placement"))
+    submit(kq, "true", owner="exp-a")
+    submit(kq, "true", owner="exp-a")
+    monkeypatch.setenv("KAEQ_SESSION", "bbbbbbbb-2222")
+    submit(kq, "true", owner="exp-b")
+    c = kq.db()
+    assert [r["session"] for r in c.execute("SELECT session FROM jobs ORDER BY id")] == ["aaaaaaaa-1111"] * 2 + ["bbbbbbbb-2222"]
+    ns = dict(ids=[], owner="exp-a", tag=None, force=False)
+    for f, extra in ((kq.cmd_cancel, {}), (kq.cmd_prio, dict(prio=5)),
+                     (kq.cmd_set, dict(timeout="2x", mem=None, cpus=None, running=False))):
+        with pytest.raises(SystemExit) as e:
+            f(argparse.Namespace(**ns, **extra))
+        assert "Placement" in str(e.value)                     # names the owner, refuses
+    kq.cmd_prio(argparse.Namespace(**dict(ns, force=True), prio=5))
+    assert c.execute("SELECT prio FROM jobs WHERE owner='exp-a'").fetchone()[0] == 5
+    kq.cmd_set(argparse.Namespace(**dict(ns, owner="exp-b"), timeout="2h", mem=None, cpus=None, running=False))  # own: fine
+    with pytest.raises(SystemExit):                            # nor does it listen to another session's owner
+        kq.cmd_wait(argparse.Namespace(owner="exp-a", timeout="1s", every=25, force=False))
+    kq.cmd_result(argparse.Namespace(ids=["1"], owner=None, tag=None, tail=1))
+    assert "belong to session Placement" in capsys.readouterr().out
+
+
+def test_a_session_waits_on_all_its_jobs_and_reads_notes_when_it_returns(kq, monkeypatch, capsys):
+    import argparse
+    monkeypatch.setenv("KAEQ_SESSION", "aaaaaaaa-1111")
+    submit(kq, "true", owner="exp-a")
+    submit(kq, "true", owner="exp-c")
+    c = kq.db()
+    c.execute("UPDATE jobs SET state='failed', finished=? WHERE id=1", (time.time(),))
+    kq.event(c, c.execute("SELECT * FROM jobs WHERE id=1").fetchone(), "failed", "#1 FAILED rc=1")
+    c.commit()
+    monkeypatch.setenv("KAEQ_SESSION", "bbbbbbbb-2222")
+    kq.cmd_note(argparse.Namespace(target="exp-a", text=["your", "rule", "file", "is", "dropped"], urgent=False))
+    monkeypatch.setenv("KAEQ_SESSION", "aaaaaaaa-1111")
+    w = argparse.Namespace(owner=None, timeout="1s", every=25, force=False)
+    with pytest.raises(SystemExit) as e:
+        kq.cmd_wait(w)
+    out = capsys.readouterr().out
+    assert e.value.code == 1 and "#1 FAILED" in out and "your rule file is dropped" in out
+    assert "exp-a: 1/1 done, 1 failed" in out and "exp-c: 0/1 done" in out   # every campaign of the session
+    c.execute("UPDATE jobs SET state='ok', finished=? WHERE id=2", (time.time(),))
+    c.commit()
+    with pytest.raises(SystemExit) as e:
+        kq.cmd_wait(w)
+    assert e.value.code == 0 and "nothing of yours" in capsys.readouterr().out
+
+
+def test_a_campaign_is_reported_at_a_quarter_and_when_it_finishes_and_failures_wake_once(kq, monkeypatch):
+    import argparse
+    c = kq.db()
+    for i in range(8):
+        c.execute("INSERT INTO jobs(owner,cmd,state,submitted) VALUES('exp-a','x','queued',?)", (time.time(),))
+    c.commit()
+    assert kq.campaign_news(c, ["exp-a"], 25) == []           # first sight: starts from here
+    c.execute("UPDATE jobs SET state='ok' WHERE id<=2")
+    assert kq.campaign_news(c, ["exp-a"], 25) == ["exp-a: 25% done (2/8)"]
+    assert kq.QUARTER_CHECK in kq.report_lines(c, ["exp-a"], [], ["exp-a: 25% done (2/8)"], [])
+    c.execute("UPDATE jobs SET state='ok' WHERE id<=6")
+    assert kq.campaign_news(c, ["exp-a"], 25) == []           # only the first quarter
+    c.execute("UPDATE jobs SET state='ok' WHERE id<=7")
+    c.execute("UPDATE jobs SET state='failed' WHERE id=8")
+    assert kq.campaign_news(c, ["exp-a"], 25) == ["exp-a: finished, 1 failed, 7 ok"]
+    assert kq.campaign_news(c, ["exp-a"], 25) == []
+    # failures: the first one in a campaign wakes the session; the next ones wait until it has retried
+    for jid in (7, 8):
+        kq.event(c, c.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone(), "failed", f"#{jid} FAILED")
+    c.commit()
+    assert kq.first_failures(c, ["exp-a"]) == ["exp-a"]
+    kq.pending_many(c, ["exp-a"])                              # the wake-up printed them
+    kq.event(c, c.execute("SELECT * FROM jobs WHERE id=7").fetchone(), "failed", "#7 FAILED again")
+    c.commit()
+    assert kq.first_failures(c, ["exp-a"]) == []
+    kq.ensure_daemon = lambda: None
+    kq.cmd_retry(argparse.Namespace(ids=["8"], owner=None, tag=None, mem=None, timeout=None, cpus=None, retries=0,
+                                    disk=None, force=False))
+    assert kq.first_failures(c, ["exp-a"]) == ["exp-a"]       # after a retry, the next failure wakes it again
+
+
+def test_wait_hands_back_a_wake_up_time_when_nothing_is_due_soon(kq, monkeypatch, capsys):
+    import argparse
+    monkeypatch.setenv("KAEQ_SESSION", "aaaaaaaa-1111")
+    for _ in range(8):
+        submit(kq, "true", owner="exp-a")
+    c = kq.db()
+    now = time.time()
+    kq.campaign_news(c, ["exp-a"], 25)                         # seen: no report on first sight
+    ends = [now + 3600 * h for h in (5, 6, 7, 8, 20, 21, 22, 23)]
+    monkeypatch.setattr(kq, "job_end_times", lambda c, now: {"exp-a": ends})
+    assert kq.next_news(c, ["exp-a"], 25, now) == (ends[0], "exp-a", "has its first result")
+    with pytest.raises(SystemExit) as e:
+        kq.cmd_wait(argparse.Namespace(owner=None, timeout=None, every=25, force=False, horizon="100m"))
+    out = capsys.readouterr().out
+    assert e.value.code == 5 and "has its first result" in out and 'send_later(at="' in out
+    c.execute("UPDATE jobs SET state='ok', finished=? WHERE id=1", (now,))
+    c.commit()
+    monkeypatch.setattr(kq, "job_end_times", lambda c, now: {"exp-a": ends[1:]})    # 7 left
+    assert kq.next_news(c, ["exp-a"], 25, now) == (ends[1], "exp-a", "is 25% done")   # 2 of 8: the second end
+
+
+def test_the_dispatcher_writes_one_message_per_session_that_should_wake(kq, monkeypatch, capsys):
+    import argparse
+    for sid, owner in (("aaaaaaaa-1111", "exp-a"), ("bbbbbbbb-2222", "exp-b")):
+        monkeypatch.setenv("KAEQ_SESSION", sid)
+        for _ in range(4):
+            submit(kq, "true", owner=owner)
+    monkeypatch.delenv("KAEQ_SESSION")
+    c = kq.db()
+    kq.campaign_news(c, ["exp-a", "exp-b"], 25)                 # both seen
+    c.execute("UPDATE jobs SET state='failed', finished=? WHERE id=1", (time.time(),))
+    kq.event(c, c.execute("SELECT * FROM jobs WHERE id=1").fetchone(), "failed", "#1 FAILED rc=1")
+    c.commit()
+    d = argparse.Namespace(every=25, timeout="1s", interval=0.1)
+    with pytest.raises(SystemExit) as e:
+        kq.cmd_dispatch(d)
+    out = capsys.readouterr().out
+    assert e.value.code == 0 and out.count("=== to:") == 1 and "(session aaaaaaaa-1111)" in out
+    assert "#1 FAILED" in out and "exp-a: 1/4 done, 1 failed" in out
+    with pytest.raises(SystemExit) as e:                        # nothing new for anyone: times out quietly
+        kq.cmd_dispatch(d)
+    assert e.value.code == 2 and "=== to:" not in capsys.readouterr().out
+    # while a dispatcher runs, a session's own `kaeq wait` steps aside
+    import fcntl
+    with open(kq.DISPATCH_LOCK, "a") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        monkeypatch.setenv("KAEQ_SESSION", "bbbbbbbb-2222")
+        assert kq.dispatcher_running()
+        with pytest.raises(SystemExit) as e:
+            kq.cmd_wait(argparse.Namespace(owner=None, timeout=None, every=25, force=False, horizon="100m"))
+        assert e.value.code == 6
+
+
+def test_a_campaign_without_history_is_pooled_with_the_profile_of_all_recent_jobs(kq):
+    import json
+    d = kq.Daemon(host=kq.Host())
+    c = d.c
+    flat = json.dumps([1] * kq.MEM_BINS)
+    for i in range(60):
+        c.execute("INSERT INTO jobs(owner,cmd,state,submitted,finished,mem_hist) VALUES('old','x','ok',?,?,?)",
+                  (i, i, flat))
+    c.execute("INSERT INTO jobs(owner,cmd,state,submitted) VALUES('new','x','running',0)")
+    c.commit()
+    running = c.execute("SELECT * FROM jobs WHERE state='running'").fetchall()
+    cfg = kq.config()
+    assert d.owner_profiles(cfg, 1e6, running)["new"] == pytest.approx([1 / kq.MEM_BINS] * kq.MEM_BINS)
+    d.profiles_ts = 0
+    assert "new" not in d.owner_profiles(dict(cfg, mem_pool_prior_jobs=0), 2e6, running)
+
+
+def test_a_timed_start_may_exceed_the_burst_forecast_while_timed_jobs_do_not_wait_for_cpus(kq):
+    d = kq.Daemon(host=kq.Host())
+    cfg = dict(kq.config(), threads=20, reserve_cpu=0)
+    d.others_ema = 0.0
+    d.cpu_profile = lambda r, cfg, now: (2.0, 9.0)           # 4 running: means 8, bursts of 7 each
+    d.learned_cpu = lambda j, cfg, now: (2.0, 4.0, True)
+    running = [dict(qos="timed")] * 4
+    d.timed_wait = 0.0
+    assert d.timed_cpu_fits(dict(qos="timed"), cfg, 0, running)          # 8 + 4 <= 20 though 10 + 15.5 > 20
+    d.timed_wait = 0.01                                                  # they do wait: the forecast rules
+    assert not d.timed_cpu_fits(dict(qos="timed"), cfg, 0, running)

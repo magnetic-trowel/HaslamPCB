@@ -15,16 +15,19 @@ A Scorecard holds what KiCad and the routed-physics recheck say about a board:
   the recheck); internally the card keeps sentinels (DRC failed: 10**6; physics: no modules)
   so the acceptance rule stays conservative.
 
-`accept(old, new)` compares lexicographically: legality, then completion and DRC
-(unconnected + errors, then unconnected), then routed physics (on the modules both cards
-measured with the same method, a module without a value at U_CAP). Legality, unconnected items
-and DRC errors must never get worse. A board that becomes clean (legal, fully routed, no
-DRC error) is always kept. Another strict gain in completion or DRC is kept when routed
-physics worsens by at most `phys_slack` (10 % of the incumbent's total) per item gained;
-with equal completion and DRC, physics must improve beyond `phys_tol` (float noise).
-Track length and vias are reported (the efficiency layer of quality-metrics.md); with
-eff_tiebreak they also break a tie of everything above. Anything else is reverted. (A strict reading, physics never worse, is phys_slack=0: on the noisecard smoke
-run it reverted a window that halved the unconnected items, 15 -> 7, at +33 % physics.)
+`accept(old, new)` keeps a step by the ranked judge the delivered results use
+(kae.rank.board_rank, as tools/kaeres/restart.py chooses among attempts; user decision,
+2026-11-17): legal before illegal, clean before not clean, then fewer unconnected items, then
+fewer DRC errors. Fewer open connections win whatever they cost in DRC errors (a finishing try
+that took 7 open connections to 5 at 4 -> 14 errors was reverted before). Only on an equal rank
+does routed physics decide (on the modules both cards measured with the same method, a module
+without a value at U_CAP): it must improve beyond `phys_tol` (float noise). Track length and
+vias are reported (the efficiency layer of quality-metrics.md); with eff_tiebreak they also
+break a tie of everything above. Anything else is reverted.
+`physics_guard(old, new, phys_slack)` is the older rule, kept for the last mile's re-laid
+critical copper (kae.route.critical.soft_critical): legality, unconnected items and DRC errors
+never worse, and a strict gain in completion or DRC kept when routed physics worsens by at most
+`phys_slack` of the incumbent's total per item gained.
 """
 from __future__ import annotations
 
@@ -102,7 +105,38 @@ def _phys_on(card, ids):
     return physics_total({k: card.modules.get(k) for k in ids}, missing=U_CAP)
 
 
-def accept(old, new, phys_tol=0.005, phys_slack=0.10, eff_tiebreak=False, eff_tol=0.01):
+def card_rank(c):
+    """A card's rank (kae.rank.board_rank): placement errors, unconnected items, DRC errors."""
+    from kae.rank import board_rank
+    return board_rank(c.unconnected, c.errors, c.placement_errors)
+
+
+def accept(old, new, phys_tol=0.005, eff_tiebreak=False, eff_tol=0.01):
+    """(keep, why). See the module docstring: the ranked judge, then routed physics on an equal
+    rank. `eff_tiebreak` (off by default, an A/B arm): with an equal rank and physics within
+    phys_tol, keep a board whose copper dominates: no more vias and track length shorter by more
+    than `eff_tol`, or fewer vias and no longer track."""
+    from kae.rank import FIELDS
+    r0, r1 = card_rank(old), card_rank(new)
+    if r1 != r0:
+        k = next(i for i, (a, b) in enumerate(zip(r0, r1)) if a != b)
+        word = "better" if r1 < r0 else "worse"
+        return r1 < r0, f"rank {word} on {FIELDS[k]} {tuple(r0)} -> {tuple(r1)}"
+    ids = sorted(set(old.modules) & set(new.modules)) if old.method == new.method else []
+    p0, p1 = _phys_on(old, ids), _phys_on(new, ids)
+    scale = max(1.0, abs(p0))
+    if p1 > p0 + phys_tol * scale:
+        return False, f"physics worse ({p0:.4f} -> {p1:.4f})"
+    if p1 < p0 - phys_tol * scale:
+        return True, f"physics better ({p0:.4f} -> {p1:.4f})"
+    if eff_tiebreak and None not in (old.track_length_mm, new.track_length_mm, old.vias, new.vias):
+        l0, l1, v0, v1 = old.track_length_mm, new.track_length_mm, old.vias, new.vias
+        if (v1 <= v0 and l1 < l0 * (1 - eff_tol)) or (v1 < v0 and l1 <= l0):
+            return True, f"copper better ({l0:.1f} -> {l1:.1f} mm, {v0} -> {v1} vias)"
+    return False, "no improvement"
+
+
+def physics_guard(old, new, phys_tol=0.005, phys_slack=0.10, eff_tiebreak=False, eff_tol=0.01):
     """(keep, why). See the module docstring. `phys_slack`: how much routed physics (share
     of the incumbent's total) each item of completion/DRC gain may cost; 0 makes physics a
     hard guard except for a board that becomes clean. `eff_tiebreak` (off by default, an A/B
