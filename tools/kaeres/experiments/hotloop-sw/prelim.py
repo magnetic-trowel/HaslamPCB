@@ -7,13 +7,16 @@ from collections import defaultdict
 sys.path.insert(0, ".")
 import analyze as A
 DM = "danielmcmillan-irrigation-system-remote-unit"
-D = A.Data("hotloop-sw", sys.argv[1] if len(sys.argv) > 1 else f"/var/tmp/{os.environ.get('USER', '')}/hsw-run")
+OUT = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] != "-" else f"/var/tmp/{os.environ.get('USER', '')}/hsw-run"
+TWIN = os.environ.get("TWIN")          # e.g. hotloop-sw-c2-60b2d72: its C and CD (C', CD') replace the experiment's
+D = A.Data("hotloop-sw", OUT, twin=TWIN)
+EXCL = set() if TWIN else {DM}         # danielmcmillan's invalid C and CD outputs (908e21ff) only
 man = {}
 for l in open(A.CORPUS / "manifest.jsonl"):
     if l.strip():
         r = json.loads(l); man[r["id"]] = r.get("repo") or r["id"]
 FLOOR = {"loss.copper": 0.005, "loss.copper_ac": 0.005, "loss.loop": 0.03, "loss.loop_ac": 0.03}
-def excl(arm, b): return arm in ("C", "CD") and b == DM
+def excl(arm, b): return arm in ("C", "CD") and b in EXCL
 def boot_median(pairs, n=4000, seed=1):
     # pairs: [(board, log ratio)]; resample repositories
     by = defaultdict(list)
@@ -32,8 +35,9 @@ def board_obs(arm, b):
             s[o] += v if v is not None else c; ok[o] = True
     return {o: s[o] for o in s if ok[o]}
 print("## Cells (per-cell ratio; tolerance L 0.5 %, R 3 %)\n")
-for arm in ("C", "D", "CD"):
-    for ref in ("N", "human"):
+PAIRS = [(a, r) for a in ("C", "D", "CD") for r in ("N", "human")] + [("CD", "C"), ("CD", "D"), ("N", "human")]
+for arm, ref in PAIRS:
+    if True:
         for k, tol in (("L_loop_nH", 0.005), ("R_loop_mohm", 0.03)):
             rows = [r for r in A.cell_ratios(D, arm, ref, k) if not excl(arm, r[0])]
             groups = [("all", rows)] + [(t, [r for r in rows if r[2] == t]) for t in sorted({r[2] for r in rows})] \
@@ -47,8 +51,8 @@ for arm in ("C", "D", "CD"):
 print("\n## Board loss terms (sum per board; median ratio, 95 % CI resampling repositories)\n")
 print("| pair | observable | floor | boards | median ratio | 95 % CI | better / worse / noise (boards) | verdict | largest ratios |")
 print("|---|---|---|---|---|---|---|---|---|")
-for arm in ("C", "D", "CD"):
-    for ref in ("N", "human"):
+for arm, ref in PAIRS:
+    if True:
         for o, fl in FLOOR.items():
             pr = []
             for b in D.boards:
