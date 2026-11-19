@@ -167,3 +167,15 @@ before any result of this stage exists. `rule-quantize-guard-m3` is cancelled an
   earlier builds showed opens moving in both directions.
 - **Decision:** no harm, so PR the `rule-quantize` branch at Q (it supersedes bridge-ses-width; close #66). A failed
   guard holds the PR until the boards behind it are read.
+
+## Addendum 2026-11-19 (m5), before any run on this build: main 4c9e5293 (last-mile fix, #112)
+Main moved after `rule-quantize-guard-m4` was submitted. PR #112 changes the last mile's algorithm: `lastmile.close` re-queues a net
+only when its open count falls below its lowest so far, or once after a no-progress turn, and `repair._last_mile`
+rounds start with the nets no earlier round reached. (Its connectivity charge, PR #113's spoke tracks in the last
+mile's first round and the KiCad-call charges came in the same range.) Its bridge runs reach both changed paths: in the finished logs of the bridge and joint experiments that keep them, 20-60 % of boards hit the changed paths (drc-parse-ab-m3 4 of 20, rule-quantize-guard-m4 6 of 33, chan-gated-m3 12 of 20, xing-ext-m3 3 of 6 boards: a net given a turn after two turns without progress, or a round's deadline leaving later-named nets that the next round skipped). So outputs change on the new
+main, and by the project rule (algorithm changes migrate) the experiment moves.
+- Migrated: branch `rule-quantize-m5` (rebased on main 4c9e5293; the earlier branch is left as it
+  was). Arms: C = main 4c9e5293, Q = 790d11e8 (the guard-only stage's Q, rebased); harness 4c9e5293. Freerouting fork f1c41d3 (the pin, unchanged), counted work as before.
+- New experiment `rule-quantize-guard-m5` (owner `exp-rule-quantize-guard-m5`), new method ids. The runs of `rule-quantize-guard-m4` (33 jobs done) are on the
+  previous main and excluded from the decision; its jobs are cancelled.
+- Boards (after the trims already recorded above), arms, attempts, primary, guards and looks unchanged.
