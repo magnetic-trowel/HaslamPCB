@@ -138,3 +138,15 @@ on the new build.
 Approved by the user 2026-11-17 after the analysis of finished rows from older builds (explore-2611 results); written before any result of this build is read.
 - adafruit eyelights (no legal spot for the matrix; inert on -m) and bombarie tens (inert on -m) are dropped: 36 boards at k = 2. Boards with zero opens in the control stay as a harm guard.
 - **Extension (pre-registered):** if the result is unknown, extend with more matrix boards, not more seeds, since the between-board SD dominates (about 0.47 per board). Primary and decision rule unchanged.
+
+## Addendum 2026-11-19 (m5), before any run on this build: main 4c9e5293 (last-mile fix, #112)
+Main moved after `array-matrix-ab-m3` was submitted. PR #112 changes the last mile's algorithm: `lastmile.close` re-queues a net
+only when its open count falls below its lowest so far, or once after a no-progress turn, and `repair._last_mile`
+rounds start with the nets no earlier round reached. (Its connectivity charge, PR #113's spoke tracks in the last
+mile's first round and the KiCad-call charges came in the same range.) Its arms run the restart portfolio, whose attempts and final pass call the last mile; per-attempt logs are not kept, but in the finished logs of the bridge and joint experiments that keep them, 20-60 % of boards hit the changed paths (drc-parse-ab-m3 4 of 20, rule-quantize-guard-m4 6 of 33, chan-gated-m3 12 of 20, xing-ext-m3 3 of 6 boards), so affected boards are taken to be common here as well. So outputs change on the new
+main, and by the project rule (algorithm changes migrate) the experiment moves.
+- Migrated: branch `array-macros-gated-m5` (rebased on main 4c9e5293; the earlier branch is left as it
+  was). Both arms at kae and harness 437701b9, the commit before this addendum; 36 boards. Freerouting fork f1c41d3 (the pin, unchanged), counted work as before.
+- New experiment `array-matrix-ab-m5` (owner `exp-array-matrix-ab-m5`), new method ids. The runs of `array-matrix-ab-m3` (9 jobs done) are on the
+  previous main and excluded from the decision; its jobs are cancelled.
+- Boards (after the trims already recorded above), arms, attempts, primary, guards and looks unchanged.
