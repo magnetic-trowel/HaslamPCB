@@ -145,3 +145,20 @@ Job #108409 hit kaeq's 24 h job timeout. It ran polarfire SoM (473 footprints), 
 - **Why:** at 3x wall per charged second, a three-arm job on these boards passes 24 h.
 - **When they come back:** once max_work reliably stops Freerouting on big boards. They are resubmitted from that file (`kaeq submit --jobs`, owner exp-loop-win), with the same methods and harness unless the fix changes kae, in which case every arm reruns at the fixed commit.
 - The other 63 boards run as planned. The primary is read on the boards every arm finished, and the held boards are added when they run.
+
+## Addendum (2026-11-19, before any result is read): migrated to main 4c9e5293 (#112)
+#112 changes the last mile, which every arm runs:
+- `lastmile.close` no longer queues a net again after a turn that made no progress;
+- `repair._last_mile` rounds start with the nets no earlier round reached;
+- `parts()` is charged as work.
+
+Where the arms reach it:
+- R: its final pass, `kae.route.cli lastmile`.
+- The W arms: the bridge's and finishing stage's last mile, the windows' last mile, and the kept board's last mile.
+
+Of `loop-win`'s first finished board (librewave, all 12 runs), 4 of 10 joint runs logged a net kept two or three times with no change in its open count. The changed paths are therefore common, not confined to a few boards.
+
+What changes:
+- `loop-win` moves to a new commit (main 4c9e5293 merged into `loop-win-v6`) and a new experiment, `loop-win2`, with the same 69 boards, both seeds, six arms and rules.
+- `loop-win`'s queued jobs are cancelled. Its finished runs are not read.
+- The held big-board jobs are rewritten for `loop-win2` in `held-big-boards.jsonl`; the reasons in the 2026-11-18 addendum stand.
