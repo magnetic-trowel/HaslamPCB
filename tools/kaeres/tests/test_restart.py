@@ -441,3 +441,39 @@ def test_budget_line_reads_the_attempts_counted_work_report(tmp_path):
                    '{"seed": 0}\n')
     assert restart.budget_line(log)["wall_by_kind"] == {"exact_pair": 2.0}
     assert restart.budget_line(tmp_path / "missing") == {}
+
+
+def test_sigterm_stops_attempts_and_writes_the_summary_of_what_was_done(tmp_path):
+    """A job killed by its queue (SIGTERM): the running attempt gets it too, nothing new starts, nothing is judged,
+    and summary.json / KAE_WORK say what ran (killed), so a killed run is still diagnosable."""
+    import signal
+    import time
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "kicad-cli").write_text(FAKE_CLI)
+    (bin_ / "kicad-cli").chmod(0o755)
+    inp = tmp_path / "in" / "board.kicad_pcb"
+    inp.parent.mkdir()
+    inp.write_text("(kicad_pcb OPEN=5)\n")
+    work = tmp_path / "work"
+    work.mkdir()
+    # the method saves for 3 s after its shell has died (the shell does not exec it: `; true`)
+    attempt = ("python3 -c \"import signal,sys,time; signal.signal(signal.SIGTERM, lambda *a: (time.sleep(3), "
+               "print('attempt saved', flush=True), sys.exit(143))); print('attempt running', flush=True); "
+               "time.sleep(120)\"; true")
+    p = subprocess.Popen([sys.executable, str(RESTART), "--input", str(inp), "--output", str(tmp_path / "out.kicad_pcb"),
+                          "--time", "600", "--parallel", "2", "--first-s", "300", "--", attempt], cwd=work,
+                         env=dict(os.environ, PATH=f"{bin_}:{os.environ['PATH']}", KAE_KICAD_WRAP=""),
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    logs = [work / "restarts" / f"a{k}" / "log" for k in (0, 1)]
+    end = time.time() + 30
+    while time.time() < end and not all(lg.exists() and "running" in lg.read_text() for lg in logs):
+        time.sleep(0.2)
+    p.send_signal(signal.SIGTERM)       # to restart.py alone: it passes it on to the attempts' sessions
+    out, _ = p.communicate(timeout=60)
+    assert p.returncode == 143, out
+    summary = json.loads((work / "restarts" / "summary.json").read_text())
+    assert summary["killed"] and summary["attempts"] == 2
+    assert all(a["not_judged"] == "killed" and a["rc"] in (143, -15) for a in summary["attempt_log"])
+    assert all("attempt saved" in a["failure"]["log_tail"] for a in summary["attempt_log"])   # waited for it
+    assert any(line.startswith("KAE_WORK ") and '"killed": true' in line for line in out.splitlines())
