@@ -580,7 +580,43 @@ def estimate(row, ms):
     t = sum(method_timeout(m, row) for m in ms)
     mem *= max([method_cpus(m) for m in ms] + [1])  # parallel restarts each hold a copy of the board
     return dict(size_mb=round(s, 2), mem=f"{mem:.1f}G", disk=f"{int(100 + 10 * s)}M",
-                timeout=f"{int(min(24 * 3600, t + 3600 + 240 * s))}s")
+                timeout=f"{int(min(JOB_TIMEOUT_MAX_S, t + job_overhead_s(s)))}s")
+
+
+JOB_TIMEOUT_MAX_S = 24 * 3600   # kaeq's job timeout at most (a queued job holds its CPUs that long at worst)
+
+
+def job_overhead_s(size_mb):
+    """A job's wall time besides its methods' attempts on a board file of `size_mb` MB: preparing the
+    board, scoring, physics."""
+    return 3600 + 240 * size_mb
+
+
+def plan_chunks(need, cost, overhead_s):
+    """A board's (method, attempt) pairs as 2-5 jobs of about equal length (methods whole; more jobs
+    for ~8 h of methods each, at most 5), so no single job runs every method back to back and the run
+    has no long tail; each job prepares the board again, hence no more than 5. But never fewer jobs
+    than it takes for each to fit JOB_TIMEOUT_MAX_S with its methods' timeouts (cost, seconds per
+    method) and `overhead_s`: polarfire's three 39,000 s arms in one 24 h job (loop-win, 2026-11-17)
+    ran into the job timeout and kept nothing. Longest first, to the least loaded."""
+    k = max(1, min(len(need), CHUNKS_MAX, max(CHUNKS_MIN, math.ceil(sum(cost.values()) / (8 * 3600)))))
+    room = JOB_TIMEOUT_MAX_S - overhead_s
+    while k < len(need):
+        chunks, load = _fill(need, cost, k)
+        if max(load) <= room:
+            return [ch for ch in chunks if ch]
+        k += 1
+    chunks, _ = _fill(need, cost, k)
+    return [ch for ch in chunks if ch]
+
+
+def _fill(need, cost, k):
+    chunks, load = [[] for _ in range(k)], [0.0] * k
+    for m, att in sorted(need, key=lambda x: -cost[x[0]]):
+        i = load.index(min(load))
+        chunks[i].append((m, att))
+        load[i] += cost[m]
+    return chunks, load
 
 
 # ------------------------------------------------------------------ experiments
@@ -738,17 +774,8 @@ def cmd_exp_submit(a):
         need = missing(e, bid)
         if not need or (prepare_failed(e, bid) and not a.redo):
             continue
-        # a board's methods run as 2-5 jobs of about equal length (methods whole; more jobs for
-        # ~8 h of methods each, at most 5), so no single job runs every method back to back
-        # and the run has no long tail; each job prepares the board again, hence no more than 5
         cost = {m: method_timeout(ms[m], rows[bid]) for m, _ in need}
-        k = max(1, min(len(need), CHUNKS_MAX, max(CHUNKS_MIN, math.ceil(sum(cost.values()) / (8 * 3600)))))
-        chunks, load = [[] for _ in range(k)], [0.0] * k
-        for m, att in sorted(need, key=lambda x: -cost[x[0]]):   # longest first, to the least loaded
-            i = load.index(min(load))
-            chunks[i].append((m, att))
-            load[i] += cost[m]
-        chunks = [ch for ch in chunks if ch]
+        chunks = plan_chunks(need, cost, job_overhead_s(board_size_mb(rows[bid])))
         for i, ch in enumerate(chunks):
             est = estimate(rows[bid], [ms[m] for m, _ in ch])
             # each method with its attempt (ID@N): a job runs --attempt for bare ids, so a chunk

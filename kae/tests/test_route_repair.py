@@ -272,3 +272,95 @@ def test_thermal_all_keeps_every_pads_corridors_after_a_starved_thermal(monkeypa
     assert repair._thermal_plan(base, {}, "b.kicad_pcb", {"thermal_pads": "all"}, {}, {"p1"}) is base
     got = repair._thermal_plan(base, {}, "b.kicad_pcb", {"thermal_pads": ["p0"]}, {}, {"p0", "p1"})
     assert calls == [["p0", "p1"]] and got.plane_policy == "keep"
+
+
+def test_no_time_for_a_routed_round_still_draws_the_spokes(tmp_path, monkeypatch):
+    """With too little time left for a routed repair round (counted budgets: the router spends its
+    whole share) and no last mile, the starved thermals of round 0 still get their spoke tracks,
+    without the router, and the board with them is kept when KiCad's DRC finds it better."""
+    starved = dict(violations=[dict(type="starved_thermal", severity="error", items=[]) for _ in range(3)],
+                   unconnected_items=[])
+    clean = dict(violations=[], unconnected_items=[])
+    reports = [starved, clean]
+    monkeypatch.setattr(repair.drc, "run", lambda board, out, timeout=900, cache=True: reports.pop(0))
+    edits = []
+
+    def edit_routing(path, dst, **kw):
+        edits.append(kw)
+        if path != dst:
+            dst.write_text(path.read_text())
+        else:
+            dst.write_text(path.read_text() + "+spokes")
+        return {"routing": []}
+    monkeypatch.setattr(repair.pcbnew_io, "edit_routing", edit_routing)
+    monkeypatch.setattr(repair.pcbnew_io, "zone_fills", lambda p: {"zones": []})
+    spoke = dict(net="GND", layer="F.Cu", a=[0, 0], b=[1, 0], width=0.3)
+    monkeypatch.setattr(repair, "analyse", lambda *a, **k: dict(
+        widen={}, items=set(), nets=set(), spokes=[spoke], connect=set(), open={}, thermal=set(), unattributed=[]))
+    monkeypatch.setattr(repair.freerouting, "route", lambda *a, **k: (_ for _ in ()).throw(AssertionError("router")))
+    monkeypatch.setattr(repair, "clock_now", lambda: 1000.0)
+    inp, out = tmp_path / "in.kicad_pcb", tmp_path / "out.kicad_pcb"
+    inp.write_text("board")
+    out.write_text("routed")
+    rep = repair.loop(inp, out, tmp_path / "wd", SimpleNamespace(), {}, {}, deadline=1030.0, log=lambda m: None)
+    assert rep["final"]["errors"] == 0
+    assert rep["rounds"][1]["stopped"] == "time" and rep["rounds"][1]["spokes_only"]["kept"]
+    assert out.read_text() == "routed+spokes"
+    assert edits[-1] == dict(add=[spoke])
+    # below SPOKES_MIN_S nothing is tried
+    reports[:] = [starved]
+    out.write_text("routed")
+    rep = repair.loop(inp, out, tmp_path / "wd2", SimpleNamespace(), {}, {}, deadline=1010.0, log=lambda m: None)
+    assert rep["final"]["errors"] == 3 and "spokes_only" not in rep["rounds"][1] and out.read_text() == "routed"
+
+
+import pytest
+
+
+@pytest.mark.parametrize("joined", [1, 0])
+def test_spokes_with_no_routed_round_go_into_the_last_miles_first_round(tmp_path, monkeypatch, joined):
+    """With the last mile on, the spoke tracks no routed round had time for are added to the last
+    mile's first board before its joins and judged by that round's DRC (also when it joins
+    nothing); there is no spokes-only round taking the last mile's time."""
+    from kae.route import lastmile
+    starved = dict(violations=[dict(type="starved_thermal", severity="error", items=[]) for _ in range(3)],
+                   unconnected_items=[{"items": []}, {"items": []}])
+    after = dict(violations=[], unconnected_items=[{"items": []}] * (2 - joined))
+    reports = [starved]
+    monkeypatch.setattr(repair.drc, "run",
+                        lambda board, out, timeout=900, cache=True: reports.pop(0) if reports else after)
+    edits = []
+
+    def edit_routing(path, dst, **kw):
+        edits.append(kw)
+        dst.write_text(path.read_text() + ("+spokes" if kw.get("add") else ""))
+        return {"routing": []}
+    monkeypatch.setattr(repair.pcbnew_io, "edit_routing", edit_routing)
+    monkeypatch.setattr(repair.pcbnew_io, "zone_fills", lambda p: {"zones": []})
+    spoke = dict(net="GND", layer="F.Cu", a=[0, 0], b=[1, 0], width=0.3)
+    monkeypatch.setattr(repair, "analyse", lambda *a, **k: dict(
+        widen={}, items=set(), nets=set(), spokes=[spoke], connect=set(), open={}, thermal=set(), unattributed=[]))
+    monkeypatch.setattr(repair, "input_errors", lambda *a: {})
+    seen = []
+
+    def close(board, info, plan, fills, out, **kw):
+        seen.append(board.read_text())
+        if joined:
+            out.write_text(board.read_text() + "+join")
+        return dict(joined=joined, failed=0, ripped=[], added=["j"] * joined, nets={})
+    monkeypatch.setattr(lastmile, "close", close)
+    monkeypatch.setattr(lastmile, "open_nets", lambda rep: None)
+    monkeypatch.setattr(repair, "clock_now", lambda: 1000.0)
+    inp, out = tmp_path / "in.kicad_pcb", tmp_path / "out.kicad_pcb"
+    inp.write_text("board")
+    out.write_text("routed")
+    rep = repair.loop(inp, out, tmp_path / "wd", SimpleNamespace(), {}, {"last_mile": True}, deadline=1100.0,
+                      log=lambda m: None)
+    assert seen[0] == "routed+spokes"                 # the spokes were on the board the last mile joined on
+    assert sum(1 for e in edits if e.get("add")) == 1   # once: later rounds build on that board
+    assert rep["rounds"][1]["stopped"] == "time" and rep["rounds"][1]["spokes_pending"] == 1
+    assert not any("spokes_only" in r for r in rep["rounds"])
+    lm = next(r for r in rep["rounds"] if r["round"] == "lm1")
+    assert lm["spokes"] == 1 and lm["kept"]
+    assert rep["final"]["errors"] == 0 and rep["final"]["unconnected"] == 2 - joined
+    assert out.read_text() == "routed+spokes" + ("+join" if joined else "")
