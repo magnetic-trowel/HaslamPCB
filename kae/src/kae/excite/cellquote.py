@@ -30,10 +30,15 @@ PITCH = 0.125                # mm: the quote's raster (4x fewer cells than the e
 MAX_CELLS = 6e5              # raster budget of one quote window (cells x copper layers): the pitch doubles past it
 
 
-def _physical(z, f_fund, f_edge):
+def _LR(info, f_fund, f_edge):
+    """The window's (L_loop, R_loop) as the evaluator takes them (kae.excite.hotloop): the copper's stored-energy
+    inductance at the edge band with the capacitors at their edge model (ESR + ESL), and its dissipation at f_sw."""
+    return info["lcu"][f_edge], info["rcu"][f_fund]
+
+
+def _physical(L, R):
     """A window value a loop can have: 0 < L < 1 uH and 0 < R < 100 ohm."""
-    L = z[f_edge].imag / (2 * math.pi * f_edge)
-    return 0 < L < 1e-6 and 0 < z[f_fund].real < 100
+    return 0 < L < 1e-6 and 0 < R < 100
 
 
 def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max_cells=MAX_CELLS, log=print, only=None):
@@ -84,34 +89,36 @@ def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max
         f_fund = P[s.name]["f_sw"].typ
         f_edge = O.gentle_f(s)
         f_edge = max(f_edge, 2 * f_fund) if f_fund >= f_edge else f_edge
-        box = HL._pad_box(bm0, HL.window_pads(bd, s, o, [f_fund, f_edge]))
+        box = HL._pad_box(bm0, HL.window_pads(bd, s, o, [f_fund, f_edge], edge=f_edge))
         if box is None:
             rows.append(dict(row, state="not_computed", why="no pad of the cell in the copper model"))
             continue
-        margin, z, grown = margin0, None, 0
+        margin, z, grown, info = margin0, None, 0, None
         while True:
             win = (max(bw[0], box[0] - margin), max(bw[1], box[1] - margin),
                    min(bw[2], box[2] + margin), min(bw[3], box[3] + margin))
             pc, _ = coarsen_pitch(win, pitch, n_cu, max_cells)
-            z, _, _ = HL._solve_window(path, b, bd, s, o, win, pc, nsub, fills, [f_fund, f_edge], skin, lambda *a: None)
+            z, info, _ = HL._solve_window(path, b, bd, s, o, win, pc, nsub, fills, [f_fund, f_edge], skin, lambda *a: None,
+                                          edge=f_edge)
             # a window that leaves the loop open, or reads a non-physical share (the return it cut off carried
             # part of the pattern: esp32's U6 read R = -61 mOhm in a 29 x 20 mm window), grows like the evaluator's
-            if (z is not None and _physical(z, f_fund, f_edge)) or win == tuple(bw) or grown >= HL.MAX_GROW:
+            if (z is not None and _physical(*_LR(info, f_fund, f_edge))) or win == tuple(bw) or grown >= HL.MAX_GROW:
                 break
             margin, grown = margin * 2, grown + 1
         if z is None:
             rows.append(dict(row, state="open", why=f"the loop does not close in its window grown {grown} times"))
             continue
-        L = z[f_edge].imag / (2 * math.pi * f_edge)
+        # the evaluator's L_loop and R_loop (kae.excite.hotloop): stored energy at the caps' edge model, dissipation
+        L, R = _LR(info, f_fund, f_edge)
         Pc = P[s.name]
-        bad = unphysical(L, z[f_fund].real, Pc["V"].typ if "V" in Pc else 0.0, Pc["I"].typ if "I" in Pc else 0.0, f_edge)
+        bad = unphysical(L, R, Pc["V"].typ if "V" in Pc else 0.0, Pc["I"].typ if "I" in Pc else 0.0, f_edge)
         if bad:
             rows.append(dict(row, state="invalid", why=bad, L_raw_nH=round(L * 1e9, 4),
-                             R_raw_mohm=round(z[f_fund].real * 1e3, 4), window=[round(x, 3) for x in win], pitch=pc))
+                             R_raw_mohm=round(R * 1e3, 4), window=[round(x, 3) for x in win], pitch=pc))
             continue
-        rows.append(dict(row, state="ok", L_nH=round(L * 1e9, 4), R_mohm=round(z[f_fund].real * 1e3, 4),
+        rows.append(dict(row, state="ok", L_nH=round(L * 1e9, 4), R_mohm=round(R * 1e3, 4),
                          window=[round(x, 3) for x in win], pitch=pc, grown=grown, seconds=round(time.time() - t1, 1)))
-        log(f"quote {s.name}: L {L * 1e9:.3f} nH, R {z[f_fund].real * 1e3:.3f} mOhm at {pc:g} mm ({time.time() - t1:.1f}s)")
+        log(f"quote {s.name}: L {L * 1e9:.3f} nH, R {R * 1e3:.3f} mOhm at {pc:g} mm ({time.time() - t1:.1f}s)")
     return rows
 
 
