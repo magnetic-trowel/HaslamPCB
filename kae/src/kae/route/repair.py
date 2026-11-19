@@ -1120,6 +1120,7 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
     # no bound on the open connections or rounds: joins stop at their deadline, rounds after FAILS in
     # a row not better (a bound of 40 open skipped transistorfet z280's last mile, 2 minutes unused)
     fails = 0
+    reached = {}     # net -> the last round whose close() gave it a turn (lastmile.round_robin)
     for j in range(1, AUTO_ROUNDS + 1):
         rip = not (free_first and j == 1)
         # with time for the nested reroute, a rip-up keeps its joins and the reroute takes the
@@ -1149,7 +1150,9 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
             # bounded by time, not by a count of joins (kata0510 rp2040: 39 open connections
             # behind 0.4 mm-pitch escapes took 40 joins, the old cap, in 20 s); the round keeps
             # time for its DRC and the rounds after it
-            r = lastmile.close(staged, info, plan, fills, cand, nets=lastmile.open_nets(cur_rep), sev=sev,
+            # nets no round reached go first: a round's deadline must not leave the same tail every time
+            r = lastmile.close(staged, info, plan, fills, cand, sev=sev,
+                               nets=lastmile.round_robin(lastmile.open_nets(cur_rep), reached),
                                fixed=fixed, log=log, soft=soft, rip=rip, txn=not greedy, max_joins=None,
                                deadline=clock_now() + max(LAST_MILE_MIN_S / 2, 0.5 * (left() - LAST_MILE_MIN_S)))
         except Exception as e:  # noqa: BLE001 - the repaired board stays
@@ -1159,6 +1162,7 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
             break
         rec.update(joined=r["joined"], failed=r["failed"], added=len(r["added"]), ripped=len(r["ripped"]),
                    ripped_soft=len(r.get("ripped_soft") or ()))
+        reached.update((n, j) for n in r.get("reached") or ())
         soft -= set(r["ripped"])
         if not r["joined"] and with_spokes:
             shutil.copy2(staged, cand)   # nothing joined: the round's board is the spokes alone

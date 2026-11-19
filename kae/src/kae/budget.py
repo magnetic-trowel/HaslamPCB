@@ -84,6 +84,11 @@ RATES = {
                                 # on 430 and 821 pins, 4.6e-7 on 1,184 dense pins, 2026-11-14). 0.054 s per
                                 # search and nothing per cell before: a final last mile took 2.5x its charge on
                                 # 430 pins and 6.5x on 821 (0.13 and 0.34 s per search)
+    "lastmile_part_nodes": 2.5e-4,  # one copper item of a net in one last-mile connectivity pass (lastmile.parts:
+                                # its STRtree and touching pairs; profiled 2.3e-4 s on a 2-layer board with pours,
+                                # 3.2e-4 on a 6-layer one, 1.3-1.6e-4 on synthetic tracks only, 2026-11-18).
+                                # Uncharged before: a net re-joined 205 times grew its copper
+                                # until a pass took most of a turn's 50 wall s, to the run's wall ceiling
     # the critical-copper grid router (kae.route.critical_grid; the joint module stage, kae.route.critical),
     # calibrated 2026-11-11 on three boards (178-814 pads, 6 module-stage runs in time mode; shared host, so less
     # exact than the above). Before it was charged, a module stage in work mode cost no budget at all
