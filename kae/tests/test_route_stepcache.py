@@ -65,7 +65,10 @@ def _writer(args):
 
 def test_concurrent_writers_leave_one_whole_entry(cache):
     key = "cd" * 32
-    with multiprocessing.get_context("fork").Pool(8) as pool:
+    # spawn, not fork: by now earlier tests in this process may have started numba, OpenMP or BLAS threads, and a
+    # child forked while one of them holds a lock waits on it forever (the kae suite at 0e7e4eec hung here, at
+    # 91 %, with its CPU idle)
+    with multiprocessing.get_context("spawn").Pool(8) as pool:
         won = pool.map(_writer, [(str(cache), key, i) for i in range(16)])
     assert sum(won) == 1
     meta = stepcache.get(key)
