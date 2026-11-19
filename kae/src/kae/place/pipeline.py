@@ -1142,7 +1142,7 @@ def _kicad_agrees(P, st, i, spot, board_path):
         write(board_path, d / "moved.kicad_pcb", {P.parts[i].uuid: st.pose(i)})
         staged = kdrc.stage_board(d / "moved.kicad_pcb", board_path, d / "drc")
         kdrc.promote_severities(staged, list(FIXED_ERROR_CHECKS))
-        bad = collections.Counter(v["type"] for v in kicad_violations(kdrc.run(staged, staged.parent / "drc.json", timeout=300))
+        bad = collections.Counter(v["type"] for v in kicad_violations(kdrc.run(staged, staged.parent / "drc.json"))
                                   if i in violation_parts(P, st, v))
         return (not bad), (", ".join(f"{k} {n}" for k, n in sorted(bad.items())) or "clean")
     except Exception as e:      # noqa: BLE001 - no verdict: the part keeps the overhang only

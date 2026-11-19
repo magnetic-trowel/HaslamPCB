@@ -212,7 +212,7 @@ class Session:
         from .critical_modules import Module
         with tempfile.TemporaryDirectory(prefix="kae-spokes-") as d:
             staged = drc.stage_board(self.path, self.path, Path(d))
-            rep = drc.run(staged, Path(d) / "drc.json", timeout=600)
+            rep = drc.run(staged, Path(d) / "drc.json")
             starved = [v for v in drc.errors(rep) if v.get("type") == "starved_thermal"]
             if not starved:
                 return []
@@ -396,7 +396,7 @@ class Session:
         self.tightened = tighten(self, fills=fills, opts=opts, log=self.log)
         return self.tightened
 
-    def tighten_gate(self, workdir, rounds=3, timeout=900):
+    def tighten_gate(self, workdir, rounds=3, timeout=None):
         """KiCad's DRC on the tightened copper (the stage boundary's gate, routing-stages.md
         P5): every error that names tightened copper restores that copper's groups
         (critical_taut's refuse, which settles the physics guard again); repeated while

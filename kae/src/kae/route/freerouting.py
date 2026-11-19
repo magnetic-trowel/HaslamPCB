@@ -19,13 +19,12 @@ logged as unknown and ignored.
 """
 import re
 
-from kae import budget
+from kae import budget, proc
 import fcntl
 import json
 import os
 import re
 import shutil
-import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -428,22 +427,6 @@ def _charge(run, dsn, pins):
 
 def route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin_s=None, hard_s=None,
           log_path=None):
-    """_route_budgeted, booked to the ledger's span "freerouting" (kae.budget.span), with an event for
-    a run that hit its job timeout or was killed."""
-    with budget.span("freerouting"):
-        run = _route_budgeted(dsn, ses, workdir, passes=passes, settings=settings, budget_s=budget_s,
-                              margin_s=margin_s, hard_s=hard_s, log_path=log_path)
-        rep = run.report or {}
-        if run.timed_out:
-            budget.event("killed", what="freerouting", limit_s=hard_s, seconds=run.seconds)
-        elif rep.get("final_state") == "TIMED_OUT" or rep.get("autorouter_stop") == "TIMED_OUT":
-            budget.event("timeout", what="freerouting job_timeout", limit_s=rep.get("job_timeout_s"),
-                         seconds=run.seconds)
-        return run
-
-
-def _route_budgeted(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin_s=None, hard_s=None,
-                    log_path=None):
     """_route (below). In work mode (kae.budget) the budget becomes Freerouting's own work budget
     (autorouter.max_work: it stops cleanly before the pass that would start past it, a counted stop
     the same on any host) less its start-up, and the optimizer gets a pass cap; a build without that
@@ -476,7 +459,7 @@ def _route_budgeted(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.
         cap = max(1, int(budget_s / max(1e-9, rates["fr_pass_pin2"] * size)))
         cap = min(passes, cap) if passes else cap
     settings.setdefault("optimizer.max_passes", str(FR_OPT_MAX_PASSES))
-    wall = budget.wall_timeout(budget_s)
+    wall = min(budget.CEILING_FACTOR * budget_s, budget.wall_left())   # its job timeout: 4x its budget, at most
     run = _route(dsn, ses, workdir, passes=cap, settings=settings, budget_s=wall, margin_s=30.0,
                  hard_s=wall + GRACE_S, log_path=log_path)
     run.report["passes_done"], run.report["passes_cap"] = len(PASS_DONE.findall(run.log or "")), cap
@@ -512,7 +495,7 @@ def _route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin
     # the wait for a slot is part of the caller's budget: Freerouting gets what is left of it,
     # and after the budget it runs without a slot (a wait without end would hang the caller)
     # (work mode: a wait costs no budget, so it waits as long as the wall ceiling allows)
-    with budget.span("slot_wait"):
+    with budget.span("freerouting-slot-wait"):
         slot = _Slot(timeout=max(1.0, budget_s - margin - 5.0)).__enter__()
     waited = slot.waited or 0.0
     if slot.gave_up:
@@ -527,18 +510,13 @@ def _route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin
     argv = _argv(dsn, ses, user, result, job_s, passes, settings)
     try:
         t0 = time.monotonic()
-        p = subprocess.Popen(argv, cwd=workdir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                             errors="replace", env=_env(), start_new_session=True)
-        timed_out = False
+        timed_out, rc = False, None
         try:
-            out, _ = p.communicate(timeout=hard)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            try:
-                os.killpg(p.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            out, _ = p.communicate()
+            r = proc.run("freerouting", argv, timeout=hard, cwd=workdir, stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, errors="replace", env=_env())
+            out, rc = r.stdout, r.returncode
+        except subprocess.TimeoutExpired as e:
+            timed_out, out = True, e.stdout
     finally:
         slot.__exit__()
     dt = time.monotonic() - t0
@@ -551,8 +529,8 @@ def _route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin
         pass
     _keep_raw(ses, out, result)
     if key:
-        _store(key, p.returncode, dt, timed_out, out or "", report, ses, result, workdir, job_s)
-    return Run(rc=p.returncode, ses=ses if ses.exists() and ses.stat().st_size > 0 else None, log=out or "",
+        _store(key, rc, dt, timed_out, out or "", report, ses, result, workdir, job_s)
+    return Run(rc=rc, ses=ses if ses.exists() and ses.stat().st_size > 0 else None, log=out or "",
                seconds=round(dt, 2), timed_out=timed_out,
                report=dict(_summary(report, out or ""), slot_wait_s=slot.waited, job_timeout_s=round(job_s, 1),
                           **({"slot_gave_up": True} if slot.gave_up else {})),

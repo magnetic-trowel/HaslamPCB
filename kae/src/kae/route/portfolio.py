@@ -38,12 +38,13 @@ import argparse
 import json
 import os
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
+
+from kae import proc
 
 GRACE_S = 30.0       # an attempt is killed this long after its own budget (it writes on its deadline)
 MARGIN_S = 15.0      # left at the end of the run to copy the winner
@@ -146,8 +147,7 @@ def run(inp, out, seed=0, time_s=1800.0, parallel=4, first_s=120.0, growth=2.0,
         o, r = d / "board.kicad_pcb", d / "report.json"
         argv = [sys.executable, "-m", mod, "route", str(inp), str(o), "--seed", str(s),
                 "--time", f"{b:.0f}", "--report", str(r), *rargs, *extra]
-        p = subprocess.Popen(argv, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
-                             start_new_session=True)
+        p = proc.start(argv, timeout=b + GRACE_S, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT)
         running[p] = dict(k=k, seed=s, budget=round(b), out=o, report=r, t=time.monotonic(), router=ri)
         log(f"[portfolio] start #{k} {mod} seed {s} budget {b:.0f}s")
         k += 1
@@ -156,16 +156,6 @@ def run(inp, out, seed=0, time_s=1800.0, parallel=4, first_s=120.0, growth=2.0,
             launched_in_wave = 0
             wave_budget *= growth
         return True
-
-    def stop(p):
-        try:
-            os.killpg(p.pid, signal.SIGTERM)
-            p.wait(timeout=10)
-        except (ProcessLookupError, subprocess.TimeoutExpired):
-            try:
-                os.killpg(p.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
 
     while len(running) < parallel and launch():
         pass
@@ -176,7 +166,7 @@ def run(inp, out, seed=0, time_s=1800.0, parallel=4, first_s=120.0, growth=2.0,
             a = running[p]
             if p.poll() is None:
                 if time.monotonic() - a["t"] > a["budget"] + GRACE_S:
-                    stop(p)
+                    proc.stop(p)
                 else:
                     continue
             del running[p]
@@ -202,7 +192,7 @@ def run(inp, out, seed=0, time_s=1800.0, parallel=4, first_s=120.0, growth=2.0,
             # a later-listed router finished clean first: let the first-listed router's attempts still
             # running finish (they may be clean too, with better physics), stop the others, launch none
             for p in [q for q in running if running[q]["router"] > 0]:
-                stop(p)
+                proc.stop(p)
                 a = running.pop(p)
                 a.update(rank=(INF, INF, a["router"]), rc=p.returncode, stopped=True,
                          seconds=round(time.monotonic() - a["t"], 1), has_board=False)
@@ -212,7 +202,7 @@ def run(inp, out, seed=0, time_s=1800.0, parallel=4, first_s=120.0, growth=2.0,
                 continue
         if clean or failed:
             for p in list(running):
-                stop(p)
+                proc.stop(p)
                 a = running.pop(p)
                 a.update(rank=(INF, INF, a["router"]), rc=p.returncode, stopped=True,
                          seconds=round(time.monotonic() - a["t"], 1), has_board=False)
@@ -225,7 +215,7 @@ def run(inp, out, seed=0, time_s=1800.0, parallel=4, first_s=120.0, growth=2.0,
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(best["out"], out)
         if final and best["rank"][:2] != (0, 0) and not failed:
-            fin_rec = final_pass(final, inp, best, out, wd, seed * 1000 + k, end, rank, stop, log)
+            fin_rec = final_pass(final, inp, best, out, wd, seed * 1000 + k, end, rank, log)
             if fin_rec.get("kept"):
                 best = dict(best, out=fin_rec["out"], report=fin_rec["report"], rank=fin_rec["rank"] + best["rank"][2:],
                             final=True)
@@ -248,7 +238,7 @@ def run(inp, out, seed=0, time_s=1800.0, parallel=4, first_s=120.0, growth=2.0,
     return report
 
 
-def final_pass(module, inp, best, out, wd, seed, end, rank, stop, log=print):
+def final_pass(module, inp, best, out, wd, seed, end, rank, log=print):
     """The final last mile on the kept board (`module` lastmile: bridge.last_mile_only), with all
     the time left up to `end` however late the kept attempt ended (at least FINAL_MIN_S when the
     run overran). Its board replaces `out` only when `rank` puts it before the kept one. Returns its
@@ -261,11 +251,11 @@ def final_pass(module, inp, best, out, wd, seed, end, rank, stop, log=print):
             "--time", f"{b:.0f}", "--report", str(r)]
     log(f"[portfolio] final last mile on #{best['k']}'s board: seed {seed} budget {b:.0f}s")
     t = time.monotonic()
-    p = subprocess.Popen(argv, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT, start_new_session=True)
+    p = proc.start(argv, timeout=b + GRACE_S, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT)
     try:
         p.wait(timeout=b + GRACE_S)
     except subprocess.TimeoutExpired:
-        stop(p)
+        proc.stop(p)
     try:
         rep = json.loads(r.read_text())
     except (OSError, ValueError):

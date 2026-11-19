@@ -26,11 +26,12 @@ import difflib
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from kae import proc
 
 # ---------------------------------------------------------------- vocabulary
 # Names come from kae/board/dru_vocab/<label>.json, generated from KiCad's source and
@@ -99,7 +100,7 @@ def use_vocab(label: str | None = None) -> str:
 
 
 def kicad_version(cli: list) -> str:
-    r = subprocess.run([*cli, "version"], capture_output=True, text=True, timeout=120)
+    r = proc.run("kicad-version", [*cli, "version"], capture_output=True, text=True, timeout=120)
     return r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
 
 
@@ -675,8 +676,8 @@ def _kicad_accepts(cli: list, rules_text: str, tmp: Path, board: Path | None = N
         sentinel = _SENTINEL_RULE
     (d / "probe.kicad_dru").write_text(rules_text.rstrip("\n") + "\n" + sentinel + "\n")
     out = d / "drc.json"
-    r = subprocess.run([*cli, "pcb", "drc", "--format", "json", "-o", str(out), str(d / "probe.kicad_pcb")],
-                       capture_output=True, text=True, timeout=timeout)
+    r = proc.run("kicad-drc", [*cli, "pcb", "drc", "--format", "json", "-o", str(out), str(d / "probe.kicad_pcb")],
+                 capture_output=True, text=True, timeout=timeout)
     if not out.exists():
         raise RuntimeError(f"kicad-cli wrote no report (rc {r.returncode}): {r.stderr.strip()[-400:]}")
     rep = json.loads(out.read_text())

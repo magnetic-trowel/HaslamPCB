@@ -38,6 +38,8 @@ import time
 import uuid
 from pathlib import Path
 
+from kae import proc
+
 SCHEMA = 1
 WD = "<WD>"          # the work directory's path in keys and stored files
 _real_monotonic = time.monotonic
@@ -125,7 +127,7 @@ def kicad_version(prefix):
     f = root() / "versions" / f"kicad-{k}" if root() else None
     if f and f.exists():
         return f.read_text().strip()
-    r = subprocess.run([*prefix, "version"], capture_output=True, text=True, timeout=300)
+    r = proc.run("kicad-version", [*prefix, "version"], capture_output=True, text=True)
     v = (r.stdout or "").strip().splitlines()[-1:] or [""]
     v = v[0]
     if r.returncode != 0 or not v:
@@ -603,7 +605,7 @@ def run(step, argv, *, inputs, outputs, wd, timeout, tool, cwd=None):
     key = make_key(step, parts)
     t0 = _real_monotonic()
     with reading(key) as meta:
-        if meta is not None and meta.get("seconds", 0) <= timeout:
+        if meta is not None and (timeout is None or meta.get("seconds", 0) <= timeout):
             side = {n: wd / n for n in meta.get("side", [])}
             try:
                 restore(meta, {**outputs, **{f"side:{n}": p for n, p in side.items()}}, wd)
@@ -615,7 +617,7 @@ def run(step, argv, *, inputs, outputs, wd, timeout, tool, cwd=None):
     before = _listing(wd)
     t1 = _real_monotonic()
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=cwd, errors="replace")
+        r = proc.run(step, argv, capture_output=True, text=True, timeout=timeout, cwd=cwd, errors="replace")
     except subprocess.TimeoutExpired:
         charge(step, False, _real_monotonic() - t1, _real_monotonic() - t1, key, cacheable=False)
         raise

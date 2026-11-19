@@ -216,7 +216,7 @@ def _kicad_loop(a, res, t0, write, end=None):
             left = limit - clock_now()
             try:
                 report = kdrc.run(staged, Path(staged).parent / "drc.json",
-                                  timeout=max(10.0, min(600.0, (left - 5.0) if it == 0 else 0.5 * left)))
+                                  timeout=max(10.0, (left - 5.0) if it == 0 else 0.5 * left))
                 err = None
                 break
             except kdrc.DrcError as e:
@@ -339,7 +339,7 @@ def _probe_select(a, board, kw, t0, write):
                 # count the routed board's opens with kicad-cli instead
                 d = c["out"].parent / "drc"
                 staged = kdrc.stage_board(str(routed), a.input, str(d))
-                unc = kdrc.summary(kdrc.run(staged, d / "drc.json", timeout=300))["unconnected"]
+                unc = kdrc.summary(kdrc.run(staged, d / "drc.json"))["unconnected"]
             return unc
         except Exception as e:      # noqa: BLE001 - a probe that fails leaves the candidate unranked
             _log(f"probe of seed {c['seed']} failed: {type(e).__name__}: {e}")

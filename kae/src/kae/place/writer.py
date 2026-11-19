@@ -33,6 +33,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from kae import proc
 from kae.board import kicad_file, sexpr, transform
 
 _TOK = re.compile(r'"(?:[^"\\]|\\.)*"|\(|\)|[^\s()"]+')
@@ -273,7 +274,7 @@ def pcbnew_ready(timeout=60):
         ok = False
         for c in cands:
             try:
-                r = subprocess.run([c, "-c", "import pcbnew"], capture_output=True, timeout=timeout)
+                r = proc.run("pcbnew-probe", [c, "-c", "import pcbnew"], capture_output=True, timeout=timeout)
                 ok = r.returncode == 0
             except (OSError, subprocess.TimeoutExpired):
                 ok = False

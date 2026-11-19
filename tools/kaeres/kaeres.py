@@ -831,8 +831,24 @@ def _limit_as():
         pass
 
 
+def deadline_env(env=None, timeout=None):
+    """(env, timeout) under this job's KAE_DEADLINE (epoch s; kaeq sets it): the timeout no later than it,
+    and the child's KAE_DEADLINE that timeout from now less 10 % (at most 30 s). The same contract as
+    kaebench.deadline and kae.proc: no inner layer outlives an outer one."""
+    env = dict(os.environ if env is None else env)
+    d = os.environ.get("KAE_DEADLINE")
+    if d:
+        left = max(1.0, float(d) - time.time())
+        timeout = left if timeout is None else min(float(timeout), left)
+    if timeout is not None:
+        env["KAE_DEADLINE"] = f"{time.time() + timeout - min(30.0, 0.1 * timeout):.0f}"
+    return env, timeout
+
+
 def run_logged(cmd, log, env, timeout):
-    """Run cmd with output appended to log; returns (rc, timed_out)."""
+    """Run cmd with output appended to log; returns (rc, timed_out). The timeout is no later than
+    this job's KAE_DEADLINE, which the command inherits (less a margin; kaebench.tools.deadline_env)."""
+    env, timeout = deadline_env(env, timeout)
     with open(log, "ab") as f:
         f.write(f"\n$ {' '.join(map(str, cmd))}\n".encode())
         f.flush()

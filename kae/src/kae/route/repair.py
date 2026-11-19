@@ -1048,7 +1048,7 @@ def input_errors(input_path, wd, deadline):
         d = Path(wd) / "input_drc"
         try:
             rep = drc.run(drc.stage_board(p, p, d), d / "drc.json",
-                          timeout=max(10, min(600, deadline - clock_now() - 60)))
+                          timeout=max(10, deadline - clock_now() - 60))
             _BASE[key] = drc.summary(rep)["by_type"]
         except (drc.DrcError, OSError):
             return {}

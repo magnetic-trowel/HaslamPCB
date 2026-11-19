@@ -570,7 +570,7 @@ class KaeStages:
         d = self.wd / f"it{it:02d}" / "drc"
         staged = D.stage_board(lay.board, self.input, d)
         try:
-            rep = D.run(staged, d / "drc.json", timeout=int(self.opts.get("drc_timeout", 600)))
+            rep = D.run(staged, d / "drc.json", timeout=self.opts.get("drc_timeout"))
         except D.DrcError as e:
             self.log(f"DRC failed: {e}")
             rep = {"violations": [], "unconnected_items": [], "error": str(e)}

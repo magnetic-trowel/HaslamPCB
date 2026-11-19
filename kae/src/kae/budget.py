@@ -116,6 +116,8 @@ RATES = {
     "seconds": 1.0,             # work already measured in nominal seconds by the caller
 }
 CEILING_FACTOR = 4.0    # a run past CEILING_FACTOR x its nominal budget in wall time has failed
+HARD_FACTOR = 5.0       # ... and its process must end by HARD_FACTOR x: the time between the two finishes it
+WRAP_SHARE = 0.2        # under a parent's deadline (KAE_DEADLINE), the share of the time to it kept for finishing
 
 _lock = threading.Lock()
 
@@ -137,6 +139,8 @@ class Clock:
         self.wall_by_kind = defaultdict(float)
         self.last = self.t0
         self.ceiling = None                  # wall seconds after which now() is infinite (work mode)
+        d = os.environ.get("KAE_DEADLINE")   # the parent's hard deadline (epoch seconds; kae.proc sets it)
+        self.hard = float(d) if d else None  # epoch seconds by which this process must have ended
         self.ceiling_hit = False
         self.ceiling_where = None            # the span open when the ceiling was first hit
         self.ledger = defaultdict(_row)      # span path ("a/b") -> totals (span(), _row)
@@ -414,9 +418,14 @@ def set_mode(mode, rates=None):
 
 
 def set_ceiling(budget_s):
-    """Fail the run (now() infinite) past CEILING_FACTOR x `budget_s` wall seconds from the clock's
-    start; work mode only, no effect in time mode."""
-    clock().ceiling = CEILING_FACTOR * float(budget_s)
+    """The run's wall limits for a budget of `budget_s`, from the clock's start: its hard deadline
+    (HARD_FACTOR x, or the parent's KAE_DEADLINE if sooner), and the ceiling past which the run has
+    failed and now() is infinite (work mode: CEILING_FACTOR x, or sooner, leaving WRAP_SHARE of the
+    time to the hard deadline for finishing)."""
+    c = clock()
+    start = time.time() - c.wall()
+    c.hard = min(c.hard or math.inf, start + HARD_FACTOR * float(budget_s))
+    c.ceiling = min(CEILING_FACTOR * float(budget_s), (1.0 - WRAP_SHARE) * (c.hard - start))
 
 
 def start_run(budget_s):
@@ -464,14 +473,19 @@ class Deadline:
         return now(self.kind) - self.t0
 
 
-def wall_timeout(seconds):
-    """Wall seconds to allow a subprocess a caller gave `seconds` of budget: the same (time mode), or
-    what is left to the ceiling, at least an hour without one (work mode): a timeout read from the
-    budget would kill a slow step on a busy host, and the budget does not run while it waits."""
-    c = clock()
-    if c.mode == "time":
-        return seconds
-    return max(60.0, c.ceiling - c.wall()) if c.ceiling is not None else max(3600.0, float(seconds))
+def wall_left():
+    """Wall seconds until this process's hard deadline (set_ceiling, KAE_DEADLINE), inf without one."""
+    h = clock().hard
+    return math.inf if h is None else h - time.time()
+
+
+def wall_timeout(seconds=None):
+    """Wall seconds to allow a subprocess (None: no limit). Time mode: `seconds`, if given; work mode:
+    the budget does not run while a subprocess waits on a busy host, so no limit of its own. Either way
+    no later than the hard deadline (wall_left)."""
+    s = float(seconds) if seconds is not None and clock().mode == "time" else math.inf
+    s = min(s, wall_left())
+    return None if s == math.inf else max(0.01, s)
 
 
 def cpu_now():
