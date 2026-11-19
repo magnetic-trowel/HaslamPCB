@@ -214,3 +214,68 @@ The suite counts as passing. The same reading applies to #109357 (60b2d722) and 
 - Experiment `hotloop-sw-c2-60b2d72` at 60b2d722, 60 boards.
 - Routing: 120 kaeq jobs #110095–#110214, owner hsw, timed class, priority 5, `--cpus 4`, `--mem` at 0.75 × the kaeres estimate.
 - Physics follows once the routed boards exist, as for the other arms: `--scope losses`, each run's DRC, `OPSRC=compiled-0833f61`.
+
+## After the first routing and physics (2026-11-19)
+
+**C′ and CD′ routing** (`hotloop-sw-c2-60b2d72`): 60 of 60 valid in each arm.
+
+| arm | cp1 | completion | errors / board | unconnected (sum) | invalid |
+|---|---|---|---|---|---|
+| N (908e21ff) | 0.483 | 0.999 | 14.15 | 6 | 0 |
+| D (908e21ff) | 0.483 | 0.999 | 14.07 | 8 | 0 |
+| C′ | 0.517 | 0.999 | 14.03 | 7 | 0 |
+| CD′ | 0.517 | 0.999 | 13.78 | 8 | 0 |
+
+- C′ against N on cp1: +0.033, 95 % CI [−0.033, 0.100], McNemar p 0.63, flips +3/−1. The same holds for CD′ against N and for CD′ against D.
+- danielmcmillan and giacobot are no longer losses. The one loss left is julianschuler (one `starved_thermal`). The gains are chl33, hpvdt and stephendade, as explained above.
+- Physics for C′ and CD′ is queued.
+
+**Identity re-runs** (`hotloop-sw-fix-2f80d85`, informative only): on the three identity boards, in both C and CD, the outputs differ from 908e21ff only in uuids and item order. Sorted geometry is identical, with the same item counts. Scores are identical too. On danielmcmillan the 2f80d856 outputs are valid and clean.
+
+**Clear overrun** (profiles #109354, forestierr, and #109355, danielmcmillan; `kae.route.cli clear` at 908e21ff under counted work, py-spy):
+- *forestierr:* wall 1,164 s against 23.7 s charged. 97 % of the main thread is `hotloop.quotes`, and 95 % of that is the cell-window field solve (`cellquote.quote_cells` → `_solve_window` → `solve.potentials_many`). Two quotes (before and after) on one boost cell took about 9 min each.
+- *danielmcmillan:* wall 526 s against 124 s charged. `quotes` is 59 % of the active time, again 91 % `potentials_many`, and DRC and the repair router make up the rest.
+- *Cause:* the quote solves charge no counted work. The clear pass's work deadline (`--clear-s` 360) never sees them, and its wall time follows the window solve's size.
+- *Proposed cap, not applied to this run:*
+  1. Charge the window solve as a counted-work unit, its unknowns times the solve passes, calibrated as the other units are, so that `--clear-s` bounds it.
+  2. Reuse the stage's "before" quote, since the kept board's cell is unchanged, which halves the solves.
+  3. Give each cell a quote allowance of about 90 s (the design's 97 s per cell). A cell whose window would need more is not cleared and is reported as `hotloop_clear_skipped` rather than solved.
+
+**Preliminary physics, N, C, D and CD at 908e21ff** (`hotloop-sw/prelim.py`; danielmcmillan left out of C and CD, its kae-pc zone made the output invalid). Cells: median ratio, 95 % CI resampling repositories, and cells better, worse and within tolerance (L 0.5 %, R 3 %).
+
+| pair | measure | cells | median | 95 % CI | better / worse / within |
+|---|---|---|---|---|---|
+| C/N | L_loop | 61 | 0.830 | [0.689, 0.868] | 49 / 12 / 0 |
+| C/N | R_loop | 61 | 0.810 | [0.699, 0.887] | 46 / 10 / 5 |
+| C/human | L_loop | 61 | 0.896 | [0.780, 1.008] | 36 / 23 / 2 |
+| C/human | R_loop | 61 | 0.874 | [0.774, 0.959] | 41 / 16 / 4 |
+| D/N | L_loop | 69 | 1.000 | [1.000, 1.000] | 10 / 2 / 57 |
+| D/N | R_loop | 69 | 1.000 | [1.000, 1.000] | 9 / 2 / 58 |
+| N/human | L_loop | 70 | 1.102 | – | 22 / 47 / 1 |
+| N/human | R_loop | 70 | 1.151 | – | 20 / 45 / 5 |
+
+- CD matches C to three digits in the medians.
+- By topology, C/N: buck L 0.829, R 0.753 (37 cells); boost L 0.856, R 0.850 (24).
+- By layer count, C/N: 2 layers L 0.830, R 0.736 (43); 4 layers L 0.830, R 0.927 (18).
+
+Board loss terms (per board, the sum of that observable's terms):
+- *Floors:* `loss.copper` 0.5 % (FLOOR). `loss.copper_ac` is assumed to share it. `loss.loop` and `loss.loop_ac` take 3 %, the R_loop window tolerance, since they scale with R_loop.
+- *Verdict:* "signal" when the CI of the median ratio lies past the floor, "noise" when it lies inside it, and otherwise "unresolved".
+
+| pair | observable | boards | median | 95 % CI | better / worse / noise | verdict |
+|---|---|---|---|---|---|---|
+| C/N | loss.loop | 57 | 0.846 | [0.783, 0.931] | 39 / 9 / 9 | signal better |
+| C/N | loss.loop_ac | 59 | 0.863 | [0.709, 0.920] | 42 / 11 / 6 | signal better |
+| C/N | loss.copper | 51 | 0.992 | [0.970, 1.002] | 26 / 18 / 7 | unresolved |
+| C/N | loss.copper_ac | 55 | 0.955 | [0.932, 0.967] | 37 / 17 / 1 | signal better |
+| C/human | loss.loop | 57 | 0.929 | [0.850, 0.980] | 33 / 18 / 6 | unresolved |
+| C/human | loss.loop_ac | 59 | 0.905 | [0.793, 0.982] | 36 / 17 / 6 | unresolved |
+| C/human | loss.copper | 52 | 1.310 | [1.160, 1.648] | 13 / 39 / 0 | signal worse |
+| C/human | loss.copper_ac | 54 | 1.017 | [0.917, 1.108] | 26 / 28 / 0 | unresolved |
+| D/N | all four | 52–60 | 1.000 | [1.000, 1.000] | 1–6 / 3–6 / 45–51 | noise |
+| D/human | loss.loop_ac | 60 | 1.157 | [1.047, 1.250] | 14 / 38 / 8 | signal worse (as N) |
+
+- CD matches C, except CD/human `loss.loop_ac`: 0.913, [0.779, 1.002].
+- The outliers (ratios of 10³–10⁴: giacobot in C and CD, which C′ fixes, plus jericholab in D and two others) are open loops, where the evaluator's loop loss blows up. Medians are robust to them, but each one gets a look in the final C′/CD′ analysis.
+- Open cells: C 11 and CD 11 against N's 4 (danielmcmillan included). D has 5.
+- *Preliminary reading:* C (and CD) cut L_loop and R_loop about 17–19 % against N, and loop losses about 14–15 %, in both topologies and both layer counts. They also bring the median cell from worse than human (N 1.10 L, 1.15 R) to slightly better. Clear on its own (D) changes almost nothing. Copper loss outside the loops is unchanged against N. The final reading waits for C′ and CD′.
