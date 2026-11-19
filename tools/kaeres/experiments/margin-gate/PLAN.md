@@ -188,3 +188,6 @@ main, and by the project rule (algorithm changes migrate) the experiment moves.
 - New experiment `margin-gate-m5` (owner `exp-margin-gate-m5`), new method ids. The runs of `margin-gate-m4` (10 jobs done) are on the
   previous main and excluded from the decision; its jobs are cancelled.
 - Boards (after the trims already recorded above), arms, attempts, primary, guards and looks unchanged.
+
+## Addendum 2026-11-19 (cutoff)
+User decision 2026-11-19, written before any result of this build is read: boards over 16 CPU-h per board (all of a board's runs; measured on earlier builds of this experiment, else the per-experiment fit of CPU on footprints) leave the A/B tests; a big-board canary set (board-tags suites/canary-big.txt) checks them before merges. Not exempt: the gate is pads per cm² per copper layer, which small boards meet (51 dense-hi boards, 4 over the cutoff). Dropped (4): beagleplay (45 CPU-h measured), glasgow revd1 (24 measured), sinara sampler and the soldered ws2812b ring (estimated 21 and 17). 87 boards remain; MA stays off on dense-hi. Submitted after this addendum.
