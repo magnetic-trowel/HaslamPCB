@@ -191,3 +191,15 @@ main, and by the project rule (algorithm changes migrate) the experiment moves.
 
 ## Addendum 2026-11-19 (cutoff)
 User decision 2026-11-19, written before any result of this build is read: boards over 16 CPU-h per board (all of a board's runs; measured on earlier builds of this experiment, else the per-experiment fit of CPU on footprints) leave the A/B tests; a big-board canary set (board-tags suites/canary-big.txt) checks them before merges. Not exempt: the gate is pads per cm² per copper layer, which small boards meet (51 dense-hi boards, 4 over the cutoff). Dropped (4): beagleplay (45 CPU-h measured), glasgow revd1 (24 measured), sinara sampler and the soldered ws2812b ring (estimated 21 and 17). 87 boards remain; MA stays off on dense-hi. Submitted after this addendum.
+
+## Addendum 2026-11-19 (m6), before any run on this build: Freerouting 37b1a8b (freerouting#14) and main 6d726340
+The pin moved to kae-freerouting-fork-37b1a8b: `autorouter.max_work` is checked before each item instead of each pass,
+and a run stopped there keeps its best board. Outputs change only for Freerouting calls whose work budget runs out
+inside a pass (or that time out). Main 6d726340 also makes a Freerouting call's job timeout 4x its own budget (#114).
+In the finished runs of this experiment's earlier counted-work stages, 9 of 12 boards with runs had a Freerouting call stop on its work budget inside the pass loop (logged "Stopping the auto-router before pass"); over the restart experiments' logged calls about half stopped so. So the experiment moves as a whole (no run of `margin-gate-m5` on an affected board can be told apart from the
+rest beforehand, and the changed calls are common).
+- Migrated: branch `margin-gate-m6` (rebased on main 6d726340; the earlier branch is left as it
+  was). Every arm at kae and harness c8e79ec1, the commit before this addendum; 87 boards, MA off on dense-hi. Freerouting fork 37b1a8b set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `margin-gate-m6` (owner `exp-margin-gate-m6`), new method ids. The runs of `margin-gate-m5` (0 jobs done) are excluded
+  from the decision; its jobs are cancelled.
+- Boards (after the trims and the 16 CPU-h cutoff recorded above), arms, attempts, primary, guards and looks unchanged.
