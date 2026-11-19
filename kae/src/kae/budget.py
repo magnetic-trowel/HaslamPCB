@@ -60,10 +60,22 @@ RATES = {
     "fr_opt_pass_pin2": 9e-5,   # one optimizer pass per pin^2 (uncalibrated; the fork's master also optimizes a
                                 # partly routed board, unless the work budget is spent). Not charged for a build
                                 # that counts its optimizer's work in fr_work (freerouting.counts_optimizer_work)
-    "drc_run": 3.5,             # one KiCad DRC (with zone refill): its start-up and a small board's checks
-    "drc_mb": 0.6,              # ... per MB of board file (49 DRCs 2026-11-14, 0.3-71 MB: 2-4.4 s up to 2 MB,
-                                # 9 s on a dense 1.2 MB board, 42-46 s at 71 MB; 4.27 s per MB and nothing per
-                                # run before, fitted on small boards, charged a 71 MB board's DRC at 7x its time)
+    "drc_run": 1.9,             # one KiCad DRC (kicad-cli, --refill-zones): its start-up and a small board's checks
+    "drc_mb": 0.84,             # ... per MB of board file
+    "drc_zone": 0.23,           # ... per zone layer it refills (kae.board.pcbnew_io.zone_layers). Fitted together
+                                # 2026-11-17 on 8 boards (0.3-71 MB, 0-43 zone layers, median of 3 DRCs each):
+                                # 0.55-1.56x per board. The refill was the board's zones' cost: 4-6 s of a 7-9 s
+                                # DRC on a 4-layer board of 10 plane layers, 12 s of 16 s on 43 zone layers. Before
+                                # (3.5 s + 0.6 s per MB, 49 DRCs 2026-11-14 without the zones apart) a joint loop's
+                                # 34 DRCs of such a board took 1.8x their charge and a 43-zone board's 2.5x
+    # KiCad's Python (kae.board.pcbnew_io: the long-lived worker, one forked child per call), fitted
+    # 2026-11-17 on 8 boards' copper_items with and without the zone refill and a joint loop's 202 calls on
+    # a 0.6 MB board (export-dsn 0.37 s, write-poses 0.69, import-ses 0.77, zone-fills 2.44): 0.5-1.7x
+    # per call class, a 0.3 MB zone-less board's at 0.2x. Uncharged before: 270 s of that loop's wall time
+    "pcbnew_op": 0.4,           # one call: the board loaded (and written) by pcbnew
+    "pcbnew_mb": 0.06,          # ... per MB of board file
+    "zone_fill": 0.165,         # ... per zone layer, for a call that refills the zones (zone_fills,
+                                # copper_items with clusters, drc.uncapped_unconnected)
     "board_mb": 0.5,            # reading one MB of .kicad_pcb into shapes (kae.board.kicad_file.load; 0.16-0.65 s
                                 # on 0.3-20 MB, 0.76 s on a 71 MB board of stroked silk art that a joint loop
                                 # loaded 15 times, 840 s it did not charge, 2026-11-14)
@@ -72,6 +84,11 @@ RATES = {
                                 # on 430 and 821 pins, 4.6e-7 on 1,184 dense pins, 2026-11-14). 0.054 s per
                                 # search and nothing per cell before: a final last mile took 2.5x its charge on
                                 # 430 pins and 6.5x on 821 (0.13 and 0.34 s per search)
+    "lastmile_part_nodes": 2.5e-4,  # one copper item of a net in one last-mile connectivity pass (lastmile.parts:
+                                # its STRtree and touching pairs; profiled 2.3e-4 s on a 2-layer board with pours,
+                                # 3.2e-4 on a 6-layer one, 1.3-1.6e-4 on synthetic tracks only, 2026-11-18).
+                                # Uncharged before: a net re-joined 205 times grew its copper
+                                # until a pass took most of a turn's 50 wall s, to the run's wall ceiling
     # the critical-copper grid router (kae.route.critical_grid; the joint module stage, kae.route.critical),
     # calibrated 2026-11-11 on three boards (178-814 pads, 6 module-stage runs in time mode; shared host, so less
     # exact than the above). Before it was charged, a module stage in work mode cost no budget at all

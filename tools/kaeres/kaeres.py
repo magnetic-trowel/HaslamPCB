@@ -26,6 +26,7 @@ Store (default ~/kae-baselines, $KAE_RESULTS): see tools/kaeres/README.md for th
 """
 import argparse
 import csv
+import glob
 import gzip
 import hashlib
 import json
@@ -662,6 +663,7 @@ def cmd_exp_create(a):
     kicad = kicad_version()
     evs = evaluators_for(harness, kae, kicad)
     e = dict(schema=SCHEMA, name=a.name, reuse_runs=bool(a.reuse_runs), description=a.description or "", created=now(),
+             session=os.environ.get("KAEQ_SESSION") or os.environ.get("CLAUDE_CODE_SESSION_ID"),  # who looks after it
              methods=[dict(id=m["id"], name=m["name"]) for m in ms], attempts=a.attempts,
              harness=dict(commit=harness, link=github_link("https://github.com/magnetic-trowel/kicad-auto-everything", harness)),
              kae=dict(commit=kae, link=github_link("https://github.com/magnetic-trowel/kicad-auto-everything", kae)),
@@ -930,6 +932,64 @@ def cmd_job(a):
     return 0
 
 
+NUMBA_CACHE_RE = re.compile(r"\$HOME/\.cache/kaebench/(numba-[A-Za-z0-9._-]+)")
+
+
+def publish_numba_cache(m, rdir, log=None):
+    """Keep the numba kernels a command method compiled in its work dirs (rdir) in the warm cache its
+    template names ($HOME/.cache/kaebench/numba-NAME, copied to $PWD/numba before kae runs), adding
+    only kernels the cache lacks. numba compiles a kernel on its first call unless the cache has it;
+    a named cache that was never warmed (`cp -r` fails silently) made every kae process of every job
+    compile from scratch (about 110 CPU seconds per kae.joint.cli run). Kernels
+    are keyed by their source file's path and mtime, so one checkout's kernels never load for
+    another's. A kernel is its index (.nbi) and the data files (.N.nbc) it names, and numba loads a
+    data file by name without checking its signature, so a kernel's files must all come from one run:
+    a publisher claims the kernel (an exclusive .claim file) and skips it when another holds the claim
+    or the index is there. Data files go first and the index last, each written to a temporary name
+    and renamed, so a job copying the cache meanwhile sees a kernel whole or not at all."""
+    names = NUMBA_CACHE_RE.findall(m["recipe"]["runner"].get("template") or "")
+    if not names or not rdir.is_dir():
+        return 0
+    added = 0
+    for name in dict.fromkeys(names):
+        dst = Path.home() / ".cache" / "kaebench" / name
+        for nbi in sorted(rdir.rglob("*.nbi")):
+            to = dst / nbi.parent.name
+            if (to / nbi.name).exists():
+                continue
+            stem = nbi.name[:-len(".nbi")]
+            claim = to / f"{stem}.claim"
+            try:
+                to.mkdir(parents=True, exist_ok=True)
+                os.close(os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            except FileExistsError:
+                continue
+            except OSError as e:
+                if log:
+                    with open(log, "a") as fh:
+                        fh.write(f"numba cache {name}: could not add {nbi.name}: {e}\n")
+                break
+            try:
+                if (to / nbi.name).exists():   # published between the check above and the claim
+                    continue
+                for f in [*sorted(nbi.parent.glob(glob.escape(stem) + ".*.nbc")), nbi]:
+                    tmp = to / f"{f.name}.tmp{os.getpid()}"
+                    shutil.copyfile(f, tmp)
+                    os.replace(tmp, to / f.name)
+                added += 1
+            except OSError as e:
+                if log:
+                    with open(log, "a") as fh:
+                        fh.write(f"numba cache {name}: could not add {nbi.name}: {e}\n")
+                break
+            finally:
+                claim.unlink(missing_ok=True)
+    if added and log:
+        with open(log, "a") as fh:
+            fh.write(f"numba cache {', '.join(names)}: added {added} kernel(s) from {m['id']}\n")
+    return added
+
+
 def prep_harness(hc, exp_hc):
     """The harness that prepares the tasks a method of harness hc runs on in an experiment of harness
     exp_hc: its own, unless its task spec is older than the experiment's and the experiment's is 10 or
@@ -1150,6 +1210,7 @@ def _job_group(bid, row, hc, kae, items, human, ws, env, log, kicad, a, size, ph
                                       "-k", str(k), "--timeout", str(method_timeout(m, row)), "--all", "--only", bid,
                                       "--name", f"cmd-{m['id']}", "-j", "1"], log, cenv,
                                 timeout=k * (method_timeout(m, row) + 1800) + 3600)
+            publish_numba_cache(m, work / "results" / f"cmd-{m['id']}", log)
     adirs = {}
     for m, att in todo:
         rn = f"base-{hc[:8]}" if m["recipe"]["runner"]["type"] != "command" else f"cmd-{m['id']}"

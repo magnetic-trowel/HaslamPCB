@@ -113,12 +113,13 @@ def expected_durations(c, jobs, now=None, model=None):
     return out
 
 
-def forecast_queue(running, queued, dur, mem, cpus, mem_cap, cpu_cap, now, horizon=14 * 86400):
+def forecast_queue(running, queued, dur, mem, cpus, mem_cap, cpu_cap, now, horizon=14 * 86400, ends=None):
     """Replay the queue forward: when does each owner start and finish? running/queued: job rows; dur: {id:
     expected active s}; mem/cpus: {id: footprint}; mem_cap/cpu_cap: what jobs may hold. Running jobs end after
     their expected time left (at least a tenth of it, or a minute, once overdue). Starts follow the daemon's order
     (priority, then the owner with the fewest running, then submission), the first owner's next job that fits
-    (backfill across owners). Returns {owner: (first start or None, finish)}."""
+    (backfill across owners). Returns {owner: (first start or None, finish)}; `ends`, a dict if given, gets each
+    owner's expected job end times in order."""
     import heapq
     ev, cnt, used_m, used_c, res = [], {}, 0.0, 0.0, {}
     for j in running:
@@ -126,6 +127,8 @@ def forecast_queue(running, queued, dur, mem, cpus, mem_cap, cpu_cap, now, horiz
         act = max(0.0, now - (j["started"] or now) - (j["frozen_s"] or 0.0))
         end = now + max(d - act, 0.1 * d, 60.0)
         heapq.heappush(ev, (end, j["id"], j["owner"], mem[j["id"]], cpus[j["id"]]))
+        if ends is not None:
+            ends.setdefault(j["owner"], []).append(end)
         cnt[j["owner"]] = cnt.get(j["owner"], 0) + 1
         used_m, used_c = used_m + mem[j["id"]], used_c + cpus[j["id"]]
         res[j["owner"]] = [now, max(res.get(j["owner"], [now, now])[1], end)]
@@ -149,6 +152,8 @@ def forecast_queue(running, queued, dur, mem, cpus, mem_cap, cpu_cap, now, horiz
                         del per[o]
                     end = t + dur[j["id"]]
                     heapq.heappush(ev, (end, j["id"], o, mem[j["id"]], cpus[j["id"]]))
+                    if ends is not None:
+                        ends.setdefault(o, []).append(end)
                     cnt[o] = cnt.get(o, 0) + 1
                     used_m, used_c = used_m + mem[j["id"]], used_c + cpus[j["id"]]
                     r = res.setdefault(o, [t, end])
@@ -161,4 +166,7 @@ def forecast_queue(running, queued, dur, mem, cpus, mem_cap, cpu_cap, now, horiz
         t = max(t, end)
         cnt[o] -= 1
         used_m, used_c = used_m - m, used_c - cp
+    if ends is not None:
+        for v in ends.values():
+            v.sort()
     return {o: (r[0] if r[0] > now else None, r[1]) for o, r in res.items()}

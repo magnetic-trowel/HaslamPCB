@@ -45,16 +45,13 @@ solving the bound again with the rule changed (narrower track, smaller clearance
 track clearance, smaller via, plane layers opened to signals, more signal layers), with the
 KiCad edit that writes it back. A site without a via is credited one pitch more room, and a
 gap between two empty sites at least what crosses a pitch with nothing at its ends, so runs
-<<<<<<< HEAD
-of empty sites of any length are over-estimated (_caps `sound`). Where the bound finds no
-obstruction with the smallest legal via but does with the net class's via kae routes with,
-own_via reports kae's via choice (hazard escape_blocked_by_own_via), not a rule. Pad rings (QFN/QFP rows, ring_certificate): the
-=======
 of empty sites of any length are over-estimated (_caps `sound`). In a void (4-connected empty
 lattice sites) a via may sit anywhere: the bound changes layer anywhere in it without a limit
 (_stage1 `hubs`), so a depopulated field is bounded too; a grid off one square lattice is no
-proof. The cut's rings count from the edge and from open voids (_depths). Pad rings (QFN/QFP rows, ring_certificate): the
->>>>>>> origin/escape-void-rule
+proof. The cut's rings count from the edge and from open voids (_depths). Where the bound finds
+no obstruction with the smallest legal via but does with the net class's via kae routes with,
+own_via reports kae's via choice (hazard escape_blocked_by_own_via), not a rule. Pad rings
+(QFN/QFP rows, ring_certificate): the
 pads a track of the board's minimum width cannot leave between its neighbours.
 
 Buses: `plan_grid(..., order=None)` takes no bus order yet; the interface for it is a list
