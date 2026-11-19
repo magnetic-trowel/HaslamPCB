@@ -219,13 +219,15 @@ def _exit_on_sigterm():
     """SIGTERM (a job being killed: a queue's timeout or cancel) exits like sys.exit(143) instead of at once, so
     `finally` blocks stop child processes (Freerouting) and the exit handlers run: buffered output is flushed and the
     clock's report printed, so a killed run still says what it did. Only in the main thread, and only where nothing
-    else handles SIGTERM."""
+    else handles SIGTERM. Later SIGTERMs are ignored: a killed job's processes get it more than once (kaeq signals
+    every process, restart.py passes it on to the attempt), and a second one must not cut the exit short; kaeq's
+    SIGKILL after its grace is the hard stop."""
     import signal
     if threading.current_thread() is not threading.main_thread() or signal.getsignal(signal.SIGTERM) != signal.SIG_DFL:
         return
 
     def stop(*_):
-        signal.signal(signal.SIGTERM, signal.SIG_DFL)   # a second SIGTERM ends it at once
+        signal.signal(signal.SIGTERM, lambda *_: None)
         raise SystemExit(143)
     signal.signal(signal.SIGTERM, stop)
 

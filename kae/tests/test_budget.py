@@ -89,6 +89,7 @@ def test_start_run_turns_sigterm_into_an_exit_that_flushes_and_reports(tmp_path)
             "try:\n"
             "    os.kill(os.getpid(), signal.SIGTERM); time.sleep(10)\n"
             "finally:\n"
+            "    os.kill(os.getpid(), signal.SIGTERM)\n"    # a second one (kaeq and restart.py both send it)
             "    print('cleanup ran')\n")
     src = Path(budget.__file__).resolve().parents[1]
     r = subprocess.run([sys.executable, "-c", prog], capture_output=True, text=True, timeout=60,
