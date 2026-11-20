@@ -66,7 +66,7 @@ PCBench suite, 1,157 boards, v2.4.1 → v2.5.0 ([release](https://github.com/fre
 
 - Pin v2.5.0 (latest release, 2026-10-05; 2.6.x only RCs) until 2.6.0 is released, as bulk router, fallback and routability judge; re-score outputs with KiCad DRC; record version/flags in every benchmark [I].
 - Final runs `-mt 1`: every run prints "Multi-threaded route optimization is broken and it is known to generate clearance violations" (POA sets `num_threads = 1`; KMS forces `-mt 1` in best-of-N → [integration pitfalls](../kicad/specctra-freerouting-integration.md#pitfalls-documented-by-the-four-mcp-codebases)) [P]. Fidelity knobs (`-mp`, `-mt 0` = optimizer off, improvement threshold) for fast probes only; budget minutes–hours on large boards; run as a JVM process [I].
-- Freerouting is deterministic in DSN item order: the same DSN gives the same result; diversity comes from permuting item order (`--seed`) → [restart portfolio](../../research/routing/kae-restart-portfolio.md).
+- Freerouting is deterministic: the same DSN gives the same result; diversity comes from permuting item order (`--seed`) → [restart portfolio](../../research/routing/kae-restart-portfolio.md). What a seed still changes on the fork → [bridge § Determinism](freerouting-constraint-bridge.md#freerouting-250-behaviour-the-translation-relies-on).
 - Pre-route and lock SI-critical classes (pairs, matched groups, escape) before bulk; compensate weaknesses with LLM-set order hints, via costs, layer directions [I].
 - Contribute or wrap improvements (congestion-aware fanout, negotiated rip-up schedule): code is GPL-3 and actively developed [I].
 
