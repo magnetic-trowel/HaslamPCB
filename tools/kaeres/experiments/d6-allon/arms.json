@@ -1,0 +1,55 @@
+{
+  "experiment": "d6-allon",
+  "plan": "tools/kaeres/experiments/d6-allon/PLAN.md",
+  "chassis": "kae.joint.cli run {input} {output} --seed {attempt} --time {timeout} --max-iters 0 --no-modules; KAE_BUDGET=work; kind joint-fixed",
+  "arms": {
+    "d6 alloff": [],
+    "d6 allon": ["place_w_xing=2", "place_w_chan=3", "place_margin=-1", "place_margin_gate=4", "array_macros=1", "barrier_split=2"]
+  },
+  "factors": [
+    {
+      "factor": "xing",
+      "branch": "xing-ext-m6",
+      "off": {"place_w_xing": 0.0},
+      "on": {"place_w_xing": 2},
+      "source": "tools/kaeres/experiments/placement-routability-xing-ext/setup.sh (arm 'kae routab xing', --set place_w_xing=2)",
+      "gate": "none: a cost term in the annealer, acts on every board"
+    },
+    {
+      "factor": "chan",
+      "branch": "chan-gated-m6",
+      "off": {"place_w_chan": 0.0},
+      "on": {"place_w_chan": 3},
+      "source": "tools/kaeres/experiments/chan-gated/setup.sh (arm 'kae changated chan3', --set place_w_chan=3)",
+      "gate": "board selection, not code: chan-gated ran only on boards passing the pinch gate in tools/kaeres/experiments/chan-gated/gate.py (mean overlapping channel-halo pairs >= 10 after the w=0 anneal). In d6-allon the term acts on every board."
+    },
+    {
+      "factor": "margin",
+      "branch": "margin-gate-m6",
+      "off": {"place_margin": 0.0, "place_margin_gate": 0.0},
+      "on": {"place_margin": -1, "place_margin_gate": 4},
+      "source": "tools/kaeres/experiments/margin-gate.sh (arm 'MA gated') and margin-gate/PLAN.md",
+      "gate": "in code: kae.place.margin_gate (density gate, pads/cm2/copper layer); the margin is dropped on boards under the gate",
+      "note": "margin-gate's gated arm also set place_margin_regions=1 (region caps, kae.place.margin_gate.caps); d6-allon's specified on-settings leave it at 0. Decide before registering whether the on arm should carry it."
+    },
+    {
+      "factor": "matrix",
+      "branch": "array-macros-gated-m6",
+      "off": {"array_macros": 0},
+      "on": {"array_macros": 1},
+      "source": "tools/kaeres/experiments/array-macro-ab/setup.sh and array-matrix-ab/setup.sh (matrix arm, MASK=1)",
+      "gate": "in code: kae.place.arrays detects component matrices in the netlist; inert on boards without one"
+    },
+    {
+      "factor": "barrier",
+      "branch": "place-barrier-moves-m6",
+      "off": {"barrier_split": 0},
+      "on": {"barrier_split": 2},
+      "source": "tools/kaeres/experiments/barrier-fit-ab/setup.sh (--set barrier_split=2, fit_split)",
+      "gate": "in code: kae.place.barriers finds regions split by voids or all-copper keepouts; inert on boards without a split, and falls back to whole-board placement when a region cannot legalize"
+    }
+  ],
+  "left_out": {
+    "phist-b-m2": "placement history across attempts: a restart-level factor that touches restart.py and conflicts in joint/loop.py, place/pipeline.py and tests/test_restart.py; tested separately"
+  }
+}
