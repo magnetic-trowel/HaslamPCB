@@ -168,6 +168,16 @@ A bootstrap or high-side gate supply rides on a switch node: give it a domain fl
 net, `d.domain("BST1", ref="SW1")`, and `v=(0, 12)` relative to it. Worst-case voltages to
 everything else then follow from the switch node's own range.
 
+### Operating intent for kae (`<slug>.kae_intent.json`)
+
+kae reads a board's operating facts from `<board>.kae_intent.json` beside it (kae.intent/1; `kae/src/kae/intent/facts.py`).
+kaesynth writes it from three places, later ones winning:
+- nets declared with `v_typ=` (typical volts, or `(lo, typ, hi)` when the operating range is narrower than `v=`);
+- part cards with `kae=dict(f_sw_Hz=..., v_sw_max_V=..., why=...)` (facts that belong to the part);
+- `d.kae.net(...)`, `d.kae.part(...)`, `d.kae.cell(controller, "buck"|"boost", I_A=(lo, typ, hi), V_V=..., vin=, vout=)`,
+  `d.kae.cable(...)`, `d.kae.term(...)` (what this design chooses: rail sources and efficiencies, a cell's current and
+  switched bus, cables, priced terms). Every fact says why; kae's own loader checks the file at build time.
+
 ### Calculations and waivers
 
 `d.calc(name, value, unit, expr=, note=, limit=, op="<=")` records a calculation in the report

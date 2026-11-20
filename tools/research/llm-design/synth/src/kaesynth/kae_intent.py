@@ -84,11 +84,38 @@ class KaeIntent:
         return ref
 
     def empty(self):
-        return not (self.nets or self.parts or self.cells or self.cables or self.terms or self.enclosure_)
+        dn, dp = self.defaults()
+        return not (self.nets or self.parts or self.cells or self.cables or self.terms or self.enclosure_ or dn or dp)
+
+    def defaults(self):
+        """Facts the design already states: nets declared with v_typ (V_V, range_V from v=) and part cards with
+        kae= facts. Explicit d.kae declarations override them."""
+        nets, parts = {}, {}
+        for n in self.d.all_nets():
+            if n.v_typ is not None and n.pins:
+                # v_typ: typical volts, or (lo, typ, hi) when the operating range is narrower than the stress
+                # envelope v= (a battery terminal: v=(0, 16) for ratings, 11.5-15 V in operation)
+                key = n.name if n.is_global else f"{n.block.name}/{n.name}"
+                lo_typ_hi = isinstance(n.v_typ, (tuple, list))
+                nets[key] = dict(V_V=n.v_typ[1] if lo_typ_hi else n.v_typ,
+                                 range_V=(n.v_typ[0], n.v_typ[2]) if lo_typ_hi else None, source=None, from_=None,
+                                 kind=None, eta=None, I_A=None, why=f"net declaration (v_typ {n.v_typ}, v={n.v})")
+        for p in self.d.all_parts():
+            if p.on_board and p.defn.kae and p.ref:
+                f = dict(p.defn.kae)
+                f.setdefault("why", f"part card {p.defn.mpn or p.defn.value}")
+                parts[p.ref] = f
+        return nets, parts
 
     def document(self):
         """(kae.intent/1 dict, [problems])."""
         d, problems = self.d, []
+        dn, dp = self.defaults()
+        for k, v in dn.items():
+            if k not in self.nets:
+                self.nets[k] = v
+        for k, v in dp.items():
+            self.parts[k] = {**v, **self.parts.get(k, {})}
         nets = {}
         for name, f in self.nets.items():
             kn = self._net(name, problems, f"kae.net {name}")
