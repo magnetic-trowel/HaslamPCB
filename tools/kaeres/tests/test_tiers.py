@@ -111,3 +111,67 @@ def test_exp_submit_checks_what_is_left_to_run_and_can_change_the_tier(monkeypat
     monkeypatch.setattr(K.subprocess, "run", lambda *a, **k: None)
     K.cmd_exp_submit(type("A", (), dict(a, tier="canary", dry_run=False)))
     assert json.loads(exp.read_text())["tier"] == "canary"
+    K.cmd_exp_submit(type("A", (), dict(a, prio=5)))                         # the queue priority goes into each job
+    jobs = [json.loads(ln) for f in sorted(exp.parent.glob("jobs-*.jsonl")) for ln in f.read_text().splitlines()]
+    assert jobs and jobs[-1]["prio"] == 5
+
+
+def test_exp_create_with_reuse_runs_counts_only_the_runs_to_make(monkeypatch, store, capsys):
+    stored = [(None, dict(method_id="m" * 12, attempt=0)), (None, dict(method_id="other", attempt=1))]
+    monkeypatch.setattr(K, "board_runs", lambda b: stored)
+    monkeypatch.setattr(K, "board_dir", lambda b: store)
+    (store / "experiments" / "x").mkdir(parents=True)                     # the folder with its PLAN.md is there already
+    _create(monkeypatch, store, boards="cheap", reuse_runs=True)
+    assert "(1 method-runs on 1 boards" in capsys.readouterr().out      # attempt 0 is stored; attempt 1 is to make
+
+
+def _sprint(monkeypatch, store, plan=True, **kw):
+    """cmd_sprint against a stored control of two methods, the store's writers recorded instead of run."""
+    calls = {}
+    tag = "t" * 40
+    ctl = dict(br=dict(id="br", name="control bridge", recipe=dict(kind="route", params=dict(timeout_s="3600"), environment=dict(kicad_threads=2),
+                                                                  runner=dict(template="cp numba-default-ttttttt numba; kae route"))),
+               st=dict(id="st", name="control staged", recipe=dict(kind="joint-fixed", params={}, environment=dict(kicad_threads=2),
+                                                                  runner=dict(template="kae joint"))))
+    monkeypatch.setattr(K, "exp_dir", lambda n: store / "experiments" / n)
+    monkeypatch.setattr(K, "load_exp", lambda n: dict(name=n, attempts=2, harness=dict(commit=tag), methods=[dict(id="br"), dict(id="st")]))
+    monkeypatch.setattr(K, "find_method", lambda k: ctl[k])
+    monkeypatch.setattr(K, "main_repo", lambda: "/repo")
+    monkeypatch.setattr(K, "git", lambda repo, *a: tag if a[-1].startswith("TAG") else "c" * 40)
+    monkeypatch.setattr(K, "cmd_method_add", lambda a: calls.setdefault("method", a) and "new")
+    monkeypatch.setattr(K, "cmd_exp_create", lambda a: calls.setdefault("create", a))
+    monkeypatch.setattr(K, "cmd_exp_submit", lambda a: calls.setdefault("submit", a))
+    if plan:
+        (store / "experiments" / "x").mkdir(parents=True, exist_ok=True)
+        (store / "experiments" / "x" / "PLAN.md").write_text("plan\n")
+    a = dict(name="x", base="bridge", commit="abc", set=None, control="control-w47", dry_run=False)
+    a.update(kw)
+    K.cmd_sprint(type("A", (), a))
+    return calls
+
+
+def test_sprint_needs_a_plan(monkeypatch, store):
+    with pytest.raises(SystemExit, match=r"no .*PLAN.md.*\nDo this: write it"):
+        _sprint(monkeypatch, store, plan=False)
+
+
+def test_sprint_registers_the_control_recipe_at_the_commit_and_reuses_the_stored_control(monkeypatch, store, capsys):
+    c = _sprint(monkeypatch, store, set=["a.b=1", "c=2"])
+    m, e, s = c["method"], c["create"], c["submit"]
+    assert m.command == "cp numba-default-ccccccc numba; kae route --set a.b=1 --set c=2" and m.kind == "route"
+    assert m.code == ["kae=/repo@" + "c" * 40] and m.harness == "t" * 40 and m.param == ["timeout_s=3600"]
+    assert e.method == ["br", "new"] and e.reuse_runs and e.tier == "sprint" and e.attempts == 2
+    assert e.harness == e.kae == "t" * 40                      # prepared and evaluated as the control was
+    suites = Path(K.__file__).resolve().parents[2] / "bench" / "suites"
+    boards = (suites / "sprint-frontier.txt").read_text().split() + (suites / "sprint-quality.txt").read_text().split()
+    assert e.boards.split(",") == boards
+    assert s.prio == 5 and s.tier is None and not s.dry_run
+    assert "kaeres exp report x && kaeres quality x --control 'control bridge'" in capsys.readouterr().out
+
+
+def test_sprint_staged_takes_the_placing_control_and_refuses_the_control_itself(monkeypatch, store):
+    c = _sprint(monkeypatch, store, base="staged", dry_run=True)
+    assert c["method"].kind == "joint-fixed" and c["create"].method == ["st", "new"] and c["submit"].dry_run
+    with pytest.raises(SystemExit, match="the arm is the control itself"):
+        _sprint(monkeypatch, store, commit="TAG")
+    assert _sprint(monkeypatch, store, commit="TAG", set=["k=v"])["method"].command.endswith("numba; kae route --set k=v")
