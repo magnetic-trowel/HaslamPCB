@@ -44,17 +44,21 @@ Defaults (updated after the replay of stored logs, see the module docstring):
 
 ## Not done
 
-- No smoke on a real board. The bridge recipe exists as a stored method (route, `KAE_BUDGET=work`,
-  `restart.py --parallel 4 --first-s 60 --scale-first --slack 1.15 --resume 0.5 --final '<lastmile>'
-  -- '<route or resume>'`). To smoke it, run that template on one small route task twice through
-  kaeq: once as it is, and once with `--sched return` added after `--resume 0.5`. Then check
-  `restarts/summary.json` for `sched`.
+- No smoke on a real board. Both arms were queued in kaeq (priority 5, 4 CPUs each), did not
+  start before the deadline, and were cancelled. The smoke is the stored bridge recipe (route, `KAE_BUDGET=work`, kae and
+  harness at c2dd008, Freerouting fork 37b1a8b) run on one stripped route task of about 550 pads
+  with `--time 600`: `restart.py --parallel 4 --first-s 60 --scale-first --slack 1.15 --resume 0.5
+  --final '<kae.route.cli lastmile>' -- '<kae.route.cli route @IN@ or @BEST@ when KAE_RESUME=1>'`.
+  Run it once as it is and once with `--sched return` added, then check `restarts/summary.json`
+  for `sched`.
 - The priors are placeholders until `tools/research/effort/replay.py` fits them.
-- No `experiments/d4-sched-return/PLAN.md` yet: the design doc's section 7 did not exist when this
-  was written.
+- `experiments/d4-sched-return/PLAN.md` is the `d4-sched-width` plan, copied verbatim from section 7
+  of the search-effort design dossier. That section's second block, the closure plan, belongs to
+  branch d4-closure and was left out.
 
 ## Sprint arms (ready for sprint)
 
 - Control: the stored bridge recipe, unchanged.
-- Arm: the same recipe plus `--sched return`, with default options: probe 4, then 1 resume + 1 fresh,
-  depth bonus on, stops off.
+- Arm (PLAN.md arm B): the same recipe plus `--sched return --sched-opts '{"fixed_placement": true}'`.
+  That probes 2 seeds, then runs 1 resume + 1 fresh lane per batch, with the depth bonus on and the
+  stops off.
