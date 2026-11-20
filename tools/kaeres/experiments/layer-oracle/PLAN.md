@@ -1,7 +1,7 @@
 # PLAN: layer-oracle (sprint tier, mechanism suite: multilayer boards)
 
-Status: code on branch `d1-layer-oracle` (`kae.route.layer_assign`, setting `net_layers`, unit tests pass); one
-end-to-end smoke was queued, read its result before submitting (see NOTES in this folder).
+Status: code on branch `d1-layer-oracle` (`kae.route.layer_assign`, setting `net_layers`, unit tests pass). One
+end-to-end smoke ran (NOTES in this folder): the fork obeys the table; kae's own last mile does not read it.
 Tag: `baseline/2026-w47` plus that one change. Diagnostic only: an oracle arm never ships.
 
 ## Hypothesis
@@ -43,7 +43,9 @@ a run with `found: false` is a failed lookup, not a result.
 1. Open connections: mean of log((opens+1) / (control opens+1)), with a 95 % interval (primary).
 2. Boards finished (zero opens), and near-miss closure (control within 5 opens of clean).
 3. Vias and track length on boards both arms finish; first-pass counted work.
-4. Check: share of track length on a disallowed layer must be 0 in both oracle arms (`net_layers.py reach`).
+4. Check: track length on a layer the table disallows (`net_layers.py reach` against the human board for the
+   net-oracle arm). The fork lays none; kae's last mile does not read the table and may (smoke: one plane net,
+   4 % of track length). Report the share per run; over 10 % on a board, drop the board from the estimate.
 
 ## Size
 

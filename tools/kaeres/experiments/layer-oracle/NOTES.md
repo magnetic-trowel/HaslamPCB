@@ -13,10 +13,18 @@ Checked on a real board (4 layers, 244 pads, 50 nets; export, plan and DSN only,
 - Net table: 4 layer sets, 6 classes (2 without the table), 6 `use_layer`; the DSN grows from 117 to 127 kB.
 - The plan note `layer_assign` reaches the bridge report through `plan_summary`.
 
+Smoke through the bridge and the fork (kaeq, same board, bare copy without its project file, so its rules are
+KiCad's defaults and the open counts mean nothing; 150 s per arm)
+- control 79, role table 77, net table 78 unconnected; the DSN carries 0, 2 and 6 `use_layer`.
+- The fork obeys: with the role table no track lies on the plane layer the control used; with the net table the one
+  signal net the control had put on a layer outside its set is back inside it.
+- Leak: kae's own last mile does not read the table. With the net table it laid 9 mm of a plane net (3.3V) on an
+  inner layer outside that net's set: 4 % of track length, 1 of 24 routed nets.
+
 Not done
-- Routing through the fork with a table: queued as one kaeq job (owner `d1-layer-oracle-smoke`), three arms on that
-  board. Check there that `net_layers.py reach` reports 0 length on disallowed layers in both oracle arms, and compare
-  open connections. The fork's handling of `use_layer` was read in its source, not yet observed.
+- `lastmile` (and repair's own copper) should honour `RoutingClass.layers`; until then the experiment reports the
+  leaked share per run (PLAN, endpoint 4). Nets that own a zone could also be left out of extracted tables: their
+  human tracks are stubs to the plane.
 - No test asserts the DSN text for a class with layers (the writer is existing code, `translate.py`).
 - What an attempt with strict planes does to a net whose allowed inner layer is typed `power`: such a net keeps its
   outer pad layers; nets allowed on plane layers only are left unrestricted. Not measured.
