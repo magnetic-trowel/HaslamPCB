@@ -116,6 +116,15 @@ def _rank():
 
 
 RANK = _rank()
+
+
+def _sched():
+    """The return-driven scheduler (tools/kaeres/sched.py, stdlib only), loaded by path, only for --sched."""
+    f = Path(__file__).resolve().with_name("sched.py")
+    spec = importlib.util.spec_from_file_location("kaeres_sched", f)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
 BUSY = [lambda: False]   # whether any attempt is computing (main sets it)
 # SIGTERM (the job is being killed: a queue timeout or cancel): TERM holds when it came. Running attempts get it too
 # (each in a session of its own, so it is passed on), have TERM_GRACE_S to save what they have, are then killed and
@@ -861,6 +870,10 @@ def main():
     ap.add_argument("--open-rest-alt", action="store_true",
                     help="with --open-rest: when the kept board is clean, that run is --alt (kept when no worse)")
     ap.add_argument("--alt", default="", help="completion-first: the command of the second run on a clean board")
+    ap.add_argument("--sched", default="", choices=("", "return"),
+                    help="return: lanes and stops chosen from the attempts' returns (tools/kaeres/sched.py; "
+                         "KAE_BUDGET=work only); '' = the fixed schedule")
+    ap.add_argument("--sched-opts", default="", help="--sched options: a JSON object or a JSON file")
     ap.add_argument("command", nargs=argparse.REMAINDER)
     a = ap.parse_args()
     signal.signal(signal.SIGTERM, _on_term)
@@ -902,6 +915,7 @@ def main():
         sh = Halving(*rung_plan(left(), a.parallel, a.screen_s or a.first_s, a.eta), eta=a.eta)
         log(f"successive halving: rung budgets {[round(b) for b in sh.budgets]} s, {sh.n0} placements")
     log(f"input DRC errors by type: {base}")
+    sch = _sched().make(a.sched, a.sched_opts, WORK, a.parallel, a.first_s, a.growth, a.final, log) if a.sched else None
     running, done, k = {}, [], 0
     best = None
     meter, judge_cpu, judge_wall = Meter(), 0.0, 0.0
@@ -914,6 +928,11 @@ def main():
         if sh is not None:
             cand, rung, b, src_k = sh.next(left())
             b = min(b, left())
+            frm = next(x for x in done if x["k"] == src_k) if src_k is not None else None
+        elif sch is not None:
+            if (nx := sch.lane(done, left(), not running, k)) is None:
+                return False
+            b, src_k = min(nx[0], left()), nx[1]
             frm = next(x for x in done if x["k"] == src_k) if src_k is not None else None
         else:
             b = min(a.first_s * a.growth ** (k // a.parallel), left())
@@ -981,7 +1000,8 @@ def main():
         while len(running) < a.parallel and launch():
             pass
         if WORK and running:
-            plan_used[0] += max(i["budget"] for i in running.values())
+            mb = max(i["budget"] for i in running.values())
+            plan_used[0] += sch.charge(mb, len(running)) if sch is not None else mb
     fill()
     while running:
         if SC and all("hold" in i for i in running.values()):   # nothing computes: skip to the first hold's end
@@ -1062,6 +1082,8 @@ def main():
             running.clear()
             break
         fill()
+    if sch is not None and sch.stop == "near-miss":
+        a.final_s = sch.final_s(work_final_s(a), plan_s - plan_used[0])
     fin = final_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s,
                      (b0 or {}).get("overlaps", ())) if a.final else None
     if fin is not None:
@@ -1104,6 +1126,8 @@ def main():
                                       for d in done])
     if sh is not None:
         summary["halving"] = sh.summary()
+    if a.sched:
+        summary["sched"] = sch.summary(done, plan_s - plan_used[0]) if sch else dict(policy=a.sched, active=False)
     if (fr_raw := keep_fr_raw(wd, summary)):
         summary["fr_raw"] = fr_raw
     (wd / "summary.json").write_text(json.dumps(summary, indent=1))

@@ -1,0 +1,17 @@
+{
+ "_comment": "PLACEHOLDER priors for tools/kaeres/sched.py (--sched return), to be fitted by tools/research/effort/replay.py. Per action type and incumbent-opens bucket: per_cpu_h = prior opens closed per CPU-hour, b0_s = prior CPU seconds (pseudo-count); a0 = per_cpu_h * b0_s / 3600. Starting values from s2-merit213: resumed attempts removed about 4x more opens per CPU-hour than fresh ones.",
+ "resume": {
+  "0": {"per_cpu_h": 24.0, "b0_s": 600.0},
+  "1-5": {"per_cpu_h": 24.0, "b0_s": 600.0},
+  "6-20": {"per_cpu_h": 24.0, "b0_s": 600.0},
+  "21-100": {"per_cpu_h": 24.0, "b0_s": 600.0},
+  ">100": {"per_cpu_h": 24.0, "b0_s": 600.0}
+ },
+ "fresh": {
+  "0": {"per_cpu_h": 6.5, "b0_s": 600.0},
+  "1-5": {"per_cpu_h": 6.5, "b0_s": 600.0},
+  "6-20": {"per_cpu_h": 6.5, "b0_s": 600.0},
+  "21-100": {"per_cpu_h": 6.5, "b0_s": 600.0},
+  ">100": {"per_cpu_h": 6.5, "b0_s": 600.0}
+ }
+}
