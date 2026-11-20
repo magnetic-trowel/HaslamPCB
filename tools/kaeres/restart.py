@@ -1446,7 +1446,10 @@ def run_policy(ap, a):
         return 143
     clean1 = p1["rank"] is not None and p1["rank"][1] == 0
     alt = bool(clean1 and a.alt)
-    left = 0.5 * a.time if WORK else a.time - (time.monotonic() - t0)   # work mode: nominal halves
+    # work mode: nominal halves. Time mode: what is left, not counting phase 1's diagnoses (records made after its
+    # output was written: phase 2 gets the time it had before they existed)
+    diag_wall = float((p1["work"].get("diagnose") or {}).get("wall_s") or 0.0)
+    left = 0.5 * a.time if WORK else a.time - (time.monotonic() - t0 - diag_wall)
     open_alt = bool(not clean1 and a.open_alt and p1["rank"] is not None and p1["out"].exists())
     if open_alt:
         # one process where a restart phase runs --parallel lanes: the same work in counted seconds is lanes x its time
