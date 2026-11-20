@@ -149,6 +149,20 @@ def spearman(x, y):
     return float(spearmanr(x, y).statistic)
 
 
+def partial_spearman(x, y, z):
+    """Spearman correlation of x and y with z partialled out (on ranks); None when undefined."""
+    from scipy.stats import rankdata
+    if min(len(set(x)), len(set(y)), len(set(z))) < 2 or len(x) < 4:
+        return None
+    rx, ry, rz = (rankdata(v) for v in (x, y, z))
+    def resid(a):
+        A = np.column_stack([np.ones(len(rz)), rz])
+        return a - A @ np.linalg.lstsq(A, a, rcond=None)[0]
+    ex, ey = resid(rx), resid(ry)
+    den = float(np.sqrt((ex @ ex) * (ey @ ey)))
+    return float(ex @ ey / den) if den > 1e-12 else None
+
+
 def dedupe(rows):
     """Placements with identical measures -> one (opens averaged). Returns (placements, duplicate opens SDs)."""
     groups = collections.defaultdict(list)
@@ -231,6 +245,8 @@ def analyse(path, seed=0):
         opens = [p["opens"] for p in pl]
         boards.append(dict(board=b, npad=pl[0]["npad"], layers=pl[0].get("layers") or pl[0].get("nsig"),
                            n=len(pl), rho={m: spearman([p[m] for p in pl], opens) for m in MEASURES},
+                           partial={PRIMARY + "|hpwl": partial_spearman([p[PRIMARY] for p in pl], opens,
+                                                                         [p["hpwl"] for p in pl])},
                            conc={m: concordance(pl, m) for m in MEASURES}))
     res = dict(source=os.path.basename(path), placements=nplace, merged_duplicates=ndup, errors=errors,
                skipped_big=skipped, boards=len(boards),
@@ -248,6 +264,12 @@ def analyse(path, seed=0):
         sub = [b for b in boards if pred(b)]
         if sub:
             res["layers"][name] = {m: summarize(sub, m, rng) for m in MEASURES}
+    part = [b["partial"][PRIMARY + "|hpwl"] for b in boards if b["partial"][PRIMARY + "|hpwl"] is not None]
+    if part:
+        arr = np.array(part)
+        meds = np.median(arr[rng.integers(0, len(arr), (2000, len(arr)))], axis=1)
+        res["partial"] = dict(measure=PRIMARY + "|hpwl", n=len(part), median=float(np.median(arr)),
+                              median_ci=[float(np.percentile(meds, 2.5)), float(np.percentile(meds, 97.5))])
     res["per_board"] = [dict(board=b["board"], npad=b["npad"], layers=b["layers"], n=b["n"], rho=b["rho"])
                         for b in boards]
     return res
@@ -283,6 +305,11 @@ def report_md(res, experiment):
         lines += [f"**{PRIMARY}: median {_f(p['median'])} [{_f(p['median_ci'][0])}, {_f(p['median_ci'][1])}] over "
                   f"{p['n']} boards: {verdict} the {DECISION} decision line.**", ""]
     nz = res["noise"]
+    pc = res.get("partial")
+    if pc:
+        lines += [f"Partial within-board Spearman of {PRIMARY} with opens given HPWL: median {_f(pc['median'])} "
+                  f"[{_f(pc['median_ci'][0])}, {_f(pc['median_ci'][1])}] over {pc['n']} boards (plan threshold "
+                  f"0.15 with an interval excluding 0).", ""]
     lines += [f"Routing-noise floor: opens SD inside {nz['groups']} groups of identical placements: median "
               f"{_f(nz['median_sd'])}, RMS {_f(nz['rms_sd'])}.", "", "## All boards", ""] + _table(res["all"])
     for name, block in res["band"].items():
