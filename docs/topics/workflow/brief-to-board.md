@@ -18,14 +18,14 @@ Environment for every stage: `source ~/.cache/haslambench/env.sh` (sets `HASLAM_
 |---|---|---|---|---|
 | S1 | Requirements and part research | read datasheets (pdftotext the PDF; render figures with pdftoppm and read them); check stock with the JLC parts API | numbers with page citations | every typed fact has a source |
 | S2 | Circuit as code | write `designs/<slug>/parts.py`, `design.py`, custom footprints (`footprints/make_footprints.py`) | — | — |
-| S3 | Schematic and checks | `haslamsynth build designs/<slug>/design.py -v` | `.kicad_sch`, `.kicad_pro`, `.kicad_dru`, `netlist.json`, `bom.csv`, `report.md`, `<slug>.haslam_intent.json` | 0 errors, ERC clean, netlist round trip identical, intent accepted by haslam's loader |
-| S4 | Operating intent | `d.haslam.net/part/cell/cable/term(...)` in `design.py` (rebuilt by S3) | `<slug>.haslam_intent.json` (haslam.intent/1) | `haslam brief` shows `facts.unmatched == []` and the cells' V, I, f_sw as declared |
+| S3 | Schematic and checks | `haslamsynth jlc designs/<slug>/design.py` (LCSC numbers of generic passives, network), then `haslamsynth build designs/<slug>/design.py -v` | `.kicad_sch`, `.kicad_pro`, `.kicad_dru`, `netlist.json`, `bom.csv`, `report.md`, `<slug>.haslam_intent.json` | 0 errors (incl. `rules.pin_escape`, `rules.pad_gap`), ERC clean, netlist round trip identical, intent accepted by haslam's loader; read `layout.density` |
+| S4 | Operating intent | net `v_typ=`, part-card `haslam=`, then `d.haslam.net/part/cell/cable/term(...)` for design choices (rebuilt by S3) | `<slug>.haslam_intent.json` (haslam.intent/1) | `haslam brief` shows `facts.unmatched == []` and the cells' V, I, f_sw as declared |
 | S5 | Unplaced board | `$HASLAM_KICAD_WRAP python3 synth/scripts/sch_to_board.py designs/<slug>/out designs/<slug>/board.json` | `<slug>.kicad_pcb` beside the project | `kicad-cli pcb drc --schematic-parity`: parity 0; no edge or courtyard error among the fixed parts |
-| S6 | Physics brief | `python -m haslam.cli brief <board> --out brief.json` | structures, cells, victims, applied facts | every converter found as a commutation cell; switch nodes listed |
+| S6 | Pre-flight | `python synth/scripts/preflight.py <board> --probe` (haslam venv, the job's environment) | PASS/FAIL/WARN per check, `blocked:` lines of a 3-minute probe | 0 FAIL; every converter a commutation cell with V, I, f_sw; read each WARN (a probe diagnosis at a wider-than-minimum track may still route) |
 | S7 | Smoke layout | one seed per arm through haslamq (`designs/solar-small/run_ab.sh ARM SEED RUN`), priority 1 | routed board, `restarts/` reports | a board written; `blocked:` lines read |
-| S8 | Physics scoring | `eval_ab.sh ARM SEED RUN` (DRC with parity, `haslam.excite.evaluate` under one intent, `haslam.intent status`) | `eval/drc.json`, `excite.json`, `status.json` | same intent file and project rules for every arm |
-| S9 | Campaign | ≥ 3 seeds per arm, compare cp1/unconnected/errors and the intent's tiers | comparison table | effect with interval, not one seed |
-| S10 | Fabrication | not built yet (§G) | gerbers, drill, pos, BOM with LCSC numbers | — |
+| S8 | Physics scoring | in the layout job (`run_ab.sh` calls `eval_ab.sh`: DRC with parity, `haslam.excite.evaluate` under one intent, `haslam.intent status`) | `eval/drc.json`, `excite.json`, `status.json` | same intent file and project rules for every arm |
+| S9 | Campaign | ≥ 3 seeds per arm; `python synth/scripts/compare_ab.py RUN --md table.md` | comparison table (unconnected, DRC by type, intent tiers, term values) | effect with interval, not one seed |
+| S10 | Fabrication | `sch_to_board.py --update out ROUTED BOARD2` (fields after a part change), then `python synth/scripts/fab_outputs.py BOARD2 FABDIR` | gerber+drill zip, JLC CPL, JLC BOM, `fab-report.json` (extended parts = setup fees) | DRC after zone refill: 0 errors, 0 unconnected; every BOM line has an LCSC number |
 
 ## F. The board intent file
 
@@ -79,21 +79,22 @@ Exact commands: `tools/research/llm-design/designs/solar-small/run_ab.sh`. `rest
 
 | # | Improvement | Why (evidence) | Where |
 |---|---|---|---|
-| G1 | Score physics in the layout job itself, right after the board is written (DRC, excite, intent status), and write the placer's own physics scorecard as an artifact | a second queue wait per round; B1's placement already printed the boost loop at 178 % of budget, unused | `run_ab.sh` (done for solar-small), then a `haslamsynth pipeline` command |
-| G2 | Pre-flight before any queue submit: `kicad-cli` and KiCad's Python reachable, Freerouting pin present, intent accepted, parity 0, a 2-minute route probe | P2 cost 9 jobs; P6 needed a 4 h run to surface | one `preflight` command run locally |
-| G3 | Rule feasibility at build time: for every footprint, compare its pad gaps with the clearance the generated rules give its pads' nets and with min track; report "rule X makes U101.1-U101.2 unroutable" | P6, found only from routed `blocked:` lines | haslamsynth checks (`rules.pin_field`) |
-| G4 | Board density and size estimate at build time (courtyard sum / free area, per side), with the module's keep-under area; warn above ~40 % on 2 layers | 60 % failed, 27 % routed | haslamsynth report |
-| G5 | Derive default facts from the IR: rails from power nets and regulator part cards, f_sw and switch ratings from part cards, current from `i_max`; `design.py` only overrides | facts typed twice (part card and `d.haslam.part`) | `haslam_intent.py` |
-| G6 | Fab minimums from the finest pad pitch (`BoardSpec` defaults when unset) | P6 needed a manual 0.127/0.15 | haslamsynth |
+| G1 | Score physics in the layout job itself (done: `run_ab.sh`); keep the placer's own physics scorecard as an artifact (open) | a second queue wait per round; B1's placement already printed the boost loop at 178 % of budget, unused | a `haslamsynth pipeline` command |
+| G2 | Done (`preflight.py`). Pre-flight before any queue submit: `kicad-cli` and KiCad's Python reachable, Freerouting pin present, intent accepted, parity 0, a 2-minute route probe | P2 cost 9 jobs; P6 needed a 4 h run to surface | one `preflight` command run locally |
+| G3 | Done (`rules.pin_escape`, `rules.pad_gap`). Rule feasibility at build time: for every footprint, compare its pad gaps with the clearance the generated rules give its pads' nets and with min track; report "rule X makes U101.1-U101.2 unroutable" | P6, found only from routed `blocked:` lines | haslamsynth checks (`rules.pin_field`) |
+| G4 | Done (`layout.density`). Board density and size estimate at build time (courtyard sum / free area, per side), with the module's keep-under area; warn above ~40 % on 2 layers | 60 % failed, 27 % routed | haslamsynth report |
+| G5 | Done (net `v_typ`, part-card `haslam=`). Derive default facts from the IR: rails from power nets and regulator part cards, f_sw and switch ratings from part cards, current from `i_max`; `design.py` only overrides | facts typed twice (part card and `d.haslam.part`) | `haslam_intent.py` |
+| G6 | Done (`layout.fab_minimums`). Fab minimums from the finest pad pitch (`BoardSpec` defaults when unset) | P6 needed a manual 0.127/0.15 | haslamsynth |
 | G7 | pnr copper as soft (rippable under the physics guard), or pnr finishing its own nets; pnr run time (2.1 h on 68 parts) | P9 | `haslam.em.pnr --lock` and the last mile's soft tier |
 | G8 | haslam placer reads `.kicad_dru` clearances (it legalizes at the net-class 0.2 mm) | placed pads 0.575 mm apart under a 0.6 mm rule | `haslam.place` |
 | G9 | Thermal-spoke corridors exempt an IC's own pin field | blocked the DAC's I2C and CAP pins | `route/constraints.thermal_corridors` |
 | G10 | Stitching vias between same-net pours on two layers | GND_F and GND_B left unconnected | router finish |
 | G11 | Charge the last mile's pad-entry and escape work (≈ 5.6 × undercharged on solar-small) | the work clock let a loop run for hours | `haslam/budget.py` RATES, with its A/B |
-| G12 | Fabrication outputs: gerbers, drill, pos, BOM with LCSC numbers and basic/extended flags | S10 missing | new stage |
-| G13 | One comparison script: arms × seeds → unconnected, errors by type, intent tiers, top terms | hand reading of logs | beside `eval_ab.sh` |
+| G12 | Done (`fab_outputs.py`, `haslamsynth jlc`). Fabrication outputs: gerbers, drill, pos, BOM with LCSC numbers and basic/extended flags | S10 missing | new stage |
+| G13 | Done (`compare_ab.py`). One comparison script: arms × seeds → unconnected, errors by type, intent tiers, top terms | hand reading of logs | beside `eval_ab.sh` |
 | G14 | Retire `intent.yaml` (pcb-intent/0.2, read by nothing) once haslam.intent `relations` exist | two intent files confuse a reader | haslamsynth, haslam.place |
 | G15 | Datasheet fetch helper: vendor site, then the LCSC copy (`lcsc.com/product-detail/...` lists the PDF) | the maker's site timed out from the host; LCSC worked | haslamsynth |
+| G17 | Prefer JLC basic values when choosing passives: solar-small's dividers (4.7, 8.2, 2.49, 4.99, 4.02 MΩ, 590, 392, 316 kΩ) are extended parts, 25 of 42 unique BOM parts extended (≈ 25 setup fees per order) | `fab-report.json` | haslamsynth: suggest the nearest basic E-series value where a calc allows |
 | G16 | haslamq: snapshot the code even with `--link` (jobs ran `code=live`, so editing `haslam/src` mid-run changes them) | had to freeze edits for hours | haslamq |
 
 ## W. Working rules that held
