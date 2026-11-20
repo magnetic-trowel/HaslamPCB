@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import collections
 
-from kae.budget import now as clock_now
+from kae.budget import lap, now as clock_now
 import os
 import time
 from dataclasses import dataclass, field
@@ -534,6 +534,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
 
     def stage(name, t):
         rep["stages"][name] = round(clock_now() - t, 3)
+        lap(name)           # the ledger's side row for this step (kae.budget.lap)
 
     def trace(name, state):
         # physics after each stage that can move parts (anneal, legalize, the exact repairs),

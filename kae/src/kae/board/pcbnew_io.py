@@ -186,7 +186,7 @@ def _run_process(op, args, timeout):
         out = os.path.join(d, "out.json")
         cmd = [*kicad_python(), bridge_script(), op, *args(out)]
         try:
-            r = proc.run("kicad-python", cmd, capture_output=True, text=True, timeout=timeout, errors="replace")
+            r = proc.run(None, cmd, capture_output=True, text=True, timeout=timeout, errors="replace")
         except subprocess.TimeoutExpired:
             raise PcbnewError(f"pcbnew {op} timed out after {timeout}s")
         lines = [ln for ln in r.stdout.splitlines() if ln.startswith("{")]

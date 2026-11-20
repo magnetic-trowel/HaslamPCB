@@ -80,6 +80,7 @@ def run(board, out_json, timeout=None, cache=True):
     return rep
 
 
+@budget.in_span("kicad-drc")          # the run and its charge in one row of the ledger
 def _run(board, out_json, timeout, cache, mb):
     cmd = [*kicad_cli(), "pcb", "drc", "--format", "json", "--refill-zones", "--severity-all",
            "--units", "mm", "-o", str(out_json), str(board)]
@@ -87,9 +88,9 @@ def _run(board, out_json, timeout, cache, mb):
         if cache and stepcache.enabled():   # KAE_STEP_CACHE: a board DRC'd before, with the same rules, replays its report
             r = stepcache.run("kicad-drc", cmd, inputs=stepcache.kicad_inputs(board), outputs={"report": out_json},
                               wd=board.parent, timeout=timeout, tool=stepcache.kicad_version(kicad_cli()),
-                              cwd=board.parent, runner=lambda *a, **k: proc.run("kicad-drc", *a, **k))
+                              cwd=board.parent, runner=lambda *a, **k: proc.run(None, *a, **k))
         else:
-            r = proc.run("kicad-drc", cmd, capture_output=True, text=True, timeout=timeout, cwd=board.parent,
+            r = proc.run(None, cmd, capture_output=True, text=True, timeout=timeout, cwd=board.parent,
                          errors="replace")
     except subprocess.TimeoutExpired:
         raise DrcError(f"DRC timed out after {timeout}s")

@@ -68,7 +68,8 @@ def main(argv=None):
             if v["wall"] < a.min_wall and k:
                 continue
             ch = sum(v["charged"].values())
-            sub = sum(sum(w["charged"].values()) for kk, w in rows.items() if kk.startswith(k + "/") or (not k and kk))
+            sub = 0.0 if "~" in k else sum(sum(w["charged"].values()) for kk, w in rows.items()
+                                            if "~" not in kk and (kk.startswith(k + "/") or (not k and kk)))
             cht = ch + sub        # charged inside the span, its child spans included
             r = (lambda x: f"{x / cht:5.2f}" if cht > 1e-6 else "    -")
             kinds = ", ".join(f"{kk} {vv:.0f}" for kk, vv in v["charged"].most_common(3) if vv >= 0.5)

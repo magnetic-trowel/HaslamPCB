@@ -13,6 +13,7 @@
 `run` is subprocess.run (it raises subprocess.TimeoutExpired after killing the group); `start` is
 subprocess.Popen for a process the caller drives, and `stop` ends one. `publish` replaces a file
 atomically, so a run killed at any moment leaves the previous best result whole."""
+import contextlib
 import os
 import shutil
 import signal
@@ -54,7 +55,8 @@ def stop(p, grace=TERM_GRACE_S):
 
 
 def run(tool, argv, *, timeout=None, input=None, capture_output=False, check=False, env=None, **kw):
-    """subprocess.run of `argv`, booked to the ledger as `tool`. `timeout` is wall seconds (None: the
+    """subprocess.run of `argv`, booked to the ledger as `tool` (None: to the caller's open span, which then
+    also holds what it charges for the run). `timeout` is wall seconds (None: the
     hard deadline only; budget.wall_timeout makes one from a budget), never past the hard deadline;
     past it the whole group is stopped and subprocess.TimeoutExpired raised."""
     limit = min(float("inf") if timeout is None else float(timeout), budget.wall_left())
@@ -63,12 +65,12 @@ def run(tool, argv, *, timeout=None, input=None, capture_output=False, check=Fal
         kw["stdout"] = kw["stderr"] = subprocess.PIPE
     if input is not None:
         kw["stdin"] = subprocess.PIPE
-    with budget.span(tool):
+    with budget.span(tool) if tool else contextlib.nullcontext():
         p = start(argv, timeout=limit, env=env, **kw)
         try:
             out, err = p.communicate(input, timeout=limit)
         except subprocess.TimeoutExpired:
-            budget.event("timeout", what=tool, limit_s=round(limit, 1))
+            budget.event("timeout", what=tool or argv[0], limit_s=round(limit, 1))
             stop(p)
             out, err = p.communicate()
             raise subprocess.TimeoutExpired(argv, limit, out, err)

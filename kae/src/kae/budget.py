@@ -269,7 +269,7 @@ def _cpu():
 
 
 class _Span:
-    __slots__ = ("path", "t0", "c0", "k0", "kids", "extra")
+    __slots__ = ("path", "t0", "c0", "k0", "kids", "extra", "lap")
 
     def __init__(self, path):
         self.path = path
@@ -277,6 +277,31 @@ class _Span:
         self.extra = 0.0         # CPU seconds of other processes the span reported (add_cpu)
         self.t0 = time.monotonic()
         self.c0, self.k0 = _cpu()
+        self.lap = (self.t0, self.c0, self.k0, dict(clock().by_kind))   # at its start or last lap()
+
+
+def lap(name):
+    """Book what the open span did since its start or last lap (wall, CPU, child CPU, charged by kind) to
+    the side row "<span>/~<name>": the steps of a stage that marks them as it goes (the placer's stages),
+    without restructuring it into spans. Side rows ("~") are not part of the span tree's sums."""
+    st = getattr(_tls, "stack", None)
+    if not st:
+        return
+    c, sp = clock(), st[-1]
+    t, (cpu, kids) = time.monotonic(), _cpu()
+    with _lock:
+        by = dict(c.by_kind)
+        t0, c0, k0, by0 = sp.lap
+        sp.lap = (t, cpu, kids, by)
+        row = c.ledger[f"{sp.path}/~{name}"]
+        row["n"] += 1
+        row["wall"] += t - t0
+        row["self_wall"] += t - t0
+        row["cpu"] += cpu - c0
+        row["child_cpu"] += kids - k0
+        for k, v in by.items():
+            if v - by0.get(k, 0.0):
+                row["charged"][k] = row["charged"].get(k, 0.0) + v - by0.get(k, 0.0)
 
 
 @contextlib.contextmanager
@@ -308,6 +333,19 @@ def span(name):
             row["child_cpu"] += k - sp.k0 + sp.extra
 
 
+def in_span(name):
+    """Decorator: the function runs in span(name)."""
+    def deco(fn):
+        import functools
+
+        @functools.wraps(fn)
+        def call(*a, **kw):
+            with span(name):
+                return fn(*a, **kw)
+        return call
+    return deco
+
+
 class Spanned:
     """A proxy for an object whose public methods each run in a span of their name (e.g. the joint
     loop's stages: place, route, repair, evaluate)."""
@@ -318,13 +356,7 @@ class Spanned:
 
     def __getattr__(self, k):
         v = getattr(self._obj, k)
-        if k.startswith("_") or not callable(v):
-            return v
-
-        def call(*a, **kw):
-            with span(self._prefix + k):
-                return v(*a, **kw)
-        return call
+        return v if k.startswith("_") or not callable(v) else in_span(self._prefix + k)(v)
 
     def __setattr__(self, k, v):
         setattr(self._obj, k, v)

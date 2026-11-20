@@ -425,9 +425,10 @@ def _charge(run, dsn, pins):
         budget.charge("fr_opt_pass_pin2", opt * size)
 
 
+@budget.in_span("freerouting")
 def route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin_s=None, hard_s=None,
           log_path=None):
-    """_route (below). In work mode (kae.budget) the budget becomes Freerouting's own work budget
+    """_route (below), with its charge in the ledger's row "freerouting". In work mode (kae.budget) the budget becomes Freerouting's own work budget
     (autorouter.max_work: it stops cleanly before the pass that would start past it, a counted stop
     the same on any host) less its start-up, and the optimizer gets a pass cap; a build without that
     setting gets a pass cap, budget_s / the nominal seconds of a pass. The job timeout is then only
@@ -518,7 +519,7 @@ def _route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin
         t0 = time.monotonic()
         timed_out, rc = False, None
         try:
-            r = proc.run("freerouting", argv, timeout=hard, cwd=workdir, stdout=subprocess.PIPE,
+            r = proc.run(None, argv, timeout=hard, cwd=workdir, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True, errors="replace", env=_env())
             out, rc = r.stdout, r.returncode
         except subprocess.TimeoutExpired as e:
