@@ -160,6 +160,14 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
     checker = Checker(d, symlibs, fplibs)
     findings = checker.run()
     fatal = [f for f in findings if f.check in ("lib.symbol_missing",) and not f.waived_by]
+    # LCSC numbers of the generic passives from designs/<slug>/jlc.json (`haslamsynth jlc`; no network here)
+    if not isinstance(design_path, Design):
+        from . import jlc
+        left = jlc.apply(d, Path(design_path).resolve().parent / "jlc.json")
+        if left:
+            findings.append(Finding("bom.no_lcsc", "warning",
+                                    f"{len(left)} generic parts without an LCSC number (run `haslamsynth jlc`): "
+                                    + ", ".join(r for r, _ in left[:12]) + (" ..." if len(left) > 12 else "")))
     # fab minimums from the finest pitch when the design leaves them unset (haslamsynth.layout)
     from . import layout as LY
     if d.board_spec is not None and fplibs:
