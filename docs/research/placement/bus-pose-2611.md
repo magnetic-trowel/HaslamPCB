@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Bus pose compiler: rotations of bus ends from pin tables (2026-11-09)
 
-Status: built, default off; experiment `bus-pose-ab` created, smoke queued, no result yet.
+Status: default off. `bus-pose-ab` ran (2026-11-20): board-level null; the bus-metric primary is still being measured, so the verdict is **undecided**.
 Code: `kae/src/kae/place/buspose.py` (branch `exp-bus-pose`). Plan: `tools/kaeres/experiments/bus-pose-ab/PLAN.md`.
 
 ## Why
@@ -45,3 +45,31 @@ connectors' poses. A rotation gain measured here is a gain given those.
 The crossing term of `placement-routability` and the array macros of `array-macro-ab` are absent from every arm, so
 they cannot confound it. Both act on the same buses: the crossing term counts a bus's own crossings
 quadratically, and an array block is pinned between a bus's ends. Their joint test comes after both verdicts.
+
+## Legality of the rotation prize (25 merit boards, 2026-11-10)
+On the placement study's 263 moved bus-runs of kae staged, the best-planarity pair needs a turn on 170. 88 of those turns are legal
+(grid and exact check, nudge at most 1 mm); 82 collide. 64 of the 88 worsen the place terms, so 24 survive the physics veto.
+Fully planar share: now 37%, unconstrained best 50% (the study's figure), legal 43%, legal and physics-safe 40%. Human placements: 43% to 45%.
+(`tools/research/bus_pose/legal_turns.py`, `legal_summary.py`.)
+
+## bus-pose-ab (2026-11-20)
+140 boards (80 `bus_ddr`, 60 IC-IC width 8+), 4 arms interleaved, seeds 0-2, one placement and one route each, Freerouting fork.
+1,675 scored runs. Paired per board over seeds (sign-flip on mean log1p opens):
+
+| arm | opens | DRC errors | clean runs | legal | CPU h | opens vs control (p) |
+|---|---|---|---|---|---|---|
+| control | 52,361 | 25,586 | 6.0% | 41.8% | 795 | |
+| final-planar | 52,540 | 25,820 | 5.8% | 41.8% | 797 | +0.009 (0.76) |
+| final-length | 52,846 | 25,717 | 5.8% | 42.3% | 795 | -0.012 (0.66) |
+| seed-final | 52,743 | 25,389 | 5.5% | 42.1% | 797 | -0.020 (0.58) |
+
+- Per-type DRC: no type moves beyond noise except silk over copper (772 to 894 / 936 / 752).
+- Near misses (control 1-5 open; 30 board-seeds on 17 boards): an arm closes 8-10 of them but opens more on 10-12. That is a coin flip.
+- Board size: 130 of the 140 boards ran over 0.5 CPU-h a run; the experiment predates that cap. The 10 small boards show no difference either.
+- Did the arms change the placement? Barely, for the final passes. Of 5,307 candidate turns, 2,405 collided and 1,642 were refused by the physics
+  veto. Parts turned in 164 and 122 of 420 runs. The line-weighted planar share moved only from 0.580 to 0.592 (planarity first) and 0.583 (length first).
+  seed-final turned 922 parts at the seed in 279 runs.
+- Verdict: undecided on the pre-registered primary (open bus lines, vias per bus line). Bus metrics and the kaeres bus scorecard are queued
+  (state in `~/kae-baselines/experiments/bus-pose-ab/STATE-2026-11-20.md`). At board level: no effect on opens, errors or clean share. A final pass after
+  legalization cannot reach the prize, because legality and decoupling physics block most turns. If anything helps, it is seed-time poses, which the
+  bus-alone result (escape and pin access) suggests pairing with escape-facing approach direction. Nothing becomes a default.
