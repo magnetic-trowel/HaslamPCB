@@ -228,6 +228,8 @@ DEFAULTS = dict(
                                    # certificates, kae.route.blocked): kae.route.fab.PROFILES
     operating="",                  # placement and routing: the board's operating facts (JSON: requirements.thermal
                                    # heat sinks, parts' P_sustained_W; kae.place.heat); "" none
+    relations="",                  # placement: a relations file (kae.place.relations: poses, holds, orientations,
+                                   # regions, near / group / corridor); "" none: placement unchanged
     heat_pull_w=1.0,               # placement: label-term weight per sustained W pulling a hot part into a region sink
     heat_min_W=0.25,               # placement and routing: parts dissipating less are not pulled (placement) and
                                    # get no thermal vias (routing)

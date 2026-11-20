@@ -576,6 +576,14 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     # parts held at their input pose by the caller (kae place --fix / --fix-class: the board's
     # mechanical interface): fixed obstacles like locked parts, their nets still pulling
     fixed = set(fixed or ())
+    # relational inputs (kae.place.relations): posed parts moved first, held ones fixed like --fix
+    from . import relations as relmod
+    rel = relmod.load_for(board, board_path, opts)
+    rel_held = {}
+    if rel is not None:
+        board, rel_held = relmod.apply_board(board, rel)
+        fixed = fixed | set(rel_held)
+        rep["relations"] = rel.summary()
     if fixed:
         staged_fixed = sorted(fp.ref for fp in board.footprints if fp.uuid in fixed and not fp.on_board)
         rep["fixed"] = dict(n=len(fixed), refs=sorted(fp.ref for fp in board.footprints if fp.uuid in fixed)[:80])
@@ -591,9 +599,12 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     if edge_mode >= 2:
         board, pinned = _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log)
         fixed = fixed | set(pinned)
+    pinned = {**pinned, **rel_held}       # held relation poses are written like pinned parts
+
     def build(b, frozen):
         return Problem.build(b, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | frozen,
-                             angle_step=angle_step, severity=severity or _severity_mode(board, board_path, opts))
+                             angle_step=angle_step, severity=severity or _severity_mode(board, board_path, opts),
+                             part_rotations=rel.orient if rel is not None else None)
 
     P = build(board, fixed)
     if int(setting("anchor_tight", board_path, opts)):
@@ -869,6 +880,13 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
                 kw["labels"] = lab
                 if not float(kw.get("w_label") or 0.0) > 0:
                     kw["w_label"] = labelsmod.DEFAULT_WEIGHT
+        # relation regions and near-a-fixed-part (kae.place.relations), on the same term; they win over labels
+        if rel is not None:
+            rpulls, rep["relations"]["pulls"] = relmod.anchors(P, rel)
+            if rpulls:
+                kw["labels"] = {**(kw.get("labels") or {}), **rpulls}
+                if not float(kw.get("w_label") or 0.0) > 0:
+                    kw["w_label"] = labelsmod.DEFAULT_WEIGHT
         # soft overlaps: silkscreen where the project makes it an error (on KiCad's glyphs) and
         # routing channels between parts' pads (kae.place.exact.channel_grid)
         w_silk = float(kw.pop("w_silk", SILK_W) or 0.0)
@@ -1026,6 +1044,8 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     poses.update(mated)          # held fixed here, but movable in the file: write them too
     poses.update(pinned)
     res.poses = poses
+    if rel is not None:
+        rep["relations"]["penalty"] = relmod.penalty(P, poses, rel)
     if edge_mode >= 1:
         edge_hazards(rep, board, poses)
     return res
