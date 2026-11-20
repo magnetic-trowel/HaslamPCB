@@ -339,6 +339,16 @@ Before task spec 10, prepare drew random uuids for objects that a board file sto
 
 Report-only (no score, selection or objective uses them until they pass a mutation benchmark). `tools/haslamres/return_board.py BOARD...` reads one board file (`.kicad_pcb` or `.gz`, no KiCad) and builds the same pseudo-fill for every arm, since stored outputs keep zone outlines but no fills: ground-zone outline minus pour keep-outs and other-net copper (grown by the zone clearance), opened by 0.125 mm, keeping the pieces that touch ground copper. Rows: `cov_opp` (share of signal track length over ground on an adjacent copper layer; the opposite layer on 2-layer boards), `cov_same` (same-layer ground within 1 mm), `cov_any`, `unc_mm`, the same on fast nets (`fast_*`), the net with the most uncovered length, ground-fill share and pieces. `paired(A, B, boards, path_of)` gives per-board differences in the shape the quality report's `diff_row` takes; on the stage 0 boards it reproduces the design-3 prototype exactly.
 
+## Quality report
+
+`$K quality NAME --control METHOD [--method M ...] [--no-human] [--out FILE]` (`quality.py`) prints a Markdown view for boards that already route. It reads `results.csv` (attempt 0; run `exp report` first) and the stored physics evaluations, and changes no score. Each method B is paired per board with the control A.
+
+- **Two completion endpoints, never pooled.** Near-miss closure: boards one arm leaves 1-5 opens that the other closes, counted both ways, exact sign test. Big-board opens: boards over 1,000 pads, paired difference of log(1 + opens). Also `xc`.
+- **Quality on boards both finish (0 opens).** Median ratio B / A of track length and of 1 + vias; mean per-board difference in `solder_mask_bridge` and silk error counts; median ratio of the same physics module's value by kind (hot-loop cell, decap, crystal, chain), never the summed score. The physics rows repeat over unfinished boards where the module itself is closed in both.
+- **Reach.** Share of boards with identical opens and errors in both arms: the boards the change did not touch.
+- **Verdicts.** Intervals are 95 % bootstraps that resample repository owners. better or worse: the interval excludes no change. undecided: it includes it. unknown: under 10 paired boards or owners; no estimate is printed.
+- **Human layout.** Where the experiment has a human row, the quality rows repeat with the human as A. Rows scored by another DRC evaluator are marked ‡. Physics of two evaluators is never paired; `rephysics submit` gives the human runs the experiment's evaluator.
+
 ## Manufacturability columns
 
 Report-only and not targets (E72): no score uses them, and optimizing any one of them alone makes boards worse. `tools/haslamres/mfg_board.py` computes them per run and stores `evals/mfg-<id>.json` beside the run's other evaluations (attempt 0 only; the evaluator id hashes the script, `haslam/src/haslam/board`, `fab.py` and whether a refill was done). `exp report` only reads what is stored and prints nothing when no run has them.
