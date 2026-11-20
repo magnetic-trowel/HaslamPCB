@@ -98,6 +98,35 @@ A method runs with the harness commit recorded in it, and an experiment's jobs r
 experiment's frozen copy of `kaeres.py`. Code changes after `exp create` therefore change
 nothing in that experiment.
 
+## Factorial experiments
+
+`factorial.py` plans, sizes and analyses two-level designs of several settings at once (standalone; reads the store
+read-only):
+
+```bash
+F="python3 tools/kaeres/factorial.py"
+$F design --factor xing:on=place_w_xing=2 --factor margin:on=place_margin=-1,place_margin_gate=4 ... \
+   [--runs 8|16|32|12] [--foldover] [--with-all-off] [--rotate N --boards ids.txt --seeds S] -o plan.json
+$F mde --s-int 0.136 --s-dw 0.355 --boards 21 --runs 8 [--bonferroni --factors 5] [--cost-per-run 0.23]
+$F analyse --plan plan.json --experiment NAME [--arm "control=r00"] [--looks 1|2] [--confseq [B]] [--reach reach.json]
+$F analyse --plan plan.json --csv runs.csv      # board, seed, arm, opens, clean, length, vias[, owner, phys_<kind>]
+```
+
+- `design`: regular 2^(k-p) fractions from a minimum-aberration generator table, the 12-run Plackett-Burman design,
+  fold-over. Resolution, alias groups and partial aliases are computed from the matrix. `plan.json` has one arm per
+  row with its `--set` strings, flags the all-off and all-on rows, and records the pre-registered margins.
+  `--rotate N`: a stored control carries the design, row = (board index + seed) mod N.
+- `mde`: `s_int^2/boards + 2 s_dw^2/(boards x seeds x R)` for complete cells, `s_int^2/boards + 4 s_w^2/N` for
+  rotation; 80 % power, two-sided 5 %.
+- `analyse`: per (board, seed) cell, each factor's contrast mean(on) - mean(off); board mean; mean over boards.
+  Endpoints: log(1+opens), clean, log track length and log(1+vias) on cells every run closes, physics per module
+  kind. Owner-cluster bootstrap intervals (2,000, fixed seed), sign-flip permutation p, Holm over factors.
+  Stopping rule: a fixed design with at most one pre-registered extension (two looks at 97.1 %, Pocock).
+  `--confseq` (accumulating designs only) adds an empirical-Bernstein confidence sequence; at 60 boards it is about
+  5x wider than the fixed-n interval. Two-factor interactions are reported per alias group.
+  Verdicts: better, worse, bounded (interval inside the margin both ways), undecided (with the boards that would
+  decide it), unknown (under 10 boards or 10 owners). Writes `VERDICT.json`.
+
 ## Running an experiment without wasting it
 
 Lessons from experiments that ran and measured nothing (2026-11):
