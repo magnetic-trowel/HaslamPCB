@@ -316,6 +316,10 @@ Unrouted connections and timeouts are outcomes, not bugs: they are in `results.c
   bwrap sandbox (bwrap exits without reaping its pid 1), so every `--command` run made with an
   older harness reads ~0; those show as no value, or as the job step's cgroup CPU
   (`job_steps.run.cgroup_cpu_s`, recorded from now on, which also includes scoring).
+- **Did the change reach the board?** `reach.py compare --experiment NAME` gives, per board and seed, the first stage
+  where arm and control part (place, route, none), the boards never reached and the CPU-h spent on them;
+  `reach.py precheck` turns a pilot seed into the cells still worth running (`reach.json`). See
+  [REACH-NOTES.md](REACH-NOTES.md).
 
 To reproduce a router bug without KiCad, run Freerouting on `artifacts/board.dsn.gz` with the
 flags in `run.json` → `adapter_meta.rule_args`.
