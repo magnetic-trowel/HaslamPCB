@@ -244,7 +244,7 @@ def control(d):
                                "OUT0": "DAC_FB", "FB0": "DAC_FB", "OUT1": "DAC_RUN", "FB1": "DAC_RUN"},
           nc=["NC3", "NC4", "NC9", "NC10"], nc_reason="NC (DS Table 5-1)",
           notes="internal 1.21 V reference x2: 0-2.42 V outputs; voltage-output mode (FBx tied to OUTx)")
-    b.C("C311", "1.5uF", 10, "DAC_CAP", "GND", note="CAP ~1.5 uF (DS Table 5-1)")
+    b.C("C311", "1.5uF", 16, "DAC_CAP", "GND", diel="X5R", note="CAP ~1.5 uF (DS Table 5-1); 16 V X5R: the 10 V X7R part was out of stock at JLC (2026-11-20)")
     b.C("C312", "100nF", 16, "+3V3", "GND", note="U302 VDD")
     b.R("R311", 10e3, "+3V3", "DAC_VREF", note="VREF pulled to VDD: internal reference used (DS Table 5-1)")
     b.R("R312", 10e3, "DAC_GPIO", "GND", note="unused GPIO to AGND through a resistor (DS Table 5-1)")

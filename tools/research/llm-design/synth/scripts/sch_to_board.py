@@ -17,6 +17,9 @@ BOARD_JSON (all lengths mm, KiCad board coordinates, y down, origin at the outli
    "keepouts": [{"rect": [x0,y0,x1,y1], "layers": ["F.Cu","B.Cu"], "name": "...", "no": ["copper","vias"]}],
    "seed_area": [x0, y0, x1, y1]}                           # where unlocked parts start (a grid; the placer moves them)
 Writes OUT_DIR/<slug>.kicad_pcb and prints a JSON summary.
+
+`--update OUT_DIR BOARD_IN BOARD_OUT` copies values and fields from the schematic onto a laid-out board (no
+geometry change; refuses when any pad's net changed).
 """
 import json
 import math
@@ -224,5 +227,68 @@ def main(out_dir, board_json):
                       "fixed": sorted(fixed), "holes": len(spec.get("holes", []))}))
 
 
+def _fields(c):
+    fields = {val(f, "name"): (f[2] if len(f) > 2 else "") for f in find(find(c, "fields")[0], "field")} \
+        if find(c, "fields") else {}
+    for k, key in (("Datasheet", "datasheet"), ("Description", "description")):
+        if not fields.get(k) and val(c, key) and val(c, key) != "~":
+            fields[k] = val(c, key)
+    return fields
+
+
+def update(out_dir, board_in, board_out):
+    """Copy values and fields (LCSC, MPN, ...) from the schematic onto an already laid-out board, as KiCad's
+    "Update PCB from Schematic" does for text: no part moves and no copper changes. Refuses (exit 2) when any
+    pad's net differs from the schematic's: a changed netlist needs a new layout."""
+    out_dir = Path(out_dir).resolve()
+    slug = next(out_dir.glob("*.kicad_pro")).stem
+    nl = netlist(out_dir, slug)
+    board = pcbnew.LoadBoard(str(board_in))
+    fps = {fp.GetReference(): fp for fp in board.GetFootprints()}
+    want = {}
+    for n in find(find(nl, "nets")[0], "net"):
+        for node in find(n, "node"):
+            want[(val(node, "ref"), val(node, "pin"))] = val(n, "name")
+    bad = []
+    for (ref, pin), net in want.items():
+        fp = fps.get(ref)
+        got = [p.GetNetname() for p in fp.Pads() if p.GetNumber() == pin] if fp else []
+        if not got or any(g != net for g in got):
+            bad.append(f"{ref}.{pin}: board {got or 'missing'}, schematic {net}")
+    if bad:
+        print(json.dumps({"error": "netlist changed: lay the board out again", "pads": bad[:20]}))
+        return 2
+    changed = []
+    for c in find(find(nl, "components")[0], "comp"):
+        ref = val(c, "ref")
+        fp = fps.get(ref)
+        if fp is None:
+            continue
+        if fp.GetValue() != val(c, "value"):
+            changed.append(f"{ref}.Value")
+            fp.SetValue(val(c, "value"))
+        for k, v in _fields(c).items():
+            if k in ("Footprint", "Reference", "Value") or not v:
+                continue
+            if k == "Datasheet":
+                fld = fp.GetField(pcbnew.FIELD_T_DATASHEET)
+            elif k == "Description":
+                fld = fp.GetField(pcbnew.FIELD_T_DESCRIPTION)
+            else:
+                fld = fp.GetField(k)
+            if fld is None:
+                fp.SetField(k, v)
+                fp.GetField(k).SetVisible(False)
+                changed.append(f"{ref}.{k}")
+            elif fld.GetText() != v:
+                fld.SetText(v)
+                changed.append(f"{ref}.{k}")
+    pcbnew.SaveBoard(str(board_out), board)
+    print(json.dumps({"board": str(board_out), "changed": len(changed), "fields": changed[:40]}))
+    return 0
+
+
 if __name__ == "__main__":
+    if sys.argv[1] == "--update":                    # --update OUT_DIR BOARD_IN BOARD_OUT
+        sys.exit(update(sys.argv[2], sys.argv[3], sys.argv[4]))
     main(sys.argv[1], sys.argv[2])
