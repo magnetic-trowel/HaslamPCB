@@ -1,0 +1,2932 @@
+{
+ "cli": [
+  {
+   "choices": null,
+   "cli": "kae brief",
+   "default": null,
+   "flag": "--out",
+   "name": "kae brief --out",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae dru-check",
+   "default": null,
+   "flag": "--board",
+   "name": "kae dru-check --board",
+   "note": "run the KiCad pass on this .kicad_pcb (its layer names and project file count; slower: a full DRC per probe)",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "auto",
+    "on",
+    "off"
+   ],
+   "cli": "kae dru-check",
+   "default": "auto",
+   "flag": "--kicad",
+   "name": "kae dru-check --kicad",
+   "note": "also run KiCad's own parser (auto: when kicad-cli is found)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae dru-check",
+   "default": false,
+   "flag": "--strict",
+   "name": "kae dru-check --strict",
+   "note": "treat warnings as errors",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae dru-check",
+   "default": null,
+   "flag": "--vocab",
+   "name": "kae dru-check --vocab",
+   "note": "KiCad vocabulary label for the static pass (default: the installed KiCad's, else the newest bundled release)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": null,
+   "flag": "--angles",
+   "name": "kae place --angles",
+   "note": "let parts turn to any multiple of STEP degrees, not only right angles (heatsink-mount packages keep right angles; CP-SAT stays on right angles)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": null,
+   "flag": "--anneal-args",
+   "name": "kae place --anneal-args",
+   "note": "JSON of annealer weights for experiments, e.g. '{\"w_phys\": 2.0}' (w_phys, w_wl, w_cong, w_order, w_disp, cong_args, ...)",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "auto",
+    "on",
+    "off"
+   ],
+   "cli": "kae place",
+   "default": "auto",
+   "flag": "--drc",
+   "name": "kae place --drc",
+   "note": "KiCad DRC on the result, fed back until clean (auto: when kicad-cli is found)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": 6,
+   "flag": "--drc-rounds",
+   "name": "kae place --drc-rounds",
+   "note": "repair rounds driven by KiCad's DRC",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": false,
+   "flag": "--edge-mate",
+   "name": "kae place --edge-mate",
+   "note": "place staged footprints that carry Edge.Cuts where their open pieces close the outline exactly (default: hold them and flag outline_incomplete)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": "",
+   "flag": "--fix",
+   "name": "kae place --fix",
+   "note": "keep these parts at their input pose (fixed obstacles, as locked parts)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": "",
+   "flag": "--fix-class",
+   "name": "kae place --fix-class",
+   "note": "keep every part of these classes at its input pose: connectors, mounting, user (kae.place.fixed.classify)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": false,
+   "flag": "--no-anneal",
+   "name": "kae place --no-anneal",
+   "note": "seed and legalize only (= --stages seed,legalize)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": false,
+   "flag": "--no-physics",
+   "name": "kae place --no-physics",
+   "note": "routability and legality only (ablation)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": 0.15,
+   "flag": "--probe-jitter",
+   "name": "kae place --probe-jitter",
+   "note": "with --probe-select: candidates after the first start from a seed stage moved by F x the board span (0: annealer seeds only)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": 1,
+   "flag": "--probe-parallel",
+   "name": "kae place --probe-parallel",
+   "note": "with --probe-select: probe P candidates at once (each probe runs Freerouting)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": 0,
+   "flag": "--probe-select",
+   "name": "kae place --probe-select",
+   "note": "place N times (seeds seed..seed+N-1) and keep the placement a quick kae.route probe leaves the fewest open connections on (physics within 10%%; off by default)",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "auto",
+    "on",
+    "off"
+   ],
+   "cli": "kae place",
+   "default": "auto",
+   "flag": "--recheck",
+   "name": "kae place --recheck",
+   "note": "independent KiCad DRC of the output with the safety checks forced on; findings go to the report's hazards (auto: when kicad-cli is found and time is left)",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "off",
+    "escalate",
+    "auto"
+   ],
+   "cli": "kae place",
+   "default": null,
+   "flag": "--relax-bodies",
+   "name": "kae place --relax-bodies",
+   "note": "parts without a courtyard: 'off' (default) keeps their bodies as obstacles; 'escalate' frees them to their pads when legalization fails; 'auto' also up front on",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": null,
+   "flag": "--report",
+   "name": "kae place --report",
+   "note": "also write the JSON report here",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": 0,
+   "flag": "--seed",
+   "name": "kae place --seed",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "strict_then_level_c",
+    "strict",
+    "level_c",
+    "board"
+   ],
+   "cli": "kae place",
+   "default": null,
+   "flag": "--severity",
+   "name": "kae place --severity",
+   "note": "placement legality: courtyards, copper-to-edge, rule areas, clearance, shorts and hole clearance are errors whatever the project says. 'strict_then_level_c' (de",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": "seed,anneal,legalize",
+   "flag": "--stages",
+   "name": "kae place --stages",
+   "note": "stages to run; seed and legalize always run, so 'seed,legalize' skips the annealer",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": 300.0,
+   "flag": "--time",
+   "name": "kae place --time",
+   "note": "wall-clock seconds the caller allows",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae place",
+   "default": null,
+   "flag": "--workers",
+   "name": "kae place --workers",
+   "note": "CP-SAT threads (default: KAE_WORKERS or cores/2)",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "auto",
+    "pcbnew",
+    "sexpr"
+   ],
+   "cli": "kae place",
+   "default": "auto",
+   "flag": "--writer",
+   "name": "kae place --writer",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": false,
+   "flag": "--keep",
+   "name": "kae.joint.cli run --keep",
+   "note": "keep the work directory",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": null,
+   "flag": "--max-iters",
+   "name": "kae.joint.cli run --max-iters",
+   "note": "repair iterations at most (default: as many as the time allows; 0: staged pipeline only)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": false,
+   "flag": "--no-finish",
+   "name": "kae.joint.cli run --no-finish",
+   "note": "no finishing stage (the full bridge over the whole board in a reserved share of the time)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": false,
+   "flag": "--no-modules",
+   "name": "kae.joint.cli run --no-modules",
+   "note": "no module stage (kae place, then the bridge)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": false,
+   "flag": "--no-physics",
+   "name": "kae.joint.cli run --no-physics",
+   "note": "placer without physics terms (ablation)",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "fast",
+    "exact",
+    "multi"
+   ],
+   "cli": "kae.joint.cli run",
+   "default": "fast",
+   "flag": "--physics-fidelity",
+   "name": "kae.joint.cli run --physics-fidelity",
+   "note": "routed-loop physics: fast closed forms (default), exact PEEC everywhere, or multi (closed forms to search, PEEC on each decision's fast top K and on finished bo",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": 4,
+   "flag": "--physics-k",
+   "name": "kae.joint.cli run --physics-k",
+   "note": "top K that multi re-scores by PEEC (default 4)",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "auto",
+    "on",
+    "off"
+   ],
+   "cli": "kae.joint.cli run",
+   "default": "auto",
+   "flag": "--recheck",
+   "name": "kae.joint.cli run --recheck",
+   "note": "independent KiCad DRC of the output with the safety checks forced on; findings go to the report's hazards (auto: when kicad-cli is found and time is left)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": null,
+   "flag": "--report",
+   "name": "kae.joint.cli run --report",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": 1,
+   "flag": "--route-parallel",
+   "name": "kae.joint.cli run --route-parallel",
+   "note": "P > 1: the finishing stage is kae.route.portfolio with P parallel restarts (critical_cli --last-mile-soft, then the bridge), and a window left open gets 2 more ",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": 0,
+   "flag": "--seed",
+   "name": "kae.joint.cli run --seed",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": null,
+   "flag": "--set",
+   "name": "kae.joint.cli run --set",
+   "note": "loop or stage option, JSON values (loop.DEFAULTS, stages.STAGE_KEYS, kae.route.constraints.DEFAULTS, bridge.KEY; unknown keys are an error). margin is the loop'",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": null,
+   "flag": "--start",
+   "name": "kae.joint.cli run --start",
+   "note": "a placed board to start from instead of running the placer",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": 900.0,
+   "flag": "--time",
+   "name": "kae.joint.cli run --time",
+   "note": "wall seconds for everything",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.joint.cli run",
+   "default": null,
+   "flag": "--workdir",
+   "name": "kae.joint.cli run --workdir",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli finish",
+   "default": null,
+   "flag": "--drc-s",
+   "name": "kae.route.cli finish --drc-s",
+   "note": "seconds one DRC of BOARD takes (for the estimates)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli finish",
+   "default": null,
+   "flag": "--input-drc",
+   "name": "kae.route.cli finish --input-drc",
+   "note": "KiCad DRC JSON of BOARD with INPUT's rules (the gate reuses it)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli finish",
+   "default": "tails,taut,power",
+   "flag": "--parts",
+   "name": "kae.route.cli finish --parts",
+   "note": "comma list of tails, taut, power, trim",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "auto",
+    "on",
+    "off"
+   ],
+   "cli": "kae.route.cli finish",
+   "default": "auto",
+   "flag": "--recheck",
+   "name": "kae.route.cli finish --recheck",
+   "note": "independent KiCad DRC of the output with the safety checks forced on; findings go to the report's hazards (auto: when kicad-cli is found and time is left)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli finish",
+   "default": null,
+   "flag": "--report",
+   "name": "kae.route.cli finish --report",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli finish",
+   "default": "[]",
+   "flag": "--set",
+   "name": "kae.route.cli finish --set",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli finish",
+   "default": 600.0,
+   "flag": "--time",
+   "name": "kae.route.cli finish --time",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli finish",
+   "default": null,
+   "flag": "--workdir",
+   "name": "kae.route.cli finish --workdir",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli lastmile",
+   "default": false,
+   "flag": "--keep",
+   "name": "kae.route.cli lastmile --keep",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "auto",
+    "on",
+    "off"
+   ],
+   "cli": "kae.route.cli lastmile",
+   "default": "auto",
+   "flag": "--recheck",
+   "name": "kae.route.cli lastmile --recheck",
+   "note": "independent KiCad DRC of the output with the safety checks forced on; findings go to the report's hazards (auto: when kicad-cli is found and time is left)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli lastmile",
+   "default": null,
+   "flag": "--report",
+   "name": "kae.route.cli lastmile --report",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli lastmile",
+   "default": 0,
+   "flag": "--seed",
+   "name": "kae.route.cli lastmile --seed",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli lastmile",
+   "default": "[]",
+   "flag": "--set",
+   "name": "kae.route.cli lastmile --set",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli lastmile",
+   "default": 120.0,
+   "flag": "--time",
+   "name": "kae.route.cli lastmile --time",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli lastmile",
+   "default": null,
+   "flag": "--workdir",
+   "name": "kae.route.cli lastmile --workdir",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": false,
+   "flag": "--fanout",
+   "name": "kae.route.cli route --fanout",
+   "note": "enable Freerouting's fanout pre-pass (narrows tracks)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": false,
+   "flag": "--fanout-first",
+   "name": "kae.route.cli route --fanout-first",
+   "note": "fanout for the first route only; repair rounds re-route without it",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": false,
+   "flag": "--keep",
+   "name": "kae.route.cli route --keep",
+   "note": "keep the temporary work directory",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": true,
+   "flag": "--no-blocked",
+   "name": "kae.route.cli route --no-blocked",
+   "note": "at the end, diagnose the connections still open: the report's \"blocked\" names the board rule (or kae default) that makes each impossible (kae.route.blocked)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": false,
+   "flag": "--no-finish",
+   "name": "kae.route.cli route --no-finish",
+   "note": "at the end, when time is left: the finish stage (rule D tails, taut arcs, power copper, one journaled DRC gate; kae.route.finish)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": true,
+   "flag": "--no-last-mile",
+   "name": "kae.route.cli route --no-last-mile",
+   "note": "after the repair rounds, join what is still open with the grid router (kae.route.lastmile; default on, --no-last-mile turns it off)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": false,
+   "flag": "--no-neckdown",
+   "name": "kae.route.cli route --no-neckdown",
+   "note": "Freerouting's neck-down at pins, floored at the board's legal minimum width",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": false,
+   "flag": "--no-repair",
+   "name": "kae.route.cli route --no-repair",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": false,
+   "flag": "--no-thermal",
+   "name": "kae.route.cli route --no-thermal",
+   "note": "no thermal-spoke corridors in the repair loop",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "kicad",
+    "outside"
+   ],
+   "cli": "kae.route.cli route",
+   "default": "kicad",
+   "flag": "--pad-shapes",
+   "name": "kae.route.cli route --pad-shapes",
+   "note": "pin polygons in the DSN: KiCad's (arc chords inside the pad) or ones that contain the pad",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": 0,
+   "flag": "--passes",
+   "name": "kae.route.cli route --passes",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "cost",
+    "keep",
+    "strict",
+    "allow"
+   ],
+   "cli": "kae.route.cli route",
+   "default": "cost",
+   "flag": "--planes",
+   "name": "kae.route.cli route --planes",
+   "note": "inner plane layers: traces there cost plane_cost x (cost), none (strict), none unless a repair round has open connections (keep), or KiCad's layer types (allow)",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "auto",
+    "on",
+    "off"
+   ],
+   "cli": "kae.route.cli route",
+   "default": "auto",
+   "flag": "--recheck",
+   "name": "kae.route.cli route --recheck",
+   "note": "independent KiCad DRC of the output with the safety checks forced on; findings go to the report's hazards (auto: when kicad-cli is found and time is left)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": null,
+   "flag": "--report",
+   "name": "kae.route.cli route --report",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": "5",
+   "flag": "--rounds",
+   "name": "kae.route.cli route --rounds",
+   "note": "repair rounds at most, or 'auto' (until two rounds in a row are not better, or the time)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": "0.6",
+   "flag": "--router-share",
+   "name": "kae.route.cli route --router-share",
+   "note": "share of the budget for the first routing, or 'auto' (0.6 up to 1,500 s, then all but 600 s: the router stops by itself and the repair rounds get the rest)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": 0,
+   "flag": "--seed",
+   "name": "kae.route.cli route --seed",
+   "note": "0: KiCad's item order; others: a permuted order",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": "[]",
+   "flag": "--set",
+   "name": "kae.route.cli route --set",
+   "note": "override one of kae's own defaults (e.g. ignored_clearance_floor=0.08); a KAE_<KEY> text variable in the KiCad project overrides this in turn",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": false,
+   "flag": "--thermal-all",
+   "name": "kae.route.cli route --thermal-all",
+   "note": "spoke corridors for every thermal pad up front",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": 600.0,
+   "flag": "--time",
+   "name": "kae.route.cli route --time",
+   "note": "total budget in seconds",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "kae.route.cli route",
+   "default": null,
+   "flag": "--workdir",
+   "name": "kae.route.cli route --workdir",
+   "note": "keep intermediate files here (DSN, SES, DRC reports)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": "",
+   "flag": "--alt",
+   "name": "restart.py --alt",
+   "note": "completion-first: the command of the second run on a clean board",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": false,
+   "flag": "--check-placement",
+   "name": "restart.py --check-placement",
+   "note": "methods that place: unlocked parts outside the outline, or parts on top of each other (courtyards, pad-to-pad shorts) beyond the input's, make an attempt illega",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": 2,
+   "flag": "--eta",
+   "name": "restart.py --eta",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": "",
+   "flag": "--final",
+   "name": "restart.py --final",
+   "note": "command for one last pass on the kept board (@IN@, @BEST@, @OUT@, @SEED@, @TIME@), its time reserved from the start; kept only when KiCad ranks it better",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": 0.0,
+   "flag": "--final-s",
+   "name": "restart.py --final-s",
+   "note": "seconds for the final pass; 0 = FINAL_MIN_S plus one DRC of the board",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": "",
+   "flag": "--finish",
+   "name": "restart.py --finish",
+   "note": "command for the finish stage on the kept board after --final (@IN@, @BEST@, @OUT@, @SEED@, @TIME@, @DRC@: the judge's DRC report of @BEST@, @DRC_S@: one judgeme",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": 0.0,
+   "flag": "--finish-s",
+   "name": "restart.py --finish-s",
+   "note": "seconds for the finish pass; 0 = an estimate from the input's pad count plus two DRCs",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": 60.0,
+   "flag": "--first-s",
+   "name": "restart.py --first-s",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": 2.0,
+   "flag": "--growth",
+   "name": "restart.py --growth",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": null,
+   "flag": "--input",
+   "name": "restart.py --input",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": 0,
+   "flag": "--max-attempts",
+   "name": "restart.py --max-attempts",
+   "note": "stop launching after this many (deterministic methods: 1); 0 = no limit",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": "",
+   "flag": "--open-alt",
+   "name": "restart.py --open-alt",
+   "note": "completion-first: the command of the second run when phase 1's board is not clean, on that board (@BEST@), instead of COMMAND again; kept when it ranks no worse",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": false,
+   "flag": "--open-rest",
+   "name": "restart.py --open-rest",
+   "note": "completion-first with --open-alt: the --open-alt run's unused budget goes to one more run (COMMAND with the next seed, or --alt on a clean board with --open-res",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": false,
+   "flag": "--open-rest-alt",
+   "name": "restart.py --open-rest-alt",
+   "note": "with --open-rest: when the kept board is clean, that run is --alt (kept when no worse)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": null,
+   "flag": "--output",
+   "name": "restart.py --output",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": 4,
+   "flag": "--parallel",
+   "name": "restart.py --parallel",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": [
+    "",
+    "completion-first"
+   ],
+   "cli": "restart.py",
+   "default": "",
+   "flag": "--policy",
+   "name": "restart.py --policy",
+   "note": "completion-first: two runs of this wrapper in --time (half each). The second is --alt (e.g. the module stage) when the first run's board is clean, else another ",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": 0.0,
+   "flag": "--resume",
+   "name": "restart.py --resume",
+   "note": "share of each wave after the first that continues from the best board so far (@BEST@, KAE_RESUME=1); 0 = every attempt starts from the input",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": false,
+   "flag": "--scale-first",
+   "name": "restart.py --scale-first",
+   "note": "first-s x sqrt(footprints / 40) when above 1: big boards need longer single attempts",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": false,
+   "flag": "--screen",
+   "name": "restart.py --screen",
+   "note": "methods that place: successive halving over placements instead of the fixed waves (fresh attempts at --screen-s, the best of each rung resumed with eta x the bu",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": 0.0,
+   "flag": "--screen-s",
+   "name": "restart.py --screen-s",
+   "note": "rung-0 budget (0: first-s; kae staged at half of it overran its budget: placing alone takes 60-100 s)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": 0,
+   "flag": "--seed",
+   "name": "restart.py --seed",
+   "note": "",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": 1.0,
+   "flag": "--slack",
+   "name": "restart.py --slack",
+   "note": "an attempt may run budget x slack before it is killed (methods whose budget is solver CPU time and that spend more on KiCad I/O around it)",
+   "surface": "cli"
+  },
+  {
+   "choices": null,
+   "cli": "restart.py",
+   "default": null,
+   "flag": "--time",
+   "name": "restart.py --time",
+   "note": "wall seconds for everything",
+   "surface": "cli"
+  }
+ ],
+ "env": [
+  {
+   "files": [
+    "kae/src/kae/route/constraints.py"
+   ],
+   "name": "ENV:KAE_ARC_POLICY",
+   "surface": "env",
+   "text_var_too": true,
+   "var": "KAE_ARC_POLICY"
+  },
+  {
+   "files": [
+    "tools/kaeres/experiments/negrail-abs/negrail_diff.py"
+   ],
+   "name": "ENV:KAE_BOARDS",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_BOARDS"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/freerouting.py"
+   ],
+   "name": "ENV:KAE_BRIDGE_FREEROUTING",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_BRIDGE_FREEROUTING"
+  },
+  {
+   "files": [
+    "kae/src/kae/budget.py",
+    "kae/src/kae/route/stepcache.py",
+    "tools/kaeres/restart.py"
+   ],
+   "name": "ENV:KAE_BUDGET",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_BUDGET"
+  },
+  {
+   "files": [
+    "kae/src/kae/budget.py"
+   ],
+   "name": "ENV:KAE_BUDGET_GAP",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_BUDGET_GAP"
+  },
+  {
+   "files": [
+    "kae/src/kae/budget.py"
+   ],
+   "name": "ENV:KAE_BUDGET_PROFILE",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_BUDGET_PROFILE"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/stepcache.py"
+   ],
+   "name": "ENV:KAE_CHARGE_FILE",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_CHARGE_FILE"
+  },
+  {
+   "files": [
+    "tools/kaeres/kaeres.py",
+    "tools/kaeres/pintypes.py"
+   ],
+   "name": "ENV:KAE_CORPUS",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_CORPUS"
+  },
+  {
+   "files": [
+    "kae/src/kae/physics/priors.py"
+   ],
+   "name": "ENV:KAE_CRYSTAL_CL",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_CRYSTAL_CL"
+  },
+  {
+   "files": [
+    "bench/src/kaebench/tools.py"
+   ],
+   "name": "ENV:KAE_DRC_STALL",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_DRC_STALL"
+  },
+  {
+   "files": [
+    "bench/src/kaebench/tools.py"
+   ],
+   "name": "ENV:KAE_DRC_TIMEOUT",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_DRC_TIMEOUT"
+  },
+  {
+   "files": [
+    "kae/src/kae/em/reduce.py"
+   ],
+   "name": "ENV:KAE_EM_FACTOR_GB",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_EM_FACTOR_GB"
+  },
+  {
+   "files": [
+    "kae/src/kae/em/solve.py",
+    "kae/src/kae/em/static.py"
+   ],
+   "name": "ENV:KAE_EM_THREADS",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_EM_THREADS"
+  },
+  {
+   "files": [
+    "kae/src/kae/em/solve.py"
+   ],
+   "name": "ENV:KAE_EM_TOL",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_EM_TOL"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/escape.py"
+   ],
+   "name": "ENV:KAE_ESCAPE_CACHE",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_ESCAPE_CACHE"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/lastmile.py"
+   ],
+   "name": "ENV:KAE_ESCAPE_GROUND_VIAS",
+   "surface": "env",
+   "text_var_too": true,
+   "var": "KAE_ESCAPE_GROUND_VIAS"
+  },
+  {
+   "files": [
+    "bench/src/kaebench/tools.py",
+    "kae/src/kae/route/freerouting.py"
+   ],
+   "name": "ENV:KAE_FREEROUTING",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_FREEROUTING"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/freerouting.py"
+   ],
+   "name": "ENV:KAE_FR_LOCKDIR",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_FR_LOCKDIR"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/fr_entry.py"
+   ],
+   "name": "ENV:KAE_FR_PIN_ENTRIES",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_FR_PIN_ENTRIES"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/freerouting.py"
+   ],
+   "name": "ENV:KAE_FR_RAW_DIR",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_FR_RAW_DIR"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/freerouting.py"
+   ],
+   "name": "ENV:KAE_FR_RECORD",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_FR_RECORD"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/freerouting.py"
+   ],
+   "name": "ENV:KAE_FR_SLOTS",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_FR_SLOTS"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/freerouting.py"
+   ],
+   "name": "ENV:KAE_FR_WORK_BUDGET",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_FR_WORK_BUDGET"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/freerouting.py"
+   ],
+   "name": "ENV:KAE_FR_XMX",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_FR_XMX"
+  },
+  {
+   "files": [
+    "bench/src/kaebench/tools.py",
+    "kae/src/kae/route/freerouting.py",
+    "tools/kaeres/kaeres.py"
+   ],
+   "name": "ENV:KAE_HOME",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_HOME"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/drc.py"
+   ],
+   "name": "ENV:KAE_KICAD_CLI",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_KICAD_CLI"
+  },
+  {
+   "files": [
+    "kae/src/kae/place/writer.py"
+   ],
+   "name": "ENV:KAE_KICAD_PYTHON",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_KICAD_PYTHON"
+  },
+  {
+   "files": [
+    "kae/src/kae/em/pnr.py",
+    "kae/src/kae/place/writer.py",
+    "kae/src/kae/route/drc.py",
+    "kae/src/kae/sim/ngspice.py",
+    "tools/kaeres/kaeres.py",
+    "tools/kaeres/mfg_board.py",
+    "tools/kaeres/restart.py"
+   ],
+   "name": "ENV:KAE_KICAD_WRAP",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_KICAD_WRAP"
+  },
+  {
+   "files": [
+    "kae/src/kae/physics/jit.py",
+    "kae/src/kae/place/anneal.py",
+    "kae/src/kae/place/legalize.py",
+    "kae/src/kae/route/critical_grid.py"
+   ],
+   "name": "ENV:KAE_NO_NUMBA",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_NO_NUMBA"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/fr_entry.py"
+   ],
+   "name": "ENV:KAE_OPERATING",
+   "surface": "env",
+   "text_var_too": true,
+   "var": "KAE_OPERATING"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/constraints.py"
+   ],
+   "name": "ENV:KAE_PAD_ENTRY",
+   "surface": "env",
+   "text_var_too": true,
+   "var": "KAE_PAD_ENTRY"
+  },
+  {
+   "files": [
+    "kae/src/kae/excite/models.py"
+   ],
+   "name": "ENV:KAE_PART_MODELS",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_PART_MODELS"
+  },
+  {
+   "files": [
+    "kae/src/kae/board/pcbnew_io.py"
+   ],
+   "name": "ENV:KAE_PCBNEW_WORKER",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_PCBNEW_WORKER"
+  },
+  {
+   "files": [
+    "kae/src/kae/place/pipeline.py",
+    "kae/src/kae/place/problem.py"
+   ],
+   "name": "ENV:KAE_PLACE_SEVERITY",
+   "surface": "env",
+   "text_var_too": true,
+   "var": "KAE_PLACE_SEVERITY"
+  },
+  {
+   "files": [
+    "tools/kaeres/kaeres.py",
+    "tools/kaeres/pintypes.py",
+    "tools/kaeres/tests/test_busreport.py"
+   ],
+   "name": "ENV:KAE_RESULTS",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_RESULTS"
+  },
+  {
+   "files": [
+    "bench/src/kaebench/adapters.py"
+   ],
+   "name": "ENV:KAE_SANDBOX_HIDE",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_SANDBOX_HIDE"
+  },
+  {
+   "files": [
+    "kae/src/kae/physics/criteria.py"
+   ],
+   "name": "ENV:KAE_SHARED_OVERSHOOT",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_SHARED_OVERSHOOT"
+  },
+  {
+   "files": [
+    "bench/src/kaebench/adapters.py",
+    "kae/src/kae/route/stepcache.py",
+    "tools/kaeres/restart.py"
+   ],
+   "name": "ENV:KAE_STEP_CACHE",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_STEP_CACHE"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/stepcache.py"
+   ],
+   "name": "ENV:KAE_STEP_CACHE_MAX_GB",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_STEP_CACHE_MAX_GB"
+  },
+  {
+   "files": [
+    "kae/src/kae/board/pcbnew_io.py"
+   ],
+   "name": "ENV:KAE_TMPDIR",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_TMPDIR"
+  },
+  {
+   "files": [
+    "kae/src/kae/place/pipeline.py"
+   ],
+   "name": "ENV:KAE_WORKERS",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_WORKERS"
+  },
+  {
+   "files": [
+    "kae/src/kae/place/writer.py"
+   ],
+   "name": "ENV:KAE_WRITER",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_WRITER"
+  },
+  {
+   "files": [
+    "kae/src/kae/board/pcbnew_io.py"
+   ],
+   "name": "ENV:KAE_WRITER_KEEP_UPRIGHT",
+   "surface": "env",
+   "text_var_too": false,
+   "var": "KAE_WRITER_KEEP_UPRIGHT"
+  }
+ ],
+ "loopback": [
+  {
+   "decision": "Rotate a named part",
+   "effect": "none per part",
+   "knobs": [
+    "kae place --angles"
+   ],
+   "scope": "global step only",
+   "scorer": "yes"
+  },
+  {
+   "decision": "Move a part; region, near, group, corridor",
+   "effect": "none beyond hold",
+   "knobs": [
+    "kae place --fix"
+   ],
+   "scope": "hold in place (place only)",
+   "scorer": "yes"
+  },
+  {
+   "decision": "Flip a part; side policy",
+   "effect": "none",
+   "knobs": [],
+   "scope": "-",
+   "scorer": "yes"
+  },
+  {
+   "decision": "Via-in-pad",
+   "effect": "plan and certificate; via-in-pad not laid",
+   "knobs": [
+    "ball_escapes"
+   ],
+   "scope": "ball-grid escape plans",
+   "scorer": "yes"
+  },
+  {
+   "decision": "Via size, microvia",
+   "effect": "one via per net class",
+   "knobs": [],
+   "scope": "-",
+   "scorer": "no (rules)"
+  },
+  {
+   "decision": "Neck-down",
+   "effect": "full",
+   "knobs": [
+    "neckdown"
+   ],
+   "scope": "global",
+   "scorer": "yes"
+  },
+  {
+   "decision": "Layer mask per net or class",
+   "effect": "board-level only",
+   "knobs": [
+    "planes",
+    "plane_cost",
+    "plane_strict_share"
+   ],
+   "scope": "board plane layers",
+   "scorer": "per net yes; new layer no"
+  },
+  {
+   "decision": "Relax a board rule",
+   "effect": "diagnosis only (blocked, fab)",
+   "knobs": [],
+   "scope": "-",
+   "scorer": "no"
+  },
+  {
+   "decision": "Relax a kae default",
+   "effect": "full",
+   "knobs": [
+    "ignored_clearance_floor",
+    "pad_entry_overlap",
+    "kae place --severity"
+   ],
+   "scope": "global",
+   "scorer": "yes"
+  },
+  {
+   "decision": "Pin or gate swap",
+   "effect": "none",
+   "knobs": [],
+   "scope": "-",
+   "scorer": "no (pad nets hashed)"
+  },
+  {
+   "decision": "Add a layer; grow the outline",
+   "effect": "certificates only",
+   "knobs": [],
+   "scope": "-",
+   "scorer": "no"
+  },
+  {
+   "decision": "Net order, per-net effort",
+   "effect": "indirect",
+   "knobs": [
+    "kae.route.cli route --seed"
+   ],
+   "scope": "permutes order",
+   "scorer": "yes"
+  },
+  {
+   "decision": "More passes, rounds, time",
+   "effect": "full",
+   "knobs": [
+    "passes",
+    "rounds",
+    "router_share",
+    "max_iters",
+    "kae.route.cli route --time"
+   ],
+   "scope": "global",
+   "scorer": "yes"
+  },
+  {
+   "decision": "Placer term weights",
+   "effect": "full",
+   "knobs": [
+    "escape_band",
+    "escape_band_w",
+    "kae place --anneal-args"
+   ],
+   "scope": "global",
+   "scorer": "yes"
+  }
+ ],
+ "schema": "kae.commander-knobs/1",
+ "set": [
+  {
+   "default": 1,
+   "joint": "anchor_tight",
+   "name": "anchor_tight",
+   "note": "placement: a big part with no spot free of the fixed geometry is fixed first (place.pipeline)",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_ANCHOR_TIGHT"
+  },
+  {
+   "default": "arcs",
+   "joint": "arc_policy",
+   "name": "arc_policy",
+   "note": "corners of shaped copper (taut, finish): \"arcs\" (tangent arcs) or \"keep45\"",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_ARC_POLICY"
+  },
+  {
+   "default": 1,
+   "joint": "ball_escapes",
+   "name": "ball_escapes",
+   "note": "1: dog-bones for the inner rings of ball grids, laid with the plane",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_BALL_ESCAPES"
+  },
+  {
+   "default": 2,
+   "joint": "connector_edge",
+   "name": "connector_edge",
+   "note": "placement: user-facing connectors kae places (kae.place.edge_check:",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_CONNECTOR_EDGE"
+  },
+  {
+   "default": 0,
+   "joint": "escape_band",
+   "name": "escape_band",
+   "note": "placement (kae.place.escape_band): the surface escapes of each ball grid",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_ESCAPE_BAND"
+  },
+  {
+   "default": 2.5,
+   "joint": "escape_band_max_mm",
+   "name": "escape_band_max_mm",
+   "note": "mm: the deepest band on one side",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_ESCAPE_BAND_MAX_MM"
+  },
+  {
+   "default": 1.0,
+   "joint": "escape_band_scale",
+   "name": "escape_band_scale",
+   "note": "band depth per side = scale x escapes on that side x (track + clearance)",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_ESCAPE_BAND_SCALE"
+  },
+  {
+   "default": 1.0,
+   "joint": "escape_band_w",
+   "name": "escape_band_w",
+   "note": "weight of the soft band term (overlap / mean part area, as silk)",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_ESCAPE_BAND_W"
+  },
+  {
+   "default": 0,
+   "joint": "escape_fanout",
+   "name": "escape_fanout",
+   "note": "placement: 1 also reserves the dog-bone via sites of each ball grid on the",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_ESCAPE_FANOUT"
+  },
+  {
+   "default": 0,
+   "joint": "escape_ground_vias",
+   "name": "escape_ground_vias",
+   "note": "arm E (routing-stages.md): 1 lays power_copper's ground vias at decap and IC",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_ESCAPE_GROUND_VIAS"
+  },
+  {
+   "default": 0.5,
+   "joint": "escape_ring_pitch",
+   "name": "escape_ring_pitch",
+   "note": "mm: pad rings (QFN, QFP) at most this fine get bands",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_ESCAPE_RING_PITCH"
+  },
+  {
+   "default": "jlcpcb",
+   "joint": "fab",
+   "name": "fab",
+   "note": "the fab whose classes clip and label suggested relaxations (escape",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_FAB"
+  },
+  {
+   "default": 0.25,
+   "joint": "heat_min_W",
+   "name": "heat_min_W",
+   "note": "placement and routing: parts dissipating less are not pulled (placement) and",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_HEAT_MIN_W"
+  },
+  {
+   "default": 1.0,
+   "joint": "heat_pull_w",
+   "name": "heat_pull_w",
+   "note": "placement: label-term weight per sustained W pulling a hot part into a region sink",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_HEAT_PULL_W"
+  },
+  {
+   "default": 0.1,
+   "joint": "ignored_clearance_floor",
+   "name": "ignored_clearance_floor",
+   "note": "mm: gap kept for a clearance check the board turns off (or the",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_IGNORED_CLEARANCE_FLOOR"
+  },
+  {
+   "default": "",
+   "joint": "operating",
+   "name": "operating",
+   "note": "placement and routing: the board's operating facts (JSON: requirements.thermal",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_OPERATING"
+  },
+  {
+   "default": "centreline",
+   "joint": "pad_entry",
+   "name": "pad_entry",
+   "note": "where kae's grid router ends a track at a pad: \"centreline\" (rule D: the",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_PAD_ENTRY"
+  },
+  {
+   "default": 0.05,
+   "joint": "pad_entry_overlap",
+   "name": "pad_entry_overlap",
+   "note": "mm: a track may end outside a pad when its copper still overlaps the pad by",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_PAD_ENTRY_OVERLAP"
+  },
+  {
+   "default": 0.0,
+   "joint": "place_margin",
+   "name": "place_margin",
+   "note": "placement: routing room between movable parts, mm (Problem.set_margin);",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_PLACE_MARGIN"
+  },
+  {
+   "default": "strict_then_level_c",
+   "joint": "place_severity",
+   "name": "place_severity",
+   "note": "placement legality: courtyards, copper-to-edge, rule areas,",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_PLACE_SEVERITY"
+  },
+  {
+   "default": 0.0,
+   "joint": "place_w_cong",
+   "name": "place_w_cong",
+   "note": "placement: weight of the annealer's RUDY + pin-escape congestion term",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_PLACE_W_CONG"
+  },
+  {
+   "default": "odd",
+   "joint": "plane_strict_share",
+   "name": "plane_strict_share",
+   "note": "with planes \"cost\": inner layers whose one-net fill (refilled input)",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_PLANE_STRICT_SHARE"
+  },
+  {
+   "default": "escalate",
+   "joint": "relax_bodies",
+   "name": "relax_bodies",
+   "note": "placement: \"escalate\" (default) frees a courtyard-less part to its pads only when",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_RELAX_BODIES"
+  },
+  {
+   "default": 1,
+   "joint": "thermal_via_in_pad",
+   "name": "thermal_via_in_pad",
+   "note": "1: thermal vias inside an exposed pad (as critical routing's plane vias); 0:",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_THERMAL_VIA_IN_PAD"
+  },
+  {
+   "default": 16,
+   "joint": "thermal_via_max",
+   "name": "thermal_via_max",
+   "note": "thermal vias per part at most",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_THERMAL_VIA_MAX"
+  },
+  {
+   "default": 1.0,
+   "joint": "thermal_via_pitch",
+   "name": "thermal_via_pitch",
+   "note": "mm: grid pitch of thermal vias (the board's same-net via pitch still applies)",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_THERMAL_VIA_PITCH"
+  },
+  {
+   "default": 1,
+   "joint": "thermal_vias",
+   "name": "thermal_vias",
+   "note": "routing (kae.route.thermal_vias): 1: each part dissipating heat_min_W or more",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_THERMAL_VIAS"
+  },
+  {
+   "default": 1.0,
+   "joint": "zone_keepout",
+   "name": "zone_keepout",
+   "note": "placement: weight of pads whose mask opening would bridge another net's",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_ZONE_KEEPOUT"
+  },
+  {
+   "default": 0.0,
+   "joint": "zone_pull",
+   "name": "zone_pull",
+   "note": "placement (kae.place.zones): weight of pads off their own net's fixed copper",
+   "registry": "kae.route.constraints.DEFAULTS",
+   "route": true,
+   "surface": "set",
+   "text_var": "KAE_ZONE_PULL"
+  },
+  {
+   "default": true,
+   "joint": "bridge.ball_escapes",
+   "name": "ball_escapes",
+   "note": "with them, whole-package escape plans for ball grids (escape.run): dog-bones,",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": true,
+   "joint": "bridge.blocked",
+   "name": "blocked",
+   "note": "at the end, diagnose the connections still open (kae.route.blocked): the report's",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 30.0,
+   "joint": "bridge.blocked_s",
+   "name": "blocked_s",
+   "note": "with blocked: seconds kept for it at most (taken from the repair rounds)",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 45.0,
+   "joint": "bridge.escape_min_s",
+   "name": "escape_min_s",
+   "note": "but the escape plans get this much at least (cached for a restart's later attempts)",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 0.15,
+   "joint": "bridge.escape_share",
+   "name": "escape_share",
+   "note": "of the time left: the plane escapes' and escape plans' share at most",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": false,
+   "joint": "bridge.fanout",
+   "name": "fanout",
+   "note": "Freerouting's fanout pre-pass narrows tracks (see freerouting.py):",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": false,
+   "joint": "bridge.finish",
+   "name": "finish",
+   "note": "at the end, when time is left: kae.route.finish (stage 7: rule D tails, taut arcs,",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 60.0,
+   "joint": "bridge.finish_min_s",
+   "name": "finish_min_s",
+   "note": "with finish: run it only with this much time left",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "bridge.finish_parts",
+   "name": "finish_parts",
+   "note": "with finish: its parts (default finish.PARTS: tails, taut, power)",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": false,
+   "joint": "bridge.import_tails",
+   "name": "import_tails",
+   "note": "arm D: in each repair round, rule D tails (exact check only) on the tracks the",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": true,
+   "joint": "bridge.last_mile",
+   "name": "last_mile",
+   "note": "after the repair rounds, join what is still open with the grid router and",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": true,
+   "joint": "bridge.last_mile_free_first",
+   "name": "last_mile_free_first",
+   "note": "one last-mile round before those that joins without ripping anything",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 90.0,
+   "joint": "bridge.last_mile_reserve_s",
+   "name": "last_mile_reserve_s",
+   "note": "with last_mile: the repair rounds stop this much before the deadline",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": false,
+   "joint": "bridge.neckdown",
+   "name": "neckdown",
+   "note": "Freerouting's neck-down at pins, floored at the board's legal minimum width",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "bridge.outer_surcharge",
+   "name": "outer_surcharge",
+   "note": "outer-layer trace cost per signal layer beyond two (None: Freerouting's 0.2)",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": "kicad",
+   "joint": "bridge.pad_shapes",
+   "name": "pad_shapes",
+   "note": "pin shapes in the DSN: \"kicad\" (KiCad's export: rounded corners and arcs as",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "bridge.pad_trim",
+   "name": "pad_trim",
+   "note": "Freerouting's centre ends cut back to the pad edge, through finish (part \"trim\",",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 0,
+   "joint": "bridge.passes",
+   "name": "passes",
+   "note": "0: autorouter runs until it stops improving",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 4.0,
+   "joint": "bridge.plane_cost",
+   "name": "plane_cost",
+   "note": "plane-layer trace cost for planes=\"cost\"",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": true,
+   "joint": "bridge.plane_escapes",
+   "name": "plane_escapes",
+   "note": "before routing, join each pad of a zone net that the input's fill does not",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": "cost",
+   "joint": "bridge.planes",
+   "name": "planes",
+   "note": "inner plane layers (translate.plane_layers): \"cost\" (traces there cost",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": false,
+   "joint": "bridge.power_copper",
+   "name": "power_copper",
+   "note": "power copper alone, through finish (parts [\"power\"]): widen rails and grounds,",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": true,
+   "joint": "bridge.repair",
+   "name": "repair",
+   "note": "post-route DRC repair loop",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 600.0,
+   "joint": "bridge.repair_reserve_s",
+   "name": "repair_reserve_s",
+   "note": "with router_share \"auto\": the time kept for the repair rounds at long budgets",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 5,
+   "joint": "bridge.rounds",
+   "name": "rounds",
+   "note": "repair rounds at most (each also bounded by the time left); \"auto\": until",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 0.6,
+   "joint": "bridge.router_share",
+   "name": "router_share",
+   "note": "share of the budget for the first routing; \"auto\": max(0.6, 1 - repair_reserve_s",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": true,
+   "joint": "bridge.thermal_repair",
+   "name": "thermal_repair",
+   "note": "starved thermals get spoke corridors in the repair loop",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 60.0,
+   "joint": "bridge.thermal_via_s",
+   "name": "thermal_via_s",
+   "note": "with thermal vias to place (kae.route.thermal_vias: a hot part over a heat-sink",
+   "registry": "kae.route.bridge.DEFAULT_OPTS",
+   "route": true,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 30.0,
+   "joint": "diagnose_s",
+   "name": "diagnose_s",
+   "note": "the final board's \"blocked\" diagnosis: at most this (and 5 % of the budget)",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": false,
+   "joint": "eff_tiebreak",
+   "name": "eff_tiebreak",
+   "note": "equal on everything else: keep a board with dominating copper (length, vias); A/B arm",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": true,
+   "joint": "finish",
+   "name": "finish",
+   "note": "a finishing stage: the full bridge over the whole board, critical copper locked",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 120.0,
+   "joint": "finish_min_s",
+   "name": "finish_min_s",
+   "note": "",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": true,
+   "joint": "finish_release",
+   "name": "finish_release",
+   "note": "a second finishing try releases the module copper on open corridors",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 0.2,
+   "joint": "finish_share",
+   "name": "finish_share",
+   "note": "time reserved for it up front: max(finish_min_s, finish_share x budget)",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 1.0,
+   "joint": "history_amount",
+   "name": "history_amount",
+   "note": "history added per failed connection's corridor bin (utilization units)",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 0.25,
+   "joint": "iter_share",
+   "name": "iter_share",
+   "note": "one window's repair gets at most this share of the budget (at least min_iter_s)",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 60.0,
+   "joint": "last_mile_min_s",
+   "name": "last_mile_min_s",
+   "note": "with finish: when no finishing try could run (<= 60 s left), the kept",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 2.0,
+   "joint": "margin",
+   "name": "margin",
+   "note": "mm around a spot's parts (window_for_spot)",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "max_attempts",
+   "name": "max_attempts",
+   "note": "tries of one window (each larger, with a higher congestion weight);",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "max_iters",
+   "name": "max_iters",
+   "note": "repair iterations at most (None: as many as the time allows)",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 0.35,
+   "joint": "max_part_share",
+   "name": "max_part_share",
+   "note": "... and at most this share of the board's movable parts (at least 3)",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 6,
+   "joint": "max_parts",
+   "name": "max_parts",
+   "note": "movable parts per window",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 12,
+   "joint": "max_pins",
+   "name": "max_pins",
+   "note": "first attempt: parts with more connected pads stay fixed (None: any part)",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 5.0,
+   "joint": "min_cycle_s",
+   "name": "min_cycle_s",
+   "note": "... unless the last cycle took less than this (nothing could be routed)",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 60.0,
+   "joint": "min_iter_s",
+   "name": "min_iter_s",
+   "note": "an iteration is not started with less than this left",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": true,
+   "joint": "module_clock",
+   "name": "module_clock",
+   "note": "the module stage keeps its clock (stages.module_clock) and the first route gets",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 2,
+   "joint": "patience_cycles",
+   "name": "patience_cycles",
+   "note": "stop after this many full cycles over the windows in a row accept nothing",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": true,
+   "joint": "physics_spots",
+   "name": "physics_spots",
+   "note": "flagged modules make windows too",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 0.3,
+   "joint": "place_share",
+   "name": "place_share",
+   "note": "share of the budget for the placer",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": true,
+   "joint": "recycle",
+   "name": "recycle",
+   "note": "when every window is exhausted and time is left, sample them all again",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 25.0,
+   "joint": "reserve",
+   "name": "reserve",
+   "note": "seconds kept for the final write and DRC (at least 4 % of the budget)",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 0.6,
+   "joint": "route_share",
+   "name": "route_share",
+   "note": "share of what is left after placing and the module stage, for the first route",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": 0.5,
+   "joint": "rudy_scale",
+   "name": "rudy_scale",
+   "note": "RUDY overflow near failures added to the history (0: off)",
+   "registry": "kae.joint.loop.DEFAULTS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "angle_step",
+   "name": "angle_step",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "big_pads",
+   "name": "big_pads",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "budget_s",
+   "name": "budget_s",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "bump_mm",
+   "name": "bump_mm",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "cong_mult",
+   "name": "cong_mult",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "drc_timeout",
+   "name": "drc_timeout",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "drop_modules_attempt",
+   "name": "drop_modules_attempt",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "edge_mate",
+   "name": "edge_mate",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "finish_last_mile",
+   "name": "finish_last_mile",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "finish_rounds",
+   "name": "finish_rounds",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "first_blocked",
+   "name": "first_blocked",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "first_last_mile",
+   "name": "first_last_mile",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "history_scale",
+   "name": "history_scale",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "keep",
+   "name": "keep",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "legal_mm",
+   "name": "legal_mm",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "max_cross",
+   "name": "max_cross",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "min_route_s",
+   "name": "min_route_s",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "module_clock",
+   "name": "module_clock",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "module_time",
+   "name": "module_time",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "net_mult",
+   "name": "net_mult",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "no_modules",
+   "name": "no_modules",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "no_physics",
+   "name": "no_physics",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "phys_mult",
+   "name": "phys_mult",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "portfolio_first_s",
+   "name": "portfolio_first_s",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "portfolio_growth",
+   "name": "portfolio_growth",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "portfolio_routers",
+   "name": "portfolio_routers",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "replace_margin",
+   "name": "replace_margin",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "replace_time",
+   "name": "replace_time",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "route_parallel",
+   "name": "route_parallel",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "window_last_mile",
+   "name": "window_last_mile",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "window_module_time",
+   "name": "window_module_time",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "window_passes",
+   "name": "window_passes",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "window_restart_open",
+   "name": "window_restart_open",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "window_rounds",
+   "name": "window_rounds",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "window_route_max_s",
+   "name": "window_route_max_s",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "window_route_s",
+   "name": "window_route_s",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "window_router",
+   "name": "window_router",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  },
+  {
+   "default": null,
+   "joint": "writer",
+   "name": "writer",
+   "note": "",
+   "registry": "kae.joint.stages.STAGE_KEYS",
+   "route": false,
+   "surface": "set",
+   "text_var": null
+  }
+ ],
+ "unregistered": [
+  {
+   "files": [
+    "kae/src/kae/route/constraints.py"
+   ],
+   "name": "brief",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/critical.py",
+    "kae/src/kae/route/critical_cli.py"
+   ],
+   "name": "budgets",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/bridge.py",
+    "kae/src/kae/route/constraints.py",
+    "kae/src/kae/route/incremental.py"
+   ],
+   "name": "crit_zones",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/critical_cli.py",
+    "kae/src/kae/route/critical_modules.py"
+   ],
+   "name": "dense_ic_pins",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/bridge.py"
+   ],
+   "name": "drc",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/escape.py"
+   ],
+   "name": "escape_plane_layers",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/fab.py"
+   ],
+   "name": "fab_profiles",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/bridge.py",
+    "kae/src/kae/route/repair.py"
+   ],
+   "name": "fixed_uuids",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/constraints.py"
+   ],
+   "name": "ground",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/critical_modules.py"
+   ],
+   "name": "keep_escapes",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/critical_modules.py"
+   ],
+   "name": "log",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/constraints.py"
+   ],
+   "name": "net",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/constraints.py"
+   ],
+   "name": "no_band",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/critical_space.py"
+   ],
+   "name": "no_corridors",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/repair.py"
+   ],
+   "name": "physics_guard",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/critical.py"
+   ],
+   "name": "place_allocs",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/constraints.py"
+   ],
+   "name": "power",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/taut.py"
+   ],
+   "name": "power_copper_opts",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/critical_rails.py"
+   ],
+   "name": "rail_complete_mm",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/critical_joint.py"
+   ],
+   "name": "rails_joint",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/repair.py"
+   ],
+   "name": "region_level",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/bridge.py",
+    "kae/src/kae/route/repair.py"
+   ],
+   "name": "router_grace",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/bridge.py"
+   ],
+   "name": "router_share_alone",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/bridge.py",
+    "kae/src/kae/route/incremental.py",
+    "kae/src/kae/route/repair.py"
+   ],
+   "name": "seed",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/blocked.py",
+    "kae/src/kae/route/bridge.py",
+    "kae/src/kae/route/constraints.py",
+    "kae/src/kae/route/incremental.py",
+    "kae/src/kae/route/repair.py",
+    "kae/src/kae/route/thermal_vias.py"
+   ],
+   "name": "severities",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/critical.py",
+    "kae/src/kae/route/critical_cli.py"
+   ],
+   "name": "skip",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/repair.py"
+   ],
+   "name": "soft_fixed",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/bridge.py",
+    "kae/src/kae/route/repair.py"
+   ],
+   "name": "strict_planes",
+   "surface": "set-unregistered"
+  },
+  {
+   "files": [
+    "kae/src/kae/route/cli.py",
+    "kae/src/kae/route/constraints.py",
+    "kae/src/kae/route/repair.py"
+   ],
+   "name": "thermal_pads",
+   "surface": "set-unregistered"
+  }
+ ]
+}
