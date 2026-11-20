@@ -1153,7 +1153,7 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
             # nets no round reached go first: a round's deadline must not leave the same tail every time
             r = lastmile.close(staged, info, plan, fills, cand, sev=sev,
                                nets=lastmile.round_robin(lastmile.open_nets(cur_rep), reached),
-                               fixed=fixed, log=log, soft=soft, rip=rip, txn=not greedy, max_joins=None,
+                               fixed=fixed, log=log, soft=soft, rip=rip, txn=not greedy, max_joins=None, opts=opts,
                                deadline=clock_now() + max(LAST_MILE_MIN_S / 2, 0.5 * (left() - LAST_MILE_MIN_S)))
         except Exception as e:  # noqa: BLE001 - the repaired board stays
             rec["error"] = f"{type(e).__name__}: {e}"
@@ -1162,6 +1162,8 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
             break
         rec.update(joined=r["joined"], failed=r["failed"], added=len(r["added"]), ripped=len(r["ripped"]),
                    ripped_soft=len(r.get("ripped_soft") or ()))
+        if r.get("closure"):
+            rec["closure"] = r["closure"]    # conflict-set closure's records (kae.route.closure; setting closure)
         reached.update((n, j) for n in r.get("reached") or ())
         soft -= set(r["ripped"])
         if not r["joined"] and with_spokes:

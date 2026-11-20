@@ -249,6 +249,14 @@ DEFAULTS = dict(
                                    # (human): polarfire 139-151 / 268-283 / 265-361 of 465 (387), nekoink
                                    # 52-56 / 108-114 / 115-117 of 226 (196), gecko5 1-2 / 46-52 / 52-55 of 73
                                    # (61); HPWL no worse (polarfire 12.7k at 3 vs 15.8k off, same seed)
+    closure=0,                     # routing (kae.route.closure): 1 ends each rip-up last-mile close with
+                                   # conflict-set closure (the opens' conflict nets ripped and solved jointly,
+                                   # all or nothing) on boards 1..closure_max_opens opens from clean; 0: off
+    closure_whole_net_items=40,    # closure: a conflict net with at most this many tracks and vias is ripped whole
+    closure_orders=24,             # closure: routing orders tried when the set has more than 4 connections
+    closure_max_nets=6,            # closure: conflict nets in one set at most
+    closure_depth=2,               # closure: times a failing set is extended by its failing connection's conflicts
+    closure_max_opens=5,           # closure: runs only with at most this many open connections left
     zone_keepout=1.0,              # placement: weight of pads whose mask opening would bridge another net's
                                    # fixed outer-layer zone or sit in a board-level mask aperture with another
                                    # net (each 0.1 x this; gecko5: all staged DRC errors, 14 -> 0); 0: off

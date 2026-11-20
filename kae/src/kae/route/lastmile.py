@@ -405,7 +405,7 @@ def round_robin(nets, reached):
 
 
 def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=print, max_parts=8, soft=(),
-          max_joins=MAX_JOINS, deadline=None, rip=True, txn=True):
+          max_joins=MAX_JOINS, deadline=None, rip=True, txn=True, opts=None):
     """Join the parts of the open nets of `board` (`nets`, default every net with more
     than one part; see the module docstring) and write the result to `out`, the new copper
     locked. `board` has its project files beside it; `fills`: pcbnew_io.zone_fills(board)
@@ -416,7 +416,10 @@ def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=prin
     ripped. Rip-up works in transactions (see below); `txn` False keeps every join (for a caller
     that reroutes the ripped nets afterwards). Returns {joined, failed, ripped: [uuid],
     ripped_soft: [uuid], rerouted: [net], added: [uuid], nets: {net: status}, undone,
-    reached: [net] (the nets that had a turn, as `nets` names them; see round_robin)}."""
+    reached: [net] (the nets that had a turn, as `nets` names them; see round_robin)}.
+    With the setting `closure` on (kae.route.closure; project text variable or env KAE_CLOSURE,
+    or `opts`), a rip-up close ends with conflict-set closure on the opens left, and the report
+    carries its records under "closure"; off (the default) nothing here changes."""
     import time
     cap = max_joins if max_joins is not None else float("inf")
 
@@ -552,6 +555,14 @@ def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=prin
         rep["undone"] = rep.get("undone", 0) + 1
         log(f"last mile {root}: undone, {sum(before.values())} -> {sum(after.values())} open on "
             f"{len(before)} nets ({joins - saved[4]} joins)")
+    if rip:
+        from . import closure as CL
+        ccfg = CL.settings(board, opts)
+        if ccfg["closure"]:
+            cr = CL.run(sp, gr, fp, nets, ccfg, fixed=fixed, soft=soft, deadline=deadline, log=log)
+            ripped_ids.update((it.uuid, it.net) for it in cr.pop("ripped") if not _own(it))
+            cr["added"] = len(cr["added"])
+            rep["closure"] = cr
     rep["ripped"] = sorted(ripped_ids)
     rep["ripped_soft"] = sorted(u for u in ripped_ids if u in soft)
     rep["rerouted"] = sorted(n for n in set(ripped_ids.values())
