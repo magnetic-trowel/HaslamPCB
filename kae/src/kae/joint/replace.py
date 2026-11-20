@@ -75,13 +75,14 @@ def window_board(board, parts):
 def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, terms=None, physics=True,
                    cong_mult=2.0, history_scale=1.0, bump_mm=0.25, bump_refs=(), margin=0.3, moves_per_part=6000,
                    legal_refs=(), legal_mm=0.15, drc_report=None, net_weights=None,
-                   phys_mult=1.0, board_path=None, opts=None, log=None):
+                   phys_mult=1.0, board_path=None, opts=None, log=None, w_disp=None):
     """See the module docstring. `board` is a kae.board.model.Board at the current poses;
     `window` a feedback.Window. `terms`: place terms built on the full board (the brief's
     structures), else built here when `physics`. `drc_report`: KiCad's report of the current
     board (its placement errors become exact constraints); `net_weights`: {net: factor}.
     `board_path`, `opts`: the run's board and options, for its own settings (zone_pull,
-    zone_keepout: a project KAE_ text variable or an opts value wins over the default)."""
+    zone_keepout: a project KAE_ text variable or an opts value wins over the default).
+    `w_disp`: the annealer's displacement weight (None: its default)."""
     from kae.place import clusters
     from kae.place import exact as exactmod
     from kae.place.anneal import make_annealer
@@ -117,10 +118,12 @@ def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, term
             legal_bumped.append(r)
     legal_cells = dict(getattr(P, "extra_cells", {}))
     bumped = []
-    if bump_mm > 0 and bump_refs:
+    if bump_refs:
+        # bump_refs: refs (each bumped by bump_mm), or {ref: mm} (kae.joint.halo: per-part halos)
+        want = dict(bump_refs) if isinstance(bump_refs, dict) else {r: bump_mm for r in bump_refs}
         for i in sub:
-            if P.parts[i].ref in set(bump_refs):
-                P.bump(i, bump_mm)
+            if want.get(P.parts[i].ref, 0.0) > 0:
+                P.bump(i, want[P.parts[i].ref])
                 bumped.append(P.parts[i].ref)
     rep["bumped"] = bumped
     rep["legal_bumped"] = legal_bumped
@@ -153,6 +156,7 @@ def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, term
     hook = history_hook(P, history, scale=history_scale, window=window.rect, report=hist_rep)
     ann = make_annealer(P, st.copy(), terms=terms, seed=seed, w_phys=float(phys_mult) if terms is not None else 0.0,
                         w_cong=30.0 * cong_mult, order=order, subset=sub, window=gwin, log=None, cong_history=hook,
+                        **({"w_disp": float(w_disp)} if w_disp is not None else {}),
                         **zones_args(P, board_path=board_path, opts=opts))
     rep["history"] = hist_rep
     rep["cost_before"] = round(float(ann.cost(ann.lam1)), 5)
