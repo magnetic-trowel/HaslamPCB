@@ -14,8 +14,10 @@ share of the open connections. If a perfect plan (the human's) does not help thr
 
 Stored s2 outputs, 45 merit boards with four or more layers: the fork puts a median 28 % of its track length (39 % on
 boards over 1,000 pads) on layers the human did not use for that net, the bridge 17 % (28 %). On boards left open the
-share is 0.29 (fork) and 0.22 (bridge); on finished boards 0.10 and 0.11. Stackup roles are misread in both directions
-on single boards (one 6-layer board: human 37 % of track on an inner signal layer, both routers 0 %).
+share is 0.29 (fork) and 0.22 (bridge); on finished boards 0.10 and 0.11. That contrast is board size: per pad, the
+share against opens has Spearman -0.13 (fork) and +0.21 (bridge), n = 44, neither distinguishable from zero. So a plan
+has reach (a third of nets would change layers), and stored data cannot say whether it helps; only this run can.
+Expect 0-15 % fewer opens; a kill is a likely and useful result.
 
 ## Boards
 
