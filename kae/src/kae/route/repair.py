@@ -580,8 +580,92 @@ def _thermal_plan(plan, info, input_path, opts, sev, thermal):
     return plan
 
 
+ROUND_MIN_S = 45.0    # time a routed repair round needs beyond the last mile's reserve: the router's 15 s floor,
+                      # the export, the import and the round's DRC
+
+
+def last_mile_reserve(opts, span_s=None):
+    """Seconds the repair rounds leave before the deadline for the last mile (0 without it).
+    opts last_mile_reserve_s alone (the default) is that many seconds whatever the attempt's budget:
+    with the 45 s a round needs, no round ran with under 135 s left, and 175 of 264 stored bridge
+    attempts (budgets 60-365 s) skipped the repair rounds and ended with half their budget unused
+    (tools/kaeres/experiments/route-budget/PLAN.md). With opts last_mile_reserve_share F the reserve
+    is F x the attempt's budget (opts attempt_s, from bridge.route; else `span_s`, the time the loop
+    was given), at least one last-mile round (LAST_MILE_MIN_S) and at most last_mile_reserve_s, so
+    0.15 keeps the 90 s from a 600 s budget up and scales it below. Reads no clock."""
+    if not opts.get("last_mile"):
+        return 0.0
+    cap = float(opts.get("last_mile_reserve_s", 90.0))
+    share = opts.get("last_mile_reserve_share")
+    budget = opts.get("attempt_s") or span_s
+    if not share or not budget:
+        return cap
+    return min(cap, max(LAST_MILE_MIN_S, float(share) * float(budget)))
+
+
+def max_cycles(opts):
+    """How often the repair rounds and the last mile run in turn at most: opts repair_cycles (the
+    setting; 1 or absent: once, as before), or AUTO_ROUNDS for 0 or "auto" (loop() then stops on a
+    cycle that made the board no better, or on the time)."""
+    c = opts.get("repair_cycles")
+    if c is None:
+        return 1
+    return AUTO_ROUNDS if c == "auto" or float(c) <= 0 else int(float(c))
+
+
 def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
-    """Repair `output_path` in place (see the module docstring). Returns a report."""
+    """Repair `output_path` in place (see the module docstring). Returns a report.
+
+    One cycle (_cycle) is the repair rounds, then the last mile. With opts repair_cycles above 1
+    (or 0: no bound) and the last mile on, further cycles follow while the board is not clean, the
+    deadline leaves a routed round its time (ROUND_MIN_S; nothing is reserved after the first last
+    mile), and the cycle before made the board better (or was the first and its rounds were skipped
+    for the time, which the last mile then did not use). A later cycle
+    starts from the DRC report the one before ended with (no DRC of its own), numbers its rounds on
+    (a new item order each, round_seed), works in `wd`/cycleN, and runs its last mile only when one
+    of its rounds changed the board. With repair_cycles 1 this function reads no clock and adds no
+    work to the one cycle, so counted-work runs are what they were."""
+    rep = _cycle(input_path, output_path, wd, plan, info, opts, deadline, log)
+    carry = rep.pop("_carry", None)
+    limit = max_cycles(opts)
+    if limit <= 1 or not opts.get("last_mile") or carry is None:
+        return rep
+    wd = Path(wd)
+    later = dict(opts, last_mile_reserve_s=0.0)   # the last mile has had its turn
+    c, start = 1, carry["start"]
+    while c < limit:
+        final = rep.get("final")
+        if not final or not (final["errors"] or final["unconnected"]):
+            break
+        if not (_key(final) > _key(start) or (c == 1 and carry["skipped"])):
+            break       # the cycle closed nothing: the next would be the same work in another order
+        if deadline - clock_now() < ROUND_MIN_S:
+            break
+        c += 1
+        cwd = wd / f"cycle{c}"
+        if cwd.exists():
+            shutil.rmtree(cwd)
+        cwd.mkdir(parents=True)
+        if (wd / "kicad.dsn").exists():
+            shutil.copy2(wd / "kicad.dsn", cwd / "kicad.dsn")
+        start = final
+        log(f"repair cycle {c}: {final['errors']} errors, {final['unconnected']} unconnected, "
+            f"{deadline - clock_now():.0f} s left")
+        nxt = _cycle(input_path, output_path, cwd, carry["plan"], info, later, deadline, log,
+                     carry=dict(carry, cycle=c, report=rep["_report"], best=final))
+        carry = nxt.pop("_carry", None)
+        rep = dict(nxt, rounds=rep["rounds"] + nxt["rounds"], hazards=rep["hazards"] + nxt["hazards"],
+                   seconds=round(rep["seconds"] + nxt["seconds"], 1))
+        if carry is None:
+            break
+    rep["cycles"] = c
+    return rep
+
+
+def _cycle(input_path, output_path, wd, plan, info, opts, deadline, log=print, carry=None):
+    """One cycle of loop(): the repair rounds, then the last mile. `carry` (a later cycle): the
+    state the cycle before ended with (its plan, starved pads, last round number, DRC report and
+    summary). Returns loop()'s report, with `_carry` for the next cycle."""
     wd = Path(wd)
     output_path = Path(output_path)
     rounds = []
@@ -589,6 +673,9 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
     pending = dict(tracks=None, used=False)   # spoke tracks no routed round had the time to draw
     t_start = clock_now()
     thermal = set(opts.get("thermal_pads") or []) if opts.get("thermal_pads") != "all" else set()
+    k0 = 0          # the last round number of the cycles before
+    if carry:
+        thermal, k0 = set(carry["thermal"]), carry["k"]
     sev = opts.get("severities") or {}
     fixed = set(opts.get("fixed_uuids") or [])   # the input's locked routing
     lmap, lname_map = {}, {}
@@ -597,7 +684,7 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
 
     # with the last mile on, the repair rounds leave it its time (it needs a refill, a few
     # grid searches, possibly a nested repair and one DRC)
-    reserve = float(opts.get("last_mile_reserve_s", 90.0)) if opts.get("last_mile") else 0.0
+    reserve = last_mile_reserve(opts, deadline - t_start)
 
     def left():
         return deadline - clock_now()
@@ -617,21 +704,29 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
             base_["v"] = input_errors(input_path, wd, deadline)
         return errors_no_worse(s_, ref, base_["v"])
 
-    try:
-        best_rep, best_dir = check(output_path, wd / "repair0" / "drc"), wd / "repair0" / "drc"
-    except drc.DrcError as e:
-        return dict(rounds=[dict(round=0, drc_error=str(e))], final=None)
-    best = drc.summary(best_rep)
-    rounds.append(dict(round=0, **best))
-    log(f"repair round 0: {best['errors']} errors {best['by_type']}, {best['unconnected']} unconnected")
+    if carry:
+        # the board is the one the cycle before ended with, and so is its DRC report
+        best_rep, best_dir, best = carry["report"], None, carry["best"]
+        rounds.append(dict(round=f"c{carry['cycle']}", level="cycle", **best))
+    else:
+        try:
+            best_rep, best_dir = check(output_path, wd / "repair0" / "drc"), wd / "repair0" / "drc"
+        except drc.DrcError as e:
+            return dict(rounds=[dict(round=0, drc_error=str(e))], final=None)
+        best = drc.summary(best_rep)
+        rounds.append(dict(round=0, **best))
+        log(f"repair round 0: {best['errors']} errors {best['by_type']}, {best['unconnected']} unconnected")
+    start = best
+    changed = False     # a round of this cycle replaced the board
     level, fails, split_failed, region_tries = 0, 0, False, 0
     levels = LEVELS if opts.get("region_level") else tuple(x for x in LEVELS if x != "region")
-    for k in range(1, max_rounds(opts) + 1):
+    k = k0
+    for k in range(k0 + 1, k0 + max_rounds(opts) + 1):
         if best["errors"] == 0 and best["unconnected"] == 0:
             break
         rec = dict(round=k)
         rounds.append(rec)
-        if left() - reserve < 45:
+        if left() - reserve < ROUND_MIN_S:
             rec["stopped"] = "time"
             if left() >= SPOKES_MIN_S and needs_fills(best_rep):
                 # no time for a routed round, but spoke tracks need no router (under counted
@@ -665,7 +760,7 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
             rec["stopped"] = "nothing attributable"
             rec["unattributed"] = sorted(set(a["unattributed"]))
             break
-        if k > 1 and opts.get("last_mile") and not any(v.get("type") == "starved_thermal" or any(
+        if k > k0 + 1 and opts.get("last_mile") and not any(v.get("type") == "starved_thermal" or any(
                 it.get("uuid") in routed for it in v.get("items") or []) for v in drc.errors(best_rep)):
             # no error on router copper, only open connections: the last mile joins them, given the
             # time (heypcb kestrel 1,000 s: 28/25/15 open -> 14/6/0)
@@ -727,7 +822,7 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
             plan.pad_shapes = opts.get("pad_shapes") or "kicad"
             rec["planes"] = plan.plane_policy
             translate.apply(tree, plan, info)
-            translate.permute(tree, round_seed(opts.get("seed"), k))
+            translate.permute(tree, round_seed(opts.get("seed"), k), pins=bool(opts.get("permute_pins")))
             if use_split:
                 now = {u: r for u, r in copper.items() if u not in rip}   # the board as exported
                 now.update({f"spoke{i}": dict(kind="track", **s) for i, s in enumerate(a["spokes"])})
@@ -810,6 +905,7 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
             hazards += rec.get("hazards") or []
             shutil.copy2(cand, output_path)
             best, best_rep, best_dir = s_, rep, rdir / "drc"
+            changed = True
             level, fails, region_tries = 0, 0, 0
         else:
             fails += 1
@@ -827,7 +923,8 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
         # every round allowed ran without a stop of its own (opts rounds; "auto" lifts the cap)
         if len(rounds) > 1 and not rounds[-1].get("stopped"):
             rounds[-1]["stopped"] = "round cap"
-    if opts.get("last_mile"):
+    if opts.get("last_mile") and (changed or not carry):
+        # a later cycle whose rounds changed nothing has the board the last mile ended with: no second one.
         # only a board with errors needs the baseline (one more DRC, minutes on big boards)
         base = input_errors(input_path, wd, deadline) if best["errors"] else {}
         best_rep = _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, best, best_rep, fixed,
@@ -843,7 +940,13 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
     return dict(rounds=rounds, final=best, thermal_pads=len(thermal), seconds=round(clock_now() - t_start, 1),
                 hazards=hazards,
                 drc_dir=None if opts.get("last_mile") else str(best_dir),   # the DRC of the board kept
-                _report=best_rep)   # its DRC report (for kae.route.blocked; the bridge takes it out)
+                _report=best_rep,   # its DRC report (for kae.route.blocked; the bridge takes it out)
+                # for loop()'s next cycle (it takes this out): the plan with the spoke corridors so far, the
+                # starved pads, the last round number, the summary this cycle began with, and whether its
+                # rounds were skipped for the time (no routed round, the first one stopped "time")
+                _carry=dict(plan=plan, thermal=thermal, k=k, start=start,
+                            skipped=not any(r.get("level") in LEVELS for r in rounds) and any(
+                                r.get("stopped") == "time" and isinstance(r.get("round"), int) for r in rounds)))
 
 
 SPOKES_MIN_S = 20.0   # time a spokes-only round needs: one refill, one edit and one DRC

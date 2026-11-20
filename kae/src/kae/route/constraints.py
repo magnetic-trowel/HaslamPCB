@@ -252,6 +252,18 @@ DEFAULTS = dict(
     zone_keepout=1.0,              # placement: weight of pads whose mask opening would bridge another net's
                                    # fixed outer-layer zone or sit in a board-level mask aperture with another
                                    # net (each 0.1 x this; gecko5: all staged DRC errors, 14 -> 0); 0: off
+    last_mile_reserve_share=0.0,   # routing (repair.last_mile_reserve): the time the repair rounds leave the last
+                                   # mile as a share of the attempt's budget, between one last-mile round (30 s)
+                                   # and last_mile_reserve_s (90 s); 0: last_mile_reserve_s whatever the budget
+                                   # (no repair round with under 135 s left: 175 of 264 stored bridge attempts
+                                   # skipped them and ended with half their budget unused). Env too
+    repair_cycles=1,               # routing (repair.loop): how often the repair rounds and the last mile run in
+                                   # turn at most; 1: once; 0: until a cycle makes the board no better or the
+                                   # time ends (a board with budget left after its last mile got no more work). Env too
+    permute_pins=0,                # routing (translate.permute): 1: a seed also shuffles the pins inside each DSN
+                                   # library image. The Freerouting fork creates components in reference-name order
+                                   # whatever the DSN's, so without this its first pass is the same for every seed
+                                   # (big boards whose budget ends in pass 1: same-parity seeds identical); 0: off. Env too
 )
 
 

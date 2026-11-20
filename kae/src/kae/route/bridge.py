@@ -112,7 +112,9 @@ DEFAULT_OPTS = dict(
     last_mile=True,          # after the repair rounds, join what is still open with the grid router and
                              # rip-up (kae.route.lastmile; repair._last_mile). On by default since the
                              # A+B k=3 suite at 57487e6: cp1 0.727 -> 0.909, cpk 0.818 -> 0.970, 0 errors
-    last_mile_reserve_s=90.0,  # with last_mile: the repair rounds stop this much before the deadline
+    last_mile_reserve_s=90.0,  # with last_mile: the repair rounds stop this much before the deadline (scaled
+                             # with the attempt's budget by the setting last_mile_reserve_share; the rounds
+                             # and the last mile in turn until the time ends: the setting repair_cycles)
     last_mile_free_first=True,  # one last-mile round before those that joins without ripping anything
     planes="cost",           # inner plane layers (translate.plane_layers): "cost" (traces there cost
                              # plane_cost x, so they go there only when nothing shorter exists), "keep"
@@ -190,6 +192,11 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
         sev = severities(input_path)
         opts["severities"] = sev
         opts["seed"] = seed
+        # how the time after the first routing is spent (repair.last_mile_reserve, repair.loop): KAE_<NAME> text
+        # variable, --set, env KAE_<NAME>, else the default (the old behaviour)
+        for name in ("last_mile_reserve_share", "repair_cycles", "permute_pins"):
+            opts[name] = constraints.setting_env(name, input_path, opts)
+        opts["attempt_s"] = time_s
         if any((z.get("name") or "").startswith(CRIT_PREFIX) for z in info.get("zones") or []):
             opts["crit_zones"] = [z for z in pcbnew_io.zone_fills(input_path)["zones"]
                                   if (z.get("name") or "").startswith(CRIT_PREFIX)]
@@ -237,7 +244,7 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
         p.pad_shapes = opts.get("pad_shapes") or "kicad"
         tree = specctra.read(kdsn)
         report["translate"] = translate.apply(tree, p, info)
-        report["permuted"] = translate.permute(tree, seed)
+        report["permuted"] = translate.permute(tree, seed, pins=bool(opts["permute_pins"]))
         report["plan"] = plan_summary(p)
         dsn = wd / "board.dsn"
         specctra.write(tree, dsn)
@@ -355,7 +362,8 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
         return report
     finally:
         report["opts"] = {k: v for k, v in opts.items()
-                          if k not in ("crit_zones", "fixed_uuids", "severities", "soft_fixed", "physics_guard")}
+                          if k not in ("crit_zones", "fixed_uuids", "severities", "soft_fixed", "physics_guard",
+                                       "attempt_s")}
         report["seconds"] = round(clock_now() - t0, 2)
         if own_wd and not opts.get("keep"):
             shutil.rmtree(wd, ignore_errors=True)

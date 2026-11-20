@@ -51,6 +51,33 @@ def test_permute_is_reproducible_and_keeps_everything():
     assert repair.round_seed(0, 1) != 0 and repair.round_seed(5, 1) != repair.round_seed(5, 2)
 
 
+def test_permute_pins_shuffles_only_the_image_pins_and_only_when_asked():
+    """permute_pins: a seed also shuffles the pins inside each library image (the fork creates components by
+    reference name, so that is the one first-pass order the DSN still decides). Off, the DSN is as before; on,
+    the components and nets have the order the seed gave them without it, and no pin is lost."""
+    lib = ('(pcb x (library (image R (outline (path F.Cu 0 0 0 1 0)) (pin P 1 0 0) (pin P 2 1 0) (pin P 3 2 0)'
+           ' (pin P 4 3 0) (pin P 5 4 0) (pin P 6 5 0)) (image C (pin P 1 0 0) (pin P 2 1 0)))'
+           ' (placement (component R (place R1 0 0 front 0) (place R2 1 0 front 0)) (component C (place C1 2 0 front 0)))'
+           ' (network (net A (pins R1-1 C1-1)) (net B (pins R1-2 R2-1)) (net D (pins R2-2 C1-2))))')
+    t0 = S.parse(lib)
+
+    def pins(t):
+        return [[p[2] for p in S.findall(im, "pin")] for im in S.findall(S.find(t, "library"), "image")]
+    changed = 0
+    for seed in range(1, 9):
+        off, on = copy.deepcopy(t0), copy.deepcopy(t0)
+        translate.permute(off, seed)
+        translate.permute(on, seed, pins=True)
+        assert pins(off) == pins(t0)
+        assert _order(on) == _order(off)
+        assert [sorted(x) for x in pins(on)] == [sorted(x) for x in pins(t0)]
+        assert S.find(S.findall(S.find(on, "library"), "image")[0], "outline") is not None
+        changed += pins(on) != pins(t0)
+    assert changed >= 6
+    t = copy.deepcopy(t0)
+    assert not translate.permute(t, 0, pins=True) and t == t0
+
+
 def _sq(x, y, h):
     return [[[x - h, y - h], [x + h, y - h], [x + h, y + h], [x - h, y + h], [x - h, y - h]]]
 
@@ -364,3 +391,224 @@ def test_spokes_with_no_routed_round_go_into_the_last_miles_first_round(tmp_path
     assert lm["spokes"] == 1 and lm["kept"]
     assert rep["final"]["errors"] == 0 and rep["final"]["unconnected"] == 2 - joined
     assert out.read_text() == "routed+spokes" + ("+join" if joined else "")
+
+
+# ---- how one attempt spends the time after its first routing: the last mile's reserve, repair cycles
+def _opens(n, errors=0):
+    return dict(violations=[dict(type="clearance", severity="error", items=[]) for _ in range(errors)],
+                unconnected_items=[{"items": []}] * n)
+
+
+def _post_route(tmp_path, monkeypatch, reports, joins=(), close_s=0.0):
+    """repair.loop with KiCad, the router and the last mile's joins replaced: DRC runs return `reports` in turn
+    (the last one again when they run out), every repair round is a widening (no router), the last mile's
+    close() joins `joins` in turn (0 when they run out) and takes `close_s` of the fake clock. Returns
+    (run, seen): run(opts, left) -> report; seen counts the DRC runs, close() calls and clock reads."""
+    from kae.route import lastmile
+    seen = dict(drc=0, close=0, clock=0, now=1000.0)
+    reports, joins = list(reports), list(joins)
+
+    def run_drc(board, out, timeout=900, cache=True):
+        seen["drc"] += 1
+        return reports.pop(0) if len(reports) > 1 else reports[0]
+
+    def edit_routing(path, dst, **kw):
+        if path != dst:
+            dst.write_text(path.read_text())
+        return {"routing": []}
+
+    def close(board, info, plan, fills, out, **kw):
+        seen["close"] += 1
+        seen["now"] += close_s
+        n = joins.pop(0) if joins else 0
+        if n:
+            out.write_text(board.read_text() + "+join")
+        return dict(joined=n, failed=0, ripped=[], added=["j"] * n, nets={})
+
+    def clock():
+        seen["clock"] += 1
+        return seen["now"]
+    monkeypatch.setattr(repair.drc, "run", run_drc)
+    monkeypatch.setattr(repair.pcbnew_io, "edit_routing", edit_routing)
+    monkeypatch.setattr(repair.pcbnew_io, "zone_fills", lambda p: {"zones": []})
+    monkeypatch.setattr(repair, "_with_via_tracks", lambda board, rip, routed: set(rip))
+    monkeypatch.setattr(repair, "analyse", lambda *a, **k: dict(
+        widen={"u1": 0.3}, items=set(), nets=set(), spokes=[], connect=set(), open={}, thermal=set(),
+        unattributed=[]))
+    monkeypatch.setattr(repair.freerouting, "route", lambda *a, **k: (_ for _ in ()).throw(AssertionError("router")))
+    monkeypatch.setattr(repair, "input_errors", lambda *a: {})
+    monkeypatch.setattr(lastmile, "close", close)
+    monkeypatch.setattr(lastmile, "open_nets", lambda rep: [])
+    monkeypatch.setattr(repair, "clock_now", clock)
+    inp, out = tmp_path / "in.kicad_pcb", tmp_path / "out.kicad_pcb"
+    inp.write_text("board")
+
+    def run(opts, left):
+        out.write_text("routed")
+        return repair.loop(inp, out, tmp_path / "wd", SimpleNamespace(), {}, dict(opts), deadline=seen["now"] + left,
+                           log=lambda m: None)
+    return run, seen
+
+
+def _labels(rep):
+    return [(r["round"], r.get("level") or r.get("stopped")) for r in rep["rounds"]]
+
+
+def test_last_mile_reserve_scales_with_the_attempt_budget_only_when_asked():
+    """The setting off: last_mile_reserve_s whatever the budget (the old rule). With a share: that share of
+    the attempt's budget, never under one last-mile round nor over last_mile_reserve_s."""
+    R = repair.last_mile_reserve
+    assert R({}) == 0.0 and R({"last_mile": False, "last_mile_reserve_share": 0.15, "attempt_s": 900}) == 0.0
+    for budget in (60, 600, 3000):
+        assert R({"last_mile": True, "attempt_s": budget}) == 90.0
+        assert R({"last_mile": True, "attempt_s": budget, "last_mile_reserve_share": 0.0}) == 90.0
+    on = {"last_mile": True, "last_mile_reserve_share": 0.15}
+    assert R(dict(on, attempt_s=60)) == repair.LAST_MILE_MIN_S          # 9 s would leave no last-mile round
+    assert R(dict(on, attempt_s=400)) == 60.0
+    assert R(dict(on, attempt_s=600)) == 90.0 and R(dict(on, attempt_s=3000)) == 90.0
+    assert R(dict(on, attempt_s=400, last_mile_reserve_s=45.0)) == 45.0
+    assert R(on, span_s=400) == 60.0                                    # no attempt budget known: the loop's own time
+    assert R(on) == 90.0
+    assert repair.max_cycles({}) == 1 and repair.max_cycles({"repair_cycles": 1.0}) == 1
+    assert repair.max_cycles({"repair_cycles": 3}) == 3
+    assert repair.max_cycles({"repair_cycles": 0.0}) == repair.max_cycles({"repair_cycles": "auto"}) == repair.AUTO_ROUNDS
+
+
+def test_the_relative_reserve_runs_the_round_the_absolute_one_skips(tmp_path, monkeypatch):
+    """100 s left of a 120 s attempt: under the absolute 90 s reserve no repair round runs (100 - 90 < 45); with
+    the reserve at 0.15 of the budget (30 s: one last-mile round) the round runs and the last mile follows."""
+    run, seen = _post_route(tmp_path, monkeypatch, [_opens(1, errors=1), _opens(1)])
+    rep = run({"last_mile": True, "attempt_s": 120.0}, left=100.0)
+    assert _labels(rep)[1] == (1, "time") and rep["final"]["errors"] == 1
+    seen.update(drc=0, close=0)
+    run, seen = _post_route(tmp_path, monkeypatch, [_opens(1, errors=1), _opens(1)])
+    rep = run({"last_mile": True, "attempt_s": 120.0, "last_mile_reserve_share": 0.15}, left=100.0)
+    assert _labels(rep)[:3] == [(0, None), (1, "items"), (2, "open connections: last mile")]
+    assert rep["rounds"][1]["kept"] and rep["final"] == dict(errors=0, unconnected=1, by_type={})
+    assert seen["close"] == 2 and "cycles" not in rep       # the last mile had its rounds; one cycle, as before
+
+
+def test_repair_cycles_go_on_until_a_cycle_closes_nothing(tmp_path, monkeypatch):
+    """repair_cycles 0: after the last mile, with time left and the board still open, the repair rounds run
+    again (numbered on, from the DRC report the cycle ended with), then the last mile when they changed the
+    board; a cycle that made the board no better is the last. repair_cycles 1 (the default) is one cycle."""
+    reports = [_opens(3), _opens(3), _opens(2), _opens(1), _opens(1)]
+    run, seen = _post_route(tmp_path, monkeypatch, reports, joins=[1])
+    rep = run({"last_mile": True}, left=500.0)
+    assert rep["final"]["unconnected"] == 2 and "cycles" not in rep
+    assert [l for l in _labels(rep) if l[0] in (1, 2, "lm1", "lm2")] == [
+        (1, "items"), (2, "open connections: last mile"), ("lm1", "last_mile free"), ("lm2", "last_mile")]
+    one_cycle = dict(seen)
+
+    run, seen = _post_route(tmp_path, monkeypatch, reports, joins=[1])
+    rep = run({"last_mile": True, "repair_cycles": 0.0}, left=500.0)
+    assert rep["cycles"] == 3 and rep["final"]["unconnected"] == 1
+    assert _labels(rep) == [
+        (0, None), (1, "items"), (2, "open connections: last mile"), ("lm1", "last_mile free"), ("lm2", "last_mile"),
+        ("c2", "cycle"), (3, "items"), (4, "open connections: last mile"), ("lm1", "last_mile free"),
+        ("lm2", "last_mile"),
+        ("c3", "cycle"), (5, "items"), (6, "open connections: last mile")]
+    assert [r.get("kept") for r in rep["rounds"] if r["round"] in (1, 3, 5)] == [False, True, False]
+    # one DRC per round that made a board (rounds 1, 3, 5 and the first lm1): none to start a later cycle
+    assert seen["drc"] == 5 and one_cycle["drc"] == 3
+    assert seen["close"] == 4        # cycle 3's rounds changed nothing: no third last mile
+    assert (tmp_path / "wd" / "cycle2" / "repair3").is_dir() and (tmp_path / "wd" / "cycle3" / "repair5").is_dir()
+
+    run, seen = _post_route(tmp_path, monkeypatch, reports, joins=[1])
+    assert run({"last_mile": True, "repair_cycles": 2}, left=500.0)["cycles"] == 2      # a bound of its own
+    run, seen = _post_route(tmp_path, monkeypatch, reports, joins=[1])
+    assert "cycles" not in run({"repair_cycles": 0.0}, left=500.0)                      # no last mile: no cycles
+
+
+def test_repair_cycles_end_with_the_time_and_on_a_clean_board(tmp_path, monkeypatch):
+    """A further cycle needs a routed round's time (ROUND_MIN_S) before the deadline; a clean board gets none."""
+    reports = [_opens(3), _opens(3), _opens(2), _opens(1), _opens(1)]
+    run, seen = _post_route(tmp_path, monkeypatch, reports, joins=[1], close_s=230.0)
+    rep = run({"last_mile": True, "repair_cycles": 0.0}, left=500.0)     # two close() calls: 40 s left
+    assert rep["cycles"] == 1 and rep["final"]["unconnected"] == 2
+    run, seen = _post_route(tmp_path, monkeypatch, [_opens(1), _opens(1), _opens(0)], joins=[1])
+    rep = run({"last_mile": True, "repair_cycles": 0.0}, left=500.0)
+    assert rep["cycles"] == 1 and rep["final"]["unconnected"] == 0 and seen["close"] == 1
+
+
+def test_rounds_skipped_for_time_run_in_a_second_cycle_with_what_the_last_mile_left(tmp_path, monkeypatch):
+    """100 s left under the absolute reserve: the rounds are skipped, the last mile joins nothing and uses
+    none of the time. With cycles the rounds then run with no reserve (the last mile has had its turn);
+    without, the time is returned unused."""
+    reports = [_opens(2, errors=1), _opens(2)]
+    run, seen = _post_route(tmp_path, monkeypatch, reports)
+    rep = run({"last_mile": True}, left=100.0)
+    assert _labels(rep)[1] == (1, "time") and rep["final"]["errors"] == 1
+    run, seen = _post_route(tmp_path, monkeypatch, reports)
+    rep = run({"last_mile": True, "repair_cycles": 0.0}, left=100.0)
+    assert rep["final"] == dict(errors=0, unconnected=2, by_type={})
+    assert ("c2", "cycle") in _labels(rep) and (2, "items") in _labels(rep)
+    assert rep["cycles"] == 3 and not any(r.get("kept") for r in rep["rounds"][_labels(rep).index(("c3", "cycle")):])
+    # a first cycle that routed and closed nothing is not repeated
+    run, seen = _post_route(tmp_path, monkeypatch, [_opens(2)])
+    rep = run({"last_mile": True, "repair_cycles": 0.0}, left=500.0)
+    assert rep["cycles"] == 1 and seen["drc"] == 2
+
+
+def test_one_cycle_reads_the_clock_as_before(tmp_path, monkeypatch):
+    """Counted-work budgets charge every clock read: with repair_cycles 1 and no reserve share, loop() adds
+    no read to its one cycle (the same reads as _cycle alone), so a counted run does the same work."""
+    reports = [_opens(3), _opens(3), _opens(2), _opens(1), _opens(1)]
+    run, seen = _post_route(tmp_path, monkeypatch, reports, joins=[1])
+    run({"last_mile": True}, left=500.0)
+    reads = seen["clock"]
+    run, seen = _post_route(tmp_path, monkeypatch, reports, joins=[1])
+    run({"last_mile": True, "repair_cycles": 1.0, "last_mile_reserve_share": 0.0, "attempt_s": 900.0}, left=500.0)
+    assert seen["clock"] == reads
+    run, seen = _post_route(tmp_path, monkeypatch, reports, joins=[1])
+    out = tmp_path / "out.kicad_pcb"
+    out.write_text("routed")
+    rep = repair._cycle(tmp_path / "in.kicad_pcb", out, tmp_path / "wd1", SimpleNamespace(), {}, {"last_mile": True},
+                        deadline=seen["now"] + 500.0, log=lambda m: None)
+    assert seen["clock"] == reads and "_carry" in rep
+
+
+def test_cycles_end_with_the_counted_budget(tmp_path, monkeypatch):
+    """Work mode: the deadline is counted work. Every DRC charges 30 nominal seconds and every cycle makes
+    the board better, so only the counted budget ends the cycles: no cycle starts with under ROUND_MIN_S of
+    it left, whatever the wall clock does."""
+    from kae import budget
+    reports = [_opens(n) for n in (9, 9, 8, 7, 6, 5, 4, 3, 2, 1)]
+    run, seen = _post_route(tmp_path, monkeypatch, reports, joins=[1])
+    clock = budget.set_mode("work")
+    try:
+        monkeypatch.setattr(repair, "clock_now", budget.now)
+        real = repair.drc.run
+
+        def charged(board, out, timeout=900, cache=True):
+            budget.charge("seconds", 30.0)
+            return real(board, out, timeout=timeout, cache=cache)
+        monkeypatch.setattr(repair.drc, "run", charged)
+        inp, out = tmp_path / "in.kicad_pcb", tmp_path / "out.kicad_pcb"
+        out.write_text("routed")
+        t0 = budget.now()
+        rep = repair.loop(inp, out, tmp_path / "wdw", SimpleNamespace(), {}, {"last_mile": True, "repair_cycles": 0.0},
+                          deadline=t0 + 200.0, log=lambda m: None)
+        spent = clock.spent - t0
+        assert rep["cycles"] == 4 and rep["final"]["unconnected"] == 5      # 6 DRCs: 180 s, 20 s left
+        assert 200.0 - repair.ROUND_MIN_S < spent <= 200.0
+        assert not clock.ceiling_hit and clock.units["seconds"] == 30.0 * seen["drc"]
+    finally:
+        budget.set_mode("time")
+
+
+def test_post_route_settings_default_to_the_old_behaviour(tmp_path, monkeypatch):
+    """The three settings of this file's last section are off by default and read like every kae limit:
+    KiCad text variable KAE_<NAME>, then opts (--set), then env, then the default."""
+    from kae.route import constraints as C
+    for name in ("KAE_LAST_MILE_RESERVE_SHARE", "KAE_REPAIR_CYCLES", "KAE_PERMUTE_PINS"):
+        monkeypatch.delenv(name, raising=False)
+    off = {n: C.setting_env(n) for n in ("last_mile_reserve_share", "repair_cycles", "permute_pins")}
+    assert off == dict(last_mile_reserve_share=0.0, repair_cycles=1, permute_pins=0)
+    assert repair.last_mile_reserve(dict(off, last_mile=True, attempt_s=120.0)) == 90.0 and repair.max_cycles(off) == 1
+    monkeypatch.setenv("KAE_REPAIR_CYCLES", "0")
+    assert repair.max_cycles({"repair_cycles": C.setting_env("repair_cycles")}) == repair.AUTO_ROUNDS
+    assert C.setting_env("repair_cycles", None, {"repair_cycles": 3}) == 3.0          # --set wins over env
+    board = tmp_path / "b.kicad_pcb"
+    board.with_suffix(".kicad_pro").write_text('{"text_variables": {"KAE_LAST_MILE_RESERVE_SHARE": "0.2"}}')
+    assert C.setting_env("last_mile_reserve_share", board, {"last_mile_reserve_share": 0.15}) == 0.2

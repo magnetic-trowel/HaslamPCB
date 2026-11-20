@@ -861,17 +861,26 @@ def apply(tree, plan, info):
     return summary
 
 
-def permute(tree, seed):
+def permute(tree, seed, pins=False):
     """Shuffle the order of components, of their placements and of nets in a DSN `tree`
     (in place, reproducibly from `seed`; 0 leaves it as it is). Returns whether it changed.
 
     Freerouting 2.5.0 is deterministic and routes the open items in the order the DSN
     created them (pins in placement order; net numbers in network order break ties), so an
-    attempt with another order is another, equally valid attempt."""
-    return _shuffle(tree, random.Random(seed)) if seed else False
+    attempt with another order is another, equally valid attempt.
+
+    The fork from 9a5512d on (upstream #1022) creates the components in reference-name order
+    whatever the DSN's, so only the net numbers still follow the seed. Its first pass routes in
+    item order and never reads them (later passes sort by net number): on a board whose budget
+    ends in the first pass, every seed gives the same routing (stored restarts, 206 boards: the
+    first pass leaves the same number open on the same-parity seeds of every board; the 18
+    one-pass boards end identical). `pins` (the setting permute_pins) also shuffles the pins inside each
+    library image, the one order of the first pass the DSN still decides: each component's pins
+    among themselves. The order the other shuffles give a seed does not change with it."""
+    return _shuffle(tree, random.Random(seed), pins=pins) if seed else False
 
 
-def _shuffle(tree, rnd):
+def _shuffle(tree, rnd, pins=False):
 
     def shuffle_children(node, head):
         idx = [i for i, c in enumerate(node) if isinstance(c, list) and c and c[0] == head]
@@ -888,6 +897,9 @@ def _shuffle(tree, rnd):
     network = find(tree, "network")
     if network is not None:
         shuffle_children(network, "net")
+    if pins:    # after the others: they draw the same numbers with or without it
+        for image in findall(find(tree, "library") or [], "image"):
+            shuffle_children(image, "pin")
     return True
 
 
