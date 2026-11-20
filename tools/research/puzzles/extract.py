@@ -717,7 +717,7 @@ def score(attempt, pdir, use_kicad=True):
     res = dict(solved_uf=not open_nets, open_nets=open_nets, length=round(length, 4), vias=int(vias),
                length_ratio=round(length / tot["human_len"], 4) if tot["human_len"] else None,
                via_ratio=round(vias / tot["human_vias"], 4) if tot["human_vias"] else None)
-    d = run_drc(attempt) if use_kicad else None
+    d = run_drc(attempt, refill=True) if use_kicad else None
     if d is not None:
         res["drc"] = d
         res["solved"] = d.get("unconnected") == meta["totals"].get("outside_links", 0)

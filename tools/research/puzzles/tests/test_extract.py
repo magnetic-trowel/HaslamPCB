@@ -129,3 +129,16 @@ def test_auto_and_around(board):
     w = X.window_around(board, "R2", 1.0)
     assert w[0] == pytest.approx(11.6) and w[2] == pytest.approx(16.4)
     assert X.auto_windows(board, "ic") == []
+
+
+@pytest.mark.skipif(not __import__("os").environ.get("KAE_KICAD_WRAP"), reason="needs KiCad ($KAE_KICAD_WRAP)")
+def test_kicad_reads_puzzle_and_solution(board, tmp_path):
+    pz, sol, meta = X.extract(board, WIN)
+    X.write_puzzle(tmp_path, pz, sol, meta)
+    v = X.verify(tmp_path, drc=True)
+    assert v["drc"] and "error" not in v["drc"], v
+    # S's two pieces meet at one point on two layers; kicad-cli calls them joined there, the
+    # union-find does not (see README, known limits), so only the other nets are checked here.
+    assert v["drc"]["unconnected"] <= meta["totals"]["outside_links"], v["drc"]
+    s = X.score(tmp_path / "puzzle.kicad_pcb", tmp_path)
+    assert s["drc"]["unconnected"] > meta["totals"]["outside_links"] and not s["solved"]

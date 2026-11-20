@@ -68,6 +68,9 @@ Puzzles derive from third-party boards: keep them in a work directory, never com
 - Copper zones are in the solution only. A net carried by a pour is a harder puzzle
   than the human's, and the union-find treats a zone outline as filled (no islands,
   thermal relief or clearance cut-outs). Zones with arc outlines are dropped with a note.
+- kicad-cli and the union-find can disagree on a split net (in the synthetic test KiCad
+  joins two pieces that meet at one point on different layers with no via); `verify`
+  reports both, and the trial counts a window as clean only when they agree.
 - Blind and micro vias connect only their listed layers in the union-find; through vias
   connect all.
 
