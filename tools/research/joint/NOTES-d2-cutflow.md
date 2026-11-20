@@ -58,7 +58,9 @@ prototype (different hash order on boards with multi-net pad positions, and its 
 ## Not done
 
 - No placer hook (by design for this branch).
-- `measured()` (demand from routed copper) has one synthetic test only; it has not been checked against stored
-  routed boards, and it compares crossing counts with capacity summed over layers, not per layer.
+- `measured()` (demand from routed copper) has one synthetic test and one sanity check: three routed `bus-pose-ab`
+  outputs of one 574-pad board (0 opens, about 2,100 tracks each) show measured overflow 0, so legal copper fits the
+  capacities there. Not checked on boards with DRC errors; it compares crossings with capacity summed over layers,
+  not per layer.
 - Variants named in the plan but not built: per-layer assignment with a via price; demand from a 60 s real route.
 - The edge model treats every pad as a rotated rectangle (circles and ovals over-sized at the corners).
