@@ -57,6 +57,9 @@ DEFAULTS = dict(
     min_iter_s=60.0,       # an iteration is not started with less than this left
     iter_share=0.25,       # one window's repair gets at most this share of the budget (at least min_iter_s)
     eff_tiebreak=False,    # equal on everything else: keep a board with dominating copper (length, vias); A/B arm
+    start_copper=False,    # with a start board: keep its routing as iteration 0 (no module stage, no first route);
+                           # flagged modules become windows (physics_spots) judged by accept; A/B arm (N3, --alt-from-best)
+    phys_vote=False,       # equal rank: routed physics decides per module (kae.rank.module_vote), not by the sum; A/B arm
     rudy_scale=0.5,        # RUDY overflow near failures added to the history (0: off)
     finish=True,           # a finishing stage: the full bridge over the whole board, critical copper locked
     finish_share=0.20,     # time reserved for it up front: max(finish_min_s, finish_share x budget)
@@ -217,17 +220,21 @@ class JointLoop:
             lay = st.layout_from(start)
         t_place = clock_now() - t
         left0 = left()
-        if o.get("modules", True):
-            lay = st.modules(lay, 0)
-        route_s = max(30.0, o["route_share"] * left())
-        if o.get("module_clock"):
-            # what it would get without the module stage, but never more than 90 % of what is left
-            route_s = max(30.0, min(o["route_share"] * left0, 0.9 * left()))
-        lay = st.route(lay, 0, seed=seed, time_s=route_s)
+        keep_copper = start is not None and bool(o.get("start_copper"))
+        if keep_copper:
+            pass        # the start board's routing is iteration 0: no module stage, no first route
+        else:
+            if o.get("modules", True):
+                lay = st.modules(lay, 0)
+            route_s = max(30.0, o["route_share"] * left())
+            if o.get("module_clock"):
+                # what it would get without the module stage, but never more than 90 % of what is left
+                route_s = max(30.0, min(o["route_share"] * left0, 0.9 * left()))
+            lay = st.route(lay, 0, seed=seed, time_s=route_s)
         card, fb = st.evaluate(lay, 0)
         t_iter0 = clock_now() - t
-        rows.append(self._row(0, card, accepted=True, why="staged pipeline", seconds=round(t_iter0, 1),
-                              place_s=round(t_place, 1), stages=dict(lay.info)))
+        rows.append(self._row(0, card, accepted=True, why="start board's copper" if keep_copper else "staged pipeline",
+                              seconds=round(t_iter0, 1), place_s=round(t_place, 1), stages=dict(lay.info)))
         self.log(f"iter 0: {card.unconnected} unconnected, {card.errors} errors, {card.placement_errors} placement "
                  f"errors, physics {card.physics:.3f}, flagged {card.flagged} ({t_iter0:.0f}s)")
         self._geom = st.geometry(lay)
@@ -313,7 +320,7 @@ class JointLoop:
                                  seconds=round(clock_now() - t, 1), repair=rrep))
                 continue
             self._history(hist, cand, fb)
-            keep, why = accept(best_card, card, eff_tiebreak=bool(o["eff_tiebreak"]))
+            keep, why = accept(best_card, card, eff_tiebreak=bool(o["eff_tiebreak"]), phys_vote=bool(o["phys_vote"]))
             dt = clock_now() - t
             est = max(float(o["min_iter_s"]), 0.5 * est + 0.5 * dt)
             rows.append(self._row(it, card, window=win.to_dict(), accepted=keep, why=why, seconds=round(dt, 1),
@@ -358,7 +365,7 @@ class JointLoop:
                 share = 0.6 if (mode is None and len(tries_fin) > 1) else 0.85
                 cand = st.route(base, it, seed=derive_seed(seed, it), time_s=max(60.0, share * left()), finish=True)
                 card, fb = st.evaluate(cand, it)
-                keep, why = accept(best_card, card, eff_tiebreak=bool(o["eff_tiebreak"]))
+                keep, why = accept(best_card, card, eff_tiebreak=bool(o["eff_tiebreak"]), phys_vote=bool(o["phys_vote"]))
             except Exception as e:  # noqa: BLE001 - the incumbent stands
                 cand, card, fb, keep, why = None, None, None, False, f"error: {type(e).__name__}: {e}"
             dt = clock_now() - t
@@ -388,7 +395,7 @@ class JointLoop:
             try:
                 cand = st.close_open(best, it, nets, time_s=budget)
                 card, fb = st.evaluate(cand, it)
-                keep, why = accept(best_card, card, eff_tiebreak=bool(o["eff_tiebreak"]))
+                keep, why = accept(best_card, card, eff_tiebreak=bool(o["eff_tiebreak"]), phys_vote=bool(o["phys_vote"]))
             except Exception as e:  # noqa: BLE001 - the incumbent stands
                 cand, card, fb, keep, why = None, None, None, False, f"error: {type(e).__name__}: {e}"
             dt = clock_now() - t

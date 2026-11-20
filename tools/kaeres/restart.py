@@ -31,6 +31,15 @@ finish's gate need not run the input again. Its time is reserved from the start 
 board replaces the kept one when KiCad ranks it no worse. summary.json's "finish" says which parts
 ran and which were skipped for time.
 
+With --phys-tiebreak (off by default), routed physics breaks ties the rank leaves: an attempt of the
+same rank as the kept one, from the same wave (k // parallel; the same rung with --screen), replaces
+it only when it wins the per-module vote (kae.rank.module_vote on tools/kaeres/physics_board.py's
+module values: paired modules, never the summed score; a module without a value does not vote; a
+tied vote keeps the first). The rank order never changes. A clean attempt then stops only the
+attempts of later waves: its own wave finishes and is judged, so its clean siblings can compete.
+Each board is measured once, with --phys-python (a Python with the kae package; default this one),
+and not when less than PHYS_MIN_S is left before the end.
+
 Work is measured, since a sandboxed method's processes are invisible to the harness: every
 attempt's processes (its process tree and session, so a router started in a session of its own
 counts too) are sampled from /proc each second (CPU seconds summed over all of them, peak RSS);
@@ -74,6 +83,8 @@ WORK = os.environ.get("KAE_BUDGET") == "work"
 WORK_CEILING = 4.0
 OPEN_REST_MIN_S = 60.0   # --open-rest: no third run with less than this per lane
 WORK_FINAL_SHARE, WORK_FINISH_SHARE = 0.15, 0.10     # of --time, for --final and --finish (unless --final-s / --finish-s)
+PHYS_MIN_S = 30.0  # --phys-tiebreak: no physics measurement with less than this left before the end
+PHYS_SCRIPT = Path(__file__).resolve().parent / "physics_board.py"
 FINAL_MIN_S = 60.0  # the final pass at least, beyond one DRC of the board (a last mile's joins and refill)
 
 
@@ -807,6 +818,66 @@ class Halving:
                                 for c in self.cands])
 
 
+def wave_of(info, a):
+    """An attempt's wave for --phys-tiebreak: its rung with --screen, else k // parallel."""
+    return ("rung", info.get("rung")) if a.screen else ("wave", info["k"] // max(1, a.parallel))
+
+
+def measure_physics(boards, inp, out_json, timeout, python="", pintypes=""):
+    """{name: {module id: u or None}} of each board {name: path} by physics_board.py (the brief built from
+    the input, so module ids pair across boards); a board it could not measure is missing."""
+    argv = [python or sys.executable, str(PHYS_SCRIPT), "--input", str(inp), "--out", str(out_json)]
+    for n, b in boards.items():
+        argv += ["--board", f"{n}={b}"]
+    if pintypes:
+        argv += ["--pintypes", str(pintypes)]
+    try:
+        with open(Path(out_json).with_suffix(".log"), "w") as f:
+            p = subprocess.Popen(argv, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+            ATTEMPT_PIDS.add(p.pid)
+            try:
+                p.wait(timeout=max(1.0, timeout))
+            except subprocess.TimeoutExpired:
+                os.killpg(p.pid, signal.SIGKILL)
+                p.wait()
+            finally:
+                ATTEMPT_PIDS.discard(p.pid)
+        rec = json.loads(Path(out_json).read_text())
+    except (OSError, ValueError):
+        return {}
+    res = {}
+    for n in boards:
+        b = (rec.get("boards") or {}).get(n) if isinstance(rec, dict) else None
+        if isinstance(b, dict) and isinstance(b.get("modules"), dict) and not b.get("error"):
+            res[n] = {k: (v.get("u") if isinstance(v, dict) else None) for k, v in b["modules"].items()}
+    return res
+
+
+def phys_tiebreak(best, cand, inp, a, end, judge_est=0.0):
+    """--phys-tiebreak: whether `cand` (the same rank as `best`) wins the per-module vote against it
+    (kae.rank.module_vote). Each board is measured once (its module values kept as "phys"); the vote goes
+    to cand["phys_vote"]. No time, or a board without values, keeps `best`."""
+    need = {n: x["out"] for n, x in (("best", best), ("cand", cand)) if "phys" not in x}
+    if need:
+        left = end - time.monotonic() - judge_est - GRACE_S
+        if left < PHYS_MIN_S:
+            cand["phys_vote"] = "no time"
+            return False
+        t = time.monotonic()
+        got = measure_physics(need, inp, Path(cand["out"]).parent / "physics.json", left,
+                              a.phys_python, a.phys_pintypes)
+        for n, x in (("best", best), ("cand", cand)):
+            if n in need:
+                x["phys"] = got.get(n)
+        cand["phys_s"] = round(time.monotonic() - t, 1)
+    if best.get("phys") is None or cand.get("phys") is None:
+        cand["phys_vote"] = "not measured"
+        return False
+    b, w, n = RANK.module_vote(best["phys"], cand["phys"])
+    cand["phys_vote"] = dict(against=best["k"], better=b, worse=w, voters=n)
+    return b > w
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True)
@@ -861,6 +932,17 @@ def main():
     ap.add_argument("--open-rest-alt", action="store_true",
                     help="with --open-rest: when the kept board is clean, that run is --alt (kept when no worse)")
     ap.add_argument("--alt", default="", help="completion-first: the command of the second run on a clean board")
+    ap.add_argument("--alt-from-best", action="store_true",
+                    help="completion-first: --alt's @BEST@ is the kept clean board (with the task's rules), not the "
+                         "input, so the alt run starts from a placement proven routable; on an equal rank the alt "
+                         "board is kept unless it loses the per-module physics vote (kae.rank.module_vote)")
+    ap.add_argument("--phys-tiebreak", action="store_true",
+                    help="among attempts of equal rank from the same wave, the per-module routed-physics vote "
+                         "chooses (kae.rank.module_vote); a clean attempt lets its own wave finish. Off by default")
+    ap.add_argument("--phys-python", default="",
+                    help="--phys-tiebreak/--alt-from-best: the Python (with the kae package) that runs "
+                         "physics_board.py; default this one")
+    ap.add_argument("--phys-pintypes", default="", help="pintypes.json for physics_board.py (optional)")
     ap.add_argument("command", nargs=argparse.REMAINDER)
     a = ap.parse_args()
     signal.signal(signal.SIGTERM, _on_term)
@@ -1040,10 +1122,25 @@ def main():
                 best = info
                 out.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(best["out"], out)  # at once: a kill at the deadline keeps the best so far
+            elif (a.phys_tiebreak and rank is not None and rank == best["rank"]
+                  and wave_of(info, a) == wave_of(best, a) and phys_tiebreak(best, info, inp, a, end, judge_est)):
+                log(f"#{info['k']} wins the module physics vote against #{best['k']}: {info['phys_vote']}")
+                best = info
+                out.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(best["out"], out)
         if best and best["rank"][:2] == (0, 0):
-            log(f"#{best['k']} is clean: stopping the rest")
+            # --phys-tiebreak: the clean attempt's own wave finishes (no new launches), so a clean sibling can win
+            mates = {p for p, i in running.items() if a.phys_tiebreak and wave_of(i, a) == wave_of(best, a)}
+            if mates:
+                if not best.get("clean_wait"):
+                    best["clean_wait"] = True
+                    log(f"#{best['k']} is clean: its wave finishes ({len(mates)} running), later waves stop")
+            else:
+                log(f"#{best['k']} is clean: stopping the rest")
             meter.sample([p.pid for p in running])
             for p, info in list(running.items()):
+                if p in mates:
+                    continue
                 if "hold" not in info:   # a held one has exited: its CPU and memory are counted
                     stop(p, info)
                     info.update(cpu_s=cpu_s(p, info), peak_rss_mb=meter.rss_mb(p.pid))
@@ -1052,7 +1149,9 @@ def main():
                 info.pop("hold", None)
                 info.update(wall_s=round(time.monotonic() - info["t"], 1), rc=None, rank=None, stopped=True)
                 done.append(info)
-            running.clear()
+                del running[p]
+            if running:
+                continue
             break
         if fast_fails >= 2 * a.parallel:
             log(f"{fast_fails} attempts in a row died within 10 s without a board: giving up (see restarts/a*/log)")
@@ -1124,7 +1223,8 @@ def main():
 
 def _phase_argv(ap, a, time_s, seed, output, command):
     """This wrapper's own argv for one phase of a policy: every option as given, but the policy's own."""
-    skip = {"policy", "alt", "open_alt", "open_rest", "open_rest_alt", "time", "seed", "output", "command", "help"}
+    skip = {"policy", "alt", "alt_from_best", "open_alt", "open_rest", "open_rest_alt", "time", "seed", "output",
+            "command", "help"}
     argv = []
     for act in ap._actions:
         if act.dest in skip or not act.option_strings:
@@ -1204,6 +1304,30 @@ def run_policy(ap, a):
         return dict(k=k, seed=seed, out=o, dir=d, rank=rank, command=command[:200], time_s=time_s, used_s=used,
                     work=dict(attempts=1, wall_s=round(time.monotonic() - w0, 1)))
 
+    def alt_cmd(k, prev):
+        """--alt; with --alt-from-best its @BEST@ is a copy of `prev`'s (clean) board with the task's rules."""
+        if not a.alt_from_best:
+            return a.alt
+        d = wd / f"policy{k}"
+        d.mkdir(exist_ok=True)
+        src = d / "best_in.kicad_pcb"
+        shutil.copy2(prev["out"], src)
+        task_rules(inp, src)
+        return a.alt.replace("@BEST@", shlex.quote(str(src)))
+
+    def alt_kept(pa, prev):
+        """Whether --alt's board `pa` replaces `prev`: no worse by rank; with --alt-from-best an equal rank keeps
+        it unless `prev` wins the per-module physics vote (phys_tiebreak)."""
+        if pa["rank"] is None:
+            return False
+        if prev["rank"] is None or pa["rank"] < prev["rank"]:
+            return True
+        if pa["rank"] != prev["rank"]:
+            return False
+        if a.alt_from_best and not TERM:
+            return not phys_tiebreak(pa, prev, inp, a, (t0 + 2 * WORK_CEILING * a.time) if WORK else t0 + a.time)
+        return True
+
     p1 = phase(1, a.seed, 0.5 * a.time, cmd)
     if TERM:   # killed during phase 1: its own summary is in restarts/policy1; record that here and stop
         work = dict(policy="completion-first", killed=True, phases=[dict(k=1, seed=p1["seed"], **{
@@ -1224,9 +1348,11 @@ def run_policy(ap, a):
         # one process where a restart phase runs --parallel lanes: the same work in counted seconds is lanes x its time
         p2 = open_phase(2, a.seed + 1, max(30.0, left) * max(1, a.parallel), a.open_alt, p1)
     else:
-        p2 = phase(2, a.seed + 1, max(30.0, left), a.alt if alt else cmd)
-    if p2["rank"] is not None and (p1["rank"] is None or (p2["rank"] <= p1["rank"] if (alt or open_alt)
-                                                          else p2["rank"] < p1["rank"])):
+        p2 = phase(2, a.seed + 1, max(30.0, left), alt_cmd(2, p1) if alt else cmd)
+    if alt:
+        best = p2 if alt_kept(p2, p1) else p1
+    elif p2["rank"] is not None and (p1["rank"] is None or (p2["rank"] <= p1["rank"] if open_alt
+                                                            else p2["rank"] < p1["rank"])):
         best = p2
     else:
         best = p1
@@ -1240,15 +1366,18 @@ def run_policy(ap, a):
         if rest >= OPEN_REST_MIN_S:
             clean_b = best["rank"] is not None and best["rank"][1] == 0
             third = "alt" if (clean_b and a.open_rest_alt and a.alt) else "restart"
-            p3 = phase(3, a.seed + 2, rest, a.alt if third == "alt" else cmd)
+            p3 = phase(3, a.seed + 2, rest, alt_cmd(3, best) if third == "alt" else cmd)
             phases.append(p3)
-            if p3["rank"] is not None and (best["rank"] is None or (p3["rank"] <= best["rank"] if third == "alt"
-                                                                    else p3["rank"] < best["rank"])):
+            if third == "alt":
+                if alt_kept(p3, best):
+                    best = p3
+            elif p3["rank"] is not None and (best["rank"] is None or p3["rank"] < best["rank"]):
                 best = p3
     work = dict(policy="completion-first", second="alt" if alt else "open-alt" if open_alt else "restart", kept=best["k"],
                 third=third,
                 phases=[dict(k=p["k"], seed=p["seed"], rank=p["rank"], command=p["command"],
                              **{x: p.get(x) for x in ("time_s", "used_s")},
+                             **{x: p[x] for x in ("phys_vote",) if x in p},
                              **{x: p["work"].get(x) for x in ("attempts", "cpu_s", "method_cpu_s", "wall_s")})
                         for p in phases],
                 attempts=sum(p["work"].get("attempts") or 0 for p in phases),

@@ -80,6 +80,8 @@ STAGE_KEYS = frozenset({
     "portfolio_routers", "portfolio_first_s", "portfolio_growth",
     # evaluation
     "drc_timeout",
+    # start_copper (also a loop key): every card by board_physics, modules above flag_u become windows
+    "start_copper", "flag_u",
 })
 
 
@@ -598,7 +600,8 @@ class KaeStages:
             notes.append(f"brief failed: {self.brief_error}")
         stage = {k: v for k, v in lay.stage.items() if lay.status.get(k) in ("routed", "partial")}
         try:
-            if stage:
+            if stage and not self.opts.get("start_copper"):
+                # (start_copper: every card by board_physics, so the start board and each window pair)
                 rc = recheck(lay.board, brief, stage, terms=self.terms)
                 card.modules = {k: (v or {}).get("u_routed") for k, v in (rc.get("modules") or {}).items()}
                 card.method = "recheck"
@@ -610,6 +613,11 @@ class KaeStages:
                 rc = dict(modules={}, retweak=[], rails=ph.get("_rails"))
                 card.modules = {k: v.get("u") for k, v in ph.items() if not k.startswith("_") and isinstance(v, dict)}
                 card.method = "board_physics"
+                if self.opts.get("start_copper"):
+                    # the loop kept a start board's copper (no module stage): modules over flag_u become
+                    # windows (feedback.physics_spots), so their parts and copper are redone and judged
+                    fu = float(self.opts.get("flag_u", 1.0))
+                    rc["retweak"] = sorted(k for k, u in card.modules.items() if u is not None and u > fu)
         except Exception as e:  # noqa: BLE001 - routing results stand without physics
             self.log(f"recheck failed: {type(e).__name__}: {e}")
             rc = {}

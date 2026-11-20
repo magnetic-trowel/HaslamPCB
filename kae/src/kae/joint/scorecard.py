@@ -111,24 +111,34 @@ def card_rank(c):
     return board_rank(c.unconnected, c.errors, c.placement_errors)
 
 
-def accept(old, new, phys_tol=0.005, eff_tiebreak=False, eff_tol=0.01):
+def accept(old, new, phys_tol=0.005, eff_tiebreak=False, eff_tol=0.01, phys_vote=False):
     """(keep, why). See the module docstring: the ranked judge, then routed physics on an equal
     rank. `eff_tiebreak` (off by default, an A/B arm): with an equal rank and physics within
     phys_tol, keep a board whose copper dominates: no more vias and track length shorter by more
-    than `eff_tol`, or fewer vias and no longer track."""
-    from kae.rank import FIELDS
+    than `eff_tol`, or fewer vias and no longer track. `phys_vote` (off by default, an A/B arm):
+    on an equal rank, routed physics decides per module (kae.rank.module_vote: paired values,
+    never the sum; a module without a value on either card does not vote; a tied vote keeps the
+    incumbent), instead of on the capped sum."""
+    from kae.rank import FIELDS, module_vote
     r0, r1 = card_rank(old), card_rank(new)
     if r1 != r0:
         k = next(i for i, (a, b) in enumerate(zip(r0, r1)) if a != b)
         word = "better" if r1 < r0 else "worse"
         return r1 < r0, f"rank {word} on {FIELDS[k]} {tuple(r0)} -> {tuple(r1)}"
-    ids = sorted(set(old.modules) & set(new.modules)) if old.method == new.method else []
-    p0, p1 = _phys_on(old, ids), _phys_on(new, ids)
-    scale = max(1.0, abs(p0))
-    if p1 > p0 + phys_tol * scale:
-        return False, f"physics worse ({p0:.4f} -> {p1:.4f})"
-    if p1 < p0 - phys_tol * scale:
-        return True, f"physics better ({p0:.4f} -> {p1:.4f})"
+    if phys_vote:
+        better, worse, n = module_vote(old.modules, new.modules, phys_tol) if old.method == new.method else (0, 0, 0)
+        if worse > better:
+            return False, f"physics worse by module vote ({better} better, {worse} worse of {n})"
+        if better > worse:
+            return True, f"physics better by module vote ({better} better, {worse} worse of {n})"
+    else:
+        ids = sorted(set(old.modules) & set(new.modules)) if old.method == new.method else []
+        p0, p1 = _phys_on(old, ids), _phys_on(new, ids)
+        scale = max(1.0, abs(p0))
+        if p1 > p0 + phys_tol * scale:
+            return False, f"physics worse ({p0:.4f} -> {p1:.4f})"
+        if p1 < p0 - phys_tol * scale:
+            return True, f"physics better ({p0:.4f} -> {p1:.4f})"
     if eff_tiebreak and None not in (old.track_length_mm, new.track_length_mm, old.vias, new.vias):
         l0, l1, v0, v1 = old.track_length_mm, new.track_length_mm, old.vias, new.vias
         if (v1 <= v0 and l1 < l0 * (1 - eff_tol)) or (v1 < v0 and l1 <= l0):

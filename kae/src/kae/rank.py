@@ -15,6 +15,12 @@ Fewer open connections win whatever they cost in DRC errors. The restart wrapper
 (tools/kaeres/restart.py) chooses the delivered board with it, and the joint loop
 (kae.joint.scorecard.accept) keeps or reverts each step with it (user decision, 2026-11-17),
 so one rule judges every board kae keeps. Stdlib only: restart.py loads this file by path.
+
+`module_vote(old, new)` is the physics tie-break among boards of EQUAL rank (off by default:
+restart.py --phys-tiebreak, the joint loop's `phys_vote`): per module of the routed-physics
+recheck (kae.route.critical_recheck; {module id: u or None}), the paired values vote, never
+their sum. A module without a value on either board does not vote; the new board wins only
+with more modules better than worse, so a tie keeps the incumbent. It never changes the rank.
 """
 
 
@@ -27,3 +33,31 @@ def board_rank(unconnected, new_errors, illegal=0):
 
 
 FIELDS = ("illegal", "not clean", "unconnected", "new DRC errors", "placement problems")
+
+
+U_CAP = 5.0   # as kae.joint.scorecard.U_CAP: one module far over budget votes like any other
+
+
+def module_vote(old, new, tol=0.005):
+    """(better, worse, voters) of `new` against `old`, per module: both {module id: u or None}.
+    Only modules with a value on both boards vote (u capped at U_CAP); a module votes better
+    (worse) when its u falls (rises) by more than `tol` x max(1, old u)."""
+    better = worse = voters = 0
+    for k in sorted(set(old or {}) & set(new or {})):
+        u0, u1 = old[k], new[k]
+        if u0 is None or u1 is None:
+            continue
+        u0, u1 = min(U_CAP, max(0.0, float(u0))), min(U_CAP, max(0.0, float(u1)))
+        voters += 1
+        if u1 < u0 - tol * max(1.0, u0):
+            better += 1
+        elif u1 > u0 + tol * max(1.0, u0):
+            worse += 1
+    return better, worse, voters
+
+
+def physics_prefers(old, new, tol=0.005):
+    """True when `new` wins the per-module vote against `old` (module_vote): more modules better
+    than worse. Equal votes, no voters or no values keep `old`."""
+    better, worse, _ = module_vote(old, new, tol)
+    return better > worse
