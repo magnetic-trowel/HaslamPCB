@@ -24,6 +24,7 @@ numbers, and whether it worked. The production placer and router live in the
 | `llm-design/` | kaesynth: typed circuit description to checked KiCad schematic, plus four LLM-made designs | [kaesynth](../../docs/research/llm-design/kaesynth.md) |
 | `board-sourcing/` | open-board corpus: licence audit, dedup, import | [board corpus](../../docs/research/data/board-corpus.md) |
 | `kicad-io/` | load/save round trip of corpus boards through KiCad's writer; re-import of real SES sessions with kae's checks | [kae board model: writing boards](../../docs/research/placement/kae-board-model.md#writing-boards) |
+| `diagnostics/` | pose transplant: kae's staged run with one tier of parts held at the human's poses (oracle, not a method) | [plan](../kaeres/experiments/pose-transplant/PLAN.md) |
 | `solver-bench/`, `layout-data/` | survey micro-benchmarks and board measurements (below) | below |
 
 ## Archived prototypes
