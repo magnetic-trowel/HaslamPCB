@@ -4,7 +4,7 @@
 
 Written 2026-11-20, before any routed run. Code: branch `place-physics-satisficing` off `baseline/2026-w47`
 (main `c2dd008`); `kae/` differs from the tag only by the `place_phys_hinge` setting, off by default.
-Procedure: the sprint tier of `docs/topics/verification/experiment-tiers.md`. Nothing here is submitted yet.
+Procedure: the sprint procedure of `bench/suites/README.md` (branch `experiment-tiers`). Nothing here is submitted yet.
 
 ## Hypothesis
 
@@ -53,9 +53,9 @@ runs before the switch), the report's scorecard is the raw one, weights, moves, 
 | θ 0.7 | the same template with `--code kae=.@<commit of this branch>` and `--set place_phys_hinge=0.7` | margin below 0.7 × budget is free |
 | θ 1.0 | the same, `--set place_phys_hinge=1.0` | everything inside budget is free |
 
-Boards: `bench/suites/sprint-frontier.txt` + `bench/suites/sprint-quality.txt` (140). Seeds: those the stored
-control holds, paired by seed. Queue priority 5, at most 40 CPU-h for the two new arms (the tier guard of
-`kaeres exp create` prints the estimate and says what to trim).
+Boards: `bench/suites/sprint-frontier.txt` + `bench/suites/sprint-quality.txt` (140). Seeds 0 and 1, those the
+stored control holds, paired by seed. Queue priority 5, at most 40 CPU-h for the two new arms together (the
+tier guard prints each campaign's estimate).
 
 A board whose brief has no structure, or whose physics is off, takes the same code path in all arms: its
 placement is identical by construction (checked by output hash) and it adds a paired zero. The report states
@@ -117,21 +117,25 @@ audit script's count exactly on a test board).
 5. Limit: on juniper the seed legalizer used the budget and the annealer made 10,000 of 176,000 planned moves
    in every arm; its difference comes from that short anneal.
 
-## Commands (when `control-w47` is complete; do not improvise another procedure)
+## Commands (the sprint procedure of `bench/suites/README.md`; run only when `control-w47` holds its runs)
+
+`kaeres sprint` registers one arm per experiment, so the two thresholds are two sprint experiments against the
+same stored control (`--base staged` = `control place-and-route single c2dd008 fr37b1a8b`, seeds 0 and 1,
+140 boards). Until `control-w47` has a finished run of that method for every board and seed, the command
+would queue the control's missing runs a second time: wait for it.
 
 ```bash
-K="python3 tools/kaeres/kaeres.py"
+K="python3 tools/kaeres/kaeres.py"                   # from a checkout that has `kaeres sprint`
 SHA=$(git rev-parse origin/place-physics-satisficing)
-# the control's template, read from the store (kaeres method show), with the kae code and one --set changed:
-#   ... {py:kae} -m kae.joint.cli run {input} {output} --seed {attempt} --time $(( {timeout} / 4 )) \
-#       --max-iters 0 --no-modules --set place_phys_hinge=0.7        (and =1.0)
-#   --kind joint-fixed --param timeout_s=3600 --param timeout_scale=sqrt-fp40 --param timeout_cap_s=57600 \
-#   --code kae=.@$SHA --harness baseline/2026-w47
-cat bench/suites/sprint-frontier.txt bench/suites/sprint-quality.txt > "$TMPDIR/sprint.txt"
-$K exp create place-satisfice --boards "@$TMPDIR/sprint.txt" --reuse-runs \
-   --method "control place-and-route single c2dd008 fr37b1a8b" \
-   --method "place-satisfice theta 0.7" --method "place-satisfice theta 1.0" \
-   --harness baseline/2026-w47 --kae baseline/2026-w47
-$K exp submit place-satisfice && kaeq prio 5 --owner exp-place-satisfice
-$K exp report place-satisfice && $K quality place-satisfice --control "control place-and-route single c2dd008 fr37b1a8b"
+for A in t07:0.7 t10:1.0; do
+  N=place-satisfice-${A%%:*}
+  mkdir -p "$KAE_RESULTS/experiments/$N" && cp tools/kaeres/experiments/place-satisfice/PLAN.md "$KAE_RESULTS/experiments/$N/"
+  $K sprint $N --base staged --commit $SHA --set place_phys_hinge=${A##*:}
+done
+# at the end of each campaign (the command prints it):
+#   $K exp report NAME && $K quality NAME --control 'control place-and-route single c2dd008 fr37b1a8b'
+# crowding per run: python tools/research/place/crowding.py NAME=<run>/output.kicad_pcb.gz ... --out crowding.json
 ```
+
+Budget: both campaigns together stay within 40 CPU-h; if the tier guard's two estimates add up to more, run
+θ 0.7 first (the audit's proposal) and θ 1.0 only with what is left.
