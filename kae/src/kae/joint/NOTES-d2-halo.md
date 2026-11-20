@@ -44,6 +44,18 @@ the two `replace_window` additions default to the old behaviour. `pipeline.py` a
 (with the run's venv python; `--pressure FILE` to use a producer's file instead of
 cutflow/fallback; `--no-modules`, `--no-physics` as in the loop.)
 
+## Which distance a halo enforces
+
+`Problem.bump` grows the part's occupancy rectangles (`g_own_rects`: its courtyard, else
+pads and body, as axis-aligned rectangles on the placement grid, rounded up to whole cells)
+on every side. Two parts' occupancy may not overlap, so a halo of h mm on A keeps A's
+courtyard rectangle at least h from B's courtyard rectangle (plus B's own growth). It is
+courtyard to courtyard, not pad to foreign pad: pads well inside a courtyard get more room
+than h, and pads at a courtyard edge exactly h. Since stranded pads were measured short of
+room at the 2-4 mm scale (escape room around the pads, not body spacing), the fallback's
+1-4 routing pitches (0.4-2 mm on usual rules) are at the low end of that; they stay in
+pitches as specified, and `--pressure` takes larger values from a producer.
+
 ## Not done / known gaps
 
 - Related parts are not exempt. The occupancy model is per part (two grown rectangles may
