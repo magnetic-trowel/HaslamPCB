@@ -150,6 +150,8 @@ class Clock:
     def charge(self, kind, units=1.0):
         """Count `units` of `kind` work; in work mode they advance the clock at RATES[kind]."""
         s = units * self.rates.get(kind, 0.0)
+        if not _numba_seen[0] and "numba" in sys.modules:
+            watch_numba()
         st = getattr(_tls, "stack", None)
         with _lock:
             row = self.ledger[st[-1].path if st else ""]
@@ -244,6 +246,7 @@ class Clock:
 
 
 _tls = threading.local()
+_numba_seen = [False]    # the numba compile listener is installed (watch_numba)
 
 
 def _row():
@@ -311,7 +314,7 @@ def span(name):
     this thread (paths like "joint/route/freerouting"). Cheap (two clock reads), but meant for stages and
     calls that take milliseconds or more, not inner loops."""
     clock()                      # the process clock starts no later than its first span
-    if not getattr(watch_numba, "on", False) and "numba" in sys.modules:
+    if not _numba_seen[0] and "numba" in sys.modules:
         watch_numba()
     st = getattr(_tls, "stack", None)
     if st is None:
@@ -368,8 +371,9 @@ class Spanned:
 def watch_numba():
     """Book numba's compiles (lazy, on a kernel's first call: inside whatever span called it) to the
     side row "~numba_compile" as well (rows starting "~" are not part of the span tree)."""
-    if getattr(watch_numba, "on", False) or "numba" not in sys.modules:
+    if _numba_seen[0] or "numba" not in sys.modules:
         return
+    _numba_seen[0] = True
     try:
         from numba.core import event as ev
     except ImportError:
@@ -393,7 +397,6 @@ def watch_numba():
                     row["cpu"] += _cpu()[0] - t0[1]
 
     ev.register("numba:compile", _L())
-    watch_numba.on = True
 
 
 def add_cpu(seconds):
