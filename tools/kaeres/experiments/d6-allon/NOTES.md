@@ -44,3 +44,10 @@ enclosing function (lines changed in brackets), and which merged branch changed 
 | `cost`, `evaluate`, `terms_report` | 2 each | chan-gated, xing-ext |
 
 Regenerate with `git diff -U0 c2dd008a HEAD -- <file>` and map the hunks to their enclosing `def` (ast).
+
+## Tests (2026-11-20)
+
+Run one file at a time, one core, `PYTHONPATH=bench/src:kae/src`: `test_place_{margin_gate,crossings,channel,arrays,
+barriers,anneal,clusters,edge_check,escape_band,fixed,heat,labels,problem,terms,terms_calib,terms_jit,writer,zones}.py`
+all pass (2 skipped). `test_place_{legalize,engine,pipeline}.py` and `test_joint_*.py` take longer and were queued
+on kaeq; their result is not in this commit.
