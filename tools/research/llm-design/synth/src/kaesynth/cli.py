@@ -28,6 +28,21 @@ def cmd_build(a):
     return rc
 
 
+def cmd_jlc(a):
+    from pathlib import Path
+    from .build import load_design
+    from . import jlc
+    for path in a.design:
+        d = load_design(path).finalize()
+        cache = Path(path).resolve().parent / "jlc.json"
+        print(f"{d.slug}: looking up generic passives -> {cache}")
+        jlc.resolve(d, cache)
+        left = jlc.apply(d, cache)
+        print(f"{d.slug}: {len(left)} generic parts without an LCSC number"
+              + (": " + ", ".join(f"{r} ({k})" for r, k in left) if left else ""))
+    return 0
+
+
 def cmd_sym(a):
     libs = SymbolLibs()
     if ":" in a.query and libs.has(a.query):
@@ -96,6 +111,9 @@ def main(argv=None):
     b.add_argument("--date", help="title-block date (default: today)")
     b.add_argument("-v", "--verbose", action="store_true", help="also print warnings")
     b.set_defaults(fn=cmd_build)
+    j = sub.add_parser("jlc", help="look up JLCPCB/LCSC numbers for the generic passives (writes jlc.json)")
+    j.add_argument("design", nargs="+")
+    j.set_defaults(fn=cmd_jlc)
     s = sub.add_parser("sym", help="search KiCad symbols by regex, or show pins of Lib:Name")
     s.add_argument("query")
     s.add_argument("--lib")
