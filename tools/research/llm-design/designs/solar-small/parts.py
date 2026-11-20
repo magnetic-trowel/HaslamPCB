@@ -62,7 +62,8 @@ LTC3130 = IC(
     source={"pins": "LTC3130 DS rev 3130f p.3 MSE package (16-lead MSOP, EP pin 17 = GND), Pin Functions p.11-12",
             "ratings": "DS p.2 Absolute Maximum Ratings: PVIN, VIN, VOUT, RUN, PGOOD -0.3 to 27.5 V; MODE, MPPC -0.3 "
                        "to 6 V; operating VIN 2.4-25 V (p.1)"},
-    fields=_lcsc("C684231", "expand, stock 0 (#TRPBF C684232: 3) on 2026-11-17"))
+    fields=_lcsc("C684231", "expand, stock 0 (#TRPBF C684232: 3) on 2026-11-17"),
+    haslam=dict(f_sw_Hz=1.2e6, v_sw_max_V=27.5, why="LTC3130 DS 3130f: 1.2 MHz PWM (p.1); PVIN/VOUT abs max 27.5 V (p.2)"))
 
 LTC2959 = IC(
     "LTC2959IDDB#TRMPBF", manufacturer="Analog Devices", datasheet=DS["LTC2959"],
@@ -107,7 +108,8 @@ TPS62933 = IC(
     source={"pins": "KiCad Regulator_Switching:TPS62933 = DS SLUSEA4D Table 7-1 (RT 1, EN 2, VIN 3, GND 4, SW 5, "
                     "BST 6, SS 7, FB 8)",
             "ratings": "DS 6.1 Abs Max: VIN, SW (DC) 32 V, SW < 10 ns 33 V, EN and FB 6 V; 3.8-30 V input; Iq 12 uA; FB 0.8 V, IFB 0.15 uA max"},
-    fields=_lcsc("C3200405", "expand, stock 5788 on 2026-11-17"))
+    fields=_lcsc("C3200405", "expand, stock 5788 on 2026-11-17"),
+    haslam=dict(v_sw_max_V=32.0, why="TPS62933 DS SLUSEA4D 6.1: SW abs max 32 V DC"))
 
 # FireBeetle 2 ESP32-C6 on two female headers (custom footprint, pad numbering in make_footprints.py)
 _FB_TOP = ["IO17", "IO16", "IO8", "IO14", "NC1", "IO1", "IO18", "IO9", "IO19", "IO20", "IO21", "IO22", "IO23", "NC2",
