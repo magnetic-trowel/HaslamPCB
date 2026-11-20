@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Bus pose compiler: rotations of bus ends from pin tables (2026-11-09)
 
-Status: default off. `bus-pose-ab` ran (2026-11-20): board-level null; the bus-metric primary is still being measured, so the verdict is **undecided**.
+Status: did not work, stays off. `bus-pose-ab` (2026-11-20): no arm lowers open bus lines or vias per bus line; the verdict is final.
 Code: `kae/src/kae/place/buspose.py` (branch `exp-bus-pose`). Plan: `tools/kaeres/experiments/bus-pose-ab/PLAN.md`.
 
 ## Why
@@ -73,3 +73,23 @@ Fully planar share: now 37%, unconstrained best 50% (the study's figure), legal 
   (state in `~/kae-baselines/experiments/bus-pose-ab/STATE-2026-11-20.md`). At board level: no effect on opens, errors or clean share. A final pass after
   legalization cannot reach the prize, because legality and decoupling physics block most turns. If anything helps, it is seed-time poses, which the
   bus-alone result (escape and pin access) suggests pairing with escape-facing approach direction. Nothing becomes a default.
+
+## Final verdict (2026-11-20, pre-registered primary measured): negative, stays off
+Busmetrics (174 jobs ok; `analyze.py report bus-pose-ab`, 19,650 bus-run records, 140 boards, paired per board over seeds, sign-flip):
+
+| arm | bus open lines (log1p diff, p) | vias per bus line (log diff, p) | layers needed (diff, p) | foreign crossings per line (log1p diff, p) |
+|---|---|---|---|---|
+| final-planar | +0.029 (0.19) | -0.008 (0.61) | -0.18 (0.0004) | +0.067 (0.002) |
+| final-length | +0.023 (0.35) | +0.008 (0.63) | -0.05 (0.35) | +0.036 (0.05) |
+| seed-final | +0.007 (0.89) | +0.004 (0.85) | -0.13 (0.025) | +0.058 (0.04) |
+
+- Manipulation check: passed for final-planar and seed-final (layers needed down, planar share 0.274 -> 0.286 / 0.285), failed for final-length.
+- No arm meets the rule (a 10% fall in vias per bus line or open bus lines at p < 0.05). Open bus-line rate: control 0.485,
+  arms 0.483-0.490; human 0.115. Turns raise foreign crossings per line, the campaign's best single predictor, which may cancel what
+  planarity gains. Escape facing does not improve (seed-final -0.014, p 0.02, worse).
+- Scorecard (kaeres bus, evaluator 0ff1f9452b8d): lanes open about 59-64% in every class in every arm (human 5-20%). Vias per lane are
+  equal across arms. Skew is within noise (ddr_byte 7.6-8.1 mm, human 4.3). DDR byte skew in seed-final shifts from chord (0.25 of the
+  variance) to fan (0.44), on 33 complete buses only.
+- B3: kae's bus lines are open 4x as often as the human's (0.485 vs 0.115). Foreign crossings per line are 12.6 vs 8.4, layers needed 3.57
+  vs 3.21, length about the same. The gap is completion (escape and pin access, as the bus-alone result says), not rotation.
+Verdict: rotation of bus ends from pin tables, as a final pass or at the seed, does not lower open bus lines or vias. It stays off.
