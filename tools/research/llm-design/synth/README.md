@@ -194,6 +194,9 @@ converter output and the pack it charges) belongs to one root: model the worst c
 | `protect.threat`, `protect.entry_fuse` | error/warn | external wires without the protector their threat needs |
 | `calc.limit`, `hazard.*`, `intent.blocking_question`, `place.*` | error/warn/info | design calculations, hazard mitigations, open questions, relation sanity |
 | `kicad.erc.*`, `kicad.netlist_roundtrip`, `kicad.dru_parse` | error/warn | the emitted files, as KiCad reads them |
+| `rules.pin_escape`, `rules.pad_gap` | error | a pad no minimum-width track can leave past its neighbours under the generated clearances; pads of one footprint closer than their nets allow (`haslamsynth/layout.py`; necessary, not sufficient: corners and centre pads are not modelled) |
+| `layout.density`, `layout.fab_minimums` | warn/info | courtyard area vs board area (warn above 40 % on 2 layers); board min track/clearance from the finest pitch when `BoardSpec` leaves them unset (0.127/0.15 mm at <= 0.65 mm pitch) |
+| `haslam_intent.invalid` | error | the `<slug>.haslam_intent.json` haslam's own loader rejects, or names that are not in the design |
 
 ## Known limits
 
