@@ -5,7 +5,8 @@
 #   A0  default haslam place-and-route (restart.py completion-first, main's merit recipe), no intent file
 #   A1  the same with <board>.haslam_intent.json beside the input (the brief applies its facts)
 #   B1  haslam place (facts) -> haslam.em.pnr --lock (physics router, the board's intent) -> Freerouting bridge
-# Every output is then scored the same way by eval_ab.sh (DRC + haslam.excite under one intent file).
+# Every output is then scored the same way, in the same job, by eval_ab.sh (DRC + haslam.excite under one intent
+# file RUNDIR/eval-intent.json); EVAL=0 skips it.
 # Usage (from the repo root, through haslamq): run_ab.sh ARM SEED RUNDIR
 #   RUNDIR/ARM/sSEED/in holds the input board and project files; the output goes to .../out.
 set -euo pipefail
@@ -45,3 +46,9 @@ case $ARM in
   *) echo "unknown arm $ARM" >&2; exit 2 ;;
 esac
 ls -l "$OUT"
+# physics at once, in this job (no second queue wait): DRC with parity, haslam.excite under the run's one
+# intent file, the intent's status (eval_ab.sh). EVAL=0 skips it.
+if [ "${EVAL:-1}" = 1 ] && [ -f "$OUT" ]; then
+  cd "$REPO" && bash tools/research/llm-design/designs/solar-small/eval_ab.sh "$ARM" "$SEED" "$RUN" > "$D/eval.log" 2>&1 \
+    || echo "eval failed: see $D/eval.log" >&2
+fi
