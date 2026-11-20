@@ -18,8 +18,9 @@ Stages:
 4. Anneal (kae.place.anneal): physics + routability + legality ramp + displacement, plus
    the protection-order rules of protected connector chains (physics arm). The physics is
    the place terms with utilization priced linearly and saturated beyond 3x budget
-   (SA_U_SAT); the report's scorecard is the terms' own (linear sum and the official total
-   with the over-budget barrier).
+   (SA_U_SAT), or with the place_phys_hinge setting by the satisficing hinge (nothing below a
+   threshold of the budget; kae.physics.priors.hinge); the report's scorecard is the terms'
+   own (linear sum and the official total with the over-budget barrier).
 5. Legalize (kae.place.legalize): windowed CP-SAT, then the exact polygon check. The
    annealed result is kept only if it is grid-legal after legalization and does not cost
    more than the legal seed; otherwise the seed is returned.
@@ -238,6 +239,33 @@ def hot_loop_hazards(rows):
                         fix="place the input capacitor beside the switch and its ground pin, same side, with the "
                             "return on the adjacent plane" + ("" if known else "; or state the switch's V_max")))
     return out
+
+
+def phys_hinge(board_path=None, opts=None):
+    """The place_phys_hinge setting as (theta, beta), or None when off (negative, the default)."""
+    from kae.physics.priors import check_hinge
+    from kae.route.constraints import setting
+    theta = float(setting("place_phys_hinge", board_path, opts))
+    if theta < 0:
+        return None
+    try:
+        return check_hinge(theta, setting("place_phys_hinge_beta", board_path, opts), SA_U_SAT)
+    except ValueError as e:
+        raise ValueError(f"place_phys_hinge: {e}") from None
+
+
+def set_phys_hinge(terms, hinge, log=None):
+    """Switch `terms` to the satisficing price `hinge` = (theta, beta) for an annealer; the caller
+    switches back with terms.set_hinge(None). Returns the report entry, or None when off, without
+    terms, or with terms that have no hinge (the stub)."""
+    if hinge is None or terms is None:
+        return None
+    if not hasattr(terms, "set_hinge"):
+        if log:
+            log(f"place_phys_hinge: {type(terms).__name__} has no hinge; priced linearly")
+        return None
+    terms.set_hinge(*hinge)
+    return dict(theta=hinge[0], beta=hinge[1])
 
 
 def physics_summary(terms, poses, breakdown=True):
@@ -704,6 +732,10 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             log(f"place terms failed ({type(e).__name__}: {e})")
             report_terms, tsrc = None, "none"
     stage("terms", t)
+    # place_phys_hinge (kae.route.constraints.DEFAULTS): the annealer's satisficing price of a
+    # structure, None when off. Macro layouts are still ranked and refined on the raw utilization
+    # (build_macros below runs before the switch), and the report's scorecard is the raw one
+    hinge = phys_hinge(board_path, opts)
     if physics:
         t = clock_now()
         terms = report_terms
@@ -895,6 +927,9 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             kw.setdefault("w_zone", 1.0)
             kw["zones"] = zone_tab
             rep["zone_term"] = dict(zone_tab.info, w_zone=kw["w_zone"])
+        hinged = set_phys_hinge(terms, hinge, log) if float(kw.get("w_phys") or 0.0) > 0 else None
+        if hinged:
+            rep["phys_hinge"] = hinged
         ann = make_annealer(P, st.copy(), terms=terms, macros=[m for m in macros if not m.anchored], seed=seed,
                             log=log, **kw)
         if anneal_args:
@@ -927,6 +962,8 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
                 rep["anneal_kept_seed"] = True
         elif not seed_legal:
             final = cand
+        if hinged:
+            terms.set_hinge(None)      # every later reader (scorecards, order and silk passes) prices the raw u
     st = final
     viol = grid_violations(st)
     if viol:

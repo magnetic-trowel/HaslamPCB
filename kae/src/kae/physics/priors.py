@@ -68,6 +68,10 @@ class Knobs:
     #                               via: 0.15, as the mountings); 0.3 reads 17-27 % low at 2-10 mm. Its reason is
     #                               not recorded; A/B with 0.15 pending (decide note PP7)
     jit: str = 'auto'             # 'auto' (numba when installed), 'on', 'off' (pure Python)
+    hinge: object = None          # None: phi(u). A threshold theta in [0, 1]: the satisficing price hinge(u, theta,
+    #                               hinge_beta, u_sat): nothing below theta (Terms.set_hinge; the placer's
+    #                               place_phys_hinge setting)
+    hinge_beta: float = 4.0       # the hinge's quadratic penalty above budget (the scorecard's barrier)
 
     def detour(self, kind):
         """c of a structure kind's expected hop detour 1 + c sqrt(l) (see HOP_DETOUR)."""
@@ -92,6 +96,33 @@ def phi(u, barrier=4.0, u_sat=10.0):
     ps = u_sat + barrier * (u_sat - 1.0) ** 2
     dps = 1.0 + 2.0 * barrier * (u_sat - 1.0)
     return ps + dps * u_sat * math.log(u / u_sat)
+
+
+def hinge(u, theta, beta=4.0, u_sat=10.0):
+    """The satisficing price of a utilisation: a structure that meets its requirement with margin
+    costs nothing, so more margin earns nothing. 0 up to theta; linear from 0 at theta to 1 at budget
+    (u = 1); above budget the same slope plus beta (u - 1)^2; beyond u_sat a logarithmic tail with
+    matched value and slope, as phi. theta = 1 has no ramp below budget: above it the price is
+    (u - 1) + beta (u - 1)^2 (unit slope, the limit of the ramp's slope does not exist). theta = 0 is
+    phi(u, beta, u_sat). Continuous and non-decreasing in u for every theta in [0, 1]."""
+    if u <= theta:
+        return 0.0
+    s = 1.0 / (1.0 - theta) if theta < 1.0 else 1.0
+    if u <= 1.0:
+        return (u - theta) * s
+    if u <= u_sat:
+        return (u - theta) * s + beta * (u - 1.0) ** 2
+    ps = (u_sat - theta) * s + beta * (u_sat - 1.0) ** 2
+    dps = s + 2.0 * beta * (u_sat - 1.0)
+    return ps + dps * u_sat * math.log(u / u_sat)
+
+
+def check_hinge(theta, beta=4.0, u_sat=10.0):
+    """(theta, beta) as floats, or ValueError: theta in [0, 1], beta >= 0, u_sat > 1."""
+    theta, beta = float(theta), float(beta)
+    if not (0.0 <= theta <= 1.0) or not beta >= 0.0 or not float(u_sat) > 1.0:
+        raise ValueError(f"hinge: theta {theta:g} must be in [0, 1], beta {beta:g} >= 0, u_sat {u_sat:g} > 1")
+    return theta, beta
 
 
 # ----------------------------------------------------------------------------- (a) hot loops

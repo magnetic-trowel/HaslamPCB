@@ -13,7 +13,8 @@ budget (Contract 3 of docs/topics/architecture/month-plan.md).
 One currency: each structure reports spend / allocation (utilisation u); the objective is
 sum_s c_s phi(u_s) with c_s the brief's confidence and phi(u) = u + beta max(0, u-1)^2 up to
 u_sat = 10, logarithmic beyond
-(knobs in priors.Knobs). Allocations come from the brief's budgets or, when absent, from
+(knobs in priors.Knobs; `set_hinge` swaps phi for the satisficing priors.hinge, which charges
+nothing below a threshold of the budget). Allocations come from the brief's budgets or, when absent, from
 the E5 priors in kae.physics.priors. Terms:
 
   commutation  (a) hot-loop inductance (nH) vs the overshoot budget
@@ -358,7 +359,7 @@ class Terms:
                 out.append(dict(id=f'thermal:{self.bv.parts[i].ref}', kind='thermal', confidence=self._th_conf[t],
                                 members=[self.bv.parts[i].ref], uuids=[self.uids[i]], value=loc, unit='K',
                                 alloc=a.to_json(), util=loc / a.value,
-                                cost=self._th_conf[t] * PR.phi(loc / a.value, self.knobs.barrier, self.knobs.u_sat),
+                                cost=self._th_conf[t] * self._price(loc / a.value),
                                 components=[], info=dict(role='source' if t < len(th.src) else 'victim',
                                                          rise_K=float(T[t]), board_mean_K=th.T_mean,
                                                          P_W=float(th.P[t]) if t < len(th.src) else None)))
@@ -405,8 +406,28 @@ class Terms:
 
     def _cost(self, s, v):
         u = v / s.alloc.value if s.alloc.value > 0 else 0.0
-        c = s.conf if self.knobs.use_confidence else 1.0
-        return c * PR.phi(u, self.knobs.barrier, self.knobs.u_sat)
+        kn = self.knobs
+        c = s.conf if kn.use_confidence else 1.0
+        if kn.hinge is None:
+            return c * PR.phi(u, kn.barrier, kn.u_sat)
+        return c * PR.hinge(u, kn.hinge, kn.hinge_beta, kn.u_sat)
+
+    def set_hinge(self, theta, beta=None):
+        """Switch the price of every structure and thermal target between phi(u) (theta None: the
+        knobs' barrier and u_sat) and the satisficing hinge (priors.hinge: 0 below theta, 1 at
+        budget, beta (u - 1)^2 more above it; beta None keeps the knobs' hinge_beta). Values and
+        utilisations are untouched (breakdown's `util` is the raw u either way); cached costs are
+        re-priced on their next read."""
+        import dataclasses
+        if theta is None:
+            self.knobs = dataclasses.replace(self.knobs, hinge=None)
+        else:
+            kn = self.knobs
+            theta, beta = PR.check_hinge(theta, kn.hinge_beta if beta is None else beta, kn.u_sat)
+            self.knobs = dataclasses.replace(kn, hinge=theta, hinge_beta=beta)
+        self._sdirty = [True] * len(self.structs)
+        if self.thermal is not None and self._th_T is not None:
+            self._th_c = self._th_cost(self._th_T)
 
     def _sync(self, j, poses):
         p = poses.get(self.uids[j])
@@ -527,8 +548,19 @@ class Terms:
             self._th_a = np.array([a.value for a in self._th_alloc], float)
             self._th_cf = np.array(self._th_conf, float)
             self._th_ti = {i: t for t, i in enumerate(th.targets)}
+        if self.knobs.hinge is not None:
+            # a handful of targets: plain Python (the compiled kernel prices phi only)
+            m = th.T_mean
+            return float(sum(cf * self._price(max(float(Tt) - m, 0.0) / a)
+                             for Tt, a, cf in zip(T, self._th_a, self._th_cf)))
         return float((self.kern or PY).phi_sum(np.ascontiguousarray(T, float), th.T_mean, self._th_a, self._th_cf,
                                                self.knobs.barrier, self.knobs.u_sat))
+
+    def _price(self, u):
+        kn = self.knobs
+        if kn.hinge is None:
+            return PR.phi(u, kn.barrier, kn.u_sat)
+        return PR.hinge(u, kn.hinge, kn.hinge_beta, kn.u_sat)
 
     def _th_delta(self, poses, mv):
         th = self.thermal

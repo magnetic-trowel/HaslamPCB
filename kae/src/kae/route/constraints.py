@@ -219,6 +219,14 @@ DEFAULTS = dict(
                                    # negative = auto (Problem.auto_margin: 2 x (0.7 - utilization), 0..1 mm).
                                    # 0: placement-decide-staged found auto and 0 equal (cp1 0.305 both,
                                    # completion 0.942 / 0.941), so the formula with no source is dropped
+    place_phys_hinge=-1.0,         # placement: the annealer's price of a physics structure (kae.physics.priors).
+                                   # Negative (default): linear in utilization u = value / budget from 0 (log tail
+                                   # beyond 3), so margin below budget is rewarded for ever. A threshold theta in
+                                   # [0, 1]: the satisficing hinge, 0 up to theta, linear to 1 at budget, plus
+                                   # place_phys_hinge_beta x (u - 1)^2 above it (theta 1: nothing below budget), so
+                                   # a structure that meets its requirement releases its parts for routability.
+                                   # Macro layouts are ranked on the raw u either way. Experiment place-satisfice
+    place_phys_hinge_beta=4.0,     # the hinge's quadratic penalty above budget (the scorecard's barrier)
     anchor_tight=1,                # placement: a big part with no spot free of the fixed geometry is fixed first (place.pipeline)
     connector_edge=2,              # placement: user-facing connectors kae places (kae.place.edge_check:
                                    # USB, barrel, audio, RJ/modular, video/D-sub; at or near 100 % on an

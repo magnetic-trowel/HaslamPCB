@@ -148,6 +148,12 @@ def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, term
         except Exception as e:
             log(f"place terms failed ({type(e).__name__}: {e})")
             terms = None
+        else:
+            # the placer's place_phys_hinge setting holds for the window's annealer too
+            from kae.place.pipeline import phys_hinge, set_phys_hinge
+            hinged = set_phys_hinge(terms, phys_hinge(board_path, opts), log)
+            if hinged:
+                rep["phys_hinge"] = hinged
     order = clusters.protection_order(P, brief) if physics else []
     hist_rep = dict(applied=False)
     hook = history_hook(P, history, scale=history_scale, window=window.rect, report=hist_rep)
