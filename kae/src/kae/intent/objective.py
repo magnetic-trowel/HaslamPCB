@@ -555,7 +555,8 @@ def _capped(ob):
     cap = ob.get("cap_V")
     if cap is None:
         m = re.search(r"exceeds (\d+)% of its ([0-9.eE+-]+) V rail", ob["implausible"])
-        cap = float(m.group(1)) / 100 * float(m.group(2)) if m else None
+        # the rail's magnitude: a negative rail ("-5 V rail") caps its noise at +2.5 V, never at a negative voltage
+        cap = float(m.group(1)) / 100 * abs(float(m.group(2))) if m else None
     if cap is None:
         return ob
     return dict(ob, values=[min(v, cap) for v in ob.get("values") or []], capped_at=cap)

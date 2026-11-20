@@ -39,3 +39,13 @@ def test_a_negative_rail_bounds_its_noise_by_its_magnitude(volts):
     ob = O.observation(_board(volts), o, src, [3.0], [3.0 / o.bound])
     assert ob["implausible"] and ob["cap_V"] == pytest.approx(2.5)
     assert OBJ._capped(ob)["values"] == [pytest.approx(2.5)]
+
+
+@pytest.mark.parametrize("volts", ["5", "-5"])
+def test_an_evaluation_without_cap_v_caps_a_negative_rail_at_its_magnitude(volts):
+    # an evaluation from before the cap_V field: kae.intent reads the cap from the reason's text
+    ob = dict(id="supply.peak", values=[0.6, 3.0],
+              implausible=f"3 V of copper noise on M5V exceeds 50% of its {volts} V rail: beyond first-order pricing")
+    c = OBJ._capped(ob)
+    assert c["capped_at"] == pytest.approx(2.5)
+    assert c["values"] == [pytest.approx(0.6), pytest.approx(2.5)]
