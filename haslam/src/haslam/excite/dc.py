@@ -39,8 +39,12 @@ Observers (requirements: the intent file's, else these priors):
              LOSS_SHARE of the power the loads take
     drop     per load, rail plus ground drop from its rail's source (rail-side minus load-side, plus
              load ground minus source ground, at least 0) against DROP_SHARE of the rail voltage
-    heating  per track, the temperature rise by IPC-2221 (conservative against IPC-2152) of the
-             current through its cross-section, against DT_MAX
+    heating  per track, the temperature rise by IPC-2221 of the current through its cross-section,
+             against DT_MAX. IPC-2221 is not the conservative formula for wide outer tracks: the
+             Brooks-Adam fit of IPC-2152 (ipc2152_dT; no plane under the track) reads hotter wherever
+             a 10 K track on 35 um is wider than 0.41 mm (above 1.25 A; 1.5-1.9x on 3 mm at 5-10 A)
+             and cooler below; inner layers use IPC-2221's internal curve, which the fit does not
+             cover (docs/research/physics/anchors-2611.md, check 3)
 """
 from __future__ import annotations
 
@@ -120,6 +124,15 @@ def ipc_dT(I, w_mm, t_mm, external=True):
     if I <= 0 or A <= 0:
         return 0.0
     return (I / (K_IPC[bool(external)] * A ** 0.725)) ** (1 / 0.44)
+
+
+def ipc2152_dT(I, w_mm, t_mm):
+    """Temperature rise (K) of an outer track of width w and thickness t carrying I by the Brooks-Adam fit
+    of IPC-2152's external chart, dT = 215.3 I^2 W^-1.15 Th^-1 (mils; no plane under the track):
+    haslam.route.critical_physics.ipc2152_dT, the one definition. The heating observer reports IPC-2221
+    (ipc_dT); this is the second opinion beside it (docs/research/physics/anchors-2611.md, check 3)."""
+    from haslam.route.critical_physics import ipc2152_dT as fit
+    return fit(abs(I), w_mm, t_mm)
 
 
 class Plan:

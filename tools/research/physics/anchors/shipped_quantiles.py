@@ -345,18 +345,20 @@ def cmd_report(a):
                 continue
             row = (r.get('repo') or r['id'], r['id'], float(c['util']))
             by_term[c['kind']][r['group']].append(row)
-            alloc[c['kind']].append((float(c['alloc']), float(c['value']), c.get('unit')))
+            alloc[(c['kind'], r['group'])].append((float(c['alloc']), float(c['value']), c.get('unit')))
             if c.get('credible'):
                 cred[c['kind']][r['group']].append(row)
     print('boards by (group, status):', dict(n))
     res = dict(all=print_table('\n== data set B, place terms at the human placement: all valued structures', by_term),
                credible=print_table('\n== data set B, credible structures only (hops within 15 mm)', cred))
-    print('\nshipped spend per term (all boards of the sample): median, p90 (the "practice quantile"), allocation median')
+    print('\nshipped spend per term and group: median, p90 (the "practice quantile"), median allocation')
     for t in TERMS:
-        if alloc[t]:
-            v = np.array([x[1] for x in alloc[t]])
-            al = np.array([x[0] for x in alloc[t]])
-            print(f'  {t}: spend median {np.median(v):.3g}, p90 {np.percentile(v, 90):.3g} {alloc[t][0][2]}; allocation median {np.median(al):.3g}')
+        for g in ('vendor', 'rest'):
+            if alloc[(t, g)]:
+                v = np.array([x[1] for x in alloc[(t, g)]])
+                al = np.array([x[0] for x in alloc[(t, g)]])
+                print(f'  {t} {g}: spend median {np.median(v):.3g}, p90 {np.percentile(v, 90):.3g} {alloc[(t, g)][0][2]};'
+                      f' allocation median {np.median(al):.3g}')
     if a.json:
         with open(a.json, 'w') as f:
             json.dump(res, f, indent=1)

@@ -33,7 +33,7 @@ from haslam.physics import priors as PR
 from haslam.physics.boardview import body_z
 
 from .critical_grid import Anchor
-from .critical_physics import INF, Loop, dielectric_er, heat_hazard, ipc2221_width, trace_capacitance_pf
+from .critical_physics import INF, Loop, dielectric_er, heat_hazard, trace_capacitance_pf, track_width
 from haslam.physics.kernels import lprime_hj
 
 
@@ -659,7 +659,7 @@ def route_cell(ctx, m):
         d = math.hypot(ux, uy) or 1.0
         ux, uy = ux / d, uy / d
         a = min(extent_across(ta.geom, ux, uy), extent_across(tb.geom, ux, uy))
-        w_ipc = ipc2221_width(I, dT=dT_max(ctx, net), t_mm=ctx.sp.tcu.get(L0, 0.035))
+        w_ipc = track_width(I, dT=dT_max(ctx, net), t_mm=ctx.sp.tcu.get(L0, 0.035))
         mn, opt, mx = ctx.sp.width_limits(net, L0)
         cap = max(a, float(ctx.opts.get("rail_max_mm", 3.0)))
         w_cur = min(w_ipc, cap)             # 100 A of FETs: pours, not tracks
@@ -721,7 +721,7 @@ def route_cell(ctx, m):
             ok += 1
             t_min = min((ctx.sp.tcu.get(l_, 0.035) for l_, _, _ in rt.segs), default=t_l0)
             hz = heat_hazard("copper_below_ipc_width", I, rt.width, t_min, dT_max(ctx, net), [net], where=where,
-                             w_ipc=ipc2221_width(I, dT=dT_max(ctx, net), t_mm=t_min))
+                             w_ipc=track_width(I, dT=dT_max(ctx, net), t_mm=t_min))
         else:
             m.notes.append(f"hop {k} ({net}): no room at its IPC-2221 width {floor:.2f} mm for {I:.2f} A; "
                            f"left to the bridge")
@@ -1799,7 +1799,7 @@ def route_chain(ctx, m):
         ws = [opt, mn]
         if power:
             I = float((getattr(ctx, "rail_I", None) or {}).get(ta.net) or ctx.opts.get("chain_power_a", 1.0))
-            w = max(ipc2221_width(I, dT=dT_max(ctx, ta.net), t_mm=ctx.sp.tcu.get(l0, 0.035)), opt)
+            w = max(track_width(I, dT=dT_max(ctx, ta.net), t_mm=ctx.sp.tcu.get(l0, 0.035)), opt)
             ws = sorted({w, max(opt, min(w, min(ta.width, tb.width))), opt, mn}, reverse=True)
         tgt = [anchor(tb)] + (ctx.net_copper_anchors(ta.net, connected_to=tb) if k == len(T) - 2 else [])
         rt = None

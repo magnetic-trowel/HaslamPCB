@@ -56,7 +56,7 @@ from haslam.circuit.names import SUPPLY_PIN
 
 from .critical_grid import Anchor
 from .critical_modules import Module, _commit_vias, anchor, dT_max, hop_layers, route_hop, via_candidates, width_ladder
-from .critical_physics import (T_PLATE, drop_width, heat_hazard, ipc2221_width, r_track, r_via, via_hazard,
+from .critical_physics import (T_PLATE, drop_width, heat_hazard, r_track, r_via, track_width, via_hazard,
                                vias_needed)
 
 DROP_SHARE = 0.02          # rail + ground drop budget, fraction of the rail voltage (E5); opts drop_share
@@ -446,7 +446,7 @@ def _route_rail(ctx, rl, mode, gnd_pour):
     lmax = _dist_part(ctx, far, rl["parts"][far], (st.x, st.y)) * 1.3
     layer = ctx.side_layer(src)
     t_cu = ctx.sp.tcu.get(layer, 0.035)
-    w_need = max(ipc2221_width(design, dT=dT_max(ctx, net), t_mm=t_cu), drop_width(design, lmax, dv_rail, t_cu))
+    w_need = max(track_width(design, dT=dT_max(ctx, net), t_mm=t_cu), drop_width(design, lmax, dv_rail, t_cu))
     mn, opt, mx = ctx.sp.width_limits(net, layer)
     rep["width_needed_mm"] = round(w_need, 3)
     if mode == "auto" and w_need <= 1.2 * opt:
@@ -497,7 +497,7 @@ def _route_rail(ctx, rl, mode, gnd_pour):
         dist = math.hypot(lt.x - st.x, lt.y - st.y)
         lay = ctx.side_layer(u)
         t_cu = ctx.sp.tcu.get(lay, 0.035)
-        w_ipc = ipc2221_width(cur, dT=dT_max(ctx, net), t_mm=t_cu)
+        w_ipc = track_width(cur, dT=dT_max(ctx, net), t_mm=t_cu)
         w_drop = drop_width(cur, 1.3 * dist, dv_rail, t_cu)
         w_feed = min(st.width, lt.width) if cur >= 0.25 else 0.0
         widths, floor = _branch_widths(ctx, m, f"br:{u}", b, cur, w_ipc, w_drop, w_feed, opt)
@@ -527,7 +527,7 @@ def _route_rail(ctx, rl, mode, gnd_pour):
                      drop_mV=round(1e3 * R * cur, 2))
             t_min = min((ctx.sp.tcu.get(l_, 0.035) for l_, _, _ in rt.segs), default=t_cu)
             _heat_check(ctx, rep, "copper_below_ipc_width", cur, rt.width, t_min, net, nom, where,
-                        ipc2221_width(cur, dT=dT_max(ctx, net), t_mm=t_min))
+                        track_width(cur, dT=dT_max(ctx, net), t_mm=t_min))
             if rt.vias:
                 _via_check(ctx, rep, net, cur, nom, 1, _vias_for(ctx, net, cur), where + " (layer change)")
         rep["branches"].append(b)
@@ -716,7 +716,7 @@ def _ground_return(ctx, m, rl, dv):
         mn, opt, mx = ctx.sp.width_limits(g, lay)
         dist = math.hypot(lt.x - st.x, lt.y - st.y)
         b = dict(load=f.ref, current_A=round(cur, 3))
-        widths, floor = _branch_widths(ctx, m, f"gr:{u}", b, cur, ipc2221_width(cur, dT=dT_max(ctx, g), t_mm=t_cu),
+        widths, floor = _branch_widths(ctx, m, f"gr:{u}", b, cur, track_width(cur, dT=dT_max(ctx, g), t_mm=t_cu),
                                        drop_width(cur, 1.3 * dist, dv, t_cu),
                                        min(st.width, lt.width) if cur >= 0.25 else 0.0, opt)
         srcs = [anchor(st)] + ctx.net_copper_anchors(g, connected_to=st)
@@ -823,7 +823,7 @@ def _route_ground(ctx, g, ground_load, rails, mode, ground_nom=None):
             lay = ctx.side_layer(u)
             mn, opt, mx = ctx.sp.width_limits(g, lay)
             # never below IPC-2221 for its current (the class width only when that is wider)
-            w_t = max(ipc2221_width(a, dT=dT_max(ctx, g), t_mm=ctx.sp.tcu.get(lay, 0.035)), opt)
+            w_t = max(track_width(a, dT=dT_max(ctx, g), t_mm=ctx.sp.tcu.get(lay, 0.035)), opt)
             srcs = [anchor(st)] + ctx.net_copper_anchors(g)
             rt = route_hop(ctx, m, f"gr:{u}", g, [anchor(lt)], srcs, [w_t],
                            [ctx.sp.cu[0], ctx.sp.cu[-1]], via=True, via_cost=5.0)

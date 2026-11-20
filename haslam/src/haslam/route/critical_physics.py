@@ -27,7 +27,8 @@ class 2). Widths from current use IPC-2221 (external k = 0.048, internal 0.024, 
 thermal proxy (docs/topics/rules/power/high-current.md); the drop budget sets the rest.
 
 Heat: `track_dT` gives a track's rise by IPC-2221 and by IPC-2152 (the Brooks-Adam fit KiCad's
-calculator uses; no plane, the conservative case), `via_current` the current one via carries
+calculator uses; no plane, the conservative case); `track_width` sizes a track by the formula
+HASLAM_TRACK_HEAT names (IPC-2221 by default); `via_current` the current one via carries
 and `vias_needed` how many a current needs (see there); `heat_hazard` turns copper narrower
 than its current asks into a hazard for the report.
 """
@@ -82,9 +83,45 @@ def ipc2152_dT(current_a, width_mm, t_mm=0.035):
     return 215.3 * current_a ** 2 * (width_mm / 0.0254) ** -1.15 * (t_mm / 0.0254) ** -1.0
 
 
+def ipc2152_width(current_a, dT=10.0, t_mm=0.035):
+    """Outer track width (mm) for a current at a temperature rise by the Brooks-Adam fit (the inverse of
+    ipc2152_dT): 4.6 mm at 5 A and 15 mm at 10 A (10 K, 35 um; high-current.md)."""
+    if current_a <= 0:
+        return 0.0
+    return (215.3 * current_a ** 2 / (dT * (t_mm / 0.0254))) ** (1.0 / 1.15) * 0.0254
+
+
 def track_dT(current_a, width_mm, t_mm=0.035):
     """(IPC-2221 rise, IPC-2152 rise) in K of an outer track."""
     return ipc2221_dT(current_a, width_mm, t_mm), ipc2152_dT(current_a, width_mm, t_mm)
+
+
+HEAT_LAWS = ("ipc2221", "ipc2152", "hotter")
+
+
+def heat_law():
+    """The formula that sizes tracks for their current: HASLAM_TRACK_HEAT = 'ipc2221' (default: the methods as
+    they were), 'ipc2152' (the Brooks-Adam fit on outer layers) or 'hotter' (the wider of the two on outer
+    layers). Inner layers keep IPC-2221's internal curve under every setting: the fit is of IPC-2152's
+    external chart. At 10 K on 35 um the two widths are equal at 1.25 A (0.41 mm); above it IPC-2152 asks
+    for the wider track (1.65x at 5 A, 2.11x at 10 A), below it the narrower (0.72x at 0.5 A)
+    (docs/research/physics/anchors-2611.md, check 3). The hazards report both rises under every setting."""
+    import os
+    v = os.environ.get("HASLAM_TRACK_HEAT", "ipc2221").strip().lower() or "ipc2221"
+    if v not in HEAT_LAWS:
+        raise ValueError(f"HASLAM_TRACK_HEAT={v!r}: one of {', '.join(HEAT_LAWS)}")
+    return v
+
+
+def track_width(current_a, dT=10.0, t_mm=0.035, internal=False, law=None):
+    """Track width (mm) for a current at a temperature rise by the sizing formula in force (`law`, else
+    heat_law()): ipc2221_width by default."""
+    law = law or heat_law()
+    w21 = ipc2221_width(current_a, dT, t_mm, internal=internal)
+    if internal or law == "ipc2221":
+        return w21
+    w52 = ipc2152_width(current_a, dT, t_mm)
+    return w52 if law == "ipc2152" else max(w21, w52)
 
 
 def via_current(drill, plating=T_PLATE, dT=10.0):
