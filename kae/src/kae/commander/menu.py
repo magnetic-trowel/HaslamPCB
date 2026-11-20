@@ -217,14 +217,17 @@ class _Ctx:
 # bridge.DEFAULT_OPTS (joint: bridge.KEY), plus the escape keys escape.py reads from the same opts:
 BRIDGE_KEYS = ("neckdown", "pad_shapes", "planes", "plane_cost", "rounds", "thermal_repair")
 BRIDGE_OPT_KEYS = ("escape_via_in_pad", "escape_plane_layers")
-# kae.route.constraints.DEFAULTS (joint: the key itself; route: --set; place: KAE_<KEY> text variable)
+# kae.route.constraints.DEFAULTS (route: --set; place: KAE_<KEY> text variable). In joint, the
+# placer reads the bare key (PLACE_KEYS) and the bridge only bridge.KEY (joint/stages.py), so a
+# routing limit such as ignored_clearance_floor goes to joint as bridge.KEY.
 CONSTRAINT_KEYS = ("ignored_clearance_floor", "place_margin", "place_w_cong", "escape_band")
+PLACE_KEYS = ("place_margin", "place_w_cong", "escape_band")
 
 
 def _joint_key(k):
-    """A route --set key as joint --set reads it: bridge.KEY for the bridge's options; the
-    constraints' defaults (the diagnosis' overrides are those) as they are."""
-    return "bridge." + k if k in BRIDGE_KEYS + BRIDGE_OPT_KEYS else k
+    """A route --set key as joint --set reads it: the placer's keys bare, every other one (the
+    bridge's options and the routing limits the diagnosis names) as bridge.KEY."""
+    return k if k in PLACE_KEYS else "bridge." + k
 
 
 def _set(kv, effect="full", route=True):
@@ -596,7 +599,8 @@ def r_pin_swap(ctx):
 def r_more_effort(ctx):
     timed = any(s == "time" for s in ctx.stops)
     f = EFFORT_PRIOR_TIME if timed else EFFORT_PRIOR_OTHER
-    total = sum(c["_w"] for c in ctx.conns) or (sum(ctx.totals) / max(ctx.N, 1))
+    # all opens: the DRC's count (mean over the reports), or the diagnosed ones if more
+    total = max(sum(c["_w"] for c in ctx.conns), sum(ctx.totals) / max(ctx.N, 1))
     knob = _set("rounds=auto")
     knob["note"] = "or resume / restart from the best board (a new seed)"
     it = _item(ctx, "more_effort", "more search (restart or resume)", "S13->S13", [], knob, _price(),

@@ -39,15 +39,17 @@ boards with opens but no diagnosis in the report (blocked null): 22
 diagnosed connections no specific item addresses (unactionable): 195/832 = 0.234; by cause {'geometry': 126, 'congestion': 69}
 connections the diagnosis skipped (undiagnosed, its max_conns/deadline): 1182
 share of all DRC opens with a specific item: 0.127 (637/5032); the rest have only more_effort
-top-ranked menu item: {'more_effort': 46, 'neckdown': 23, 'placement_room': 12, 'move_part': 2, 'planes_allow': 1}
-top-ranked menu item other than more_effort: {'(only more_effort)': 46, 'neckdown': 23, 'placement_room': 12, 'move_part': 2, 'planes_allow': 1}
+top-ranked menu item: {'more_effort': 47, 'neckdown': 23, 'placement_room': 11, 'move_part': 2, 'planes_allow': 1}
+best menu item other than more_effort (none = no other item): {'none': 46, 'neckdown': 23, 'placement_room': 12, 'move_part': 2, 'planes_allow': 1}
 top-ranked ask item: {'pin_swap': 63, 'rule_relax': 18, 'grow_outline': 2, 'release_fixed_copper': 1}
 boards with >= 2 stored runs (menu over ALL stored runs of the board, any method, N = runs): 84
-  top item: {'neckdown': 26, 'placement_room': 23, 'more_effort': 21, 'move_part': 13, 'planes_allow': 1}
+  top item: {'more_effort': 28, 'neckdown': 22, 'placement_room': 21, 'move_part': 13}
   connections open in every run: 188 of 2669 distinct; boards with a part open in every run: 26
-seconds 13.1
+seconds 5.4
 ```
 Headline: only 31 % of stored reports carry a diagnosis (593/2423) and the diagnosis stops at 60 connections per
 board, so 87 % of DRC opens get no specific item (only more_effort). Among diagnosed connections, 77 % map to an
 item; the 23 % left are mostly `geometry` (walled in by no-net copper or pads, where only an input edit helps).
 When a specific item tops, it is neckdown (congestion at big parts) or placement_room (congestion spread out).
+Across all stored runs of a board (84 boards, any method), only 188 of 2,669 distinct open connections recur in
+every run, but 26 boards have a part with an open in every run: part-level persistence is the stable signal.

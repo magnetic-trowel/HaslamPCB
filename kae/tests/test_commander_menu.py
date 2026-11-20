@@ -77,7 +77,7 @@ def test_each_cause_has_its_item():
         assert want in ids, want
     kd = next(it for it in doc["menu"] if it["id"] == "kae_default")
     assert kd["knob"]["route"] == ["--set", "ignored_clearance_floor=0.08"]
-    assert kd["knob"]["joint"] == ["--set", "ignored_clearance_floor=0.08"]
+    assert kd["knob"]["joint"] == ["--set", "bridge.ignored_clearance_floor=0.08"]
     nd = next(it for it in doc["menu"] if it["id"] == "neckdown")
     assert nd["knob"]["joint"] == ["--set", "bridge.neckdown=true"]
     assert "C: U1.7-R2.1" in nd["evidence"]["connections"]

@@ -42,7 +42,7 @@ When routing leaves opens, kae can only repair or re-seed. The menu lists the ea
 | more_effort | always | `rounds=auto`, resume, restart |
 
 - `more_effort` gain: opens × 0.3 after a time stop, else × 0.1 (priors, not measured).
-- Route takes `--set k=v`. Joint takes `bridge.k` for bridge options and the bare key for `kae.route.constraints.DEFAULTS`.
+- Route takes `--set k=v`. Joint takes the bare key for placement keys, else `bridge.k`.
 
 ## No knob today
 
@@ -57,4 +57,4 @@ When routing leaves opens, kae can only repair or re-seed. The menu lists the ea
 - 62 of 200 reports carry a diagnosis.
 - On the 84 boards with opens, 832 diagnosed connections stand against 5,032 DRC opens: the diagnosis stops at 60 per board.
 - 23 % of diagnosed connections have no specific item, mostly cause `geometry`.
-- Top item: `more_effort` 46, `neckdown` 23, `placement_room` 12. No item is A/B tested yet.
+- Top item: `more_effort` 47, `neckdown` 23, `placement_room` 11. No item is A/B tested yet.
