@@ -37,6 +37,7 @@ import time
 import numpy as np
 
 MEASURES = ["ovfK", "ovf0", "hpwl", "rudy", "crowd"]
+EDGE = ["ovfK_edge", "ovf0_edge"]   # model='edge' (true pad edge distances + body corners), when measured
 PRIMARY = "ovfK"
 BANDS = [(0, 150, "<=150"), (150, 400, "150-400"), (400, 1500, "400-1500"), (1500, 10 ** 9, ">1500")]
 REFERENCE = "RUDY 0.13, a 60 s route 0.53; decision line 0.3"
@@ -84,7 +85,7 @@ def stored_runs(root, experiment):
 
 def measure_board(item):
     """All stored placements of one board -> rows (one per placement); errors as rows with 'error'."""
-    board, runs, max_pads, seed = item
+    board, runs, max_pads, seed, edge = item
     from kae.board.kicad_file import load
     from kae.place import cutflow
     rows, rule = [], None
@@ -106,6 +107,10 @@ def measure_board(item):
                 m = cutflow.measure(bd, rule[0], rule[1], seed=seed)
                 if m is None:
                     continue
+                if edge:
+                    me = cutflow.measure(bd, rule[0], rule[1], seed=seed, model="edge")
+                    if me is not None:
+                        m.update(ovfK_edge=me["ovfK"], ovf0_edge=me["ovf0"])
                 row.update(m, rules=rule[2], secs=round(time.time() - t1, 2))
             except Exception as e:   # noqa: BLE001 - one bad board must not stop the sweep; recorded in the row
                 row["error"] = repr(e)[:200]
@@ -123,7 +128,7 @@ def run_measure(a):
     if os.path.exists(out):
         with open(out) as f:
             done = {json.loads(ln)["board"] for ln in f if ln.strip()}
-    todo = [(b, by[b], a.max_pads, a.seed) for b in boards if b not in done]
+    todo = [(b, by[b], a.max_pads, a.seed, not a.no_edge) for b in boards if b not in done]
     print(f"{len(boards)} boards with >= 4 placements and differing opens; {len(todo)} to measure", flush=True)
     t0 = time.time()
     with open(out, "a") as fo, cf.ProcessPoolExecutor(max_workers=a.jobs) as ex:
@@ -198,6 +203,12 @@ def summarize(boards, m, rng, nboot=2000):
 
 
 def analyse(path, seed=0):
+    global MEASURES
+    with open(path) as f:
+        rows = [json.loads(ln) for ln in f if ln.strip()]
+    ok = [r for r in rows if "error" not in r and "skipped" not in r]
+    if ok and all(m in r for r in ok for m in EDGE):
+        MEASURES = MEASURES[:1] + EDGE[:1] + MEASURES[1:2] + EDGE[1:] + MEASURES[2:]
     by = collections.defaultdict(list)
     errors = skipped = 0
     with open(path) as f:
@@ -290,6 +301,7 @@ def main(argv=None):
     ap.add_argument("--jobs", type=int, default=1)
     ap.add_argument("--max-pads", type=int, default=1500)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--no-edge", action="store_true", help="skip the 'edge' model variant")
     a = ap.parse_args(argv)
     if a.report:
         path = a.report

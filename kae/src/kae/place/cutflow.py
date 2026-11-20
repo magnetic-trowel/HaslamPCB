@@ -24,7 +24,12 @@ sum of max(0, demand - capacity) * (width + clearance) over cuts with an end on 
 same split by the part at the cut's other end. The numbers match the stage-0 prototype (cutrank.py of the
 2026-11 gap audit) for the same board, rules and seed.
 
-CLI: python -m kae.place.cutflow BOARD.kicad_pcb [--pressure OUT.json] [--json] [--seed S] [--rounds K]
+Models (`model=`): 'center' (above, the default and the prototype's) and 'edge': the gap is the true
+copper edge-to-edge distance of the end pads present on the layer (pads as rotated rectangles; an end not on
+the layer counts as its centre point), and the four corners of every part's courtyard (else body) rectangle are
+extra vertices owned by that part, so cuts follow part outlines as well as pads.
+
+CLI: python -m kae.place.cutflow BOARD.kicad_pcb [--pressure OUT.json] [--json] [--seed S] [--rounds K] [--model M]
 """
 from __future__ import annotations
 
@@ -59,7 +64,7 @@ class CutGraph:
     signal_layers: list
     V: np.ndarray            # (nv, 2) vertex positions; the first npad are pads, the rest outline samples
     npad: int
-    owner: list              # per pad vertex: footprint ref ('' for none)
+    owner: list              # per part vertex (pads, then body corners in model 'edge'): footprint ref
     nets: list               # per pad vertex: set of net names
     tri: np.ndarray          # (T, 3) triangles
     cut_ends: np.ndarray     # (ncut, 2) vertex indices (u < v)
@@ -76,6 +81,7 @@ class CutGraph:
     rudy: float
     crowd: float
     zone_nets: set = field(default_factory=set)
+    model: str = "center"
 
     @property
     def ntri(self):
@@ -101,8 +107,58 @@ def default_rules(board):
     return (clr or 0.2), (w or 0.2)
 
 
-def build(board, clearance=None, width=None):
-    """Triangulate a board (kae.board.kicad_file.load) and size its cuts. None when under 6 pads or no net to route."""
+def _pad_rect(fp, pd):
+    """A pad's copper as a rotated rectangle in board coordinates (the 'edge' model)."""
+    from shapely.geometry import Polygon
+    from kae.board.transform import cos_sin, side_sign
+    w, h = pd.size if pd.size else (0.6, 0.6)
+    ang = getattr(fp, "rot", 0.0) + side_sign(getattr(fp, "side", "F")) * getattr(pd, "lrot", 0.0)
+    c, s = cos_sin(ang)
+    return Polygon([(pd.x + u * c + v * s, pd.y - u * s + v * c)
+                    for u, v in ((-w / 2, -h / 2), (w / 2, -h / 2), (w / 2, h / 2), (-w / 2, h / 2))])
+
+
+def _body_corners(fp):
+    """Four corners of a part's courtyard (else body) rectangle in board coordinates; [] without either."""
+    if not (getattr(fp, "courtyard", None) or getattr(fp, "body", None)):
+        return []
+    from shapely.ops import unary_union
+    from kae.board.transform import courtyard
+    polys = [g for g in courtyard(fp, which="extent") if g is not None and not g.is_empty]
+    if not polys:
+        return []
+    rect = unary_union(polys).minimum_rotated_rectangle
+    if rect.geom_type != "Polygon":
+        return []
+    return [tuple(c) for c in list(rect.exterior.coords)[:4]]
+
+
+def _edge_caps(V, ends, Mv, shapes, clr, w):
+    """Per-cut capacity from true edge-to-edge distances (the 'edge' model)."""
+    import shapely
+    from shapely.geometry import Point
+    ends = np.array(ends, int).reshape(-1, 2)
+    pts = np.array([Point(x, y) for x, y in V], dtype=object)
+    geo = np.array([shapes[i] if i < len(shapes) and shapes[i] is not None else pts[i] for i in range(len(V))],
+                   dtype=object)
+    u, v = ends[:, 0], ends[:, 1]
+    d = {(True, True): shapely.distance(geo[u], geo[v]), (True, False): shapely.distance(geo[u], pts[v]),
+         (False, True): shapely.distance(pts[u], geo[v]), (False, False): shapely.distance(pts[u], pts[v])}
+    cap = np.zeros(len(ends))
+    for li in range(Mv.shape[1]):
+        mu, mv = Mv[u, li], Mv[v, li]
+        gap = np.select([mu & mv, mu & ~mv, ~mu & mv], [d[(True, True)], d[(True, False)], d[(False, True)]],
+                        d[(False, False)])
+        cap += np.floor((gap - clr) / (w + clr)).clip(min=0)
+    return cap
+
+
+def build(board, clearance=None, width=None, model="center"):
+    """Triangulate a board (kae.board.kicad_file.load) and size its cuts. None when under 6 pads or no net to route.
+
+    model: 'center' (pad half-extents, the default) or 'edge' (true edge distances plus part body corners)."""
+    if model not in ("center", "edge"):
+        raise ValueError(f"cutflow: unknown model {model!r}")
     dc, dw = default_rules(board)
     clr = dc if clearance is None else clearance
     w = dw if width is None else width
@@ -124,7 +180,7 @@ def build(board, clearance=None, width=None):
     sig = [ly for ly in cu if ly not in plane]
     vid = {}
     P, R, M, FPI, NETS = [], [], [], [], []
-    refs = []
+    refs, shapes, areas = [], [], []
     for fi, fp in enumerate(board.footprints):
         refs.append(getattr(fp, "ref", "") or "")
         if not getattr(fp, "on_board", True):
@@ -133,14 +189,19 @@ def build(board, clearance=None, width=None):
             k = (round(pd.x, 3), round(pd.y, 3))
             mask = np.array([ly in pd.layers or pd.kind in ("thru_hole", "np_thru_hole") for ly in sig])
             r = (pd.size[0] + pd.size[1]) / 4.0 if pd.size else 0.3
+            shp = _pad_rect(fp, pd) if model == "edge" else None
             if k in vid:
                 i = vid[k]
                 M[i] |= mask
                 R[i] = max(R[i], r)
                 if pd.net:
                     NETS[i].add(pd.net)
+                if shp is not None and shp.area > areas[i]:
+                    shapes[i], areas[i] = shp, shp.area
                 continue
             vid[k] = len(P)
+            shapes.append(shp)
+            areas.append(shp.area if shp is not None else 0.0)
             P.append(k)
             R.append(r)
             M.append(mask)
@@ -158,9 +219,21 @@ def build(board, clearance=None, width=None):
     nx, ny = max(2, int((x1 - x0) / 2.0) + 1), max(2, int((y1 - y0) / 2.0) + 1)
     bpts = [(x, y0) for x in np.linspace(x0, x1, nx)] + [(x, y1) for x in np.linspace(x0, x1, nx)] + \
            [(x0, y) for y in np.linspace(y0, y1, ny)[1:-1]] + [(x1, y) for y in np.linspace(y0, y1, ny)[1:-1]]
-    V = np.vstack([P, np.array(bpts)])
-    Rv = np.concatenate([np.array(R), np.zeros(len(bpts))])
-    Mv = np.vstack([np.array(M).reshape(npad, len(sig)), np.zeros((len(bpts), len(sig)), bool)])
+    corners, cown = [], []
+    if model == "edge":
+        for fi, fp in enumerate(board.footprints):
+            if not getattr(fp, "on_board", True):
+                continue
+            for c in _body_corners(fp):
+                k = (round(c[0], 3), round(c[1], 3))
+                if k not in vid:
+                    vid[k] = npad + len(corners)
+                    corners.append(k)
+                    cown.append(fi)
+    extra = np.array(corners + bpts, float).reshape(-1, 2)
+    V = np.vstack([P, extra])
+    Rv = np.concatenate([np.array(R), np.zeros(len(extra))])
+    Mv = np.vstack([np.array(M).reshape(npad, len(sig)), np.zeros((len(extra), len(sig)), bool)])
     tri = Delaunay(V, qhull_options="QJ Pp")
     S, NB = tri.simplices, tri.neighbors
     T = len(S)
@@ -186,6 +259,8 @@ def build(board, clearance=None, width=None):
             eids.append(eid[key])
             elen.append(math.hypot(*(cen[t] - cen[n])) + 1e-3)
     rows, cols, eids, elen = (np.array(a) for a in (rows, cols, eids, elen))
+    if model == "edge":
+        ecap = _edge_caps(V, ends, Mv, shapes, clr, w)
     vr, vc = [], []
     for t in range(T):
         for u in S[t]:
@@ -195,7 +270,7 @@ def build(board, clearance=None, width=None):
     pair_e = {(int(a), int(b)): int(e) for a, b, e in zip(rows, cols, eids)}
     bynet = collections.defaultdict(list)
     for i, ns in enumerate(NETS):
-        for n in ns:
+        for n in sorted(ns):     # sorted: a merged pad's nets in a fixed order whatever the hash seed
             if n not in zone_nets:
                 bynet[n].append(i)
     conns = []
@@ -235,10 +310,10 @@ def build(board, clearance=None, width=None):
     crowd = float(np.mean([sum(1 for j in nb if fpi[j] != fpi[i])
                            for i, nb in enumerate(cKDTree(P).query_ball_point(P, 2.0))]))
     return CutGraph(clearance=float(clr), width=float(w), signal_layers=sig, V=V, npad=npad,
-                    owner=[refs[f] for f in FPI], nets=NETS, tri=S, cut_ends=np.array(ends, int).reshape(-1, 2),
+                    owner=[refs[f] for f in FPI + cown], nets=NETS, tri=S, cut_ends=np.array(ends, int).reshape(-1, 2),
                     cap=np.array(ecap, float), rows=rows, cols=cols, arc_cut=eids, arc_len=elen,
                     vr=np.array(vr, int), vc=np.array(vc, int), pair_cut=pair_e, conns=conns, hpwl=float(hpwl),
-                    rudy=rudy, crowd=crowd, zone_nets=zone_nets)
+                    rudy=rudy, crowd=crowd, zone_nets=zone_nets, model=model)
 
 
 def route(graph, rounds=K_ROUNDS, seed=0):
@@ -317,8 +392,8 @@ def pressure(graph, ov):
     pairs = collections.defaultdict(float)
     for e in np.nonzero(ov > 0)[0]:
         u, v = graph.cut_ends[e]
-        ru = graph.owner[u] if u < graph.npad else None
-        rv = graph.owner[v] if v < graph.npad else None
+        ru = graph.owner[u] if u < len(graph.owner) else None
+        rv = graph.owner[v] if v < len(graph.owner) else None
         mm = float(ov[e]) * pitch
         for r in {ru, rv} - {None}:
             parts[r] += mm
@@ -327,7 +402,7 @@ def pressure(graph, ov):
     return dict(parts), dict(pairs)
 
 
-def measure(board_or_path, clearance=None, width=None, rounds=K_ROUNDS, seed=0, detail=False):
+def measure(board_or_path, clearance=None, width=None, rounds=K_ROUNDS, seed=0, detail=False, model="center"):
     """The prototype's measures for one board (path or loaded board); None when the board has too little to route.
 
     detail=True adds the pressure ('parts', 'pairs') to the returned dict."""
@@ -335,7 +410,7 @@ def measure(board_or_path, clearance=None, width=None, rounds=K_ROUNDS, seed=0, 
     if isinstance(bd, (str, bytes)) or hasattr(bd, "__fspath__"):
         from kae.board.kicad_file import load
         bd = load(str(bd), rules=True)
-    g = build(bd, clearance, width)
+    g = build(bd, clearance, width, model=model)
     if g is None:
         return None
     r = route(g, rounds=rounds, seed=seed)
@@ -363,8 +438,9 @@ def main(argv=None):
     ap.add_argument("--rounds", type=int, default=K_ROUNDS)
     ap.add_argument("--clearance", type=float, default=None)
     ap.add_argument("--width", type=float, default=None)
+    ap.add_argument("--model", choices=("center", "edge"), default="center")
     a = ap.parse_args(argv)
-    m = measure(a.board, a.clearance, a.width, rounds=a.rounds, seed=a.seed, detail=True)
+    m = measure(a.board, a.clearance, a.width, rounds=a.rounds, seed=a.seed, detail=True, model=a.model)
     if m is None:
         print("cutflow: too few pads or no connections to route", file=sys.stderr)
         return 2

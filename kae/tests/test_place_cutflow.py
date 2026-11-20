@@ -144,3 +144,38 @@ def test_pressure_file_schema(tmp_path):
 
 PINNED_RANDOM = (113.0, 1.0, 56, 1, 67)    # ovf0, ovfK, ncut0, ncutK, connections
 PINNED_FIXTURE = (0.0, 0.0, 25, 11)        # ovf0, ovfK, pads, connections (Default class 0.2 / 0.25 mm)
+
+
+def test_same_result_whatever_the_hash_seed(tmp_path):
+    # two-pin nets first seen at a merged pad beside another new net: the routing order must not follow Python's
+    # string hashing (unsorted, seed 3 gave ovfK 5 and the others 6)
+    script = tmp_path / "run.py"
+    script.write_text(
+        "import sys; sys.path[:0] = [%r]\n"
+        "import test_place_cutflow as T\nfrom kae.place import cutflow as CF\n"
+        "bd = T._random_board()\n"
+        "for k, fp in enumerate(bd.footprints[::3]):\n"
+        "    fp.pads.append(T._pad(fp.pads[0].x, fp.pads[0].y, 'X%%d' %% (k // 2)))\n"
+        "r = CF.route(CF.build(bd), seed=1)\nprint(r['ovf0'], r['ovfK'], list(r['demand']))\n" % str(Path(__file__).parent))
+    import os
+    import subprocess
+    import sys
+    outs = {subprocess.run([sys.executable, str(script)], capture_output=True, text=True, check=True,
+                           env=dict(os.environ, PYTHONHASHSEED=str(h))).stdout for h in (1, 2, 3, 4)}
+    assert len(outs) == 1
+
+
+def test_edge_model_measures_copper_to_copper():
+    tall = dict(size=(0.5, 2.0), kind="smd", layers=["F.Cu"])
+    parts = {"P1": [NS(x=0.0, y=0.0, net="", **tall)], "P2": [NS(x=2.0, y=0.0, net="", **tall)]}
+    for i, (x, y) in enumerate([(-6, 6), (8, 6), (-6, -6), (8, -6)]):
+        parts[f"Q{i}"] = [_pad(x, y, f"M{i % 2}")]
+    bd = _board(parts, outline=box(-8, -8, 10, 8))
+    [e] = _cut(CF.build(bd), "P1", "P2")
+    # centre model: r = (0.5 + 2) / 4 each -> F.Cu gap 0.75 -> 1; B.Cu 2.0 -> 4
+    assert CF.build(bd).cap[e] == 5
+    g = CF.build(bd, model="edge")
+    [e] = _cut(g, "P1", "P2")
+    # edge model: copper 1.5 apart on F.Cu -> floor(1.3 / 0.4) = 3; B.Cu 2.0 -> 4
+    assert g.cap[e] == 7
+    assert CF.measure(FIXTURE, model="edge")["npad"] == PINNED_FIXTURE[2]
