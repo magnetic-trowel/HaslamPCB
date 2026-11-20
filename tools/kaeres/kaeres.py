@@ -35,11 +35,13 @@ import os
 import re
 import resource
 import shutil
+import signal
 import sqlite3
 import statistics
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -578,7 +580,43 @@ def estimate(row, ms):
     t = sum(method_timeout(m, row) for m in ms)
     mem *= max([method_cpus(m) for m in ms] + [1])  # parallel restarts each hold a copy of the board
     return dict(size_mb=round(s, 2), mem=f"{mem:.1f}G", disk=f"{int(100 + 10 * s)}M",
-                timeout=f"{int(min(24 * 3600, t + 3600 + 240 * s))}s")
+                timeout=f"{int(min(JOB_TIMEOUT_MAX_S, t + job_overhead_s(s)))}s")
+
+
+JOB_TIMEOUT_MAX_S = 24 * 3600   # kaeq's job timeout at most (a queued job holds its CPUs that long at worst)
+
+
+def job_overhead_s(size_mb):
+    """A job's wall time besides its methods' attempts on a board file of `size_mb` MB: preparing the
+    board, scoring, physics."""
+    return 3600 + 240 * size_mb
+
+
+def plan_chunks(need, cost, overhead_s):
+    """A board's (method, attempt) pairs as 2-5 jobs of about equal length (methods whole; more jobs
+    for ~8 h of methods each, at most 5), so no single job runs every method back to back and the run
+    has no long tail; each job prepares the board again, hence no more than 5. But never fewer jobs
+    than it takes for each to fit JOB_TIMEOUT_MAX_S with its methods' timeouts (cost, seconds per
+    method) and `overhead_s`: polarfire's three 39,000 s arms in one 24 h job (loop-win, 2026-11-17)
+    ran into the job timeout and kept nothing. Longest first, to the least loaded."""
+    k = max(1, min(len(need), CHUNKS_MAX, max(CHUNKS_MIN, math.ceil(sum(cost.values()) / (8 * 3600)))))
+    room = JOB_TIMEOUT_MAX_S - overhead_s
+    while k < len(need):
+        chunks, load = _fill(need, cost, k)
+        if max(load) <= room:
+            return [ch for ch in chunks if ch]
+        k += 1
+    chunks, _ = _fill(need, cost, k)
+    return [ch for ch in chunks if ch]
+
+
+def _fill(need, cost, k):
+    chunks, load = [[] for _ in range(k)], [0.0] * k
+    for m, att in sorted(need, key=lambda x: -cost[x[0]]):
+        i = load.index(min(load))
+        chunks[i].append((m, att))
+        load[i] += cost[m]
+    return chunks, load
 
 
 # ------------------------------------------------------------------ experiments
@@ -736,17 +774,8 @@ def cmd_exp_submit(a):
         need = missing(e, bid)
         if not need or (prepare_failed(e, bid) and not a.redo):
             continue
-        # a board's methods run as 2-5 jobs of about equal length (methods whole; more jobs for
-        # ~8 h of methods each, at most 5), so no single job runs every method back to back
-        # and the run has no long tail; each job prepares the board again, hence no more than 5
         cost = {m: method_timeout(ms[m], rows[bid]) for m, _ in need}
-        k = max(1, min(len(need), CHUNKS_MAX, max(CHUNKS_MIN, math.ceil(sum(cost.values()) / (8 * 3600)))))
-        chunks, load = [[] for _ in range(k)], [0.0] * k
-        for m, att in sorted(need, key=lambda x: -cost[x[0]]):   # longest first, to the least loaded
-            i = load.index(min(load))
-            chunks[i].append((m, att))
-            load[i] += cost[m]
-        chunks = [ch for ch in chunks if ch]
+        chunks = plan_chunks(need, cost, job_overhead_s(board_size_mb(rows[bid])))
         for i, ch in enumerate(chunks):
             est = estimate(rows[bid], [ms[m] for m, _ in ch])
             # each method with its attempt (ID@N): a job runs --attempt for bare ids, so a chunk
@@ -845,21 +874,76 @@ def deadline_env(env=None, timeout=None):
     return env, timeout
 
 
+# A job being killed (kaeq: --timeout, cancel, memory; SIGTERM, then SIGKILL after its kill_grace_s): STOP holds why
+# and when. The running step gets the SIGTERM too (it runs in a session of its own) and CHILD_GRACE_S to save what it
+# has; then every method's attempts so far go to the store as incomplete runs (_store_incomplete).
+STOP = {}
+CHILD = set()            # process groups of running steps (run_logged)
+CHILD_GRACE_S = 75.0     # within kaeq's kill_grace_s (120 s), leaving time to store what was saved
+INCOMPLETE_MB = 20       # what a killed job keeps per board in the store (restart.py's FR_RAW_LIMIT, the same size)
+# lines of a step's output that also go to the job's own log as they come: kaebench's attempts, restart.py's progress
+PROGRESS_RE = re.compile(rb"^(\[(start|\d+/\d+)\] |\[restart |kaebench: SIGTERM|stopped )")
+
+
+def _stop_reason():
+    try:
+        return (Path(os.environ["KAEQ_SCRATCH"]) / ".kaeq-stop").read_text().strip() or "signal"
+    except (KeyError, OSError):
+        return "signal"
+
+
+def _on_sigterm(*_):
+    # no locks in here: the job gets SIGTERM more than once (kaeq signals every process, and the kaeq wrapper's group)
+    if STOP:
+        return
+    STOP["at"] = time.monotonic()
+    STOP.update(reason=_stop_reason(), when=now())
+    os.write(1, f"kaeres: SIGTERM ({STOP['reason']}): stopping; each method's attempts so far are stored "
+                f"as incomplete runs\n".encode())
+    for g in list(CHILD):
+        try:
+            os.killpg(g, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
 def run_logged(cmd, log, env, timeout):
-    """Run cmd with output appended to log; returns (rc, timed_out). The timeout is no later than
-    this job's KAE_DEADLINE, which the command inherits (less a margin; kaebench.tools.deadline_env)."""
+    """Run cmd with output appended to log, and its progress lines (PROGRESS_RE) also printed as they come, so the
+    kaeq job's log says which method and attempt ran even after a SIGKILL; returns (rc, timed_out). In a job being
+    stopped (STOP) the step is killed CHILD_GRACE_S after the SIGTERM. The timeout is no later than this job's
+    KAE_DEADLINE, which the command inherits less a margin (deadline_env)."""
     env, timeout = deadline_env(env, timeout)
     with open(log, "ab") as f:
         f.write(f"\n$ {' '.join(map(str, cmd))}\n".encode())
         f.flush()
-        p = subprocess.Popen([str(x) for x in cmd], stdout=f, stderr=subprocess.STDOUT, env=env,
+        p = subprocess.Popen([str(x) for x in cmd], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
                              preexec_fn=_limit_as, start_new_session=True)
+        CHILD.add(p.pid)
+
+        def pump():
+            for line in p.stdout:
+                f.write(line)
+                f.flush()
+                if PROGRESS_RE.match(line):
+                    sys.stdout.write(line.decode(errors="replace"))
+                    sys.stdout.flush()
+        t = threading.Thread(target=pump, daemon=True)
+        t.start()
+        end, rc, to = time.monotonic() + timeout, None, False
         try:
-            return p.wait(timeout=timeout), False
-        except subprocess.TimeoutExpired:
-            os.killpg(p.pid, 9)
-            p.wait()
-            return None, True
+            while rc is None:
+                try:
+                    rc = p.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    if time.monotonic() > end or (STOP and time.monotonic() > STOP["at"] + CHILD_GRACE_S):
+                        os.killpg(p.pid, signal.SIGKILL)
+                        p.wait()
+                        to = True
+                        break
+        finally:
+            CHILD.discard(p.pid)
+        t.join(timeout=10)
+        return (None, True) if to else (rc, False)
 
 
 class Bugs:
@@ -896,6 +980,7 @@ def cmd_job(a):
     else:
         todo = missing(e, bid)
     human = next((m for m in methods().values() if m["recipe"]["runner"]["type"] == "reference"), None)
+    signal.signal(signal.SIGTERM, _on_sigterm)
     print(f"{bid}: pid {os.getpid()} job {os.environ.get('KAEQ_JOB')} methods {[m for m, _ in todo]}", flush=True)
     ws = Path(os.environ.get("KAEQ_SCRATCH") or tempfile.mkdtemp(prefix="kaeres-", dir="/var/tmp"))
     src = ws / "src" / bid
@@ -942,8 +1027,14 @@ def cmd_job(a):
         groups[harness].append((human, 0))  # every board gets the human layout scored, once
     made = []
     for hc, items in groups.items():
+        if STOP:
+            break
+        print(f"{bid}: harness {hc[:8]}: " + ", ".join(f"{m['name']}#{att}" for m, att in items), flush=True)
         made += _job_group(bid, row, hc, kae, items, human, ws, env, log, kicad, a, size, prep_harness(hc, harness))
-    print(f"{bid}: {len(made)} run(s) written in {time.monotonic() - t0:.0f}s: {', '.join(made) or '-'}", flush=True)
+    print(f"{bid}: {len(made)} {'incomplete ' if STOP else ''}run(s) written in {time.monotonic() - t0:.0f}s: "
+          f"{', '.join(made) or '-'}", flush=True)
+    if STOP:
+        return 143
     shutil.rmtree(ws / "w", ignore_errors=True)
     return 0
 
@@ -1145,6 +1236,8 @@ def _job_group(bid, row, hc, kae, items, human, ws, env, log, kicad, a, size, ph
     # prepare.INPUT_KIND), which must be asked for even when no place method is in the group
     inputs = sorted({INPUT_KIND.get(k, k) for k in kinds})
     task, rc, to = _prepare(bid, phc, inputs, ws, env, log, steps)
+    if STOP:
+        return []   # killed while preparing: no method ran (kaeq keeps the job's logs)
     task = task or work / "tasks" / bid
     tj = task / "task.json"
     if not tj.exists():
@@ -1204,6 +1297,8 @@ def _job_group(bid, row, hc, kae, items, human, ws, env, log, kicad, a, size, ph
     k = max(att for _, att in todo) + 1
     with Step("run", steps):
         if arms:
+            print(f"{bid}: run {', '.join(m['name'] for m, _ in todo if m['recipe']['runner']['type'] != 'command')} "
+                  f"x{k}", flush=True)
             rc, to = run_logged(kb + ["run", *arms, "--kinds", "route", "-k", str(k), "--timeout", str(timeout), "--all",
                                       "--only", bid, "--name", f"base-{hc[:8]}", "-j", "1"], log, genv,
                                 timeout=len(todo) * k * (timeout + 1800) + 3600)
@@ -1211,6 +1306,9 @@ def _job_group(bid, row, hc, kae, items, human, ws, env, log, kicad, a, size, ph
                 bugs.add("harness", "run_timeout" if to else "run_error", _first_error(tail(log, 200)) or f"rc={rc}",
                          log_tail=tail(log, 60))
         for m in cmds:
+            if STOP:
+                break
+            print(f"{bid}: run {m['name']} ({m['id'][:8]}) x{k}", flush=True)
             p = m["recipe"]["params"]
             tpl, ro = command_template(m)
             if p.get("probe_command"):  # a placement's probe: a command router, with the method's code
@@ -1231,6 +1329,8 @@ def _job_group(bid, row, hc, kae, items, human, ws, env, log, kicad, a, size, ph
     for m, att in todo:
         rn = f"base-{hc[:8]}" if m["recipe"]["runner"]["type"] != "command" else f"cmd-{m['id']}"
         adirs[(m["id"], att)] = work / "results" / rn / f"m{m['id']}" / m["recipe"]["kind"] / bid / f"attempt-{att}"
+    if STOP:
+        return _store_incomplete(bid, todo, adirs, hc, tid, steps, a, log, phc)
     human_adir = adirs.get((human["id"], 0)) if human else None
     fresh = (read_json(human_adir / "attempt.json") or {}) if human_adir else {}
     fresh_types = (fresh.get("score") or {}).get("errors_by_type")
@@ -1258,6 +1358,8 @@ def _job_group(bid, row, hc, kae, items, human, ws, env, log, kicad, a, size, ph
                                  *_pintypes_args(pb, pt)],
                                 log, genv, timeout=int(1800 + 120 * size))
         phys = read_json(pout) or dict(error=f"physics step {'timed out' if to else f'failed rc={rc}'}")
+        if STOP:
+            return _store_incomplete(bid, todo, adirs, hc, tid, steps, a, log, phc)
         if phys.get("error"):
             bugs.add("physics", "physics_error", phys["error"], signature=f"physics:board:{_normalize(phys['error'])}",
                      traceback=phys.get("traceback"))
@@ -1283,6 +1385,78 @@ def _job_group(bid, row, hc, kae, items, human, ws, env, log, kicad, a, size, ph
         bugs.items = []  # board-level bugs go with the first run written
         if name:
             made.append(name)
+    return made
+
+
+def _store_incomplete(bid, todo, adirs, hc, tid, steps, a, log, phc):
+    """A killed job's attempts, as far as they got, under boards/<id>/incomplete/<run>.j<kaeq job>/ (not runs/, so
+    nothing that reads runs counts them, and the job's retry runs every method again): run.json with status
+    `killed_<reason>` (timeout, cancelled, oom, disk, preempted; an attempt that had finished keeps its own status)
+    and `incomplete`, the adapter log or the method's live log, restart.py's summary and attempt logs (with the budget
+    report and gap lines kae prints), the board so far, and the job's log, within INCOMPLETE_MB for the whole job:
+    logs first (a big one only its tail), newest first, then boards. Returns the names written."""
+    reason, job = STOP.get("reason", "signal"), os.environ.get("KAEQ_JOB") or str(os.getpid())
+    left, made = INCOMPLETE_MB * MB, []
+
+    def put(src, dst, text=True):
+        nonlocal left
+        size = src.stat().st_size
+        take = min(size, left, INCOMPLETE_MB * MB // 4) if text else size
+        if take <= 0 or take > left:
+            return dict(file=dst, bytes=size, kept=False)
+        dst_p = tmp / dst
+        dst_p.parent.mkdir(parents=True, exist_ok=True)
+        with open(src, "rb") as f, gzip.open(dst_p, "wb") as g:
+            f.seek(size - take)
+            shutil.copyfileobj(f, g)
+        left -= take
+        return dict(file=dst, bytes=size, kept=True, **({"tail_bytes": take} if take < size else {}))
+
+    for m, att in todo:
+        if m["recipe"]["runner"]["type"] == "reference":
+            continue
+        adir = adirs[(m["id"], att)]
+        aj = read_json(adir / "attempt.json") or {}
+        finished = aj.get("status") not in (None, "killed", "not_started")
+        dest = board_dir(bid) / "incomplete" / f"{run_name(m, att)}.j{job}"
+        tmp = dest.with_name(f".tmp-{dest.name}-{os.getpid()}")
+        shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True)
+        work = adir / "work"
+        logs = [(adir / "adapter.log", "adapter.log.gz")] if (adir / "adapter.log").exists() else []
+        if not logs and (work / "method.log").exists():
+            logs.append((work / "method.log", "method.log.gz"))
+        rs = work / "restarts"
+        if (rs / "summary.json").exists():
+            logs.append((rs / "summary.json", "restarts.json.gz"))
+        if rs.is_dir():
+            logs += [(p, f"restarts/{p.relative_to(rs).as_posix().replace('/', '.')}.gz")
+                     for p in sorted((q for q in rs.rglob("*") if q.is_file() and (q.name == "log" or q.suffix in
+                                                                                   (".log", ".jsonl"))),
+                                     key=lambda q: -q.stat().st_mtime)]
+        if (adir / "score" / "drc.json").exists():
+            logs.append((adir / "score" / "drc.json", "drc.json.gz"))
+        if not made and log.exists():   # the job's own log once, with the first run
+            logs.append((log, "job.log.gz"))
+        files = [put(src, dst) for src, dst in logs]
+        board = next((b for b in (adir / "output" / "board.kicad_pcb", work / "output" / "board.kicad_pcb") if b.exists()), None)
+        if board is not None:
+            files.append(dict(put(board, "output.kicad_pcb.gz", text=False), source=str(board.relative_to(adir))))
+        run = dict(schema=SCHEMA, run=dest.name, board=bid, method_id=m["id"], method_name=m["name"], attempt=att,
+                   task_id=tid(m), harness_commit=hc, task_prepared_by=phc or hc, experiment=a.experiment, kaeq_job=job,
+                   finished=now(), status=aj.get("status") if finished else f"killed_{reason}",
+                   incomplete=dict(reason=reason, stopped_at=STOP.get("when"), attempt_status=aj.get("status"),
+                                   adapter_status=aj.get("stopped_status"), attempt_finished=finished,
+                                   note="killed job: kept for diagnosis, not a result"),
+                   error=aj.get("error"), runtime_s=aj.get("runtime_s"), method_usage=aj.get("method_usage"),
+                   adapter_meta=aj.get("adapter_meta"), job_steps=steps, work=_work(adir), files=files)
+        write_json(tmp / "run.json", run)
+        if dest.exists():
+            shutil.rmtree(dest)
+        os.replace(tmp, dest)
+        made.append(dest.name)
+        print(f"{bid}: incomplete {dest.name}: {run['status']}, {sum(f['kept'] for f in files)} file(s), "
+              f"board {'kept' if board is not None else 'none'}", flush=True)
     return made
 
 
@@ -1592,6 +1766,9 @@ def cmd_board(a):
     for p in sorted((board_dir(bid) / "prepare-failures").glob("*.json")):
         f = read_json(p)
         print(f"prepare FAILED with harness {f['harness'][:7]}: {f['bugs'][0]['detail'][:120] if f['bugs'] else ''}")
+    for p in sorted((board_dir(bid) / "incomplete").glob("*/run.json")):
+        r = read_json(p) or {}
+        print(f"incomplete (killed job {r.get('kaeq_job')}, not a result): {p.parent.name}: {r.get('status')}")
     hdr = ("run", "method", "status", "clean", "compl", "unconn", "errors", "wl_ratio", "vias±", "cpu_s", "physΣu", "Σu/human")
     rows = []
     for d, r in board_runs(bid):

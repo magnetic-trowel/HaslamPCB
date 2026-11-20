@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import tools
+from . import stopping, tools
 from .deadline import deadline_env
 from .boardfiles import (board_path, clamp_dsn_widths, copy_board, fix_dsn_unsized_vias, quote_ses_net_names,
                          ses_complete, strip_ses_placement, unblock_all_power_dsn)
@@ -317,8 +317,10 @@ class Command(Adapter):
                                    timeout=int(timeout))
         argv = self.sandbox.wrap(["sh", "-c", cmd], w)
         try:
-            env, limit = deadline_env(None, timeout)     # {timeout} stays the method's budget; the kill obeys the deadline
-            r = tools.run_measured(argv, timeout=limit, cwd=w, env=env)
+            # method.log: its output as it comes, so a killed job leaves it; restart.py's progress lines go to stdout
+            # {timeout} stays the method's budget; the kill and the method's KAE_DEADLINE obey the job's deadline
+            env, limit = deadline_env(None, timeout)
+            r = tools.run_measured(stopping.tee_argv(argv, w / "method.log"), timeout=limit, cwd=w, env=env)
             log = r.stdout + r.stderr
         except subprocess.TimeoutExpired as e:
             # Like Freerouting's partial session: what the method wrote by the deadline is its output
