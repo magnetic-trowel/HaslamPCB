@@ -164,3 +164,55 @@ def test_cli_parses_restart_placeholders(monkeypatch, tmp_path):
     rc = H.main(["--start", "best.kicad_pcb", "--input", "in.kicad_pcb", "-o", str(out), "--time", "120",
                  "--seed", "4", "--rounds", "2"])
     assert rc == 0 and seen["start"] == "best.kicad_pcb" and seen["rounds"] == 2 and seen["time"] == 120.0
+
+
+def test_rounds_keep_the_better_board_with_fake_stages(tmp_path, monkeypatch):
+    """The command line's round logic (pressure, re-place, strip, route, judge, keep) with the
+    KiCad stages replaced: the start has 2 opens on U1; the routed result has 1 and is kept."""
+    import kae.joint.stages as stages
+    from kae.joint.scorecard import Scorecard
+    from kae.route import critical_write as W
+
+    start = _touching(tmp_path)
+    inp = _copy(tmp_path, "input")
+    calls = []
+    opens = iter([2, 1, 1])
+    unc = [{"items": [_item("Pad 1 [SIG1] of U1 on F.Cu", 10, 10), _item("Pad 1 [SIG1] of U7 on F.Cu", 80, 10)]}]
+
+    class Fake(stages.KaeStages):
+        def layout_from(self, board_path):
+            calls.append(("layout_from", Path(board_path).name))
+            return super().layout_from(board_path)
+
+        def modules(self, lay, it, **kw):
+            calls.append(("modules", it))
+            return lay
+
+        def route(self, lay, it, seed, time_s, **kw):
+            calls.append(("route", it, len(W.routing(lay.board))))
+            return lay
+
+        def evaluate(self, lay, it):
+            n = next(opens)
+            return Scorecard(unconnected=n), {"drc": {"unconnected_items": unc[:n]}}
+
+        def finish(self, lay, output):
+            shutil.copy2(lay.board, output)
+
+        def _ensure_brief(self, board):
+            return {"nets": {}, "structures": []}
+
+    monkeypatch.setattr(stages, "KaeStages", Fake)
+    out = tmp_path / "o" / "out.kicad_pcb"
+    import argparse
+    a = argparse.Namespace(start=str(start), input=str(inp), output=str(out), time=600.0, seed=1, pressure=None,
+                           rounds=2, place_time=20.0, margin=0.0, w_disp=H.W_DISP, lock_refs="", no_modules=False,
+                           no_physics=True, workdir=str(tmp_path / "wd"), report=None)
+    rep = H.run(a, log=lambda m: None)
+    r1 = rep["rounds"][0]
+    assert r1["pressure"]["parts_with_halo"] == 2 and r1["legal"] and r1["opens_before"] == 2
+    assert r1["opens_after"] == 1 and r1["kept"]
+    assert {"pressure", "replace", "modules", "route", "evaluate"} <= set(r1["seconds"])
+    assert ("route", 0, 0) in calls                           # routed from bare placement
+    assert rep["final_card"]["unconnected"] == 1 and out.exists() and out.with_suffix(".kicad_pro").exists()
+    assert len(rep["rounds"]) == 2 and not rep["rounds"][1]["kept"]   # 1 -> 1: not better

@@ -332,6 +332,7 @@ def run(a, log=_log):
             place_s = min(float(a.place_time), max(10.0, 0.2 * (deadline - clock_now())))
             prep = replace_with_halos(best_path, pressure, placed, seed=a.seed + 7919 * k, time_s=place_s,
                                       brief=brief, margin=a.margin, w_disp=a.w_disp, physics=not a.no_physics,
+                                      locked_refs=tuple(r for r in (a.lock_refs or "").split(",") if r),
                                       board_path=str(inp), opts=opts, log=log)
             row["replace"] = prep
             row["legal"] = prep["legal"]
@@ -393,6 +394,7 @@ def main(argv=None):
     ap.add_argument("--place-time", type=float, default=60.0, help="re-place seconds per round (at most)")
     ap.add_argument("--margin", type=float, default=0.0, help="uniform routing margin under the halos (mm)")
     ap.add_argument("--w-disp", type=float, default=W_DISP, help=f"displacement weight (default {W_DISP})")
+    ap.add_argument("--lock-refs", default="", help="comma-separated refs that stay fixed (besides locked parts)")
     ap.add_argument("--no-modules", action="store_true")
     ap.add_argument("--no-physics", action="store_true")
     ap.add_argument("--workdir", default=None)
