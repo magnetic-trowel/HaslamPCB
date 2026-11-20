@@ -89,8 +89,7 @@ filter it to two-layer boards where `ground_side()` names a layer.
 ## Not done
 
 - The A/B itself: waiting for the sprint command and control (see above).
-- `PLAN.md`: the coordinator's experiment plan (PLAN-ground-side-ab.md) did not exist yet at
-  07:30 PST on 2026-11-20, so it is not copied here.
+- `PLAN.md` was added after these notes were written (next commit); nothing of it has run.
 - The joint loop and staged place-and-route paths take the setting through
   `constraints.plan` but were not smoked.
 - Boards with an inner plane are untouched by design: `ground_side()` needs exactly two
