@@ -49,6 +49,8 @@ CONNS = [
                                                              "--set pad_shapes=outside)")),
     _conn("F", ["U4.1", "C3.1"], "fixed copper", fixed_nets=["GND"]),
     _conn("G", ["J5.1", "J6.1"], "geometry", walled_by=["board edge on F.Cu"]),
+    _conn("T", ["C22.2", "U7.1"], "kae default", binding=_bind("thermal_corridor", source="kae",
+                                                                where="kae thermal-spoke corridor of spokes C22.2")),
     _conn("H", ["R9.1", "R8.1"], "rule", binding=_bind("clearance", against="track of X", where=".kicad_dru rule 'x'",
                                                        track=0.05)),
 ]
@@ -70,7 +72,7 @@ def _ids(doc, where="menu"):
 def test_each_cause_has_its_item():
     doc = M.build_menu([_route_report(CONNS, packages=[PKG])])
     ids = _ids(doc) + _ids(doc, "ask")
-    for want in ("kae_default", "neckdown", "pad_shape", "planes_allow", "via_in_pad", "rule_relax",
+    for want in ("kae_default", "thermal_corridor", "neckdown", "pad_shape", "planes_allow", "via_in_pad", "rule_relax",
                  "release_fixed_copper", "add_layers", "grow_outline", "pin_swap", "more_effort"):
         assert want in ids, want
     kd = next(it for it in doc["menu"] if it["id"] == "kae_default")

@@ -211,7 +211,7 @@ class _Ctx:
 # Knob keys the catalogue names, by the registry that reads them (kept static so the menu needs
 # no router import; tests assert each is in its registry, so a rename breaks a test).
 # bridge.DEFAULT_OPTS (joint: bridge.KEY), plus the escape keys escape.py reads from the same opts:
-BRIDGE_KEYS = ("neckdown", "pad_shapes", "planes", "plane_cost", "rounds")
+BRIDGE_KEYS = ("neckdown", "pad_shapes", "planes", "plane_cost", "rounds", "thermal_repair")
 BRIDGE_OPT_KEYS = ("escape_via_in_pad", "escape_plane_layers")
 # kae.route.constraints.DEFAULTS (joint: the key itself; route: --set; place: KAE_<KEY> text variable)
 CONSTRAINT_KEYS = ("ignored_clearance_floor", "place_margin", "place_w_cong", "escape_band")
@@ -285,6 +285,23 @@ def r_kae_default(ctx):
                   target=dict(rule=kv.split("=")[0]), source="blocked.binding.override",
                   note="a kae default, not a board rule, binds; the diagnosis names its override")
             for kv, cs in sorted(groups.items())]
+
+
+def r_thermal_corridor(ctx):
+    """kae's thermal-spoke corridors (no override of their own): the repair loop's spoke
+    corridors are off with thermal_repair=false, at the risk of starved-thermal DRC errors."""
+    if ctx.any_opt("thermal_repair", lambda v: v is False):
+        return []
+    cs = [c for c in ctx.conns if (c.get("binding") or {}).get("constraint") == "thermal_corridor"
+          and (c.get("binding") or {}).get("source") == "kae"]
+    if not cs:
+        return []
+    return [_item(ctx, "thermal_corridor", "spoke corridors of thermal pads", "S13->S9", cs,
+                  _set("thermal_repair=false"), _price(), target=dict(rule="thermal_corridor"),
+                  source="blocked.binding",
+                  note="a kae thermal-spoke corridor binds; thermal_repair=false drops the repair loop's corridors "
+                       "(trade-off: starved_thermal errors may return); the board's starved_thermal severity "
+                       "'ignore' turns them off too (a rule edit)")]
 
 
 def _pad_named(s):
@@ -589,6 +606,7 @@ def r_more_effort(ctx):
 # the catalogue, in tie-break order; more_effort last
 CATALOGUE = (
     ("kae_default", r_kae_default),
+    ("thermal_corridor", r_thermal_corridor),
     ("neckdown", r_neckdown),
     ("pad_shape", r_pad_shape),
     ("planes_allow", r_planes_allow),
