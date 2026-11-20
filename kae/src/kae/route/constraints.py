@@ -148,6 +148,7 @@ class Plan:
                                                            # shut a pad in or expose two nets (kae.route.blocked)
     pad_entry: str = "centreline"                      # where the grid router ends tracks at pads (pad_entry_mode)
     arc_policy: str = "arcs"                           # "arcs" or "keep45" (arc_policy)
+    ground_side_cost: float | None = None              # two-layer ground-side trace cost (kae.route.ground_side); None: off
     pad_rules: dict = field(default_factory=dict)      # info pad index -> PadRule (every pad routing may end on)
     process: str = "reflow"                            # soldering process (power_copper.process_of)
     hazards: list = field(default_factory=list)        # kae.hazards entries the plan raises (land_enlarged_by_track)
@@ -249,6 +250,11 @@ DEFAULTS = dict(
                                    # (human): polarfire 139-151 / 268-283 / 265-361 of 465 (387), nekoink
                                    # 52-56 / 108-114 / 115-117 of 226 (196), gecko5 1-2 / 46-52 / 52-55 of 73
                                    # (61); HPWL no worse (polarfire 12.7k at 3 vs 15.8k off, same seed)
+    ground_side_cost=None,         # routing (kae.route.ground_side): on a two-layer board, the outer layer one
+                                   # ground net's zones cover (>= PLANE_SHARE; both: the side with less SMD pad
+                                   # area) costs this many times a signal layer per trace length (against the
+                                   # preferred direction twice that), as an inner plane under planes "cost";
+                                   # None or <= 1: off (a design trade-off: whole return pour vs shorter routes)
     zone_keepout=1.0,              # placement: weight of pads whose mask opening would bridge another net's
                                    # fixed outer-layer zone or sit in a board-level mask aperture with another
                                    # net (each 0.1 x this; gecko5: all staged DRC errors, 14 -> 0); 0: off
@@ -393,6 +399,7 @@ def plan(info, board_path, opts=None):
     p = Plan(copper=cu, rule_board=rb)
     p.pad_entry = pad_entry_mode(board_path, opts)
     p.arc_policy = arc_policy(board_path, opts)
+    p.ground_side_cost = setting("ground_side_cost", board_path, opts)
     sev = opts.get("severities") or {}
     s = info["settings"]
 
