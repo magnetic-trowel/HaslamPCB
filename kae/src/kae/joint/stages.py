@@ -66,6 +66,7 @@ def _project(src_board, dst_board):
 # Every `opts` key the stages read (kae.joint.cli rejects a --set key that neither these, the
 # loop's DEFAULTS, the placer's limits (kae.route.constraints.DEFAULTS) nor bridge.KEY name).
 STAGE_KEYS = frozenset({
+    "window_legalize", "window_own_nets", "window_ends_only", "window_soft_copper", "diag_windows", "diag_bridge_every",   # window fixes (cfw2b): legalize instead of rejecting; rip only own nets
     "module_clock",       # the module stage keeps its clock (kae.route.critical_joint.optimize_modules clock=True)
     # set by kae.joint.cli from its flags
     "keep", "no_physics", "no_modules", "budget_s", "route_parallel", "first_last_mile", "first_blocked",
@@ -483,7 +484,12 @@ class KaeStages:
         from kae.route.critical_recheck import merge_guards
         t0 = clock_now()
         locked = self._path(it, "route_in")
-        W.edit(lay.board, locked, lock=sorted(lay.crit) if finish else "all", drop_guards=True)
+        soft = getattr(self, "_soft_window", None) if (it > 0 and not finish) else None
+        if soft:
+            lock = sorted(r["uuid"] for r in W.routing(lay.board) if r["uuid"] not in soft)
+        else:
+            lock = sorted(lay.crit) if finish else "all"
+        W.edit(lay.board, locked, lock=lock, drop_guards=True)
         guards = merge_guards([g for _, gs in sorted(lay.guards.items()) for g in gs])
         if guards:
             W.append_items(locked, locked, zones=guards)
@@ -703,6 +709,7 @@ class KaeStages:
                                           if sp.kind == "unrouted" for n in sp.nets},
                              phys_mult=float(o.get("phys_mult", 2.0)) ** min(attempt, 2),
                              physics=not o.get("no_physics"), board_path=str(self.input), opts=o,
+                             legalize_fallback=bool(o.get("window_legalize")),
                              log=lambda m: self.log(f"replace: {m}"))
         rep["replace"] = {k: v for k, v in res.report.items() if k not in ("window",)}
         if not res.poses and (window.parts or res.report.get("rejected")):
@@ -715,7 +722,8 @@ class KaeStages:
                           also={u for sp in window.spots if sp.kind == "error" for u in sp.uuids},
                           supply_nets={n for n, d in ((self.brief or {}).get("nets") or {}).items()
                                        if isinstance(d, dict) and d.get("role") in ("ground", "rail", "power")},
-                          local=self.opts.get("window_router", "incremental") == "incremental", new_area=new_area)
+                          local=self.opts.get("window_router", "incremental") == "incremental", new_area=new_area,
+                          own_nets=bool(o.get("window_own_nets")), ends_only=bool(o.get("window_ends_only")))
         rep["ripup"] = plan.to_dict()
         if not plan.remove and not res.poses:
             rep["outcome"] = "re-route window: no routing to rip up"
@@ -751,11 +759,52 @@ class KaeStages:
             # Freerouting killed before it writes a session leaves the window unrouted
             rep["outcome"] = f"no time left to route ({left:.0f}s)"
             return None, rep
-        routed = self.route(mod, it, seed=seed, time_s=left,
-                            nets=set(plan.nets) | {n for sp in window.spots for n in sp.nets})
+        nets = set(plan.nets) | {n for sp in window.spots for n in sp.nets}
+        if o.get("window_soft_copper"):
+            # window_soft_copper: the window's unripped ordinary copper goes to the router unlocked (Freerouting may
+            # shove or rip it; window-diag: the window DSN had every wire fixed); critical copper stays locked
+            from shapely.geometry import box as _box
+            reg = _box(*rip_win.rect).buffer(0.5)
+            self._soft_window = {r.uuid for r in list(board.tracks) + list(board.vias)
+                                 if r.uuid not in removed and r.uuid not in mid.crit and not r.locked
+                                 and _geom_of(r).intersects(reg)}
+            rep["soft_copper"] = len(self._soft_window)
+        try:
+            routed = self.route(mod, it, seed=seed, time_s=left, nets=nets)
+        finally:
+            self._soft_window = None
         rep["route"] = routed.info.get("route")
+        if o.get("diag_windows"):
+            rep["ripup_nets"] = sorted(plan.nets)
+            rep["own_nets"] = sorted({p.net for fp in board.footprints if fp.uuid in set(res.poses) for p in fp.pads
+                                      if p.net})        # the moved parts' own nets (the rest are displaced nets)
+            self._diag_n = getattr(self, "_diag_n", 0) + 1
+            every = int(o.get("diag_bridge_every", 3))
+            if every > 0 and self._diag_n % every == 1:
+                rep["cf_bridge"] = self._diag_bridge(mod, it, seed, left, nets)
         rep["seconds"] = round(clock_now() - t0, 1)
         return routed, rep
+
+    def _diag_bridge(self, mod, it, seed, time_s, nets):
+        """diag_windows: the counterfactual of a window, the same input routed by the full bridge
+        (window_router=bridge) and evaluated, outside the run's budget (kae.budget.uncharged); the
+        result is only recorded."""
+        from kae.budget import uncharged
+        old = self.opts.get("window_router")
+        try:
+            with uncharged():
+                self.opts["window_router"] = "bridge"
+                cf = self.route(mod, it + 5000, seed=seed, time_s=max(75.0, time_s), nets=nets)
+                card, _ = self.evaluate(cf, it + 5000)
+                return dict(unconnected=card.unconnected, errors=card.errors, placement_errors=card.placement_errors,
+                            route=cf.info.get("route"))
+        except Exception as e:  # noqa: BLE001 - instrumentation never costs the run
+            return dict(error=f"{type(e).__name__}: {e}")
+        finally:
+            if old is None:
+                self.opts.pop("window_router", None)
+            else:
+                self.opts["window_router"] = old
 
     # ------------------------------------------------------------------ output
     def finish(self, lay, output):
@@ -895,3 +944,7 @@ def placement_errors(drc_report):
             n += 1
     return n
 
+
+def _geom_of(r):
+    from kae.joint.ripup import _geom
+    return _geom(r)

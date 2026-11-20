@@ -25,6 +25,7 @@ only polls still ends, after a counted number of checks.
 """
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import threading
@@ -238,6 +239,24 @@ def _exit_on_sigterm():
         signal.signal(signal.SIGTERM, lambda *_: None)
         raise SystemExit(143)
     signal.signal(signal.SIGTERM, stop)
+
+
+@contextlib.contextmanager
+def uncharged():
+    """Work done inside does not spend the run's budget (work mode): the charged seconds go back to what they were
+    when it is left, and the wall ceiling moves by the wall time it took. For instrumentation that must not change
+    what the run does (kae.joint's diag_windows). Units are still counted. Time mode: no effect."""
+    c = clock()
+    spent, by, w0 = c.spent, dict(c.by_kind), c.wall()
+    try:
+        yield
+    finally:
+        if c.mode == "work":
+            with _lock:
+                c.spent = spent
+                c.by_kind = defaultdict(float, by)
+            if c.ceiling is not None:
+                c.ceiling += c.wall() - w0
 
 
 def now(kind="poll"):

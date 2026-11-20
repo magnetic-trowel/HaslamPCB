@@ -114,3 +114,15 @@ def test_stage_wall_is_a_multiple_of_the_stage_budget_within_the_runs_ceiling(mo
     budget.note_wall_stop("freerouting")
     assert c.report()["wall_stops"] == {"freerouting": 1}
     budget.set_mode("time")
+
+
+def test_uncharged_work_does_not_spend_the_budget():
+    c = budget.set_mode("work", rates={"x": 1.0, "poll": 0.0})
+    try:
+        c.ceiling = 100.0
+        budget.charge("x", 2)
+        with budget.uncharged():
+            budget.charge("x", 50)
+        assert c.spent == 2.0 and c.units["x"] == 52 and c.ceiling >= 100.0
+    finally:
+        budget.set_mode("time")

@@ -57,8 +57,45 @@ def _pad_xy(fp, pad):
     return transform.pad_xy(fp, pad)
 
 
+def branch_items(items, start_geoms, stop_geoms, tol=1e-3):
+    """The branches of routing that leave `start_geoms` (a moved part's pads, at their old poses): from every
+    track or via touching one, along the chain of tracks while each next node joins exactly one more item, up to
+    the first junction, via, dead end or other pad (`stop_geoms`). Returns the uuids of those items (the vias that
+    end a chain are not included: they carry the trunk). Items are one net's unlocked tracks and vias."""
+    def key(p):
+        return (round(p[0] / tol), round(p[1] / tol))
+    at = {}
+    for it in items:
+        if hasattr(it, "start"):
+            for e in (it.start, it.end):
+                at.setdefault((key(e), it.layer), []).append(it)
+    vias = {key((v.x, v.y)): v for v in items if not hasattr(v, "start")}
+
+    def in_any(pt, geoms):
+        P = Point(pt)
+        return any(g.distance(P) <= tol for g in geoms)
+    out = set()
+    for it in items:
+        if not hasattr(it, "start") or it.uuid in out:
+            continue
+        ends = [e for e in (it.start, it.end) if in_any(e, start_geoms)]
+        if not ends:
+            continue
+        cur, frm = it, ends[0]
+        while cur is not None and cur.uuid not in out:
+            out.add(cur.uuid)
+            nxt_pt = cur.end if key(cur.start) == key(frm) else cur.start
+            if key(nxt_pt) in vias or in_any(nxt_pt, stop_geoms) or in_any(nxt_pt, start_geoms):
+                break
+            nb = [x for x in at.get((key(nxt_pt), cur.layer), []) if x is not cur]
+            if len(nb) != 1:
+                break                                   # a junction (or a dead end): the trunk starts here
+            cur, frm = nb[0], nxt_pt
+    return out
+
+
 def plan_ripup(board, window, moved, owners, module_parts, big_pads=20, max_cross=4, pad_reach=0.3, also=(),
-               supply_nets=(), local=False, new_area=None):
+               supply_nets=(), local=False, new_area=None, own_nets=False, ends_only=False):
     """See the module docstring. board: kae.board.model.Board before the move (old poses);
     window: feedback.Window; moved: uuids of the parts that moved; owners: {routing uuid:
     module id} for critical copper; module_parts: {module id: [part uuid]}; also: routing
@@ -66,7 +103,13 @@ def plan_ripup(board, window, moved, owners, module_parts, big_pads=20, max_cros
     supply_nets: ground and rail nets (the brief's roles), always ripped only locally;
     local: every net ripped only locally, for the incremental router, whose cost grows with
     the open connections: with parts moved and `new_area` (their footprints at the new poses,
-    a shapely geometry) the region is that area plus the old pads, not the whole window."""
+    a shapely geometry) the region is that area plus the old pads, not the whole window.
+    ends_only: a moved part's net keeps its routing except each moved pad's branch (branch_items: from the pad to
+    the first junction or via) and whatever a moved part lands on (`new_area`); the last mile then joins each pad
+    back to its net's copper (window-diag: windows lost 1,703 connections on the moved parts' own nets).
+    own_nets: only the moved parts' own nets (and DRC-blamed items) are ripped; another net crossing the window
+    is ripped only where a moved part lands on it (`new_area`), never whole (cfw2b: crossing nets ripped for a
+    window came back with more opens)."""
     moved = set(moved)
     fp_of = {fp.uuid: fp for fp in board.footprints}
     region = box(*window.rect).buffer(0.25)
@@ -103,6 +146,21 @@ def plan_ripup(board, window, moved, owners, module_parts, big_pads=20, max_cros
 
     remove = set()
     whole, partial = set(), set()
+    branch = set()
+    if ends_only:
+        start_g, stop_g, net_items = {}, {}, {}
+        for fp in board.footprints:
+            for p in fp.pads:
+                if not p.net or p.net not in touch_nets:
+                    continue
+                x, y = _pad_xy(fp, p)
+                g = Point(x, y).buffer(max(p.size) / 2)
+                (start_g if fp.uuid in moved else stop_g).setdefault(p.net, []).append(g)
+        for it in items:
+            if not it.locked and it.net in touch_nets:
+                net_items.setdefault(it.net, []).append(it)
+        for net, its in net_items.items():
+            branch |= branch_items(its, start_g.get(net, []), stop_g.get(net, []))
     crossing = {}
     # modules to redo: a moved part, or copper inside the window
     redo = {m for m, parts in module_parts.items() if moved & set(parts)}
@@ -118,7 +176,12 @@ def plan_ripup(board, window, moved, owners, module_parts, big_pads=20, max_cros
             if m in redo or m not in module_parts and (g.intersects(region) or at_pads(g)):
                 remove.add(it.uuid)
             continue
-        if it.net in touch_nets:
+        if it.net in touch_nets and ends_only:
+            land = new_area is not None and g.intersects(new_area.buffer(0.25))
+            if it.uuid in branch or land or it.uuid in also:
+                remove.add(it.uuid)
+                partial.add(it.net)
+        elif it.net in touch_nets:
             if big(it.net):
                 if g.intersects(region) or at_pads(g):
                     remove.add(it.uuid)
@@ -126,6 +189,10 @@ def plan_ripup(board, window, moved, owners, module_parts, big_pads=20, max_cros
             else:
                 remove.add(it.uuid)
                 whole.add(it.net)
+        elif own_nets or ends_only:
+            if it.uuid in also or (new_area is not None and g.intersects(new_area.buffer(0.25))):
+                remove.add(it.uuid)
+                partial.add(it.net)
         elif g.intersects(region) or it.uuid in also:
             remove.add(it.uuid)
             crossing.setdefault(it.net, 0.0)

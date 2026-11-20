@@ -270,3 +270,15 @@ def test_stages_repair_passes_board_and_opts_to_replace_window(tmp_path, monkeyp
     with pytest.raises(_Captured):
         st.repair(Layout(board=str(inp)), win, None, 0, 0, 30.0)
     assert got["board_path"] == str(inp.resolve()) and got["opts"]["zone_keepout"] == 0
+
+
+def test_own_nets_keeps_crossing_nets_unless_a_moved_part_lands_on_them():
+    """window_own_nets: a net crossing the window is not ripped for it, unless the moved part's new footprint
+    covers its copper."""
+    from shapely.geometry import box as _box
+    b = load(FIXTURE)
+    win = Window(rect=(14.0, 11.0, 16.0, 13.0), parts=())
+    assert plan_ripup(b, win, set(), owners={}, module_parts={}, max_cross=4, own_nets=True).remove == []
+    sig1 = {t.uuid for t in list(b.tracks) + list(b.vias) if t.net == "SIG1"}
+    landed = plan_ripup(b, win, set(), owners={}, module_parts={}, own_nets=True, new_area=_box(14.0, 11.0, 16.0, 13.0))
+    assert landed.remove and set(landed.remove) <= sig1 and "SIG1" not in landed.whole

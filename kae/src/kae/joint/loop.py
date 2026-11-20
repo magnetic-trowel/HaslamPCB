@@ -66,6 +66,10 @@ DEFAULTS = dict(
                            # board's open nets still get lastmile.close for at least this long
     diagnose_s=30.0,       # the final board's "blocked" diagnosis: at most this (and 5 % of the budget)
     recycle=True,          # when every window is exhausted and time is left, sample them all again
+    diag_windows=False,    # instrumentation (window diagnosis): per window the incumbent's blocked connections it
+                           # covers, the ripped nets' outcome and why the newly opened ones failed, outside the budget
+    skip_empty_windows=False,  # a window whose repair moved and ripped nothing is not tried again until the board
+                           # changes (cfw2b: up to 180 such windows per hard board, none kept)
     min_cycle_s=5.0,       # ... unless the last cycle took less than this (nothing could be routed)
     patience_cycles=2,     # stop after this many full cycles over the windows in a row accept nothing
 )
@@ -148,6 +152,65 @@ class JointLoop:
         except Exception as e:  # noqa: BLE001 - the final write tries again
             self.log(f"interim write failed: {type(e).__name__}: {e}")
             rep.setdefault("interim_write_errors", []).append(f"{type(e).__name__}: {e}")
+
+    def _diag_window(self, st, best, best_fb, best_it, cand, fb, win, rrep, it):
+        """diag_windows: outside the budget (kae.budget.uncharged), what a window met and what it did. The
+        incumbent's blocked connections (kae.route.blocked, cached per incumbent) and how many the window covers;
+        the ripped nets open before and after; for nets the window newly left open, the blocked diagnosis's cause."""
+        import re as _re
+        from kae.budget import uncharged
+        out = {}
+        try:
+            with uncharged():
+                key = (best_it, best.board)
+                if getattr(self, "_diag_key", None) != key:
+                    self._diag_key = key
+                    self._diag_blk = st.diagnose(best, best_fb.get("drc") or {}, 9000 + best_it, 120.0)
+                blk = self._diag_blk or {}
+                recs = list(blk.get("blocked") or []) + list(blk.get("congestion") or [])
+                pos = {}
+                for fp in st._load(best.board).footprints:
+                    pos[fp.ref] = (fp.x, fp.y)
+                x0, y0, x1, y1 = win.rect
+                inside = [r for r in recs if any(x0 - 1 <= pos.get(p.split(".")[0], (1e9, 0))[0] <= x1 + 1 and
+                                                 y0 - 1 <= pos.get(p.split(".")[0], (0, 1e9))[1] <= y1 + 1
+                                                 for p in r.get("pads") or [])]
+                out.update(blocked_total=len(recs), blocked_in_window=len(inside),
+                           causes_in_window=dict(__import__("collections").Counter(r.get("cause") for r in inside)),
+                           window_nets_blocked=sorted({r["net"] for r in inside} & set(win.nets or ()))[:20])
+
+                def open_conns(f):
+                    d = (f or {}).get("drc") or {}
+                    o_ = __import__("collections").Counter()
+                    for u in d.get("unconnected_items") or []:
+                        for itm in (u.get("items") or [])[:1]:
+                            m = _re.search(r"\[([^\]]*)\]", itm.get("description", ""))
+                            if m:
+                                o_[m.group(1)] += 1
+                    return o_
+                cb_, ca_ = open_conns(best_fb), open_conns(fb)
+                before, after = set(cb_), set(ca_)
+                ripped = set(rrep.get("ripup_nets") or [])
+                newly = sorted((ripped & after) - before)
+                own = set(rrep.get("own_nets") or [])
+                delta = {n: ca_[n] - cb_.get(n, 0) for n in ca_ if ca_[n] > cb_.get(n, 0)}   # connections lost per net
+                out.update(lost_own=sum(v for n, v in delta.items() if n in own),
+                           lost_displaced=sum(v for n, v in delta.items() if n in ripped and n not in own),
+                           lost_unripped=sum(v for n, v in delta.items() if n not in ripped and n not in own),
+                           gained=sum(max(0, cb_[n] - ca_.get(n, 0)) for n in cb_))
+                out.update(ripped=len(ripped), ripped_open_before=len(ripped & before),
+                           ripped_open_after=len(ripped & after), ripped_fixed=len((ripped & before) - after),
+                           newly_open=newly[:30], newly_open_n=len(newly),
+                           newly_open_outside_ripped=len((after - before) - ripped))
+                if newly:
+                    cb = st.diagnose(cand, fb.get("drc") or {}, 9500 + it, 90.0) or {}
+                    crec = [r for r in list(cb.get("blocked") or []) + list(cb.get("congestion") or [])
+                            if r.get("net") in set(newly)]
+                    out["newly_open_causes"] = dict(__import__("collections").Counter(r.get("cause") for r in crec))
+                    out["newly_open_undiagnosed"] = len(set(newly) - {r.get("net") for r in crec})
+        except Exception as e:  # noqa: BLE001 - instrumentation never costs the run
+            out["error"] = f"{type(e).__name__}: {e}"
+        return out
 
     def _row(self, it, card, **kw):
         # a check that did not run reads null, and the stage's note says why (never 0 or 10**6)
@@ -236,6 +299,7 @@ class JointLoop:
         best, best_card, best_fb, best_it = lay, card, fb, 0
         self._save(st, best, output, rep)
         tries = {}
+        empty = set()            # skip_empty_windows: windows whose repair moved and ripped nothing
         max_att = int(o["max_attempts"]) if o["max_attempts"] is not None else 2 + int(time_s // 1800)
         rep["max_attempts"] = max_att
         cycles, cycle_t0, cycle_kept, idle = 0, clock_now(), 0, 0
@@ -262,7 +326,7 @@ class JointLoop:
             o_win = dict(o, max_parts=cap)
             base = [w for w in plan_windows(spots, parts, bounds, margin=o["margin"], max_parts=cap,
                                             max_pins=o["max_pins"], merge_factor=1.0)
-                    if tries.get(w.key, 0) < max_att]
+                    if tries.get(w.key, 0) < max_att and w.key not in empty]
             if not base:
                 # every window tried max_att times: with time left, a new cycle samples them
                 # again under new seeds and the history so far (a long budget keeps searching);
@@ -300,6 +364,8 @@ class JointLoop:
                 self.log(f"repair failed: {type(e).__name__}: {e}\n{traceback.format_exc(limit=6)}")
                 cand, rrep = None, dict(outcome=f"error: {type(e).__name__}: {e}")
             tries[base0.key] = attempt + 1
+            if cand is None and o.get("skip_empty_windows") and not ((rrep.get("ripup") or {}).get("items")):
+                empty.add(base0.key)
             if cand is None:
                 rows.append(dict(iter=it, window=win.to_dict(), accepted=False, why=rrep.get("outcome"),
                                  seconds=round(clock_now() - t, 1), repair=rrep))
@@ -307,6 +373,8 @@ class JointLoop:
                 continue
             try:
                 card, fb = st.evaluate(cand, it)
+                if o.get("diag_windows"):
+                    rrep["diag"] = self._diag_window(st, best, best_fb, best_it, cand, fb, win, rrep, it)
             except Exception as e:  # noqa: BLE001
                 self.log(f"evaluate failed: {type(e).__name__}: {e}")
                 rows.append(dict(iter=it, window=win.to_dict(), accepted=False, why=f"evaluate error: {e}",
@@ -326,6 +394,7 @@ class JointLoop:
                 self._save(st, best, output, rep)
                 self._geom = st.geometry(best)
                 tries = {}               # the board changed: earlier failures may now succeed
+                empty = set()
                 cycle_kept += 1
         rep["stop"] = stop
         rep["cycles"] = cycles + 1
