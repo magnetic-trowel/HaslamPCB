@@ -60,5 +60,9 @@ holding 50 % and 80 % of each class); the unclassified share against the 30 % li
 - `blocked` is missing from "last mile only" kept boards and from critical+bridge reports, and stops at 60
   connections or its deadline. Matching a DRC item to a record is by net and a shared pad, else by order.
 - Net role is a name regex; part sizes count `(pad` entries per footprint of the output board.
-- `fill-drc` (re-running the DRC of staged/joint output boards into a separate cache) is not built; see
-  [NOTES.md](NOTES.md).
+- `fill-drc` writes kaeq jobs (`<out>/fill-drc-jobs.jsonl`, 1 CPU each, priority 5; `--submit` queues them)
+  that re-run the DRC of runs with opens but no stored item list: the output board beside the corpus board's
+  `.kicad_pro`/`.kicad_dru`, `kaebench.tools.run_drc`, unconnected items gzipped into `<out>/drc-cache/`,
+  never into the store. `build` reads that cache (`source: drc-cache`). The project files are the corpus
+  board's, not the prepared task's, so `--include-stored` re-runs a route run with a stored list to check
+  that the two agree. See [NOTES.md](NOTES.md).

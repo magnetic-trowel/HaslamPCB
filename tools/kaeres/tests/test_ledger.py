@@ -197,3 +197,29 @@ def test_parse_item_kinds():
     assert LG.parse_item(dict(description="Zone [GND] on In1.Cu"))["kind"] == "zone"
     assert LG.parse_item(dict(description="PTH pad 1 [VCC] of J1"))["ref"] == "J1"
     assert LG.net_role("/VCC_3V3", set()) == "power" and LG.net_role("/SIG", {"/SIG"}) == "power"
+
+
+def test_fill_drc_writes_jobs_only_for_runs_without_a_list(store, monkeypatch, capsys):
+    root, _, out = store
+    monkeypatch.setenv("VIRTUAL_ENV", "/venv")
+    for r in ("rb1", "rb2"):
+        wgz(root / "boards" / ("b1" if r == "rb1" else "b2") / "runs" / r / "output.kicad_pcb.gz", PCB)
+    LG.main(["fill-drc", "--experiment", "exp1", "--out", str(out), "--corpus", "/corpus"])
+    jobs = [json.loads(x) for x in (out / "fill-drc-jobs.jsonl").read_text().splitlines()]
+    assert sorted(j["name"] for j in jobs) == ["ledger-drc:b1:rb1", "ledger-drc:b2:rb2"]   # ra1 has a stored list
+    assert all(j["prio"] == 5 and j["cpus"] == 1 and str(out / "drc-cache") in j["cmd"] for j in jobs)
+    assert "kaeq submit --jobs" in capsys.readouterr().out
+    assert not list(root.rglob("drc-cache"))        # nothing in the store
+
+
+def test_build_reads_the_drc_cache(store):
+    root, tags, out = store
+    wgz(out / "drc-cache" / "b1" / "rb1.drc.json.gz", dict(unconnected_items=[
+        dict(items=[pad_item("3", "/D0", "U1"), pad_item("1", "/D0", "R1")]),
+        dict(items=[pad_item("2", "/D2", "R1"), pad_item("9", "/D2", "U1")]),
+        dict(items=[pad_item("7", "/D5", "U1"), pad_item("8", "/D5", "U1")])]))
+    _, rows, runs = build(store)
+    b = [r for r in rows if r["run"] == "rb1"]
+    assert {r["source"] for r in b} == {"drc-cache"}
+    assert {r["net"]: r["cause_class"] for r in b} == {"/D0": "congestion", "/D2": "inherited", "/D5": "undiagnosed_cap"}
+    assert next(r for r in runs if r["run"] == "rb1")["drc_list_source"] == "drc-cache"

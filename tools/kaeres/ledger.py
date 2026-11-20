@@ -288,7 +288,7 @@ def congestion_shape(row):
     return "partly routed island"
 
 
-def build_run(root, ev, board, run, mid, mname, attempt, task, status, unc, meta, buses):
+def build_run(root, ev, board, run, mid, mname, attempt, task, status, unc, meta, buses, drc_cache=None):
     run_dir = root / "boards" / board / "runs" / run
     pads_b, layers = meta.get(board, (None, None))
     info = dict(board=board, method_id=mid, method=mname, run=run, attempt=attempt, task=task, status=status,
@@ -299,13 +299,17 @@ def build_run(root, ev, board, run, mid, mname, attempt, task, status, unc, meta
     if not unc:
         return info, []
     d = read_json(run_dir / "evals" / f"{ev}.drc.json.gz")
+    drc_src = "drc"
+    if d is None and drc_cache is not None:      # a DRC re-run by `fill-drc` (not a stored score)
+        d = read_json(Path(drc_cache) / board / f"{run}.drc.json.gz")
+        drc_src = "drc-cache"
     items = None if d is None else d.get("unconnected_items", [])
     B, where = find_blocked(run_dir)
     parts, zone_nets = board_parts(run_dir / "output.kicad_pcb.gz")
     hnets, hpads = human_opens(root / "boards" / board / "tasks" / str(task))
     recs = [] if B is None else list(B.get("blocked", [])) + list(B.get("congestion", []))
     Bo = origin_blocked(run_dir) if B is None else None
-    info.update(drc_list=items is not None, drc_items=None if items is None else len(items), blocked_source=where,
+    info.update(drc_list=items is not None, drc_list_source=drc_src if items is not None else None, drc_items=None if items is None else len(items), blocked_source=where,
                 has_blocked=B is not None, records=len(recs), undiagnosed=(B or {}).get("undiagnosed", 0),
                 origin_blocked=Bo is not None, human_opens=None if hnets is None else sum(hnets.values()))
     by_net = collections.defaultdict(list)
@@ -362,7 +366,7 @@ def build_run(root, ev, board, run, mid, mname, attempt, task, status, unc, meta
         for u in items:
             ends = [parse_item(i) for i in u.get("items", [])][:2]
             net = ends[0]["net"] if ends else ""
-            r = row(net, [dict(ref=e["ref"], pad=e["pad"], kind=e["kind"], pos=e["pos"]) for e in ends], "drc")
+            r = row(net, [dict(ref=e["ref"], pad=e["pad"], kind=e["kind"], pos=e["pos"]) for e in ends], drc_src)
             endp = {f"{e['ref']}.{e['pad']}" for e in ends if e["ref"]}
             pick = _match(by_net.get(norm_net(net), []), endp)
             if pick is not None:
@@ -404,16 +408,18 @@ def cmd_build(a):
     out = Path(a.out or f"ledger-{a.experiment}")
     out.mkdir(parents=True, exist_ok=True)
     n_rows = 0
+    cache = Path(a.drc_cache) if a.drc_cache else out / "drc-cache"
+    cache = cache if cache.is_dir() else None
     with open(out / "ledger.jsonl", "w") as fl, open(out / "runs.jsonl", "w") as fr:
         for board, run, mid, attempt, task, status, unc in rows:
-            info, recs = build_run(root, ev, board, run, mid, names.get(mid, mid), attempt, task, status, unc, meta, buses)
+            info, recs = build_run(root, ev, board, run, mid, names.get(mid, mid), attempt, task, status, unc, meta, buses, cache)
             fr.write(json.dumps(info) + "\n")
             for r in recs:
                 fl.write(json.dumps(r) + "\n")
             n_rows += len(recs)
     (out / "ledger.json").write_text(json.dumps(dict(
         experiment=a.experiment, evaluator=ev, methods={m: names.get(m, m) for m in sorted({r[2] for r in rows})},
-        tags=bool(a.tags), runs=len(rows), rows=n_rows), indent=1) + "\n")
+        tags=bool(a.tags), drc_cache=cache is not None, runs=len(rows), rows=n_rows), indent=1) + "\n")
     print(f"{out}: {len(rows)} runs, {n_rows} open connections")
 
 
@@ -583,7 +589,7 @@ def cmd_report(a):
         if cg:
             L += ["Own-copper shape: " + "; ".join(f"{k} {pct(n, sum(cg.values()))}" for k, n in cg.most_common()), ""]
 
-    drc = [x for x in rows if x["source"] == "drc"]
+    drc = [x for x in rows if x["source"] in ("drc", "drc-cache")]
     if drc:
         L += ["## End sizes of pad-to-pad opens (DRC item lists)", ""]
         body = []
@@ -674,6 +680,80 @@ def cmd_reach(a):
     print("\n".join(L))
 
 
+# ---------------------------------------------------------------- fill-drc
+
+def cmd_fill_drc(a):
+    """Write (and with --submit, queue) kaeq jobs that re-run the DRC of runs with opens and no stored item list."""
+    root = store_root()
+    methods = [m for m in (a.methods or "").split(",") if m]
+    ev, names, rows, meta = experiment_runs(root, a.experiment, methods, a.evaluator)
+    out = Path(a.out or f"ledger-{a.experiment}").resolve()
+    cache = out / "drc-cache"
+    corpus = Path(a.corpus or os.environ.get("KAE_CORPUS") or Path.home() / "kae-boards")
+    only = set(a.only.split(",")) if a.only else None
+    venv = os.environ.get("VIRTUAL_ENV")
+    if not venv:
+        sys.exit("activate the bench venv first (its activate script sets the KiCad wrapper)")
+    jobs = []
+    for board, run, mid, attempt, task, status, unc in rows:
+        rd = root / "boards" / board / "runs" / run
+        if not unc or (only is not None and board not in only) or not (rd / "output.kicad_pcb.gz").exists():
+            continue
+        if (rd / "evals" / f"{ev}.drc.json.gz").exists() and not a.include_stored:
+            continue
+        if (cache / board / f"{run}.drc.json.gz").exists():
+            continue
+        pads = meta.get(board, (None, None))[0] or 0
+        cmd = (f"bash -c 'source {venv}/bin/activate && python3 tools/kaeres/ledger.py fill-drc-job "
+               f"--run-dir {rd} --project-dir {corpus / 'boards' / board} --cache {cache / board}'")
+        jobs.append(dict(cmd=cmd, name=f"ledger-drc:{board}:{run}", cpus=1, mem=f"{2 + pads / 1000:.1f}G",
+                         timeout=f"{int(900 + 2 * pads)}s", prio=a.prio))
+        if a.limit and len(jobs) >= a.limit:
+            break
+    out.mkdir(parents=True, exist_ok=True)
+    f = out / "fill-drc-jobs.jsonl"
+    f.write_text("".join(json.dumps(j) + "\n" for j in jobs))
+    repo = Path(__file__).resolve().parents[2]
+    sub = ["kaeq", "submit", "--jobs", str(f), "--owner", f"ledger-drc-{a.experiment}", "--class", "batch",
+           "--cwd", str(repo)]
+    print(f"{len(jobs)} DRC jobs -> {f}; cache {cache} (never the store)\n" + " ".join(sub))
+    if jobs and a.submit:
+        import subprocess
+        subprocess.run(sub, check=True)
+
+
+def cmd_fill_drc_job(a):
+    """One run: the output board beside the corpus board's project files, kicad-cli DRC, gzipped into the cache."""
+    import resource
+    import shutil
+    import tempfile
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bench" / "src"))
+    from kaebench import tools
+    lim = 40 * (1 << 30)        # a runaway KiCad DRC once took 100 GB
+    resource.setrlimit(resource.RLIMIT_AS, (lim, lim))
+    rd, cache = Path(a.run_dir), Path(a.cache)
+    ws = Path(tempfile.mkdtemp(prefix="ledger-drc-", dir=os.environ.get("KAEQ_SCRATCH") or "/var/tmp"))
+    try:
+        with gzip.open(rd / "output.kicad_pcb.gz", "rb") as fi, open(ws / "board.kicad_pcb", "wb") as fo:
+            shutil.copyfileobj(fi, fo)
+        for ext in ("kicad_pro", "kicad_dru"):
+            src = Path(a.project_dir) / f"board.{ext}"
+            if src.exists():
+                shutil.copy2(src, ws / f"board.{ext}")
+        binds = [b for b in os.environ.get("APPTAINER_BIND", "").split(",") if b]
+        os.environ["APPTAINER_BIND"] = ",".join(dict.fromkeys(binds + [str(ws)]))
+        rep = tools.run_drc(ws / "board.kicad_pcb", ws / "drc.json")
+        cache.mkdir(parents=True, exist_ok=True)
+        tmp = cache / f".{rd.name}.tmp"
+        with gzip.open(tmp, "wt") as f:
+            json.dump(dict(unconnected_items=rep.get("unconnected_items", []), source="ledger fill-drc",
+                           run=rd.name, project=sorted(p.name for p in ws.glob("board.kicad_*"))), f)
+        os.replace(tmp, cache / f"{rd.name}.drc.json.gz")
+        print(f"{rd.name}: {len(rep.get('unconnected_items', []))} unconnected items")
+    finally:
+        shutil.rmtree(ws, ignore_errors=True)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -683,6 +763,7 @@ def main(argv=None):
     b.add_argument("--evaluator", help="DRC evaluator id (default: the experiment's)")
     b.add_argument("--tags", help="board-tags directory holding bus/buses.jsonl (bus membership, swap class)")
     b.add_argument("--out", help="output directory (default ./ledger-<experiment>)")
+    b.add_argument("--drc-cache", help="DRC re-runs from fill-drc (default <out>/drc-cache when present)")
     r = sub.add_parser("report", help="write DIR/LEDGER.md")
     r.add_argument("dir")
     r.add_argument("--pair", help="A,B: persistence of open connections between two methods")
@@ -690,8 +771,24 @@ def main(argv=None):
     c.add_argument("dir")
     c.add_argument("--a", required=True)
     c.add_argument("--b", required=True)
+    f = sub.add_parser("fill-drc", help="kaeq jobs re-running the DRC of runs without a stored item list (cache under --out)")
+    f.add_argument("--experiment", required=True)
+    f.add_argument("--methods")
+    f.add_argument("--evaluator")
+    f.add_argument("--out")
+    f.add_argument("--corpus", help="board corpus (default $KAE_CORPUS, else ~/kae-boards)")
+    f.add_argument("--only", help="comma-separated board ids")
+    f.add_argument("--limit", type=int)
+    f.add_argument("--prio", type=int, default=5)
+    f.add_argument("--include-stored", action="store_true", help="also runs with a stored list (to check the re-run)")
+    f.add_argument("--submit", action="store_true", help="queue the jobs (default: only write and print them)")
+    j = sub.add_parser("fill-drc-job", help="one run's DRC re-run (what each queued job runs)")
+    j.add_argument("--run-dir", required=True)
+    j.add_argument("--project-dir", required=True)
+    j.add_argument("--cache", required=True)
     a = p.parse_args(argv)
-    {"build": cmd_build, "report": cmd_report, "reach": cmd_reach}[a.cmd](a)
+    {"build": cmd_build, "report": cmd_report, "reach": cmd_reach, "fill-drc": cmd_fill_drc,
+     "fill-drc-job": cmd_fill_drc_job}[a.cmd](a)
 
 
 if __name__ == "__main__":
