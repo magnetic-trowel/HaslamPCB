@@ -173,7 +173,9 @@ def write_project(outdir, design, symtable, netclasses, slug=None, parts=None, f
     (outdir / "fp-lib-table").write_text("(fp_lib_table\n  (version 7)\n" + "\n".join(fp_rows) + "\n)\n")
 
 
-def dru_text(design, netclasses):
+def dru_text(design, netclasses, info=None):
+    """The .kicad_dru text. `info` (a dict), when given, receives pair_mm {frozenset of two KiCad net names: mm}
+    of the functional rules and bridging [refs] whose own pads are exempt (kaesynth.layout reads both)."""
     """Custom DRC rules: barrier clearance/creepage between domain net classes."""
     lines = ["(version 1)", ""]
     by_domain = {}
@@ -338,6 +340,9 @@ def dru_text(design, netclasses):
         pd = sorted({design.domain_of(n).name for n in p.conn.values() if design.domain_of(n)})
         if p.on_board and any(frozenset((x, y)) in spaced for i, x in enumerate(pd) for y in pd[i + 1:]):
             bridging.append(p.ref)
+    if info is not None:
+        info["pair_mm"] = {frozenset((a, b_)): mm for (a, mm), others in pairs.items() for b_, _ in others}
+        info["bridging"] = list(bridging)
     for i in range(0, len(bridging), 40):
         chunk = bridging[i:i + 40]
         cond = " || ".join(f"(A.memberOfFootprint('{r}') && B.memberOfFootprint('{r}'))" for r in chunk)
