@@ -66,7 +66,7 @@ def _project(src_board, dst_board):
 # Every `opts` key the stages read (kae.joint.cli rejects a --set key that neither these, the
 # loop's DEFAULTS, the placer's limits (kae.route.constraints.DEFAULTS) nor bridge.KEY name).
 STAGE_KEYS = frozenset({
-    "window_legalize", "window_own_nets",   # window fixes (cfw2b): legalize instead of rejecting; rip only own nets
+    "window_legalize", "window_own_nets", "diag_windows", "diag_bridge_every",   # window fixes (cfw2b): legalize instead of rejecting; rip only own nets
     "module_clock",       # the module stage keeps its clock (kae.route.critical_joint.optimize_modules clock=True)
     # set by kae.joint.cli from its flags
     "keep", "no_physics", "no_modules", "budget_s", "route_parallel", "first_last_mile", "first_blocked",
@@ -754,11 +754,38 @@ class KaeStages:
             # Freerouting killed before it writes a session leaves the window unrouted
             rep["outcome"] = f"no time left to route ({left:.0f}s)"
             return None, rep
-        routed = self.route(mod, it, seed=seed, time_s=left,
-                            nets=set(plan.nets) | {n for sp in window.spots for n in sp.nets})
+        nets = set(plan.nets) | {n for sp in window.spots for n in sp.nets}
+        routed = self.route(mod, it, seed=seed, time_s=left, nets=nets)
         rep["route"] = routed.info.get("route")
+        if o.get("diag_windows"):
+            rep["ripup_nets"] = sorted(plan.nets)
+            self._diag_n = getattr(self, "_diag_n", 0) + 1
+            every = int(o.get("diag_bridge_every", 3))
+            if every > 0 and self._diag_n % every == 1:
+                rep["cf_bridge"] = self._diag_bridge(mod, it, seed, left, nets)
         rep["seconds"] = round(clock_now() - t0, 1)
         return routed, rep
+
+    def _diag_bridge(self, mod, it, seed, time_s, nets):
+        """diag_windows: the counterfactual of a window, the same input routed by the full bridge
+        (window_router=bridge) and evaluated, outside the run's budget (kae.budget.uncharged); the
+        result is only recorded."""
+        from kae.budget import uncharged
+        old = self.opts.get("window_router")
+        try:
+            with uncharged():
+                self.opts["window_router"] = "bridge"
+                cf = self.route(mod, it + 5000, seed=seed, time_s=max(75.0, time_s), nets=nets)
+                card, _ = self.evaluate(cf, it + 5000)
+                return dict(unconnected=card.unconnected, errors=card.errors, placement_errors=card.placement_errors,
+                            route=cf.info.get("route"))
+        except Exception as e:  # noqa: BLE001 - instrumentation never costs the run
+            return dict(error=f"{type(e).__name__}: {e}")
+        finally:
+            if old is None:
+                self.opts.pop("window_router", None)
+            else:
+                self.opts["window_router"] = old
 
     # ------------------------------------------------------------------ output
     def finish(self, lay, output):

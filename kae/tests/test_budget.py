@@ -72,3 +72,15 @@ def test_deadline_made_past_the_ceiling_has_passed():
         assert late.part(5.0).passed()
     finally:
         budget.set_mode("time")
+
+
+def test_uncharged_work_does_not_spend_the_budget():
+    c = budget.set_mode("work", rates={"x": 1.0, "poll": 0.0})
+    try:
+        c.ceiling = 100.0
+        budget.charge("x", 2)
+        with budget.uncharged():
+            budget.charge("x", 50)
+        assert c.spent == 2.0 and c.units["x"] == 52 and c.ceiling >= 100.0
+    finally:
+        budget.set_mode("time")
