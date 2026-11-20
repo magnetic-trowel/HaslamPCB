@@ -1,0 +1,188 @@
+{"board": "0xd6-flip-card-mirror-rp2350-60qfn-minimal", "src": "task", "fixed": 1, "pads": 1154, "matrices": [441], "buses": [], "skipped": [], "mat_libs": ["user_footprints:LED_0603_1608Metric"]}
+{"board": "0xlama-attiny-led-matrix-display-badge-led-matrix-display-badge", "src": "mech_rules", "fixed": 21, "pads": 69, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "8-lambda-8-showcontrollpcbs-touchboard", "src": "task", "fixed": 103, "pads": 985, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "adafruit-adafruit-eyelights-led-glasses-and-driver-pcb-adafruit-eyelights-led-glasses", "src": "task", "fixed": 12, "pads": 643, "matrices": [116], "buses": [], "skipped": [], "mat_libs": ["RGBLED_2121"]}
+{"board": "adafruit-adafruit-is31fl3741-pcb-adafruit-is31fl3741-matrix", "src": "task", "fixed": 9, "pads": 664, "matrices": [117], "buses": [], "skipped": [], "mat_libs": ["RGBLED_2121"]}
+{"board": "adafruit-adafruit-neokey-snap-apart-pcb-neokey-5x6-ortho-snap-apart", "src": "task", "fixed": 131, "pads": 971, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "afiskon-hbr-mk2-hbr-mk2-bpfs", "src": "task", "fixed": 8, "pads": 415, "matrices": [16], "buses": [], "skipped": [], "mat_libs": ["Relay_SMD:Relay_DPDT_Omron_G6K-2F-Y"]}
+{"board": "ainnovators-noob-sdr-noob-sdr", "src": "task", "fixed": 17, "pads": 1868, "matrices": [], "buses": [10], "skipped": [], "mat_libs": []}
+{"board": "aiwachow-micromouse-kicad-micromouse", "src": "task", "fixed": 37, "pads": 534, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "alheir-gatebench-gatebench", "src": "task", "fixed": 78, "pads": 953, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "anthilla-anthc-anthc", "src": "task", "fixed": 11, "pads": 735, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "antmicro-dc-sci-debug-interposer-dc-sci-debug-interposer", "src": "task", "fixed": 25, "pads": 1108, "matrices": [], "buses": [38], "skipped": [], "mat_libs": []}
+{"board": "antmicro-mec1723-espi-debugger-mec1723-espi-debugger", "src": "task", "fixed": 26, "pads": 901, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "antoniomr-wifi-play-board-wifi-pb", "src": "task", "fixed": 44, "pads": 547, "matrices": [], "buses": [7], "skipped": [], "mat_libs": []}
+{"board": "apoluekt-openrpncalc-main", "src": "task", "fixed": 53, "pads": 508, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "aronayub-kicad-matrix-project", "src": "task", "fixed": 11, "pads": 369, "matrices": [], "buses": [8, 8, 8, 8], "skipped": [], "mat_libs": []}
+{"board": "asmr-systems-development-boards-at42qt148-captouch", "src": "task", "fixed": 4, "pads": 145, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "atoomnetmarc-avr-demo-board-at90s2323", "src": "mech_rules", "fixed": 136, "pads": 441, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "axelvoitier-keebs-lergo", "src": "task", "fixed": 37, "pads": 848, "matrices": [], "buses": [], "skipped": [["matrix", 17, "user-interface parts", "Lergo Footprints:CherryMX_Lergo_v1_Module_1u"]], "mat_libs": []}
+{"board": "azonenberg-openfpga-gp4-hil", "src": "task", "fixed": 4, "pads": 1825, "matrices": [], "buses": [11, 11, 7], "skipped": [], "mat_libs": []}
+{"board": "beagleboard-beaglebone-black-wireless-beaglebone-black-wireless", "src": "task", "fixed": 26, "pads": 1510, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "beagleboard-beaglebone-blue-beaglebone-blue", "src": "task", "fixed": 45, "pads": 1541, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "bluthen-exposure-timing-nexta", "src": "task", "fixed": 4, "pads": 177, "matrices": [], "buses": [10, 10], "skipped": [], "mat_libs": []}
+{"board": "bombarie-tens-transcendance-transcendence", "src": "task", "fixed": 27, "pads": 438, "matrices": [32], "buses": [], "skipped": [], "mat_libs": ["Package_DIP:DIP-6_W7.62mm"]}
+{"board": "botanicfields-kicad-bf-010", "src": "task", "fixed": 14, "pads": 277, "matrices": [], "buses": [7], "skipped": [], "mat_libs": []}
+{"board": "brentseidel-circuits-ioboard", "src": "task", "fixed": 15, "pads": 192, "matrices": [], "buses": [8, 8, 8, 8], "skipped": [], "mat_libs": []}
+{"board": "brillar0101-neuralcard-neuralcard", "src": "task", "fixed": 9, "pads": 249, "matrices": [24], "buses": [], "skipped": [], "mat_libs": ["LED-SMD_L1.6-W0.8-R-RD"]}
+{"board": "calcpsu-tikeyboard-ti59-keyboard", "src": "mech_rules", "fixed": 59, "pads": 194, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "carlosedp-qsfp-hdmi-storeypeak-qsfp-io", "src": "task", "fixed": 2, "pads": 136, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "cheyao-icepi-zero-icepi-zero", "src": "task", "fixed": 12, "pads": 807, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "cheyao-icepi-zero-icepi-zero-2", "src": "task", "fixed": 11, "pads": 748, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "chipiki-pxfmini-v2-rbpi-z-hat", "src": "task", "fixed": 14, "pads": 512, "matrices": [], "buses": [10, 6], "skipped": [], "mat_libs": []}
+{"board": "ciaa-hardware-ciaa-nxp", "src": "task", "fixed": 39, "pads": 1482, "matrices": [], "buses": [7], "skipped": [], "mat_libs": []}
+{"board": "computergeek1507-kicad-designs-expansion-buffer", "src": "task", "fixed": 2, "pads": 112, "matrices": [], "buses": [16], "skipped": [], "mat_libs": []}
+{"board": "crides-steno-steno", "src": "task", "fixed": 4, "pads": 406, "matrices": [], "buses": [], "skipped": [["matrix", 30, "user-interface parts", "pg1350:PG1350"]], "mat_libs": []}
+{"board": "crsknr-hw-udsp-card-udsp-card", "src": "task", "fixed": 14, "pads": 987, "matrices": [], "buses": [7, 6], "skipped": [], "mat_libs": []}
+{"board": "cutiepi-io-cutiepi-board-cutiepi-v2-3", "src": "task", "fixed": 16, "pads": 1083, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "dangerousprototypes-buspirateultrahardware-bpuv2a", "src": "task", "fixed": 20, "pads": 895, "matrices": [], "buses": [10], "skipped": [], "mat_libs": []}
+{"board": "dlehenbauer-commodore-pet-clone-mainboard", "src": "task", "fixed": 38, "pads": 1761, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "duncmccl-armstrong-uduino", "src": "task", "fixed": 26, "pads": 541, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "dynamicgoose-mu-micro-deck-mu-carrier-board", "src": "task", "fixed": 31, "pads": 1316, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "e3w2q-te96-keyboard-te96", "src": "mech_rules", "fixed": 34, "pads": 954, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "eez-open-dib-smx46-eez-dib-smx46-r1b6", "src": "task", "fixed": 5, "pads": 647, "matrices": [24], "buses": [], "skipped": [], "mat_libs": ["FTR-C1"]}
+{"board": "eggsampler-pciedma-pciedma", "src": "task", "fixed": 9, "pads": 1402, "matrices": [], "buses": [18], "skipped": [], "mat_libs": []}
+{"board": "emard-ulx3s-ulx3s", "src": "task", "fixed": 20, "pads": 1177, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "emdotnet-stmbl-ethernet-bob", "src": "task", "fixed": 11, "pads": 906, "matrices": [], "buses": [7], "skipped": [], "mat_libs": []}
+{"board": "famichu-maglev-switch-mx-sample-numeric-keyboard", "src": "task", "fixed": 24, "pads": 268, "matrices": [], "buses": [10], "skipped": [], "mat_libs": []}
+{"board": "fastbeam-fastbeam-fastbeam-6a", "src": "task", "fixed": 14, "pads": 636, "matrices": [16], "buses": [], "skipped": [], "mat_libs": ["LED_SMD:LED_0805_2012Metric"]}
+{"board": "fm4dd-gm-proto-e1-gm-proto-e1", "src": "task", "fixed": 13, "pads": 808, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "freesurfer-rge-slothpu16-barrel-shifter", "src": "task", "fixed": 1, "pads": 414, "matrices": [16], "buses": [], "skipped": [], "mat_libs": ["Package_SO:SOIC-20W_7.5x12.8mm_P1.27mm"]}
+{"board": "freesurfer-rge-slothpu16-register-file", "src": "task", "fixed": 1, "pads": 994, "matrices": [16], "buses": [], "skipped": [], "mat_libs": ["Package_SO:SOIC-20W_7.5x12.8mm_P1.27mm"]}
+{"board": "freetronics-arduphone-phone", "src": "task", "fixed": 37, "pads": 403, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "freetronics-arduphone2-phone2", "src": "mech_rules", "fixed": 37, "pads": 442, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "freetronics-leopad-leopad", "src": "mech_rules", "fixed": 27, "pads": 221, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "freetronics-leopadmini-leopadmini", "src": "task", "fixed": 27, "pads": 223, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "freetronics-leopadretrofit-leopadretrofit", "src": "mech_rules", "fixed": 29, "pads": 189, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "fri3dcamp-badge-fri3d-badge-2018-2", "src": "task", "fixed": 11, "pads": 436, "matrices": [], "buses": [7], "skipped": [], "mat_libs": []}
+{"board": "frooastside-frooastboard-frooastboard-walnut", "src": "task", "fixed": 92, "pads": 1024, "matrices": [48], "buses": [], "skipped": [], "mat_libs": ["Frooastboard Footprints:Everlight 99-235"]}
+{"board": "gianlucarenzi-a130kb-mx-a130xe-cx85", "src": "mech_rules", "fixed": 27, "pads": 173, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "girishji-choc-keyboard-choc-keyboard", "src": "mech_rules", "fixed": 92, "pads": 1152, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "git4dcc-rtb-e10-e10", "src": "task", "fixed": 10, "pads": 155, "matrices": [], "buses": [8, 8], "skipped": [], "mat_libs": []}
+{"board": "gitbykalimenope-hackrf-circuit-board-kicad-hackrf-one", "src": "task", "fixed": 21, "pads": 1735, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "grassfedreeve-akohekohe-akohekohe", "src": "mech_rules", "fixed": 29, "pads": 241, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "grassfedreeve-akohekohe-akohekohe-min-choc", "src": "mech_rules", "fixed": 27, "pads": 229, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "greatscottgadgets-hackrf-hackrf-one", "src": "task", "fixed": 24, "pads": 1639, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "gregdavill-advent-calendar-of-circuits-2020-gpdi", "src": "task", "fixed": 4, "pads": 235, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "gregdavill-perplexingly-petite-pov-pppov-2", "src": "task", "fixed": 5, "pads": 82, "matrices": [20], "buses": [], "skipped": [], "mat_libs": ["ppPOV:0201_led"]}
+{"board": "hackclub-onboard-icepi-zero", "src": "task", "fixed": 10, "pads": 722, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "hanya-escpt-data", "src": "mech_rules", "fixed": 24, "pads": 302, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "hotwolf-aricalculator-aricalculator-revc", "src": "task", "fixed": 4, "pads": 910, "matrices": [], "buses": [], "skipped": [["matrix", 38, "user-interface parts", "key"]], "mat_libs": []}
+{"board": "hotwolf-aricalculator-keypad", "src": "task", "fixed": 1, "pads": 776, "matrices": [], "buses": [], "skipped": [["matrix", 64, "user-interface parts", "Keypad:key"]], "mat_libs": []}
+{"board": "hugelton-btns-btns-board", "src": "task", "fixed": 35, "pads": 420, "matrices": [], "buses": [], "skipped": [["matrix", 38, "user-interface parts", "Hugelton:TSHD-T-2.8T2--6H"]], "mat_libs": []}
+{"board": "hyperglitch-dc2024badge-dcbadge24", "src": "task", "fixed": 4, "pads": 313, "matrices": [26], "buses": [], "skipped": [], "mat_libs": ["LED_SMD:LED_0603_1608Metric"]}
+{"board": "intergalaktik-ulx4m-ls-ulx4m", "src": "task", "fixed": 22, "pads": 1189, "matrices": [], "buses": [22], "skipped": [], "mat_libs": []}
+{"board": "interrupt-tv-diode-rom-diode-rom-16", "src": "task", "fixed": 1, "pads": 331, "matrices": [128], "buses": [], "skipped": [], "mat_libs": ["Diode_THT:D_DO-35_SOD27_P2.54mm_Vertical_KathodeUp"]}
+{"board": "iorodeo-panels-g4-single-pcb-driver-cplex-rp2040", "src": "task", "fixed": 7, "pads": 1533, "matrices": [256], "buses": [], "skipped": [], "mat_libs": ["panel_custom:LED_0402_1005Metric"]}
+{"board": "iorodeo-panels-g4-single-pcb-driver-rp2350", "src": "task", "fixed": 7, "pads": 1308, "matrices": [324], "buses": [], "skipped": [], "mat_libs": ["panel_custom:LED_0402_1005Metric"]}
+{"board": "iorodeo-panels-g4-single-pcb-rp2350-fit-check", "src": "task", "fixed": 7, "pads": 1109, "matrices": [256], "buses": [], "skipped": [], "mat_libs": ["panel_custom:LED_0402_1005Metric"]}
+{"board": "ivanxblue-oresat-gps-hardware-usb-gps", "src": "task", "fixed": 5, "pads": 608, "matrices": [], "buses": [7], "skipped": [], "mat_libs": []}
+{"board": "izehouze-a-10c-ufc-a-10c-ufc", "src": "mech_rules", "fixed": 44, "pads": 210, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "jabadiagm-msxgoauld-x-msx-goauld-xc7", "src": "mech_rules", "fixed": 2, "pads": 364, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "jackmatanky-kb-snak-rufous", "src": "mech_rules", "fixed": 31, "pads": 291, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "jaxc-magna-magna", "src": "task", "fixed": 22, "pads": 772, "matrices": [], "buses": [12, 6], "skipped": [], "mat_libs": []}
+{"board": "jflitton-the-c128-keyboard-project-c128-keyboard", "src": "mech_rules", "fixed": 93, "pads": 733, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "jjhorton-pmod-pmod-ledarray", "src": "task", "fixed": 5, "pads": 306, "matrices": [128], "buses": [], "skipped": [], "mat_libs": ["LED_SMD:LED_0603_1608Metric"]}
+{"board": "jjhorton-pmod-pmod-rgb7segment", "src": "task", "fixed": 3, "pads": 533, "matrices": [90], "buses": [], "skipped": [], "mat_libs": ["jjh:SX-0402-RGB"]}
+{"board": "jonathanferron-miyocalc40-miyocalc40", "src": "task", "fixed": 48, "pads": 221, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "justsem-rp2040-868-rp2040gpstracker", "src": "task", "fixed": 13, "pads": 533, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "kicad-code-kicad-dexter-motorctrl", "src": "task", "fixed": 23, "pads": 918, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "kiibohd-pcb-ic60", "src": "mech_rules", "fixed": 159, "pads": 801, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "kiibohd-pcb-icedleft", "src": "task", "fixed": 87, "pads": 618, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "kiibohd-pcb-whitefox", "src": "mech_rules", "fixed": 195, "pads": 1111, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "king-jam-xmas-2018-christmas-2018", "src": "task", "fixed": 2, "pads": 69, "matrices": [20], "buses": [], "skipped": [], "mat_libs": ["LEDs:LED_0603_HandSoldering"]}
+{"board": "krzys9876-zx-spectrum-diy-keyb2", "src": "mech_rules", "fixed": 44, "pads": 214, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "kubajznicek-adaptboard-keypad-pcb", "src": "mech_rules", "fixed": 25, "pads": 215, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "librerouter-boards-mega-board", "src": "task", "fixed": 40, "pads": 1337, "matrices": [], "buses": [14, 9], "skipped": [], "mat_libs": []}
+{"board": "licentia-eu-hc91-kicad-keyboard-keyboard-91", "src": "task", "fixed": 36, "pads": 150, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "logisim-evolution-gecko5education-cpuaddon", "src": "task", "fixed": 13, "pads": 814, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "logisim-evolution-gecko5education-gecko5education", "src": "task", "fixed": 17, "pads": 1711, "matrices": [120], "buses": [8], "skipped": [], "mat_libs": ["gecko4education:EAST1616RGBB2_EVE"]}
+{"board": "machdyne-bonbon-bonbon", "src": "task", "fixed": 11, "pads": 486, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "machdyne-eis-eis", "src": "task", "fixed": 11, "pads": 570, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "machdyne-keks-keks", "src": "task", "fixed": 15, "pads": 854, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "machdyne-kuchen-kuchen", "src": "task", "fixed": 9, "pads": 599, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "machdyne-schoko-schoko", "src": "task", "fixed": 10, "pads": 647, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "markwestbroek-musicbrain-musicbrain-adc8", "src": "task", "fixed": 2, "pads": 137, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "markwestbroek-musicbrain-musicbrain-gate8", "src": "task", "fixed": 2, "pads": 72, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "matthewcieplak-super-sixteen-kicad-control-board-smt", "src": "task", "fixed": 57, "pads": 352, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "mattybrad-drumkid2-dk2-04-top", "src": "task", "fixed": 55, "pads": 464, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "mattybrad-drumkid2-dk2-07", "src": "task", "fixed": 51, "pads": 731, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "mbfredys-pcb-3-phase-energy-monitor-smart-switch-with-energy-monitoring", "src": "task", "fixed": 43, "pads": 680, "matrices": [], "buses": [9], "skipped": [], "mat_libs": []}
+{"board": "mbfredys-pcb-temperature-controller-controlador-temperatura", "src": "task", "fixed": 11, "pads": 292, "matrices": [], "buses": [8, 8], "skipped": [], "mat_libs": []}
+{"board": "mkulesh-stm32developmentboards-stm-adapters", "src": "task", "fixed": 3, "pads": 438, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "mkulesh-stm32digitalclock-mcuboard", "src": "task", "fixed": 1, "pads": 362, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "mlab-modules-batdatunit01-batdatunit01", "src": "task", "fixed": 19, "pads": 845, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "modos-labs-lancer-pcb", "src": "task", "fixed": 19, "pads": 1348, "matrices": [], "buses": [7], "skipped": [], "mat_libs": []}
+{"board": "mornepousse-niphargus-niphar", "src": "task", "fixed": 76, "pads": 1224, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "mossmann-daisho-hdmi", "src": "task", "fixed": 10, "pads": 1262, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "naokiiwakami-cv-depot-cv-depot", "src": "task", "fixed": 32, "pads": 668, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "nf-dj-netforce-tpu-nf-tpu", "src": "task", "fixed": 15, "pads": 898, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "nf-dj-netforce-tpu-nf-tpu-2", "src": "task", "fixed": 25, "pads": 832, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "ohmtech-rdi-eurorack-blocks-kivu12", "src": "task", "fixed": 16, "pads": 466, "matrices": [], "buses": [8, 8], "skipped": [], "mat_libs": []}
+{"board": "ohwr-project-fmc-adc-500m14b4cha-fmc-adc500m", "src": "task", "fixed": 26, "pads": 1552, "matrices": [], "buses": [16], "skipped": [], "mat_libs": []}
+{"board": "open-ephys-acquisition-board-acquisition-board", "src": "mech_rules", "fixed": 16, "pads": 1934, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "open-ephys-acquisition-board-acquisition-board-2", "src": "task", "fixed": 16, "pads": 1266, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "open-ephys-onix-fmc-host-fmc-host", "src": "task", "fixed": 10, "pads": 1670, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "open-muscle-openmuscle-band-om-60-flex", "src": "task", "fixed": 2, "pads": 162, "matrices": [], "buses": [], "skipped": [["matrix", 60, "user-interface parts", "FlexSensorFootprint:10mmPad"]], "mat_libs": []}
+{"board": "open-muscle-openmuscle-flexgrid-om-flexgrid-flex", "src": "task", "fixed": 1, "pads": 139, "matrices": [], "buses": [], "skipped": [["matrix", 60, "user-interface parts", "FlexSensorFootprint:10mmPad"]], "mat_libs": []}
+{"board": "openwch-ch585-captouchkeyboard-v2-0", "src": "task", "fixed": 5, "pads": 389, "matrices": [], "buses": [], "skipped": [["matrix", 48, "user-interface parts", "CapTouchKeyboard:TOUCH_PAD"]], "mat_libs": []}
+{"board": "peetz0r-why2025-badge-hardware-led-matrix", "src": "task", "fixed": 3, "pads": 600, "matrices": [240], "buses": [], "skipped": [], "mat_libs": ["LED_SMD:LED_0603_1608Metric"]}
+{"board": "physical-computation-warp-hardware-warp-reva", "src": "task", "fixed": 1, "pads": 486, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "pietptr-microdox-pcb-microdox", "src": "task", "fixed": 33, "pads": 484, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "pietptr-microdox-pcb-microdox-leds", "src": "task", "fixed": 32, "pads": 502, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "pietptr-microdox-pcb-print-microdox", "src": "mech_rules", "fixed": 33, "pads": 484, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "pigatron-industries-xen-octasource-pgtn021-octasource-mkii-controls", "src": "task", "fixed": 23, "pads": 263, "matrices": [16], "buses": [], "skipped": [], "mat_libs": ["CHIPLED_0805"]}
+{"board": "pigatron-industries-xen-octasource-pgtn021-octasource-mkiii-controls", "src": "task", "fixed": 25, "pads": 289, "matrices": [16], "buses": [], "skipped": [], "mat_libs": ["CHIPLED_0805"]}
+{"board": "pigatron-industries-xen-octasource-pgtn021-octasource2a-controls", "src": "task", "fixed": 23, "pads": 315, "matrices": [16], "buses": [], "skipped": [], "mat_libs": ["CHIPLED_0805"]}
+{"board": "pigatron-industries-xen-octasource-pgtn021-octasource2b-controls", "src": "task", "fixed": 15, "pads": 271, "matrices": [16], "buses": [], "skipped": [], "mat_libs": ["CHIPLED_0805"]}
+{"board": "pigatron-industries-xen-octasource-pgtn021-octasource2c-controls", "src": "task", "fixed": 15, "pads": 263, "matrices": [16], "buses": [], "skipped": [], "mat_libs": ["CHIPLED_0805"]}
+{"board": "pinguz97-zynq-som-zynq-som", "src": "task", "fixed": 7, "pads": 1912, "matrices": [], "buses": [24], "skipped": [], "mat_libs": []}
+{"board": "piotr-binkowski-kintex-pcie-board-kintex-pcie", "src": "task", "fixed": 8, "pads": 1254, "matrices": [], "buses": [18], "skipped": [], "mat_libs": []}
+{"board": "plinkysynth-plinky-public-plinkyblack-hwmidi-jacks", "src": "task", "fixed": 32, "pads": 993, "matrices": [], "buses": [16, 8], "skipped": [], "mat_libs": []}
+{"board": "pms67-hadesfcs-hades", "src": "task", "fixed": 18, "pads": 867, "matrices": [], "buses": [10], "skipped": [], "mat_libs": []}
+{"board": "pparent76-own-mailbox-hardware-mailbox", "src": "task", "fixed": 5, "pads": 828, "matrices": [], "buses": [6], "skipped": [], "mat_libs": []}
+{"board": "protocentral-healthypi-pc-healthypi-v1", "src": "task", "fixed": 5, "pads": 515, "matrices": [], "buses": [7, 6], "skipped": [], "mat_libs": []}
+{"board": "rallekralle11-dis-thermometer-termometer2", "src": "task", "fixed": 8, "pads": 431, "matrices": [90], "buses": [], "skipped": [], "mat_libs": ["diy:LED_0603_1608Metric"]}
+{"board": "ricaflops-jupiter-ii-jupiter-ii-keyboard", "src": "mech_rules", "fixed": 45, "pads": 184, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "rqcoon-help-help", "src": "task", "fixed": 26, "pads": 378, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "rweick-ref1191-datel-n64-gameshark-ref1191", "src": "task", "fixed": 4, "pads": 304, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "rweick-ref1198-datel-n64-gameshark-ref1198", "src": "task", "fixed": 4, "pads": 308, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "salehghobari-helloboardpcb-helloboard", "src": "task", "fixed": 12, "pads": 219, "matrices": [], "buses": [7], "skipped": [], "mat_libs": []}
+{"board": "scottapotamas-displayport-switch-displayport-switch", "src": "task", "fixed": 4, "pads": 225, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "secersh-etzee-etz-b11-lsc-6-choc-v2", "src": "mech_rules", "fixed": 22, "pads": 198, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "secersh-etzee-etz-b11-lsp-5-choc-v2", "src": "task", "fixed": 0, "pads": 1320, "matrices": [330], "buses": [], "skipped": [], "mat_libs": ["0201_LED"]}
+{"board": "secersh-etzee-etz-b11-rsc-6-ks-33", "src": "mech_rules", "fixed": 22, "pads": 198, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "shaduzlabs-pink-0-pink-0", "src": "task", "fixed": 3, "pads": 133, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "skiselev-omega-omega-keyboard", "src": "mech_rules", "fixed": 85, "pads": 468, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "smoothieware-smoothieboard2-smoothiev2-prime", "src": "task", "fixed": 58, "pads": 1907, "matrices": [], "buses": [9], "skipped": [], "mat_libs": []}
+{"board": "smoothieware-smoothieboard2-v2-core", "src": "task", "fixed": 48, "pads": 1353, "matrices": [], "buses": [9], "skipped": [], "mat_libs": []}
+{"board": "solderedelectronics-8x8-led-matrix-green-max7219-board-hardware-design-led-matrix-max7219", "src": "task", "fixed": 3, "pads": 167, "matrices": [64], "buses": [], "skipped": [], "mat_libs": ["e-radionica.com footprinti:0402LED"]}
+{"board": "solderparty-keebdeck-basic-hw-keebdeck-basic", "src": "mech_rules", "fixed": 87, "pads": 348, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "soundpuddle-soundpuddle-hardware-soundpuddle-megawing-mk1", "src": "task", "fixed": 5, "pads": 926, "matrices": [], "buses": [7], "skipped": [], "mat_libs": []}
+{"board": "sourcebox-74hc595-breakout-74hc595-breakout", "src": "task", "fixed": 11, "pads": 362, "matrices": [], "buses": [8, 8, 8, 8, 8, 8, 8, 8], "skipped": [], "mat_libs": []}
+{"board": "sparkfun-badgerarray-sparkfun-badgerarray", "src": "task", "fixed": 4, "pads": 140, "matrices": [56], "buses": [], "skipped": [], "mat_libs": ["LED-0603"]}
+{"board": "sparkfun-led-array-8x7-sparkfun-led-array-8x7", "src": "task", "fixed": 4, "pads": 140, "matrices": [56], "buses": [], "skipped": [], "mat_libs": ["LED-0603"]}
+{"board": "sparkfun-led-ringcoder-breakout-led-ringcoder", "src": "task", "fixed": 1, "pads": 129, "matrices": [], "buses": [8, 8], "skipped": [], "mat_libs": []}
+{"board": "sparkfun-mp3-trigger-mp3-trigger", "src": "task", "fixed": 8, "pads": 336, "matrices": [], "buses": [16], "skipped": [], "mat_libs": []}
+{"board": "sparkfun-serial-7-segment-shield-serial-7-segment-shield", "src": "task", "fixed": 1, "pads": 130, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "spritetm-hadbadge2019-pcb-hadbadge2019", "src": "task", "fixed": 29, "pads": 1018, "matrices": [], "buses": [10], "skipped": [], "mat_libs": []}
+{"board": "swetland-zx81-keyboard-zx81-kbd", "src": "mech_rules", "fixed": 46, "pads": 217, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "tebl-rc1802-cosmac-elf-rc1802-keypad", "src": "task", "fixed": 17, "pads": 88, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "tengigabytes-mokyalora-mokyalora", "src": "task", "fixed": 58, "pads": 1262, "matrices": [], "buses": [12], "skipped": [], "mat_libs": []}
+{"board": "topola-topola-5x5-1206-led-matrix", "src": "task", "fixed": 1, "pads": 126, "matrices": [25], "buses": [], "skipped": [], "mat_libs": ["LED_SMD:LED_1206_3216Metric"]}
+{"board": "tpcarlson-synth-diy-d6", "src": "task", "fixed": 50, "pads": 576, "matrices": [], "buses": [], "skipped": [], "mat_libs": []}
+{"board": "trebb-iso50-pcb", "src": "task", "fixed": 10, "pads": 391, "matrices": [], "buses": [], "skipped": [["matrix", 52, "user-interface parts", "iso50:MXDIODE"]], "mat_libs": []}
+{"board": "trol73-avr-ic-tester-tester", "src": "task", "fixed": 3, "pads": 205, "matrices": [], "buses": [22], "skipped": [], "mat_libs": []}
+{"board": "vanvught-kicad-gd32f207rg-pixel-8-gd32f207rg-pixel-8", "src": "task", "fixed": 13, "pads": 205, "matrices": [], "buses": [8, 8], "skipped": [], "mat_libs": []}
+{"board": "vanvught-kicad-gd32f470vg-pixel-16-gd32f470vg-pixel-16", "src": "task", "fixed": 24, "pads": 515, "matrices": [], "buses": [8, 8, 8, 8], "skipped": [], "mat_libs": []}
+{"board": "vikulin-gammapi-zero-icepi-zero", "src": "task", "fixed": 12, "pads": 805, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "watterott-rpi-dpi-hat-rpi-dpi-hat-v10", "src": "task", "fixed": 1, "pads": 207, "matrices": [], "buses": [16], "skipped": [], "mat_libs": []}
+{"board": "watterott-vcard-vcard-v10", "src": "task", "fixed": 0, "pads": 358, "matrices": [96], "buses": [], "skipped": [], "mat_libs": ["CHIPLED_0603"]}
+{"board": "wcp52-synthesizer-ad9958-dev", "src": "task", "fixed": 4, "pads": 266, "matrices": [], "buses": [8], "skipped": [], "mat_libs": []}
+{"board": "will127534-lora-concentrator-radio", "src": "task", "fixed": 4, "pads": 391, "matrices": [], "buses": [9, 8], "skipped": [], "mat_libs": []}
+{"board": "will127534-lora-concentrator-radio-pizero", "src": "task", "fixed": 3, "pads": 350, "matrices": [], "buses": [10], "skipped": [], "mat_libs": []}
+{"board": "will127534-lora-concentrator-radio-rpi", "src": "task", "fixed": 3, "pads": 408, "matrices": [], "buses": [9, 9], "skipped": [], "mat_libs": []}
+{"board": "aerospace-venoms-bccc-temperature-sao-bccc-sao-rp2350a", "src": "mech_rules", "fixed": 6, "pads": 330, "matrices": [24], "buses": [], "skipped": [], "mat_libs": ["Custom_LED_footprint:LED-SMD_L1.7-W1.1-R-RD_BULE"]}
+{"board": "jana-marie-haj-coaster-coaster-backboard", "src": "mech_rules", "fixed": 11, "pads": 436, "matrices": [58, 20], "buses": [], "skipped": [], "mat_libs": ["LED_SMD:LED_0603_1608Metric", "otter:FC-B1010RGBT-HG"]}
+{"board": "madcatse-mad5160-mad5160", "src": "mech_rules", "fixed": 19, "pads": 2467, "matrices": [36], "buses": [], "skipped": [], "mat_libs": ["mad5150:Ram_socket_IC"]}
+{"board": "rishi-k-s-metrocard-prototype-metrocard", "src": "mech_rules", "fixed": 1, "pads": 144, "matrices": [48], "buses": [], "skipped": [], "mat_libs": ["LED_SMD:LED_1206_3216Metric"]}
