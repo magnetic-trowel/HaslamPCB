@@ -15,7 +15,7 @@ exists for a method on a board is reused by every later experiment.
   kaeres method add NAME --adapter freerouting --binary DIR/bin/freerouting --code router=SRC_OR_URL@REF [...]
   kaeres method add human --reference
   kaeres method list | show ID
-  kaeres exp create NAME --method NAME_OR_ID [...] [--boards @FILE] [--harness REF] [--kae REF]
+  kaeres exp create NAME --method NAME_OR_ID [...] [--boards @FILE] [--harness REF] [--kae REF] [--tier TIER]
   kaeres exp submit NAME [--limit N] [--only ids|@FILE]    # queue one kaeq job per board that lacks runs
   kaeres exp status NAME | report NAME | install-timer NAME
   kaeres board ID                                          # every run and score of one board
@@ -645,6 +645,39 @@ def load_exp(name):
     return e
 
 
+# Experiment tiers (docs/topics/verification/experiment-tiers.md): a sprint campaign is small and on cheap
+# boards; the other tiers lift both limits and are recorded in experiment.json.
+TIERS = {"sprint": dict(total_cpu_h=40.0, board_cpu_h=0.5), "ladder": None, "canary": None}
+
+
+def tier_guard(tier, runs, what):
+    """Print the CPU-hours `what` is estimated to cost and exit unless it fits its tier. runs: board ->
+    method-runs to make. A board costs its mean CPU-h per method-run in the index (suites.history); one
+    without history, the mean of its footprint band, and the per-board limit does not apply to it."""
+    import suites
+    index = STORE / "index.sqlite"
+    if not index.exists():
+        print(f"{what}: no {index}, so no CPU estimate and no check of tier {tier}; `kaeres index` builds it")
+        return
+    c = suites.open_index(index)
+    hist = suites.history(c)
+    est = suites.estimator(hist, dict(c.execute("SELECT id, footprints FROM boards")))
+    c.close()
+    total = sum(est(b)[0] * n for b, n in runs.items())
+    print(f"{what}: estimated {total:.1f} CPU-h from board history ({sum(runs.values())} method-runs on {len(runs)} boards, "
+          f"{sum(b in hist for b in runs)} with history, the others by size); tier {tier}")
+    lim = TIERS[tier]
+    if not lim:
+        return
+    over = sorted((b for b, n in runs.items() if n and hist.get(b, 0) > lim["board_cpu_h"]), key=lambda b: (-hist[b], b))
+    if total > lim["total_cpu_h"] or over:
+        worst = f" and {len(over)} boards are over ({', '.join(f'{b} {hist[b]:.1f}' for b in over[:3])}{', ...' if len(over) > 3 else ''})"
+        raise SystemExit(f"refused: tier {tier} allows {lim['total_cpu_h']:g} CPU-h in all and {lim['board_cpu_h']:g} CPU-h per "
+                         f"method-run on a board; this is {total:.1f} CPU-h{worst if over else ''}.\n"
+                         "Do this: run it on bench/suites/sprint-frontier.txt or sprint-quality.txt (--boards @FILE) with fewer "
+                         "methods or attempts; once it has passed sprint, add --tier ladder (--tier canary for the big boards).")
+
+
 def cmd_exp_create(a):
     d = exp_dir(a.name)
     if (d / "experiment.json").exists():
@@ -680,6 +713,8 @@ def cmd_exp_create(a):
         raise SystemExit(f"methods prepared with a harness of another task spec than {harness[:7]}'s ({want}): "
                          + "; ".join(f"{n} {i} (spec {s})" for n, i, s in off)
                          + ". Register them again with --harness at this experiment's harness.")
+    n_runs = a.attempts * sum(m["recipe"]["runner"]["type"] != "reference" for m in ms)
+    tier_guard(a.tier, {b: n_runs for b in boards}, f"experiment {a.name}")
     # runs made at another time are not comparable: on this shared host the same code, seeds and time
     # budget left 13.9 % more open connections a few days later (zone-keepout-ab2 against zone-ab's base
     # runs, 47 boards, p < 0.001), more than the effects the A/Bs measure; so an experiment makes all of
@@ -702,7 +737,7 @@ def cmd_exp_create(a):
     evs = evaluators_for(harness, kae, kicad)
     e = dict(schema=SCHEMA, name=a.name, reuse_runs=bool(a.reuse_runs), description=a.description or "", created=now(),
              session=os.environ.get("KAEQ_SESSION") or os.environ.get("CLAUDE_CODE_SESSION_ID"),  # who looks after it
-             methods=[dict(id=m["id"], name=m["name"]) for m in ms], attempts=a.attempts,
+             methods=[dict(id=m["id"], name=m["name"]) for m in ms], attempts=a.attempts, tier=a.tier,
              harness=dict(commit=harness, link=github_link("https://github.com/magnetic-trowel/kicad-auto-everything", harness)),
              kae=dict(commit=kae, link=github_link("https://github.com/magnetic-trowel/kicad-auto-everything", kae)),
              kicad=kicad, evaluators=evs, corpus=str(CORPUS), corpus_manifest_sha256=sha256_file(CORPUS / "manifest.jsonl"),
@@ -766,7 +801,7 @@ def cmd_exp_submit(a):
     ms = {m["id"]: find_method(m["id"]) for m in e["methods"]}
     script = code_dir(e["harness"]["commit"]) / "tools" / "kaeres" / "kaeres.py"
     py = code_dir(e["harness"]["commit"]).with_name(code_dir(e["harness"]["commit"]).name + ".venv") / "bin" / "python"
-    jobs = []
+    jobs, runs = [], {}
     boards.sort(key=lambda b: hashlib.sha1(b.encode()).hexdigest())  # sizes mixed over the run
     for bid in boards:
         if bid not in rows:
@@ -774,6 +809,7 @@ def cmd_exp_submit(a):
         need = missing(e, bid)
         if not need or (prepare_failed(e, bid) and not a.redo):
             continue
+        runs[bid] = sum(ms[m]["recipe"]["runner"]["type"] != "reference" for m, _ in need)
         cost = {m: method_timeout(ms[m], rows[bid]) for m, _ in need}
         chunks = plan_chunks(need, cost, job_overhead_s(board_size_mb(rows[bid])))
         for i, ch in enumerate(chunks):
@@ -788,6 +824,10 @@ def cmd_exp_submit(a):
                              mem=est["mem"], disk=est["disk"], timeout=est["timeout"], size_mb=est["size_mb"]))
         if a.limit and len(jobs) >= a.limit:
             break
+    tier = a.tier or e.get("tier") or "sprint"  # an experiment from before the tiers is a sprint until told otherwise
+    tier_guard(tier, runs, f"submit {a.name}")
+    if tier != e.get("tier") and not a.dry_run:
+        write_json(exp_dir(a.name) / "experiment.json", dict(e, tier=tier))
     jobs = spread_large(jobs, lambda j: j["size_mb"] > LARGE_MB)  # kaeq runs them in this order
     f = exp_dir(a.name) / f"jobs-{datetime.now().strftime('%Y%m%dT%H%M%S')}.jsonl"
     f.write_text("".join(json.dumps(j) + "\n" for j in jobs))
@@ -2699,6 +2739,9 @@ def main():
     s.add_argument("--method", action="append", required=True)
     s.add_argument("--boards", help="ids or @FILE (default: the whole corpus)")
     s.add_argument("--attempts", type=int, default=1)
+    s.add_argument("--tier", choices=sorted(TIERS), default="sprint",
+                   help="sprint: at most 40 CPU-h, no board over 0.5 CPU-h per method-run (estimated from the index); "
+                        "ladder and canary lift the limits")
     s.add_argument("--harness", default="HEAD", help="revision for prepare, the human reference and physics briefs")
     s.add_argument("--kae", default="origin/claude/vigilant-mayer-i91rrr", help="revision with the kae package (physics)")
     s.add_argument("--env", action="append", metavar="KEY=VALUE",
@@ -2710,6 +2753,7 @@ def main():
     s = ep.add_parser("submit")
     s.add_argument("name"), s.add_argument("--only"), s.add_argument("--limit", type=int)
     s.add_argument("--redo", action="store_true", help="also retry boards whose prepare failed")
+    s.add_argument("--tier", choices=sorted(TIERS), help="change the experiment's tier (default: the one it was created with)")
     s.add_argument("--dry-run", action="store_true")
     s.set_defaults(f=cmd_exp_submit)
     for n, f in (("status", cmd_exp_status), ("report", cmd_exp_report), ("install-timer", cmd_exp_timer)):
