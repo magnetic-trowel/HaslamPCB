@@ -1,6 +1,6 @@
 # kae staged: place, then route with the bridge
 
-**Status:** worked on splits A+B; partial on split C (our placements route worse than the human ones).
+**Status:** worked on splits A+B; partial on split C (our placements route worse than the human ones). Not the best method on the merit set: on `s2-merit213` its clean lead over the bridge on the human placement (63 vs 58 boards) comes from re-placing away errors in the human placement; it leaves more opens on 47 boards, fewer on 10, with lower completion and 8 no-output boards ([audit-2611b](../audit-2611b.md#corrected-beliefs)).
 **First published:** 2026-10-23, commit [7bd163f](https://github.com/magnetic-trowel/kicad-auto-everything/commit/7bd163f432a0ce4aeb115e0bc87f3777f70f4e2e) on branch `claude/vigilant-mayer-i91rrr` (as `--max-iters 0` of the joint loop; pipeline A/B at [c9c49d6](https://github.com/magnetic-trowel/kicad-auto-everything/commit/c9c49d6bd21128a526a9b1386a56e8ec875068db)).
 
 Scope: the sequential kae baseline: [`kae place`](../placement/kae-placer.md) with physics, then the [kae Freerouting bridge](../routing/kae-freerouting-bridge.md) with [last mile](../routing/kae-last-mile.md); no module stage, windows or finishing stage. Not here: staged arms of the joint A/B runs (4814e11, 0465818, last-mile local) -> [kae-joint-loop.md](kae-joint-loop.md#results); fixed-interface tasks (`place-fixed`, `joint-fixed`) -> [kae-fixed-interface](../placement/kae-fixed-interface.md).
