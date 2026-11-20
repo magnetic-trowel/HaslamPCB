@@ -272,9 +272,11 @@ def nets(d):
     d.domain("BATRAW", ref="GND", kind="selv", description="battery lead before D201/F201; -16..16 V")
     d.net("PV_RAW", domain="PVRAW", v=(-25, 25), kind="power", i_max=1.0, external=True,
           threats=("reverse_polarity", "esd", "surge"))
-    g(d, "PV_IN", (0, 25), "power", 1.0)
+    # v_typ: the typical operating volts haslam starts from (12 V-class panel at its MPP, ~18 V, REQ-1; the hiccup
+    # holds it within +/-5 % of the DAC-set point)
+    g(d, "PV_IN", (0, 25), "power", 1.0, v_typ=18.0)
     g(d, "SYS", (0, 16), "power", 1.0)
-    g(d, "BAT_P", (0, 16), "power", 1.0)
+    g(d, "BAT_P", (0, 16), "power", 1.0, v_typ=(11.5, 13.5, 15.0))   # battery terminal: 11.5-15 V in operation
     d.net("BAT_RAW", domain="BATRAW", v=(-16, 16), kind="high_current", i_max=1.0, external=True,
           threats=("reverse_polarity", "overcurrent", "esd"))
     g(d, "+3V3", (0, 3.4), "power", 0.5)
@@ -341,12 +343,11 @@ def operating(d):
     """Operating facts, environment and priced terms for haslam (written as solar-small.haslam_intent.json)."""
     k = d.haslam
     # rails: typical volts (range_V defaults to each net's v= interval), their sources and efficiencies
-    k.net("PV_IN", 18.0, why="12 V-class panel at its MPP, ~18 V (REQ-1); hiccup holds it within +/-5 % of the "
-          "DAC-set point; 0-25 V range")
+
     k.net("SYS", 13.5, range_V=(11.5, 15.0), source="U101", from_="PV_IN", kind="switching", eta=(0.80, 0.93),
           why="battery side: lead-acid / 4S LiFePO4 11.5-15 V; LTC3130 efficiency 80-93 % (DS p.1 curve, "
               "14.4 V -> 12 V, 1-500 mA)")
-    k.net("BAT_P", 13.5, range_V=(11.5, 15.0), why="battery terminal behind F201")
+
     k.net("+3V3", 3.33, source="U301", from_="SYS", kind="switching", eta=(0.80, 0.92),
           why="TPS62933: 0.8 V x (1 + 1 M / 316 k); PFM efficiency 80-92 % at 10-350 mA (DS Fig. 8)")
     k.net("+3V3_SW", 3.3, source="Q301", from_="+3V3", kind="linear", eta=(0.98, 1.0),
@@ -354,10 +355,9 @@ def operating(d):
     k.net("CHG/VCC_CHG", 4.0, source="U101", from_="PV_IN", kind="linear", eta=(0.15, 0.3),
           why="LTC3130 internal 4 V VCC LDO (DS p.11)")
     # converters
-    k.part("U101", f_sw_Hz=1.2e6, v_sw_max_V=27.5, why="LTC3130 DS 3130f: 1.2 MHz PWM (p.1); PVIN/VOUT abs max "
-           "27.5 V (p.2)")
-    k.part("U301", f_sw_Hz=500e3, v_sw_max_V=32.0, why="TPS62933 DS SLUSEA4D: RT floating = 500 kHz (Table 9-1); "
-           "SW abs max 32 V DC (6.1)")
+    # part facts that belong to the part (f_sw of the LTC3130, switch ratings) are on the part cards (parts.py,
+    # haslam=); here only what this design chooses: the TPS62933's RT pin is left open
+    k.part("U301", f_sw_Hz=500e3, why="TPS62933 DS SLUSEA4D Table 9-1: RT floating = 500 kHz (this design)")
     for cls in ("buck", "boost"):
         k.cell("U101", cls, I_A=(0.01, 0.6, 0.85), vin="PV_IN", vout="SYS",
                V_V=(4.5, 18.0, 25.0) if cls == "buck" else (11.5, 13.5, 15.0),
