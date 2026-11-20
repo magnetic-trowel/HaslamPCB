@@ -351,7 +351,10 @@ def run(a, log=_log):
                 lay = S.modules(lay, 0)
             row["seconds"]["modules"] = round(clock_now() - ts, 2)
             ts = clock_now()
-            route_s = max(30.0, deadline - clock_now() - 1.5 * eval_s - 15.0)
+            # the rounds still to come share what is left (each also pays a DRC and a re-place)
+            rounds_left = max(1, int(a.rounds) - k)
+            route_s = max(30.0, (deadline - clock_now() - 1.5 * eval_s - 15.0) / rounds_left
+                       - (rounds_left - 1) / rounds_left * (2.5 * eval_s + place_s))
             lay = S.route(lay, 0, seed=a.seed + 7919 * k, time_s=route_s)
             row["seconds"]["route"] = round(clock_now() - ts, 2)
             ts = clock_now()
