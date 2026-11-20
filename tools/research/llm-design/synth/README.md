@@ -168,6 +168,16 @@ A bootstrap or high-side gate supply rides on a switch node: give it a domain fl
 net, `d.domain("BST1", ref="SW1")`, and `v=(0, 12)` relative to it. Worst-case voltages to
 everything else then follow from the switch node's own range.
 
+### Operating intent for haslam (`<slug>.haslam_intent.json`)
+
+haslam reads a board's operating facts from `<board>.haslam_intent.json` beside it (haslam.intent/1; `haslam/src/haslam/intent/facts.py`).
+haslamsynth writes it from three places, later ones winning:
+- nets declared with `v_typ=` (typical volts, or `(lo, typ, hi)` when the operating range is narrower than `v=`);
+- part cards with `haslam=dict(f_sw_Hz=..., v_sw_max_V=..., why=...)` (facts that belong to the part);
+- `d.haslam.net(...)`, `d.haslam.part(...)`, `d.haslam.cell(controller, "buck"|"boost", I_A=(lo, typ, hi), V_V=..., vin=, vout=)`,
+  `d.haslam.cable(...)`, `d.haslam.term(...)` (what this design chooses: rail sources and efficiencies, a cell's current and
+  switched bus, cables, priced terms). Every fact says why; haslam's own loader checks the file at build time.
+
 ### Calculations and waivers
 
 `d.calc(name, value, unit, expr=, note=, limit=, op="<=")` records a calculation in the report
