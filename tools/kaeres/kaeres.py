@@ -1418,8 +1418,7 @@ def _store_incomplete(bid, todo, adirs, hc, tid, steps, a, log, phc):
                      for p in sorted((q for q in rs.rglob("*") if q.is_file() and (q.name == "log" or q.suffix in
                                                                                    (".log", ".jsonl"))),
                                      key=lambda q: -q.stat().st_mtime)]
-        if (adir / "score" / "drc.json").exists():
-            logs.append((adir / "score" / "drc.json", "drc.json.gz"))
+        logs += [(src, name) for src, name in score_drc_reports(adir)]
         if not made and log.exists():   # the job's own log once, with the first run
             logs.append((log, "job.log.gz"))
         files = [put(src, dst) for src, dst in logs]
@@ -1463,6 +1462,20 @@ def _board_json(bid, row):
     p = board_dir(bid) / "board.json"
     if not p.exists():
         write_json(p, row)
+
+
+def score_drc_reports(adir):
+    """The scorer's KiCad DRC reports (item lists) of an attempt, as (file, stored name): the scored board's as
+    drc.json.gz, and for a joint task its placement's as placement-drc.json.gz (not matched by *.drc.json.gz).
+    kaebench scores a route or place task in score/, a joint task in score/routing/ (the routed board) and
+    score/placement/: until 2026-11-20 only score/drc.json was kept, so no joint run had its item list."""
+    sc = Path(adir) / "score"
+    out = []
+    for src, name in ((sc / "drc.json", "drc.json.gz"), (sc / "routing" / "drc.json", "drc.json.gz"),
+                      (sc / "placement" / "drc.json", "placement-drc.json.gz")):
+        if src.is_file() and name not in (n for _, n in out):
+            out.append((src, name))
+    return out
 
 
 RESTART_FILES = {"summary.json": "restarts.json", "report.json": "restart-report.json",
@@ -1524,8 +1537,8 @@ def _write_run(bid, m, att, task_id, hc, aj, adir, ph, evs, bugs, steps, a, phc=
         ev = dict(schema=SCHEMA, evaluator=evs["drc"], run=dest.name, at=now(), score=aj["score"], probe=aj.get("probe"),
                   scoring_s=aj.get("scoring_s"), scoring_usage=aj.get("scoring_usage"))
         write_json(tmp / "evals" / f"{evs['drc']}.json", ev)
-        if (adir / "score" / "drc.json").exists():
-            gz(adir / "score" / "drc.json", tmp / "evals" / f"{evs['drc']}.drc.json.gz")
+        for src, name in score_drc_reports(adir):
+            gz(src, tmp / "evals" / f"{evs['drc']}.{name}")
     if ph is not None:
         write_json(tmp / "evals" / f"{evs['physics']}.json", dict(schema=SCHEMA, evaluator=evs["physics"], run=dest.name,
                                                                    at=now(), physics={k: v for k, v in ph.items() if k != "traceback"}))

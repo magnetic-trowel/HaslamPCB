@@ -165,6 +165,8 @@ def _finish(a, run, opts):
     from kae.board_hazards import finish
     finish(rep, a.output, a.input, kind="route", mode=a.recheck, deadline=t0 + float(a.time) + RECHECK_GRACE_S,
            log=lambda m: print(f"[kae.route] {m}", file=sys.stderr, flush=True))
+    from kae.budget import clock
+    rep["budget"] = clock().report()   # the counted-work ledger in both modes (a record: restart.py keeps it per attempt)
     text = json.dumps(rep, default=str)
     if a.report:
         with open(a.report, "w") as f:

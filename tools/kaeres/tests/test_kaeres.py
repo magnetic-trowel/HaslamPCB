@@ -590,3 +590,19 @@ def test_plan_chunks_fits_each_job_in_the_queues_timeout():
     # small boards keep the 2-5 jobs of before
     small = {f"m{i}": 900 for i in range(6)}
     assert len(K.plan_chunks(need, small, 3600)) == K.CHUNKS_MIN
+
+
+def test_score_drc_reports_keeps_a_joint_tasks_item_lists(tmp_path):
+    """kaebench scores a joint task in score/routing/ and score/placement/: their DRC item lists are kept too (before,
+    only score/drc.json was, so no joint run had evals/<id>.drc.json.gz)."""
+    sc = tmp_path / "score"
+    (sc / "routing").mkdir(parents=True)
+    (sc / "placement").mkdir()
+    (sc / "routing" / "drc.json").write_text("{}")
+    (sc / "placement" / "drc.json").write_text("{}")
+    assert kaeres.score_drc_reports(tmp_path) == [(sc / "routing" / "drc.json", "drc.json.gz"),
+                                                  (sc / "placement" / "drc.json", "placement-drc.json.gz")]
+    (sc / "drc.json").write_text("{}")        # a route or place task: its own report, once
+    assert kaeres.score_drc_reports(tmp_path)[0] == (sc / "drc.json", "drc.json.gz")
+    assert [n for _, n in kaeres.score_drc_reports(tmp_path)].count("drc.json.gz") == 1
+    assert kaeres.score_drc_reports(tmp_path / "none") == []

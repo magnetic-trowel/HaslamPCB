@@ -469,3 +469,130 @@ def test_sigterm_stops_attempts_and_writes_the_summary_of_what_was_done(tmp_path
     assert all(a["not_judged"] == "killed" and a["rc"] in (143, -15) for a in summary["attempt_log"])
     assert all("attempt saved" in a["failure"]["log_tail"] for a in summary["attempt_log"])   # waited for it
     assert any(line.startswith("KAE_WORK ") and '"killed": true' in line for line in out.splitlines())
+
+
+# --- per-attempt records (trace, counted-work ledger, diagnosis, CPU) ---
+
+# stands in for kae's Python: `-m kae.route.blocked ROUTED INPUT [--drc F] --out F --time S` writes a diagnosis
+# naming every net of the judge's report and prints a counted-work ledger
+FAKE_DIAG_PY = """#!/usr/bin/env python3
+import json, os, sys
+a = sys.argv[1:]
+assert a[:2] == ["-m", "kae.route.blocked"], a
+assert os.environ["KAE_BUDGET"] == "work"
+rep = json.load(open(a[a.index("--drc") + 1]))
+nets = [it["description"] for v in rep["unconnected_items"] for it in v["items"]]
+json.dump(dict(blocked=[dict(net=n, cause="rule") for n in nets[:1]],
+               congestion=[dict(net=n, cause="congestion") for n in nets[1:]],
+               summary=["blocked: " + n for n in nets], undiagnosed=0, seconds=float(a[a.index("--time") + 1])),
+          open(a[a.index("--out") + 1], "w"))
+print("[kae.budget] " + json.dumps(dict(mode="work", wall_s=0.1, charged_s=3.5, charged_by_kind=dict(pcbnew_op=3.5))))
+"""
+
+LEDGER = '[kae.budget] {"mode": "work", "wall_s": 9.0, "charged_s": 12.0, "charged_by_kind": {"fr_work": 10.0, "drc_run": 2.0}}'
+
+
+def _diag_py(tmp_path):
+    p = tmp_path / "diag-python"
+    p.write_text(FAKE_DIAG_PY)
+    p.chmod(0o755)
+    return p
+
+
+def test_budget_ledger_sums_every_kae_process_and_falls_back_to_the_report(tmp_path):
+    log = tmp_path / "log"
+    log.write_text(LEDGER + "\n" + '{"status": "routed"}\n'
+                   + LEDGER.replace("10.0", "1.0").replace("12.0", "3.0") + "\n")
+    led = restart.budget_ledger(log)
+    assert led["source"] == "log" and led["processes"] == 2 and led["charged_s"] == 15.0
+    assert led["charged_by_kind"] == {"fr_work": 11.0, "drc_run": 4.0}
+    log.write_text('{"status": "routed", "budget": {"mode": "time", "charged_s": 0.0, "charged_by_kind": {"poll": 0.0}}}\n')
+    led = restart.budget_ledger(log)
+    assert led["source"] == "report" and led["mode"] == "time" and led["charged_by_kind"] == {"poll": 0.0}
+    log.write_text("no report\n")
+    assert restart.budget_ledger(log) is None
+
+
+def test_attempt_trace_has_stage_seconds_opens_and_open_nets_within_its_size(tmp_path):
+    rep = dict(status="repaired", seconds=50.0, router=dict(seconds=30.0, rc=0),
+               repair=dict(seconds=15.0, rounds=[dict(round=0, unconnected=4, errors=1), dict(round=1, unconnected=2,
+                                                                                               errors=0)]),
+               last_mile=dict(seconds=4.0, unconnected=1), opts=dict(seconds=999))
+    (tmp_path / "log").write_text("routing...\n" + json.dumps(rep) + "\n")
+    (tmp_path / "drc.json").write_text(json.dumps(dict(unconnected_items=[
+        dict(items=[dict(description="Pad 1 [GND] of U1"), dict(description="Pad 2 [GND] of U2")]),
+        dict(items=[dict(description="Track [/SDA] on F.Cu")])])))
+    t = restart.attempt_trace(tmp_path / "log", tmp_path / "drc.json")
+    assert t["status"] == "repaired" and t["seconds"] == 50.0
+    assert ["router", 30.0] in t["stage_s"] and ["repair", 15.0] in t["stage_s"] and ["last_mile", 4.0] in t["stage_s"]
+    assert all(p != "opts" for p, _ in t["stage_s"])          # settings are not stages
+    assert t["opens"][:2] == [["repair.rounds.0", 4, 1], ["repair.rounds.1", 2, 0]]
+    assert t["open_nets"] == ["/SDA", "GND"] and t["open_net_count"] == 2 and t["cut"] == 0
+    # a board with many open nets: the trace stays about TRACE_BYTES, and says how much it cut
+    (tmp_path / "drc.json").write_text(json.dumps(dict(unconnected_items=[
+        dict(items=[dict(description=f"Pad 1 [NET_{i:04d}] of U1")]) for i in range(500)])))
+    t = restart.attempt_trace(tmp_path / "log", tmp_path / "drc.json")
+    assert len(json.dumps(t, separators=(",", ":"))) <= restart.TRACE_BYTES
+    assert t["open_net_count"] == 500 and t["cut"] > 0 and t["open_nets"][0] == "NET_0000"
+
+
+def test_every_attempt_keeps_its_trace_ledger_and_diagnosis_and_the_run_one_cpu_figure(tmp_path, monkeypatch):
+    """Kept or discarded, every attempt's record has its trace, its counted-work ledger and the diagnosis of its board
+    (the judge's DRC report, a counted budget); the run has cpu_total_s. The output is the same as without them."""
+    monkeypatch.setenv("KAE_DIAGNOSE_PY", str(_diag_py(tmp_path)))
+    att = f"""echo '{LEDGER}'; echo '{{"status": "routed", "router": {{"seconds": 5}}}}'; echo '(kicad_pcb OPEN=2)' > @OUT@"""
+    r, out, s = _run(tmp_path, att, "echo '(kicad_pcb OPEN=3)' > @OUT@")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "OPEN=2" in out.read_text()                        # the final pass (worse) was not kept, as before
+    a0, fin = s["attempt_log"]
+    assert fin["k"] == "final" and not fin["kept"]
+    for rec, n in ((a0, 2), (fin, 3)):                        # the discarded final pass too
+        assert rec["trace"]["open_net_count"] == n and rec["trace"]["open_nets"] == [f"N{i}" for i in range(n)]
+        d = rec["diagnosis"]
+        assert d["blocked"] == 1 and d["congestion"] == n - 1 and d["causes"] == {"rule": 1, "congestion": n - 1}
+        assert d["charged_s"] == 3.5 and d["seconds"] == restart.DIAGNOSE_S and d["rc"] == 0
+    assert a0["trace"]["stage_s"] == [["router", 5.0]]
+    assert a0["budget_ledger"]["charged_by_kind"] == {"fr_work": 10.0, "drc_run": 2.0}
+    assert fin["budget_ledger"] is None                       # it printed none
+    assert s["diagnose"]["ran"] == 2 and s["diagnose"]["charged_to_run"] is False and s["diagnose"]["charged_s"] == 7.0
+    assert s["cpu_total_s"] >= s["cpu_s"] and "cpu_total_note" in s
+    work = json.loads(next(ln[9:] for ln in r.stdout.splitlines() if ln.startswith("KAE_WORK ")))
+    assert work["cpu_total_s"] == s["cpu_total_s"]
+
+
+def test_a_clean_board_is_not_diagnosed(tmp_path, monkeypatch):
+    monkeypatch.setenv("KAE_DIAGNOSE_PY", str(_diag_py(tmp_path)))
+    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=0)' > @OUT@", "")
+    assert s["attempt_log"][0]["diagnosis"] == {"skipped": "nothing open"} and s["diagnose"]["ran"] == 0
+
+
+def test_a_diagnosis_that_fails_is_recorded_and_changes_nothing(tmp_path, monkeypatch):
+    bad = tmp_path / "bad-python"
+    bad.write_text("#!/bin/sh\necho 'ModuleNotFoundError: No module named kae' >&2\nexit 1\n")
+    bad.chmod(0o755)
+    monkeypatch.setenv("KAE_DIAGNOSE_PY", str(bad))
+    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=2)' > @OUT@", "")
+    assert r.returncode == 0 and "OPEN=2" in out.read_text()
+    d = s["attempt_log"][0]["diagnosis"]
+    assert d["rc"] == 1 and "ModuleNotFoundError" in d["error"] and s["diagnose"]["failed"] == 1
+
+
+def test_completion_first_open_alt_phase_has_cpu_and_every_phases_attempts(tmp_path, monkeypatch):
+    """The --open-alt phase's CPU was null; now it has the command's rusage, its trace, ledger and diagnosis, and the
+    policy's summary.json keeps every phase's attempts (phase_logs) and one CPU figure (cpu_total_s)."""
+    monkeypatch.setenv("KAE_DIAGNOSE_PY", str(_diag_py(tmp_path)))
+    burn = "python3 -c 'import time\nt=time.process_time()\nwhile time.process_time()-t<0.5: pass'"
+    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=3 first)' > @OUT@", None, time_s=200,
+                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
+                            "--open-alt", f"{burn}; echo '{LEDGER}'; grep -q first @BEST@ && "
+                                          "echo '(kicad_pcb OPEN=1 polished)' > @OUT@"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert s["second"] == "open-alt" and "polished" in out.read_text()
+    p2 = s["phases"][1]
+    assert p2["cpu_s"] is not None and p2["cpu_s"] >= 0.4 and p2["method_cpu_s"] == p2["cpu_s"]
+    logs = {p["k"]: p for p in s["phase_logs"]}
+    assert logs[1]["attempt_log"][0]["trace"]["open_net_count"] == 3          # phase 1's discarded attempt
+    assert logs[1]["attempt_log"][0]["diagnosis"]["congestion"] == 2
+    assert logs[2]["budget_ledger"]["charged_s"] == 12.0 and logs[2]["trace"]["open_nets"] == ["N0"]
+    assert logs[2]["diagnosis"]["blocked"] == 1
+    assert s["cpu_total_s"] >= s["cpu_s"] >= p2["cpu_s"]

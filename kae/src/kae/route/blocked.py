@@ -586,6 +586,8 @@ def main(argv=None):
     ap.add_argument("--out")
     ap.add_argument("--time", type=float, default=120.0)
     a = ap.parse_args(argv)
+    from kae.budget import start_run
+    start_run(a.time)     # its wall ceiling, and in work mode its `[kae.budget]` ledger at exit (restart.py reads it)
     wd = Path(tempfile.mkdtemp(prefix="kae-blocked-"))
     try:
         src = Path(a.routed)
