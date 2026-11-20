@@ -56,3 +56,23 @@ Smoke: git4dcc and stickhub, both arms, every run scored. Profiling: one windows
   - Cutting the rip size further would need a different fix: keep a moved part's connections and re-route only their ends.
 - **Kept / tried:** git4dcc 3/162 vs 1/24, stickhub 1/61 vs 0/58. Final opens: git4dcc 27 vs 27, stickhub 27 vs 28. Two boards; no inference.
 - Plumbing is clean. No rule changes.
+
+## Result (2026-11-20; 207 of 208 jobs, read without the last one; 99 boards with both arms; `analyze.py`)
+
+**Undecided; the guards hold.**
+
+| | CF-W-fix | CF-W |
+|---|---|---|
+| opens | 867 | 870 (−0.3 %, 11 fewer / 10 more, p 0.81) |
+| clean | 20 | 20 |
+| DRC errors | 1,206 | 1,185 |
+| legal | 71 | 71 |
+| placement errors | 545 | 545 |
+| CPU | 241.3 h | 241.6 h |
+| windows kept / tried | 181 / 2,334 (7.8 %) | 168 / 3,353 (5.0 %) |
+
+- **Fix 1** legalized 247 windows (145 with parts reverted), and "illegal after repair" fell from 1,056 to 145.
+- **Fix 3** removed about 1,000 windows that did nothing.
+- **Kept windows barely rose** (168 → 181). The windows freed from illegality now fail on completion: "rank worse on unconnected" 1,395 → 1,435.
+- Rip size is unchanged at a median of 15 nets (fix 2 is inert, see the smoke addendum).
+- **Reading:** a legal window that re-routes its moved parts' nets comes back with more opens. The bottleneck is the re-route of the ripped nets. The next step is to keep the moved parts' connections and re-route only their ends.
