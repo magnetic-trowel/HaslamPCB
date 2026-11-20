@@ -1,0 +1,13 @@
+# Stress-dial pilot, 2026-11-20: board id and its three levels (stress.py levels; chosen before any run above level 1).
+jjhorton-pmod-pmod-tester 1 1.75 3
+dimitrit-pal1gadgets-snes-adapter 1 1.45 3
+sparkfun-sparkfun-roller-encoder-breakout-sparkfun-roller-encoder-breakout 1 1.6 2.5
+carvac-vbox-vbox-thumbs-mx-right 1 1.75 3
+nsec-nsec-badge-sao-bandaid 1 1.75 3
+rjrouquette-gpsdo-tcxo 1 1.2 1.5
+mustang51-toro-ufc-toroufc-hpad 1 1.2 3
+yu2924-xps-outputconnector 1 2.1 3
+fabiangmeiner-bmw-e30-si-board-bmw-e30-vfl-si-indicator 1 1.6 2.5
+mitchins-esp-aquarium-water-sensor-aquariumsensor 1 1.3 1.7
+romadrigal-guitaramplifier-pcb-ie0308-guitaramplifier 1 1.75 3
+zenodo-15039399-powersenor3 1 1.3 1.7

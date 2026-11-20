@@ -21,6 +21,7 @@ numbers, and whether it worked. The production placer and router live in the
 | `xf_common/` | shared launcher and helpers for the pnr experiments | [engine](../../docs/research/joint/engine.md) |
 | `physics/` | physics models, critics, derivation and validation scripts of the physics-first line | [physics](../../docs/research/physics/README.md) |
 | `place/`, `routing/`, `joint/` | experiment drivers for kae's placer, router and joint loop | [placement](../../docs/research/placement/README.md), [routing](../../docs/research/routing/README.md), [kae joint loop](../../docs/research/joint/kae-joint-loop.md) |
+| `stress/` | stress dial: derived boards with scaled clearance and track-width rules, ceiling and human-level scan, pilot driver | [stress dial](../../docs/research/routing/stress-dial-2611.md) |
 | `llm-design/` | kaesynth: typed circuit description to checked KiCad schematic, plus four LLM-made designs | [kaesynth](../../docs/research/llm-design/kaesynth.md) |
 | `board-sourcing/` | open-board corpus: licence audit, dedup, import | [board corpus](../../docs/research/data/board-corpus.md) |
 | `kicad-io/` | load/save round trip of corpus boards through KiCad's writer; re-import of real SES sessions with kae's checks | [kae board model: writing boards](../../docs/research/placement/kae-board-model.md#writing-boards) |
