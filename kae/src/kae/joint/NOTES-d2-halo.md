@@ -71,4 +71,30 @@ pitches as specified, and `--pressure` takes larger values from a producer.
 - The whole-board re-place uses the window loop's fixed move count (6000 per part) under
   `--place-time` (60 s by default); on big boards the time bound decides, so a result is
   seeded but not time-independent there.
-- Smoke on real boards: see the end of this file when it ran.
+- Smoke on real boards: one of the three planned boards ran (the queue started the other
+  two too late; they were cancelled). See below.
+
+## Smoke (2026-11-20, one board, 900 s, 2 rounds, fallback pressure)
+
+adafruit tpa2012 breakout (71 pads), from the stored staged output (2 opens, 3 errors):
+
+| round | halo parts / mm | legal | relaxed | median / max move | opens before -> after | kept |
+|---|---|---|---|---|---|---|
+| 1 | 2 / 1.2 | yes | yes | 1.9 / 15.2 mm (5 % / 42 % of diag) | 2 -> 1 | yes |
+| 2 | 1 / 0.4 | yes | yes | 3.5 / 8.5 mm (10 % / 23 %) | 1 -> 6 | no |
+
+Seconds round 1: re-place 24, modules 29, route 129, DRC 4. Crash-free; the report is sane.
+Findings to act on before the sprint:
+
+- `relaxed` was true in both rounds: the re-placed board was not grid legal with the
+  halos, so replace_window dropped them (and the margin) before the greedy legalizer. The
+  start board already had 2 placement errors, which likely makes "not legal with halos"
+  the common case, and then the halos are not enforced at all. Next step: drop the halos
+  only of the parts the grid check names, not all of them.
+- Displacement is larger than on the fixture (median 2-3.5 mm): W_DISP 1.0 is not a strong
+  enough pull on a real board; the hot start of the annealer is the cause. A cold start
+  (a lower initial temperature for revisions) is the cleaner fix than a bigger weight.
+- The kept board (written by KaeStages.finish: input + poses + routing) has 25 movable
+  parts where the stored start had 19: the stored staged output carries locks the task
+  input does not. Round 2 therefore moved parts round 1 kept fixed. Fix: carry the start
+  board's locks over (lock_refs from the start) in every round.
