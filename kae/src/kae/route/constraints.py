@@ -260,6 +260,13 @@ DEFAULTS = dict(
     array_macros=0,                # placement (kae.place.arrays), a mask: 1 keeps component matrices found in the netlist
                                    # (LEDs, diodes, ICs; not keys or touch pads) as rigid macros, 2 series-resistor buses,
                                    # 3 both; 0: off, until array-matrix-ab and array-bus-ab decide
+    barrier_split=0,               # placement (kae.place.barriers): 1 places each region of a board split by voids or
+                                   # all-copper track keepouts (panels, HV isolation) on its own, parts staying with their
+                                   # net neighbours; 2 also probes first that each region can legalize its parts, moves
+                                   # those it cannot, and places the board whole when a region still cannot (fit_split);
+                                   # 0: off, until barrier-fit-ab decides
+    barrier_net_weight=1.0,        # placement: nets a seed places across a void or an all-copper keepout have this
+                                   # weight multiplier in the annealer; 1: off
     zone_pull=0.0,                 # placement (kae.place.zones): weight of pads off their own net's fixed copper
                                    # zone (all of them off = zone_pull x the seed HPWL), also the seed's pull and
                                    # package pins; 0: off. Off by default: zone-ab (48 boards, 3 seeds) at 3 left
