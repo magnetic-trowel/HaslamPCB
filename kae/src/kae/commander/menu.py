@@ -21,6 +21,10 @@ order); the rest go under "ask" (a person, or a rule change the benchmark forbid
 item addresses are counted under "unactionable" with the reason. `more_effort` (a restart or
 resume) is always present: the null item.
 
+expert_state: the step of docs/topics/workflow/expert-state-machine.md the item goes back to
+(S13 bulk routing -> S0 intake, S1 mechanics, S2 stackup/rules/planes, S8 placement, S10
+fanout, S11 critical routing, S12 planes/pours; S13 -> S13 is more of the same).
+
 The output is a pure function of the inputs: same input, same bytes (json.dumps sort_keys).
 """
 from __future__ import annotations
@@ -281,7 +285,7 @@ def r_kae_default(ctx):
         kv = _override_kv(b.get("override"), b) or _override_kv(b.get("where"), b)
         if kv:
             groups.setdefault(kv, []).append(c)
-    return [_item(ctx, "kae_default", "kae's own default limit", "S13->S9", cs, _set(kv), _price(),
+    return [_item(ctx, "kae_default", "kae's own default limit", "S13->S2", cs, _set(kv), _price(),
                   target=dict(rule=kv.split("=")[0]), source="blocked.binding.override",
                   note="a kae default, not a board rule, binds; the diagnosis names its override")
             for kv, cs in sorted(groups.items())]
@@ -296,7 +300,7 @@ def r_thermal_corridor(ctx):
           and (c.get("binding") or {}).get("source") == "kae"]
     if not cs:
         return []
-    return [_item(ctx, "thermal_corridor", "spoke corridors of thermal pads", "S13->S9", cs,
+    return [_item(ctx, "thermal_corridor", "spoke corridors of thermal pads", "S13->S12", cs,
                   _set("thermal_repair=false"), _price(), target=dict(rule="thermal_corridor"),
                   source="blocked.binding",
                   note="a kae thermal-spoke corridor binds; thermal_repair=false drops the repair loop's corridors "
@@ -363,7 +367,7 @@ def r_planes_allow(ctx):
         k = _set("escape_plane_layers=true")
         k["route"] += ["--set", "planes=allow"]
         k["joint"] += ["--set", "bridge.planes=allow"]
-        out.append(_item(ctx, "planes_allow", "signals on plane layers", "S13->S4", cs, k,
+        out.append(_item(ctx, "planes_allow", "signals on plane layers", "S13->S2", cs, k,
                          _price(plane_loss=True), target=dict(parts=refs), source="blocked.packages.relaxations",
                          gain=None if cs else round(sum(p.get("short") or 0 for p, _r in rel), 4),
                          note="the escape certificate finds no obstruction with signals on the plane layers"))
@@ -372,7 +376,7 @@ def r_planes_allow(ctx):
                  for r in ctx.reports)
     cong = [c for c in ctx.conns if c.get("cause") == "congestion"]
     if strictish and planes and cong and not rel:
-        out.append(_item(ctx, "planes_allow", "signals on plane layers", "S13->S4", cong, _set("planes=allow"),
+        out.append(_item(ctx, "planes_allow", "signals on plane layers", "S13->S2", cong, _set("planes=allow"),
                          _price(plane_loss=True), source="congestion + opts.planes",
                          note="congestion with the inner plane layers costed or kept free of signals; "
                               "or lower plane_cost (bridge.DEFAULT_OPTS)"))
@@ -383,7 +387,7 @@ def r_via_in_pad(ctx):
     out = []
     for p, r in _relax(ctx, lambda r: str(r.get("rule", "")).startswith("vias in the balls")):
         cs = _on_parts(ctx, [p["package"]])
-        out.append(_item(ctx, "via_in_pad", "via in pad for a ball grid", "S13->S6", cs,
+        out.append(_item(ctx, "via_in_pad", "via in pad for a ball grid", "S13->S10", cs,
                          _set("escape_via_in_pad=true", effect="plan_only"),
                          _price(fab_class=r.get("fab_class"), fab_cost=r.get("fab_cost")),
                          target=dict(parts=[p["package"]]), source="blocked.packages.relaxations",
@@ -414,7 +418,7 @@ def r_rule_relax(ctx):
     for (con, where), cs in sorted(groups.items()):
         b = min((c["binding"] for c in cs), key=lambda b: b.get("available") if isinstance(b.get("available"), (
             int, float)) else 1e9)
-        out.append(_item(ctx, "rule_relax", "a board rule", "S13->S1", cs, _none("kae never relaxes a rule"),
+        out.append(_item(ctx, "rule_relax", "a board rule", "S13->S2", cs, _none("kae never relaxes a rule"),
                          _price(fab_class=b.get("fab_class"), fab_cost=b.get("fab_cost"), scorer="forbidden"),
                          target=dict(rule=con, layer=b.get("layer")), source="blocked.binding",
                          note=f"{con} from {where}", extra=dict(value=b.get("available"), required=b.get("required"),
@@ -422,7 +426,7 @@ def r_rule_relax(ctx):
     for p, r in _relax(ctx, lambda r: r.get("rule") in ("track width", "clearance", "via diameter")
                        or str(r.get("rule", "")).startswith("ball-to-track")):
         cs = _on_parts(ctx, [p["package"]])
-        out.append(_item(ctx, "rule_relax", "a board rule", "S13->S1", cs, _none("kae never relaxes a rule"),
+        out.append(_item(ctx, "rule_relax", "a board rule", "S13->S2", cs, _none("kae never relaxes a rule"),
                          _price(fab_class=r.get("fab_class"), fab_cost=r.get("fab_cost"), scorer="forbidden"),
                          target=dict(parts=[p["package"]], rule=r.get("rule")), source="blocked.packages.relaxations",
                          gain=None if cs else float(p.get("short") or 0),
@@ -436,7 +440,7 @@ def r_release_fixed(ctx):
         return []
     nets = sorted({n for c in cs for n in c.get("fixed_nets") or []})
     joint = ["--no-modules"] if "joint" in ctx.kinds else None
-    return [_item(ctx, "release_fixed_copper", "keep the input's pre-routes", "S13->S3", cs,
+    return [_item(ctx, "release_fixed_copper", "keep the input's pre-routes", "S13->S11", cs,
                   _none("no route knob: the input's own copper is fixed", joint=joint), _price(),
                   source="blocked.fixed_nets", extra=dict(fixed_nets=nets),
                   note="when the fixed copper is copper kae's module stage laid (joint), --no-modules runs "
@@ -564,7 +568,7 @@ def r_add_layers(ctx):
     out = []
     for p, r in _relax(ctx, lambda r: "more signal layers" in str(r.get("rule", ""))):
         cs = _on_parts(ctx, [p["package"]])
-        out.append(_item(ctx, "add_layers", "layer count", "S13->S0", cs, _none("the stackup is the input's"),
+        out.append(_item(ctx, "add_layers", "layer count", "S13->S2", cs, _none("the stackup is the input's"),
                          _price(scorer="forbidden"), target=dict(parts=[p["package"]], rule=r.get("rule")),
                          source="blocked.packages.relaxations", gain=None if cs else float(p.get("short") or 0),
                          extra=dict(kicad=r.get("kicad"))))
@@ -576,13 +580,13 @@ def r_grow_outline(ctx):
           any(("edge" in s or "outline" in s) for s in (c.get("walled_by") or []) if isinstance(s, str))]
     if not cs:
         return []
-    return [_item(ctx, "grow_outline", "board outline", "S13->S0", cs, _none("the outline is the input's"),
+    return [_item(ctx, "grow_outline", "board outline", "S13->S1", cs, _none("the outline is the input's"),
                   _price(scorer="forbidden"), source="blocked.walled_by",
                   note="no path even with every clearance at zero, walled in at the board edge")]
 
 
 def r_pin_swap(ctx):
-    return [dict(id="pin_swap", decision="pin assignment", expert_state="S13->S7",
+    return [dict(id="pin_swap", decision="pin assignment", expert_state="S13->S0",
                  target=dict(parts=[], nets=[], rule=None, layer=None),
                  evidence=dict(source="none", opens=0, persistent_opens=0, connections=[],
                                note="no proxy exists yet; a pin swap changes pad nets, which the scorer forbids"),
