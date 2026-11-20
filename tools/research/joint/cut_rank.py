@@ -36,7 +36,8 @@ import time
 
 import numpy as np
 
-MEASURES = ["ovfK", "ovf0", "hpwl", "rudy", "crowd"]
+BASE_MEASURES = ["ovfK", "ovf0", "hpwl", "rudy", "crowd"]
+MEASURES = list(BASE_MEASURES)   # analyse() adds EDGE when the measure file has them
 EDGE = ["ovfK_edge", "ovf0_edge"]   # model='edge' (true pad edge distances + body corners), when measured
 PRIMARY = "ovfK"
 BANDS = [(0, 150, "<=150"), (150, 400, "150-400"), (400, 1500, "400-1500"), (1500, 10 ** 9, ">1500")]
@@ -221,8 +222,8 @@ def analyse(path, seed=0):
     with open(path) as f:
         rows = [json.loads(ln) for ln in f if ln.strip()]
     ok = [r for r in rows if "error" not in r and "skipped" not in r]
-    if ok and all(m in r for r in ok for m in EDGE):
-        MEASURES = MEASURES[:1] + EDGE[:1] + MEASURES[1:2] + EDGE[1:] + MEASURES[2:]
+    b = BASE_MEASURES
+    MEASURES = b[:1] + EDGE[:1] + b[1:2] + EDGE[1:] + b[2:] if ok and all(m in r for r in ok for m in EDGE) else list(b)
     by = collections.defaultdict(list)
     errors = skipped = 0
     with open(path) as f:
