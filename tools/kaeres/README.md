@@ -252,6 +252,16 @@ Before task spec 10, prepare drew random uuids for objects that a board file sto
 - **Intent physics** (`### Intent physics`, only with `exp report NAME --intent DIR`): kaeres does not store intent evaluations (`tools/research/physics/eval_intent.sh`, `kae.excite.evaluate`); `--intent` reads them from `DIR/<board>/<run, method id or human>.{status,ev}.json`. Per method: mean cost (`tiers.cost`, mW_eq), the same without terms whose observation a layout cannot change (`LAYOUT_INDEPENDENT_OBS`: `loss.part`, a part's own dissipation; ratio 1.00 and sd 0 across layouts), the layout cost's median ratio to the human, and the number of boards with no observation, which are left out of the means.
 - **Manufacturability** (`### Manufacturability`; `mfg_*` columns in `results.csv`): see below. Computed only by `kaeres mfg submit`, never by `exp report`.
 
+## Quality report
+
+`$K quality NAME --control METHOD [--method M ...] [--no-human] [--out FILE]` (`quality.py`) prints a Markdown view for boards that already route. It reads `results.csv` (attempt 0; run `exp report` first) and the stored physics evaluations, and changes no score. Each method B is paired per board with the control A.
+
+- **Two completion endpoints, never pooled.** Near-miss closure: boards one arm leaves 1-5 opens that the other closes, counted both ways, exact sign test. Big-board opens: boards over 1,000 pads, paired difference of log(1 + opens). Also `xc`.
+- **Quality on boards both finish (0 opens).** Median ratio B / A of track length and of 1 + vias; mean per-board difference in `solder_mask_bridge` and silk error counts; median ratio of the same physics module's value by kind (hot-loop cell, decap, crystal, chain), never the summed score. The physics rows repeat over unfinished boards where the module itself is closed in both.
+- **Reach.** Share of boards with identical opens and errors in both arms: the boards the change did not touch.
+- **Verdicts.** Intervals are 95 % bootstraps that resample repository owners. better or worse: the interval excludes no change. undecided: it includes it. unknown: under 10 paired boards or owners; no estimate is printed.
+- **Human layout.** Where the experiment has a human row, the quality rows repeat with the human as A. Rows scored by another DRC evaluator are marked ‡. Physics of two evaluators is never paired; `rephysics submit` gives the human runs the experiment's evaluator.
+
 ## Manufacturability columns
 
 Report-only and not targets (E72): no score uses them, and optimizing any one of them alone makes boards worse. `tools/kaeres/mfg_board.py` computes them per run and stores `evals/mfg-<id>.json` beside the run's other evaluations (attempt 0 only; the evaluator id hashes the script, `kae/src/kae/board`, `fab.py` and whether a refill was done). `exp report` only reads what is stored and prints nothing when no run has them.
