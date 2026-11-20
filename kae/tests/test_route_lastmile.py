@@ -148,3 +148,33 @@ def test_prepared_anchor_cells_are_the_unprepared_ones():
     before = shapely.contains_xy(g, xs, ys)
     shapely.prepare(g)
     assert (shapely.contains_xy(g, xs, ys) == before).all()
+
+
+def test_ends_only_rips_a_moved_pads_branch_and_the_last_mile_rejoins_it(tmp_path):
+    """window_ends_only (kae.joint.ripup.branch_items): a net routed as a trunk Y1.1-J-U2.2 with a branch J-C4.1;
+    C4 moves, so only the branch J-C4.1 goes (the trunk stays), and the last mile joins C4.1 back to the trunk."""
+    from shapely.geometry import Point
+    from kae.joint.ripup import branch_items
+    p = F.write_board(tmp_path)
+    info = F.synth_info(load(p))
+    sp = _space(p, info)
+    pad = {o: next(it for it in sp.pads if it.owner == o).pos for o in (("Y1", "1"), ("U2", "2"), ("C4", "1"))}
+    y1, u2, c4 = pad[("Y1", "1")], pad[("U2", "2")], pad[("C4", "1")]
+    j = ((y1[0] + u2[0]) / 2, (y1[1] + u2[1]) / 2)
+    ids = [W.new_uuid() for _ in range(3)]
+    W.append_items(p, p, tracks=[(NET, "F.Cu", 0.25, y1, j, ids[0], False), (NET, "F.Cu", 0.25, j, u2, ids[1], False),
+                                 (NET, "F.Cu", 0.25, j, c4, ids[2], False)])
+    b = load(p)
+    items = [t for t in b.tracks if t.net == NET]
+    start = [Point(c4).buffer(0.3)]
+    stop = [Point(y1).buffer(0.3), Point(u2).buffer(0.3)]
+    assert branch_items(items, start, stop) == {ids[2]}               # the branch only, up to the junction
+    assert branch_items(items, [Point(y1).buffer(0.3)], [Point(c4).buffer(0.3), Point(u2).buffer(0.3)]) == {ids[0]}
+    ripped = tmp_path / "ripped.kicad_pcb"
+    W.edit(p, ripped, remove=[ids[2]])
+    sp2 = _space(ripped, info)
+    assert len(LM.parts(sp2, {}, NET)) == 2                            # the trunk, and C4.1 alone
+    out = tmp_path / "out.kicad_pcb"
+    rep = LM.close(ripped, info, sp2.plan, [], out, nets=[NET], log=lambda *a: None)
+    assert rep["joined"] >= 1 and rep["failed"] == 0
+    assert len(LM.parts(_space(out, info), {}, NET)) == 1              # rejoined to the trunk
