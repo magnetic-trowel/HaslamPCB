@@ -47,6 +47,7 @@ import shapely
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon, box
 from shapely.ops import unary_union
 
+from . import layer_assign
 from . import rules as R
 
 RES = 1e-4          # mm: DSN resolution (0.1 um)
@@ -197,6 +198,11 @@ DEFAULTS = dict(
                                    # escape-ab3 (63 merit boards x 3 seeds) soft left open connections unchanged
                                    # (ring boards -1.5%, grid boards +19% in total, per-board median +-0%) and hard
                                    # was worse on the grids (+11%); soft trims ~1 DRC error per run
+    net_layers="",                 # a layer assignment for the bulk router (kae.route.layer_assign): a JSON table of
+                                   # the copper layers each net's tracks may use, or a directory of such tables;
+                                   # "" (default): none, the plan is unchanged; env KAE_NET_LAYERS
+    net_layers_max_sets=12,        # at most this many different layer sets from that table become routing classes
+                                   # (the class clearance matrix is quadratic); the rarest sets are dropped
     escape_band_w=1.0,             # weight of the soft band term (overlap / mean part area, as silk)
     escape_band_scale=1.0,         # band depth per side = scale x escapes on that side x (track + clearance)
     escape_band_max_mm=2.5,        # mm: the deepest band on one side
@@ -401,6 +407,9 @@ def plan(info, board_path, opts=None):
     custom_net_rules = [r for r in rb.rules if not r.implicit and r.text and
                         any(k in r.text.lower() for k in ("net", "indiffpair", "fromto", "memberof"))]
     sig_of, per_net = {}, {}
+    assigned_off, assigned_note = layer_assign.assign(info, board_path, opts, cu)   # net_layers; ({}, None) by default
+    if assigned_note:
+        p.notes["layer_assign"] = assigned_note
     for net in nets:
         pr = info["probes"].get(net, {})
         nc_name = info["nets"][net]["netclass"]
@@ -423,7 +432,8 @@ def plan(info, board_path, opts=None):
                 except KeyError:
                     rsig.append(None)
         # layers a custom rule disallows this net's tracks on (KiCad's items_not_allowed): the class keeps off them
-        off = tuple(l for l in cu if R.disallowed(rb, net_item(info, net, "track", l, widths[l]), l, "track"))
+        off = tuple(l for l in cu if R.disallowed(rb, net_item(info, net, "track", l, widths[l]), l, "track")
+                    or l in assigned_off.get(net, ()))
         if len(off) == len(cu):
             off = ()        # disallowed everywhere: no layer to restrict to; KiCad reports it whatever we do
         sig = (nc_name, dp, tuple(widths[l] for l in cu), (D, d), tuple(rsig), off)
