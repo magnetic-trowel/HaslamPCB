@@ -46,6 +46,8 @@ def load(root):
                           rip=(rep.get("ripup") or {}).get("nets"), blk_in=dg.get("blocked_in_window"),
                           blk_tot=dg.get("blocked_total"), causes_in=dg.get("causes_in_window"),
                           ripped=dg.get("ripped"), open_before=dg.get("ripped_open_before"), fixed=dg.get("ripped_fixed"),
+                          lost_own=dg.get("lost_own"), lost_disp=dg.get("lost_displaced"),
+                          lost_unripped=dg.get("lost_unripped"), gained=dg.get("gained"),
                           newly=dg.get("newly_open_n"), newly_out=dg.get("newly_open_outside_ripped"),
                           newly_causes=dg.get("newly_open_causes"), router=(rep.get("route") or {}).get("stops"),
                           router_s=(rep.get("route") or {}).get("seconds"), cf=rep.get("cf_bridge"), s=i.get("seconds")))
@@ -89,6 +91,11 @@ def main(root):
               f"beats the incumbent {sum(w['cf']['unconnected'] < (w['inc_unc'] or 10**9) for w in cf)} "
               f"(incremental: {sum((w['unc'] or 10**9) < (w['inc_unc'] or 0) for w in cf)})")
     rej = [w for w in routed if not w["kept"] and w["unc"] is not None and w["inc_unc"] is not None]
+    lo, ld, lu = (sum(w[k] or 0 for w in rej) for k in ("lost_own", "lost_disp", "lost_unripped"))
+    print(f"decisive split, rejected windows: connections lost on the moved parts' own nets {lo}, on displaced (ripped) "
+          f"nets {ld}, on unripped nets {lu}; gained {sum(w['gained'] or 0 for w in rej)}; windows where own > displaced "
+          f"{sum((w['lost_own'] or 0) > (w['lost_disp'] or 0) for w in rej)}, displaced > own "
+          f"{sum((w['lost_disp'] or 0) > (w['lost_own'] or 0) for w in rej)}")
     dd = collections.Counter(max(-3, min(5, w["unc"] - w["inc_unc"])) for w in rej)
     near = sum(1 for w in rej if w["unc"] - w["inc_unc"] == 1 and (w["err"] or 0) < (w["inc_err"] or 0))
     print(f"outgoing: rejected routed windows {len(rej)}; opens delta vs incumbent {sorted(dd.items())}; "

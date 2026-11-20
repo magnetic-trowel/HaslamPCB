@@ -759,6 +759,8 @@ class KaeStages:
         rep["route"] = routed.info.get("route")
         if o.get("diag_windows"):
             rep["ripup_nets"] = sorted(plan.nets)
+            rep["own_nets"] = sorted({p.net for fp in board.footprints if fp.uuid in set(res.poses) for p in fp.pads
+                                      if p.net})        # the moved parts' own nets (the rest are displaced nets)
             self._diag_n = getattr(self, "_diag_n", 0) + 1
             every = int(o.get("diag_bridge_every", 3))
             if every > 0 and self._diag_n % every == 1:

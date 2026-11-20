@@ -179,18 +179,25 @@ class JointLoop:
                            causes_in_window=dict(__import__("collections").Counter(r.get("cause") for r in inside)),
                            window_nets_blocked=sorted({r["net"] for r in inside} & set(win.nets or ()))[:20])
 
-                def open_nets(f):
+                def open_conns(f):
                     d = (f or {}).get("drc") or {}
-                    o_ = set()
+                    o_ = __import__("collections").Counter()
                     for u in d.get("unconnected_items") or []:
                         for itm in (u.get("items") or [])[:1]:
                             m = _re.search(r"\[([^\]]*)\]", itm.get("description", ""))
                             if m:
-                                o_.add(m.group(1))
+                                o_[m.group(1)] += 1
                     return o_
-                before, after = open_nets(best_fb), open_nets(fb)
+                cb_, ca_ = open_conns(best_fb), open_conns(fb)
+                before, after = set(cb_), set(ca_)
                 ripped = set(rrep.get("ripup_nets") or [])
                 newly = sorted((ripped & after) - before)
+                own = set(rrep.get("own_nets") or [])
+                delta = {n: ca_[n] - cb_.get(n, 0) for n in ca_ if ca_[n] > cb_.get(n, 0)}   # connections lost per net
+                out.update(lost_own=sum(v for n, v in delta.items() if n in own),
+                           lost_displaced=sum(v for n, v in delta.items() if n in ripped and n not in own),
+                           lost_unripped=sum(v for n, v in delta.items() if n not in ripped and n not in own),
+                           gained=sum(max(0, cb_[n] - ca_.get(n, 0)) for n in cb_))
                 out.update(ripped=len(ripped), ripped_open_before=len(ripped & before),
                            ripped_open_after=len(ripped & after), ripped_fixed=len((ripped & before) - after),
                            newly_open=newly[:30], newly_open_n=len(newly),
