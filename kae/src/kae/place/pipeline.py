@@ -71,7 +71,6 @@ class Result:
 
 SA_U_SAT = 3.0   # see place(): utilization saturates beyond this in the annealer's terms
 SILK_W = 1.0     # the annealer's silkscreen term (silk_on projects): overlap / mean part area
-CHAN_W = 0.0     # the annealer's routing-channel term (pad halos overlapping / mean part area)
 
 
 def _default_workers():
@@ -373,6 +372,42 @@ def _rung_summary(res, seconds):
                 kicad_verified=kicad_checked(res),
                 kicad_errors=(res.report.get("kicad_verdict") or {}).get("by_type") if kicad_checked(res) else None,
                 seconds=round(seconds, 1))
+
+
+
+def _channel_weight(P, st, w_chan, zone_tab, kw, board_path, opts):
+    """The routing-channel term's weight, its pad-to-edge table (place_chan_edge 1:
+    exact.channel_edge_term, else None), its report (the halo overlap of pairs with a movable
+    part at the anneal's seed, / A0, and the edge part at weight 1) and the edge table at
+    weight 1 for the final report.
+
+    A cap on the weight from the seed's cost (place_chan_cap, tried on this branch) does not
+    work: the seed's overlap is that of the unlegalized start (dvhx 19 x A0, fm4dd 50 x A0)
+    and says nothing about the pinches the anneal ends with, so any cap on it switches the
+    term off."""
+    from kae.route.constraints import setting
+    edge_on = float(setting("place_chan_edge", board_path, opts) or 0.0) > 0
+    A0 = exactmod.mean_part_area(P)
+    ov0, np0 = exactmod.channel_overlap(P, exactmod.channel_grid(P, weight=1.0), st.X, st.Y, st.K)
+    c = zone_tab.c if zone_tab is not None else zonesmod.raster_cell(P)
+    e1 = exactmod.channel_edge_term(P, 1.0, A0, c) if edge_on else None
+    edge0 = float(sum(e1.part(i, st.X[i], st.Y[i], st.K[i]) for i in P.mov)) if e1 is not None else 0.0
+    rep = dict(w_chan=w_chan, edge=edge_on, A0=round(A0, 3), seed_overlap=round(ov0 / A0, 5), seed_pairs=np0,
+               seed_edge=round(edge0, 5))
+    edge_tab = None
+    if e1 is not None:
+        edge_tab = exactmod.channel_edge_term(P, w_chan, A0, c)
+        rep.update(e1.info, edge_weight=w_chan)
+    return w_chan, edge_tab, rep, e1
+
+
+def _channel_final(P, st, rep, e1):
+    """The channel report after the anneal: halo overlap of pairs with a movable part (/ A0)
+    and the edge part at weight 1 (e1: the edge table at weight 1, or None)."""
+    ov, npairs = exactmod.channel_overlap(P, exactmod.channel_grid(P, weight=1.0), st.X, st.Y, st.K)
+    rep.update(final_overlap=round(ov / rep["A0"], 5), final_pairs=npairs)
+    if e1 is not None:
+        rep["final_edge"] = round(float(sum(e1.part(i, st.X[i], st.Y[i], st.K[i]) for i in P.mov)), 5)
 
 
 def place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, log=None, anneal=True,
@@ -841,11 +876,14 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     if anneal:
         t = clock_now()
         kw = dict(w_phys=1.0 if terms is not None else 0.0, order=order,
-                  w_cong=float(setting("place_w_cong", board_path, opts)))
+                  w_cong=float(setting("place_w_cong", board_path, opts)),
+                  w_xing=float(setting("place_w_xing", board_path, opts)),
+                  xing_from=float(setting("place_xing_from", board_path, opts)))
         kw.update(anneal_args or {})
         if terms is None:
             kw["w_phys"] = 0.0
         rep["w_cong"] = float(kw.get("w_cong", 0.0) or 0.0)
+        rep["w_xing"] = float(kw.get("w_xing", 0.0) or 0.0)
         # parts named by board silk labels beside their label: by default the kinds validated on
         # the human placements (numbered rows) at a modest weight; anneal_args w_label and
         # label_kinds widen or switch it off (w_label 0)
@@ -872,16 +910,19 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         # soft overlaps: silkscreen where the project makes it an error (on KiCad's glyphs) and
         # routing channels between parts' pads (kae.place.exact.channel_grid)
         w_silk = float(kw.pop("w_silk", SILK_W) or 0.0)
-        w_chan = float(kw.pop("w_chan", CHAN_W) or 0.0)
+        w_chan = float(kw.pop("w_chan", setting("place_w_chan", board_path, opts)) or 0.0)
         grids = []
         if exactmod.silk_on(P) and w_silk > 0:
             if "silk_text" not in rep:
                 rep["silk_text"] = exactmod.refine_silk_text(P, log=log)
             grids.append(exactmod.silk_grid(P, weight=w_silk))
             rep["silk_term"] = dict(parts=len(grids[-1]), w_silk=w_silk)
+        edge_tab = chan_e1 = None
         if w_chan > 0:
-            grids.append(exactmod.channel_grid(P, weight=w_chan))
-            rep["channel_term"] = dict(parts=len(grids[-1]), w_chan=w_chan)
+            w_eff, edge_tab, rep["channel_term"], chan_e1 = _channel_weight(P, st, w_chan, zone_tab, kw,
+                                                                            board_path, opts)
+            grids.append(exactmod.channel_grid(P, weight=w_eff))
+            rep["channel_term"]["parts"] = len(grids[-1])
         if soft_bands:
             w_band = float(setting("escape_band_w", board_path, opts))
             grids.append(EB.escape_grid(P, soft_bands, weight=w_band))
@@ -895,6 +936,10 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             kw.setdefault("w_zone", 1.0)
             kw["zones"] = zone_tab
             rep["zone_term"] = dict(zone_tab.info, w_zone=kw["w_zone"])
+        # the channel term's pad-to-edge part rides on the zone table (a unary keep-out)
+        if edge_tab is not None and float(kw.get("w_zone", 1.0) or 0.0) > 0:
+            kw.setdefault("w_zone", 1.0)
+            kw["zones"] = zonesmod.merge(kw.get("zones"), edge_tab)
         ann = make_annealer(P, st.copy(), terms=terms, macros=[m for m in macros if not m.anchored], seed=seed,
                             log=log, **kw)
         if anneal_args:
@@ -905,6 +950,9 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         # wall clock too: on a loaded host CPU seconds lag behind the caller's timeout
         arep = ann.run(cpu_s=cpu, deadline=deadline - 0.1 * budget)
         ann.write_back()
+        # the channel report in every run (w_chan 0 too: the mechanism measure of an A/B's control)
+        rep.setdefault("channel_term", dict(w_chan=0.0, A0=round(exactmod.mean_part_area(P), 3)))
+        _channel_final(P, ann.st, rep["channel_term"], chan_e1)
         rep["anneal"] = arep
         stage("anneal", t)
         t = clock_now()
@@ -948,6 +996,24 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         viol = grid_violations(st)
     if rep.get("legalize_escalation") or rep.get("legalize_final"):
         trace("legalize_escalation", st)
+    if float(setting("place_untangle", board_path, opts)) > 0:
+        # ratsnest crossings HPWL does not see (kae.place.crossings): swaps of interchangeable
+        # parts and half turns that add no grid violator; physics is never worsened. Grid
+        # violators need not stop it (the grid is conservative: bodies, rounding)
+        t = time.monotonic()
+        from .crossings import untangle
+        hold = {i for rule in (order or ()) for (i, _) in rule}
+        hold |= set(kw.get("labels") or {}) if anneal else set()
+        hold |= set(getattr(P, "zone_pinned", ()) or ())
+        try:
+            rep["untangle"] = untangle(P, st, terms=report_terms, zones=zone_tab, hold=hold,
+                                       x_mm=float(setting("place_untangle_x_mm", board_path, opts)),
+                                       time_s=cap(min(20.0, max(2.0, 0.1 * budget))), log=log)
+        except Exception as e:      # noqa: BLE001 - a polish pass; never lose the placement
+            rep["untangle"] = dict(error=f"{type(e).__name__}: {e}")
+        viol = grid_violations(st)
+        trace("untangle", st)
+        stage("untangle", t)
     rep["legal_grid"] = not viol
     rep["margin_mm"] = P.margin
     t = clock_now()
@@ -1013,6 +1079,11 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         rep["zones"] = zonesmod.report(P, st, zone_rep)
     rep["hpwl"] = round(st.hpwl(), 2)
     rep["hpwl_signal"] = round(st.hpwl(signal_only=True), 2)
+    try:
+        from .crossings import count as crossing_count
+        rep["crossings"] = crossing_count(P, st)       # ratsnest crossings of the placement, HPWL's blind spot
+    except Exception as e:      # noqa: BLE001 - a report field; never lose the placement
+        rep["crossings"] = f"error: {type(e).__name__}: {e}"
     res = Result(poses={}, report=rep, state=st, problem=P, terms=report_terms, order=order, brief=brief)
     final_physics(res)
     if report_terms is not None and "physics_error" not in rep:

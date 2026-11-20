@@ -1378,10 +1378,7 @@ def channel_grid(P, weight=1.0, max_rects=8):
     against the human's 8 / 8 / 1, and routed worse. Class 1 rects, as silk_grid."""
     from .legalize import _copper_sides
     from .problem import _cluster_rects, pad_lib_rect
-    rules = getattr(P.board, "rules", None)
-    nc = (getattr(rules, "netclasses", None) or {}).get("Default") if rules is not None else None
-    track = float(getattr(nc, "track_width", 0.0) or (rules.track_min if rules and rules.track_min else 0.2))
-    clr = float(getattr(nc, "clearance", 0.0) or P.clr_min or 0.2)
+    track, clr = channel_track_clr(P)
     halo = (track + 2 * clr) / 2.0
     out = {}
     for p in P.parts:
@@ -1401,6 +1398,122 @@ def channel_grid(P, weight=1.0, max_rects=8):
         out[p.i] = (si, [[r + (1, weight) for r in _grid_rects(P, p, cl, rt.rot)] for rt in p.rots],
                     [[r + (1,) for r in _grid_rects(P, p, cl, rt.rot)] for rt in p.rots])
     return out
+
+
+def channel_track_clr(P):
+    """Track width and clearance a routing channel must hold: the Default net class's, else
+    the board's minima (0.2 mm each when the board has none)."""
+    rules = getattr(P.board, "rules", None)
+    nc = (getattr(rules, "netclasses", None) or {}).get("Default") if rules is not None else None
+    track = float(getattr(nc, "track_width", 0.0) or (rules.track_min if rules and rules.track_min else 0.2))
+    clr = float(getattr(nc, "clearance", 0.0) or P.clr_min or 0.2)
+    return track, clr
+
+
+def mean_part_area(P):
+    """The annealer's A0: mean grid area (cells^2) of the movable parts' boxes at rotation 0."""
+    areas = [(r[1] - r[0]) * (r[3] - r[2]) for r in (P.parts[i].rots[0].g_own for i in P.mov)] or [1]
+    return max(1.0, sum(areas) / len(areas))
+
+
+def channel_overlap(P, grid, X, Y, K, mov=None):
+    """Halo overlap of every pair of parts with at least one in `mov` (default P.mov) at poses
+    (X, Y, K), in cells^2 times the rects' weights: the sum of anneal.Annealer._silk_pair over
+    those pairs for a `grid` from channel_grid. Returns (overlap, pairs that overlap)."""
+    mov = set(P.mov if mov is None else mov)
+    ids = sorted(grid)
+    src, tgt = [], []
+    for i in ids:
+        sd, srs, trs = grid[i]
+        k = int(K[i])
+        for (a, b, c, d, cl, w) in srs[k]:
+            src.append((i, sd, cl, w, X[i] + a, X[i] + b, Y[i] + c, Y[i] + d))
+        for (a, b, c, d, cl) in trs[k]:
+            tgt.append((i, sd, cl, X[i] + a, X[i] + b, Y[i] + c, Y[i] + d))
+    if not src or not tgt:
+        return 0.0, 0
+    S = np.array(src, float)
+    T = np.array(tgt, float)
+    tmov = np.array([int(o) in mov for o in T[:, 0]])
+    pair = {}
+    owner = S[:, 0].astype(int)
+    for i in np.unique(owner):
+        Si = S[owner == i]
+        near = ((T[:, 0] != i) & (T[:, 1] == Si[0, 1]) & (T[:, 3] < Si[:, 5].max()) & (T[:, 4] > Si[:, 4].min())
+                & (T[:, 5] < Si[:, 7].max()) & (T[:, 6] > Si[:, 6].min()))
+        if int(i) not in mov:
+            near &= tmov
+        Tn = T[near]
+        if not len(Tn):
+            continue
+        for r in Si:
+            w = np.minimum(r[5], Tn[:, 4]) - np.maximum(r[4], Tn[:, 3])
+            h = np.minimum(r[7], Tn[:, 6]) - np.maximum(r[6], Tn[:, 5])
+            hit = (Tn[:, 2] == r[2]) & (w > 0) & (h > 0)
+            for j, v in zip(Tn[hit, 0].astype(int), w[hit] * h[hit] * r[3]):
+                key = (min(int(i), j), max(int(i), j))
+                pair[key] = pair.get(key, 0.0) + float(v)
+    return float(sum(pair.values())), sum(1 for v in pair.values() if v > 0)
+
+
+EDGE_POINTS = 5     # a pad's samples in the edge term: centre and the four corners of its copper
+
+
+def channel_edge_term(P, weight, A0, c, parts=None):
+    """Routing channels between a part's pads and the board edge (outline and edge cutouts),
+    as a keep-out table in kae.place.zones.ZoneTerm's format (None when nothing to price).
+
+    channel_grid prices a channel between two parts' pads but not between a pad and the edge,
+    so on a small, full board its halos push parts outward onto the edge, where a pad no track
+    can pass is free (tinkerforge motion-detector, placement-routability: walled in by the
+    edge cutout in 3 of 3 seeds against 1 of 3 in control). Here a pad sample closer to the
+    edge than the copper-to-edge clearance plus one track and its clearance (the band: board
+    cells whose centre lies outside the outline shrunk by that) costs; a pad wholly in the band
+    costs as much as two halos overlapping by one halo's depth along the pad's long side, so an
+    edge pinch is priced as a part-to-part one. Movable parts only (`parts`, default P.mov);
+    `c` the raster cell in grid steps."""
+    from .zones import ZoneTerm, _cell_off, _raster
+    from .problem import pad_corners
+    if weight <= 0 or P.outline is None:
+        return None
+    track, clr = channel_track_clr(P)
+    halo = (track + 2 * clr) / 2.0
+    band_mm = float(getattr(P, "edge_clearance", 0.0) or 0.0) + track + clr
+    inner = P.outline.buffer(-band_mm, join_style="mitre")
+    band = ~_raster(P, c, inner)
+    g = P.g
+    todo = list(P.mov if parts is None else parts)
+    kmax = max([1] + [len(p.rots) for p in P.parts])
+    n = len(P.parts)
+    heads = np.zeros((n * kmax, 4))
+    rows, row_pad = [], []
+    n_pads = 0
+    for i in todo:
+        p = P.parts[i]
+        pads = [(k, pd) for k, pd in enumerate(p.fp.pads) if not _no_copper(pd)]
+        if not pads:
+            continue
+        n_pads += len(pads)
+        for kr, r in enumerate(p.rots[:kmax]):
+            heads[i * kmax + kr, 0] = n * kmax + len(rows)
+            cnt = 0
+            for k, pd in pads:
+                cs = pad_corners(pd)
+                long_mm = float(max(np.ptp(cs[:, 0]), np.ptp(cs[:, 1])))
+                w_pad = weight * (halo / g) * (long_mm / g) / A0
+                pts = np.vstack([[pd.lx, pd.ly], cs])
+                px, py = transform.pads_xy(pts[:, 0], pts[:, 1], 0.0, 0.0, r.rot, p.s)
+                for vx, vy in zip(px, py):
+                    rows.append((_cell_off(float(vx), g), _cell_off(float(vy), g), 0, -w_pad / len(pts)))
+                    row_pad.append(k)
+                    cnt += 1
+            heads[i * kmax + kr, 1] = cnt
+    if not rows:
+        return None
+    ent = np.vstack([heads, np.array(rows, float)])
+    info = dict(edge_band_mm=round(band_mm, 4), edge_pads=n_pads, edge_weight=weight)
+    pad = np.concatenate([np.full(n * kmax, -1, np.int64), np.array(row_pad, np.int64)])
+    return ZoneTerm(c, band.astype(np.uint16)[None], ent, kmax, info, pad=pad, dz=1)
 
 
 def soft_grid(*grids):
