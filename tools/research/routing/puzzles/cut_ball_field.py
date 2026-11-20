@@ -42,6 +42,8 @@ except ImportError:      # the geometry helpers below are importable (and tested
     pcbnew = None
 
 MM = 1e-6   # nm -> mm
+_BOARDS = []   # every loaded board stays referenced: once pcbnew frees a BOARD, later boards' items come back as
+               # bare SwigPyObjects (no GetRight, not iterable) in the same process (KiCad 10.0.7)
 
 
 def clip(x1, y1, x2, y2, box):
@@ -105,36 +107,56 @@ def perimeter_pos(x, y, box):
 
 def cut(path, ref, margin_pitches, out_dir, name):
     board = pcbnew.LoadBoard(path)
-    # every item list is taken before the first edit: pcbnew's track container stops iterating in Python once the
-    # board's drawings have been walked (KiCad 10.0.7)
-    all_tracks = list(board.GetTracks())
-    all_zones = [pcbnew.Cast_to_ZONE(board.GetArea(i)) for i in range(board.GetAreaCount())]
-    fp0 = next(f for f in board.GetFootprints() if f.GetReference() == ref)
-    centres = [(p.GetPosition().x, p.GetPosition().y) for p in fp0.Pads()]
+    _BOARDS.append(board)
+    # Everything is read before the first edit: after an item has been removed or the drawings walked, pcbnew
+    # hands back some results (boxes, points, the track list) as bare SwigPyObjects (KiCad 10.0.7).
+    fps = []                                                  # (footprint, ref, [(x, y, l, t, r, b, net)])
+    for fp in board.GetFootprints():
+        pads = []
+        for p in fp.Pads():
+            pos, bb = p.GetPosition(), p.GetBoundingBox()
+            pads.append((pos.x, pos.y, bb.GetLeft(), bb.GetTop(), bb.GetRight(), bb.GetBottom(), p.GetNetname()))
+        fps.append((fp, fp.GetReference(), pads))
+    tracks = []
+    for t in board.GetTracks():
+        cls = t.GetClass()
+        s, e = (t.GetPosition(), t.GetPosition()) if cls == "PCB_VIA" else (t.GetStart(), t.GetEnd())
+        mid = t.GetMid() if cls == "PCB_ARC" else None
+        tracks.append(dict(item=t, cls=cls, sx=s.x, sy=s.y, ex=e.x, ey=e.y, mx=mid.x if mid else None,
+                           my=mid.y if mid else None, width=0 if cls == "PCB_VIA" else t.GetWidth(), layer=t.GetLayer(),
+                           lname=board.GetLayerName(t.GetLayer()), netcode=t.GetNetCode(), net=t.GetNetname(),
+                           length=t.GetLength() if cls != "PCB_VIA" else 0))
+    zones = []
+    for i in range(board.GetAreaCount()):
+        z = pcbnew.Cast_to_ZONE(board.GetArea(i))
+        bb = z.GetBoundingBox()
+        zones.append((z, bb.GetLeft(), bb.GetTop(), bb.GetRight(), bb.GetBottom()))
+    edges = [d for d in board.GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts]
+    copper = [board.GetLayerName(l) for l in board.GetEnabledLayers().CuStack()]
+
+    centres = next([(x, y) for x, y, *_ in pads] for _, r, pads in fps if r == ref)
     pitch = pitch_of(centres)
     m = margin_pitches * pitch
     W = (min(x for x, _ in centres) - m, min(y for _, y in centres) - m,
          max(x for x, _ in centres) + m, max(y for _, y in centres) + m)
+    inw = lambda x, y: W[0] <= x <= W[2] and W[1] <= y <= W[3]
 
-    # ---- footprints: keep those with a pad centre inside W
-    keep, drop = [], []
-    for fp in board.GetFootprints():
-        (keep if any(inside(p.GetPosition(), W) for p in fp.Pads()) else drop).append(fp)
-    for fp in drop:
-        board.Remove(fp)
+    # ---- footprints: keep those with a pad centre inside W; the outline is the box around W and their pads
     ox0, oy0, ox1, oy1 = W
-    for fp in keep:
-        for p in fp.Pads():
-            bb = p.GetBoundingBox()
-            ox0, oy0 = min(ox0, bb.GetLeft()), min(oy0, bb.GetTop())
-            ox1, oy1 = max(ox1, bb.GetRight()), max(oy1, bb.GetBottom())
+    kept_fps, nets_in = 0, set()
+    for fp, _, pads in fps:
+        if not any(inw(x, y) for x, y, *_ in pads):
+            board.Remove(fp)
+            continue
+        kept_fps += 1
+        for x, y, l, t, r, b, net in pads:
+            ox0, oy0, ox1, oy1 = min(ox0, l), min(oy0, t), max(ox1, r), max(oy1, b)
+            if net and inw(x, y):
+                nets_in.add(net)
     edge = pcbnew.FromMM(1.0)
     outline = (int(ox0 - edge), int(oy0 - edge), int(ox1 + edge), int(oy1 + edge))
-
-    # ---- outline: W and the kept parts, as one rectangle on Edge.Cuts
-    for d in list(board.GetDrawings()):
-        if d.GetLayer() == pcbnew.Edge_Cuts:
-            board.Remove(d)
+    for d in edges:
+        board.Remove(d)
     rect = pcbnew.PCB_SHAPE(board)
     rect.SetShape(pcbnew.SHAPE_T_RECT)
     rect.SetStart(pcbnew.VECTOR2I(outline[0], outline[1]))
@@ -143,65 +165,62 @@ def cut(path, ref, margin_pitches, out_dir, name):
     rect.SetWidth(pcbnew.FromMM(0.1))
     board.Add(rect)
     zones_kept = 0
-    for z in all_zones:
-        bb = z.GetBoundingBox()
-        if bb.GetRight() < outline[0] or bb.GetLeft() > outline[2] or bb.GetBottom() < outline[1] or bb.GetTop() > outline[3]:
+    for z, l, t, r, b in zones:
+        if r < outline[0] or l > outline[2] or b < outline[1] or t > outline[3]:
             board.Remove(z)
         else:
             zones_kept += 1
 
     # ---- copper: clip the human tracks to W; remember where they cross the boundary
     terminals, stubs = [], []          # stubs: (x1, y1, x2, y2, width, layer id, net code)
-    length, vias = {}, 0
+    length, vias, kept_tracks = {}, 0, []
 
     def terminal(t, bx, by, ix, iy):
         """A crossing at (bx, by) of track t, whose copper runs on towards (ix, iy) inside W."""
-        w = t.GetWidth()
+        w = t["width"]
         L = max(3 * w, pcbnew.FromMM(0.3))
         d = math.hypot(ix - bx, iy - by)
         f = min(1.0, L / d) if d > 0 else 0.0
-        stubs.append((int(bx), int(by), int(bx + f * (ix - bx)), int(by + f * (iy - by)), w, t.GetLayer(), t.GetNetCode()))
-        terminals.append(dict(net=t.GetNetname(), layer=board.GetLayerName(t.GetLayer()), x=round(bx * MM, 4),
-                              y=round(by * MM, 4), width=round(w * MM, 4), along=round(perimeter_pos(bx, by, W) * MM, 3)))
+        stubs.append((int(bx), int(by), int(bx + f * (ix - bx)), int(by + f * (iy - by)), w, t["layer"], t["netcode"]))
+        terminals.append(dict(net=t["net"], layer=t["lname"], x=round(bx * MM, 4), y=round(by * MM, 4),
+                              width=round(w * MM, 4), along=round(perimeter_pos(bx, by, W) * MM, 3)))
 
-    kept_tracks = []
-    for t in all_tracks:
-        cls = t.GetClass()
+    for t in tracks:
+        item, cls = t["item"], t["cls"]
         if cls == "PCB_VIA":
-            if inside(t.GetPosition(), W):
+            if inw(t["sx"], t["sy"]):
                 vias += 1
-                kept_tracks.append(t)
+                kept_tracks.append(item)
             else:
-                board.Remove(t)
+                board.Remove(item)
             continue
-        s, e = t.GetStart(), t.GetEnd()
+        ln = t["length"] * MM
         if cls == "PCB_ARC":
-            si, ei = inside(s, W), inside(e, W)
-            if si and ei and inside(t.GetMid(), W):
-                pass
-            else:
+            si, ei = inw(t["sx"], t["sy"]), inw(t["ex"], t["ey"])
+            if not (si and ei and inw(t["mx"], t["my"])):
                 if si != ei:
-                    a, b = (s, t.GetMid()) if si else (e, t.GetMid())
-                    terminal(t, a.x, a.y, a.x + (a.x - b.x), a.y + (a.y - b.y))   # stub points away from the cut arc
-                board.Remove(t)
+                    ax, ay = (t["sx"], t["sy"]) if si else (t["ex"], t["ey"])
+                    terminal(t, ax, ay, 2 * ax - t["mx"], 2 * ay - t["my"])   # the stub points away from the cut arc
+                board.Remove(item)
                 continue
         else:
-            c = clip(s.x, s.y, e.x, e.y, W)
+            c = clip(t["sx"], t["sy"], t["ex"], t["ey"], W)
             if c is None:
-                board.Remove(t)
+                board.Remove(item)
                 continue
             t0, t1 = c
-            a = (s.x + t0 * (e.x - s.x), s.y + t0 * (e.y - s.y))
-            b = (s.x + t1 * (e.x - s.x), s.y + t1 * (e.y - s.y))
+            dx, dy = t["ex"] - t["sx"], t["ey"] - t["sy"]
+            a = (t["sx"] + t0 * dx, t["sy"] + t0 * dy)
+            b = (t["sx"] + t1 * dx, t["sy"] + t1 * dy)
             if t0 > 0:
                 terminal(t, a[0], a[1], b[0], b[1])
-                t.SetStart(pcbnew.VECTOR2I(int(a[0]), int(a[1])))
+                item.SetStart(pcbnew.VECTOR2I(int(a[0]), int(a[1])))
             if t1 < 1:
                 terminal(t, b[0], b[1], a[0], a[1])
-                t.SetEnd(pcbnew.VECTOR2I(int(b[0]), int(b[1])))
-        kept_tracks.append(t)
-        ln = board.GetLayerName(t.GetLayer())
-        length[ln] = length.get(ln, 0.0) + t.GetLength() * MM
+                item.SetEnd(pcbnew.VECTOR2I(int(b[0]), int(b[1])))
+            ln = math.hypot(b[0] - a[0], b[1] - a[1]) * MM
+        kept_tracks.append(item)
+        length[t["lname"]] = length.get(t["lname"], 0.0) + ln
 
     stem = f"{name}.{ref}"
     os.makedirs(out_dir, exist_ok=True)
@@ -209,8 +228,8 @@ def cut(path, ref, margin_pitches, out_dir, name):
     pcbnew.SaveBoard(sol, board)
 
     # ---- the bare puzzle: no tracks or vias but the terminal stubs
-    for t in kept_tracks:
-        board.Remove(t)
+    for item in kept_tracks:
+        board.Remove(item)
     for x1, y1, x2, y2, w, layer, net in stubs:
         st = pcbnew.PCB_TRACK(board)
         st.SetStart(pcbnew.VECTOR2I(x1, y1))
@@ -228,14 +247,12 @@ def cut(path, ref, margin_pitches, out_dir, name):
             for kind in ("solution", "puzzle"):
                 shutil.copyfile(base + ext, os.path.join(out_dir, f"{stem}.{kind}{ext}"))
 
-    nets_in = sorted({p.GetNetname() for f in keep for p in f.Pads() if p.GetNetname() and inside(p.GetPosition(), W)})
     terminals.sort(key=lambda d: d["along"])
     for i, d in enumerate(terminals):
         d["order"] = i
-    copper = [board.GetLayerName(l) for l in board.GetEnabledLayers().CuStack()]
     doc = dict(version=1, board=name, ref=ref, balls=len(centres), pitch_mm=round(pitch * MM, 4), copper=copper,
                window_mm=[round(v * MM, 4) for v in W], outline_mm=[round(v * MM, 4) for v in outline],
-               margin_pitches=margin_pitches, footprints=len(keep), zones=zones_kept, nets=len(nets_in),
+               margin_pitches=margin_pitches, footprints=kept_fps, zones=zones_kept, nets=len(nets_in),
                terminals=terminals, terminal_nets=len({d["net"] for d in terminals}),
                human=dict(track_mm={k: round(v, 2) for k, v in sorted(length.items())}, vias=vias),
                files=dict(puzzle=os.path.basename(puz), solution=os.path.basename(sol)))
@@ -256,7 +273,8 @@ def main(argv=None):
     if pcbnew is None:
         ap.error("needs KiCad's Python (pcbnew): run with $KAE_KICAD_WRAP python3")
     name = a.name or os.path.splitext(os.path.basename(a.board))[0]
-    refs = [f.GetReference() for f in ball_fields(pcbnew.LoadBoard(a.board), a.min_balls, a.ref)]
+    _BOARDS.append(pcbnew.LoadBoard(a.board))
+    refs = [f.GetReference() for f in ball_fields(_BOARDS[0], a.min_balls, a.ref)]
     if not refs:
         print("no ball field selected")
         return 1
