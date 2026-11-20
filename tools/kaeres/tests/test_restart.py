@@ -469,3 +469,25 @@ def test_sigterm_stops_attempts_and_writes_the_summary_of_what_was_done(tmp_path
     assert all(a["not_judged"] == "killed" and a["rc"] in (143, -15) for a in summary["attempt_log"])
     assert all("attempt saved" in a["failure"]["log_tail"] for a in summary["attempt_log"])   # waited for it
     assert any(line.startswith("KAE_WORK ") and '"killed": true' in line for line in out.splitlines())
+
+
+def test_completion_first_keeps_phase_one_board_when_a_later_phase_is_killed(tmp_path):
+    """The harness killing the wrapper during the windows phase (s2-merit213: 8 boards with no output) still leaves
+    phase 1's board as the output."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    cli = bin_ / "kicad-cli"
+    cli.write_text(FAKE_CLI)
+    cli.chmod(0o755)
+    inp = tmp_path / "in" / "board.kicad_pcb"
+    inp.parent.mkdir()
+    inp.write_text("(kicad_pcb OPEN=5)\n")
+    out = tmp_path / "out" / "board.kicad_pcb"
+    work = tmp_path / "work"
+    work.mkdir()
+    env = dict(os.environ, PATH=f"{bin_}:{os.environ['PATH']}", KAE_KICAD_WRAP="")
+    args = [sys.executable, str(RESTART), "--input", str(inp), "--output", str(out), "--time", "200",
+            "--parallel", "1", "--first-s", "25", "--max-attempts", "1", "--policy", "completion-first",
+            "--open-alt", "kill -9 $PPID", "--", "echo '(kicad_pcb OPEN=3 first)' > @OUT@"]
+    subprocess.run(args, cwd=work, env=env, capture_output=True, text=True, timeout=300)
+    assert out.exists() and "first" in out.read_text()
