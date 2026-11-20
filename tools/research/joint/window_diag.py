@@ -24,6 +24,8 @@ def load(root):
     W, finals = [], []
     for d in sorted(Path(root).iterdir()):
         f = d / "restarts" / "report-windows.json"
+        if not f.exists():                      # the windows phase killed at its timeout: its own report, if written
+            f = d / "restarts" / "policy2" / "report.json"
         if not f.exists():
             continue
         r = json.loads(f.read_text())
