@@ -180,3 +180,24 @@ def test_inputs_read_the_index_the_corpus_and_the_tag_folder(tmp_path):
     assert inp.owner["b2"] == "github.com/own0" and inp.footprints["b3"] == 30
     assert inp.routable == {"b0", "b1", "b2"} and inp.human_clean == {"b1"}   # b2: no trusted reference; b3: not routable
     assert inp.merit == ["b2"] and inp.pads == {"b2": 7}
+
+
+def test_freeze_keeps_boards_every_control_arm_ran_on_every_seed():
+    def run(b, m, k, unc, status="ok", clean=None):
+        return dict(board=b, method_id=m, attempt=k, status=status, unconnected=unc, clean=unc == 0 if clean is None else clean, cpu_s=1800)
+    rows = [run(b, m, k, unc) for b, unc in (("same", 0), ("open", 3)) for m in ("BR", "ST") for k in (0, 1)]
+    rows += [run("varies", "BR", 0, 0), run("varies", "BR", 1, 2), run("varies", "ST", 0, 4), run("varies", "ST", 1, 4)]
+    rows += [run("failed", "BR", 0, 0), run("failed", "BR", 1, 0), run("failed", "ST", 0, None, status="no_output"), run("failed", "ST", 1, 1)]
+    rows += [run("unprepared", "HUMAN", 0, 0)]
+    board = {b: dict(owner="o/" + b, layers=2, footprints=10, tags="dec_rich") for b in ("same", "open", "varies", "failed", "unprepared")}
+    suites = {"sprint-frontier": ["same", "failed", "varies"], "sprint-quality": ["open", "unprepared"]}
+    kept, manifest, report = S.freeze(rows, dict(BR="bridge", ST="staged"), 2, suites, board)
+    assert kept == {"sprint-frontier": ["same", "varies"], "sprint-quality": ["open"]}
+    assert [m["board"] for m in manifest] == ["same", "varies", "open"]
+    v = manifest[1]
+    assert (v["suite"], v["owner"], v["tags"]) == ("sprint-frontier", "o/varies", "dec_rich")
+    assert (v["bridge_opens_s0"], v["bridge_opens_s1"], v["bridge_clean_s1"], v["staged_opens_s1"], v["staged_cpu_h_s0"]) == (0, 2, 0, 4, 0.5)
+    assert "sprint-frontier: 2 of 3 boards kept; dropped (a control arm did not prepare or run): failed" in report
+    assert "bridge: open connections left on 1 of 3 boards on every seed, on 2 on some seed; clean on every seed 1; inert between seeds (same open connections and clean) 2;" in report
+    assert "staged: open connections left on 2 of 3 boards on every seed, on 2 on some seed; clean on every seed 1; inert between seeds (same open connections and clean) 3; 3.0 CPU-h in all, 0.50 per run" in report
+    assert "inert between seeds under every arm: 2 of 3 boards" in report
