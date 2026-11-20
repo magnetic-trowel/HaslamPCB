@@ -160,13 +160,30 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
     checker = Checker(d, symlibs, fplibs)
     findings = checker.run()
     fatal = [f for f in findings if f.check in ("lib.symbol_missing",) and not f.waived_by]
+    # fab minimums from the finest pitch when the design leaves them unset (haslamsynth.layout)
+    from . import layout as LY
+    if d.board_spec is not None and fplibs:
+        t, c, why = LY.board_minimums(d, fplibs)
+        if not (d.board_spec.min_track_mm and d.board_spec.min_clearance_mm):
+            d.board_spec.min_track_mm = d.board_spec.min_track_mm or t
+            d.board_spec.min_clearance_mm = d.board_spec.min_clearance_mm or c
+            findings.append(Finding("layout.fab_minimums", "info",
+                                    f"board minimums track {t:g} mm, clearance {c:g} mm ({why})"))
     netclasses = NetClasses(d, checker).build()
+    dru_info = {}
+    dru_body = dru_text(d, netclasses, dru_info)
+    if fplibs:
+        LY.check(d, fplibs, netclasses, dru_info.get("pair_mm", {}), set(dru_info.get("bridging", [])),
+                 lambda chk, sev, msg, objs=(): findings.append(Finding(chk, sev, msg, list(objs))))
+        checker.findings = findings
+        checker.apply_waivers()
+        findings = checker.findings
     kicad = {"ran": False, "reason": "not requested"}
     if symlibs and not fatal:
         writer = SchematicWriter(d, symlibs, title_date=date)
         writer.write(outdir)
         write_project(outdir, d, writer.st, netclasses, fplibs=fplibs)
-        (outdir / f"{d.slug}.kicad_dru").write_text(dru_text(d, netclasses))
+        (outdir / f"{d.slug}.kicad_dru").write_text(dru_body)
         if use_kicad:
             kicad = run_kicad(d, outdir, netclasses)
             for item in kicad.get("erc_items", []):
