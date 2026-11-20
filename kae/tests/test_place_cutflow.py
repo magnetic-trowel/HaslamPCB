@@ -179,3 +179,17 @@ def test_edge_model_measures_copper_to_copper():
     # edge model: copper 1.5 apart on F.Cu -> floor(1.3 / 0.4) = 3; B.Cu 2.0 -> 4
     assert g.cap[e] == 7
     assert CF.measure(FIXTURE, model="edge")["npad"] == PINNED_FIXTURE[2]
+
+
+def test_measured_counts_routed_tracks_through_a_one_track_gap():
+    bd = _channel(0.8)                       # (0.8 - 0.2) / 0.4 = 1.5: one track fits
+    bd.tracks = [NS(net=f"N{k}", layer="F.Cu", width=0.2, start=(x, 3.0), end=(x, -3.0), mid=None)
+                 for k, x in ((0, -0.1), (1, 0.1))]
+    bd.tracks.append(NS(net="N2", layer="B.Cu", width=0.2, start=(0.0, 3.0), end=(0.0, -3.0), mid=None))  # not a signal layer here
+    r = CF.measured(bd)
+    [e] = _cut(r["graph"], "L", "R")
+    assert r["capacity"][e] == 1 and r["demand"][e] == 2
+    assert r["ovf"] == 1
+    assert r["parts"] == {"L": pytest.approx(0.4), "R": pytest.approx(0.4)}
+    assert r["pairs"] == {("L", "R"): pytest.approx(0.4)}
+    assert CF.pressure_doc(r["parts"], r["pairs"], "measured")["source"] == "measured"

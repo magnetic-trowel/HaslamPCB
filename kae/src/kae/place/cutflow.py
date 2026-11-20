@@ -29,7 +29,10 @@ copper edge-to-edge distance of the end pads present on the layer (pads as rotat
 the layer counts as its centre point), and the four corners of every part's courtyard (else body) rectangle are
 extra vertices owned by that part, so cuts follow part outlines as well as pads.
 
+measured(board): the same cuts with demand from the board's own routed tracks (source "measured").
+
 CLI: python -m kae.place.cutflow BOARD.kicad_pcb [--pressure OUT.json] [--json] [--seed S] [--rounds K] [--model M]
+     [--measured]
 """
 from __future__ import annotations
 
@@ -422,9 +425,45 @@ def measure(board_or_path, clearance=None, width=None, rounds=K_ROUNDS, seed=0, 
     return out
 
 
-def pressure_doc(parts, pairs):
-    """The pressure file contents (schema 1)."""
-    return {"schema": SCHEMA, "source": "cutflow",
+def measured(board, clearance=None, width=None, model="center"):
+    """The same cut graph with demand from the board's routed copper instead of the dual route.
+
+    Demand of a cut = number of tracks (segments; arcs as two chords) on its signal layers that cross it, leaving out
+    tracks of the nets of the cut's end pads (they connect there rather than pass). Overflow and pressure as in
+    route(): max(0, demand - capacity), capacity summed over signal layers. None when build() gives no graph."""
+    import shapely
+    from shapely.geometry import LineString
+    g = build(board, clearance, width, model=model)
+    if g is None:
+        return None
+    sig = set(g.signal_layers)
+    lines, nets = [], []
+    for t in getattr(board, "tracks", []) or []:
+        if t.layer not in sig:
+            continue
+        pts = [t.start, t.mid, t.end] if getattr(t, "mid", None) else [t.start, t.end]
+        for a, b in zip(pts, pts[1:]):
+            if tuple(a) != tuple(b):
+                lines.append(LineString([a, b]))
+                nets.append(t.net)
+    dem = np.zeros(len(g.cap))
+    if lines:
+        cuts = np.array([LineString([g.V[u], g.V[v]]) for u, v in g.cut_ends], dtype=object)
+        ci, ti = shapely.STRtree(np.array(lines, dtype=object)).query(cuts, predicate="intersects")
+        for e, k in zip(ci.tolist(), ti.tolist()):
+            u, v = g.cut_ends[e]
+            own = (g.nets[u] if u < g.npad else set()) | (g.nets[v] if v < g.npad else set())
+            if nets[k] not in own:
+                dem[e] += 1
+    ov = np.maximum(0, dem - g.cap)
+    parts, pairs = pressure(g, ov)
+    return dict(ovf=float(ov.sum()), ncut=int((ov > 0).sum()), cross=float(dem.sum()), demand=dem, capacity=g.cap,
+                over=np.nonzero(ov > 0)[0], parts=parts, pairs=pairs, graph=g)
+
+
+def pressure_doc(parts, pairs, source="cutflow"):
+    """The pressure file contents (schema 1); source 'cutflow' (dual route) or 'measured' (routed copper)."""
+    return {"schema": SCHEMA, "source": source,
             "parts": {k: round(v, 4) for k, v in sorted(parts.items())},
             "pairs": [[a, b, round(mm, 4)] for (a, b), mm in sorted(pairs.items())]}
 
@@ -439,7 +478,21 @@ def main(argv=None):
     ap.add_argument("--clearance", type=float, default=None)
     ap.add_argument("--width", type=float, default=None)
     ap.add_argument("--model", choices=("center", "edge"), default="center")
+    ap.add_argument("--measured", action="store_true",
+                    help="demand from the board's routed tracks instead of the dual route (source 'measured')")
     a = ap.parse_args(argv)
+    if a.measured:
+        from kae.board.kicad_file import load
+        r = measured(load(a.board, rules=True), a.clearance, a.width, model=a.model)
+        if r is None:
+            print("cutflow: too few pads or no connections to route", file=sys.stderr)
+            return 2
+        if a.pressure:
+            with open(a.pressure, "w") as f:
+                json.dump(pressure_doc(r["parts"], r["pairs"], "measured"), f, indent=1)
+                f.write("\n")
+        print(json.dumps({k: r[k] for k in ("ovf", "ncut", "cross")}))
+        return 0
     m = measure(a.board, a.clearance, a.width, rounds=a.rounds, seed=a.seed, detail=True, model=a.model)
     if m is None:
         print("cutflow: too few pads or no connections to route", file=sys.stderr)

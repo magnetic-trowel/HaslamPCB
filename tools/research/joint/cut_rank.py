@@ -211,7 +211,9 @@ def summarize(boards, m, rng, nboot=2000):
     for b in boards:
         cc, dd, tt = b["conc"][m]
         c, d, t = c + cc, d + dd, t + tt
-    return dict(n=len(rhos), median=float(np.median(arr)), mean=float(arr.mean()),
+    zero = [b["rho"][m] if b["rho"].get(m) is not None else 0.0 for b in boards]
+    return dict(n=len(rhos), n_all=len(zero), median_all=float(np.median(zero)), median=float(np.median(arr)),
+                mean=float(arr.mean()),
                 median_ci=[float(np.percentile(meds, 2.5)), float(np.percentile(meds, 97.5))],
                 mean_ci=[float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))],
                 concordance=(c + 0.5 * t) / (c + d + t) if c + d + t else None, pairs=c + d + t)
@@ -281,14 +283,16 @@ def _f(x, nd=2):
 
 
 def _table(block):
-    lines = ["| measure | n boards | median rho [95 % CI] | mean rho [95 % CI] | concordance |", "|---|---|---|---|---|"]
+    lines = ["| measure | n boards | median rho [95 % CI] | mean rho [95 % CI] | concordance | median, constant = 0 |",
+             "|---|---|---|---|---|---|"]
     for m in MEASURES:
         s = block.get(m, {})
         if not s.get("n"):
-            lines.append(f"| {m} | 0 | - | - | - |")
+            lines.append(f"| {m} | 0 | - | - | - | - |")
             continue
         lines.append(f"| {m} | {s['n']} | {_f(s['median'])} [{_f(s['median_ci'][0])}, {_f(s['median_ci'][1])}] | "
-                     f"{_f(s['mean'])} [{_f(s['mean_ci'][0])}, {_f(s['mean_ci'][1])}] | {_f(s['concordance'])} |")
+                     f"{_f(s['mean'])} [{_f(s['mean_ci'][0])}, {_f(s['mean_ci'][1])}] | {_f(s['concordance'])} | "
+                     f"{_f(s['median_all'])} |")
     return lines
 
 
@@ -299,7 +303,8 @@ def report_md(res, experiment):
              f"errors {res['errors']}, boards over the pad limit {res['skipped_big']}. "
              f"Boards with >= 4 distinct placements and non-constant opens: {res['boards']}.", "",
              f"Within-board Spearman correlation of each measure with KiCad opens (higher measure, more opens: "
-             f"positive is right). References: {REFERENCE}.", ""]
+             f"positive is right). References: {REFERENCE}. A board where a measure is constant has no rho for it and "
+             f"is left out of that measure's n; the last column counts such boards as 0.", ""]
     if p.get("n"):
         verdict = "above" if p["median_ci"][0] > DECISION else ("below" if p["median_ci"][1] < DECISION else
                                                                "not separable from")
