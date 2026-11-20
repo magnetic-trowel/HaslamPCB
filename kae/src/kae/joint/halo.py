@@ -301,6 +301,11 @@ def run(a, log=_log):
     best_card, best_fb = S0.evaluate(lay0, 0)
     eval_s = clock_now() - t
     best_path = Path(lay0.board)
+    # the start board's locks hold in every round (a kept board is input + poses + routing,
+    # and the input may lock fewer parts than the start did)
+    fixed = {fp.ref for fp in S0._load(a.start).footprints if fp.locked}
+    fixed |= {r for r in (a.lock_refs or "").split(",") if r}
+    rep["locked_refs"] = len(fixed)
     rep["start_card"] = _card_dict(best_card)
     log(f"start: {best_card.unconnected} unconnected, {best_card.errors} errors ({eval_s:.0f}s)")
     for k in range(max(1, int(a.rounds))):
@@ -332,7 +337,7 @@ def run(a, log=_log):
             place_s = min(float(a.place_time), max(10.0, 0.2 * (deadline - clock_now())))
             prep = replace_with_halos(best_path, pressure, placed, seed=a.seed + 7919 * k, time_s=place_s,
                                       brief=brief, margin=a.margin, w_disp=a.w_disp, physics=not a.no_physics,
-                                      locked_refs=tuple(r for r in (a.lock_refs or "").split(",") if r),
+                                      locked_refs=tuple(sorted(fixed)),
                                       board_path=str(inp), opts=opts, log=log)
             row["replace"] = prep
             row["legal"] = prep["legal"]
