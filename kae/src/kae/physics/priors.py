@@ -8,6 +8,12 @@ a datasheet, a simulation or a measurement replaces it through the brief
 the comment on each function gives the physics and its source. The derivations and the
 sensitivity of the results to them are in docs/topics/physics/place-terms.md.
 
+Shipped-product audit (docs/research/physics/anchors-2611.md, check 2): on boards of vendors that sell
+them assembled, 29 % of commutation structures and 24 % of ESD structures spend more than twice their
+allocation (ESD: 1 % where the protector is within 15 mm of its connector), so these two are priors that
+practice does not honour, not limits; decap is at the line (9 %); crystal (1 %) and antenna (0 of 29)
+behave as limits.
+
 Conventions: nH, pF, ns, V, A, W, K, mm. A `Belief` is (value, unit, basis, cls).
 """
 from __future__ import annotations

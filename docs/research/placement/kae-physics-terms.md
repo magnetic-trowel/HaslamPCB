@@ -78,6 +78,8 @@ Only thermal shuffles beat the human, by spreading heat. Where human boards spen
 | world CM | 272 | 0.0001 (0.11) µA | 0.00002 | 0.4% (0.4%) | 0% | 0% |
 | antenna | 25 | 0.84 (3.8) dB | 1.68 | 68% (68%) | 80% | 44% |
 
+Shipped-product audit ([anchors-2611](../physics/anchors-2611.md#check-2-result-shipped-product-quantiles), 150 boards of vendors that sell them, today's code): commutation 29% and ESD 24% of structures beyond 2× (priors, not limits; ESD 1% where the protector is within 15 mm), decap 9% (at the line), crystal 1% and antenna 0 of 29 (limits).
+
 On the same briefs, detours alone raise ESD from 28% to 46%, hot loops 62% to 68%, crystals 21% to 24%. Decaps fell from 29% to 11% under the per-IC split and stability prior, then rose to 35% under the careful-layout budget; the share beyond 2× stayed at 6%.
 
 Decap budgets by class (1,471 structures): median u 0.82 (p10 0.44, p90 1.61). Load caps are 39% over budget (median u 0.88), VCAP bypass 23% (64% and u 3.2 under the HF rule), regulator outputs 2%, converter outputs 5%.
