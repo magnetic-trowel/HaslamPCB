@@ -1,0 +1,34 @@
+# pose-transplant, list A: sprint (control-w47) boards where stored pre-tag runs show kae placement routing worse than the human placement
+# (mean log1p opens, staged/joint minus bridge >= 0.3; >=2 runs each side). Independent of control-w47 seeds.
+connaxio-espoir-espoir
+rodrigocandrade-lionv3-r-lionv3
+buildacubesat-project-bac-hardware-bq25306-charger-module-v1
+adafruit-adafruit-tpa2012-or-ts2012-breakout-pcb-adafruit-ts2012-tpa2012-class-d-audio-amp
+antmicro-myra-sip-interposer-myra-sip-interposer
+glydrfreak-vspeed-vario-adafruit-feather-zero-ble-rev-b
+beagleboard-pocketbeagle-pocketbeagle
+siderakb-ergo-snm-keyboard-ergosnm-right
+bitmerse-wiser-wiser-usb
+ut8ifg-ptt-usb-cable-ptt-usb-cable
+atlantis-specialist-technologies-can485-sparkfun-ast-can485
+kelu124-pic0rick-max14866-pmod
+pcbcorpus-zhiayang-mikoto-mikoto
+jrsteensen-openhornet-controller-ampcd-ddi
+buildacubesat-archive-bac-hardware-tpsm5d1806-buck-module-v1
+unexpectedmaker-esp32s3-omgs3-carrier-r1
+tinkerforge-temperature-bricklet-temperature
+kata0510-rp2040-8key-rp2040-8key
+cmnybo-chip-lcd-dip-chip-lcd-dip
+chrischrislolo-bancouver40-dogema48-cfx
+fpga-theremin-theremin-teensy41-display-controls
+jlywxy-slimarm-slimarm-hypericum
+# neutral A/A boards (|diff| < 0.3)
+librespacefoundation-qubik-qubik-bmps-bmps
+rianadon-cosmos-keyboard-pcbs-lemon-pcb-swizzle
+sparkfunx-sparkx-smol-esp32-sparkx-smol-esp32
+sparkfun-edison-micro-sd-block-micro-sd-block
+rave-saber-rave-saber-hardware-ravesaber
+mister-industries-tinyglow-tinyglow
+m1geo-pi5-artix-fpga-hat-pi5-artix50t-hat
+loredavid-hapticpad-macropad-controller-board
+protocentral-protocentral-max30205-pc-max30205-brk
