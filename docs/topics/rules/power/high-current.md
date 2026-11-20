@@ -5,7 +5,7 @@ Keys: high current, ampacity, IPC-2221, IPC-2152, trace width, IR drop, via curr
 
 ## High-current checks to emit
 1. Per-net I_max from regulator ratings and datasheets (LLM extraction); width and via counts computed (code); KiCad `track_width` constraints per net class from I_max and copper weight.
-2. Size with IPC-2152 (or conservative IPC-2221) plus an explicit IR-drop check; graph-based narrowest cross-section over tracks and zones.
+2. Size with IPC-2221 or IPC-2152, whichever asks for the wider track (IPC-2152 on outer layers above about 1.25 A at 10 K, 1 oz; `KAE_TRACK_HEAT`, [anchors-2611](../../../research/physics/anchors-2611.md#check-3-result-track-heating)), plus an explicit IR-drop check; graph-based narrowest cross-section over tracks and zones.
 3. Vias where current enters or leaves pads, not scattered: ≥ceil(I/I_via), default I_via from the conservative TI SLVA959 / IPC-2152 table (~0.8 A per 12 mil via); sources disagree 2.6× (log the conflict).
 4. Copper weight is a stackup decision: heavier copper raises fab minimum track/space and can break fine-pitch footprints; surface it early ([../dfm-fab-limits.md](../dfm-fab-limits.md)).
 5. Tens to hundreds of amps: press-fit busbars; the 100–200 µΩ transitions and the PCB layout around them are the limits.
@@ -17,8 +17,8 @@ Keys: high current, ampacity, IPC-2221, IPC-2152, trace width, IR drop, via curr
 
   | 3 mm track, rise (K) | 5 A | 8 A | 10 A | 12 A | 15 A |
   |---|---|---|---|---|---|
-  | 1 oz, IPC-2221 / IPC-2152 | 9 / 16 | 25 / 41 | 42 / 65 | 64 / 93 | 106 / 146 |
-  | 2 oz, IPC-2221 / IPC-2152 | 3 / 8 | 8 / 21 | 14 / 32 | 20 / 47 | 34 / 73 |
+  | 1 oz, IPC-2221 / IPC-2152 | 9 / 16 | 25 / 41 | 42 / 65 | 64 / 93 | 106 / 145 |
+  | 2 oz, IPC-2221 / IPC-2152 | 3 / 8 | 8 / 21 | 13 / 32 | 20 / 47 | 34 / 73 |
 
   IPC-2152 width at 10 K, 1 oz: 4.6 mm at 5 A, 15 mm at 10 A (IPC-2221: 2.8 and 7.2) [C].
 - Rohm conservative design values: **>1 mm per A (1 oz), >0.7 mm per A (2 oz)**; 2 A → 0.53 mm for a 20 °C rise ([Rohm](https://fscdn.rohm.com/en/products/databook/applinote/ic/power/switching_regulator/converter_pcb_layout_appli-e.pdf)) [P].

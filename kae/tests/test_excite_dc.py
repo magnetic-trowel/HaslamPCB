@@ -13,6 +13,57 @@ def test_heating_inverts_the_ipc2221_width():
         assert DC.ipc_dT(I, w, 0.035, external=not internal) == pytest.approx(dT, rel=1e-9)
 
 
+# docs/topics/rules/power/high-current.md, "Trace width": rise (K) of a 3 mm outer track, copper mm ->
+# current A -> (IPC-2221, IPC-2152 by the Brooks-Adam fit); and widths (mm) at 10 K on 35 um
+RISE_3MM = {
+    0.035: {5: (9, 16), 8: (25, 41), 10: (42, 65), 12: (64, 93), 15: (106, 145)},
+    0.070: {5: (3, 8), 8: (8, 21), 10: (13, 32), 12: (20, 47), 15: (34, 73)},
+}
+
+
+def test_heating_formulas_reproduce_the_tabulated_points():
+    """Each formula against numbers written down outside the code (the inversion above only shows the
+    two IPC-2221 functions agree with each other)."""
+    from kae.route.critical_physics import ipc2152_width
+    for t, row in RISE_3MM.items():
+        for I, (p21, p52) in row.items():
+            assert abs(DC.ipc_dT(I, 3.0, t) - p21) <= (1.0 if p21 < 10 else 0.5), (t, I)
+            assert abs(DC.ipc2152_dT(I, 3.0, t) - p52) <= (1.0 if p52 < 10 else 0.5), (t, I)
+    assert ipc2221_width(1.0) == pytest.approx(0.30, abs=0.005)
+    assert ipc2221_width(5.0) == pytest.approx(2.77, abs=0.005)
+    assert ipc2221_width(10.0) == pytest.approx(7.2, abs=0.05)
+    assert ipc2152_width(5.0) == pytest.approx(4.6, abs=0.05)
+    assert ipc2152_width(10.0) == pytest.approx(15.0, abs=0.5)
+    assert DC.ipc2152_dT(10.0, ipc2152_width(10.0, 20.0, 0.07), 0.07) == pytest.approx(20.0, rel=1e-9)
+
+
+def test_ipc2221_is_not_the_conservative_formula_for_wide_tracks():
+    """On every tabulated point IPC-2152 reads the hotter; the two cross at 1.25 A (0.41 mm) for a 10 K
+    rise on 35 um, and narrow tracks are hotter by IPC-2221 (anchors-2611.md, check 3)."""
+    from kae.route.critical_physics import ipc2152_width
+    for t, row in RISE_3MM.items():
+        for I in row:
+            assert DC.ipc2152_dT(I, 3.0, t) > DC.ipc_dT(I, 3.0, t)
+    assert ipc2152_width(1.2) < ipc2221_width(1.2) and ipc2152_width(1.3) > ipc2221_width(1.3)
+    assert DC.ipc2152_dT(0.5, 0.12, 0.035) < DC.ipc_dT(0.5, 0.12, 0.035)
+
+
+def test_track_width_setting_keeps_ipc2221_by_default(monkeypatch):
+    from kae.route import critical_physics as CP
+    monkeypatch.delenv("KAE_TRACK_HEAT", raising=False)
+    for I, dT, t, internal in [(0.5, 10.0, 0.035, False), (5.0, 10.0, 0.035, False), (8.0, 20.0, 0.07, True)]:
+        assert CP.track_width(I, dT, t, internal=internal) == ipc2221_width(I, dT, t, internal=internal)
+    monkeypatch.setenv("KAE_TRACK_HEAT", "ipc2152")
+    assert CP.track_width(5.0) == pytest.approx(4.555, abs=0.005)            # the fit, wider than 2.77 mm
+    assert CP.track_width(0.5) == CP.ipc2152_width(0.5) < ipc2221_width(0.5)  # and narrower below the crossing
+    assert CP.track_width(5.0, internal=True) == ipc2221_width(5.0, internal=True)   # inner layers: unchanged
+    monkeypatch.setenv("KAE_TRACK_HEAT", "hotter")
+    assert CP.track_width(5.0) == CP.ipc2152_width(5.0) and CP.track_width(0.5) == ipc2221_width(0.5)
+    monkeypatch.setenv("KAE_TRACK_HEAT", "ipc2512")
+    with pytest.raises(ValueError):
+        CP.track_width(1.0)
+
+
 def _plan(rect="D1"):
     """USB (J1) -> VBUS; LDO U1 VBUS -> 3V3 with load U2; boost cell (controller U3, inductor L1,
     rectifier D1) VBUS -> 5V with load J2."""

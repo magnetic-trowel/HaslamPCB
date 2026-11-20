@@ -53,13 +53,19 @@ def mutual(A, B):
     return sum(m_seg(a['p0'], a['p1'], b['p0'], b['p1']) for a in A for b in B)
 
 
-def model(kind, d, side=SIDE, w=W, gap=RING_GAP):
-    """Model inductance (nH) of one table row, without the fixture."""
+def model(kind, d, side=SIDE, w=W, gap=RING_GAP, ring_under=False):
+    """Model inductance (nH) of one table row, without the fixture. ring_under (exploratory): a shorted
+    ring at d > 0 has the loop's own footprint, directly under the trace."""
     if kind == 'plane':
         return loop_L(square(side, d, w), plane=True, t=T_CU)
     L1 = loop_L(square(side, 10.0, w), plane=False, t=T_CU)
     if kind == 'open':
         return L1
+    if ring_under and d > 0:
+        # two identical loops d apart: M = L1 - L_plane(d / 2) exactly (a loop over a plane at h is the loop
+        # and its reversed copy 2h away), so L1 - M^2 / L1 follows from the plane law itself
+        M = L1 - loop_L(square(side, d / 2.0, w), plane=True, t=T_CU)
+        return L1 - M * M / L1
     side2 = side - 2.0 * (w + gap)          # ring centreline: its outer edge `gap` inside the loop's inner edge
     ring = square(side2, 10.0 - d, w)
     L2 = loop_L(ring, plane=False, t=T_CU)
@@ -114,7 +120,7 @@ def main():
     print(f'  plane-distance ratios to d = 0.12 mm without L0 (none / 1.5 / 0.5 / 0.27): '
           f'{mod[0] / mod[6]:.1f} / {mod[2] / mod[6]:.1f} / {mod[4] / mod[6]:.1f} / {mod[5] / mod[6]:.1f}'
           f' (measured 14.4 / 3.2 / 1.8 / 1.6)')
-    l0n, _ = fit_l0(mod, meas, lo=-200.0)
+    l0n, _ = fit_l0(mod, meas, lo=-min(mod) + 0.01)
     print(f'  unconstrained L0 would be {l0n:.1f} nH (a series fixture inductance cannot be negative)')
     print(f'CHECK 1 VERDICT: {v} (pass: all rows within {PASS:.0%}; fail: any beyond {FAIL:.0%})')
 
@@ -132,6 +138,34 @@ def main():
     for conv, (_, wi, side, m, l) in best.items():
         ve, _ = report(f'trace width free, 100 mm = {conv}: best w = {wi:g} mm (centreline side {side:g} mm)', ROWS, m, l)
         print(f'  -> {ve} by the same lines (two free parameters, seven rows)')
+    print('post hoc (after the first run): "rectangular loop no overlap" read as a shorted ring of the loop\'s own'
+          ' footprint 1.5 mm under the trace')
+    for conv, (_, _, _, _, _) in list(best.items()):
+        alt = None
+        for wi in [x * 0.5 for x in range(2, 61)]:
+            side = SIDE if conv == 'centreline' else SIDE - wi
+            if side - 2 * (wi + RING_GAP) <= 4 * wi:
+                continue
+            m = [model(k, d, side=side, w=wi, ring_under=True) for _, k, d, _, _ in ROWS]
+            l, cost = fit_l0(m, meas)
+            if alt is None or cost(l) < alt[0]:
+                alt = (cost(l), wi, side, m, l)
+        ve, _ = report(f'trace width free, 100 mm = {conv}, ring under the trace: best w = {alt[1]:g} mm', ROWS, alt[3], alt[4])
+        print(f'  -> {ve} by the same lines (two free parameters and one re-read row, seven rows)')
+    print('what the fit cannot see: the plane term scaled by k, width and L0 refitted (100 mm = outer edge, plane rows)')
+    for k in (0.5, 1.0, 2.0):
+        bestk = None
+        for wi in [x * 0.5 for x in range(2, 81)]:
+            side = SIDE - wi
+            if side <= 4 * wi:
+                continue
+            m = [k * model('plane', ROWS[i][2], side=side, w=wi) for i in range(len(ROWS)) if ROWS[i][1] == 'plane']
+            y = [meas[i] for i in range(len(ROWS)) if ROWS[i][1] == 'plane']
+            l, cost = fit_l0(m, y)
+            worst = max(abs((mm + l) / yy - 1.0) for mm, yy in zip(m, y))
+            if bestk is None or cost(l) < bestk[0]:
+                bestk = (cost(l), wi, l, worst)
+        print(f'  k = {k:g}: best w = {bestk[1]:g} mm, L0 = {bestk[2]:.1f} nH, worst plane row {bestk[3]:.1%}')
     pl = [i for i, r in enumerate(ROWS) if r[1] == 'plane']
     for name, side, wi in [('pre-registered geometry', SIDE, W)] + [(f'best width, {c}', b[2], b[1]) for c, b in best.items()]:
         m = [model('plane', ROWS[i][2], side=side, w=wi) for i in pl]

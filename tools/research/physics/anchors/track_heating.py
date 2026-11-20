@@ -25,10 +25,12 @@ from kae.excite import dc as DC  # noqa: E402
 from kae.route import critical_physics as CP  # noqa: E402
 
 OZ = {1: 0.035, 2: 0.070}
-# high-current.md, "3 mm track, rise (K)": copper oz -> current A -> (IPC-2221, IPC-2152)
+# high-current.md, "3 mm track, rise (K)": copper oz -> current A -> (IPC-2221, IPC-2152). The first run
+# (2026-11-20) failed on two cells printed one too high, 146 (1 oz, 15 A, IPC-2152; computed 145.50) and
+# 14 (2 oz, 10 A, IPC-2221; computed 13.49); the doc was corrected and these are its values now.
 RISE_3MM = {
-    1: {5: (9, 16), 8: (25, 41), 10: (42, 65), 12: (64, 93), 15: (106, 146)},
-    2: {5: (3, 8), 8: (8, 21), 10: (14, 32), 12: (20, 47), 15: (34, 73)},
+    1: {5: (9, 16), 8: (25, 41), 10: (42, 65), 12: (64, 93), 15: (106, 145)},
+    2: {5: (3, 8), 8: (8, 21), 10: (13, 32), 12: (20, 47), 15: (34, 73)},
 }
 # widths at 10 K on 1 oz: (formula, current A, printed mm, half of the last printed digit)
 WIDTHS = [
@@ -51,6 +53,7 @@ def bisect(f, lo, hi):
 def main():
     bad = 0
     colder = []
+    misses = []
     print('3 mm outer track, rise in K: computed (printed in high-current.md)')
     print(f'  {"oz":>2s} {"A":>3s}  {"IPC-2221":>16s}  {"IPC-2152 fit":>16s}  {"2152/2221":>9s}')
     for oz, row in RISE_3MM.items():
@@ -59,10 +62,12 @@ def main():
             d52 = DC.ipc2152_dT(cur, 3.0, OZ[oz])
             assert abs(d21 - CP.ipc2221_dT(cur, 3.0, OZ[oz])) < 1e-9 and abs(d52 - CP.ipc2152_dT(cur, 3.0, OZ[oz])) < 1e-9
             marks = []
-            for d, p in ((d21, p21), (d52, p52)):
+            for name, d, p in (('IPC-2221', d21, p21), ('IPC-2152 fit', d52, p52)):
                 ok = abs(d - p) <= (1.0 if p < 10 else 0.5)
                 bad += not ok
                 marks.append('' if ok else ' !')
+                if not ok:
+                    misses.append((oz, cur, name, d, p))
             if d21 < d52:
                 colder.append((oz, cur))
             print(f'  {oz:2d} {cur:3d}  {d21:8.1f} ({p21:3d}){marks[0]:2s}  {d52:8.1f} ({p52:3d}){marks[1]:2s}  {d52 / d21:9.2f}')
@@ -76,20 +81,20 @@ def main():
         assert abs(back - 10.0) < 1e-6
     n = sum(len(r) for r in RISE_3MM.values()) * 2 + len(WIDTHS)
     print(f'{n - bad}/{n} tabulated values reproduced')
+    for oz, cur, name, d, p in misses:
+        print(f'  miss: {oz} oz, {cur} A, {name}: computed {d:.2f} K, printed {p} K')
 
     print('\nclaim "IPC-2221 is conservative against IPC-2152":')
     print(f'  IPC-2221 reads the lower rise at {len(colder)} of {sum(len(r) for r in RISE_3MM.values())} tabulated points'
           f' -> the claim {"holds" if not colder else "does not hold"} on the table')
     for oz, t in OZ.items():
-        i_x = bisect(lambda i: CP.ipc2152_width(i, 10.0, t) - CP.ipc2221_width(i, 10.0, t), 0.01, 100.0)
-        w_x = CP.ipc2221_width(i_x, 10.0, t)
-        print(f'  {oz} oz, sized for 10 K: the two widths are equal at {i_x:.2f} A ({w_x:.2f} mm); above it IPC-2152 asks for'
-              f' the wider track: x{CP.ipc2152_width(5, 10.0, t) / CP.ipc2221_width(5, 10.0, t):.2f} at 5 A,'
-              f' x{CP.ipc2152_width(10, 10.0, t) / CP.ipc2221_width(10, 10.0, t):.2f} at 10 A;'
-              f' at 0.5 A x{CP.ipc2152_width(0.5, 10.0, t) / CP.ipc2221_width(0.5, 10.0, t):.2f}')
-        for w in (0.2, 0.5, 1.0, 3.0):
-            i_e = bisect(lambda i: CP.ipc2152_dT(i, w, t) - CP.ipc2221_dT(i, w, t), 1e-3, 1e3)
-            print(f'    {w:g} mm track: equal rise at {i_e:.2f} A ({CP.ipc2221_dT(i_e, w, t):.1f} K); IPC-2152 is the hotter above it')
+        for dT in (10.0, 20.0, 40.0):
+            i_x = bisect(lambda i: CP.ipc2152_width(i, dT, t) - CP.ipc2221_width(i, dT, t), 0.01, 100.0)
+            w_x = CP.ipc2221_width(i_x, dT, t)
+            print(f'  {oz} oz, sized for {dT:g} K: equal widths at {i_x:.2f} A ({w_x:.2f} mm); above it IPC-2152 asks for the'
+                  f' wider track (x{CP.ipc2152_width(5, dT, t) / CP.ipc2221_width(5, dT, t):.2f} at 5 A,'
+                  f' x{CP.ipc2152_width(10, dT, t) / CP.ipc2221_width(10, dT, t):.2f} at 10 A), below it the narrower'
+                  f' (x{CP.ipc2152_width(0.5, dT, t) / CP.ipc2221_width(0.5, dT, t):.2f} at 0.5 A)')
     print('  inner layers: IPC-2221 internal (k = 0.024) against the same fit, widths at 10 K, 1 oz:')
     for cur in (1, 5, 10):
         print(f'    {cur:2d} A: IPC-2221 internal {CP.ipc2221_width(cur, 10.0, 0.035, internal=True):.2f} mm,'

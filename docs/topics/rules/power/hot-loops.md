@@ -45,6 +45,8 @@ AN-139 Table 1, a 10 × 10 cm loop at 27 MHz [P], VERIFIED by VR:
 | Thin plane | 0.27 mm | 21 nH | 1.61× |
 | Paper-thin insulation (text says 0.13 mm) | 0.12 mm | 13 nH | 1.0× |
 
+- Method: the loop resonates with C = 400 pF and L = 1/((2πf)²C); the table's f column runs 18.4 MHz (open loop) to 69 MHz (0.12 mm), and every printed L follows from its f within 0.5 nH. The note's text says "27 MHz"; no row is at 27 MHz. Trace width, loop drawing and the capacitor's own inductance are not given [P].
+- Against our image-plane law: fails with a 3 mm trace (every row 35–334 % high); the four plane rows fit within 14 % with a 13.5–16 mm equivalent trace and a 10 nH fixture term, which leaves two degrees of freedom. The table fixes the shape L − L0 ∝ h, not the magnitude ([anchors-2611](../../../research/physics/anchors-2611.md#check-1-result-an-139)).
 - On the same test loop, a next-layer plane on a ≥4-layer board has ">3× less" inductance than a 1.5 mm 2-layer board and ">14× less" than a single-layer board. The mechanism is mirror eddy currents in the plane.
 - [Kueck Pt 2](https://www.analog.com/media/en/technical-documentation/technical-articles/Kueck_Layout_power_supply_part_2.pdf) recommends ≥4 layers, because a 2-layer board's shield sits more than 1 mm away.
 

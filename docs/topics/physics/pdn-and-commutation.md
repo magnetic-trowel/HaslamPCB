@@ -30,7 +30,7 @@ PEEC filaments with a perfect image plane (inductive limit), validated against c
 | SNVA803 vertical "2 mm²" | 0.27–0.46 nH (h 0.1–0.2 mm) | matches |
 | EPC internal vertical vs best conventional | 71% lower | EPC ~65% |
 | EPC vertical loop, 31 → 62 mil board | +71% | EPC up to +80% |
-| AN-139 100 mm loop vs plane distance, ratio to 0.12 mm (none / 1.5 / 0.5 / 0.27) | 17.5 / 6.2 / 3.0 / 1.9 (3 mm trace) | measured curve flatter; geometry and fixture unknown |
+| AN-139 100 mm loop vs plane distance, ratio to 0.12 mm (none / 1.5 / 0.5 / 0.27) | 17.5 / 6.2 / 3.0 / 1.9 (3 mm trace) | measured 14.4 / 3.2 / 1.8 / 1.6. A 3 mm trace is not the fixture (open loop 338 vs 187 nH); a 13.5–16 mm equivalent trace plus a 10 nH fixture term fits the plane rows within 14 %: shape only ([anchors-2611](../../research/physics/anchors-2611.md#check-1-result-an-139)) |
 
 **Scaling laws** [C, `pw_peec.py scaling`, `pw_sheet.py terminal`]:
 - **Overlapped or vertical loops:** L ≈ μ0·h·N□ + via and terminal terms. For a plate of length l between terminal rows of width a, L stops falling once the plate is wider than about a + l:
