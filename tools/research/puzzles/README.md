@@ -50,8 +50,8 @@ pad on its net within 6 mm (the window is the IC plus those parts). A window who
 rectangle grows past `--max-grow` (6) times its area is refused (`window-grew-too-much`).
 
 `verify` checks that every terminal lies on the clip rectangle's edge and that each
-net's solution copper, by a geometric union-find over pads, track ends, vias and zone
-outlines (0.01 mm tolerance), has the component count recorded in `puzzle.json`. With
+net's solution copper, by a geometric union-find over pads (rotated rectangles), round
+track ends and vias with their widths, and zone outlines (0.01 mm tolerance), has the component count recorded in `puzzle.json`. With
 `--drc` it runs `kicad-cli pcb drc --refill-zones` on `solution.kicad_pcb` and expects the
 unconnected count to equal `outside_links`. `score` gives solved (kicad-cli unconnected
 count, else the union-find), length and via ratios to the plant. It is a research
@@ -73,6 +73,19 @@ Puzzles derive from third-party boards: keep them in a work directory, never com
   reports both, and the trial counts a window as clean only when they agree.
 - Blind and micro vias connect only their listed layers in the union-find; through vias
   connect all.
+
+## First trial (2026-11-20)
+
+`trial.py --drc` on 10 small human-clean boards from the merit-213 set: 48 `--auto`
+windows (6 ic, 30 connector, 12 decap); 45 extracted (3 decap windows refused as
+`window-grew-too-much`); 45 pass the structural checks; 37 have a planted solution whose
+kicad-cli unconnected count equals `outside_links` (ic 5/6, connector 27/30, decap 5/12).
+18 windows contain at least one net the human joined outside the window. Of the 8
+mismatches, 6 involve copper zones: a refilled, clipped pour falls apart into islands
+that KiCad counts as unconnected but the union-find treats as one filled outline; 2 are
+union-find splits that KiCad joins (not yet traced). Bugs found and fixed on the way:
+pads as circles (off-centre track ends on long pads), `(net "name")` names holding
+parentheses, `*.Cu` against `F&B.Cu` zones, and via rings overlapping a pad.
 
 ## Calibrate before trusting
 

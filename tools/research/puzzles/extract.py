@@ -179,6 +179,7 @@ class Board:
             sz = sexpr.first(p, "size") or ["size", "0", "0"]
             dx, dy = _rot(_f(pat[1]), _f(pat[2]), frot)
             pads.append(dict(num=p[1], type=p[2], p=(fx + dx, fy + dy), net=_net_name(p, self.netmap),
+                             ang=_f(pat[3]) if len(pat) > 3 else 0.0,
                              size=(_f(sz[1]), _f(sz[2]) if len(sz) > 2 else _f(sz[1])), layers=_layers(p)))
         lib = node[1] if len(node) > 1 and isinstance(node[1], str) else ""
         return dict(idx=idx, raw=raw, ref=ref or "", lib=lib, p=(fx, fy), pads=pads)
@@ -278,13 +279,18 @@ def pt_in_poly(p, poly):
     return c
 
 
-def on_layer(layers, layer):
-    if layer is None:
+_WILD = ("*.Cu", "F&B.Cu")
+
+
+def layers_meet(a, b):
+    """Do two layer lists share a copper layer? `*.Cu` and `F&B.Cu` match any copper layer."""
+    ca = {l for l in a if l in _WILD or COPPER_RE.match(l)}
+    cb = {l for l in b if l in _WILD or COPPER_RE.match(l)}
+    if not ca or not cb:
         return False
-    for l in layers:
-        if l == layer or l in ("*.Cu", "F&B.Cu") and COPPER_RE.match(layer):
-            return True
-    return False
+    if ca & set(_WILD) or cb & set(_WILD):
+        return True
+    return bool(ca & cb)
 
 
 # ---------------------------------------------------------------- connectivity
@@ -304,7 +310,7 @@ class UF:
 
 
 def components(pads, segs, vias, zones, points, tol=TOL):
-    """Union-find over one net's copper. pads: [(p, radius, layers)]; segs: [(a, b, w, layer)];
+    """Union-find over one net's copper. pads: [(p, (w, h), layers, angle)]; segs: [(a, b, w, layer)];
     vias: [(p, r, layers|None)]; zones: [(poly, layers)]; points: [(p, layer)] connection
     points (terminals) to locate. Returns component ids for pads then points."""
     items = []  # (kind, data)
@@ -317,37 +323,42 @@ def components(pads, segs, vias, zones, points, tol=TOL):
 
     def anchors(it):
         k, d = it
+        # (point, radius of copper around it, layers)
         if k == "pad":
-            return [(d[0], None, d[2])]
+            return [(d[0], 0.0, d[2])]
         if k == "pt":
-            return [(d[0], None, [d[1]])]
+            return [(d[0], 0.0, [d[1]])]
         if k == "seg":
-            return [(d[0], None, [d[3]]), (d[1], None, [d[3]])]
+            return [(d[0], d[2] / 2, [d[3]]), (d[1], d[2] / 2, [d[3]])]
         if k == "via":
-            return [(d[0], None, d[2])]
+            return [(d[0], d[1], d[2])]
         return []
 
-    def touches(pt, lays, it):
+    def touches(pt, lays, it, tol):
         k, d = it
         if k == "pad":
-            return any(on_layer(d[2], l) or l in ("*.Cu",) for l in lays) and math.hypot(pt[0] - d[0][0], pt[1] - d[0][1]) <= d[1] + tol
+            if not layers_meet(d[2], lays):
+                return False
+            # the pad's rectangle (KiCad stores the pad angle absolute)
+            u, v = _rot(pt[0] - d[0][0], pt[1] - d[0][1], -d[3])
+            return abs(u) <= d[1][0] / 2 + tol and abs(v) <= d[1][1] / 2 + tol
         if k == "pt":
-            return d[1] in lays and math.hypot(pt[0] - d[0][0], pt[1] - d[0][1]) <= tol
+            return layers_meet([d[1]], lays) and math.hypot(pt[0] - d[0][0], pt[1] - d[0][1]) <= tol
         if k == "seg":
-            return (any(on_layer([d[3]], l) or on_layer(lays, d[3]) for l in lays)
-                    and pt_seg_dist(pt, d[0], d[1]) <= d[2] / 2 + tol)
+            return layers_meet([d[3]], lays) and pt_seg_dist(pt, d[0], d[1]) <= d[2] / 2 + tol
         if k == "via":
-            return (d[2] is None or any(l in d[2] or on_layer(lays, l) for l in d[2]) or "*.Cu" in lays) \
+            return (d[2] is None or layers_meet(d[2], lays)) \
                 and math.hypot(pt[0] - d[0][0], pt[1] - d[0][1]) <= d[1] + tol
         if k == "zone":
-            return any(on_layer(d[1], l) or on_layer(lays, z) for l in lays for z in d[1]) and pt_in_poly(pt, d[0])
+            return layers_meet(d[1], lays) and pt_in_poly(pt, d[0])
         return False
 
     for i, it in enumerate(items):
-        for pt, _, lays in anchors(it):
+        for pt, rad, lays in anchors(it):
             lays = lays if lays is not None else ["*.Cu"]
             for j, jt in enumerate(items):
-                if i != j and touches(pt, lays, jt):
+                # a round end or via overlaps a pad or track, not just its centre (zones: centre)
+                if i != j and touches(pt, lays, jt, tol + (rad if jt[0] in ("pad", "seg", "via") else 0.0)):
                     uf.join(i, j)
     n = len(pads) + len(points)
     return [uf.find(i) for i in range(n)]
@@ -408,10 +419,14 @@ def _new_uuid(raw):
     return raw2
 
 
+# `(net 3)`, `(net 3 "A")` or `(net "A")`; quoted names may hold parentheses
+_NET_TOK = re.compile(r'\(net\s+(?:"(?:[^"\\]|\\.)*"|[^\s()"]+)(?:\s+"(?:[^"\\]|\\.)*")?\s*\)')
+
+
 def _seg_text(src, a, b, locked=False):
     """A segment with src's width, layer and net, from a to b, fresh uuid."""
     raw = src["raw"]
-    net = re.search(r"\(net\s+[^()]*\)", raw)
+    net = _NET_TOK.search(raw)
     lock = " (locked yes)" if locked else ""
     return (f'(segment (start {a[0]:.6f} {a[1]:.6f}) (end {b[0]:.6f} {b[1]:.6f}) (width {src["w"]:.6f})'
             f'{lock} (layer "{src["layer"]}") {net.group(0) if net else ""} (uuid "{uuid.uuid4()}"))')
@@ -611,7 +626,7 @@ def net_check(board, meta, net):
     for fp in board.footprints:
         for pd in fp["pads"]:
             if pd["net"] == net:
-                pads.append((pd["p"], min(pd["size"]) / 2, pd["layers"]))
+                pads.append((pd["p"], pd["size"], pd["layers"], pd["ang"]))
                 ptags.append(f"{fp['ref']}.{pd['num']}")
     segs = []
     for t in board.tracks:

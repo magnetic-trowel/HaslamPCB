@@ -142,3 +142,11 @@ def test_kicad_reads_puzzle_and_solution(board, tmp_path):
     assert v["drc"]["unconnected"] <= meta["totals"]["outside_links"], v["drc"]
     s = X.score(tmp_path / "puzzle.kicad_pcb", tmp_path)
     assert s["drc"]["unconnected"] > meta["totals"]["outside_links"] and not s["solved"]
+
+
+def test_net_names_with_parentheses():
+    text = BOARD.replace('"B"', '"Net-(R1-Pad1)"').replace("(net 2)", '(net "Net-(R1-Pad1)")')
+    b = X.Board(text)
+    pz, sol, meta = X.extract(b, WIN)
+    assert meta["nets"]["Net-(R1-Pad1)"]["plant_components"] == 1
+    assert sol.count('(net "Net-(R1-Pad1)")') >= 3
