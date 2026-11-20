@@ -80,6 +80,7 @@ STAGE_KEYS = frozenset({
     "portfolio_routers", "portfolio_first_s", "portfolio_growth",
     # evaluation
     "drc_timeout",
+    "pose_tier", "pose_big_pads",   # diagnostic only: parts held at their input pose (kae.place.pose_tiers)
 })
 
 
@@ -141,13 +142,17 @@ class KaeStages:
     # ------------------------------------------------------------------ place
     def place(self, seed, time_s):
         from kae.place.pipeline import place
+        from kae.place.pose_tiers import held as pose_held
         t0 = clock_now()
         board = self._load(self.input)
         self.locked = {fp.uuid for fp in board.footprints if fp.locked}
         self.edge_parts = {fp.uuid for fp in board.footprints if fp.edge_cuts}
+        held = pose_held(board, self.opts)          # diagnostic pose_tier; empty by default
+        self.locked |= held
         res = place(board, seed=seed, time_s=time_s, physics=not self.opts.get("no_physics"), workers=1,
                     log=lambda m: self.log(f"place: {m}"), edge_mate=bool(self.opts.get("edge_mate")),
-                    angle_step=self.opts.get("angle_step") or None, board_path=str(self.input), opts=self.opts)
+                    angle_step=self.opts.get("angle_step") or None, board_path=str(self.input), opts=self.opts,
+                    fixed=held)
         out = self._path(0, "placed")
         if res.poses:
             self._write_poses(self.input, out, res.poses)

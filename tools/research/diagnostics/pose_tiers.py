@@ -4,89 +4,30 @@
 of parts held at the human's poses, to find which placement decision makes kae placements
 route worse than human ones. The human poses are an oracle for diagnosis only, never a method.
 
-Tiers (a part's size is its terminal count: distinct non-empty pad numbers over its copper
-pads, so split paste pads and repeated shield pads count once; NPTH holes do not count):
-
-    none   nothing held                                      arm K (kae places everything)
-    big    >= BIG_PADS terminals, or a connector              arm B
-    mid    every part except non-connector 2-terminal parts   arm M (kae places only 2-pad parts)
-    small  non-connector 2-terminal parts (= all - mid)       arm P (kae places the rest)
-    all    every part                                         arm H (the bridge on the human poses)
-
-Connectors are those `kae place --fix-class connectors` holds (kae.place.fixed.classify). Tiers
-nest (none < big < mid < all) and small is mid's complement, so M and P are mirrors. Parts
-locked in the input stay where they are in every arm, as in the control.
+Tiers: kae.place.pose_tiers (none = K, big = B, mid = M, small = P, all = H).
 
     pose_tiers.py refs BOARD --tier T [--big-pads 16]          comma-separated refs held
     pose_tiers.py run-arm IN OUT --tier T --seed S --time T [--set K=V ...] [--report R]
     pose_tiers.py pose-diff IN OUT --tier T                    JSON: held parts moved (must be 0)
 
 run-arm is the stored staged control (`kae.joint.cli run --max-iters 0 --no-modules`: place,
-then the bridge) with the tier passed to the placer as fixed parts (kae.place.pipeline.place's
-`fixed`, the same mechanism as `kae place --fix`). Tier none calls the control unchanged. The
+then the bridge) with `--set pose_tier=TIER`: kae.joint.stages passes the tier to the placer as
+fixed parts (kae.place.pipeline.place's `fixed`, the mechanism of `kae place --fix`). Tier none
+adds no setting: the control unchanged. A kaeres arm can equally be the control's template plus
+`--set pose_tier=TIER` (the sprint command's --set). The
 caller sets KAE_BUDGET=work (the recipe template does; run-arm sets it when unset).
 """
 import argparse
-import contextlib
 import json
 import os
 import sys
 
-TIERS = ("none", "big", "mid", "small", "all")
-BIG_PADS = 16
-
-
-def terminals(fp):
-    """Distinct non-empty pad numbers over the part's copper pads."""
-    return len({str(p.number) for p in fp.pads if p.kind != "np_thru_hole" and str(p.number or "").strip()})
-
-
-def tier_uuids(board, tier, big_pads=BIG_PADS):
-    """uuids of the footprints held at their input pose for `tier` (see the module docstring)."""
-    if tier not in TIERS:
-        raise ValueError(f"unknown tier {tier!r} (known: {', '.join(TIERS)})")
-    fps = list(board.footprints)
-    if tier == "none":
-        return set()
-    if tier == "all":
-        return {f.uuid for f in fps}
-    from kae.place.fixed import classify
-    conn = {u for u, c in classify(board).items() if c["cls"] == "connectors"}
-    if tier == "big":
-        return {f.uuid for f in fps if f.uuid in conn or terminals(f) >= big_pads}
-    small = {f.uuid for f in fps if f.uuid not in conn and terminals(f) == 2}
-    if tier == "small":
-        return small
-    return {f.uuid for f in fps} - small          # mid
+from kae.place.pose_tiers import BIG_PADS, TIERS, terminals, tier_uuids  # noqa: F401  (re-exported)
 
 
 def tier_refs(board, tier, big_pads=BIG_PADS):
     held = tier_uuids(board, tier, big_pads)
     return sorted({f.ref for f in board.footprints if f.uuid in held})
-
-
-@contextlib.contextmanager
-def placer_holding(tier, big_pads=BIG_PADS, log=None):
-    """Within the block, kae.place.pipeline.place holds `tier`'s parts as fixed (added to any
-    `fixed` the caller passes). Tier none leaves the placer untouched."""
-    if tier == "none":
-        yield
-        return
-    import kae.place.pipeline as P
-    orig = P.place
-
-    def place(board, *args, **kw):
-        held = tier_uuids(board, tier, big_pads)
-        if log:
-            log(f"pose tier {tier}: {len(held)} of {len(board.footprints)} parts held at their input pose")
-        kw["fixed"] = set(kw.get("fixed") or ()) | held
-        return orig(board, *args, **kw)
-
-    P.place = place
-    try:
-        yield
-    finally:
-        P.place = orig
 
 
 def pose_diff(inp, out, tier, big_pads=BIG_PADS, tol_mm=1e-3, tol_deg=1e-3):
@@ -126,9 +67,12 @@ def run_arm(a):
         argv += ["--set", kv]
     if a.report:
         argv += ["--report", a.report]
-    _log(f"arm tier={a.tier} big_pads={a.big_pads}: kae.joint.cli {' '.join(argv)}")
-    with placer_holding(a.tier, a.big_pads, log=_log):
-        return J.main(argv)
+    if a.tier != "none":
+        argv += ["--set", f"pose_tier={a.tier}"]
+        if a.big_pads != BIG_PADS:
+            argv += ["--set", f"pose_big_pads={a.big_pads}"]
+    _log(f"arm tier={a.tier}: kae.joint.cli {' '.join(argv)}")
+    return J.main(argv)
 
 
 def main(argv=None):
