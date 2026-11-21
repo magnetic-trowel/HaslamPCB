@@ -788,6 +788,12 @@ def test_own_keepout_is_intrinsic():
     assert not _intrinsic(v("Items not allowed (keepout area of J1)", "Via [GND] on F.Cu - B.Cu"))
     assert not _intrinsic(v("Items not allowed (keepout area)", "Pad [<no net>] of CH1 on F.Cu"))
     assert not _intrinsic(v("Items not allowed (keepout area 'Left')", "Pad 1 [GND] of SW3 on F.Cu"))
+    # through the DRC report reader, as the KiCad loop sees it (it once dropped the description)
+    from kae.place.legalize import kicad_violations
+    rep = dict(violations=[dict(type="items_not_allowed", severity="error",
+                                description="Items not allowed (keepout area of REG1)",
+                                items=[dict(description="NPTH pad of REG1", pos=dict(x=59.5, y=-35.96))])])
+    assert [_intrinsic(x) for x in kicad_violations(rep)] == [True]
 
 def test_anchor_fixes_only_parts_with_no_spot(monkeypatch):
     """place.pipeline._anchor_tight_parts: a part the grid gives no spot free of the fixed
