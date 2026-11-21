@@ -144,7 +144,7 @@ def test_channel_weight_reports_the_seed_and_adds_the_edge_table_only_when_asked
 def test_util_gate_scales_the_weight_from_full_to_off():
     from haslam.place import pipeline
     P, st = _problem()
-    for u, want in ((0.3, 1.0), (0.6, 1.0), (0.675, 0.5), (0.75, 0.0), (0.9, 0.0)):
+    for u, want in ((0.3, 1.0), (0.65, 1.0), (0.675, 0.5), (0.70, 0.0), (0.9, 0.0)):
         P.utilization = lambda u=u: (u, 0.1)
         assert abs(pipeline.util_gate(P) - want) < 1e-9
         w, tab, rep, _ = _channel_weight(P, st, 3.0, None, {}, None, {"place_chan_util_gate": 1})
