@@ -602,7 +602,7 @@ _FP_REF = re.compile(r"^(?:Footprint|Courtyard of) (\S+)")
 
 def kicad_violations(drc):
     """Violations from a kicad-cli DRC report (path, JSON text or dict): [{type, severity,
-    items: [{description, pos: {x, y}}]}], placement-relevant types only."""
+    description, items: [{description, pos: {x, y}}]}], placement-relevant types only."""
     import json
     from pathlib import Path
     if isinstance(drc, (str, Path)) and Path(str(drc)).exists():
@@ -612,7 +612,10 @@ def kicad_violations(drc):
     out = []
     for v in (drc or {}).get("violations", []):
         if v.get("type") in PLACER_TYPES and v.get("severity", "error") == "error":
-            out.append(dict(type=v.get("type"), severity=v.get("severity"), items=v.get("items", [])))
+            # the description names what the items alone do not: a keepout's owner ("Items not
+            # allowed (keepout area of REG1)"), which exact._intrinsic reads
+            out.append(dict(type=v.get("type"), severity=v.get("severity"), description=v.get("description", ""),
+                            items=v.get("items", [])))
     return out
 
 
