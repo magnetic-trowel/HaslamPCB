@@ -1,0 +1,11 @@
+arnarg-f3-backplane-f3-backplane
+antmicro-fmc-sata-adapter-fmc2sata
+crimier-mykicad-nvme-to-dual-ssd
+laenzlinger-granit-granit
+apotheotech-aper-oculus-apt-kria-fmc
+seeed-studio-oshw-jetson-series-reserver-industrial-j401-carrier-board-v11
+zenodo-5802292-enzian-mainboard
+jasuramme-imx6-openrex-kicad-port-rex
+ohwr-project-amc-cpu-com6-amc-cpu-com-express
+tinkerforge-tng-mpcie-msata-mpcie-msata
+sinara-hw-kasli-diot-x86-board-kasli-diot-cpu

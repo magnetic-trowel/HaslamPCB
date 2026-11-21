@@ -22,6 +22,8 @@ Measured on 45 two-arm A/Bs (5,087 board pairs):
 
 Suites: `bench/suites/`. `merit-213.txt` is an archived regression set, not a tier.
 
+Mechanism suites: an experiment on one mechanism (BGA escape, differential pairs, converters, pours, ...) runs on `bench/suites/mech/<name>.txt` ([list, tiers, tag checks](../../../bench/suites/mech/README.md)); the sprint suites are for changes that act on every board. Coverage per kind of circuit: [COVERAGE](../../../bench/suites/COVERAGE.md).
+
 ## Weekly tag and stored control
 
 - Tag: `baseline/<year>-w<week>` on main, with its Freerouting fork pin and evaluators. Current: `baseline/2026-w47` = `c2dd008a`.
