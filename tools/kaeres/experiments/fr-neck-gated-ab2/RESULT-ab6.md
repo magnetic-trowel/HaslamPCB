@@ -48,7 +48,7 @@ The result is mixed (9 lower, 11 higher).
 - **Gains:** thingino teacup (-19 %), metro-rp2040 (-14 %), arduino-asx00031 (-6.9 %), battoota and openvault
   (-7 to -9 % per attempt, both clean delivered). Pad tags of the gainers vs losers were not read here.
 - **Losses:** squantor (+0.72 on near-zero counts), lil-soundie (+7.9 %), abx00080, mikegoelzer, gpio-block
-  (+4.7 %). Small 2-4 layer boards.
+  (+4.7 %).
 - That echoes fr-settings-ab's split: necks help where escapes are blocked and cost a little where they are not. But
   the class CIs here all include 1.
 
