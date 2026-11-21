@@ -168,6 +168,25 @@ def severities(board_path):
         return {}
 
 
+def _add_soft(opts, board_path, locked, report, log):
+    """Locked items in `locked` (uuids) that are marked soft copper (critical_write.soft_uuid, laid by
+    kae.em.pnr --lock) join opts' `soft_fixed`, with the physics guard of critical.soft_marked unless
+    the caller gave one (kae.route.critical passes its session's): the last mile may then rip them as
+    its last tier and keeps such a board only when routed physics holds. Freerouting and the repair
+    rounds still route around them (they stay in `fixed_uuids`)."""
+    from .critical_write import is_soft
+    soft = sorted(u for u in locked if is_soft(u))
+    report["soft_items"] = len(soft)
+    if not soft:
+        return
+    if opts.get("physics_guard") is None:
+        from .critical import soft_marked
+        opts.update(soft_marked(board_path, soft))
+    else:
+        opts["soft_fixed"] = sorted(set(opts.get("soft_fixed") or ()) | set(soft))
+    log(f"soft copper: {len(soft)} locked items the last mile may rip under the physics guard")
+
+
 def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None, log=_log):
     t0 = clock_now()
     fork = stepcache.fork_context(input_path, seed, time_s, opts)   # KAE_STEP_CACHE: fork points
@@ -295,6 +314,9 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
         # rips, widens or unlocks them
         opts["fixed_uuids"] = sorted(r["uuid"] for r in routed if r.get("locked"))
         report["fixed_items"] = len(opts["fixed_uuids"])
+        # ... but those marked soft (kae.em.pnr's physics copper) the last mile may rip, as its last
+        # tier, under the physics guard
+        _add_soft(opts, input_path, [r["uuid"] for r in routed if r.get("locked")], report, log)
 
         # 5: DRC and repair
         diag_s = min(float(opts.get("blocked_s") or 0.0), 0.05 * time_s) if opts.get("blocked") else 0.0
@@ -450,6 +472,8 @@ def last_mile_only(input_path, board_path, output_path, time_s=120.0, seed=0, wo
         from .critical_write import routing
         fixed = {r["uuid"] for r in routing(input_path) if r.get("locked")}   # the input's pre-routes
         opts["fixed_uuids"] = sorted(fixed)
+        # soft copper (kae.em.pnr's) on the board as it stands: the last mile's last tier may rip it
+        _add_soft(opts, board_path, [r["uuid"] for r in routing(board_path) if r.get("locked")], report, log)
         staged = drc.stage_board(output_path, input_path, wd / "start")
         rep = drc.run(staged, wd / "start" / "drc.json", timeout=max(10, deadline - clock_now()))
         best = drc.summary(rep)

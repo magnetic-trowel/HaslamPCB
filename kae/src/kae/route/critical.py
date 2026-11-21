@@ -756,11 +756,37 @@ def soft_critical(s, slack=0.10):
     modules' u) at most `slack` of the incumbent's total worse per connection gained)."""
     tracks, vias = s.copper()
     uuids = sorted({t.uuid for t in tracks} | {v.uuid for v in vias})
+    return dict(soft_fixed=uuids, physics_guard=_physics_guard(lambda: (s.brief, s.terms), slack))
 
+
+def soft_marked(board_path, uuids, slack=0.10):
+    """Bridge options for the soft copper a board carries itself (critical_write.soft_uuid: the
+    locked copper kae.em.pnr --lock lays): `soft_fixed` = `uuids`, and soft_critical's
+    `physics_guard`, priced with the brief and place terms of `board_path` (built once, when the
+    last mile first re-lays soft copper). Freerouting still routes around that copper; only the
+    last mile's last tier may rip it, and its board is kept only when routed physics holds."""
+    ctx = {}
+
+    def brief_terms():
+        if not ctx:
+            from kae.circuit.brief import build
+            from .critical_modules import place_terms
+            b = load(board_path)
+            ctx["brief"] = build(b)
+            ctx["terms"] = place_terms(b, ctx["brief"])
+        return ctx["brief"], ctx["terms"]
+    return dict(soft_fixed=sorted(uuids), physics_guard=_physics_guard(brief_terms, slack))
+
+
+def _physics_guard(brief_terms, slack):
+    """guard(before, before_summary, after, after_summary) -> (keep, why): kae.joint.scorecard.
+    physics_guard on the two boards' routed physics (critical_recheck.board_physics, the modules'
+    u), with the (brief, place terms) that `brief_terms()` returns."""
     def card(board, summary):
         from kae.joint.scorecard import Scorecard
         from .critical_recheck import board_physics
-        ph = board_physics(board, brief=s.brief, terms=s.terms)
+        brief, terms = brief_terms()
+        ph = board_physics(board, brief=brief, terms=terms)
         c = Scorecard(unconnected=summary["unconnected"], errors=summary["errors"])
         c.modules = {k: v.get("u") for k, v in ph.items() if not k.startswith("_") and isinstance(v, dict)}
         return c
@@ -768,7 +794,7 @@ def soft_critical(s, slack=0.10):
     def guard(before, before_summary, after, after_summary):
         from kae.joint.scorecard import physics_guard
         return physics_guard(card(before, before_summary), card(after, after_summary), phys_slack=slack)
-    return dict(soft_fixed=uuids, physics_guard=guard)
+    return guard
 
 
 def write_joint(src, dst, poses, copper, hazards=None):

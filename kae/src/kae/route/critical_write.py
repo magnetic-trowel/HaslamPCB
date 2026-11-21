@@ -76,6 +76,36 @@ def new_uuid():
     return str(_uuid.uuid4())
 
 
+# Soft copper: locked tracks and vias that a router laid for physics (kae.em.pnr --lock) and that the
+# completion's last mile may still rip, as its last tier and only under the physics guard
+# (repair._last_mile; critical.soft_marked). The mark is the uuid itself, so it travels with the item
+# through KiCad, Freerouting's session import (locked items are kept as they are) and every copy of the
+# board, and an item laid again (a new uuid) is no longer soft: an RFC 9562 version-8 uuid whose first
+# 32 bits spell "kaes".
+SOFT_TAG = "6b616573"
+
+
+def soft_uuid():
+    """A new uuid that marks its item as soft copper (random but for the tag, version and variant)."""
+    b = bytearray(_uuid.uuid4().bytes)
+    b[0:4] = bytes.fromhex(SOFT_TAG)
+    b[6] = (b[6] & 0x0F) | 0x80          # version 8 (vendor-specific)
+    b[8] = (b[8] & 0x3F) | 0x80          # RFC 9562 variant
+    return str(_uuid.UUID(bytes=bytes(b)))
+
+
+def is_soft(uid):
+    """Whether a routing item's uuid marks it as soft copper (soft_uuid)."""
+    u = str(uid or "").lower()
+    return len(u) == 36 and u.startswith(SOFT_TAG + "-") and u[14] == "8"
+
+
+def soft_items(path_or_text):
+    """uuids of a board's locked routing items marked soft (soft_uuid). An unlocked item is not
+    soft copper: nothing keeps it from being ripped in the first place."""
+    return sorted(r["uuid"] for r in routing(path_or_text) if r.get("locked") and is_soft(r["uuid"]))
+
+
 def track_sexpr(net, layer, width, a, b, uid=None, locked=True):
     lk = "\t\t(locked yes)\n" if locked else ""
     return (f"\t(segment\n\t\t(start {fmt(a[0])} {fmt(a[1])})\n\t\t(end {fmt(b[0])} {fmt(b[1])})\n"

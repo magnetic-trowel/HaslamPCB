@@ -87,7 +87,7 @@ class PhysRouter:
         from kae.route import critical_write as W
         self.log, self.pitch, self.lam, self.nsub, self.plain, self.refresh = log, pitch, lam, nsub, plain, refresh
         self.verify = verify
-        self.lock = lock                     # write its copper locked: a completion router routes around it
+        self.lock = lock                     # write its copper locked and soft (_written)
         self.explain_hops = True
         self.src_path, self.out = Path(path), Path(out)
         self.work = Path(work or tempfile.mkdtemp(prefix="kae-pnr-"))
@@ -784,7 +784,7 @@ class PhysRouter:
         self._check_connectivity()
         self.hazards = self._hazards(fields)
         from kae.route import critical_write as W
-        W.append_items(self.base, self.out, tracks=self.tracks, vias=self.vias)
+        W.append_items(self.base, self.out, *self._written())
         for ext in (".kicad_pro", ".kicad_dru"):
             s_ = self.base.with_suffix(ext)
             if s_.exists():
@@ -793,6 +793,17 @@ class PhysRouter:
         self.log(f"pnr: {len(self.tracks)} tracks, {len(self.vias)} vias, {len(self.failed)} failed hops, "
                  f"{time.time() - t0:.1f}s" + (f"; chose {self.choices}" if self.choices else ""))
         return self
+
+    def _written(self):
+        """(tracks, vias) as written to the output. With lock: locked, and marked soft copper
+        (critical_write.soft_uuid): the completion router routes around it, and only its last
+        mile's last tier may rip it, under the physics guard (kae.route.bridge._add_soft), so the
+        physics wins stay where they block nothing and a connection they block can still close."""
+        if not self.lock:
+            return self.tracks, self.vias
+        from kae.route import critical_write as W
+        return ([t[:5] + (t[5] or W.soft_uuid(),) + t[6:] for t in self.tracks],
+                [v[:5] + (v[5] or W.soft_uuid(),) + v[6:] for v in self.vias])
 
     def _hazards(self, fields):
         """The intent's hazards on the routed copper (kae.intent.route.Policy.hazards): hard terms judged by a
@@ -1375,7 +1386,9 @@ def main(argv=None):
                     help="prices weighted over the whole spectrum from a reduced model per refresh (kae.em.spectral)")
     ap.add_argument("--workers", type=int, default=1, help="--spectral: snapshot frequencies solved at once")
     ap.add_argument("--work", help="work directory (default: a new temporary one)")
-    ap.add_argument("--lock", action="store_true", help="write the routed copper locked (for a completion router)")
+    ap.add_argument("--lock", action="store_true",
+                    help="write the routed copper locked (for a completion router), marked soft: the completion's "
+                         "last mile may rip it as its last tier, under the physics guard")
     ap.add_argument("--passes", type=int, default=3,
                     help="routing passes: a net a pass leaves in pieces is kept as the input has it in the next")
     a = ap.parse_args(argv)

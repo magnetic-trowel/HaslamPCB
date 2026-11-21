@@ -35,6 +35,7 @@ Leftovers after repair: a signal connection Freerouting found no path for, or pl
 - When only critical copper blocks a join, a last rip-up tier may take it at `SOFT_FACTOR` = 3× the rip price; the ripped critical net is re-joined by the grid search.
 - Guard = joint loop's accept rule (`kae.joint.scorecard.accept`): completion and errors never worse; routed physics (`critical_recheck.board_physics`) at most 10% worse per connection gained; a board that becomes clean is always kept.
 - If the guard rejects, the next round runs without the soft tier.
+- Soft copper across processes: `kae.em.pnr --lock` writes its copper locked with soft uuids (`critical_write.soft_uuid`, RFC 9562 version 8, first 32 bits `6b616573`). `kae.route.cli route` and `lastmile` read them back (`bridge._add_soft`) as `soft_fixed` with the same guard (`critical.soft_marked`, brief and place terms of the board). Freerouting and the repair rounds still route around that copper.
 
 ## What we tried
 
