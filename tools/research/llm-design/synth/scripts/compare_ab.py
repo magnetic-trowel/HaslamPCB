@@ -63,7 +63,8 @@ def summary(rows):
             if xs:
                 agg[k] = dict(mean=round(statistics.mean(xs), 2), min=min(xs), max=max(xs))
         for k in ("hard", "limit", "cost"):
-            xs = [r["tiers"][k] for r in ok if r.get("tiers")]
+            # an incomplete status prices none of the terms its missing sources feed: its tiers are not a score
+            xs = [r["tiers"][k] for r in ok if r.get("tiers") and r.get("complete") is not False]
             if xs:
                 agg[k] = dict(mean=round(statistics.mean(xs), 3), min=min(xs), max=max(xs))
         terms = sorted({t for r in ok for t in (r.get("terms") or {})})
@@ -87,6 +88,8 @@ def markdown(rows, summ):
             lines.append(f"| {r['run']} | missing {r['missing']} | | | | | |")
             continue
         t = r.get("tiers") or {}
+        if r.get("complete") is False:
+            t = {k: "incomplete" for k in ("hard", "limit", "cost")}
         unmet = [k for k, v in (r.get("terms") or {}).items() if v.get("met") is False]
         lines.append(f"| {r['run']} | {r.get('unconnected')} | {r.get('errors')} {r.get('by_type') or ''} | "
                      f"{t.get('hard', '')} | {t.get('limit', '')} | {t.get('cost', '')} | {', '.join(unmet)} |")
@@ -96,6 +99,9 @@ def markdown(rows, summ):
         terms = "; ".join(f"{k} {v['mean']:g} {v['unit']} (met {v['met']})" for k, v in (a.get("term") or {}).items())
         lines.append(f"| {arm} | {a['scored']}/{a['runs']} | {u.get('mean', '')} [{u.get('min', '')}, {u.get('max', '')}] | "
                      f"{(a.get('limit') or {}).get('mean', '')} | {(a.get('cost') or {}).get('mean', '')} | {terms} |")
+    why = [f"- {r['run']}: {r['why_incomplete']}" for r in rows if r.get("why_incomplete")]
+    if why:
+        lines += ["", "Incomplete evaluations (tiers left out of the arm means):"] + why
     return "\n".join(lines)
 
 
