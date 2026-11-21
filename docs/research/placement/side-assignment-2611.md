@@ -5,7 +5,7 @@
 Scope: J42, J43, E113, E114: does withdrawing the human's side assignment change routing and assembly? Not here: a real side-flip move in the annealer (J44), decided by this experiment.
 Keys: side assignment, force-front, single reflow, second reflow, double-sided assembly, side_front.py, side-front-ab, J42, J43, J44, J45, E113, E114
 
-**Status:** experiment `side-front-ab` (300 boards; arms: human sides as oracle, passives to the front, sides by rule with no human input) pre-registered ([PLAN](../../../tools/kaeres/experiments/side-front-ab/PLAN.md)); no results yet.
+**Status:** experiment `side-front-ab` (300 boards; arms: human sides as oracle, passives to the front, sides by rule with no human input) pre-registered ([PLAN](../../../tools/kaeres/experiments/side-front-ab/PLAN.md)); verdict 2026-11-20: undecided, [side-front-ab-verdict-2611](side-front-ab-verdict-2611.md).
 
 ## Mechanism
 Every place and joint result inherits each part's side from the human layout, which production must never rely on (no placer flips a part; [bench/README](../../../bench/README.md), J45). `tools/research/place/side_front.py` withdraws it: before placing, it flips back-side SMD parts on the task input with pcbnew (passives first, then the rest, smallest first, up to a front courtyard fill of 0.70 of the board). Scoring is unchanged (`score.py` transplants side). Through-hole parts, anchored parts, test points, fiducials and logos stay.
@@ -20,4 +20,4 @@ Every place and joint result inherits each part's side from the human layout, wh
 Merit boards with more than 10 back parts are 43 by count, but that count includes through-hole parts drawn on the back (freedsp's are all through-hole); 17 merit boards pass every filter, the rest come from the `double_sided_assembly` and `back_heavy` corpus suites (300 boards in all) (more than 10 SMD parts on the back when parsed, at most 1,000 pads, assembled courtyards at most 85% of the outline, `usable_route_test`).
 
 ## Open questions
-Results and the J44 verdict when `side-front-ab` finishes.
+J44 and the R policy: [side-front-ab-verdict-2611](side-front-ab-verdict-2611.md#verdict-pre-registered-rule).
