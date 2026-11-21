@@ -121,3 +121,23 @@ def test_capped_rail_flags_are_left_to_the_copper_heat_hazards():
     rep = dict(modules=[dict(flags=[dict(flag="rail_max_cap", hop=0, net="+12V", I_A=10.0, ipc_mm=7.2, cap_mm=3.0),
                                     dict(flag="ipc_floor_unroutable", hop=1, net="+12V", I_A=10.0, floor_mm=7.2)])])
     assert H.derive(rep) == []
+
+
+def test_placement_physics_over_budget_names_the_kicad_repair():
+    """A placement scorecard structure over its allocation is a warn hazard; one the KiCad repair
+    pushed over carries its util before (freetronics-kitten REG1:VIN 0.44 -> 6.95). Routed
+    physics in the report supersedes it."""
+    from kae import hazards as H
+    card = dict(breakdown=[
+        dict(id="decap:REG1:VIN", kind="decap", util=6.9471, value=53.1, unit="nH", members=["C2", "REG1"]),
+        dict(id="decap:IC1:5V#C5", kind="decap", util=0.84, value=6.2, unit="nH", members=["IC1", "C5"]),
+        dict(id="xtal:X1", kind="crystal", util=1.5, members=["X1", "IC1"])])
+    pre = dict(breakdown=[dict(id="decap:REG1:VIN", util=0.4375), dict(id="xtal:X1", util=1.4)])
+    hz = {h["objects"][0]: h for h in H.derive(dict(scorecard=card, scorecard_pre_drc=pre))
+          if h["code"] == "placement_physics_over_budget"}
+    assert set(hz) == {"decap:REG1:VIN", "xtal:X1"}
+    assert hz["decap:REG1:VIN"]["severity"] == "warn" and "C2" in hz["decap:REG1:VIN"]["objects"]
+    assert hz["decap:REG1:VIN"]["evidence"]["u_before_kicad_repair"] == 0.438
+    assert "u_before_kicad_repair" not in hz["xtal:X1"]["evidence"]       # over budget before, too
+    routed = dict(scorecard=card, final=dict(modules={"decap:REG1:VIN": dict(u=0.5)}))
+    assert not [h for h in H.derive(routed) if h["code"] == "placement_physics_over_budget"]
