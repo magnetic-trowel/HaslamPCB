@@ -59,3 +59,14 @@ takes 10-13 min (0xcb-helios, sea-picro).
   this budget.
 - **Optional:** if it helps interpretation, a few steps around the threshold are routed, k = 1 (bridge route of the
   placed board), and reported as illustration only.
+
+## Addendum 2026-11-21, sanity check at 4 of 16 jobs (failure rates by utilization not yet tabulated)
+- **cap-multiplier is excluded.** Its outline is drawn by a footprint, so the copies did not grow (area 320 mm^2 at
+  every step). Only its native step is valid. The plan already leaves such boards out; the check that should have
+  caught it was missing.
+- **The other outlines scale as planned.** Area grows with s^2, there is one closed loop, and there are no crashes.
+- **Utilization is analysed as the placer measured it, not by target step.** The placer chooses its grid from the
+  board span, and a coarser grid rounds every part rectangle up. On bioamp the 0.85 step therefore measured 0.98:
+  the grid changed, and with it the parts' area. That is what the placer and the gate see.
+- **Native-size results match chan-gated-m6.** qt-py, itsybitsy, xenon and fercus are illegal in every run, as in
+  m6. bioamp, sphale and splinky are legal in every run, as in m6.
