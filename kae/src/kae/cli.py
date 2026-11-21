@@ -171,8 +171,9 @@ _DRC_SIGNAL = __import__("re").compile(r"rc=-\d+")
 def _kicad_loop(a, res, t0, write, end=None):
     """KiCad's DRC on the written placement, fed back until it is clean (kae.place.exact:
     kicad_feedback -> repair -> write again), within the caller's time. The best placement
-    KiCad has judged (clean, else fewest placement errors) is kept: when the loop ends on a
-    worse verdict, or on a repair KiCad has not judged (time, a DRC failure), that one is
+    KiCad has judged (clean, else fewest placement errors, the earliest of equals) is kept: when
+    the loop ends on a worse or merely equal verdict, or on a repair KiCad has not judged (time, a
+    DRC failure), that one is
     written again (report: kicad_written_round). `end` (monotonic seconds): when the loop's
     share of the time ends (a rung of the severity ladder), else t0 + a.time. Report:
     kicad_verdict, the placer's errors by type on the board as written. Returns (clean or None
@@ -259,8 +260,12 @@ def _kicad_loop(a, res, t0, write, end=None):
         wrep = write(a.input, a.output, res.poses, mode=a.writer, log=_log)
         judged = None
     written = None if judged is None else rounds[-1]["round"] if "errors" in rounds[-1] else None
-    if not clean and best is not None and (judged is None or judged > best[0]):
-        # the loop ended worse than a placement KiCad already judged: write that one again
+    if not clean and best is not None and (judged is None or judged > best[0]
+                                           or (judged == best[0] and written != best[1])):
+        # the loop ended worse than a placement KiCad already judged, or no better than an
+        # earlier one: write that one again. On a tie the earliest round wins, the one least
+        # moved from the annealed placement (freetronics-kitten: 1 error every round, and the
+        # last round's REG1 sat 40 mm from its input caps, decap loop 3.0 -> 17.0)
         _, written, X0, Y0, K0, poses0, judged_types = best
         judged = best[0]
         st.X[:], st.Y[:], st.K[:] = X0, Y0, K0
