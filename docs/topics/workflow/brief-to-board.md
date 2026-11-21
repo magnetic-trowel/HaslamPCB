@@ -87,9 +87,9 @@ Exact commands: `tools/research/llm-design/designs/solar-small/run_ab.sh`. `rest
 | G6 | Done (`layout.fab_minimums`). Fab minimums from the finest pad pitch (`BoardSpec` defaults when unset) | P6 needed a manual 0.127/0.15 | haslamsynth |
 | G7 | pnr copper as soft (rippable under the physics guard), or pnr finishing its own nets; pnr run time (2.1 h on 68 parts) | P9 | `haslam.em.pnr --lock` and the last mile's soft tier |
 | G8 | haslam placer reads `.kicad_dru` clearances (it legalizes at the net-class 0.2 mm) | placed pads 0.575 mm apart under a 0.6 mm rule | `haslam.place` |
-| G9 | Thermal-spoke corridors exempt an IC's own pin field | blocked the DAC's I2C and CAP pins | `route/constraints.thermal_corridors` |
+| G9 | In test (branch `gfix-thermal-ring`, experiment `gfix-thermal-ring` on the `pours` suite). The cause was not the pin field but the relief ring: a corridor kept the whole ring, other nets' pads included, so under a 0.5 mm zone clearance U302.7's ring lay over pins 6 and 8; the ring now keeps out other nets' pads and their clearance | blocked the DAC's I2C and CAP pins | `route/constraints.thermal_corridors` |
 | G10 | Stitching vias between same-net pours on two layers | GND_F and GND_B left unconnected | router finish |
-| G11 | Charge the last mile's pad-entry and escape work (≈ 5.6 × undercharged on solar-small) | the work clock let a loop run for hours | `haslam/budget.py` RATES, with its A/B |
+| G11 | Closed: at `baseline/2026-w47` the last mile charges its searches, rasters and connectivity passes (`crit_search`, `lastmile_cells`, `lastmile_part_nodes`); the stuck solar-small board charged 43 s for 58.6 s of wall time (1.36x on a busy host), within the rates' calibration spread. The 5.6x was measured on an older base. The loop itself is bounded on main (`RETRY_NO_PROGRESS`, PR #112) | the work clock let a loop run for hours | — |
 | G12 | Done (`fab_outputs.py`, `haslamsynth jlc`). Fabrication outputs: gerbers, drill, pos, BOM with LCSC numbers and basic/extended flags | S10 missing | new stage |
 | G13 | Done (`compare_ab.py`). One comparison script: arms × seeds → unconnected, errors by type, intent tiers, top terms | hand reading of logs | beside `eval_ab.sh` |
 | G14 | Retire `intent.yaml` (pcb-intent/0.2, read by nothing) once haslam.intent `relations` exist | two intent files confuse a reader | haslamsynth, haslam.place |
@@ -105,6 +105,8 @@ Exact commands: `tools/research/llm-design/designs/solar-small/run_ab.sh`. `rest
 4. Smoke one seed per arm, read `blocked:` lines and the DRC by type, fix, then run the campaign.
 5. Keep failed runs: a new run directory per round; the old boards reproduce the bugs (the stuck last-mile call was replayed from its saved board in 18 s).
 6. A router's log is not a score: judge the re-opened board with `kicad-cli` and the physics evaluator, every arm the same way.
+7. A haslam fix a design run exposes is tested as its own experiment: a branch off the weekly baseline tag with that one change, `PLAN.md` in `$HASLAM_RESULTS/experiments/<name>/`, then `haslamres sprint` against the stored control, or the mechanism suite of what it changes (`docs/topics/verification/experiment-tiers.md`, branch `experiment-tiers` until merged). Re-check the bug on the tag first: two of the four solar-small haslam bugs (the last-mile loop, its undercharge) were already fixed there.
+8. Score every arm under the same intent file and check the evaluation is complete (`haslam.intent status`: `complete`, `why_incomplete`) before reading its tiers: an incomplete one prices none of the terms its missing sources feed.
 
 ## Sources
 
