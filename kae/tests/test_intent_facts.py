@@ -80,3 +80,21 @@ def test_sidecar_is_found_and_unwrapped(tmp_path):
 
 def test_intent_value_reads_lo_typ_hi():
     assert intent_value({"cells": {"c": {"I_A": [0.1, 0.5, 2.0]}}}, "cells", "c", "I_A") == (0.5, 0.1, 2.0)
+
+
+def test_explicit_intent_facts_reach_the_brief(monkeypatch, tmp_path):
+    """evaluate/status/pnr given --intent build the brief with that intent's facts, not only the sidecar's
+    (solar-small: an eval with --intent and no sidecar priced U101 at the 0.3-3 MHz prior, not its 1.2 MHz)."""
+    import kae.circuit.brief as B
+    import kae.intent.__main__ as M
+    seen = {}
+    monkeypatch.setattr(B, "build", lambda board, **kw: seen.setdefault("facts", kw.get("facts")))
+    monkeypatch.setattr("kae.board.kicad_file.load", lambda p: p)
+    doc = {"schema": "kae.intent/1", "facts": {"parts": {"U1": {"f_sw_Hz": 1.2e6}}}}
+    p = tmp_path / "i.json"
+    p.write_text(__import__("json").dumps(doc))
+    M._brief({"board": "x.kicad_pcb"}, str(p))
+    assert seen["facts"] == {"parts": {"U1": {"f_sw_Hz": 1.2e6}}}
+    seen.clear()
+    M._brief({"board": "x.kicad_pcb"})
+    assert seen["facts"] is None                      # no intent: the board's own intent file
