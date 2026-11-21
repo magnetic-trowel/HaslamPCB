@@ -218,10 +218,15 @@ DEFAULTS = dict(
                                    # merit boards, k=2) found 0 / 10 / 30 equal (cp1 0.305 / 0.310 / 0.305,
                                    # completion 0.941-0.943), so the simpler setting wins; RUDY also ranks PCB
                                    # routability near chance (docs/research/placement/kae-routability-estimators.md)
-    place_margin=0.0,              # placement: routing room between movable parts, mm (Problem.set_margin);
+    place_margin=-1.0,             # placement: routing room between movable parts, mm (Problem.set_margin);
                                    # negative = auto (Problem.auto_margin: 2 x (0.7 - utilization), 0..1 mm).
-                                   # 0: placement-decide-staged found auto and 0 equal (cp1 0.305 both,
-                                   # completion 0.942 / 0.941), so the formula with no source is dropped
+                                   # auto, gated: margin-gate-m6 (44 dense boards) cut per-attempt opens 14 %
+                                   # [-23, -4] with legality and DRC holding (experiments/margin-gate/RESULT-m6.md)
+    place_margin_gate=4.0,         # placement: keep place_margin only on boards with at least this many pads per cm²
+                                   # per copper layer, else 0 (kae.place.margin_gate.gate); 0 off
+    place_margin_regions=1,        # placement: 1 caps each movable part's margin at its region's own auto margin
+                                   # (sub-boards between cutouts and narrow necks, rule-area walls;
+                                   # kae.place.margin_gate.caps); 0 off
     anchor_tight=1,                # placement: a big part with no spot free of the fixed geometry is fixed first (place.pipeline)
     connector_edge=2,              # placement: user-facing connectors kae places (kae.place.edge_check:
                                    # USB, barrel, audio, RJ/modular, video/D-sub; at or near 100 % on an
