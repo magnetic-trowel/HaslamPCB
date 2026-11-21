@@ -94,3 +94,25 @@ waits for the canary.
 needed: its CI already excludes 0.
 
 Commits stay local, because the push is blocked by missing credentials.
+
+## Canary result (2026-11-21, margin-gate-canary-m6, 20 of 20 ok)
+**The canary passes on totals, with one flag on the pre-set rule.**
+- **Clean on the basics:** no crash, timeout or over-time run. The longest is beagleplay at 9,835 s, against a 15,916 s
+  ceiling. The only bug records are the boards' own `drc` records, 7 in each arm.
+- **Identity where the margin is inert:** 7 of 10 boards are identical: sdi-mipi, beagleplay, gecko5 (auto margin 0),
+  iorodeo, madcatse, why2025 and zotino.
+- **Totals:** opens 5487 vs 5510 (0.996x) and errors 733 vs 730 (1.004x), both within the 1.03x limit.
+- **Flag: one error type is added.** starved_thermal goes 0 → 3: 2 on glasgow and 1 on 0xd6.
+  - The pre-set rule says "no error type added", so the rule is tripped on 3 errors.
+  - The same type rose 2 → 7 on the dense-hi A/B.
+  - A routing-noise origin is likely: one dense-lo board with identical placements swung by 103 on this type.
+  - A margin mechanism is also possible: spacing parts apart lets pours fill more around pads, which can starve
+    thermal spokes.
+  - It is reported in the PR. If the reviewer reads it as harm, it needs a per-board look.
+
+**The 3 boards that act:**
+- **glasgow revd1:** delivered opens 1121 → 1080; per seed 1210 vs 1210 on average (equal).
+- **dvhx 0805 exercise:** delivered opens 3 → 0, finishing early at 918 s against 2,123 s for control. Per seed it is
+  mixed.
+- **0xd6 flip-card:** worse. Delivered opens 151 → 172, and per seed about 307 vs 287 (+7 %). This is a very dense
+  2-layer board with 517 footprints, and the margin costs room there. Read it before merging.
