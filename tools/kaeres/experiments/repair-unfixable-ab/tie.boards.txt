@@ -13,7 +13,6 @@ glydrfreak-vspeed-vario-adafruit-feather-zero-ble-rev-b
 hanqaqa-pcb-business-card-drawing
 kotbenek-mini-geiger-counter-lcd-board
 krzys9876-zx-spectrum-diy-zx2-backplane
-marksard-keyboards-rhymestone
 pickleddog-rc-1024k-rc-1024k
 tebl-rc2014-rc2014-ram
 terjeio-cnc-boosterpack-motor-driver-dummy-x3

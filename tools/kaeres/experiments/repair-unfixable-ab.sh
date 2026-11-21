@@ -41,16 +41,16 @@ place() {  # NAME SHA
 }
 
 register() {
-  local SHA; SHA=$(git rev-parse "${SHA:?the fix commit}")
-  local C0="kae place w47 c2dd008 fr37b1a8b" C1="kae place repair-unfixable ${SHA:0:7} fr37b1a8b"
+  local FIX; FIX=$(git rev-parse "${SHA:?the fix commit}")
+  local C0="kae place w47 c2dd008 fr37b1a8b" C1="kae place repair-unfixable ${FIX:0:7} fr37b1a8b"
   place "$C0" "$TAG"
-  place "$C1" "$SHA"
-  local D="repair-unfixable-ab.sh at ${SHA:0:7}"
+  place "$C1" "$FIX"
+  local D="repair-unfixable-ab.sh at ${FIX:0:7}"
   for x in "tie:tie.boards.txt:the 20 boards whose KiCad loop kept a tied later round" \
            "quality:quality.boards.txt:sprint-quality (80 small human-clean boards)"; do
     IFS=: read -r n f d <<<"$x"
     $K exp create "repair-unfixable-$n" --boards "@$B/$f" --attempts 2 --method "$C0" --method "$C1" \
-      --harness "$TAG" --kae "$SHA" --description "KiCad repair loop fixes vs baseline/2026-w47, kae place, $d, k=2; $D"
+      --harness "$TAG" --kae "$FIX" --description "KiCad repair loop fixes vs baseline/2026-w47, kae place, $d, k=2; $D"
   done
 }
 
