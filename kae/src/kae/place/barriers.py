@@ -272,12 +272,70 @@ def cross_nets(board, region_of):
     return sorted(n for n, rs in nets.items() if len(rs) > 1 and kinds.get(n) == "signal")
 
 
+def _fixed_extent(fp):
+    """Where a fixed part occupies the board: its courtyards on both sides (or its body) and its pads,
+    in board coordinates (None: nothing to occupy)."""
+    from kae.board import transform
+    geoms = []
+    if fp.courtyard or getattr(fp, "body", None):
+        geoms += transform.courtyard(fp, which="extent")
+    if getattr(fp, "courtyard_back", None):
+        geoms += transform.courtyard(fp, which="opposite")
+    for pd in fp.pads:
+        w, h = (getattr(pd, "size", None) or (0.0, 0.0))[:2]
+        r = 0.5 * max(float(w or 0.0), float(h or 0.0), float(getattr(pd, "drill", 0.0) or 0.0), 0.2)
+        geoms.append(Point(pd.x, pd.y).buffer(r))
+    geoms = [g for g in geoms if g is not None and not g.is_empty]
+    return shapely.union_all(geoms) if geoms else None
+
+
+def _reaches(fp, region):
+    """A fixed part reaches a region when its courtyard, body or pads overlap it (a connector whose pads sit in
+    one panel and whose courtyard crosses the wall into the next)."""
+    g = _fixed_extent(fp)
+    return g is not None and g.intersects(region)
+
+
 def sub_board(board, split, r):
-    """The board as region r sees it: its outline, its parts, and anchored parts no region holds
-    (fixed obstacles wherever they are: a mouse-bite or a part straddling a wall)."""
-    keep = [fp for fp in board.footprints if split.region_of.get(fp.uuid, -1) == r
-            or (split.region_of.get(fp.uuid, -1) < 0 and (fp.locked or fp.edge_cuts))]
-    return dataclasses.replace(board, outline=[split.regions[r]], footprints=keep)
+    """The board as region r sees it: its outline, its parts, and as obstacles every fixed part that reaches
+    the region (anchored parts no region holds, a mouse-bite, and a part of another region that straddles a wall:
+    fabriziotappero esp32-li-ion's J3 has its pads in one panel and its courtyard in the next, and parts placed
+    under it went illegal in every attempt)."""
+    def keep(fp):
+        q = split.region_of.get(fp.uuid, -1)
+        if q == r:
+            return True
+        if not (fp.locked or fp.edge_cuts):
+            return False
+        return q < 0 or _reaches(fp, split.regions[r])
+    return dataclasses.replace(board, outline=[split.regions[r]], footprints=[fp for fp in board.footprints if keep(fp)])
+
+
+def merge_findings(board, poses, regions, severity="level_c", max_items=60):
+    """Exact-legality findings of the merged placement on the whole board between parts in different regions
+    (each part in the region holding most of its pads, as placed): collisions across a wall that no region's own
+    placement could see, such as parts of one panel under a connector whose pads sit in the next. Findings of a
+    part against the outline, or between parts of one region, are the region placement's own and are left to it.
+    Empty when the regions' placements are compatible."""
+    from . import exact as exactmod
+    from .edge_check import with_poses
+    from .problem import Problem
+    from .state import State
+    if not poses:
+        return []
+    b = with_poses(board, poses)
+    P = Problem.build(b, held={fp.uuid for fp in b.footprints}, severity=severity)
+    E = exactmod.ExactModel(P, State(P))
+    region = {p.i: _region_of_part(p.fp, regions) for p in P.parts}
+    moved = [p.i for p in P.parts if p.uuid in poses]
+    bad = []
+    for f in E.check(parts=moved, max_items=10_000):
+        rs = {region[i] for i in f.get("parts") or ()}
+        if len(rs) > 1 and -1 not in rs:
+            bad.append(f)
+            if len(bad) >= max_items:
+                break
+    return bad
 
 
 def _movable(board):

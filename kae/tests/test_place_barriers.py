@@ -147,3 +147,80 @@ def test_fit_split_moves_parts_a_region_cannot_legalize_and_gives_up_when_none_c
     assert s.region_of["R2"] == left    # the caller's split is not changed
     none, rep = B.fit_split(placer({True: {"R2"}, False: {"R2"}}), bd, s, time_s=10)
     assert none is None and rep["unfit"] == 1
+
+
+def test_sub_board_carries_a_fixed_part_whose_courtyard_crosses_the_wall():
+    # fabriziotappero esp32-li-ion: a connector with its pads in one panel and its courtyard across the wall in the
+    # next; the next panel's placer must see it as an obstacle, or it places parts under it
+    j3 = fp("J3", 25, 48, [pad(25, 48, "a")], locked=True)
+    j3.rot, j3.courtyard_back = 0.0, []
+    j3.courtyard = [box(-2, -2, 2, 12)]            # library frame: board y 46..60, across the gap at 50..52
+    j2 = fp("J2", 25, 90, [pad(25, 90, "b")], locked=True)
+    r1 = fp("R1", 300, 300, [pad(300, 300, "b")])
+    s = B.true_split(board([box(0, 0, 50, 50), box(0, 52, 50, 100)], [j3, j2, r1]))
+    mine, other = s.region_of["J3"], s.region_of["J2"]
+    assert mine != other and s.region_of["R1"] == other
+
+    @dataclasses.dataclass
+    class Bd:
+        footprints: list
+        outline: list
+    bd = Bd([j3, j2, r1], [])
+    assert any(f.ref == "J3" for f in B.sub_board(bd, s, other).footprints)
+    assert any(f.ref == "J3" for f in B.sub_board(bd, s, mine).footprints)
+    # a courtyard that stays in its own panel is not the other panel's obstacle
+    j3.courtyard = [box(-2, -2, 2, 1)]
+    assert not any(f.ref == "J3" for f in B.sub_board(bd, s, other).footprints)
+    # movable parts stay in their own region only
+    assert not any(f.ref == "R1" for f in B.sub_board(bd, s, mine).footprints)
+
+
+def test_merge_findings_reports_collisions_across_regions_only():
+    from pathlib import Path
+
+    from shapely.geometry import MultiPoint
+
+    from kae.board import kicad_file, transform
+    bd = kicad_file.load(Path(__file__).parent / "data" / "board" / "fixture.kicad_pcb")
+    mov = [f for f in bd.footprints if not f.locked and not f.edge_cuts and f.courtyard and f.pads]
+    a, b = mov[0], mov[1]
+    here = {f.uuid: (f.x, f.y, f.rot, f.side) for f in mov}
+    # region 0 holds a's pads only; region 1 the whole board (a ties, and the first region wins)
+    r0 = MultiPoint([(p.x, p.y) for p in a.pads]).envelope.buffer(0.05)
+    r1 = box(-1e4, -1e4, 1e4, 1e4)
+    assert B.merge_findings(bd, here, [r0, r1]) == []
+    # b just right of a, courtyards overlapping by 0.3 mm, its pads outside region 0: a collision across regions
+    wa = transform.courtyard(a)[0].bounds
+    wb = transform.courtyard(b, x=0.0, y=0.0, rot=a.rot, side=b.side)[0].bounds
+    x = wa[2] - wb[0] - 0.3
+    clash = dict(here)
+    clash[b.uuid] = (x, a.y, a.rot, b.side)
+    bad = B.merge_findings(bd, clash, [r0, r1])
+    assert bad and all({a.ref, b.ref} <= set(f["refs"]) for f in bad)
+    # the same overlap inside one region is that region's own: not the guard's
+    assert B.merge_findings(bd, clash, [r1]) == []
+
+
+def test_an_illegal_merge_falls_back_to_the_whole_board(monkeypatch):
+    # the guard in kae.place.pipeline.place: a split whose merged board holds collisions across regions is
+    # dropped, and the board is placed whole (barrier_split.skipped = illegal_merge)
+    from pathlib import Path
+
+    from kae.board import kicad_file
+    from kae.place import pipeline
+    bd = kicad_file.load(Path(__file__).parent / "data" / "board" / "fixture.kicad_pcb")
+    split = B.Split(regions=[box(0, 0, 1, 1), box(2, 0, 3, 1)], region_of={}, cross_nets=[], over_capacity=[], how={})
+    calls = []
+    monkeypatch.setattr(B, "true_split", lambda board: split)
+    monkeypatch.setattr(B, "place_split", lambda *a, **k: calls.append("split") or pipeline.Result(
+        poses={}, report=dict(exact=[], barrier_split=dict(regions=2))))
+    monkeypatch.setattr(B, "merge_findings", lambda board, poses, regions: [dict(type="courtyards_overlap", refs=["R1", "J3"])])
+    res = pipeline.place(bd, seed=0, time_s=10, workers=1, opts=dict(barrier_split=1))
+    assert calls == ["split"]
+    rep = res.report["barrier_split"]
+    assert rep["skipped"] == "illegal_merge" and rep["findings"] == 1 and rep["examples"][0]["refs"] == ["R1", "J3"]
+    assert res.poses    # the whole board was placed
+    # no finding: the split result is kept
+    monkeypatch.setattr(B, "merge_findings", lambda board, poses, regions: [])
+    res = pipeline.place(bd, seed=0, time_s=10, workers=1, opts=dict(barrier_split=1))
+    assert res.report["barrier_split"] == dict(regions=2)

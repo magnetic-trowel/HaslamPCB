@@ -421,7 +421,18 @@ def place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, l
             res = barriers.place_split(place, board, split, seed=seed, time_s=left, log=log, verify=verify, **kw2)
             if fit is not None:
                 res.report["barrier_split"]["fit"] = fit
-            return res
+            # guard: no part may collide with a part of another region on the merged board (each region sees only
+            # itself and the fixed parts that reach it); otherwise the board is placed whole instead, as for an
+            # unfit split
+            bad = barriers.merge_findings(board, res.poses, split.regions)
+            if not bad:
+                return res
+            log(f"barrier split dropped: {len(bad)} collisions across regions on the merged board, "
+                f"e.g. {bad[0].get('type')} {bad[0].get('refs')}")
+            skipped = dict(skipped="illegal_merge", regions=len(split.regions), findings=len(bad),
+                           examples=[dict(type=f.get("type"), refs=f.get("refs")) for f in bad[:10]])
+            if fit is not None:
+                skipped["fit"] = fit
         if skipped is not None:
             opts = dict(opts or {}, barrier_split=0)
             res = place(board, seed=seed, time_s=left, physics=physics, brief=brief, workers=workers, log=log,
