@@ -214,14 +214,9 @@ class PhysRouter:
                 shutil.copy2(s_, p.with_suffix(ext))
         return p
 
-    def solve_fields(self):
-        """Mesh the copper as it stands, short what is not yet connected, solve every pattern. Copper that has
-        not changed since the last solve keeps its fields (the solve is deterministic)."""
-        t0 = time.time()
-        sig = hash(repr((self.tracks, self.vias)))
-        if sig == getattr(self, "_sig", None) and getattr(self, "prices", None) is not None:
-            self.log("pnr: copper unchanged since the last solve; fields kept")
-            return
+    def _mesh(self):
+        """The copper as it stands, meshed for the field solve: (board, BoardMesh, the pads the mesh
+        holds). Sets the pours' fills (KiCad's refill of that copper) for the exact islands."""
         p = self._state_board()
         from kae.board.kicad_file import load
         b = load(p)
@@ -246,6 +241,22 @@ class PhysRouter:
                 ok.add(q)
             except (KeyError, ValueError):
                 pass
+        return b, bm, ok
+
+    def _priced_islands(self, ok):
+        """The exact islands of the priced nets with pads in `ok`, as solve_fields sets them."""
+        return {n: self._exact_islands(n, ok) for n in set(self.bd.net_of[q] for q in ok if q in self.bd.net_of)
+                if n in self.nets}
+
+    def solve_fields(self):
+        """Mesh the copper as it stands, short what is not yet connected, solve every pattern. Copper that has
+        not changed since the last solve keeps its fields (the solve is deterministic)."""
+        t0 = time.time()
+        sig = hash(repr((self.tracks, self.vias)))
+        if sig == getattr(self, "_sig", None) and getattr(self, "prices", None) is not None:
+            self.log("pnr: copper unchanged since the last solve; fields kept")
+            return
+        b, bm, ok = self._mesh()
         net = ES.Network(bm.m)
         # islands of each net's pads; unrouted connections become field-free shorts
         self.islands = {}
@@ -889,7 +900,14 @@ class PhysRouter:
         if self.plain or not getattr(self, "_fields", True):
             self._islands_only()
         else:
-            self.solve_fields()
+            # the islands first, from the same mesh and refill; the fields only when a net must be routed
+            # again (routing reads them; nothing after the repair does): a whole solve saved otherwise
+            _, _, ok = self._mesh()
+            isl = self._priced_islands(ok)
+            if any(len([g for g in isl.get(n, []) if g]) > 1 for n in self.nets):
+                self.solve_fields()
+            else:
+                self.islands.update(isl)
         torn = [n for n in self.nets if len([g for g in self.islands.get(n, []) if g]) > 1]
         for n in torn:
             self.log(f"pnr: repair: {n} has {len(self.islands[n])} islands on the refilled copper; routing them")
