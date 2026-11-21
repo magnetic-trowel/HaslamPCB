@@ -211,3 +211,11 @@ rest beforehand, and the changed calls are common).
 - New experiment `barrier-fit2-ab-m6` (owner `exp-barrier-fit2-ab-m6`), new method ids. The runs of `barrier-fit2-ab-m5` (0 jobs done) are excluded
   from the decision; its jobs are cancelled.
 - Boards (after the trims and the 16 CPU-h cutoff recorded above), arms, attempts, primary, guards and looks unchanged.
+
+## Addendum 2026-11-21 (diagnostic), before its run: fabriziotappero esp32-li-ion, once per arm
+User decision 2026-11-21. fabriziotappero esp32-embed esp32-li-ion-cell-monitor-pan lost legality under split2 on both
+earlier builds and was parked by the 2026-11-20 trim (over 0.5 CPU-h per run). It runs once in each arm, as an
+exception to the cap: same methods (0f9b70f9fcf9, e630fe4ddf1b), k=1, seed 0, prio 5, as experiment
+`barrier-fit2-diag-fabrizio-m6`. It is a diagnostic, not part of the primary: it is read for `legal`, placement errors
+and why split2 turns the board illegal, and is reported in the PR. It decides nothing alone. The other parked boards
+stay parked.
