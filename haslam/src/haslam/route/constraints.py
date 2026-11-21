@@ -1331,7 +1331,11 @@ def thermal_corridors(info, p, pad_uuids=None, sev=None, solid=False):
                     if land.area < sw * max(mt, 0.05):
                         continue
                     if not fill_ring:
-                        fill_ring[:] = [fill.union(ring), cop.buffer(1e-4)]
+                        # the relief ring holds spoke copper only where the fill may be: never within the
+                        # zone clearance of another net's pad (solar-small: the 0.5 mm ring of DAC U302's
+                        # GND pin 7, whose strip runs in under the part, lay over its I2C neighbours 6 and 8
+                        # themselves, so every track to them "crossed the corridor" and both stayed open)
+                        fill_ring[:] = [fill.union(ring.difference(foreign(l, pad["net"], clr))), cop.buffer(1e-4)]
                     cand.append((land.area, strip.intersection(fill_ring[0]).difference(fill_ring[1])))
                 cand.sort(key=lambda t: -t[0])
                 clear = []    # the best strips that, together, leave every neighbour a way out

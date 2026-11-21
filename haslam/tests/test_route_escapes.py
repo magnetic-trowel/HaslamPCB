@@ -121,7 +121,8 @@ def test_spoke_strips_follow_the_pad_orientation(tmp_path):
         pd["orient"] = 0.0                          # the old, axis-aligned strips cross them
     cors = [g for g, l, pad in CN.thermal_corridors(info, plan) if pad["ref"] == "U9" and pad["number"] == "3"]
     x, y = next(pd["pos"] for pd in row if pd["number"] == "2")
-    track = LineString([(x - 0.4 * d[0], y - 0.4 * d[1]), (x + 0.4 * d[0], y + 0.4 * d[1])]).buffer(0.1)
+    # its escape past the pad and its clearance (the strips leave the pad itself: no spoke can be there)
+    track = LineString([(x - 1.0 * d[0], y - 1.0 * d[1]), (x + 1.0 * d[0], y + 1.0 * d[1])]).buffer(0.1)
     assert any(g.intersection(track).area > 1e-6 for g in cors)
 
 
@@ -218,3 +219,23 @@ def test_escapes_meeting_in_one_cell_are_drawn_not_counted_as_touching(tmp_path)
     assert line.intersects(ta.geom) and line.intersects(tb.geom)
     for l, a, b in rt.segs:
         assert not sp.track_violations("NB", l, 0.2, a, b, tol=EXACT_TOL)
+
+
+def test_spoke_corridor_leaves_other_nets_pads_out(tmp_path):
+    """The relief ring around a zone pin holds spoke copper only where fill may be, never within the
+    zone clearance of another net's pad. solar-small: DAC U302's GND pin 7 had one strip (in under the
+    part, the way out having no fill to land on); with a 0.5 mm zone clearance its ring covered the I2C
+    pins 6 and 8 themselves, so every track to them crossed the corridor and both stayed open."""
+    blk = ("B9", "Blk", "x:Blk", 106.0, 126.0, 0.0,
+           [("1", "FA", 0.0, 0.0, 0.3, 0.3, "smd", 0.0, "", "passive")], (0.4, 0.4))
+    p = F.write_board(tmp_path, extra=[ROW, PARTNER, blk])     # a pad of another net right above pin 3
+    info = F.synth_info(load(p))
+    info["settings"]["min_track"] = 0.2
+    plan = CN.plan(info, p, {})
+    _gnd_zone(info, 0.5)
+    cors = [(g, l) for g, l, pad in CN.thermal_corridors(info, plan) if pad["ref"] == "U9" and pad["number"] == "3"]
+    assert cors                                    # the one strip, down, stays: it covers no neighbour's way up
+    for pd in info["pads"]:
+        if pd["ref"] == "U9" and pd["number"] in ("2", "4"):
+            cop = CN._pad_shapes(pd)[1]["F.Cu"]
+            assert all(g.intersection(cop.buffer(0.1)).area <= 1e-9 for g, _ in cors), pd["number"]
