@@ -37,10 +37,19 @@ case $ARM in
       --alt "$M" --open-alt "$POL" -- "$R"
     ;;
   B1)
-    P=$D/work/placed.kicad_pcb MID=$D/work/mid.kicad_pcb
+    # each stage's board keeps the input's name in its own folder, with the input's rules and intent file beside
+    # it: kae copies project files by stem, so a board renamed placed.kicad_pcb ran with KiCad's default rules
+    # and no facts (B1, solar-small2)
+    P=$D/work/placed/solar-small.kicad_pcb MID=$D/work/mid/solar-small.kicad_pcb
+    for f in "$P" "$MID"; do
+      mkdir -p "$(dirname "$f")"
+      for e in kicad_pro kicad_dru kae_intent.json; do
+        [ -f "$D/in/solar-small.$e" ] && cp "$D/in/solar-small.$e" "${f%.kicad_pcb}.$e"
+      done
+    done
     env KAE_BUDGET=work "$PY" -m kae.cli place "$IN" "$P" --seed "$SEED" --time $((T / 3)) --report "$D/work/place.json"
-    # the router reads the board's own intent file (copied beside each stage's output)
-    "$PY" -u -W ignore -m kae.em.pnr "$P" "$MID" --lock --seed "$SEED" --work "$D/work/pnr"
+    "$PY" -u -W ignore -m kae.em.pnr "$P" "$MID" --lock --seed "$SEED" --work "$D/work/pnr" \
+      --intent "$D/in/solar-small.kae_intent.json"
     env KAE_BUDGET=work "$PY" -u -W ignore -m kae.route.cli route "$MID" "$OUT" --seed "$SEED" --time $((T / 3))
     ;;
   *) echo "unknown arm $ARM" >&2; exit 2 ;;
