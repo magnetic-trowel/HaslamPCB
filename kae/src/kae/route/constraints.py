@@ -168,6 +168,12 @@ IGNORABLE = {"clearance": "clearance", "hole_clearance": "hole_clearance", "copp
 # code: a KAE_<NAME> text variable in the KiCad project wins over the run's opts (<name>), which win
 # over the default here.
 DEFAULTS = dict(
+    ripup_cost_big=200,            # Freerouting's start rip-up cost (scoring.start_ripup_costs; its default 100) on
+                                   # boards with more than ripup_big_pads pads: each pass searches harder, so fewer
+                                   # but better passes. fr-ripup-ab6 (31 boards over 1,000 pads, counted work): opens
+                                   # per attempt x0.950 [0.903, 0.989], DRC errors unchanged; the gain sits on 3-4
+                                   # near-clean boards (x0.991 [0.976, 1.007] where more than 5 stay open). 100: off
+    ripup_big_pads=1000,           # pads (plan pins) above which ripup_cost_big applies
     ignored_clearance_floor=0.1,   # mm: gap kept for a clearance check the board turns off (or the
                                    # board's own minimum, if larger); KiCad then checks only shorts
     plane_strict_share="odd",      # with planes "cost": inner layers whose one-net fill (refilled input)
@@ -256,6 +262,14 @@ DEFAULTS = dict(
                                    # only on the pour around it (for assembly that cannot plug vias in pads)
     escape_fanout=0,               # placement: 1 also reserves the dog-bone via sites of each ball grid on the
                                    # other side (no part there covers them); 0: off
+    barrier_split=2,               # placement (kae.place.barriers): 1 places each region of a board split by voids or
+                                   # all-copper track keepouts (panels, HV isolation) on its own, parts staying with their
+                                   # net neighbours; 2 also probes first that each region can legalize its parts, moves
+                                   # those it cannot, and places the board whole when a region still cannot (fit_split)
+                                   # or the merged board collides across regions; 0: off. 2: barrier-fit2-ab-m6 cut
+                                   # per-attempt opens 28 % [-42, -13] on 46 split boards, legality and DRC holding
+    barrier_net_weight=1.0,        # placement: nets a seed places across a void or an all-copper keepout have this
+                                   # weight multiplier in the annealer; 1: off
     zone_pull=0.0,                 # placement (kae.place.zones): weight of pads off their own net's fixed copper
                                    # zone (all of them off = zone_pull x the seed HPWL), also the seed's pull and
                                    # package pins; 0: off. Off by default: zone-ab (48 boards, 3 seeds) at 3 left
