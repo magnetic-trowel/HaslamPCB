@@ -515,6 +515,10 @@ def test_kicad_loop_writes_the_best_judged_placement_back(monkeypatch):
     st.X[i7], st.Y[i7], st.K[i7] = start
     res, (clean, _) = run_loop([3, 0], 2)             # clean: written as it is
     assert clean and res.report["kicad_written_round"] == 1
+    st.X[i7], st.Y[i7], st.K[i7] = start
+    res, (clean, _) = run_loop([1, 1, 1], 2)          # no repair helped: the least-moved round 0 back
+    assert clean is False and res.report["kicad_written_round"] == 0
+    assert (int(st.X[i7]), int(st.Y[i7]), int(st.K[i7])) == start and written[-1] == res.poses
 
 
 def test_mask_only_aperture_across_two_zone_fills_is_a_bridge(monkeypatch):
@@ -768,6 +772,22 @@ def test_intrinsic_footprint_violations_are_not_the_placers():
                                       dict(description="Pad 1 [SCDAT7] of RN2 on F.Cu")])
     assert _own_cutout(rn) and not _own_cutout(dict(type="clearance", items=rn["items"][:1]))
 
+
+
+def test_own_keepout_is_intrinsic():
+    """KiCad names a footprint keepout's owner only in the description, with one item: a pad of
+    the same footprint inside it is the footprint's design (freetronics-kitten REG1, a 78xx whose
+    B.Cu keepout covers its own mounting hole); another part's pad, or a board keepout, is not."""
+    from kae.place.exact import _intrinsic
+    def v(desc, item):
+        return dict(type="items_not_allowed", description=desc, items=[dict(description=item)])
+    assert _intrinsic(v("Items not allowed (keepout area of REG1)", "NPTH pad of REG1"))
+    assert _intrinsic(v("Items not allowed (keepout area of FID2)", "Pad 1 [<no net>] of FID2 on F.Cu"))
+    assert _intrinsic(v("Items not allowed (keepout area 'TOP' of J1)", "Pad 3 [GND] of J1 on F.Cu"))
+    assert not _intrinsic(v("Items not allowed (keepout area of REG1)", "Pad 1 [VIN] of C2 on F.Cu"))
+    assert not _intrinsic(v("Items not allowed (keepout area of J1)", "Via [GND] on F.Cu - B.Cu"))
+    assert not _intrinsic(v("Items not allowed (keepout area)", "Pad [<no net>] of CH1 on F.Cu"))
+    assert not _intrinsic(v("Items not allowed (keepout area 'Left')", "Pad 1 [GND] of SW3 on F.Cu"))
 
 def test_anchor_fixes_only_parts_with_no_spot(monkeypatch):
     """place.pipeline._anchor_tight_parts: a part the grid gives no spot free of the fixed
