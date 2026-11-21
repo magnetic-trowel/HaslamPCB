@@ -853,11 +853,14 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     if anneal:
         t = clock_now()
         kw = dict(w_phys=1.0 if terms is not None else 0.0, order=order,
-                  w_cong=float(setting("place_w_cong", board_path, opts)))
+                  w_cong=float(setting("place_w_cong", board_path, opts)),
+                  w_xing=float(setting("place_w_xing", board_path, opts)),
+                  xing_from=float(setting("place_xing_from", board_path, opts)))
         kw.update(anneal_args or {})
         if terms is None:
             kw["w_phys"] = 0.0
         rep["w_cong"] = float(kw.get("w_cong", 0.0) or 0.0)
+        rep["w_xing"] = float(kw.get("w_xing", 0.0) or 0.0)
         # parts named by board silk labels beside their label: by default the kinds validated on
         # the human placements (numbered rows) at a modest weight; anneal_args w_label and
         # label_kinds widen or switch it off (w_label 0)
@@ -960,6 +963,24 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         viol = grid_violations(st)
     if rep.get("legalize_escalation") or rep.get("legalize_final"):
         trace("legalize_escalation", st)
+    if float(setting("place_untangle", board_path, opts)) > 0:
+        # ratsnest crossings HPWL does not see (kae.place.crossings): swaps of interchangeable
+        # parts and half turns that add no grid violator; physics is never worsened. Grid
+        # violators need not stop it (the grid is conservative: bodies, rounding)
+        t = time.monotonic()
+        from .crossings import untangle
+        hold = {i for rule in (order or ()) for (i, _) in rule}
+        hold |= set(kw.get("labels") or {}) if anneal else set()
+        hold |= set(getattr(P, "zone_pinned", ()) or ())
+        try:
+            rep["untangle"] = untangle(P, st, terms=report_terms, zones=zone_tab, hold=hold,
+                                       x_mm=float(setting("place_untangle_x_mm", board_path, opts)),
+                                       time_s=cap(min(20.0, max(2.0, 0.1 * budget))), log=log)
+        except Exception as e:      # noqa: BLE001 - a polish pass; never lose the placement
+            rep["untangle"] = dict(error=f"{type(e).__name__}: {e}")
+        viol = grid_violations(st)
+        trace("untangle", st)
+        stage("untangle", t)
     rep["legal_grid"] = not viol
     rep["margin_mm"] = P.margin
     t = clock_now()
@@ -1025,6 +1046,11 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         rep["zones"] = zonesmod.report(P, st, zone_rep)
     rep["hpwl"] = round(st.hpwl(), 2)
     rep["hpwl_signal"] = round(st.hpwl(signal_only=True), 2)
+    try:
+        from .crossings import count as crossing_count
+        rep["crossings"] = crossing_count(P, st)       # ratsnest crossings of the placement, HPWL's blind spot
+    except Exception as e:      # noqa: BLE001 - a report field; never lose the placement
+        rep["crossings"] = f"error: {type(e).__name__}: {e}"
     res = Result(poses={}, report=rep, state=st, problem=P, terms=report_terms, order=order, brief=brief)
     final_physics(res)
     if report_terms is not None and "physics_error" not in rep:
