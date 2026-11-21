@@ -40,6 +40,7 @@ cmake -S "$W/src" -B "$W/build" -G Ninja \
   -DTM_WERROR=OFF -DTM_STATIC_RELEASE=ON \
   -DCMAKE_CXX_COMPILER="$ENV/bin/x86_64-conda-linux-gnu-g++" \
   -DCMAKE_PREFIX_PATH="$W/deps;$ENV" \
+  -DSQLite3_LIBRARY="$ENV/lib/libsqlite3.so" -DSQLite3_INCLUDE_DIR="$ENV/include" \
   -DCMAKE_INSTALL_RPATH='$ORIGIN/../lib' -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON
 cmake --build "$W/build" -j "$J" --target tracemaker
 BIN=$(find "$W/build" -type f -executable -name tracemaker | head -1)
