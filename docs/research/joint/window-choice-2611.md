@@ -9,7 +9,7 @@ Not here:
 
 Keys: joint loop, windows, window_evidence, kae.route.blocked, tabu, legal_exact, home_grid_illegal, illegal after repair, counted budgets, J15, J16
 
-**Status:** built, under test. No verdict yet.
+**Status:** tested (loop-win3): undecided against restarts; tabu worse, evidence no gain, exact legality acts with an undecided small gain.
 **First published:** 2026-11-14, branch `loop-win-combo`.
 
 ## The evidence these answer
@@ -34,10 +34,17 @@ Pre-registered in `tools/kaeres/experiments/loop-win/PLAN.md`.
 - **Analysis:** `analyze.py`.
 
 ## Results
-**Smoke** (2 boards, plumbing only; `tools/kaeres/experiments/loop-win/PLAN.md`, addendum after the smoke):
-- tabu cuts repeated windows to 0 and windows by about 4×;
-- the evidence diagnosed every open connection, all as congestion, and blamed parts on most windows;
-- every window that ended illegal held a grid-illegal incumbent. The exact model rejected it too, because one part overlaps fixed parts in the input with no free spot anywhere. `legal_exact` now ignores findings the incumbent already had.
-- At the same nominal allowance, the W arms used up to 23 % more measured CPU than restarts: counted work undercharges Freerouting and the window stage.
-
-**Batch 1** waits for `fr-budget-calibration`.
+**loop-win3** (2026-11-21; 33 kept boards × seeds 0 and 1, fork 37b1a8b, counted work, ranked judge in every arm). Full read: experiment folder and `tools/kaeres/experiments/loop-win/lw3/`.
+- **Primary, Wall vs staged restarts: undecided** (mean d −0.059, p 0.17 against the pre-registered α 0.0125).
+- **Delivered opens:** every window arm is about 20 % below restarts (W0 0.794 [0.650, 0.963], p 0.03).
+  - Legality is equal and DRC errors are within −2 %.
+  - Measured CPU is up to 18 % higher.
+- **Where the gain comes from:**
+  - The joint loop's iteration 0 leaves about 26 % more opens than the best restart.
+  - The windows then remove about 32 %, nearly all of it in windows that moved parts.
+  - Windows lose on boards where the first placement is unlucky and only a new seed helps.
+- **Per change:**
+  - tabu: worse on window yield (p 0.001). Drop it.
+  - evidence: acts, no gain.
+  - exact legality: illegal windows −71 %, opens −3.5 % per attempt (6 better, 0 worse), not decided.
+- **Status:** windows help inside the loop. Whether the part moves or the extra routing of the incumbent pays is open; pk3-ab-m6 found the resumed bridge pass carries the gain after restarts.
