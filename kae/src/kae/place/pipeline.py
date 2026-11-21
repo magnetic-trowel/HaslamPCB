@@ -375,6 +375,24 @@ def _rung_summary(res, seconds):
 
 
 
+CHAN_UTIL_FULL = 0.6     # place_chan_util_gate: the channel term at full weight up to this utilization,
+CHAN_UTIL_OFF = 0.75     # scaled linearly to zero here (chan-gated-m6: shorts rose only at >= 0.7)
+
+
+def max_movable_utilization(P):
+    """The movable parts' area over the free area, on the fuller side (Problem.utilization)."""
+    return float(max(P.utilization()))
+
+
+def util_gate(P):
+    """The channel term's weight factor on a board this full: 1 at or below CHAN_UTIL_FULL, 0 at or
+    above CHAN_UTIL_OFF, linear between. On nearly full boards the halos (about 0.3 mm around every
+    pad) leave the anneal no slack: in chan-gated-m6 the boards at >= 0.7 lost legality to whole-part
+    overlaps (shorting_items + clearance 680 -> 1,088), the boards below kept it (1,383 -> 1,387)."""
+    u = max_movable_utilization(P)
+    return min(1.0, max(0.0, (CHAN_UTIL_OFF - u) / (CHAN_UTIL_OFF - CHAN_UTIL_FULL)))
+
+
 def _channel_weight(P, st, w_chan, zone_tab, kw, board_path, opts):
     """The routing-channel term's weight, its pad-to-edge table (place_chan_edge 1:
     exact.channel_edge_term, else None), its report (the halo overlap of pairs with a movable
@@ -387,15 +405,21 @@ def _channel_weight(P, st, w_chan, zone_tab, kw, board_path, opts):
     term off."""
     from kae.route.constraints import setting
     edge_on = float(setting("place_chan_edge", board_path, opts) or 0.0) > 0
+    gate = float(setting("place_chan_util_gate", board_path, opts) or 0.0) > 0
+    w_set = w_chan
+    util = None
+    if gate:
+        w_chan = w_chan * util_gate(P)
+        util = round(max_movable_utilization(P), 4)
     A0 = exactmod.mean_part_area(P)
     ov0, np0 = exactmod.channel_overlap(P, exactmod.channel_grid(P, weight=1.0), st.X, st.Y, st.K)
     c = zone_tab.c if zone_tab is not None else zonesmod.raster_cell(P)
     e1 = exactmod.channel_edge_term(P, 1.0, A0, c) if edge_on else None
     edge0 = float(sum(e1.part(i, st.X[i], st.Y[i], st.K[i]) for i in P.mov)) if e1 is not None else 0.0
-    rep = dict(w_chan=w_chan, edge=edge_on, A0=round(A0, 3), seed_overlap=round(ov0 / A0, 5), seed_pairs=np0,
+    rep = dict(w_chan=w_chan, w_set=w_set, util_gate=gate, util=util, edge=edge_on, A0=round(A0, 3), seed_overlap=round(ov0 / A0, 5), seed_pairs=np0,
                seed_edge=round(edge0, 5))
     edge_tab = None
-    if e1 is not None:
+    if e1 is not None and w_chan > 0:
         edge_tab = exactmod.channel_edge_term(P, w_chan, A0, c)
         rep.update(e1.info, edge_weight=w_chan)
     return w_chan, edge_tab, rep, e1
@@ -921,8 +945,9 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         if w_chan > 0:
             w_eff, edge_tab, rep["channel_term"], chan_e1 = _channel_weight(P, st, w_chan, zone_tab, kw,
                                                                             board_path, opts)
-            grids.append(exactmod.channel_grid(P, weight=w_eff))
-            rep["channel_term"]["parts"] = len(grids[-1])
+            if w_eff > 0:     # a gated-off term adds nothing to the anneal (the run equals control's)
+                grids.append(exactmod.channel_grid(P, weight=w_eff))
+                rep["channel_term"]["parts"] = len(grids[-1])
         if soft_bands:
             w_band = float(setting("escape_band_w", board_path, opts))
             grids.append(EB.escape_grid(P, soft_bands, weight=w_band))
