@@ -23,6 +23,21 @@ set -x
   --json "$dir/tm.json" --report "$dir/tm-report.md" "$@"
 rc=$?
 set +x
+# the summary lines the trial reads from the adapter log (the work directory is not kept): what was routed by which
+# variant, the rules TraceMaker could not read, and its stuck reasons
+[ -f "$dir/tm.json" ] && python3 -I - "$dir/tm.json" <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+keep = ("connections", "routed", "open", "vias", "variant", "variant_name", "seconds", "time_limited", "work", "work_all_variants",
+        "copper_layers", "pitch_mm")
+print("tm-summary " + json.dumps({k: d.get(k) for k in keep}))
+r = d.get("rules") or {}
+print("tm-rules " + json.dumps(dict(files=r.get("files"), custom_rule_count=r.get("custom_rule_count"), not_read=r.get("not_read"))))
+print("tm-variants " + json.dumps(d.get("variants"))[:4000])
+print("tm-stuck " + json.dumps(d.get("stuck"))[:4000])
+for f in (d.get("failures") or [])[:200]:
+    print("tm-open " + f)
+EOF
 # 3 = connections left open: the board is still a result for the judge
 [ "$rc" -eq 3 ] && rc=0
 [ -f "$out" ] || { echo "tm_route: no output (rc $rc)" >&2; exit "${rc/#0/1}"; }
