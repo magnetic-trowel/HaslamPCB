@@ -375,28 +375,8 @@ def _join(gr, sp, net, src, others, widths, fixed, hist=None, soft=(), rip=True)
     return None
 
 
-# KiCad escapes these characters in net names in the board file and shows them unescaped in
-# its DRC report (EscapeString / UnescapeString)
-_ESCAPES = {"{slash}": "/", "{backslash}": "\\", "{lt}": "<", "{gt}": ">", "{colon}": ":", "{dblquote}": '"',
-            "{quote}": "'", "{space}": " ", "{tab}": "\t", "{return}": "\n", "{brace}": "{", "{comma}": ","}
-
-
-def unescape(name):
-    """A board net name as KiCad's DRC report writes it."""
-    for k, v in _ESCAPES.items():
-        name = name.replace(k, v)
-    return name
-
-
-def open_nets(report):
-    """Nets of the unconnected items of a KiCad DRC report (the name in brackets)."""
-    out = set()
-    for u in report.get("unconnected_items") or []:
-        for it in u.get("items") or []:
-            d = it.get("description") or ""
-            if "[" in d and "]" in d:
-                out.add(d[d.index("[") + 1:d.index("]")])
-    return sorted(out)
+# the DRC report shows net names unescaped ("A/B" for the board's "A{slash}B")
+from kae.drc_items import board_nets, open_nets, unescape  # noqa: E402,F401
 
 
 def round_robin(nets, reached):
@@ -440,8 +420,7 @@ def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=prin
         given = {}
     else:
         # the DRC report names nets unescaped ("A/B" for the board's "A{slash}B")
-        by_shown = {unescape(n): n for n in known}
-        given = {(n if n in known else by_shown.get(n, n)): n for n in nets}     # board name -> caller's
+        given = dict(zip(board_nets(nets, known), nets))     # board name -> caller's
         nets = list(given)
     queue = [net for net in nets if len([p for p in parts(sp, fp, net) if _relevant(p)]) > 1]
     # a net goes back on the queue only after progress: when its open count falls below the
