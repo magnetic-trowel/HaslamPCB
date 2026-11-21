@@ -1622,12 +1622,24 @@ def kicad_feedback(P, st, report, step=0.3):
     return out
 
 
+_OWN_AREA = __import__("re").compile(r"\((?:keepout|rule) area(?: '[^']*')? of (\S+)\)\s*$")
+
+
 def _intrinsic(v):
     """A violation whose items all belong to the same footprint R ('Arc of D68 on Edge.Cuts'
-    and 'Pad 1 [..] of D68 on B.Cu'; 'Pad 2 [A] of RN2' and 'Pad 1 [B] of RN2')."""
+    and 'Pad 1 [..] of D68 on B.Cu'; 'Pad 2 [A] of RN2' and 'Pad 1 [B] of RN2'), or an
+    items_not_allowed whose one item lies in a keepout of its own footprint ('Items not allowed
+    (keepout area of REG1)' on 'NPTH pad of REG1': freetronics-kitten's 78xx, whose B.Cu keepout
+    covers its own mounting hole; mcp4728's four mounting pads; fiducials). KiCad names the
+    area's owner only in the description, so the single-item check missed it, and the KiCad
+    loop moved REG1 six rounds, 40 mm from its input caps, for an error no pose removes."""
     import re
     refs = set()
     items = v.get("items", [])
+    if len(items) == 1 and v.get("type") == "items_not_allowed":
+        own = _OWN_AREA.search(v.get("description", ""))
+        m = re.search(r"\bof (\S+)", items[0].get("description", ""))
+        return bool(own and m and m.group(1) == own.group(1))
     if len(items) < 2:
         return False
     for it in items:
