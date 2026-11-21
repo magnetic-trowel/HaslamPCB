@@ -200,7 +200,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     # the schematic's pin facts the intent was compiled with (operating facts `pins`): the same circuit
     n_pins = PF.apply(b, (intent or {}).get("pins"))
     b.stackup, stack_hz, stack_text = assume_stackup(b)
-    brief = brief or B.build(b)
+    brief = brief or B.build(b, facts=intent or None)   # the same facts as the physics, not only the sidecar's
     bd = M.build(b, brief)
     bd.radios = dict((intent or {}).get("radios") or {})        # the operating facts' radios
     added = [add_part(bd, spec) for spec in add_parts]

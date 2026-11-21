@@ -302,9 +302,10 @@ def evaluate(ev, intent=None, brief=None):
         from kae.board import pinfacts as PF
         from kae.board.kicad_file import load as load_board
         from kae.circuit import brief as B
+        from kae.intent import facts as F
         bd_ = load_board(ev["board"])
         PF.apply(bd_, ev.get("pins"))          # the pin facts the evaluator used: the same sections
-        brief = B.build(bd_)
+        brief = B.build(bd_, facts=F.facts_of(intent) or None)
     secs = SE.apply(SE.from_brief(brief), intent.get("sections"), brief)
     obs = observations(ev, intent)
     cur = intent["currency"]
