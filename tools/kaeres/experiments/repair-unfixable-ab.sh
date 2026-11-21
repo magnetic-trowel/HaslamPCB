@@ -49,7 +49,7 @@ register() {
   for x in "tie:tie.boards.txt:the 20 boards whose KiCad loop kept a tied later round" \
            "quality:quality.boards.txt:sprint-quality (80 small human-clean boards)"; do
     IFS=: read -r n f d <<<"$x"
-    $K exp create "repair-unfixable-$n" --boards "@$B/$f" --attempts 2 --method "$C0" --method "$C1" \
+    $K exp create "repair-unfixable2-$n" --boards "@$B/$f" --attempts 2 --method "$C0" --method "$C1" \
       --harness "$TAG" --kae "$FIX" --description "KiCad repair loop fixes vs baseline/2026-w47, kae place, $d, k=2; $D"
   done
 }
