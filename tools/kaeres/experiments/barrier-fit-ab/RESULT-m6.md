@@ -94,3 +94,49 @@ radioclock, rabidaudio buzz and aroum pncateho.
 2. Run fabriziotappero esp32-li-ion once (k=1). Its legality loss is the known guard failure, and the trim parked it.
 
 Commits stay local, because the push is blocked by missing credentials.
+
+## Canary result (2026-11-20, barrier-fit2-canary-m6, 20 of 20 ok)
+**The canary passes the pre-set rule.** Pooled opens are 5546 vs 5512 (1.006x), errors 731 vs 730, and no error type
+was added.
+- No crash, timeout or over-time run. The longest run is beagleplay at 9,624 s, against a ceiling of 15,916 s
+  (4x its 3,979 s budget).
+- The only bug records are the boards' own `drc` records, the same in both arms.
+
+**Identity:**
+- 9 of 10 boards have the same placement in both arms.
+- On two of them the router output differs by one open: sdi-mipi 299/298 and dvhx 4/3. That is router noise, not the
+  mechanism.
+
+**sinara zotino is a real split, not a fault.**
+- kae's `true_split` gives it 2 regions (14,746 and 1,178 mm²), with 0 cross nets, not over capacity. The barrier scan
+  covered only usable boards, so it never listed zotino.
+- Fresh first-wave seeds mostly fall: 575/488, 444/423, 465/496, 448/445, 351/345, 285/276.
+- The resumed attempts and the delivered board are worse: 86/99 → 128/122, and delivered opens 85 → 121.
+- Errors go 15 → 16.
+- This is a big board, and one board decides nothing. It is reported, not read as harm.
+
+## Why the len42 boards lose (existing runs and `true_split` on the corpus boards; no queue time)
+**Main finding:** the harm follows the split's assignment, not the family.
+
+| boards | n | effect | lower / higher |
+|---|---|---|---|
+| some signal net crosses regions (`cross_nets` > 0) | 15 | +0.2 % [−12.1, +14.0] | 5/8 |
+| no signal net crosses regions | 31 | −38.9 % [−54.9, −20.9] | 21/7 |
+
+`moved_for_room` > 0 (the capacity rule moved parts between regions) gives almost the same split: 13 boards at +2.3 %
+against 33 at −37.6 %.
+
+**The len42 boards** are 2-region panel PCB pairs:
+- **4 cross nets each, or more:** buff-mult 7, bus-driver 4, attenuverter 10, envelope2 23.
+- **Parts moved for room:** buff-mult 5, bus-driver 9, attenuverter 7, envelope2 26.
+- **What changes:** split2 halves their placement HPWL (buff-mult 1,350 → 666, bus-driver 956 → 457), yet opens rise.
+  All of the opens are "geometry" blocks. The split packs each region on its own, and the parts on the cross nets lose
+  their pull toward the other region's connector.
+- **Exceptions:**
+  - filter2 has 0 cross nets and still loses (+0.15). It has 74 parts assigned by area.
+  - noise-sh (0 cross nets) is neutral.
+
+**Gainers.** The large gains (gridbugs, fihdi, alloyed, glaubinator) all have 0 cross nets and no parts moved.
+
+**What this implies.** A gate (split only when no signal net crosses regions) is suggested, but it is post hoc. It needs
+its own pre-registered test, on the parked boards or fresh boards. It is not part of the default PR.
