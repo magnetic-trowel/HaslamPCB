@@ -240,11 +240,12 @@ DEFAULTS = dict(
                                    # only on the pour around it (for assembly that cannot plug vias in pads)
     escape_fanout=0,               # placement: 1 also reserves the dog-bone via sites of each ball grid on the
                                    # other side (no part there covers them); 0: off
-    barrier_split=0,               # placement (kae.place.barriers): 1 places each region of a board split by voids or
+    barrier_split=2,               # placement (kae.place.barriers): 1 places each region of a board split by voids or
                                    # all-copper track keepouts (panels, HV isolation) on its own, parts staying with their
                                    # net neighbours; 2 also probes first that each region can legalize its parts, moves
-                                   # those it cannot, and places the board whole when a region still cannot (fit_split);
-                                   # 0: off, until barrier-fit-ab decides
+                                   # those it cannot, and places the board whole when a region still cannot (fit_split)
+                                   # or the merged board collides across regions; 0: off. 2: barrier-fit2-ab-m6 cut
+                                   # per-attempt opens 28 % [-42, -13] on 46 split boards, legality and DRC holding
     barrier_net_weight=1.0,        # placement: nets a seed places across a void or an all-copper keepout have this
                                    # weight multiplier in the annealer; 1: off
     zone_pull=0.0,                 # placement (kae.place.zones): weight of pads off their own net's fixed copper
