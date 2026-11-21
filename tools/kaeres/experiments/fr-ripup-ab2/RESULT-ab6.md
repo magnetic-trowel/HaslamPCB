@@ -68,3 +68,13 @@ Net 0 boards closed.
   `fr-ripup-canary` (owner `exp-fr-ripup-canary`, 20 jobs, the same two methods), before any PR.
 - No default change on this result alone. A PR needs the canary not to contradict it, plus a confirmation on fresh
   near-clean boards, where the effect sits.
+
+## Canary (fr-ripup-canary, canary-big, 10 boards, k = 1, 2026-11-21)
+- Opens 3,359 -> 3,300 (-1.8 %): 7 boards lower, 1 higher (why2025 badge 1 -> 3), 2 the same.
+  gecko5 35 -> 19, glasgow 985 -> 967, sdi-mipi 256 -> 245.
+- DRC errors identical by type except `starved_thermal` 3 -> 2.
+- No crash, no timeout, no ceiling hit: wall/budget at most 3.01 (zotino, rip-up arm), otherwise 0.03-2.36.
+- The two boards complete in both arms are identical (dvhx 0/0; iorodeo 0 opens, 29 errors each).
+- Bug records: 4, the same `starved_thermal` and `track_dangling` signatures in both arms.
+
+Nothing contradicts the A/B. The canary is one run per board, so it is a safety check, not a measurement.
