@@ -1636,6 +1636,11 @@ def _intrinsic(v):
     import re
     refs = set()
     items = v.get("items", [])
+    if v.get("type") == "malformed_courtyard":
+        # the footprint's courtyard does not close (a library defect, the same on the human board:
+        # bkw777 wp2-feather, glydrfreak vspeed): no pose closes it. kae's own model still keeps the
+        # part clear, with the gaps bridged as KiCad bridges them (board.geom); the recheck warns
+        return True
     if len(items) == 1 and v.get("type") == "items_not_allowed":
         own = _OWN_AREA.search(v.get("description", ""))
         m = re.search(r"\bof (\S+)", items[0].get("description", ""))
