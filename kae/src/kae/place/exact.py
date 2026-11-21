@@ -1529,6 +1529,12 @@ def kicad_feedback(P, st, report, step=0.3):
     for v in viols:
         marks.append(out["fixed_only"])
         out["by_type"][v["type"]] = out["by_type"].get(v["type"], 0) + 1
+        if _intrinsic(v):
+            # the footprint's own design, whatever else the violation names: a malformed courtyard
+            # is reported with the zone it touches (cmnybo chip-lcd-dip: P1 and a GND zone), and the
+            # zone branch below made it a keep-off-the-zone constraint for 7 rounds
+            out["fixed_only"] += 1
+            continue
         # board text on copper (a grid obstacle only; the exact model has no text): the parts
         # the error names keep their hulls off the text's box, by `step` more each time KiCad
         # still objects. The text item names no part: matched by position it would blame
@@ -1573,15 +1579,6 @@ def kicad_feedback(P, st, report, step=0.3):
                 if P.parts[i].movable:
                     fb["avoid"].setdefault(i, []).append((g, f"{v['type']} with zone {zones[0].net} (KiCad DRC)"))
                     out["constraints"] += 1
-            continue
-        if _intrinsic(v):
-            # every item belongs to one footprint: its own Edge.Cuts against its own copper (a
-            # reverse-mount LED in its switch cut-out, 0xcb-dev-sl-060 and battoota), pads of a
-            # resistor array closer than the clearance (a4092-terminator), a hot-swap socket's
-            # MX and Choc pads: the footprint's design, the same at any pose. No move fixes it,
-            # so it is not the placer's (KiCad reports them where the strict profile promotes
-            # a check the project had waived)
-            out["fixed_only"] += 1
             continue
         ps = sorted(violation_parts(P, st, v))
         mv = [i for i in ps if P.parts[i].movable]
