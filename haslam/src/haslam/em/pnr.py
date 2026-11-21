@@ -93,7 +93,8 @@ class PhysRouter:
         self.work = Path(work or tempfile.mkdtemp(prefix="haslam-pnr-"))
         self.work.mkdir(parents=True, exist_ok=True)
         b = load(path)
-        self.brief = B.build(b)
+        from haslam.intent import facts as F
+        self.brief = B.build(b, facts=F.facts_of(intent) or None)
         bd = self.bd = M.build(b, self.brief)
         self.srcs = S.add_all(bd, self.brief)
         self.obs = O.observers(bd, self.brief, self.srcs)

@@ -17,13 +17,15 @@ from . import objective as OB
 from . import sections as SE
 
 
-def _brief(ev):
+def _brief(ev, intent=None):
+    """The board's brief with the intent's facts (the ones its evaluation was made with), else its own intent file."""
     from haslam.board.kicad_file import load
     from haslam.board import pinfacts as PF
     from haslam.circuit import brief as B
+    from haslam.intent import facts as F
     b = load(ev["board"])
     PF.apply(b, ev.get("pins"))         # the pin facts the evaluator used (operating facts `pins`)
-    return B.build(b)
+    return B.build(b, facts=F.facts_of(OB.load(intent)) or None if intent else None)
 
 
 def catalog(ev, brief):
@@ -162,7 +164,7 @@ def main(argv=None):
             print(json.dumps(catalog(ev, _brief(ev)), indent=1))
         elif a.cmd == "status":
             ev = json.load(open(a.eval))
-            brief = _brief(ev)
+            brief = _brief(ev, a.intent)
             st = OB.evaluate(ev, a.intent, brief)
             if not a.no_advice:
                 from haslam.board.kicad_file import load
@@ -173,7 +175,7 @@ def main(argv=None):
                 json.dump(st, open(a.o, "w"), indent=1, default=str)
         else:
             evs = [json.load(open(p)) for p in a.evals]
-            brief = _brief(evs[0])                 # versions of one board share its parts and structures
+            brief = _brief(evs[0], a.intent)       # versions of one board share its parts and structures
             sts = [OB.evaluate(ev, a.intent, brief) for ev in evs]
             common = OB.common_terms(sts)          # only the terms every layout computed
             dropped = sorted({r["id"] for s in sts for r in s["terms"]} - common)

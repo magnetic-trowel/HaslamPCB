@@ -95,7 +95,7 @@ def evaluate(path, pitch=0.25, nsub=2, intent=None, n_corners=16, seed=0, log=pr
     from .evaluate import _dc_harms, ledger_for
     t0 = time.time()
     b = load(path)
-    brief = B.build(b)
+    brief = B.build(b, facts=intent or None)
     bd = M.build(b, brief)
     srcs = S.add_all(bd, brief)
     obs = O.observers(bd, brief, srcs)
