@@ -1,0 +1,8 @@
+adafruit-adafruit-qt-py-esp32-c3-pcb-adafruit-qt-py-esp32-c3
+adafruit-adafruit-itsybitsy-rp2040-pcb-adafruit-itsybitsy-rp2040
+particle-iot-xenon-xenon-v1-00
+electrooptical-cap-multiplier-tile-3pole-cap-multiplier-tile
+dachtire-fercus-fercus-dongle-2
+upsidedownlabs-bioamp-emg-pill-bioamp-exg-pill
+siderakb-sphale-sphale
+bastardkb-splinky-0xb2
