@@ -180,3 +180,15 @@ rest beforehand, and the changed calls are common).
 - New experiment `xing-ext-m6` (owner `exp-xing-ext-m6`), new method ids. The runs of `xing-ext-m5` (0 jobs done) are excluded
   from the decision; its jobs are cancelled.
 - Boards (after the trims and the 16 CPU-h cutoff recorded above), arms, attempts, primary, guards and looks unchanged.
+
+## Addendum 2026-11-21: result and user decision (adoption on crossings)
+xing-ext-m6 (kept boards, seeds 3-8, kae e81b9263, Freerouting 37b1a8b, counted work) left opens undecided: per-board
+Δlog1p of xing against control −1.7 % [−7.1, +3.7] on 26 boards (25 kept), MDE80 8.2 %, 13/12. Ratsnest crossings fell to
+0.615x (geometric mean, 25 boards); DRC errors −2.0 % [−5.0, −0.1] with no type of at least 20 errors rising beyond the
+A/A spread; legal runs 34 of 154 in both arms. Details: the explore-2611 result page `xing-ext-m6.md`.
+
+**User decision (2026-11-21):** the crossing cut is worth adopting with opens unchanged. `place_w_xing` = 2 becomes the
+default. The metric for this adoption is crossings, with no harm to opens, DRC errors or legality; the result above meets
+it (opens CI excludes harms above +3.7 %, DRC down, legality equal). Per RULES.md a canary runs first on main b680e3e8
+(which includes the gated auto margin) with xing on and off, so the interaction with the new margin defaults is visible;
+its result goes into the PR.
