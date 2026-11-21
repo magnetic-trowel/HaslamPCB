@@ -26,7 +26,8 @@ case $ARM in
   *) echo "unknown arm $ARM" >&2; exit 2 ;;
 esac > "$OUT/$S.$ARM.log" 2>&1
 rc=$?
-cpu=$(times | tail -1 | awk '{u=$1; s=$2; gsub(/[ms]/," ",u); gsub(/[ms]/," ",s); split(u,a," "); split(s,b," "); print a[1]*60+a[2]+b[1]*60+b[2]}')
+times > "$OUT/$S.$ARM.times"
+cpu=$(tail -1 "$OUT/$S.$ARM.times" | awk '{n=0; for(i=1;i<=2;i++){split($i,a,"m"); sub("s","",a[2]); n+=a[1]*60+a[2]}; print n}')
 wall=$(echo "$(date +%s.%N) - $t0" | bc)
 echo "rc=$rc wall=$wall cpu=$cpu" >> "$OUT/$S.$ARM.log"
 [ -f "$res" ] || { echo "{\"puzzle\": \"$S\", \"arm\": \"$ARM\", \"rc\": $rc, \"wall_s\": $wall, \"error\": \"no output\"}" > "$OUT/$S.$ARM.score.json"; exit 1; }
