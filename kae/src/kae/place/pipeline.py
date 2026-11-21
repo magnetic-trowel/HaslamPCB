@@ -375,8 +375,8 @@ def _rung_summary(res, seconds):
 
 
 
-CHAN_UTIL_FULL = 0.6     # place_chan_util_gate: the channel term at full weight up to this utilization,
-CHAN_UTIL_OFF = 0.75     # scaled linearly to zero here (chan-gated-m6: shorts rose only at >= 0.7)
+CHAN_UTIL_FULL = 0.65    # place_chan_util_gate: the channel term at full weight up to this utilization,
+CHAN_UTIL_OFF = 0.70     # scaled linearly to zero here (chan-room: placements start failing at 0.70 in both arms)
 
 
 def max_movable_utilization(P):
@@ -386,9 +386,10 @@ def max_movable_utilization(P):
 
 def util_gate(P):
     """The channel term's weight factor on a board this full: 1 at or below CHAN_UTIL_FULL, 0 at or
-    above CHAN_UTIL_OFF, linear between. On nearly full boards the halos (about 0.3 mm around every
-    pad) leave the anneal no slack: in chan-gated-m6 the boards at >= 0.7 lost legality to whole-part
-    overlaps (shorting_items + clearance 680 -> 1,088), the boards below kept it (1,383 -> 1,387)."""
+    above CHAN_UTIL_OFF, linear between. chan-room (7 crowded boards, outlines scaled from native
+    down to 0.45, 396 placements): no placement fails in either arm below 0.65 (0 of 168); from
+    0.70 a third fail in both arms, and chan3 then makes the failures worse (part-to-part shorts
+    752 against 568), not more frequent. So the term is off where placements start to fail."""
     u = max_movable_utilization(P)
     return min(1.0, max(0.0, (CHAN_UTIL_OFF - u) / (CHAN_UTIL_OFF - CHAN_UTIL_FULL)))
 
