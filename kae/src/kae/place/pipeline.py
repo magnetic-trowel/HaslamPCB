@@ -396,6 +396,50 @@ def place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, l
     log = log or (lambda *a, **k: None)
     kw = dict(seed=seed, physics=physics, workers=workers, log=log, anneal=anneal, edge_mate=edge_mate,
               anneal_args=anneal_args, angle_step=angle_step, fixed=fixed, board_path=board_path, opts=opts)
+    from kae.route.constraints import setting
+    split_mode = int(setting("barrier_split", board_path, opts))
+    if split_mode >= 1:
+        # a board split by voids or all-layer keepouts: each region placed on its own (kae.place.barriers);
+        # 2 also probes that each region can legalize its parts first, moving those it cannot (fit_split)
+        from . import barriers
+        t_split = clock_now()
+        split = barriers.true_split(board)
+        skipped, fit = None, None
+        kw2 = {k: v for k, v in kw.items() if k not in ("seed", "log")}
+        if split is not None and split.over_capacity:
+            log(f"barrier split skipped: regions {split.over_capacity} cannot hold their parts")
+            skipped = dict(skipped="over_capacity", regions=len(split.regions), over_capacity=split.over_capacity)
+        elif split is not None and split_mode >= 2:
+            fitted, fit = barriers.fit_split(place, board, split, seed=seed, time_s=barriers.PROBE_FRAC * float(time_s),
+                                             log=log, **kw2)
+            if fitted is None:
+                skipped = dict(skipped="unfit", regions=len(split.regions), fit=fit)
+            split = fitted
+        # mode 1 keeps its whole budget as before; mode 2 gives the regions what the probes left
+        left = time_s if fit is None else max(float(time_s) - (clock_now() - t_split), 0.5 * float(time_s))
+        if split is not None and skipped is None:
+            res = barriers.place_split(place, board, split, seed=seed, time_s=left, log=log, verify=verify, **kw2)
+            if fit is not None:
+                res.report["barrier_split"]["fit"] = fit
+            # guard: no part may collide with a part of another region on the merged board (each region sees only
+            # itself and the fixed parts that reach it); otherwise the board is placed whole instead, as for an
+            # unfit split
+            bad = barriers.merge_findings(board, res.poses, split.regions)
+            if not bad:
+                return res
+            log(f"barrier split dropped: {len(bad)} collisions across regions on the merged board, "
+                f"e.g. {bad[0].get('type')} {bad[0].get('refs')}")
+            skipped = dict(skipped="illegal_merge", regions=len(split.regions), findings=len(bad),
+                           examples=[dict(type=f.get("type"), refs=f.get("refs")) for f in bad[:10]])
+            if fit is not None:
+                skipped["fit"] = fit
+        if skipped is not None:
+            opts = dict(opts or {}, barrier_split=0)
+            res = place(board, seed=seed, time_s=left, physics=physics, brief=brief, workers=workers, log=log,
+                        anneal=anneal, edge_mate=edge_mate, anneal_args=anneal_args, angle_step=angle_step,
+                        fixed=fixed, board_path=board_path, opts=opts, verify=verify)
+            res.report["barrier_split"] = skipped
+            return res
     mode = resolve_severity(board, board_path, opts)
     if mode != LADDER:
         return _place_rung(board, time_s=time_s, brief=brief, severity=mode, **kw)
@@ -848,6 +892,11 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
 
     if zone_rep is not None:
         rep["zones_seed"] = _zone_summary(zonesmod.report(P, seed_state, zone_rep))
+    # nets the seed left across a void or an all-layer keepout pull harder in the annealer (kae.place.barriers)
+    from . import barriers as barriersmod
+    w_bar = float(setting("barrier_net_weight", board_path, opts))
+    if w_bar > 1.0:
+        rep["barrier_reweight"] = barriersmod.reweight_crossing(P, seed_state, w_bar)
     # ---- anneal
     final = seed_state
     if anneal:
@@ -1023,6 +1072,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     body_hazards(rep, P, st)
     if zone_rep is not None:
         rep["zones"] = zonesmod.report(P, st, zone_rep)
+    rep["barrier_crossings"] = barriersmod.crossings(P, st)
     rep["hpwl"] = round(st.hpwl(), 2)
     rep["hpwl_signal"] = round(st.hpwl(signal_only=True), 2)
     res = Result(poses={}, report=rep, state=st, problem=P, terms=report_terms, order=order, brief=brief)
