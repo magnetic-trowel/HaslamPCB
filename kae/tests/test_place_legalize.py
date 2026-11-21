@@ -208,6 +208,13 @@ def test_kicad_zone_error_keeps_the_part_off_the_whole_zone():
     assert fb["constraints"] == 1
     (g, why), = P.feedback["avoid"][i.i]
     assert g.contains(sbox(x - 5.9, y - 5.9, x + 5.9, y + 5.9))
+    # a malformed courtyard reported with the zone it touches is the footprint's, not the zone's
+    mal = {"violations": [{"type": "malformed_courtyard", "severity": "error",
+                           "description": "Footprint has malformed courtyard (not a closed shape)", "items": [
+        {"description": f"Footprint {i.ref}", "pos": {"x": x, "y": y}},
+        {"description": "Zone [Z] on F.Cu, priority 0", "pos": {"x": x + 5, "y": y}}]}]}
+    fb = exact.kicad_feedback(P, st, mal)
+    assert fb["fixed_only"] == 1 and fb["constraints"] == 0 and fb["placer_by_type"] == {}
 
 
 def test_exact_rules_follow_kicad_on_copperless_pads_roundrects_and_custom_rules():
