@@ -272,7 +272,8 @@ def evaluate(ev, intent=None, brief=None):
     if brief is None:
         from kae.board.kicad_file import load as load_board
         from kae.circuit import brief as B
-        brief = B.build(load_board(ev["board"]))
+        from kae.intent import facts as F
+        brief = B.build(load_board(ev["board"]), facts=F.facts_of(intent) or None)
     secs = SE.apply(SE.from_brief(brief), intent.get("sections"), brief)
     obs = observations(ev, intent)
     cur = intent["currency"]

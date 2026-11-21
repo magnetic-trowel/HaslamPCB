@@ -77,7 +77,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     from .beliefs import corners
     t0 = time.time()
     b = b or load(path)
-    brief = brief or B.build(b)
+    brief = brief or B.build(b, facts=intent or None)   # the same facts as the physics, not only the sidecar's
     bd = M.build(b, brief)
     srcs = S.add_all(bd, brief)
     obs = O.observers(bd, brief, srcs)

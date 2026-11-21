@@ -17,10 +17,12 @@ from . import objective as OB
 from . import sections as SE
 
 
-def _brief(ev):
+def _brief(ev, intent=None):
+    """The board's brief with the intent's facts (the ones its evaluation was made with), else its own intent file."""
     from kae.board.kicad_file import load
     from kae.circuit import brief as B
-    return B.build(load(ev["board"]))
+    from kae.intent import facts as F
+    return B.build(load(ev["board"]), facts=F.facts_of(OB.load(intent)) or None if intent else None)
 
 
 def catalog(ev, brief):
@@ -99,13 +101,13 @@ def main(argv=None):
             print(json.dumps(catalog(ev, _brief(ev)), indent=1))
         elif a.cmd == "status":
             ev = json.load(open(a.eval))
-            st = OB.evaluate(ev, a.intent, _brief(ev))
+            st = OB.evaluate(ev, a.intent, _brief(ev, a.intent))
             print(text(st, a.detailed))
             if a.o:
                 json.dump(st, open(a.o, "w"), indent=1, default=str)
         else:
             evs = [json.load(open(p)) for p in a.evals]
-            brief = _brief(evs[0])                 # versions of one board share its parts and structures
+            brief = _brief(evs[0], a.intent)       # versions of one board share its parts and structures
             sts = [OB.evaluate(ev, a.intent, brief) for ev in evs]
             common = OB.common_terms(sts)          # only the terms every layout computed
             dropped = sorted({r["id"] for s in sts for r in s["terms"]} - common)
