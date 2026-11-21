@@ -131,4 +131,25 @@ failing. As part of Q+L, it does what bridge-ses-width (W) does and also fixes w
 off-grid rule and both annular-ring cases). Width handling should therefore go with rule-quantize, superseding
 bridge-ses-width, provided `rule-quantize-guard` (68 boards, +5 %) and `rule-quantize-zw` pass.
 
-Pending: `rule-quantize-guard` (68 hard boards x C, Q x 2) and `rule-quantize-zw` (PLAN-zw.md).
+### rule-quantize-zw (2026-11-17, 10 boards, chassis M, ZM / ZQ / ZQ2)
+ZQ2 left no zero-width copper in any of its 19 runs, over two builds. The control left some on 5 boards. Against the
+control on the c81770e build (7 boards, 14 pairs) the guards pass at +10 %: opens 0.952 [0.862, 1.000], errors 0.925
+[0.790, 1.000], defects 0.932 [0.844, 1.000]. ZQ (Q without the zero-width fix) gave the control's output on 13 of 14
+runs, so the stage was stopped there.
+
+### rule-quantize-guard-m6 (2026-11-20, guard only: 46 hard boards, k = 1)
+Q is 40eb8b82, the commit that ships. C is main 6d726340, with Freerouting fork 37b1a8b under counted work. Each figure is
+the geometric-mean ratio, Q against C, with a 95 % board bootstrap interval.
+- DRC errors: 1.002 [1.000, 1.006].
+- Defects: 0.998 [0.974, 1.017].
+- track_width, annular_width and connection_width: equal on every board (0/0, 67/67, 0/0). So is every other type with at
+  least 20 errors, except two:
+  - starved_thermal: 1.003 [1.000, 1.010].
+  - solder_mask_bridge: 1.024 [1.000, 1.074]. Its upper end is over the +5 % margin, and the excess is one board, home-mini
+    v1, with +2. Both new errors are 0.2 mm SPK+ and SPK- tracks under J2's mask aperture. Those tracks have the same
+    width in both arms and are not a width Q changes, so the extra errors come from a different route of those nets.
+- Opens: 0.996 [0.966, 1.024], with 6 boards better and 5 worse.
+
+18 of the 46 boards had identical output in both arms. No harm.
+
+The 10 big canary boards (`canary-big`) run once before merging.
