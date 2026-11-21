@@ -40,3 +40,11 @@ That split was found after the fact. It needs fresh seeds and, for the effect si
    - Guards: shorting_items plus clearance, and legality, against A/A noise.
    - MDE about 5 %.
    - A sprint version with fewer boards would be underpowered by design (MDE 13-16 %) and is not proposed.
+
+## Addendum 2026-11-21: ramp from chan-room
+The ramp is now 0.65 to 0.70 (it was 0.6 to 0.75). The evidence is in `tools/research/placement/chan-room/RESULT.md`:
+- no placement fails below 0.65 in either arm;
+- from 0.70 about a third fail in both arms, and chan3 adds 32 % more part-to-part shorts there;
+- chan3 does not fail earlier than control.
+Sizing is unchanged: a sprint cannot resolve about 5 %, and the efficacy test is still the ladder-tier run of
+about 245 CPU-h.
