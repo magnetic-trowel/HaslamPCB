@@ -25,6 +25,16 @@ $K exp create bga-escape-x-325 ... --boards @bench/suites/mech/bga-balls-325plus
 - Control runs: the `stored control` column of the table counts the suite's boards that are in a sprint suite. Once a weekly control is stored (`control-w<week>`), only the other boards need a control arm; today all do.
 - Two mechanisms at once: intersect the lists (`comm -12 <(sort a.txt) <(sort b.txt)`), or write a new expression in `MECHANISMS` and rebuild.
 
+## Hand-made suites
+
+Not from `mechsuites.py`; each was chosen for one experiment's plan.
+
+| Suite | Boards | Chosen by |
+|---|---|---|
+| `place-fixable-le400` | 35 | design 2 stage 0 (`tools/research/joint/place_fixable.py`): placement-fixable boards up to 400 footprints |
+| `ground-pour-2layer` | 65 | ground-side-ab: the 2-layer boards of both sprint suites on which `kae.route.ground_side` names a pour side |
+| `layer-oracle-multilayer` | 70 | layer-oracle: the first 70 of its candidates (4+ layers, DRC-clean human layout, opens under the fork alone) |
+
 ## How a suite is built
 
 `python3 tools/kaeres/mechsuites.py --tags DIR` (seed 20261120; `--dry-run` prints the table). Same inputs and seed, same lists.
