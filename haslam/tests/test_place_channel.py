@@ -139,3 +139,31 @@ def test_channel_weight_reports_the_seed_and_adds_the_edge_table_only_when_asked
     for i in P.mov:
         k = int(st.K[i])
         assert abs(tab.part(i, st.X[i], st.Y[i], k) - 3 * e1.part(i, st.X[i], st.Y[i], k)) < 1e-9
+
+
+def test_util_gate_scales_the_weight_from_full_to_off():
+    from haslam.place import pipeline
+    P, st = _problem()
+    for u, want in ((0.3, 1.0), (0.6, 1.0), (0.675, 0.5), (0.75, 0.0), (0.9, 0.0)):
+        P.utilization = lambda u=u: (u, 0.1)
+        assert abs(pipeline.util_gate(P) - want) < 1e-9
+        w, tab, rep, _ = _channel_weight(P, st, 3.0, None, {}, None, {"place_chan_util_gate": 1})
+        assert abs(w - 3.0 * want) < 1e-9 and rep["w_set"] == 3.0 and rep["util"] == round(u, 4)
+    w, *_ = _channel_weight(P, st, 3.0, None, {}, None, {})       # gate off: the weight as set
+    assert w == 3.0
+
+
+def test_gated_off_term_places_like_control():
+    from haslam.place import pipeline
+    from test_place_zones import _board
+    res = []
+    for opts in ({}, {"place_w_chan": 3, "place_chan_util_gate": 1}):
+        b = _board()
+        orig = pipeline.Problem.utilization
+        pipeline.Problem.utilization = lambda self: (0.9, 0.9)
+        try:
+            r = pipeline.place(b, seed=0, time_s=8, physics=False, workers=1, log=lambda m: None, opts=opts)
+        finally:
+            pipeline.Problem.utilization = orig
+        res.append(sorted((f.ref, round(f.x, 4), round(f.y, 4), round(f.rot, 2)) for f in b.footprints))
+    assert res[0] == res[1]
