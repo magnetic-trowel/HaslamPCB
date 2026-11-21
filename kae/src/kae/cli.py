@@ -243,9 +243,19 @@ def _kicad_loop(a, res, t0, write, end=None):
         if clean or it == a.drc_rounds:
             break
         left = limit - clock_now()
+        pre_repair = st.poses()
         rounds[-1]["repair"] = X.repair(P, st, time_s=max(3.0, min(120.0, 0.4 * left)), log=_log)
         rounds[-1]["repair"].pop("findings", None)
         rep_r = rounds[-1]["repair"]
+        if rep_r.get("start") and st.poses() == pre_repair:
+            # the repair had findings and left every pose as it was (each reseed rejected): KiCad
+            # would judge the same board again, and the next round's grown constraints only make it
+            # harder (hanqaqa, terjeio, zynthian: 6 such rounds, ~560 s, no change). With no
+            # findings (start 0: KiCad objects, the exact model does not yet) the loop goes on: the
+            # constraints grow each round until the model sees it (kotbenek's LCD1 moved in round 2)
+            rep_r["unchanged"] = True
+            _log(f"KiCad DRC: round {it}'s repair changed nothing; stopping")
+            break
         if X.silk_on(P) and (rep_r.get("moved") or rep_r.get("evicted") or rep_r.get("reseeds")):
             # the repair re-placed parts without the silkscreen: the silk pass again (pic-
             # programmer with its interface fixed: 40 parts evicted, 18 silk errors after)

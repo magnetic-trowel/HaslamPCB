@@ -516,6 +516,19 @@ def test_kicad_loop_writes_the_best_judged_placement_back(monkeypatch):
     res, (clean, _) = run_loop([3, 0], 2)             # clean: written as it is
     assert clean and res.report["kicad_written_round"] == 1
     st.X[i7], st.Y[i7], st.K[i7] = start
+    calls = []
+    monkeypatch.setattr(exact, "repair", lambda P, st, time_s, log=None: calls.append(1) or dict(start=2, moved=[], findings=[]))
+    monkeypatch.setattr(kdrc, "run", lambda staged, path, timeout: calls.append("drc") or {"n": 3})
+    res = Result(poses=st.poses(), report={}, state=st, problem=P)
+    a = SimpleNamespace(drc="on", drc_rounds=6, time=600.0, output="o", input="i", writer="sexpr")
+    n_written = len(written)
+    clean, _ = cli._kicad_loop(a, res, time.monotonic(), write)   # a repair that moves nothing: one verdict, stop
+    assert calls == ["drc", 1] and res.report["kicad_drc"][0]["repair"]["unchanged"]
+    assert res.report["kicad_written_round"] == 0 and len(written) == n_written
+    calls.clear()                                     # no findings for the exact model: the rounds go on
+    monkeypatch.setattr(exact, "repair", lambda P, st, time_s, log=None: calls.append(1) or dict(start=0, moved=[], findings=[]))
+    cli._kicad_loop(a, Result(poses=st.poses(), report={}, state=st, problem=P), time.monotonic(), write)
+    assert calls.count("drc") == 7
     res, (clean, _) = run_loop([1, 1, 1], 2)          # no repair helped: the least-moved round 0 back
     assert clean is False and res.report["kicad_written_round"] == 0
     assert (int(st.X[i7]), int(st.Y[i7]), int(st.K[i7])) == start and written[-1] == res.poses
@@ -794,6 +807,9 @@ def test_own_keepout_is_intrinsic():
                                 description="Items not allowed (keepout area of REG1)",
                                 items=[dict(description="NPTH pad of REG1", pos=dict(x=59.5, y=-35.96))])])
     assert [_intrinsic(x) for x in kicad_violations(rep)] == [True]
+    # a courtyard that does not close is the footprint's (bkw777 wp2-feather U1)
+    assert _intrinsic(dict(type="malformed_courtyard", description="Footprint has malformed courtyard (not a closed shape)",
+                           items=[dict(description="Footprint U1")]))
 
 def test_anchor_fixes_only_parts_with_no_spot(monkeypatch):
     """place.pipeline._anchor_tight_parts: a part the grid gives no spot free of the fixed
