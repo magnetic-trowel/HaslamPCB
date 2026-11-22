@@ -97,3 +97,18 @@ def test_a_negative_bus_has_the_positive_ones_legacy_overshoot_bound(val):
         o = next(x for x in O.observers(bd, {"parts": {}, "nets": {}}, [s]) if x.kind == "overshoot")
         return o.meta["bound_legacy"], HA.overshoot_bound({**val, "V_V": V}, o.bound, o.meta["bound_legacy"])
     assert legacy(-12.0) == pytest.approx(legacy(12.0)) and min(legacy(-12.0)) > 0
+
+
+def test_a_negative_bus_switch_node_takes_as_long_to_swing_as_the_positive_one():
+    from kae.excite import params as PA
+    from kae.excite.beliefs import Ledger
+
+    def t_v(V):
+        iv = sorted((0.95 * V, 1.05 * V))
+        brief = {"structures": [{"id": "cell:hb:U1", "class": "half_bridge", "rail": "BUS"}],
+                 "nets": {"BUS": {"volts": V, "volts_belief": {"interval": iv}}}}
+        s = SimpleNamespace(meta={"cell": "cell:hb:U1", "cls": "half_bridge", "bus": "BUS"}, name="cell:hb:U1")
+        p = PA.cell(Ledger(), s, brief, None, None, "")["t_v"]
+        return p.typ, p.lo, p.hi
+    pos = t_v(12.0)
+    assert 0 < pos[1] < pos[0] < pos[2] and t_v(-12.0) == pytest.approx(pos)
