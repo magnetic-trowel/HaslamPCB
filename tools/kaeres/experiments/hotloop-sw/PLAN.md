@@ -337,3 +337,11 @@ Board loss terms (per board, the sum of that observable's terms):
 **Follow-ups, out of scope for this run:**
 - *The PDN resonance between caps* (a bulk cap above its self-resonance beside a ceramic below it) is real ringing. Since 0e6103dd it enters no L_loop and is priced nowhere. It needs its own observation.
 - *Every existing baseline* with two or more caps on a cell must be re-evaluated at the L_loop fix (`~/kae-baselines` evals before 0e6103dd).
+
+**Round 2, N identity check (2026-11-22): failed, so N is re-routed on all 60 boards.**
+- N at 2b51145b against 908e21ff, sorted geometry with uuids aside, on the 5 boards:
+  - identical on heypcb and julianschuler;
+  - different on duanestorey (5 VP tracks), giacobot (7 GND, 2 +3V3) and zebra-rodeo (about 70 tracks over 8 nets).
+- Scores are the same on all 5, and so are the kept attempt and the attempt count. The paths differ in places, so N's 908e21ff boards are not reused.
+- N is re-routed at 2b51145b as `hotloop-sw-n2-2b51145` (55 new runs plus the 5 identity runs), and its physics is evaluated at the same SHA.
+- C″ is compared with this N. N at 908e21ff and its round-1 physics are not used in round 2.
