@@ -1089,11 +1089,17 @@ def _cell_watts(q, s, m):
     return 0.5 * q["L_nH"] * 1e-9 * I * I * f + I * I * D * (1 - D) * q["R_mohm"] * 1e-3
 
 
+def _reroute_s(items):
+    """Budget seconds a cell's re-route is given (the last mile, a repair round, the last mile again): 60 s and
+    1.5 s per foreign item ripped."""
+    return 60.0 + 1.5 * items
+
+
 def _cell_estimate(t_drc, t_q, items):
     """Budget seconds one cell of `clear` is expected to take: two DRCs (rip, after), the quote before it, the
-    re-route (60 s and 1.5 s per foreign item). t_drc and t_q are read off the process clock (haslam.budget.now), so
+    re-route (_reroute_s). t_drc and t_q are read off the process clock (haslam.budget.now), so
     in work mode they are the DRC's and the quote's charged work (haslam.em's kinds for the quote), not wall time."""
-    return 2 * t_drc + t_q + 60.0 + 1.5 * items
+    return 2 * t_drc + t_q + _reroute_s(items)
 
 
 def _timed(fn, *args, **kw):
@@ -1230,8 +1236,10 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             p2.plane_cost = o2.get("plane_cost")
             p2.pad_shapes = o2.get("pad_shapes") or "kicad"
             shutil.copy2(wd / "kicad.dsn", cd / "kicad.dsn")
-            cdl = min(deadline, clock_now() + per_cell - t_drc - t_q)
             cur = check(board_path, cd / "rip")
+            # the re-route's deadline: its own share from here, whatever the quote before it cost (a quote dearer
+            # than the estimate's left the last mile no time at all: forestierr's cell, 153 s against 30)
+            cdl = min(deadline, clock_now() + _reroute_s(len(fr)))
             rounds = []
             b_in = repair.input_errors(input_path, cd, cdl) if drc.summary(cur)["errors"] else {}
             # haslam's grid router (the last mile), one Freerouting repair round, the last mile again
