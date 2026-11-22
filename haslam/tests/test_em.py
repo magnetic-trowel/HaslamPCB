@@ -202,3 +202,50 @@ def test_narrow_bar_correction_is_independent_of_nsub():
     L1 = loop(1)
     for n in (2, 4):
         assert loop(n) == pytest.approx(L1, rel=2e-3)
+
+
+def test_pnr_islands_and_shorts_do_not_depend_on_the_hash_seed(monkeypatch):
+    """solve_fields builds each net's islands and the unrouted connections' shorts in an order the mesh's
+    lumped parts (so the solve's element order) and self.islands keep: it must not follow a set's hash order.
+    Net names whose hashes run in two opposite orders stand in for two PYTHONHASHSEED values."""
+    from types import SimpleNamespace
+
+    import haslam.board.kicad_file as KF
+    import haslam.excite.circuit as EC
+    from haslam.em import pnr as PNR
+
+    class Stop(Exception):
+        pass
+
+    def stop(*a, **k):
+        raise Stop
+    nets = ["A", "B", "C", "D", "E", "F"]
+
+    def run(rank):
+        class Name(str):
+            __hash__ = lambda self: rank[str(self)]           # noqa: E731
+        N = {n: Name(n) for n in nets}
+        pads_of = {N[n]: [f"{n}1.1", f"{n}2.1"] for n in nets}
+        net_of = {q: n for n, qs in pads_of.items() for q in qs}
+        lumped = []
+        m = SimpleNamespace(lumped=lumped, part=lambda a, c, **k: lumped.append((a, c)))
+        bm = SimpleNamespace(fills=None, m=m, pad=lambda q: None)
+        idx = {q: i for i, q in enumerate(sorted(net_of))}
+        monkeypatch.setattr(PNR, "BoardMesh", lambda *a, **k: bm)
+        monkeypatch.setattr(PNR.ES, "Network", lambda m_: SimpleNamespace(comp=list(range(len(idx))), term_node=idx))
+        monkeypatch.setattr(KF, "load", lambda p: None)
+        monkeypatch.setattr(EC, "lump_into", stop)
+        r = object.__new__(PNR.PhysRouter)
+        r.tracks, r.vias, r.window, r.pitch, r.nsub = [], [], (0, 0, 1, 1), 0.1, 1
+        r.log = lambda *a: None
+        r._state_board = lambda: None
+        r.pat, r.nets = {}, []
+        r.bd = SimpleNamespace(pads_of=pads_of, net_of=net_of, circuit=SimpleNamespace(elems=[]))
+        r.dcp = SimpleNamespace(dc_pads=set(net_of))
+        with pytest.raises(Stop):
+            r.solve_fields()
+        return list(r.islands.items()), lumped
+    up = run({n: i for i, n in enumerate(nets)})
+    down = run({n: -i for i, n in enumerate(nets)})
+    assert len(up[0]) == len(nets) and len(up[1]) == len(nets)
+    assert up == down
