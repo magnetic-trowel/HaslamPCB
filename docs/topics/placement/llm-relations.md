@@ -93,7 +93,18 @@ Hazards (`Bundle.hazards`, then `kae.hazards.finalize`):
 
 ## Evaluation (phase 1)
 
-Hand-written relation files for six corpus boards are test fixtures (`kae/tests/data/relations/`), written from the netlist and silk legends only, never from the human placement. Two carry a deliberate conflict (an LQFP-48 asked into the middle third of a 17 mm board; a part asked onto the bottom). Results of the A/B against no relations: `~/kae-baselines/experiments/relations-p1-ab/VERDICT.md`.
+Hand-written relation files for six corpus boards are test fixtures (`kae/tests/data/relations/`), written from the netlist and silk legends only, never from the human placement; two carry a deliberate conflict (an LQFP-48 asked into the middle third of a 17 mm board; a part asked onto the bottom). Kaeres experiment `relations-p1-ab3` (`tools/kaeres/experiments/relations-p1-ab.sh`): baseline/2026-w47 + this change, counted work, Freerouting probe, seeds 0 and 1, paired [M]:
+
+| Endpoint | Without intent | With intent |
+|---|---|---|
+| feasible relations met on the written board | 26/72 (36%, by luck) | 58/72 (81%); every pair +1 or more |
+| hard (hold, pins, orient) / soft (pulls, keep_away) | 8/24 / 13/40 | 24/24 / 29/40 (73%) |
+| deliberate conflicts reported | — | 2/2 boards, every run; no false ones |
+| legal / legal_strict | 10/12 / 10/12 | 10/12 / 10/12 |
+| probe opens (sum; paired mean ± sd) | 218 | 215; −0.25 ± 2.8 |
+| HPWL ratio | | median 1.075 (0.69–1.32) |
+
+Soft relations fall short of the 90% design target at today's weights (tight label pulls at medium strength, regions on a dense board): undecided, n = 12. The first rounds exposed two pre-existing legality bugs on a board where an on_edge relation pinned a module, both fixed: KiCad errors among parts kae fixed itself counted as the caller's (`P.kae_placed`), and a pinned footprint's own rule areas stayed at its staged pose (`edge_check.with_poses`).
 
 ## Sources
 
