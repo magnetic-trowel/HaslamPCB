@@ -582,6 +582,15 @@ def _intent_cell(ctx, m):
     return ((cell_facts(facts, sid, ref) or {}).get("cells") or {}).get(sid) or {}
 
 
+def _signed_volts(ctx, net):
+    """A rail's voltage with its sign, from the brief's nets; else ctx.volts (a magnitude, from the name)."""
+    v = ((getattr(ctx, "nets", None) or {}).get(net) or {}).get("volts")
+    try:
+        return float(v) if v else ctx.volts(net or "")
+    except (TypeError, ValueError):
+        return ctx.volts(net or "")
+
+
 def _intent_converter(ctx, m):
     """The cell's commutated current and duty from the intent's cells.<id> (haslam.physics.converter.from_intent, as
     haslam.excite.params.cell reads it: I_switch_A, else I_A, else I_out_A through the cell's topology at the
@@ -592,7 +601,9 @@ def _intent_converter(ctx, m):
         return None
     s = m.spec
     cls = s.get("class") or ""
-    v = lambda k: ctx.volts(s.get(k) or "") if s.get(k) else None
+    # the rails' signed voltages where the brief has them (ctx.volts is a magnitude): their signs tell an
+    # inverting stage (12 V -> -5 V) from a buck (haslam.physics.converter.topology_of)
+    v = lambda k: _signed_volts(ctx, s.get(k)) if s.get(k) else None
     if cls == "boost":
         vi, vo = v("vin"), v("rail")
     else:
@@ -600,9 +611,9 @@ def _intent_converter(ctx, m):
     if s.get("topology") == "buck_boost_4switch":
         sib = next((x for x in ctx.brief.get("structures") or [] if x.get("topology") == "buck_boost_4switch"
                     and x.get("id") != s.get("id") and x.get("controller") == s.get("controller")), {})
-        so = ctx.volts(sib.get("rail") or "") if sib.get("rail") else None
+        so = _signed_volts(ctx, sib.get("rail")) if sib.get("rail") else None
         vi, vo = (v("rail"), so) if cls == "buck" else (so, v("rail"))
-    top, leg = CV.topology_of(cls, s, vo)
+    top, leg = CV.topology_of(cls, s, vo, vi)
     try:
         return CV.from_intent(cell, top, leg, vi, vo)
     except (TypeError, ValueError, ZeroDivisionError):

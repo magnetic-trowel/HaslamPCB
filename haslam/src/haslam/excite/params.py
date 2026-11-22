@@ -83,7 +83,7 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
         vi_c, vo_c = (vi[0] if vi else None), (vb[0] if vb else None)
     else:
         vi_c, vo_c = (vb[0] if vb else None), (vo_b[0] if vo_b else None)
-    top, leg = CV.topology_of(cls, st, vo_c)
+    top, leg = CV.topology_of(cls, st, vo_c, vi_c)
     eta_n = intent_value(intent, "nets", st.get("vout") or (st.get("rail") if cls == "boost" else None) or "", "eta")
     cc = CV.from_intent(icell, top, leg, vi_c, vo_c, eta_n) if top else None
     e_ = intent_value(intent, "cells", sid, "eta") or eta_n
