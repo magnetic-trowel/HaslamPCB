@@ -185,3 +185,25 @@ def test_the_router_classifies_a_cell_by_its_rails_signs():
     inv = conv(5.0, -5.0)
     assert inv.op.topology == "inverting_buck_boost" and inv.I[0] == pytest.approx(0.5 / (1 - 5.0 / 9.5))
     assert conv(-12.0, -5.0).op.topology == "buck" and conv(-12.0, -5.0).I[0] == pytest.approx(0.5)
+
+
+def _duty_without_intent(cls, Vbus, Vother):
+    """The no-intent duty of a cell: its bus Vbus (a buck's input, a boost's output) and its other rail."""
+    other = "vout" if cls == "buck" else "vin"
+    brief = {"structures": [{"id": "c1", "class": cls, "rail": "BUS", other: "OTHER"}],
+             "nets": {n: {"volts": v, "volts_belief": {"interval": sorted((0.95 * v, 1.05 * v))}}
+                      for n, v in (("BUS", Vbus), ("OTHER", Vother))}}
+    s = SimpleNamespace(meta={"cell": "c1", "cls": cls, "bus": "BUS"}, name="c1")
+    D = PA.cell(Ledger(), s, brief, None, None, "")["D"]
+    return (D.typ, D.lo, D.hi), D.basis
+
+
+@pytest.mark.parametrize("cls,Vbus,Vother", [("buck", 12.0, 5.0), ("boost", 12.0, 5.0)])
+def test_a_cells_duty_on_negative_rails_is_its_magnitudes(cls, Vbus, Vother):
+    pos, neg = _duty_without_intent(cls, Vbus, Vother), _duty_without_intent(cls, -Vbus, -Vother)
+    assert neg[0] == pytest.approx(pos[0]) and neg[1] == pos[1] and "clipped" not in neg[1]
+
+
+def test_an_inverting_cells_duty_without_intent():
+    (typ, lo, hi), basis = _duty_without_intent("buck", 12.0, -5.0)
+    assert typ == pytest.approx(5.0 / (12.0 * CV.ETA[1] + 5.0)) and 0 < lo < typ < hi < 1 and "inverting" in basis

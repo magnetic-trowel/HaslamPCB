@@ -23,6 +23,7 @@ Symbols: V_in, V_out (|V_out| for an inverting stage), I_out, η (efficiency), L
 - A static 4-switch leg holds its high side on: it carries I_L as DC and commutates nothing [P, SLVA535; TPS6300x datasheets].
 - Region band: V_in/V_out ≥ 1.1 is the buck region, ≤ 0.9 the boost region, between them both legs switch (`BAND_4SW`) [I]: controllers place the transition window by their own minimum on/off times.
 - ΔI is capped at 2·I_L, the DCM boundary.
+- Negative rails: every equation takes the rails' magnitudes. A converter between two rails of one sign (−12 V → −5 V) is the mirror image of its positive twin: same D, currents and swing. A buck-class cell between rails of opposite signs (12 V → −5 V, or −12 V → 5 V) is an inverting buck-boost [C, `topology_of`]. With the input's voltage unknown, a negative output is taken as inverting: the rails alone cannot tell that from a negative buck [I].
 - A buck's D keeps η = 1 (`V_out/V_in`): its η correction moves no current between loops; its input current comes from the power balance instead. A boost's D holds η, so D and `I_L = I_out/(1 − D)` agree with the power balance.
 - The evaluator's corners know a cell's bus and duty, not both rails: there `ΔI = V_sw·D·(1−D)/(L·f_sw)` with V_sw the switch node's swing (buck V_in, boost V_out, inverting V_in + |V_out|). It equals the buck form and, for a boost, `V_in·η·D/(L·f_sw)`: within η of SLVA372.
 
