@@ -5,7 +5,8 @@
 (PLAN.md: counted field work must change no evaluator number).
 
     ev_diff.py A.ev.json B.ev.json         first differing JSON path with both values, and the count
-    ev_diff.py DIR_A DIR_B [--summary]     every *.ev.json present in both, paired by name
+    ev_diff.py DIR_A DIR_B [--summary]     every *.ev.json present in both, paired by name; --summary also gives each
+                                           side's observation count and how many are `invalid`
 
 Ignored: keys named `seconds`, `t_factor_s`, `t_total_s`, any key ending in `_s` whose value is a number (wall
 times) and any key starting with `wall_`. Floats compare exactly (the evaluator is deterministic). Exit 0 when every
@@ -58,14 +59,21 @@ class _Missing:
 _MISSING = _Missing()
 
 
-def compare(pa, pb):
-    """(number of differences, the first one or None)."""
+def counts(ev):
+    """(observations, invalid observations) of an evaluation: `invalid` is set by the evaluator (a cell's L_loop that
+    is no inductance) or by haslam.excite.quantity.check in production (a value its type forbids)."""
+    obs = ev.get("observations") or []
+    return len(obs), sum(1 for o in obs if o.get("invalid"))
+
+
+def compare(pa, pb, with_counts=False):
+    """(number of differences, the first one or None), plus each side's counts() with with_counts."""
     a, b = json.loads(Path(pa).read_text()), json.loads(Path(pb).read_text())
     n, first = 0, None
     for d in diffs(a, b):
         n += 1
         first = first or d
-    return n, first
+    return (n, first, counts(a), counts(b)) if with_counts else (n, first)
 
 
 def main(argv=None):
@@ -86,11 +94,13 @@ def main(argv=None):
         pairs, only = [(A, B)], []
     bad = 0
     for pa, pb in pairs:
-        n, first = compare(pa, pb)
+        n, first, ca, cb = compare(pa, pb, with_counts=True)
         bad += n > 0
         name = pa.name.removesuffix(".ev.json")
         if a.summary:
-            print(f"{name}\t{'identical' if not n else f'{n} differ'}"
+            obs = (f"obs {ca[0]} invalid {ca[1]}" if ca == cb
+                   else f"obs {ca[0]}/{cb[0]} invalid {ca[1]}/{cb[1]}")
+            print(f"{name}\t{obs}\t{'identical' if not n else f'{n} differ'}"
                   + (f"\tfirst {first[0]}: {first[1]!r} vs {first[2]!r}" if n else ""))
         elif n:
             print(f"{name}: {n} difference(s); first {first[0]}: {first[1]!r} vs {first[2]!r}")
