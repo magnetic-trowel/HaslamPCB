@@ -10,7 +10,8 @@ passives near capacity also left parts the greedy could not place.
 - `edge_headers` / `pin_headers` (setting place_edge_headers): find movable footprints whose pads
   form one regular row spanning most of a board side (from their own pads, since the task gives
   movable parts no position) and pin each flush along a board side before the seed (edge_pose),
-  as connector_edge does for user-facing connectors; then they are held like fixed parts.
+  as connector_edge does for user-facing connectors; then they are held like fixed parts. Only
+  headers with no grid-legal spot anywhere are pinned (fits_nowhere).
 - `not_fitting` + `pin_headers` (setting place_edge_slot): every movable part whose courtyard does
   not fit the board is pinned the same way before the seed. A greedy fallback after legalisation
   (the first plan) cannot work: there is no grid-legal edge spot for such a part (edge_pose).
@@ -109,6 +110,17 @@ def edge_pose(P, p, used=(), inset=None):
             if np.all(shapely.contains_xy(P.outline, px, py)):
                 return (float(x), float(y), r.rot, p.side), name
     return None
+
+
+def fits_nowhere(P, st, i, limit=50):
+    """Part i has no grid-legal spot on the board against the fixed parts alone (every movable
+    part left out): the edge headers that failed (ItsyBitsy JP2/JP4, QT Py JP1/JP3, Xenon HEAD1)
+    have none, while header-like rows that fit anywhere (a keyboard MCU, DIP sockets, dev-board
+    rows) do, and pinning those cost wire for nothing (crowded-ab: HPWL 1.5-2.5x)."""
+    from . import exact
+    p = P.parts[i]
+    S, pad = exact._tables(P, st, set(P.mov))
+    return not exact._candidates(P, st, i, S, pad, list(range(len(p.rots))), 0.0, limit)
 
 
 def pin_headers(P, st, parts, log=None):
