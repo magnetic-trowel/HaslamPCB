@@ -95,6 +95,13 @@ def route_open(input_path, output_path, seed=0, time_s=30.0, workdir=None, opts=
             p.plane_cost = o.get("plane_cost")
             p.outer_surcharge = o.get("outer_surcharge")
         tree = specctra.read(kdsn)
+        from kae.board.kicad_file import load as _load
+        lk, uk = specctra.segment_keys(_load(input_path))
+        if uk:                      # unlocked copper (window_soft_copper): each piece typed as its own segment
+            wiring = specctra.find(tree, "wiring")
+            if wiring is not None:   # two-point pieces (work mode already has them), so each takes one segment's type
+                wiring[1:] = [w for n in wiring[1:] for w in specctra._wire_pieces(n)]
+            rep["retyped_wires"] = specctra.retype_wires(tree, lk, uk, per_mm=specctra.unit_scale(tree))
         rep["translate"] = translate.apply(tree, p, info)
         translate.permute(tree, seed)
         dsn = wd / "board.dsn"

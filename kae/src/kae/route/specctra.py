@@ -13,6 +13,7 @@ widths are micrometres; a SES has its own `(resolution um 10)` (tenths of a micr
 `routes` and `placement`. `unit_scale(tree)` gives the factor to millimetres.
 """
 from kae.budget import work_mode
+import copy
 import re
 
 _TOK = re.compile(r'\(|\)|"[^"]*"|[^\s()"]+')
@@ -72,8 +73,50 @@ def _wire_pieces(node):
     out = []
     for p, q in zip(pts, pts[1:]):
         a, b = sorted((p, q), key=lambda t: (float(t[0]), float(t[1])))
-        out.append(node[:k] + [path[:3] + [a[0], a[1], b[0], b[1]]] + node[k + 1:])
+        # each piece gets its own copies of the other children (type, net): they are edited per piece (retype_wires)
+        out.append(node[:k] + [path[:3] + [a[0], a[1], b[0], b[1]]] + copy.deepcopy(node[k + 1:]))
     return out
+
+
+def retype_wires(tree, locked, unlocked, per_mm=1000.0):
+    """Give every two-point `(wire ...)` of `tree` the type of the board segment it is: `(type fix)` for a locked
+    one, `(type route)` for an unlocked one. KiCad's export joins consecutive segments into one path whatever their
+    lock state and writes the path's type from its first segment, and which segments it joins depends on the file's
+    (UUID) order, so a board with unlocked copper (kae.joint's window_soft_copper) gave Freerouting a different set
+    of fixed wires on every run. `locked`, `unlocked`: sets of (layer, ((x1, y1), (x2, y2))) in mm, board
+    coordinates, each pair sorted. Wires that match neither keep their type. Returns the number retyped."""
+    def key(layer, pts):
+        a, b = sorted((round(x / per_mm, 3), round(-y / per_mm, 3)) for x, y in pts)
+        return (layer, (a, b))
+    n = 0
+    wiring = find(tree, "wiring")
+    for w in (wiring[1:] if wiring is not None else []):
+        path = find(w, "path") if isinstance(w, list) and w and w[0] == "wire" else None
+        if path is None or len(path) != 7:
+            continue
+        k = key(path[1], [(float(path[3]), float(path[4])), (float(path[5]), float(path[6]))])
+        want = "fix" if k in locked else "route" if k in unlocked else None
+        if want is None:
+            continue
+        t = find(w, "type")
+        if t is None:
+            w.append(["type", want])
+            n += 1
+        elif t[1] != want:
+            t[1] = want
+            n += 1
+    return n
+
+
+def segment_keys(board):
+    """(locked, unlocked) segment keys of a kae.board.model.Board for retype_wires."""
+    lk, uk = set(), set()
+    for t in board.tracks:
+        if getattr(t, "mid", None) is not None:
+            continue
+        a, b = sorted(((round(t.start[0], 3), round(t.start[1], 3)), (round(t.end[0], 3), round(t.end[1], 3))))
+        (lk if t.locked else uk).add((t.layer, (a, b)))
+    return lk, uk
 
 
 def atom(a):

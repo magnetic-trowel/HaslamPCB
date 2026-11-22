@@ -258,3 +258,20 @@ def test_ends_only_rips_a_moved_pads_branch_and_the_last_mile_rejoins_it(tmp_pat
     rep = LM.close(ripped, info, sp2.plan, [], out, nets=[NET], log=lambda *a: None)
     assert rep["joined"] >= 1 and rep["failed"] == 0
     assert len(LM.parts(_space(out, info), {}, NET)) == 1              # rejoined to the trunk
+
+
+def test_window_wires_take_their_own_segments_lock_state():
+    """KiCad's DSN export joins a locked and an unlocked segment into one path with the first one's type, in file
+    (UUID) order; retype_wires gives each two-point piece its own segment's type, whatever the order."""
+    from kae.route import specctra
+    from types import SimpleNamespace as NS
+    tracks = [NS(layer="F.Cu", start=(144.4, 125.402), end=(146.65, 125.402), locked=False, mid=None),
+              NS(layer="F.Cu", start=(146.65, 125.402), end=(146.65, 124.899), locked=True, mid=None)]
+    lk, uk = specctra.segment_keys(NS(tracks=tracks))
+    for first in ("fix", "route"):
+        joined = ["wire", ["path", "F.Cu", "200", "144400", "-125402", "146650", "-125402", "146650", "-124899"],
+                  ["net", "N"], ["type", first]]
+        tree = ["pcb", ["wiring", *specctra._wire_pieces(joined)]]
+        specctra.retype_wires(tree, lk, uk, per_mm=1000.0)
+        types = sorted((w[1][3], specctra.find(w, "type")[1]) for w in specctra.find(tree, "wiring")[1:])
+        assert types == [("144400", "route"), ("146650", "fix")]
