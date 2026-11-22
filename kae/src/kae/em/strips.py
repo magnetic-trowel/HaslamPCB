@@ -498,7 +498,9 @@ class Network:
                 for a, c in zip(*np.nonzero(inside)):
                     alias[(int(I[a]), int(J[c]))] = n
         nodes = {}
-        pl = dict(poly=polygon, layer=layer, net=net, P=P, nodes=nodes, Rb=Rb, ncent=0)
+        # where the tiles carry the pour: at least a pitch wide (a track in a narrower neck stays a strip)
+        core = polygon.buffer(-P / 2, join_style=2).buffer(P / 2, join_style=2)
+        pl = dict(poly=polygon, core=core, layer=layer, net=net, P=P, nodes=nodes, Rb=Rb, ncent=0)
 
         def nd(i, j):
             k = (i, j)
@@ -511,12 +513,15 @@ class Network:
             return n
         q = P * MM
         cx = []
+        touched = set()                 # nodes a tile bar reaches (a pad's own tiles joined to each other do not)
         # x bars between (i, j) and (i + 1, j): centre (x0 + (i + 1) P, yc_j)
         GX, GY = np.meshgrid(x0 + (I[:-1] + 1.0) * P, yc, indexing="ij")
         ok = shapely.contains_xy(polygon, GX, GY)
         for a, c in zip(*np.nonzero(ok)):
             i, j = int(I[a]), int(J[c])
             na, nb = nd(i, j), nd(i + 1, j)
+            if na != nb:
+                touched.update((na, nb))
             self.bar(0, (xc[a] * MM, xc[a + 1] * MM, (yc[c] - P / 2) * MM, (yc[c] + P / 2) * MM, za, zb), na, nb, Rb,
                      "plane", tq=q)
             cx.append((GX[a, c], GY[a, c]))
@@ -525,13 +530,19 @@ class Network:
         for a, c in zip(*np.nonzero(ok)):
             i, j = int(I[a]), int(J[c])
             na, nb = nd(i, j), nd(i, j + 1)
+            if na != nb:
+                touched.update((na, nb))
             self.bar(1, ((xc[a] - P / 2) * MM, (xc[a] + P / 2) * MM, yc[c] * MM, yc[c + 1] * MM, za, zb), na, nb, Rb,
                      "plane", tq=q)
             cx.append((GX[a, c], GY[a, c]))
+        # partial tiles: a cell whose bar centre is outside the pour but which one piece of the pour spans from node to
+        # node (a neck, a spoke, a pour's edge narrower than the cell): a bar of that piece's mean width at its
+        # place across, R scaled to that width (not on the table's lattice: its mutuals are direct)
+        self._partial_tiles(polygon, pl, I, J, xc, yc, za, zb, nd, touched)
         pl["centres"] = np.array(cx).reshape(-1, 2)
         self.planes[(layer, net)] = pl
         # a pad on the pour that holds no tile node: a well at its centre
-        held = set(nodes.values())
+        held = touched
         for n, g in pads:
             if n in held or not g.intersects(polygon):
                 continue
@@ -539,8 +550,88 @@ class Network:
             if ov.is_empty:
                 continue
             c = ov.centroid if ov.contains(ov.centroid) else ov.representative_point()
-            self.well(n, c.x, c.y, layer, net, r=math.sqrt(ov.area / math.pi))
+            if not self.well(n, c.x, c.y, layer, net, r=math.sqrt(ov.area / math.pi)):
+                self.spokes(n, g, pl)
         return pl
+
+    def spokes(self, node, g, pl, seg=SEG_MM):
+        """A pad in a relief (no tile within reach): each piece of the pour in a band of two pitches around the pad
+        that touches it (a thermal spoke, a neck) as a strip from the pad's edge to the piece's outer end, landed on
+        the nearest tile node there. Returns the number of strips."""
+        P = pl["P"]
+        x0, y0 = self.origin
+        band = pl["poly"].intersection(g.buffer(2 * P)).difference(g)
+        k = 0
+        for q in getattr(band, "geoms", [band]):
+            if q.is_empty or q.area < 1e-4 or q.distance(g) > 1e-3:
+                continue
+            a = q.intersection(g.buffer(0.02)).centroid
+            far = q.intersection(g.buffer(2 * P).exterior.buffer(0.05))
+            if far.is_empty:
+                continue
+            b = far.centroid
+            L = math.dist((a.x, a.y), (b.x, b.y))
+            if L < 1e-3:
+                continue
+            best = None
+            for (ii, jj), m in pl["nodes"].items():
+                if m == node:
+                    continue
+                d = math.hypot(x0 + (ii + 0.5) * P - b.x, y0 + (jj + 0.5) * P - b.y)
+                if d <= 1.5 * P and (best is None or d < best[0]):
+                    best = (d, m)
+            if best is None:
+                continue
+            w = max(min(q.area / L, 2 * P), 0.02)
+            self.strip((a.x, a.y), (b.x, b.y), w, pl["layer"], node, best[1], seg=seg,
+                       key=("spoke", pl["layer"], pl["net"], self.keys[node], k), grp="plane", clip=False)
+            k += 1
+        return k
+
+    def _partial_tiles(self, polygon, pl, I, J, xc, yc, za, zb, nd, touched):
+        import shapely
+        P = pl["P"]
+        t = zb - za
+        for axis in (0, 1):
+            if axis == 0:
+                A, C = np.meshgrid(np.arange(len(I) - 1), np.arange(len(J)), indexing="ij")
+                bx0, bx1 = xc[A], xc[A + 1]
+                by0, by1 = yc[C] - P / 2, yc[C] + P / 2
+                cxs, cys = (bx0 + bx1) / 2, yc[C]
+            else:
+                A, C = np.meshgrid(np.arange(len(I)), np.arange(len(J) - 1), indexing="ij")
+                bx0, bx1 = xc[A] - P / 2, xc[A] + P / 2
+                by0, by1 = yc[C], yc[C + 1]
+                cxs, cys = xc[A], (by0 + by1) / 2
+            boxes = shapely.box(bx0.ravel(), by0.ravel(), bx1.ravel(), by1.ravel())
+            out = ~shapely.contains_xy(polygon, cxs.ravel(), cys.ravel())
+            hit = out & shapely.intersects(polygon, boxes)
+            for k in np.nonzero(hit)[0]:
+                cut = polygon.intersection(boxes[k])
+                best = None
+                for q in getattr(cut, "geoms", [cut]):
+                    if q.geom_type != "Polygon" or q.area < 0.1 * P * P:
+                        continue
+                    b = q.bounds
+                    span = (b[2] - b[0]) if axis == 0 else (b[3] - b[1])
+                    if span >= 0.98 * P and (best is None or q.area > best.area):
+                        best = q
+                if best is None:
+                    continue
+                w = best.area / P
+                c = best.centroid
+                a_, c_ = np.unravel_index(k, A.shape)
+                if axis == 0:
+                    i, j = int(I[a_]), int(J[c_])
+                    na, nb = nd(i, j), nd(i + 1, j)
+                    box = (xc[a_] * MM, xc[a_ + 1] * MM, (c.y - w / 2) * MM, (c.y + w / 2) * MM, za, zb)
+                else:
+                    i, j = int(I[a_]), int(J[c_])
+                    na, nb = nd(i, j), nd(i, j + 1)
+                    box = ((c.x - w / 2) * MM, (c.x + w / 2) * MM, yc[c_] * MM, yc[c_ + 1] * MM, za, zb)
+                if na != nb:
+                    touched.update((na, nb))
+                self.bar(axis, box, na, nb, P / (SIGMA * w * t), "plane")
 
     def in_plane(self, x, y, layer, net=None, tol=1e-6):
         from shapely.geometry import Point
@@ -566,12 +657,12 @@ class Network:
         ax, ay = fx - i, fy - j
         cand = [((i, j), (1 - ax) * (1 - ay)), ((i + 1, j), ax * (1 - ay)), ((i, j + 1), (1 - ax) * ay),
                 ((i + 1, j + 1), ax * ay)]
-        have = [(pl["nodes"][k], w) for k, w in cand if k in pl["nodes"] and w > 1e-9]
+        have = [(pl["nodes"][k], w) for k, w in cand if k in pl["nodes"] and w > 1e-9 and pl["nodes"][k] != node]
         if r:
             # a landing wider than the grid: every tile node under it, one equipotential (the raster's landing disk)
             m = int(math.ceil(r / P)) + 1
             disk = [pl["nodes"][(ii, jj)] for ii in range(i - m, i + m + 2) for jj in range(j - m, j + m + 2)
-                    if (ii, jj) in pl["nodes"]
+                    if (ii, jj) in pl["nodes"] and pl["nodes"][(ii, jj)] != node
                     and math.hypot(x0 + (ii + 0.5) * P - x, y0 + (jj + 0.5) * P - y) <= r]
             if len(set(disk)) >= 4:              # fewer: the bilinear well places it better than a snap
                 have = [(n, 1.0) for n in sorted(set(disk))]
@@ -579,7 +670,7 @@ class Network:
             best = None
             for (ii, jj), n in pl["nodes"].items():
                 d = math.hypot(x0 + (ii + 0.5) * P - x, y0 + (jj + 0.5) * P - y)
-                if d <= 1.5 * P and (best is None or d < best[0]):
+                if n != node and d <= 1.5 * P and (best is None or d < best[0]):
                     best = (d, n)
             if best is None:
                 return 0
@@ -1350,7 +1441,8 @@ def build_cell(ctx, s, win, pitch, nw=1, seg=SEG_MM, all_nets=False):
         if poly.is_empty or poly.area <= 0:
             continue
         net.plane(poly, layer, nname, pitch)
-    # tracks: pieces inside the window and outside their own net's pour on that layer
+    # tracks: pieces inside the window and outside the part of their own net's pour on that layer that the tiles
+    # carry (a pour's core, at least a pitch wide: a track through a narrower neck is the neck's copper)
     pieces = []
     for t in b.tracks:
         if t.net not in nets or t.layer not in layers or not t.width or t.width <= 0:
@@ -1363,7 +1455,7 @@ def build_cell(ctx, s, win, pitch, nw=1, seg=SEG_MM, all_nets=False):
                 continue
             segs = [c]
             if pl is not None:
-                rest = LineString(c).difference(pl["poly"])
+                rest = LineString(c).difference(pl["core"])
                 segs = []
                 for q in getattr(rest, "geoms", [rest]):
                     if q.is_empty or q.length < 1e-6:
