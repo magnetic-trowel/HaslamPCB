@@ -25,7 +25,7 @@ import numpy as np
 from kae import materials as MAT
 from kae.physics import converter as CV
 
-from . import quantity as Q
+from . import quantity as QT
 from .beliefs import Param, corners, intent_value
 
 T_MAX = {"ic": 125.0, "module": 85.0, "diode": 125.0, "transistor": 125.0, "inductor": 125.0,
@@ -556,13 +556,13 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
                                                     for t, ly, n, G in relieved.get(ref, [])]),
                                 reference=dict(value=T_MAX.get(kind, 85.0), basis=f"{kind or 'part'} class rating"),
                                 label=f"junction temperature of {ref}"))
-            Q.check(obs_out[-1])
+            QT.check(obs_out[-1])
         for ref, ws in Lp.items():
             obs_out.append(dict(id="loss.part", unit="W", values=[float(w) for w in ws], u=[0.0] * ncp,
                                 scope=dict(kind="part_loss", observer=f"loss:{ref}", source="dc", part=ref, parts=[ref]),
                                 reference=dict(value=None, basis="none: a loss is priced, not bounded"),
                                 label=f"dissipation of {ref} (switching, conduction, rectification, linear drop)"))
-            Q.check(obs_out[-1])
+            QT.check(obs_out[-1])
     if tcr_out is not None and tcr_out.get("factor"):
         fs, gs = tcr_out["factor"], tcr_out["gain"]
         notes.append(f"thermal: copper resistance at each cell's temperature (TCR 0.393 %/K from 20 C, fixed point): "

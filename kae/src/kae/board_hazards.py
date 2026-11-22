@@ -34,7 +34,7 @@ from pathlib import Path
 
 from kae import budget
 from kae import hazards as H
-from kae.excite import quantity as Q
+from kae.excite import quantity as QT
 
 # DRC check -> (hazard severity, category, what it means for the board, fix). block: the board
 # would not work or cannot be built as drawn. Sources: KiCad 10.0 drc_item.cpp (the keys),
@@ -138,7 +138,7 @@ HV_VOLTS = 30.0               # register RC10: warn above 30 V, where B2 jumps f
 
 def ipc2221b_spacing(volts, external=True):
     """IPC-2221B Table 6-1 spacing (mm) for `volts` (peak) between conductors."""
-    v = Q.Magnitude.bound(float(volts))          # a peak voltage between conductors: its magnitude
+    v = QT.Magnitude.bound(float(volts))          # a peak voltage between conductors: its magnitude
     for top, b1, b2 in IPC2221B:
         if v <= top:
             return b2 if external else b1
