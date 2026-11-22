@@ -9,8 +9,10 @@ import analyze as A
 DM = "danielmcmillan-irrigation-system-remote-unit"
 OUT = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] != "-" else f"/var/tmp/{os.environ.get('USER', '')}/hsw-run"
 TWIN = os.environ.get("TWIN")          # e.g. hotloop-sw-c2-60b2d72: its C and CD (C', CD') replace the experiment's
-D = A.Data("hotloop-sw", OUT, twin=TWIN)
-EXCL = set() if TWIN else {DM}         # danielmcmillan's invalid C and CD outputs (908e21ff) only
+EXP = os.environ.get("EXP", "hotloop-sw")  # round 2: hotloop-sw-n2-<sha> with TWIN hotloop-sw-c3-<sha>
+D = A.Data(EXP, OUT, twin=TWIN)
+EXCL = set() if TWIN else {DM}
+ARMS = [a for a in ("C", "D", "CD") if a in D.ids]         # danielmcmillan's invalid C and CD outputs (908e21ff) only
 man = {}
 for l in open(A.CORPUS / "manifest.jsonl"):
     if l.strip():
@@ -35,7 +37,7 @@ def board_obs(arm, b):
             s[o] += v if v is not None else c; ok[o] = True
     return {o: s[o] for o in s if ok[o]}
 print("## Cells (per-cell ratio; tolerance L 0.5 %, R 3 %)\n")
-PAIRS = [(a, r) for a in ("C", "D", "CD") for r in ("N", "human")] + [("CD", "C"), ("CD", "D"), ("N", "human")]
+PAIRS = [(a, r) for a in ARMS for r in ("N", "human")] + [p for p in (("CD", "C"), ("CD", "D")) if p[0] in ARMS and p[1] in ARMS] + [("N", "human")]
 for arm, ref in PAIRS:
     if True:
         for k, tol in (("L_loop_nH", 0.005), ("R_loop_mohm", 0.03)):
