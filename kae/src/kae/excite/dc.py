@@ -622,7 +622,8 @@ def observe(pl, cv, V, info, tracks=None):
         # by physics, not by a reference choice: another rail's return current through shared ground copper (or a
         # source whose own ground pin carries current) puts the load's ground below the source's, and the load then
         # sees more than the source's voltage. That is no drop (and no credit against one); the signed value is kept
-        # for the reader (`drops_signed`).
+        # for the reader (`drops_signed`). A one-sided clamp, max(dv, 0), not |dv|: drop.rail is typed Clamp
+        # (kae.excite.quantity).
         out["drops_signed"].append((ld["ref"], ld["rail"], dv))
         d = max(dv, 0.0)
         out["drops"].append((ld["ref"], ld["rail"], d / b, d, b))

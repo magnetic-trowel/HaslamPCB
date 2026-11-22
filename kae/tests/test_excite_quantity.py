@@ -3,7 +3,8 @@
 """kae.excite.quantity: every observation kind has a physical type, and the types decide signs without changing numbers.
 
 A magnitude or a dissipation is never negative; a bound or cap built from a signed board value (a -5 V rail) is its
-magnitude; a signed transfer needs a side before it can be bounded, and no cost tier may price it."""
+magnitude; a clamp's bound is max(x, 0); a signed transfer needs a side before it can be bounded, and no cost tier
+may price it."""
 import dataclasses
 import json
 from types import SimpleNamespace
@@ -15,13 +16,14 @@ from kae.excite import quantity as QT
 from kae.intent import objective as OB
 
 
-@pytest.mark.parametrize("T", [QT.Energy, QT.Dissipation, QT.Magnitude, QT.Rise])
+@pytest.mark.parametrize("T", [QT.Energy, QT.Dissipation, QT.Magnitude, QT.Rise, QT.Clamp])
 def test_a_non_negative_type_rejects_a_negative_corner_and_accepts_zero(T):
-    assert T([0.0, 0.0, 1.5]).values == (0.0, 0.0, 1.5)
+    kw = dict(sign_meaning="test") if T is QT.Clamp else {}
+    assert T([0.0, 0.0, 1.5], **kw).values == (0.0, 0.0, 1.5)
     with pytest.raises(QT.QuantityError, match="never negative"):
-        T([0.1, -1e-12])
+        T([0.1, -1e-12], **kw)
     with pytest.raises(dataclasses.FrozenInstanceError):
-        T([1.0]).values = (2.0,)
+        T([1.0], **kw).values = (2.0,)
 
 
 @pytest.mark.parametrize("T", [QT.Temperature, QT.Level])
@@ -36,6 +38,21 @@ def test_a_bound_of_a_magnitude_is_the_raw_values_magnitude():
     assert QT.Rise.bound(-3.0) == 3.0 and QT.Dissipation.cap(-0.1) == 0.1 and QT.Energy.bound(-1.0) == 1.0
     # no conversion: the bound is abs(x) of x's own type, so the numbers stay bit-identical
     assert type(QT.Magnitude.bound(-5)) is int and QT.Magnitude.bound(0.05 * -3.3) == 0.05 * abs(-3.3)
+
+
+def test_a_clamps_bound_is_its_clamp_not_its_magnitude():
+    """drop.rail is max(dv, 0) at its source: the clamped side (a load's ground below its source's) is no drop, so a
+    bound or cap built from a negative raw value is 0, never |x| (Magnitude folded the clamped side onto the other)."""
+    assert QT.Clamp.bound(-1) == 0 and QT.Clamp.cap(-1) == 0 and QT.Clamp.bound(-0.02, "max") == 0
+    assert QT.Clamp.bound(0.25) == 0.25 and QT.Magnitude.bound(-1) == 1
+    with pytest.raises(QT.QuantityError, match="sign_meaning"):
+        QT.Clamp([0.1])
+    assert QT.KIND_TYPE["drop.rail"] is QT.Clamp and QT.Clamp in QT.TYPES
+    ob = dict(id="drop.rail", unit="V", values=[0.0, 0.0, 0.004], signed=[-0.003, 0.0, 0.004], scope={})
+    before = json.dumps(ob)
+    assert QT.check(ob) is ob and json.dumps(ob) == before                       # zeros pass, nothing added
+    with pytest.raises(QT.QuantityError, match="drop.rail.*never negative"):
+        QT.check(dict(ob, values=[-0.003, 0.0, 0.004]))
 
 
 def test_a_transfer_says_what_its_sign_means_and_needs_a_side_to_be_bounded():
@@ -53,9 +70,11 @@ def test_a_transfer_says_what_its_sign_means_and_needs_a_side_to_be_bounded():
 def test_every_observation_kind_has_a_type_and_nothing_else_is_registered():
     assert set(QT.KIND_TYPE) == set(OB.KINDS)
     assert all(t in QT.TYPES for t in QT.KIND_TYPE.values())
-    # the registry agrees with each kind's catalogue unit (temperatures absolute, rises in K, losses in W)
+    # the registry agrees with each kind's catalogue unit (temperatures absolute, rises in K, losses in W); a unit
+    # alone cannot say a value was clamped, so a clamp kind's unit types it as the magnitude it never goes below
     for k, (unit, _) in OB.KINDS.items():
-        assert QT.type_of(dict(id="x." + k, unit=unit)) is QT.KIND_TYPE[k], k
+        want = QT.Magnitude if QT.KIND_TYPE[k] is QT.Clamp else QT.KIND_TYPE[k]
+        assert QT.type_of(dict(id="x." + k, unit=unit)) is want, k
 
 
 def test_unknown_ids_are_typed_by_unit():
