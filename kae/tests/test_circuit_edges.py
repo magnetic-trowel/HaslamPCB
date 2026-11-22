@@ -106,3 +106,9 @@ def test_board_hazards_finish_reports_edges_without_a_brief():
             p.layers = ['F.Cu']
             p.x, p.y = {'U1': (10.0, 10.0), 'U2': (150.0, 10.0)}.get(f.ref, (5.0, 5.0))
     assert any(h['code'] == 'edge_ringing_risk' for h in edge_hazards(b))
+
+
+def test_fast_edge_weight_is_a_setting():
+    from kae.route.constraints import setting
+    assert setting('fast_edge_weight') == 1.5
+    assert setting('fast_edge_weight', opts={'fast_edge_weight': 1}) == 1.0

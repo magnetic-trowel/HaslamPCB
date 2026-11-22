@@ -723,8 +723,18 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     if hard_bands or ef:
         P.set_escape(hard_bands, fanout=ef)
     roles = _net_roles(brief)
+    fast = {n for n, d in ((brief or {}).get("nets") or {}).items() if isinstance(d, dict) and d.get("subrole") == "fast_edge"}
+    few = float(setting("fast_edge_weight", board_path, opts))
     for net in P.nets:
-        net.weight *= ROLE_WEIGHT.get(roles.get(net.name), 1.0)
+        net.weight *= few if net.name in fast else ROLE_WEIGHT.get(roles.get(net.name), 1.0)
+    if fast:
+        # a trade-off, not a fix: shorter fast-edge nets (fewer over t_r/2) for more total wirelength
+        rep["fast_edge"] = dict(nets=len(fast & {n.name for n in P.nets}), weight=few,
+                                decision="weighted" if few != 1.0 else "plain signals",
+                                consequence=("nets whose driver edge can ring on this board are kept short at the cost of "
+                                             "total wirelength" if few != 1.0 else "fast-edge nets placed as plain signals: "
+                                             "check the edge_ringing_risk hazards"),
+                                override="KAE_FAST_EDGE_WEIGHT (project text variable) or opts fast_edge_weight; 1 = off")
     bparts = (brief or {}).get("parts") or {}
     for p in P.parts:
         p.kind = (bparts.get(p.uuid) or {}).get("kind", "")

@@ -95,6 +95,22 @@ def measure_c0805(pcb, pairs):
     return dict(n=len(ds), mean_mm=round(sum(ds) / len(ds), 2) if ds else None)
 
 
+def guards(rd):
+    """The harness's own scores of the run: legality, KiCad placement errors, the Freerouting probe's opens, and the
+    physics evaluator's total (evals/*.json)."""
+    g = {}
+    for f in sorted((rd / 'evals').glob('*.json')):
+        j = json.load(open(f))
+        s = j.get('score') or {}
+        if s:
+            g.update(legal=s.get('legal'), place_err=sum((s.get('placement_errors') or {}).values()),
+                     unconnected=s.get('unconnected'), hpwl_mm=s.get('hpwl_mm'))
+        ph = j.get('physics') or {}
+        if ph:
+            g['physics_total'] = ph.get('physics_total')
+    return g
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('experiment')
@@ -123,7 +139,8 @@ def main():
                     m = (measure_adc if a.mode == 'adc' else measure_c0805)(rd / 'output.kicad_pcb.gz', tg)
             except Exception as e:      # noqa: BLE001
                 m = dict(error=repr(e)[:200])
-            rows.append(dict(board=bid, method=r.get('method_name'), attempt=r.get('attempt'), status=r.get('status'), **m))
+            rows.append(dict(board=bid, method=r.get('method_name'), attempt=r.get('attempt'), status=r.get('status'), **m,
+                             **guards(rd)))
             print(json.dumps(rows[-1]), flush=True)
     if a.out:
         json.dump(rows, open(a.out, 'w'), indent=1)
