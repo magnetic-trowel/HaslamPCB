@@ -175,8 +175,9 @@ def pin_poses(P, st, parts, tol=EDGE_TOL, limit=3000, log=None, spec=None):
     for each, the grid-free spot nearest its seed position (clear of the fixed parts and of
     the parts pinned before it) whose courtyard is within `tol` of the outer edge and whose
     body faces out (FACE_MIN, when the footprint shows a direction). `spec`: {index: (edge lines
-    or None, facing, outward normal)} for parts an intent pins on a named edge (kae.place.relations.
-    edge_lines; None: any outer edge) facing 'out', 'along' (|cos| <= FACE_MIN) or 'any'. Returns ({uuid: (x,
+    or None, facing, outward normal[, (x, y) target])} for parts an intent pins on a named edge
+    (kae.place.relations.edge_lines; None: any outer edge) facing 'out', 'along' (|cos| <= FACE_MIN)
+    or 'any'; with a target (another relation's pull on the part) the spot nearest it wins. Returns ({uuid: (x,
     y, rot, side)}, {ref: why} for the parts with no such spot)."""
     from shapely.geometry import box
 
@@ -195,9 +196,17 @@ def pin_poses(P, st, parts, tol=EDGE_TOL, limit=3000, log=None, spec=None):
         S, pad = exact._tables(P, st, mov - pinned)
         n_ortho = getattr(p, "n_ortho", len(p.rots))
         cands = exact._candidates(P, st, i, S, pad, list(range(n_ortho)), 0.0, limit)
-        cands.sort(key=lambda c: c[0])
+        lines, face, normal = (spec or {}).get(i, (None, "out", None))[:3]
+        toward = (spec or {}).get(i, (None, None, None, None))[3:4]
+        toward = toward[0] if toward else None
+        if toward is not None:
+            # another relation pulls this part (a label beside it, a region): the edge spot nearest that
+            # target, not the seed position
+            tx, ty = toward
+            cands.sort(key=lambda c: (lambda q: abs(q[0] - tx) + abs(q[1] - ty))(P.xy(c[1], c[2])))
+        else:
+            cands.sort(key=lambda c: c[0])
         hit = None
-        lines, face, normal = (spec or {}).get(i, (None, "out", None))
         for _, X, Y, k in cands:
             x, y = P.xy(X, Y)
             r = p.rots[k]

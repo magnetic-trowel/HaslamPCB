@@ -1511,7 +1511,9 @@ def kicad_feedback(P, st, report, step=0.3):
     time KiCad still objects); a part an error names alone (against a zone, a graphic, a
     track) keeps off the error's positions by `step`. Returns {errors, by_type, constraints,
     fixed_only, placer_by_type}: errors between fixed items only cannot be repaired by placement;
-    placer_by_type counts the others (the placer's) by type."""
+    placer_by_type counts the others (the placer's) by type. Parts the placer itself fixed
+    (P.kae_placed: edge pins, anchored tight parts) are not the caller's fixed items: an error
+    among them stays the placer's (counted, not fixed_only), though no repair moves them."""
     from .legalize import _OF_REF, kicad_violations, violation_parts
     viols = kicad_violations(report)
     fb = getattr(P, "feedback", None)
@@ -1519,6 +1521,7 @@ def kicad_feedback(P, st, report, step=0.3):
         fb = P.feedback = {"sep": {}, "avoid": {}}
     E = ExactModel(P, st)
     out = dict(errors=len(viols), by_type={}, constraints=0, fixed_only=0)
+    placed = getattr(P, "kae_placed", None) or set()
     import re
     zre = re.compile(r"^Zone \[([^\]]*)\] on (\S+?),?(\s|$)")
     tre = re.compile(r"^PCB text '.*' on \S+", re.S)
@@ -1537,9 +1540,11 @@ def kicad_feedback(P, st, report, step=0.3):
                 from .problem import board_texts
                 texts = board_texts(P.board)
             v = dict(v, items=[it for it in v.get("items", []) if it not in tx])
-            mv = [i for i in sorted(violation_parts(P, st, v)) if P.parts[i].movable]
+            ps = sorted(violation_parts(P, st, v))
+            mv = [i for i in ps if P.parts[i].movable]
             if not mv:
-                out["fixed_only"] += 1
+                if not placed.intersection(ps):
+                    out["fixed_only"] += 1
                 continue
             tr = fb.setdefault("text_rounds", {})
             for it in tx:
@@ -1584,7 +1589,8 @@ def kicad_feedback(P, st, report, step=0.3):
         ps = sorted(violation_parts(P, st, v))
         mv = [i for i in ps if P.parts[i].movable]
         if not mv:
-            out["fixed_only"] += 1
+            if not placed.intersection(ps):
+                out["fixed_only"] += 1      # the caller's fixed items only: not the placement's error
             continue
         if v["type"] == "copper_edge_clearance" and any(
                 "Edge.Cuts" in it.get("description", "") and not _OF_REF.search(it.get("description", ""))

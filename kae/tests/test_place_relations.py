@@ -289,3 +289,25 @@ def test_an_orient_set_makes_equal_footprints_unswappable(board):
     assert len(by["U2"].rots) == 2 and len(by["U1"].rots) == 4
     assert by["U1"].shape_key != by["U2"].shape_key
     assert by["U1"].shape_key == Problem.build(board).parts[by["U1"].i].shape_key
+
+
+def test_kicad_errors_among_parts_kae_fixed_itself_stay_placement_errors(board, monkeypatch):
+    """An edge pin (an on_edge relation, or a default connector pin) or an anchored part is fixed for
+    the stages after it, but kae placed it: KiCad's errors between such parts are not the caller's
+    fixed geometry (fixed_only), so the board is not reported legal (angelnu siedle-bus: a pinned
+    module's keepout over an anchored capacitor, legal=True by kae, items_not_allowed by the score)."""
+    from kae.place import exact, legalize
+    from kae.place.problem import Problem
+    from kae.place.state import State
+    u = {fp.ref: fp.uuid for fp in board.footprints}
+    P = Problem.build(board, held={u["U1"], u["U2"]})
+    i1, i2 = (next(p.i for p in P.parts if p.ref == r) for r in ("U1", "U2"))
+    v = dict(type="items_not_allowed", items=[])
+    monkeypatch.setattr(legalize, "kicad_violations", lambda rep: [v])
+    monkeypatch.setattr(legalize, "violation_parts", lambda P_, st, v_: {i1, i2})
+    st = State(P)
+    assert exact.kicad_feedback(P, st, {})["fixed_only"] == 1          # the caller held both
+    P.kae_placed = {i2}
+    P.feedback = None
+    fb = exact.kicad_feedback(P, st, {})
+    assert fb["errors"] == 1 and fb["fixed_only"] == 0

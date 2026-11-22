@@ -651,6 +651,24 @@ class Bundle:
         ry = ha[1] + hb[1] + d / math.sqrt(2)
         return tg, (int(rx / g), int(ry / g))
 
+    def pin_targets(self):
+        """{uuid: (x, y)} for parts pinned on an edge that another relation also pulls (a near to a label
+        or a fixed part, a region): the pin takes the edge spot nearest that point. The pull itself
+        cannot act on a pinned part, so without this the two relations never meet together."""
+        out = {}
+        for rid, u, spec, w in sorted(self.anchors, key=lambda t: -t[3]):
+            if u not in self.pins or u in out:
+                continue
+            if spec[0] == "box":
+                b = spec[1]
+                out[u] = ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+            elif spec[0] == "near":
+                x = spec[1]
+                out[u] = self._point(x.b, self.board, (0.0, 0.0))
+            if u in out:
+                self.applied.setdefault(rid, []).append(f"{self._ref(u)}: pinned on its edge nearest this target")
+        return out
+
     def order_for(self, P):
         """Protection-order rules ((A, pads), (B, pads), (C, pads)) from each order path's consecutive
         triples: B nearer A than C is to either."""

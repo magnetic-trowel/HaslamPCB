@@ -620,6 +620,8 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             pinned = {**pinned, **anchored}
             P = build(board, fixed)
             P.allow_overhang([p.i for p in P.parts if p.movable and p.ref in hung])
+    # parts kae fixed itself (edge pins, anchored tight parts): KiCad errors among them are the placement's
+    P.kae_placed = {p.i for p in P.parts if p.uuid in pinned}
     rep["severity"] = dict(mode=P.severity_mode, project_downgrades=dict(P.downgraded))
     rep["severity_used"] = P.severity_mode
     rep.setdefault("hazards", []).extend(P.severity_hazards())
@@ -1245,8 +1247,9 @@ def _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log, 
         net_w = {net.i: net.weight for net in P0.nets}
         st0, _ = _seed_state(P0, [], net_w, seed, log, partition=len(P0.mov) > FLOORPLAN_MAX_ITEMS)
         from .relations import NORMAL
-        pspec = {p.i: (spec[p.uuid][0], spec[p.uuid][1], NORMAL.get(spec[p.uuid][3])) for p in P0.parts
-                 if p.uuid in spec}
+        toward = relations.pin_targets() if relations is not None else {}
+        pspec = {p.i: (spec[p.uuid][0], spec[p.uuid][1], NORMAL.get(spec[p.uuid][3]), toward.get(p.uuid))
+                 for p in P0.parts if p.uuid in spec}
         poses, failed = edge_check.pin_poses(P0, st0, idx, log=log, spec=pspec)
         for p in P0.parts:
             if p.uuid in spec:
