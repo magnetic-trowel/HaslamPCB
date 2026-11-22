@@ -1152,13 +1152,19 @@ class Bundle:
             block = (pol == "safety" and cat == "safety") or (pol == "required" and x.strength == "required")
             fix = next((f"{q.get('change') or q.get('board_change')}" for q in r.get("relaxations") or []), None)
             objs = [self._ref(u) for u in (x.members or (x.a.parts if x.a else []) or [u for u, _ in x.path])][:8]
-            for c in r.get("conflicts") or []:
+            cs = r.get("conflicts") or []
+            if cs:
+                # one entry per relation (kae.hazards dedupes by code and objects): every reason in it, the
+                # physics it collided with first, since that is the one the relation yielded to
+                cs = sorted(cs, key=lambda c: not c.get("with_physics"))
+                ph = next((c for c in cs if c.get("with_physics")), None)
+                ev = dict(ids=sorted({i for c in cs for i in c.get("ids") or []}), proof=[c["proof"] for c in cs])
+                if ph:
+                    ev.update(with_physics=ph["with_physics"], physics_terms=ph.get("physics_terms"),
+                              winner=ph.get("winner"))
                 out.append(make("relation_conflict", "block" if block else "warn", cat or "data",
-                                f"relation {r['id']} ({x.kind}) conflicts: {c['why']}", objects=objs,
-                                evidence=dict(ids=c.get("ids"), proof=c["proof"],
-                                              **({"with_physics": c["with_physics"], "physics_terms": c.get("physics_terms"),
-                                                  "winner": c.get("winner")} if c.get("with_physics") else {})),
-                                fix=c.get("fix") or fix))
+                                f"relation {r['id']} ({x.kind}) conflicts: " + "; and ".join(c["why"] for c in cs),
+                                objects=objs, evidence=ev, fix=cs[0].get("fix") or fix))
             if r["met"] is False and not r.get("conflicts"):
                 sev = "block" if block else "warn" if x.strength == "required" else "info"
                 out.append(make("relation_unmet", sev, cat or "data",

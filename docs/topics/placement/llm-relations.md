@@ -74,7 +74,7 @@ Hazards (`Bundle.hazards`, then `kae.hazards.finalize`):
 
 | Code | Severity | When |
 |---|---|---|
-| `relation_conflict` | warn | a pre-check conflict; or an unmet soft relation on parts place-term structures also price: `with_physics` names the structures, `physics_terms` the intent's hard and limit terms on them, `winner` physics (default) or tie |
+| `relation_conflict` | warn | a pre-check conflict; or an unmet soft relation on parts place-term structures also price: `with_physics` names the structures, `physics_terms` the intent's hard and limit terms on them, `winner` physics (default) or tie. One entry per relation, all reasons in it, the physics first |
 | `relation_unmet` | warn if required, info otherwise | the oracle finds it unmet |
 | either | block | `category: safety` and `relations_block safety` (default; `required` also blocks unmet required, `never` never) ([Q5](llm-relations-input.md#open-questions)) |
 | `relation_check_failed` | warn | the oracle raised; the placement is still written |

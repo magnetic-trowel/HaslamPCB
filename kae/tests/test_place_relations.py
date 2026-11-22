@@ -221,6 +221,14 @@ def test_physics_wins_by_default_and_the_collision_is_a_reported_conflict(board,
         and "T1" in hz[0]["message"] and hz[0]["evidence"]["winner"] == "physics"
     r_tie = tie.status(board)["rows"][0]
     assert r_tie["met"] is False and r_tie["conflicts"][0]["winner"] == "tie" and "yielded_to" not in r_tie
+    # a relation with a pre-check conflict too: one hazard (kae.hazards dedupes by code and objects)
+    # that still names the physics it yielded to
+    cap = _rel(id="cap", kind="region", members=[ref], region="area:no_tracks", strength="medium")
+    both = _bundle(board, brief, cap, _rel(id="cap2", kind="region", members=["U7"], region="region:sw"), terms=[term])
+    both.set_physics(P, structs)
+    hz = [h for h in both.status(board)["hazards"] if h["code"] == "relation_conflict" and "U1" in h["objects"]]
+    assert len(hz) == 1 and hz[0]["evidence"]["winner"] == "physics" and "capacity" in hz[0]["evidence"]["proof"]
+    assert "cell:buck:U1" in hz[0]["message"] and "free" in hz[0]["message"]
     with pytest.raises(OB.IntentError, match="relations_vs_physics"):
         _bundle(board, brief, rel, opts=dict(relations_vs_physics="always"))
 
