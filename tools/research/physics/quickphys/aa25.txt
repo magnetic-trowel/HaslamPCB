@@ -14,10 +14,10 @@ stephendade-pipowernew-pipowernew
 trailcurrentoss-trailcurrenttapper-trailcurrent-tapper
 reversebias-mitosis-hardware-receiver
 roman3349-smart-socket-kicad
-terjeio-cnc-boosterpack-motor-driver-dummy-x3
-frankyhub-kicad-loetuebung-01-4kanalllv2
+baslqc-xwhatits-capsense-controller-solenoid-driver
+sparkfun-ncp1402-3-3v-ncp1402-3-3v-breakout
 google-mozc-devices-nazoru-stack
-yu2924-xps-outputconnector
+bobricius-armalamp-armalampmini
 ut8ifg-ptt-usb-cable-ptt-usb-cable
 dimitrit-pal1gadgets-snes-adapter
 baldengineer-c64-1351-to-ps2-mouse-pcb-c64-mouse-adapter
@@ -39,10 +39,10 @@ jrsteensen-openhornet-controller-ampcd-ddi
 # trailcurrentoss-trailcurrenttapper-trailcurrent-tapper intent-sw80/compiled-0833f61
 # reversebias-mitosis-hardware-receiver intent-213/compiled-9867d0b
 # roman3349-smart-socket-kicad intent-213/compiled-9867d0b
-# terjeio-cnc-boosterpack-motor-driver-dummy-x3 intent-213/compiled-9867d0b
-# frankyhub-kicad-loetuebung-01-4kanalllv2 intent-213/compiled-9867d0b
+# baslqc-xwhatits-capsense-controller-solenoid-driver intent-sw80/compiled-0833f61
+# sparkfun-ncp1402-3-3v-ncp1402-3-3v-breakout intent-sw80/compiled-0833f61
 # google-mozc-devices-nazoru-stack intent-213/compiled-9867d0b
-# yu2924-xps-outputconnector intent-213/compiled-9867d0b
+# bobricius-armalamp-armalampmini intent-sw80/compiled-0833f61
 # ut8ifg-ptt-usb-cable-ptt-usb-cable intent-213/compiled-9867d0b
 # dimitrit-pal1gadgets-snes-adapter intent-213/compiled-9867d0b
 # baldengineer-c64-1351-to-ps2-mouse-pcb-c64-mouse-adapter intent-213/compiled-9867d0b
