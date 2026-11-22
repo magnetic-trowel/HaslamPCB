@@ -62,3 +62,14 @@ def test_an_open_negative_bus_cell_loses_its_throughput_as_the_positive_one():
     pos, neg = _open_cell(12.0), _open_cell(-12.0)
     for k in ("loss.loop", "loss.loop_ac"):
         assert pos[k] == pytest.approx([24.0]) and neg[k] == pytest.approx(pos[k])
+
+
+@pytest.mark.parametrize("V", [12.0, -12.0])
+def test_a_negative_bus_cells_implausible_loss_is_capped_at_its_throughput(V):
+    from haslam.excite import evaluate as EV
+    cps = {"cell:U1": [{("cell:U1", "V_V"): V, ("cell:U1", "I_A"): 2.0}]}
+    obs = [dict(id="loss.loop", values=[5.0], scope=dict(source="cell:U1"))]
+    notes = []
+    EV.cap_implausible_losses(obs, cps, notes)
+    # 5 W of loop loss in a 24 W converter is past LOOP_LOSS_FRAC (10 %): capped at 2.4 W on either sign
+    assert obs[0]["cap_values"] == pytest.approx([EV.LOOP_LOSS_FRAC * 24.0]) and "implausible" in obs[0] and notes
