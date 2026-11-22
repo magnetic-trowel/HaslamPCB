@@ -11,62 +11,62 @@ from types import SimpleNamespace
 import pytest
 
 from kae.excite import observe as O
-from kae.excite import quantity as Q
+from kae.excite import quantity as QT
 from kae.intent import objective as OB
 
 
-@pytest.mark.parametrize("T", [Q.Energy, Q.Dissipation, Q.Magnitude, Q.Rise])
+@pytest.mark.parametrize("T", [QT.Energy, QT.Dissipation, QT.Magnitude, QT.Rise])
 def test_a_non_negative_type_rejects_a_negative_corner_and_accepts_zero(T):
     assert T([0.0, 0.0, 1.5]).values == (0.0, 0.0, 1.5)
-    with pytest.raises(Q.QuantityError, match="never negative"):
+    with pytest.raises(QT.QuantityError, match="never negative"):
         T([0.1, -1e-12])
     with pytest.raises(dataclasses.FrozenInstanceError):
         T([1.0]).values = (2.0,)
 
 
-@pytest.mark.parametrize("T", [Q.Temperature, Q.Level])
+@pytest.mark.parametrize("T", [QT.Temperature, QT.Level])
 def test_absolute_temperatures_and_levels_take_any_sign(T):
     assert T([-40.0, 0.0, 125.0]).values == (-40.0, 0.0, 125.0)
     assert T.bound(-40.0) == -40.0
 
 
 def test_a_bound_of_a_magnitude_is_the_raw_values_magnitude():
-    assert Q.Magnitude.bound(-5) == 5
-    assert Q.Magnitude.cap(-2.5) == 2.5
-    assert Q.Rise.bound(-3.0) == 3.0 and Q.Dissipation.cap(-0.1) == 0.1 and Q.Energy.bound(-1.0) == 1.0
+    assert QT.Magnitude.bound(-5) == 5
+    assert QT.Magnitude.cap(-2.5) == 2.5
+    assert QT.Rise.bound(-3.0) == 3.0 and QT.Dissipation.cap(-0.1) == 0.1 and QT.Energy.bound(-1.0) == 1.0
     # no conversion: the bound is abs(x) of x's own type, so the numbers stay bit-identical
-    assert type(Q.Magnitude.bound(-5)) is int and Q.Magnitude.bound(0.05 * -3.3) == 0.05 * abs(-3.3)
+    assert type(QT.Magnitude.bound(-5)) is int and QT.Magnitude.bound(0.05 * -3.3) == 0.05 * abs(-3.3)
 
 
 def test_a_transfer_says_what_its_sign_means_and_needs_a_side_to_be_bounded():
-    t = Q.Transfer([-0.2, 0.3], sign_meaning="load ground above the source's")
+    t = QT.Transfer([-0.2, 0.3], sign_meaning="load ground above the source's")
     assert t.values == (-0.2, 0.3)
-    with pytest.raises(Q.QuantityError, match="sign_meaning"):
-        Q.Transfer([0.1])
-    with pytest.raises(Q.QuantityError, match="side"):
-        Q.Transfer.bound(-0.1)
-    with pytest.raises(Q.QuantityError, match="side"):
-        Q.Transfer.cap(-0.1)
-    assert Q.Transfer.bound(-0.1, "min") == -0.1 and Q.Transfer.bound(0.2, "max") == 0.2
+    with pytest.raises(QT.QuantityError, match="sign_meaning"):
+        QT.Transfer([0.1])
+    with pytest.raises(QT.QuantityError, match="side"):
+        QT.Transfer.bound(-0.1)
+    with pytest.raises(QT.QuantityError, match="side"):
+        QT.Transfer.cap(-0.1)
+    assert QT.Transfer.bound(-0.1, "min") == -0.1 and QT.Transfer.bound(0.2, "max") == 0.2
 
 
 def test_every_observation_kind_has_a_type_and_nothing_else_is_registered():
-    assert set(Q.KIND_TYPE) == set(OB.KINDS)
-    assert all(t in Q.TYPES for t in Q.KIND_TYPE.values())
+    assert set(QT.KIND_TYPE) == set(OB.KINDS)
+    assert all(t in QT.TYPES for t in QT.KIND_TYPE.values())
     # the registry agrees with each kind's catalogue unit (temperatures absolute, rises in K, losses in W)
     for k, (unit, _) in OB.KINDS.items():
-        assert Q.type_of(dict(id="x." + k, unit=unit)) is Q.KIND_TYPE[k], k
+        assert QT.type_of(dict(id="x." + k, unit=unit)) is QT.KIND_TYPE[k], k
 
 
 def test_unknown_ids_are_typed_by_unit():
-    assert Q.type_of(dict(id="new.thing", unit="W")) is Q.Dissipation
-    assert Q.type_of(dict(id="new.thing", unit="A")) is Q.Magnitude
-    assert Q.type_of(dict(id="new.thing", unit="K")) is Q.Rise
-    assert Q.type_of(dict(id="new.thing", unit="C")) is Q.Temperature
-    assert Q.type_of(dict(id="new.thing", unit="dBm/Hz")) is Q.Level
-    assert Q.type_of(dict(id="new.thing", unit="furlong")) is None
-    with pytest.raises(Q.QuantityError, match="no type"):
-        Q.check(dict(id="new.thing", unit="furlong", values=[1.0]))
+    assert QT.type_of(dict(id="new.thing", unit="W")) is QT.Dissipation
+    assert QT.type_of(dict(id="new.thing", unit="A")) is QT.Magnitude
+    assert QT.type_of(dict(id="new.thing", unit="K")) is QT.Rise
+    assert QT.type_of(dict(id="new.thing", unit="C")) is QT.Temperature
+    assert QT.type_of(dict(id="new.thing", unit="dBm/Hz")) is QT.Level
+    assert QT.type_of(dict(id="new.thing", unit="furlong")) is None
+    with pytest.raises(QT.QuantityError, match="no type"):
+        QT.check(dict(id="new.thing", unit="furlong", values=[1.0]))
 
 
 def _board(volts):
@@ -89,18 +89,18 @@ def test_check_returns_the_producers_dict_itself_unchanged():
     for vals in ([0.6, 0.0], [3.0, 0.1]):                       # plausible, and implausible (capped)
         ob = O.observation(_board(5.0), o, SRC, vals, [v / o.bound for v in vals])
         before = json.dumps(ob)
-        assert Q.check(ob) is ob and json.dumps(ob) == before
-    with pytest.raises(Q.QuantityError, match="supply.peak"):
+        assert QT.check(ob) is ob and json.dumps(ob) == before
+    with pytest.raises(QT.QuantityError, match="supply.peak"):
         O.observation(_board(5.0), o, SRC, [-0.1], [0.0])
     # a row the evaluator marks invalid carries no value: check lets it through as it is
     bad = dict(id="loss.loop", unit="W", values=[-1.0], invalid="L_loop -3 nH is not an inductance")
-    assert Q.check(bad) is bad
+    assert QT.check(bad) is bad
 
 
 @pytest.mark.parametrize("volts", [5.0, -5.0])
 def test_a_supply_observer_on_either_rail_sign_gets_a_positive_bound_and_cap(volts):
     o = _supply(volts)
-    assert o.bound == pytest.approx(0.25) and o.bound == Q.Magnitude.bound(0.05 * volts)
+    assert o.bound == pytest.approx(0.25) and o.bound == QT.Magnitude.bound(0.05 * volts)
     assert O.cap_V(o) == pytest.approx(2.5) and O.cap_V(o) > 0
 
 
@@ -123,7 +123,7 @@ def _transfer_ev():
 @pytest.fixture
 def transfer_kind(monkeypatch):
     monkeypatch.setitem(OB.KINDS, "transfer.test", ("V", "a signed transfer between two ports (test only)"))
-    monkeypatch.setitem(Q.KIND_TYPE, "transfer.test", Q.Transfer)
+    monkeypatch.setitem(QT.KIND_TYPE, "transfer.test", QT.Transfer)
 
 
 def test_a_cost_on_a_signed_transfer_is_refused(transfer_kind):
@@ -154,25 +154,32 @@ def _strip(x):
     return x
 
 
-def test_every_observation_of_an_evaluation_is_typed_and_check_changes_no_number(tmp_path, monkeypatch):
+@pytest.mark.parametrize("dc", [False, True])
+def test_every_observation_of_an_evaluation_is_typed_and_check_changes_no_number(tmp_path, monkeypatch, dc):
     """The synthetic hot loop (test_excite_cellquote's fixture), evaluated twice: with check, and with check replaced
-    by the identity (an A/A in the test). Every observation passes its type and the reports are equal."""
-    from hotloop_fixtures import plane_fills, write_hotloop_board
+    by the identity (an A/A in the test). Every observation passes its type and the reports are equal. With dc the DC
+    and heat bands run too, so every producer path goes through check (dc=False alone skipped heat.evaluate, where a
+    local array named Q shadowed the module and crashed real boards)."""
+    from hotloop_fixtures import dc_fills, plane_fills, write_dc_board, write_hotloop_board
     from kae.excite.evaluate import evaluate
-    p = write_hotloop_board(tmp_path / "closed", "closed")
+    p = write_dc_board(tmp_path / "dc") if dc else write_hotloop_board(tmp_path / "closed", "closed")
+    fills = dc_fills() if dc else plane_fills()
     calls = []
-    real = Q.check
+    real = QT.check
 
     def counted(ob):
         calls.append(ob["id"])
         return real(ob)
-    monkeypatch.setattr(Q, "check", counted)
-    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, scope="losses")
-    assert ev["observations"] and {o["id"] for o in ev["observations"]} <= set(calls)
+    monkeypatch.setattr(QT, "check", counted)
+    ev = evaluate(str(p), pitch=0.25, fills=fills, log=lambda *a: None, dc=dc, scope="losses")
+    ids = {o["id"] for o in ev["observations"]}
+    assert ev["observations"] and ids <= set(calls)
+    if dc:
+        assert {"loss.copper", "drop.rail", "heat.track", "temp.junction", "loss.part"} <= ids, ids
     for ob in ev["observations"]:
         assert real(ob) is ob
-    monkeypatch.setattr(Q, "check", lambda ob: ob)
-    ev0 = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, scope="losses")
+    monkeypatch.setattr(QT, "check", lambda ob: ob)
+    ev0 = evaluate(str(p), pitch=0.25, fills=fills, log=lambda *a: None, dc=dc, scope="losses")
     assert json.dumps(_strip(ev), sort_keys=False) == json.dumps(_strip(ev0), sort_keys=False)
 
 
@@ -201,7 +208,7 @@ def test_an_open_cell_on_a_negative_bus_loses_its_throughputs_magnitude(V):
     by = {ob["id"]: ob for ob in out}
     for k in ("loss.loop", "loss.loop_ac"):
         assert by[k]["values"] == [pytest.approx(24.0), pytest.approx(abs(V) * 1.1 * 1.5)]
-        assert Q.check(by[k]) is by[k]
+        assert QT.check(by[k]) is by[k]
     ov = by["overshoot.peak"]["values"]
     assert ov == [CR.overshoot_limits(abs(v["V_V"]))[1] for v in vals]
     assert by["overshoot.peak"]["u"] == [x / HA.overshoot_bound(dict(v, V_V=abs(v["V_V"])), o.bound)

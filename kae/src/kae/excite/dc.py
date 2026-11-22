@@ -40,7 +40,7 @@ import numpy as np
 
 from kae.physics import converter as CV
 
-from . import quantity as Q
+from . import quantity as QT
 from .beliefs import Param
 
 LOSS_SHARE = 0.01       # copper may dissipate 1 % of the delivered power (prior requirement)
@@ -161,7 +161,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
         if isinstance(fv, (int, float)) and fv > 0:
             return float(fv)
         v = (nets.get(net) or {}).get("volts")
-        return Q.Magnitude.bound(float(v)) if v else None      # a rail's magnitude: -5 V budgets as 5 V
+        return QT.Magnitude.bound(float(v)) if v else None      # a rail's magnitude: -5 V budgets as 5 V
 
     # commutation cells: their parts, rails and operating points
     cells = {}
