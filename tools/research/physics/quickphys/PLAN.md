@@ -55,3 +55,19 @@ reused if an identity re-route of 5 boards matches on sorted geometry and score)
 lower bound > −0.02 and McNemar p ≥ 0.05; DRC errors sign-flip p ≥ 0.05; no new error type > 5; no invalid output.
 Reported: per-cell L_loop, R_loop, loss.loop_ac (evaluator, 0.0625 mm windows, `--scope losses`, `--drc`), open cells,
 cells-stage and clear-step wall and charged time, overruns (wall / charged). Tolerances: L 0.5 %, R 3 %.
+
+## Results (2026-11-22)
+
+**M1 at `quick-physics` 22207835** (qp-a types 2893dbea + qp-b counted work 4c572676):
+- Suites: kae 1424 passed / 14 skipped (#119389), bench 238 passed (#119390), kaeres 85 passed / 2 skipped (#119391).
+- 25-board full-scope A/A against c6191e77 (`ev_diff.py --summary`, timing keys ignored): **24 of 25 identical**; the three boards with drill-less vias (hwstar, team-impulse, prozsolutions: a pre-existing singular-factor bug, fixed as a6971a09 on `default-and-fixes`) were replaced. The one difference, duanestorey-hifi-amp-multipsu: 14 `cable_cm.v` observations of its two buck cells (and their `cm` harms, L −0.94 → −0.85 nH, Zf 8.47 → 7.94 mΩ) differ by about −11 %; every other observation (90 in all), both cells' windows and the solver statistics are identical. A repeat of base and head and runs at the qp-a and qp-b heads are queued to tell a run-to-run effect from a commit; the M1 claim "no numbers change" stands for 24 of 25 and is open on this one.
+- Clear step under counted work (`--time 360`): forestierr 325 s charged / 357 s wall, danielmcmillan 142 / 145 s; no ceiling_hit, no cell skipped for time (round 1: 1,164 s wall on 23.7 s charged; 526 on 124). Pass.
+- Known uncharged (accepted for M1, follow-ups): pcbnew bridge calls inside clear (4–11 s per board), evaluator start-up (about 4 s).
+
+**M2 at `quick-physics` ed014713** (qp-c eb7384a2): kae suite 1435 passed / 14 skipped (#119400).
+- Item 3 (ground truth): pass, no kill (table in the design doc § 4b): the raster reads low on every case; strips at P 0.25 within −2 … +0.2 % of FastHenry and exact on the closed forms.
+- Item 3b: the staircase is 0.139 nH in FastHenry; both models capture about half.
+- Item 4: pass (fixture tests). Item 5: L_coarse ≥ L_fine at every f > 0; R_coarse ≥ R_fine at DC only (−4.7 % at 10 MHz): R is an estimate, the design doc's claim narrowed.
+- **Item 1: killed.** 20 of 74 non-tie comparisons agree (L 12 of 38, R 8 of 36), 26 of 80 quotes not `ok`.
+- **Item 2: killed.** 8 of 19 cells quoted; median ratio L 0.78, R 0.44; p90 |ratio − 1| 0.84. Not quoted: 8 "no such cell in the strips quote", 3 "open by connectivity" where the raster closes the loop.
+- Reading: the kernels, functionals and the fixture/FastHenry agreement are sound; `from_board`'s copper selection on real boards (cell matching without the stored run's operating facts, pour copper the tile builder drops, pad-to-pour joins) is not. **The A/B is not run.** Next: diagnose the 11 unquoted cells and the 8 quoted ratios board by board against the raster window before any further validation; the kill criteria stay as pre-registered.
