@@ -215,6 +215,10 @@ DEFAULTS = dict(
                                    # merit boards, k=2) found 0 / 10 / 30 equal (cp1 0.305 / 0.310 / 0.305,
                                    # completion 0.941-0.943), so the simpler setting wins; RUDY also ranks PCB
                                    # routability near chance (docs/research/placement/kae-routability-estimators.md)
+    place_legalize_structures=1,   # placement: 1 legalization windows keep the physics structures: each physics macro (an
+                                   # IC with its decaps, crystal, switching cell) moves as one block at its annealed
+                                   # offsets (single parts when that window fails), and equal-displacement optima are
+                                   # told apart by placement physics (kae.place.legalize); 0 displacement only
     place_margin=0.0,              # placement: routing room between movable parts, mm (Problem.set_margin);
                                    # negative = auto (Problem.auto_margin: 2 x (0.7 - utilization), 0..1 mm).
                                    # 0: placement-decide-staged found auto and 0 equal (cp1 0.305 both,

@@ -123,11 +123,12 @@ def body_hazards(rep, P, st):
     return rep["hazards"]
 
 
-def _escalate(P, st, workers, seed, log, time_s, relax_ok=False, hard_end=None):
+def _escalate(P, st, workers, seed, log, time_s, relax_ok=False, hard_end=None, rigid=(), phys=None):
     """Legality before wishes: drop the routing margin, then (relax_ok: relax_bodies 'escalate'
     or 'auto') let bodies without courtyards overlap (KiCad does not check them), legalizing
     again after each step. Returns the steps taken with what each left illegal. `hard_end`
-    (monotonic seconds; the severity ladder's rungs): no step starts after it, and none runs past it."""
+    (monotonic seconds; the severity ladder's rungs): no step starts after it, and none runs past it.
+    `rigid`, `phys`: legalize's physics structures (blocks, tie-break)."""
     steps = []
     for step in ("escape bands off", "margin 0") + (("bodies relaxed",) if relax_ok else ()):
         if not grid_violations(st):
@@ -150,7 +151,7 @@ def _escalate(P, st, workers, seed, log, time_s, relax_ok=False, hard_end=None):
             if ts < 1.0:
                 steps.append(dict(step=step, skipped="time"))
                 break
-        r = legalize(P, st, time_s=ts, workers=workers, seed=seed, log=log, window_share=0.5)
+        r = legalize(P, st, time_s=ts, workers=workers, seed=seed, log=log, window_share=0.5, rigid=rigid, phys=phys)
         steps.append(dict(step=step, end_violators=r.get("end_violators"), violations=r.get("violations")))
         if step == "bodies relaxed":
             steps[-1]["relaxed"] = relaxed          # data; hazards: Problem.relaxed_body_hazards
@@ -741,6 +742,12 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     # ---- seed: quadratic + spread, then CP-SAT floorplan
     t = clock_now()
     free_macros = [m for m in macros if not m.anchored]
+    # legalization after the anneal keeps the physics structures (kae.place.legalize): macros
+    # move whole, and physics breaks ties between equal-displacement repairs
+    from kae.route.constraints import setting_env
+    keep = float(setting_env("place_legalize_structures", board_path, opts)) > 0
+    rigid = [list(m.members) for m in free_macros] if keep else []
+    lphys = _phys_total(terms, P) if keep and terms is not None else None
     n_items = len(free_macros) + len(P.mov) - sum(len([i for i in m.members if P.parts[i].movable])
                                                    for m in free_macros)
     big = n_items > FLOORPLAN_MAX_ITEMS
@@ -913,7 +920,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         trace("anneal", cand)
         if grid_violations(cand):
             rep["legalize"] = legalize(P, cand, time_s=max(3.0, deadline - clock_now()), workers=workers,
-                                       seed=seed, log=log)
+                                       seed=seed, log=log, rigid=rigid, phys=lphys)
             trace("legalize", cand)
         stage("legalize", t)
         if not grid_violations(cand):
@@ -931,7 +938,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     viol = grid_violations(st)
     if viol:
         rep["legalize_escalation"] = _escalate(P, st, workers, seed, log, max(3.0, 0.1 * budget), relax_ok,
-                                               hard_end=hard_end)
+                                               hard_end=hard_end, rigid=rigid, phys=lphys)
         viol = grid_violations(st)
     if viol and (P.margin > 0 or getattr(P, "escape_on", False)):
         # the routing margin and the escape bands are wishes, legality is not: judge (and repair)
@@ -944,7 +951,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         viol = grid_violations(st)
     if viol and clock_now() < deadline + 0.1 * budget and not late():
         rep["legalize_final"] = legalize(P, st, time_s=cap(max(3.0, 0.1 * budget)), workers=workers, seed=seed,
-                                         log=log)
+                                         log=log, rigid=rigid, phys=lphys)
         viol = grid_violations(st)
     if rep.get("legalize_escalation") or rep.get("legalize_final"):
         trace("legalize_escalation", st)
@@ -1190,6 +1197,15 @@ def edge_hazards(rep, board, poses):
                        message=f"the connector edge check failed ({type(e).__name__}: {e})", objects=[]))
     if hz:
         rep["hazards"] = hz
+
+
+def _phys_total(terms, P):
+    """state -> the placement physics (linear utilization summed over structures, as
+    physics_trace reports it): legalize's tie-break between equal-displacement repairs."""
+    def f(state):
+        rows = terms.breakdown({p.uuid: state.pose(p.i) for p in P.parts})
+        return sum(float(r.get("confidence", 1.0)) * float(r.get("util", r.get("utilization", 0.0))) for r in rows)
+    return f
 
 
 def physics_trace(rep, name, terms, poses):
