@@ -3,8 +3,8 @@
 """haslam.excite.quantity: every observation kind has a physical type, and the types decide signs without changing numbers.
 
 A magnitude or a dissipation is never negative; a bound or cap built from a signed board value (a -5 V rail) is its
-magnitude; a clamp's bound is max(x, 0); a signed transfer needs a side before it can be bounded, and no cost tier
-may price it. In production a violation marks the observation invalid; in strict
+magnitude; a clamp's bound is max(x, 0); a signed transfer needs a side before it can be bounded; a cost tier prices
+only energies, dissipations, magnitudes and clamps. In production a violation marks the observation invalid; in strict
 mode (the tests' default, conftest.py) it raises."""
 import dataclasses
 import json
@@ -48,7 +48,7 @@ def test_a_clamps_bound_is_its_clamp_not_its_magnitude():
     assert QT.Clamp.bound(0.25) == 0.25 and QT.Magnitude.bound(-1) == 1
     with pytest.raises(QT.QuantityError, match="sign_meaning"):
         QT.Clamp([0.1])
-    assert QT.KIND_TYPE["drop.rail"] is QT.Clamp and QT.Clamp in QT.TYPES
+    assert QT.KIND_TYPE["drop.rail"] is QT.Clamp and QT.Clamp in QT.TYPES and QT.Clamp in QT.COST_TYPES
     ob = dict(id="drop.rail", unit="V", values=[0.0, 0.0, 0.004], signed=[-0.003, 0.0, 0.004], scope={})
     before = json.dumps(ob)
     assert QT.check(ob) is ob and json.dumps(ob) == before                       # zeros pass, nothing added
@@ -148,7 +148,7 @@ def transfer_kind(monkeypatch):
 
 def test_a_cost_on_a_signed_transfer_is_refused(transfer_kind):
     it = {"terms": [{"id": "X1", "tier": "cost", "obs": "transfer.test", "rate": "1 mW_eq/mV", "why": "test"}]}
-    with pytest.raises(OB.IntentError, match="X1 prices a signed transfer as a cost"):
+    with pytest.raises(OB.IntentError, match="X1: a cost .*transfer.test .*Transfer.*limit with a side"):
         OB.evaluate(_transfer_ev(), it, BRIEF)
 
 
@@ -169,6 +169,37 @@ def _ob(id_, unit, values, **scope):
 
 def _ev(*obs):
     return {"board": "synthetic", "total": {"complete": True}, "questions": [], "observations": list(obs)}
+
+
+TYPED = {"Level": _ob("emission.cable_E", "dBuV/m", [-12.0, 20.0], connectors=["J1", "J2"]),
+         "Rise": _ob("heat.track", "K", [3.0, 4.0]),
+         "Temperature": _ob("temp.junction", "C", [-20.0, 85.0], parts=["U1"])}
+
+
+@pytest.mark.parametrize("ty", sorted(TYPED))
+def test_a_cost_on_a_level_a_temperature_or_a_rise_is_refused(ty):
+    """A cost is rate x value: a Level or a Temperature can be negative (a price turned into a reward), and a rise or a
+    temperature is held to a limit with a side. The refusal names the term, the observation and its type."""
+    ob = TYPED[ty]
+    per = "dB" if ty == "Level" else ob["unit"]
+    it = {"terms": [{"id": "C1", "tier": "cost", "obs": ob["id"], "rate": "1 mW_eq/" + per, "why": "test"}]}
+    with pytest.raises(OB.IntentError, match=f"C1: .*{ob['id']} .*is a {ty}, not one of .*limit with a side"):
+        OB.evaluate(_ev(ob), it, BRIEF)
+    # the same quantity held to a limit with a side is priced
+    lim = {"terms": [{"id": "C1", "tier": "limit", "obs": ob["id"], "max": f"0 {ob['unit']}",
+                      "rate": "1 mW_eq/" + per, "why": "test"}]}
+    assert OB.evaluate(_ev(ob), lim, BRIEF)["tiers"]["limit"] > 0
+
+
+@pytest.mark.parametrize("ob,rate,want", [
+    (_ob("loss.copper", "W", [0.010, 0.020]), "1 mW_eq/mW", 20.0),              # Dissipation
+    (_ob("supply.peak", "V", [0.010, 0.030], parts=["U1"]), "1 mW_eq/mV", 30.0),  # Magnitude
+    (_ob("drop.rail", "V", [0.0, 0.005], rail="+3V3", load="U1"), "2 mW_eq/mV", 10.0)])  # Clamp
+def test_a_cost_on_a_dissipation_a_magnitude_or_a_clamp_is_priced(ob, rate, want):
+    it = {"defaults": "none", "terms": [{"id": "C1", "tier": "cost", "obs": ob["id"], "rate": rate, "agg": "worst",
+                                         "why": "test"}]}
+    st = OB.evaluate(_ev(ob), it, BRIEF)
+    assert st["tiers"]["cost"] == pytest.approx(want) and st["incomplete_terms"] == []
 
 
 # ----------------------------------------------------------------------------- production and strict modes
@@ -198,6 +229,25 @@ def test_in_strict_mode_a_forbidden_value_raises():
         QT.check(ob, strict=True)
     assert "invalid" not in ob
     assert QT.check(ob, strict=False)["invalid"] is True                     # an explicit mode beats the environment
+
+
+def test_a_stored_signed_drop_loads_in_strict_mode_and_is_never_a_reward():
+    """2,042 stored drop.rail observations (evaluations before drop.rail was clamped) hold negative values. The
+    objective reads stored data without a strict check: a limit prices them as stored; a cost leaves them unpriced,
+    its term incomplete, never rate x a negative value."""
+    old = _ob("drop.rail", "V", [-0.004, 0.006], rail="+3V3", load="U1")
+    lim = {"defaults": "none", "terms": [{"id": "L1", "tier": "limit", "obs": "drop.rail", "max": "5 mV",
+                                          "rate": "1 mW_eq/mV", "why": "test"}]}
+    st = OB.evaluate(_ev(old), lim, BRIEF)
+    assert st["tiers"]["limit"] == pytest.approx(1.0) and st["incomplete_terms"] == []
+    cost = {"defaults": "none", "terms": [{"id": "C1", "tier": "cost", "obs": "drop.rail", "rate": "1 mW_eq/mV",
+                                           "agg": "typ", "why": "test"}]}
+    st = OB.evaluate(_ev(dict(old)), cost, BRIEF)
+    assert st["tiers"]["cost"] == 0.0 and st["incomplete_terms"] == ["C1"]
+    # a cable emission derived from a stored cable_cm.v in strict mode: no check raises on stored data
+    cm = dict(_ob("cable_cm.v", "V", [0.001, 0.002], connectors=["J1", "J2"], source="cell:x"), f_Hz=[1e8, 1e8])
+    st = OB.evaluate(_ev(cm), {"environment": {"cables": [{"connector": "J1", "length_m": 1.0}]}}, BRIEF)
+    assert any(u["obs"] == "emission.cable_E" for u in st["unclaimed"])
 
 
 # ----------------------------------------------------------------------------- end to end
