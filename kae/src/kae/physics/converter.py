@@ -24,6 +24,10 @@ buck and, for a boost or inverting stage, V_in eta D / (L f): within eta of SLVA
 capped at 2 I_L (the DCM boundary). A buck's D keeps eta = 1: its eta correction is a conduction-loss
 refinement of a few percent that moves no current between loops, and its input current is taken from the
 power balance instead.
+
+Every function takes the rails as they read and works in their magnitudes: a -12 V -> -5 V buck is the mirror image
+of a 12 V -> 5 V one (every switch, diode and current reversed, every magnitude the same). Which of two rails' signs
+make an inverting stage is topology_of's to say, not the equations'.
 """
 from __future__ import annotations
 
@@ -84,13 +88,13 @@ def topology_of(cls, struct=None, v_out=None):
 
 
 def region_4switch(V_in, V_out):
-    r = V_in / V_out
+    r = abs(V_in) / abs(V_out)
     return "buck" if r >= 1 + BAND_4SW else ("boost" if r <= 1 - BAND_4SW else "buck_boost")
 
 
 def duty(topology, V_in, V_out, eta=ETA[1], leg=None):
     """The switching leg's duty (clipped to [D_MIN, D_MAX]); 0 for a static 4-switch leg."""
-    Vo = abs(V_out)
+    V_in, Vo = abs(V_in), abs(V_out)
     if topology == "buck":
         return _clip(Vo / V_in)
     if topology in ("boost", "boost_led"):
@@ -119,14 +123,14 @@ def ripple_pp(V_bus, D, L, f_sw):
 
 
 def input_current(topology, V_in, V_out, I_out, eta=ETA[1]):
-    """The converter's average input current from the power balance: I_out |V_out| / (V_in eta)."""
-    return I_out * abs(V_out) / (V_in * eta)
+    """The converter's average input current from the power balance: I_out |V_out| / (|V_in| eta)."""
+    return I_out * abs(V_out) / (abs(V_in) * eta)
 
 
 def operating(topology, V_in, V_out, I_out, eta=ETA[1], L=None, f_sw=None, leg=None):
     """The converter's currents at one operating point (see the module docstring)."""
     src = SOURCES.get(topology, "")
-    Vo = abs(V_out)
+    V_in, Vo = abs(V_in), abs(V_out)
     I_in = input_current(topology, V_in, V_out, I_out, eta)
     D = duty(topology, V_in, V_out, eta, leg)
     basis = [src]

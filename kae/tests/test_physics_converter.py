@@ -138,3 +138,23 @@ def test_overshoot_edge_term_at_the_turnoff_current():
     from kae.excite import harm as HA
     v, vf, ve = HA.peak(0.01, 1e-9, 1.0, 0.5, 2e-9, I_off=1.2)
     assert ve == pytest.approx(1e-9 * 1.2 / 2e-9) and vf == pytest.approx(0.01 * 2 / 3.141592653589793 * 1.0)
+
+
+def _op_tuple(o):
+    return (o.mode, o.D, o.I_in, o.I_L, o.I_sw, o.V_bus, o.loop, o.dI)
+
+
+@pytest.mark.parametrize("top,Vi,Vo,leg", [
+    ("buck", 12.0, 5.0, None),                     # a -12 V -> -5 V buck is the mirror image of 12 -> 5
+    ("boost", 5.0, 12.0, None),                    # a -5 V -> -12 V boost of 5 -> 12
+    ("inverting_buck_boost", 12.0, -5.0, None),    # -12 V -> +5 V inverts as 12 V -> -5 V does
+    ("sepic", 5.0, 12.0, None),
+    ("buck_boost_4switch", 12.0, 5.0, "buck"),
+    ("buck_boost_4switch", 5.0, 12.0, "boost"),
+])
+def test_a_converter_on_negative_rails_runs_as_its_magnitudes(top, Vi, Vo, leg):
+    pos = CV.operating(top, Vi, Vo, 2.0, 0.9, L=10e-6, f_sw=1e6, leg=leg)
+    neg = CV.operating(top, -Vi, -Vo, 2.0, 0.9, L=10e-6, f_sw=1e6, leg=leg)
+    assert pos.D > CV.D_MIN and pos.I_in > 0 and pos.V_bus > 0
+    p, n = _op_tuple(pos), _op_tuple(neg)
+    assert (n[0], n[6]) == (p[0], p[6]) and [n[i] for i in (1, 2, 3, 4, 5, 7)] == pytest.approx([p[i] for i in (1, 2, 3, 4, 5, 7)])
