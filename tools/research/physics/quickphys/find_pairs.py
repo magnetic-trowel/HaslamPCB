@@ -5,7 +5,9 @@
 Reads a folder of evaluations named <board id>.<arm>.ev.json (arms: human and the routed ones, e.g. A, C: the
 2026-11-14 hot-loop validation of docs/research/physics/hot-loop-evaluation-runs.md section 2 keeps them so), whose
 cells[] carry the 0.0625 mm window (window.refined, window.pitch, window.L_raw_nH, window.R_raw_mohm). Each ev.json
-names its board file ("board"); the operating facts are <intents>/<board id>.operating.json.
+names its board file ("board"); the operating facts are <intents>/<board id>.operating.json, from the first of the
+--intents folders that has it. A board with no operating facts in any of them is an error (exit 1, naming the
+boards): a quote without them is not the cell the window was solved for.
 
 Writes:
 - PAIRS (--pairs): [{cell, a: {board, ev, arm}, b: {...}, intent, window: {a: [L, R], b: [L, R]}}], one per two arms
@@ -13,7 +15,7 @@ Writes:
 - LIST (--list): [{board_id, board, ev, intent}] of the human layouts of the boards in --boards (default all).
 Boards or arms whose ev.json lack such windows are listed on stderr (evaluate them first).
 
-    python find_pairs.py --ev-dir EVDIR --intents INTENTS --pairs PAIRS.json --list LIST.json [--boards boards.txt]
+    python find_pairs.py --ev-dir EVDIR --intents DIR [DIR ...] --pairs PAIRS.json --list LIST.json [--boards F]
 """
 from __future__ import annotations
 
@@ -48,17 +50,24 @@ def discover(ev_dir):
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--ev-dir", required=True)
-    ap.add_argument("--intents", required=True, help="folder of <board id>.operating.json")
+    ap.add_argument("--intents", required=True, nargs="+", help="folders of <board id>.operating.json (first wins)")
     ap.add_argument("--pairs", required=True)
     ap.add_argument("--list", required=True)
     ap.add_argument("--boards", help="board ids, one per line, for LIST (default: every board found)")
     ap.add_argument("--pitch", type=float, default=0.0625)
     a = ap.parse_args(argv)
     found = discover(a.ev_dir)
-    pairs, lst, missing = [], [], []
+    pairs, lst, missing, no_intent = [], [], [], []
+
+    def intent_of(board):
+        for d in a.intents:
+            p = Path(d) / f"{board}.operating.json"
+            if p.exists():
+                return str(p)
+        no_intent.append(board)
+        return None
     for board, arms in sorted(found.items()):
-        intent = Path(a.intents) / f"{board}.operating.json"
-        intent = str(intent) if intent.exists() else None
+        intent = intent_of(board)
         evs = {}
         for arm, p in arms.items():
             ev = json.load(open(p))
@@ -80,9 +89,11 @@ def main(argv=None):
         if h is None:
             missing.append(f"{board}.human (no ev.json)")
             continue
-        intent = Path(a.intents) / f"{board}.operating.json"
-        lst.append(dict(board_id=board, board=json.load(open(h))["board"], ev=str(h),
-                        intent=str(intent) if intent.exists() else None))
+        lst.append(dict(board_id=board, board=json.load(open(h))["board"], ev=str(h), intent=intent_of(board)))
+    if no_intent:
+        for b in sorted(set(no_intent)):
+            print(f"no operating facts for {b} in {', '.join(a.intents)}", file=sys.stderr)
+        return 1
     Path(a.pairs).write_text(json.dumps(pairs, indent=1))
     Path(a.list).write_text(json.dumps(lst, indent=1))
     print(f"{len(pairs)} pairs ({len({(p['a']['board'], p['cell']) for p in pairs})} cells), {len(lst)} human layouts")

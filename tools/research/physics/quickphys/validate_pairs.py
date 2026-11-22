@@ -5,8 +5,11 @@
 PAIRS (find_pairs.py): [{cell, a: {board, ev}, b: {board, ev}, intent}]. Per pair the strips quote of both boards
 (kae.excite.cellquote.quote_cells(engine="strips", only=[cell], intent=...)), then per pair: the window's and the
 strips' L_loop and R_loop for a and b, and whether they order a and b alike on L and on R. A comparison whose window
-values differ by less than --tie (3 %) is a tie (reported, not counted, as hot-loop-evaluation-runs.md section 2).
-Kill criterion (PLAN.md): fewer than 75 of 82 agree.
+values differ by less than the window's own tolerance (--tie-L 0.5 %, --tie-R 3 %, PLAN.md) is a tie (reported, not
+counted). A strips quote that is not ok (open, not_computed) on either side counts as a disagreement. The summary is
+also stratified by the quotes' near pitch (pitch_near: the larger of the two sides') and reports their unknowns.
+Kill criterion (PLAN.md, amended): fewer than 68 of 74 non-tie comparisons agree; the count of non-tie comparisons
+under these thresholds is reported with it.
 
 Quotes are cached per board in --cache (one JSON per board path), so the work can be split across jobs:
     python validate_pairs.py --pairs PAIRS.json --cache DIR --shard 3/8      # quote an eighth of the boards
@@ -93,7 +96,8 @@ def main(argv=None):
     ap.add_argument("--out")
     ap.add_argument("--cache", default=None)
     ap.add_argument("--shard", help="i/n: quote only every n-th board from the i-th (no report)")
-    ap.add_argument("--tie", type=float, default=0.03)
+    ap.add_argument("--tie-L", dest="tie_L", type=float, default=0.005)
+    ap.add_argument("--tie-R", dest="tie_R", type=float, default=0.03)
     a = ap.parse_args(argv)
     pairs = json.load(open(a.pairs))
     jobs = jobs_of(pairs)
@@ -102,32 +106,49 @@ def main(argv=None):
         return 0
     q = run_jobs(jobs, a.cache)
     out, agree, total, ties = [], {"L": 0, "R": 0}, {"L": 0, "R": 0}, {"L": 0, "R": 0}
+    strata = {}
+    tie = dict(L=a.tie_L, R=a.tie_R)
     for p in pairs:
         wa, wb = window_of(p["a"]["ev"], p["cell"]), window_of(p["b"]["ev"], p["cell"])
         sa, sb = q[p["a"]["board"]].get(p["cell"], {}), q[p["b"]["board"]].get(p["cell"], {})
         row = dict(cell=p["cell"], a=p["a"], b=p["b"], window=dict(a=list(wa), b=list(wb)),
                    strips=dict(a=[sa.get("L_nH"), sa.get("R_mohm")], b=[sb.get("L_nH"), sb.get("R_mohm")]),
-                   state=dict(a=sa.get("state"), b=sb.get("state")))
+                   state=dict(a=sa.get("state"), b=sb.get("state")),
+                   pitch_near=dict(a=sa.get("pitch_near"), b=sb.get("pitch_near")),
+                   unknowns=dict(a=sa.get("unknowns"), b=sb.get("unknowns")))
+        pn = [v for v in row["pitch_near"].values() if v is not None]
+        st = strata.setdefault(f"{max(pn):g}" if pn else "none", dict(agree=0, total=0, ties=0, unknowns=[]))
+        st["unknowns"] += [v for v in row["unknowns"].values() if v]
         for k, i in (("L", 0), ("R", 1)):
-            ow = _order(wa[i], wb[i], a.tie)
+            ow = _order(wa[i], wb[i], tie[k])
             os_ = _order(row["strips"]["a"][i], row["strips"]["b"][i], 0.0)
             if ow is None:
                 row[f"agree_{k}"] = None
                 continue
             if ow == 0:
                 ties[k] += 1
+                st["ties"] += 1
                 row[f"agree_{k}"] = "tie"
                 continue
             total[k] += 1
             ok = os_ is not None and os_ == ow
             agree[k] += ok
+            st["total"] += 1
+            st["agree"] += ok
             row[f"agree_{k}"] = ok
         out.append(row)
     summary = dict(agree=agree["L"] + agree["R"], total=total["L"] + total["R"], by=dict(agree=agree, total=total),
-                   ties=ties, tie=a.tie, pairs=len(pairs),
+                   ties=ties, tie=tie, pairs=len(pairs),
+                   by_pitch_near={k: dict(agree=v["agree"], total=v["total"], ties=v["ties"],
+                                          unknowns_median=(sorted(v["unknowns"])[len(v["unknowns"]) // 2]
+                                                           if v["unknowns"] else None),
+                                          unknowns_max=max(v["unknowns"], default=None))
+                                  for k, v in sorted(strata.items())},
+                   states={s_: sum(1 for r in out for side in ("a", "b") if str(r["state"][side]) == s_)
+                           for s_ in sorted({str(r["state"][x]) for r in out for x in ("a", "b")})},
                    strips_not_ok=sum(1 for r in out if "ok" not in (r["state"]["a"], r["state"]["b"])
                                      or r["state"]["a"] != r["state"]["b"]),
-                   kill="fewer than 75 of 82 agree")
+                   kill="fewer than 68 of 74 non-tie comparisons agree (PLAN.md amendment)")
     res = dict(summary=summary, pairs=out)
     txt = json.dumps(res, indent=1)
     if a.out:

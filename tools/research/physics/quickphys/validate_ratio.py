@@ -3,8 +3,9 @@
 """PLAN.md M2 item 2: the strips quote's spread against the 0.0625 mm evaluator window on human layouts.
 
 LIST (find_pairs.py): [{board_id, board, ev, intent}]. Per board and cell with a refined window: strips / window for
-L_loop and R_loop, and over all cells the p50 and p90 of |ratio - 1|. Kill criterion: p90 above 0.15 (the raster's
-own 0.25 mm spread). Quotes are cached and sharded as validate_pairs.py's:
+L_loop and R_loop, and over all cells the p50 and p90 of |ratio - 1|, also stratified by the quote's near pitch
+(pitch_near) with its unknowns. Kill criterion: p90 above 0.15 (the raster's own 0.25 mm spread). Quotes are cached
+and sharded as validate_pairs.py's:
 
     python validate_ratio.py --list LIST.json --cache DIR [--shard i/n] [--out OUT.json]
 """
@@ -32,6 +33,16 @@ def cells_of(ev_path, pitch=0.0625):
     return out
 
 
+def spread(ok):
+    out = {}
+    for k in ("L", "R"):
+        d = np.abs(np.array([r[f"ratio_{k}"] for r in ok]) - 1) if ok else np.array([np.nan])
+        med = np.median([r[f"ratio_{k}"] for r in ok]) if ok else None
+        out[k] = dict(p50=round(float(np.percentile(d, 50)), 4), p90=round(float(np.percentile(d, 90)), 4),
+                      median_ratio=None if med is None else round(float(med), 4))
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", required=True)
@@ -53,7 +64,8 @@ def main(argv=None):
             s = q.get(c, {})
             r = dict(board_id=e["board_id"], cell=c, state=s.get("state"), window=[L, R], window_box=box,
                      strips=[s.get("L_nH"), s.get("R_mohm")], strips_box=s.get("window"), pitch=s.get("pitch"),
-                     unknowns=s.get("unknowns"), seconds=s.get("seconds"), why=s.get("why"))
+                     pitch_near=s.get("pitch_near"), pitch_far=s.get("pitch_far"), unknowns=s.get("unknowns"),
+                     seconds=s.get("seconds"), why=s.get("why"))
             if s.get("state") == "ok":
                 r["ratio_L"] = round(s["L_nH"] / L, 4)
                 r["ratio_R"] = round(s["R_mohm"] / R, 4)
@@ -64,17 +76,20 @@ def main(argv=None):
     summ = dict(cells=len(rows), quoted=len(ok), not_ok={r["state"]: sum(1 for x in rows if x["state"] == r["state"])
                                                         for r in rows if r["state"] != "ok"},
                 kill="p90 |ratio - 1| above 0.15")
-    for k in ("L", "R"):
-        d = np.abs(np.array([r[f"ratio_{k}"] for r in ok]) - 1) if ok else np.array([np.nan])
-        med = np.median([r[f"ratio_{k}"] for r in ok]) if ok else None
-        summ[k] = dict(p50=round(float(np.percentile(d, 50)), 4), p90=round(float(np.percentile(d, 90)), 4),
-                       median_ratio=None if med is None else round(float(med), 4))
+    summ.update(spread(ok))
+    summ["by_pitch_near"] = {}
+    for pn in sorted({r["pitch_near"] for r in ok}):
+        sub = [r for r in ok if r["pitch_near"] == pn]
+        summ["by_pitch_near"][f"{pn:g}"] = dict(cells=len(sub), **spread(sub),
+                                               unknowns=[r["unknowns"] for r in sub],
+                                               seconds=[r["seconds"] for r in sub])
     res = dict(summary=summ, cells=rows)
     if a.out:
         Path(a.out).write_text(json.dumps(res, indent=1))
     print(json.dumps(summ, indent=1))
     for r in rows:
-        print(f"{r['board_id'][:48]:48s} {r['cell']:28s} {r['state']!s:8s} L {r.get('ratio_L')} R {r.get('ratio_R')}")
+        print(f"{r['board_id'][:48]:48s} {r['cell']:28s} {r['state']!s:12s} P0 {r.get('pitch_near')} far "
+              f"{r.get('pitch_far')} N {r.get('unknowns')} L {r.get('ratio_L')} R {r.get('ratio_R')}")
     return 0
 
 
