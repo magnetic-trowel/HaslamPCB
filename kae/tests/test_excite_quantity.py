@@ -3,7 +3,9 @@
 """kae.excite.quantity: every observation kind has a physical type, and the types decide signs without changing numbers.
 
 A magnitude or a dissipation is never negative; a bound or cap built from a signed board value (a -5 V rail) is its
-magnitude; a signed transfer needs a side before it can be bounded, and no cost tier may price it."""
+magnitude; a clamp's bound is max(x, 0); a signed transfer needs a side before it can be bounded; a cost tier prices
+only energies, dissipations, magnitudes and clamps. In production a violation marks the observation invalid; in strict
+mode (the tests' default, conftest.py) it raises."""
 import dataclasses
 import json
 from types import SimpleNamespace
@@ -15,13 +17,14 @@ from kae.excite import quantity as QT
 from kae.intent import objective as OB
 
 
-@pytest.mark.parametrize("T", [QT.Energy, QT.Dissipation, QT.Magnitude, QT.Rise])
+@pytest.mark.parametrize("T", [QT.Energy, QT.Dissipation, QT.Magnitude, QT.Rise, QT.Clamp])
 def test_a_non_negative_type_rejects_a_negative_corner_and_accepts_zero(T):
-    assert T([0.0, 0.0, 1.5]).values == (0.0, 0.0, 1.5)
+    kw = dict(sign_meaning="test") if T is QT.Clamp else {}
+    assert T([0.0, 0.0, 1.5], **kw).values == (0.0, 0.0, 1.5)
     with pytest.raises(QT.QuantityError, match="never negative"):
-        T([0.1, -1e-12])
+        T([0.1, -1e-12], **kw)
     with pytest.raises(dataclasses.FrozenInstanceError):
-        T([1.0]).values = (2.0,)
+        T([1.0], **kw).values = (2.0,)
 
 
 @pytest.mark.parametrize("T", [QT.Temperature, QT.Level])
@@ -36,6 +39,21 @@ def test_a_bound_of_a_magnitude_is_the_raw_values_magnitude():
     assert QT.Rise.bound(-3.0) == 3.0 and QT.Dissipation.cap(-0.1) == 0.1 and QT.Energy.bound(-1.0) == 1.0
     # no conversion: the bound is abs(x) of x's own type, so the numbers stay bit-identical
     assert type(QT.Magnitude.bound(-5)) is int and QT.Magnitude.bound(0.05 * -3.3) == 0.05 * abs(-3.3)
+
+
+def test_a_clamps_bound_is_its_clamp_not_its_magnitude():
+    """drop.rail is max(dv, 0) at its source: the clamped side (a load's ground below its source's) is no drop, so a
+    bound or cap built from a negative raw value is 0, never |x| (Magnitude folded the clamped side onto the other)."""
+    assert QT.Clamp.bound(-1) == 0 and QT.Clamp.cap(-1) == 0 and QT.Clamp.bound(-0.02, "max") == 0
+    assert QT.Clamp.bound(0.25) == 0.25 and QT.Magnitude.bound(-1) == 1
+    with pytest.raises(QT.QuantityError, match="sign_meaning"):
+        QT.Clamp([0.1])
+    assert QT.KIND_TYPE["drop.rail"] is QT.Clamp and QT.Clamp in QT.TYPES and QT.Clamp in QT.COST_TYPES
+    ob = dict(id="drop.rail", unit="V", values=[0.0, 0.0, 0.004], signed=[-0.003, 0.0, 0.004], scope={})
+    before = json.dumps(ob)
+    assert QT.check(ob) is ob and json.dumps(ob) == before                       # zeros pass, nothing added
+    with pytest.raises(QT.QuantityError, match="drop.rail.*never negative"):
+        QT.check(dict(ob, values=[-0.003, 0.0, 0.004]))
 
 
 def test_a_transfer_says_what_its_sign_means_and_needs_a_side_to_be_bounded():
@@ -53,9 +71,11 @@ def test_a_transfer_says_what_its_sign_means_and_needs_a_side_to_be_bounded():
 def test_every_observation_kind_has_a_type_and_nothing_else_is_registered():
     assert set(QT.KIND_TYPE) == set(OB.KINDS)
     assert all(t in QT.TYPES for t in QT.KIND_TYPE.values())
-    # the registry agrees with each kind's catalogue unit (temperatures absolute, rises in K, losses in W)
+    # the registry agrees with each kind's catalogue unit (temperatures absolute, rises in K, losses in W); a unit
+    # alone cannot say a value was clamped, so a clamp kind's unit types it as the magnitude it never goes below
     for k, (unit, _) in OB.KINDS.items():
-        assert QT.type_of(dict(id="x." + k, unit=unit)) is QT.KIND_TYPE[k], k
+        want = QT.Magnitude if QT.KIND_TYPE[k] is QT.Clamp else QT.KIND_TYPE[k]
+        assert QT.type_of(dict(id="x." + k, unit=unit)) is want, k
 
 
 def test_unknown_ids_are_typed_by_unit():
@@ -128,7 +148,7 @@ def transfer_kind(monkeypatch):
 
 def test_a_cost_on_a_signed_transfer_is_refused(transfer_kind):
     it = {"terms": [{"id": "X1", "tier": "cost", "obs": "transfer.test", "rate": "1 mW_eq/mV", "why": "test"}]}
-    with pytest.raises(OB.IntentError, match="X1 prices a signed transfer as a cost"):
+    with pytest.raises(OB.IntentError, match="X1: a cost .*transfer.test .*Transfer.*limit with a side"):
         OB.evaluate(_transfer_ev(), it, BRIEF)
 
 
@@ -140,6 +160,94 @@ def test_a_limit_on_a_signed_transfer_has_a_side_and_is_priced(transfer_kind):
     x1, x2 = (next(r for r in st["terms"] if r["id"] == i) for i in ("X1", "X2"))
     assert x1["met"] is False and x1["contribution"] == pytest.approx(10.0)      # 10 mV below the min at 1 per mV
     assert x2["met"] is False and st["tiers"]["hard"] > 0
+
+
+def _ob(id_, unit, values, **scope):
+    return dict(id=id_, unit=unit, values=list(values), u=[0.0] * len(values), scope=dict(scope),
+                reference=dict(value=None, basis="test"), label=f"{id_} (test)")
+
+
+def _ev(*obs):
+    return {"board": "synthetic", "total": {"complete": True}, "questions": [], "observations": list(obs)}
+
+
+TYPED = {"Level": _ob("emission.cable_E", "dBuV/m", [-12.0, 20.0], connectors=["J1", "J2"]),
+         "Rise": _ob("heat.track", "K", [3.0, 4.0]),
+         "Temperature": _ob("temp.junction", "C", [-20.0, 85.0], parts=["U1"])}
+
+
+@pytest.mark.parametrize("ty", sorted(TYPED))
+def test_a_cost_on_a_level_a_temperature_or_a_rise_is_refused(ty):
+    """A cost is rate x value: a Level or a Temperature can be negative (a price turned into a reward), and a rise or a
+    temperature is held to a limit with a side. The refusal names the term, the observation and its type."""
+    ob = TYPED[ty]
+    per = "dB" if ty == "Level" else ob["unit"]
+    it = {"terms": [{"id": "C1", "tier": "cost", "obs": ob["id"], "rate": "1 mW_eq/" + per, "why": "test"}]}
+    with pytest.raises(OB.IntentError, match=f"C1: .*{ob['id']} .*is a {ty}, not one of .*limit with a side"):
+        OB.evaluate(_ev(ob), it, BRIEF)
+    # the same quantity held to a limit with a side is priced
+    lim = {"terms": [{"id": "C1", "tier": "limit", "obs": ob["id"], "max": f"0 {ob['unit']}",
+                      "rate": "1 mW_eq/" + per, "why": "test"}]}
+    assert OB.evaluate(_ev(ob), lim, BRIEF)["tiers"]["limit"] > 0
+
+
+@pytest.mark.parametrize("ob,rate,want", [
+    (_ob("loss.copper", "W", [0.010, 0.020]), "1 mW_eq/mW", 20.0),              # Dissipation
+    (_ob("supply.peak", "V", [0.010, 0.030], parts=["U1"]), "1 mW_eq/mV", 30.0),  # Magnitude
+    (_ob("drop.rail", "V", [0.0, 0.005], rail="+3V3", load="U1"), "2 mW_eq/mV", 10.0)])  # Clamp
+def test_a_cost_on_a_dissipation_a_magnitude_or_a_clamp_is_priced(ob, rate, want):
+    it = {"defaults": "none", "terms": [{"id": "C1", "tier": "cost", "obs": ob["id"], "rate": rate, "agg": "worst",
+                                         "why": "test"}]}
+    st = OB.evaluate(_ev(ob), it, BRIEF)
+    assert st["tiers"]["cost"] == pytest.approx(want) and st["incomplete_terms"] == []
+
+
+# ----------------------------------------------------------------------------- production and strict modes
+def test_in_production_a_forbidden_value_marks_its_observation_invalid_and_the_term_incomplete(monkeypatch):
+    monkeypatch.delenv("KAE_QUANTITY_STRICT")
+    ob = _ob("loss.copper", "W", [0.010, -0.020])
+    keys = list(ob)
+    assert QT.check(ob) is ob and ob["values"] == [0.010, -0.020]          # marked, its numbers untouched
+    assert list(ob) == keys + ["invalid", "invalid_why"] and ob["invalid"] is True
+    assert "loss.copper" in ob["invalid_why"] and "never negative" in ob["invalid_why"]
+    it = {"defaults": "none", "terms": [{"id": "C1", "tier": "cost", "obs": "loss.copper", "rate": "1 mW_eq/mW",
+                                         "why": "test"}]}
+    st = OB.evaluate(_ev(ob, _ob("loss.copper", "W", [0.001, 0.002])), it, BRIEF)
+    (row,) = st["terms"]
+    assert row["incomplete"] and any("invalid" in g for g in row["not_computed"]) and row["matched"] == 1
+    assert st["incomplete_terms"] == ["C1"] and st["tiers"]["cost"] == 0.0       # incomplete: never priced
+    # an unknown kind is invalid too in production, never a crash
+    unk = QT.check(dict(id="new.thing", unit="furlong", values=[1.0]))
+    assert unk["invalid"] is True and "no type" in unk["invalid_why"]
+
+
+def test_in_strict_mode_a_forbidden_value_raises():
+    with pytest.raises(QT.QuantityError, match="never negative"):           # KAE_QUANTITY_STRICT=1 (conftest)
+        QT.check(_ob("loss.copper", "W", [0.010, -0.020]))
+    ob = _ob("loss.copper", "W", [-0.020])
+    with pytest.raises(QT.QuantityError, match="never negative"):
+        QT.check(ob, strict=True)
+    assert "invalid" not in ob
+    assert QT.check(ob, strict=False)["invalid"] is True                     # an explicit mode beats the environment
+
+
+def test_a_stored_signed_drop_loads_in_strict_mode_and_is_never_a_reward():
+    """2,042 stored drop.rail observations (evaluations before drop.rail was clamped) hold negative values. The
+    objective reads stored data without a strict check: a limit prices them as stored; a cost leaves them unpriced,
+    its term incomplete, never rate x a negative value."""
+    old = _ob("drop.rail", "V", [-0.004, 0.006], rail="+3V3", load="U1")
+    lim = {"defaults": "none", "terms": [{"id": "L1", "tier": "limit", "obs": "drop.rail", "max": "5 mV",
+                                          "rate": "1 mW_eq/mV", "why": "test"}]}
+    st = OB.evaluate(_ev(old), lim, BRIEF)
+    assert st["tiers"]["limit"] == pytest.approx(1.0) and st["incomplete_terms"] == []
+    cost = {"defaults": "none", "terms": [{"id": "C1", "tier": "cost", "obs": "drop.rail", "rate": "1 mW_eq/mV",
+                                           "agg": "typ", "why": "test"}]}
+    st = OB.evaluate(_ev(dict(old)), cost, BRIEF)
+    assert st["tiers"]["cost"] == 0.0 and st["incomplete_terms"] == ["C1"]
+    # a cable emission derived from a stored cable_cm.v in strict mode: no check raises on stored data
+    cm = dict(_ob("cable_cm.v", "V", [0.001, 0.002], connectors=["J1", "J2"], source="cell:x"), f_Hz=[1e8, 1e8])
+    st = OB.evaluate(_ev(cm), {"environment": {"cables": [{"connector": "J1", "length_m": 1.0}]}}, BRIEF)
+    assert any(u["obs"] == "emission.cable_E" for u in st["unclaimed"])
 
 
 # ----------------------------------------------------------------------------- end to end
@@ -181,6 +289,25 @@ def test_every_observation_of_an_evaluation_is_typed_and_check_changes_no_number
     monkeypatch.setattr(QT, "check", lambda ob: ob)
     ev0 = evaluate(str(p), pitch=0.25, fills=fills, log=lambda *a: None, dc=dc, scope="losses")
     assert json.dumps(_strip(ev), sort_keys=False) == json.dumps(_strip(ev0), sort_keys=False)
+
+
+def test_the_evaluator_lists_its_invalid_observations_once_in_production(tmp_path, monkeypatch):
+    """A producer's value its type forbids (here a hot loop's AC loss forced negative) does not stop a production
+    evaluation: the observation comes back invalid, with why, and one note lists it."""
+    from hotloop_fixtures import plane_fills, write_hotloop_board
+    from kae.excite import hotloop as HL
+    from kae.excite.evaluate import evaluate
+    monkeypatch.delenv("KAE_QUANTITY_STRICT")
+    monkeypatch.setattr(HL, "ac_loop_loss", lambda *a, **k: -1.0)
+    p = write_hotloop_board(tmp_path / "closed", "closed")
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, scope="losses")
+    bad = [ob for ob in ev["observations"] if ob.get("invalid_why")]
+    assert bad and all(ob["id"] == "loss.loop_ac" and ob["invalid"] is True for ob in bad)
+    notes = [n for n in ev["notes"] if "fail their type" in n]
+    assert len(notes) == 1 and notes[0].startswith(f"{len(bad)} observation(s)") and "loss.loop_ac" in notes[0]
+    monkeypatch.setenv("KAE_QUANTITY_STRICT", "1")
+    with pytest.raises(QT.QuantityError, match="loss.loop_ac"):
+        evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, scope="losses")
 
 
 # ----------------------------------------------------------------------------- a negative bus

@@ -620,6 +620,11 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         uncomputed.append("dc")
     for ob in observations:              # every value as finally reported (TCR, harmonics and caps applied) is typed
         QT.check(ob)
+    # in production a value its type forbids marks its observation invalid (kae.excite.quantity.check): listed once
+    bad = [ob for ob in observations if ob.get("invalid_why")]
+    if bad:
+        notes.append(f"{len(bad)} observation(s) fail their type, marked invalid and left unpriced (kae.excite.quantity): "
+                     + "; ".join(ob["invalid_why"] for ob in bad[:8]) + (" ..." if len(bad) > 8 else ""))
     return dict(board=path, pitch=pitch, window=window, seconds=round(time.time() - t0, 1), seed=seed,
                 total=totals(tot, uncomputed),
                 ledger=ledger.rows(), questions=[dict(subject=p.subject, name=p.name, lo=p.lo, hi=p.hi, unit=p.unit,
@@ -821,8 +826,9 @@ def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes,
         for c in range(ncp):
             tot[c] += HA.phi(u_[c])
         v0 = vals[0] or (0.0, 0.0, 0.0, 0.0)
-        # values >= 0 (kae.excite.dc.observe); signed: rail plus ground difference as solved, negative where the
-        # load's ground sits below its source's (another rail's return current in shared ground copper)
+        # values >= 0, a Clamp (kae.excite.quantity): max(dv, 0) at kae.excite.dc.observe, not |dv|; signed: rail plus
+        # ground difference as solved, negative where the load's ground sits below its source's (another rail's return
+        # current in shared ground copper)
         obs.append(dict(id="drop.rail", unit="V", values=[v[1] if v else 0.0 for v in vals], u=u_,
                         signed=[v[3] if v else 0.0 for v in vals],
                         scope=dict(kind="dc_drop", load=ref, rail=rail, parts=[ref], nets=[rail]),

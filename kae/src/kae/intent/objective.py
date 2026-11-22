@@ -12,7 +12,11 @@ operating corner, each with its scope) are matched by the intent's terms:
   Limits and costs share the intent's currency (their rates say what each is worth), so they rank together:
   key = (hard violations, limit + cost).
 - tier "limit": met costs nothing; beyond it, rate x the excess (in the limit's own unit).
-- tier "cost": rate x the value, summed.
+- tier "cost": rate x the value, summed. Only an observation of a cost type (kae.excite.quantity.COST_TYPES: Energy,
+  Dissipation, Magnitude, Clamp) can be a cost: on a Transfer, Level, Temperature or Rise it is an IntentError (a
+  value that can be negative would be priced as a reward; a temperature is held to a limit with a side). A cost's
+  observation with a negative value (an evaluation from before its kind was typed) is invalid there, its term
+  incomplete: never a reward.
 - tier "report": listed, unpriced (a bound on it is still judged met or not); "ignore": dropped from the report.
 - contract: every term says why (a 'why' or a 'source'); a limit needs a rate (a bound nobody prices is a
   report term: rejected, not silently downgraded); a hard term takes no rate. A bound without a 'source' is
@@ -199,7 +203,8 @@ def _emission(ob, cables):
             for v, f in zip(ob["values"], ob.get("f_Hz") or [0.0] * len(ob["values"]))]
     sc = dict(ob["scope"])
     sc["cable_m"] = l
-    return QT.check(dict(id="emission.cable_E", unit="dBuV/m", values=vals, u=None, scope=sc,
+    # derived here from stored data: never strict (an evaluation from before a type existed must still load)
+    return QT.check(strict=False, ob=dict(id="emission.cable_E", unit="dBuV/m", values=vals, u=None, scope=sc,
                         reference=dict(value=30.0, basis="CISPR 32 class B, 30-230 MHz, 10 m"),
                         label=f"cable emission at 10 m via {'-'.join(sc.get('connectors', []))} ({l:g} m) <- "
                               f"{sc.get('source')}", f_Hz=ob.get("f_Hz")))
@@ -345,10 +350,19 @@ def evaluate(ev, intent=None, brief=None):
         if tier == "ignore":
             rows.append(dict(id=t["id"], tier=tier, obs=t["obs"], matched=len(hit), why=t.get("why")))
             continue
-        if tier == "cost" and any(QT.type_of(obs[i]) is QT.Transfer for i in hit):
-            raise IntentError(f"term {t['id']} prices a signed transfer as a cost; a cost needs a magnitude or a "
-                              f"dissipation: state a side with a limit (max/min) or price |value| through a magnitude "
-                              f"kind")
+        if tier == "cost":
+            for i in hit:
+                ty = QT.type_of(obs[i])
+                if ty not in QT.COST_TYPES:
+                    raise IntentError(
+                        f"term {t['id']}: a cost prices rate x value, and observation {obs[i]['id']} "
+                        f"({obs[i].get('label') or ''}) is a {ty.__name__ if ty else 'untyped quantity'}, not one of "
+                        f"{[c.__name__ for c in QT.COST_TYPES]}: hold it to a limit with a side (tier 'limit' with "
+                        f"'max' or 'min' and a rate), or price a magnitude kind")
+        # a cost's value from before its kind was typed (a stored signed drop.rail) may be negative: invalid for this
+        # term (checked on a copy; the row and the other terms see it as stored), never a reward
+        neg = {i for i in hit if tier == "cost" and not obs[i].get("invalid")
+               and QT.check(dict(obs[i]), strict=False).get("invalid")}
         agg = t.get("agg", "cvar20" if tier == "cost" else "worst")
         combine = t.get("combine", "sum" if tier == "cost" else "each")
         bound, side_ = None, None
@@ -361,11 +375,12 @@ def evaluate(ev, intent=None, brief=None):
         if "rate" in t:
             r, rdim = U.rate(t["rate"], cur)
         inst = []
-        bad = sorted({obs[i]["scope"].get("source") for i in hit if obs[i].get("invalid")})
+        bad = sorted({obs[i]["scope"].get("source") or obs[i].get("label") or obs[i]["id"] for i in hit
+                      if obs[i].get("invalid") or i in neg})
         if bad:
-            # an observation the evaluator marks invalid (a cell's L_loop that is no inductance) is no value: the term
-            # is incomplete for it, never priced with it
-            hit = [i for i in hit if not obs[i].get("invalid")]
+            # an observation the evaluator marks invalid (a cell's L_loop that is no inductance, a value its type
+            # forbids) is no value: the term is incomplete for it, never priced with it
+            hit = [i for i in hit if not obs[i].get("invalid") and i not in neg]
         for i in hit:
             ob = obs[i]
             vals = _in(ob, dim) if dim else ob["values"]
