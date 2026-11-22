@@ -67,7 +67,7 @@ def test_no_fixed_point_is_thermal_runaway():
 
 
 def test_apply_tcr_scales_dc_rows_totals_and_adds_a_runaway_hazard():
-    ob = dict(values=[0.1, 0.2], u=[0.5, 1.2], label="DC drop")
+    ob = dict(id="drop.rail", unit="V", values=[0.1, 0.2], u=[0.5, 1.2], label="DC drop")
     rows = [dict(observer="dc:copper_loss", u=0.3, u_lo=0.3, u_hi=0.6, P_mW=10.0,
                  _tcr=dict(us=[0.3, 0.6], vals=[0.01, 0.02], nets=None, key="P_mW", scale=1e3)),
             dict(observer="dc:drop:U1@+3V3", u=0.5, u_lo=0.5, u_hi=1.2, dV_mV=100.0,
