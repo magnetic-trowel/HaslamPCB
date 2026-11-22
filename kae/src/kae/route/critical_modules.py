@@ -918,7 +918,7 @@ def allocation(ctx, m):
     s = m.spec
     if m.kind == "cell":
         ex = s.get("excite") or {}
-        vin = ex.get("V") or ctx.volts(s.get("rail")) or PR.V_IN_UNKNOWN.value
+        vin, _ = PR.cell_v_in(ex, ctx.volts(s.get("rail")))
         return PR.hot_loop_budget(s.get("class") or "unknown", vin, t_sw_ns=ex.get("t_sw_ns"), v_abs=PR.budget_v_abs(ex))
     if m.kind == "path":
         ex = s.get("excite") or {}
