@@ -63,10 +63,10 @@ class Knobs:
     #                               a dict: per-kind overrides of HOP_DETOUR
     pair_cos_min: float = 0.3     # loop pairs with |cos| below this are dropped in the fast path
     pour_decaps: bool = True      # decap loops through rail and ground pours when both join the ends
-    pour_r_eff: float = 0.3       # mm: entry radius of a pour-mode decap's spreading term, (mu0 d / pi) ln(D / r).
-    #                               A sheet solve matches it to ~1 % when r is the real entry's radius (a 0.3 mm
-    #                               via: 0.15, as the mountings); 0.3 reads 17-27 % low at 2-10 mm. Its reason is
-    #                               not recorded; A/B with 0.15 pending (decide note PP7)
+    pour_r_eff: float = 0.15      # mm: entry radius of a pour-mode decap's spreading term, (mu0 d / pi) ln(D / r):
+    #                               the via radius (0.3 mm drill), as the mountings use. A sheet solve matches it to
+    #                               ~1 %; the old 0.3 read 17-27 % low at 2-10 mm, and on 58 routed pour-mode decaps
+    #                               (50 boards) 0.15 fits better (42 of 58 closer; PP7, place-terms.md)
     jit: str = 'auto'             # 'auto' (numba when installed), 'on', 'off' (pure Python)
 
     def detour(self, kind):
