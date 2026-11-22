@@ -97,12 +97,15 @@ def _screen(bd, loops=None):
 
 def test_findings_never_block_and_say_the_current_was_assumed(monkeypatch):
     monkeypatch.setattr(pdn, "plane_pairs", lambda *a, **k: [])
-    # one 100 nF for a 150 mA load (Z_t 1.1 Ohm): the regulator's L and the capacitor ring near 1 MHz, far over
-    # the target whatever the stand-in's value
-    rep = _screen(_bd(), {"C1": 10.0})
+    # a 10 uF on a 20 nH loop beside a 1 nF: their anti-resonance near 35 MHz stands far over a 150 mA target
+    # (Z_t 1.1 Ohm) whatever the regulator does
+    bd = _bd(cap_value=10e-6, esl=0.3e-9)
+    bd.circuit.z("C2", "3V3", "GND", pdn._rlc(0.01, 0.3e-9, 1e-9), "C2.1", "C2.2", "C", par=dict(ESL=0.3e-9))
+    rep = _screen(bd, {"C1": 20.0, "C2": 0.5})
     (r,) = rep["rails"]
     assert r["Z_t"] == pytest.approx(0.05 * 3.3 / 0.15)
-    assert r["worst"]["shape"] == "peak" and min(r["worst"]["ratio_supply_probe"]) > 3
+    assert r["worst"]["shape"] == "peak" and 20e6 < r["worst"]["f_Hz"] < 60e6
+    assert min(r["worst"]["ratio_supply_probe"]) > 3
     (h,) = [h for h in rep["hazards"] if h["code"] == "pdn_impedance_over_target"]
     assert h["severity"] == "warn" and "assumes" in h["message"]
     assert h["evidence"]["I_source"].startswith("assumed")
@@ -143,8 +146,10 @@ def _kind(bd, kind):
 
 def test_a_finding_that_needs_the_supply_stand_in_is_info(monkeypatch):
     monkeypatch.setattr(pdn, "plane_pairs", lambda *a, **k: [])
-    # 20 mA logic with one 100 nF: the regulator's stand-in L resonates with it near 1 MHz
-    rep = _screen(_bd(n_pins=6, sub="logic"), {"C1": 1.0})
+    # one 100 nF for a 150 mA load: the regulator's lossless stand-in L rings with it near 1 MHz, far over the
+    # target; damped as a regulator's pass device damps it, it does not
+    rep = _screen(_bd(), {"C1": 1.0})
+    assert rep["rails"][0]["worst"]["ratio"] > 3 > min(rep["rails"][0]["worst"]["ratio_supply_probe"])
     (r,) = rep["rails"]
     assert r["worst"]["shape"] == "peak" and 0.5e6 < r["worst"]["f_Hz"] < 3e6
     for h in rep["hazards"]:

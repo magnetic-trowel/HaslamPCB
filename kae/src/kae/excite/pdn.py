@@ -24,8 +24,8 @@ Findings (Smith, Sandler and Bogatin, "Target Impedance Is Not Enough", SIJ 2019
 - the worst |Z| / Z_t in the band: a square-wave load at a parallel resonance drives 0.64 I Z_peak, so a
   peak up to 1/0.64 = 1.57 Z_t still meets the tolerance; "many successfully deployed products have a
   peak height as large as 3x". Over Z_t: info. Warn when it stays over PEAK_TOLERATED (3) Z_t with the
-  supplies' stand-in halved and doubled (SUPPLY_PROBE), the rail has a capacitor, and the worst point is
-  not the inductive top of the band (the decap place term's own budget);
+  supplies' stand-in halved, doubled and damped to Z_t (SUPPLY_PROBE), the rail has a capacitor, and the
+  worst point is not the inductive top of the band (the decap place term's own budget);
 - each anti-resonance peak's Q = Z_peak / Z0, Z0 = sqrt(L/C) of the equivalent tank, read from the slope
   of the susceptance (peaks()); Z0 also sets the step response below ~100 MHz. Two or more peaks with
   Q > Q_ROGUE (2) near the target can stack into a "rogue wave" (info);
@@ -59,12 +59,16 @@ CAVITY_TOL = 0.10       # decoupling-pdn.md PDN-11: a clock harmonic within +-10
 CAVITY_HARMONICS = (1, 3, 5, 7)
 C0 = 299792458.0
 EPS0 = 8.8541878128e-12
-LOAD_SKIP = ("die",)
+LOAD_SKIP = ("die",)    # an IC's die capacitance: inside the package, above F_HI
 # What feeds a rail is a stand-in on every board (kae.excite.models: a regulator's output R + L, a cable to
-# the host, a module's decoupling; or the screen's own when the model has none). A finding warns only when
-# it holds with the supplies' impedance halved and doubled; one that needs the stand-in's exact value is info.
+# the host, a module's decoupling; or the screen's own when the model has none). A real regulator above its
+# loop bandwidth is damped by its pass device's resistance, which a lossless L leaves out, so its
+# anti-resonance with the board's ceramics (0.1-2 MHz on the sprint-quality boards) is the stand-in's, not
+# the board's. A finding warns only when it holds with the supplies' impedance halved, doubled, and replaced
+# by the target as resistance in series with the stand-in's L ("damped": a regulator damped as well as it
+# could be, still inductive at high frequency); else it is info.
 SUPPLY_KINDS = ("reg_out", "port", "vrm_assumed")
-SUPPLY_PROBE = (0.5, 2.0)    # an IC's die capacitance: inside the package, above F_HI
+SUPPLY_PROBE = (0.5, 2.0, "damped")
 
 
 def _rlc(R, L, C):
@@ -106,10 +110,16 @@ def rail_loads(bd, brief_parts=None):
     return out
 
 
-def screen_circuit(bd, loops=None, planes=None, supply_scale=1.0):
+def screen_circuit(bd, loops=None, planes=None, supply_scale=1.0, damped=None):
     """The rails' PDN circuit (module docstring) and what was assumed: (Circuit, {cap ref: L_series nH,
     basis}, assumptions). supply_scale multiplies the supplies' impedance (SUPPLY_KINDS: stand-ins, probed
-    at SUPPLY_PROBE)."""
+    at SUPPLY_PROBE); damped ({rail: ohm}) replaces each supply of a rail by that resistance plus
+    the regulator stand-in's L."""
+    damped = damped or {}
+
+    def _damp(e_a, e_b, z):
+        r = damped.get(e_a if e_a in bd.rails else e_b)
+        return (lambda w: r + 1j * w * M.REG_L) if r else z
     loops = loops or {}
     c = Circuit(bd.ground)
     caps, notes = {}, []
@@ -131,6 +141,8 @@ def screen_circuit(bd, loops=None, planes=None, supply_scale=1.0):
             caps[e.name] = (ls, basis)
         if e.kind in SUPPLY_KINDS and supply_scale != 1.0:
             z = _scaled(z, supply_scale)
+        if e.kind in SUPPLY_KINDS and damped:
+            z = _damp(e.a, e.b, z)
         c.z(e.name, e.a, e.b, z, e.pa, e.pb, e.kind, e.par)
     for p in planes or []:
         if p["rail"] in bd.rails:
@@ -142,7 +154,8 @@ def screen_circuit(bd, loops=None, planes=None, supply_scale=1.0):
         if not any(e.kind in ("reg_out", "port") and net in (e.a, e.b) for e in c.elems):
             notes.append(f"{net}: no regulator output or port supplies it in the model; a regulator stand-in "
                          f"(R 50 mOhm + 0.2 uH) is assumed")
-            c.z(f"vrm:{net}", net, bd.ground, _rlc(M.REG_R * supply_scale, M.REG_L * supply_scale, 0),
+            c.z(f"vrm:{net}", net, bd.ground, _damp(net, bd.ground, _rlc(M.REG_R * supply_scale,
+                                                                          M.REG_L * supply_scale, 0)),
                 kind="vrm_assumed")
     return c, caps, notes
 
@@ -274,7 +287,9 @@ def screen(board, brief=None, loops=None, bd=None, stage="placement", f_lo=F_LO,
     rails = [r for r in bd.rails if loads.get(r)]
     Zs = sweep(c, rails, freqs)
     band = (freqs >= f_lo) & (freqs <= f_hi)
-    probe = [sweep(screen_circuit(bd, loops, planes, supply_scale=k)[0], rails, freqs[band]) for k in SUPPLY_PROBE]
+    zts = {r: RIPPLE * abs(bd.rails[r]) / sum(x[1] for x in loads[r]) for r in rails if bd.rails.get(r)}
+    probe = [sweep(screen_circuit(bd, loops, planes, supply_scale=k)[0] if k != "damped" else
+                   screen_circuit(bd, loops, planes, damped=zts)[0], rails, freqs[band]) for k in SUPPLY_PROBE]
     out_rails, hz = [], []
     for r in rails:
         if r not in Zs:
@@ -335,7 +350,7 @@ def screen(board, brief=None, loops=None, bd=None, stage="placement", f_lo=F_LO,
                 f"Rail {r}'s PDN impedance reaches {ratio:.2g}x its target ({Zw * 1e3:.3g} vs {zt * 1e3:.3g} mOhm) "
                 f"at {f / 1e6:.3g} MHz ({'an anti-resonance, Q ' + format(at_peak['Q'], '.2g') if at_peak else shape}"
                 f"); the target assumes a {I * 1e3:.0f} mA transient"
-                + (f"; with the supply's stand-in impedance halved or doubled it is {lo_ratio:.2g}x"
+                + (f"; with the supply's stand-in halved, doubled or damped to Z_t it is {lo_ratio:.2g}x"
                    if lo_ratio < ratio * 0.8 else "")
                 + ("; no capacitor on the rail: a load that decouples itself, or a sense pin, needs none"
                    if not rec["caps"] else "") + f" ({stage})",
