@@ -1089,6 +1089,20 @@ def _cell_watts(q, s, m):
     return 0.5 * q["L_nH"] * 1e-9 * I * I * f + I * I * D * (1 - D) * q["R_mohm"] * 1e-3
 
 
+def _cell_estimate(t_drc, t_q, items):
+    """Budget seconds one cell of `clear` is expected to take: two DRCs (rip, after), the quote before it, the
+    re-route (60 s and 1.5 s per foreign item). t_drc and t_q are read off the process clock (haslam.budget.now), so
+    in work mode they are the DRC's and the quote's charged work (haslam.em's kinds for the quote), not wall time."""
+    return 2 * t_drc + t_q + 60.0 + 1.5 * items
+
+
+def _timed(fn, *args, **kw):
+    """(fn(*args, **kw), the budget seconds it took on the process clock)."""
+    t1 = clock_now()
+    out = fn(*args, **kw)
+    return out, clock_now() - t1
+
+
 def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=None):
     """hotloop_clear (design D): after routing, per commutation cell, the copper of foreign nets on the cell's
     return layer and loop-net pour layers within its hull plus margin is ripped; the ripped nets are routed
@@ -1134,9 +1148,7 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
         def quotes(board, drc_json, only=None):
             rows = quote_cells(str(board), intent=intent, drc=str(drc_json), log=lambda *a: None, only=only)
             return {r.get("cell"): r for r in rows}
-        t1 = clock_now()
-        rep0 = check(board_path, wd / "drc0")
-        t_drc = clock_now() - t1
+        rep0, t_drc = _timed(check, board_path, wd / "drc0")
         base = drc.summary(rep0)
         q0, t_q = {}, 30.0           # quoted per cell, just before it is cleared (a big board's all-cell quote: minutes)
         listing = pcbnew_io.edit_routing(board_path, wd / "listing.kicad_pcb")["routing"]
@@ -1151,12 +1163,13 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
                               else LineString([r["a"], r["b"]]).intersection(core).length) for r, _ in cr["foreign"])
         regions.sort(key=lambda c: (-c["core"], -c["amount"]))
         kept_any, last_drc = False, wd / "drc0" / "drc.json"
-        rep["estimate_s_per_cell"] = round(2 * t_drc + t_q + 60.0, 1)
+        rep["estimate_s_per_cell"] = round(_cell_estimate(t_drc, t_q, 0), 1)     # updated after each quote
         for k, cr in enumerate(regions):
             row = dict(cell=cr["cell"], foreign_items=len(cr["foreign"]), foreign_mm=round(cr["amount"], 2),
                        under_loop_mm=round(cr["core"], 2), layers=sorted(cr["layers"]))
             rep["cells"].append(row)
-            per_cell = 2 * t_drc + t_q + 60.0 + 1.5 * len(cr["foreign"])
+            per_cell = _cell_estimate(t_drc, t_q, len(cr["foreign"]))
+            row["estimate_s"] = round(per_cell, 1)
             if not cr["foreign"]:
                 row.update(kept=False, why="no foreign copper in the region")
                 continue
@@ -1179,10 +1192,10 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             cd = wd / f"cell{k}"
             cd.mkdir(exist_ok=True)
             if cr["cell"] not in q0:
-                t1 = clock_now()
-                q0.update(quotes(board_path, (cd.parent / "drc0" / "drc.json") if k == 0 or not kept_any
-                                 else last_drc, only=[cr["cell"]]))
-                t_q = clock_now() - t1
+                got, t_q = _timed(quotes, board_path, (cd.parent / "drc0" / "drc.json") if k == 0 or not kept_any
+                                  else last_drc, only=[cr["cell"]])
+                q0.update(got)
+                rep["estimate_s_per_cell"] = round(_cell_estimate(t_drc, t_q, 0), 1)
             snap = cd / "before.kicad_pcb"
             shutil.copy2(board_path, snap)
             # the current board's routing (earlier cells may have changed it)
