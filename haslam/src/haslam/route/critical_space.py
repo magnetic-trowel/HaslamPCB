@@ -440,7 +440,11 @@ class Space:
         if it.kind in ("pad", "track", "via", "corridor", "shape") and it.net and it.net == net:
             return None
         if it.kind == "corridor":
-            return 0.0 if kind == "track" else None
+            # a thermal-spoke corridor keeps tracks out; a pour link or escape lane (the cells stage) keeps vias out
+            # too: open-authenticator's buck put its GND via across U4.2's lane to its L1-Pad2 zone
+            if kind == "track" or str(it.owner or "").startswith(("escape", "pour link")):
+                return 0.0
+            return None
         if it.kind == "keepout":
             if (it.vias_only and kind == "track") or (it.tracks_only and kind == "via"):
                 return None

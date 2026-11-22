@@ -487,3 +487,37 @@ def test_escape_lanes_keep_a_pins_short_way_to_its_zone(tmp_path):
     g = lanes[0][0]
     assert g.intersects(Point(122.92, 109.05)) and g.intersects(Point(123.05, 109.05))   # pad edge to zone
     assert not g.intersects(Point(122.0, 109.05).buffer(0.1)) or g.area < 0.5
+
+
+def test_reach_check_needs_the_zone_to_pour_not_just_its_outline(tmp_path):
+    """open-authenticator, round 2: U4.2's way met its L1-Pad2 zone's outline only where the cell's +3V3 hop left
+    the zone too thin to pour. Here a VIN track inside U1.6's BST zone leaves it a 0.2 mm sliver beside the pin
+    (its minimum width 0.25 mm): the pin reaches the outline, not any fill, so it has no way to its net."""
+    s, pad = _walled_bst(tmp_path)
+    from haslam.route import constraints as CN
+    cop = CN._pad_shapes(pad)[1]["F.Cu"]
+    x0, y0, x1, y1 = cop.bounds
+    win = (x0 - hotloop.REACH_WINDOW, y0 - hotloop.REACH_WINDOW, x1 + hotloop.REACH_WINDOW, y1 + hotloop.REACH_WINDOW)
+    assert hotloop._reach(pad, cop, "F.Cu", s.space.items["F.Cu"], s.info, win)
+    s.space.add_track("VIN", "F.Cu", 0.2, (123.5, 108.0), (123.5, 109.8), owner=("hop", "x"))
+    assert not hotloop._reach(pad, cop, "F.Cu", s.space.items["F.Cu"], s.info, win)
+
+
+def test_escape_lanes_aim_at_where_the_zone_can_pour_and_keep_vias_out(tmp_path):
+    """The lane runs on to the zone's pourable core (a wedge tip thinner than its minimum width is no landing),
+    and keeps other nets' vias out as well as tracks (open-authenticator: the buck's GND via sat in U4.2's lane)."""
+    from haslam.route import constraints as CN
+    from shapely.geometry import Polygon as P_
+    s, pad = _walled_bst(tmp_path)
+    # a zone whose nearest point to U1.6 is the tip of a 0.15 mm-wide wedge; it pours only from x 124.0 on
+    wedge = [[[123.0, 109.0], [124.0, 108.95], [124.0, 108.3], [125.2, 108.3], [125.2, 109.8], [124.0, 109.8],
+              [124.0, 109.1], [123.0, 109.1], [123.0, 109.0]]]
+    s.info["zones"][-1]["rings"] = [wedge]
+    (lane,) = [g for g, l, q in CN.escape_lanes(s.info) if q is pad]
+    core = P_(wedge[0]).buffer(-0.125)
+    assert lane.intersects(core) and lane.intersection(core).area > 0.01
+    from haslam.route.critical_space import Item
+    esc = Item("corridor", pad["net"], ["F.Cu"], lane, 0.0, None, owner="escape U1.6")
+    spokes = Item("corridor", pad["net"], ["F.Cu"], lane, 0.0, None, owner="spokes U1.6")
+    assert s.space.need(esc, "GND", "via", "F.Cu") == 0.0 and s.space.need(esc, "GND", "track", "F.Cu") == 0.0
+    assert s.space.need(spokes, "GND", "via", "F.Cu") is None
