@@ -70,7 +70,8 @@ def observers(bd, brief, sources):
             # bus voltage and the switch's rating when known (harm.overshoot_bound)
             out.append(Observer(f"overshoot:{m['cell']}", "overshoot", s.a, s.b, s.pa, s.pb,
                                 CR.overshoot_limits(m["V"])[0], CR.overshoot_basis(m["V"]), "prior",
-                                dict(source=s.name, bound_legacy=0.2 * m["V"])))
+                                # the legacy bound, 20 % of the bus: of its magnitude (signed, a -12 V cell's was negative)
+                                dict(source=s.name, bound_legacy=0.2 * abs(m["V"]))))
     for ref, nodes in bd.ic_nodes.items():
         kind, sub, role = bd.part_kind.get(ref, ("ic", None, ""))
         for rail, v in nodes.items():

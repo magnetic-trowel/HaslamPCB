@@ -175,7 +175,9 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             # the switch conducts I_L for D; with no rectifier part the synchronous one inside the
             # controller conducts it for the rest (1 - D), as the DC flow injects it (kae.excite.dc)
             cond = IL ** 2 * ron * (D if c["rect"] else 1.0)
-            add(c["ctrl"], cond + V * IL * (v.get("t_i_s", 3e-9) + v.get("t_v_s", 1e-9)) * v.get("f_sw_Hz", 1e6))
+            # the overlap loss |V| I_L (t_i + t_v) f_sw: the switch commutes the bus's magnitude, so a -12 V cell
+            # heats its controller as a +12 V one does (the signed bus made it a negative loss)
+            add(c["ctrl"], cond + abs(V) * IL * (v.get("t_i_s", 3e-9) + v.get("t_v_s", 1e-9)) * v.get("f_sw_Hz", 1e6))
             if c["rect"]:
                 add(c["rect"], val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * CV.rectifier_current(c.get("top") or c["cls"], IL, D))
             continue

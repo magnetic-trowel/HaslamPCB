@@ -250,7 +250,9 @@ class PhysRouter:
         # islands of each net's pads; unrouted connections become field-free shorts
         self.islands = {}
         shorted = 0
-        for n in set(self.bd.net_of[q] for q in ok if q in self.bd.net_of):
+        # in net-name order: the shorts' order is the mesh's lumped order (so the solve's), and a set's would
+        # follow the hash seed
+        for n in sorted(set(self.bd.net_of[q] for q in ok if q in self.bd.net_of)):
             groups = {}
             for q in self.bd.pads_of.get(n, []):
                 if q in ok:

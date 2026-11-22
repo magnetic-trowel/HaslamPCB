@@ -198,6 +198,7 @@ def unphysical(L, R, V, I, f_edge):
     loop closes), or its resistance at f_sw or reactance at the edge band above the cell's load V / I (it closes
     through a part: the evaluator's open-cell bound, kae.excite.evaluate.OPEN_R_FRAC)."""
     from .evaluate import OPEN_R_FRAC
+    V = abs(V)          # the load's V / I is a magnitude: a -12 V cell's loop is judged as a +12 V one's (signed, never)
     if L <= 0:
         return f"L_loop {L * 1e9:.3g} nH is not positive: the window misses where the loop closes"
     if V > 0 and I > 0 and (R > OPEN_R_FRAC * V / I or L * 2 * math.pi * f_edge > V / I):

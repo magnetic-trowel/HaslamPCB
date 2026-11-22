@@ -392,7 +392,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     # keep-out read L -19388 nH, R 99 kOhm): it is an open cell, priced at its caps, never reported as a value
     for pr in [pr for pr in pairs if pr["o"].kind == "overshoot" and pr["s"].kind == "cell"]:
         s, Pc = pr["s"], P[pr["s"].name]
-        V, I = (Pc["V"].typ if "V" in Pc else 0.0), (Pc["I"].typ if "I" in Pc else 0.0)
+        # the load V / I is a magnitude: a -12 V cell is checked as a +12 V one (signed, it was never judged open)
+        V, I = (abs(Pc["V"].typ) if "V" in Pc else 0.0), (Pc["I"].typ if "I" in Pc else 0.0)
         if not (V > 0 and I > 0):
             continue
         z_load = V / I
@@ -597,27 +598,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                        f"proximity crowding, R_loop {hs[0]['R_mohm']:.3g} mOhm at f_sw, {hs[-1]['R_mohm']:.3g} at "
                        f"{hs[-1]['n']} f_sw ({where})")
         QT.check(ob)
-    # a closed cell's layout losses above LOOP_LOSS_FRAC of its throughput V I are no working converter's: the inputs
-    # are wrong (the cell's I, V or circuit), not the copper. Flagged implausible and capped there (kae.intent
-    # prices the cap, the same for every layout, and lists them), never reported as a layout's loss
-    for ob in observations:
-        if ob["id"] not in ("loss.loop", "loss.loop_ac", "loss.copper_ac") or ob.get("open"):
-            continue
-        name = ob["scope"].get("source")
-        if name not in cps:
-            continue
-        caps = []
-        for c in range(len(ob["values"])):
-            val = {k[1]: v for k, v in cps[name][c].items()}
-            caps.append(loss_cap(val))
-        over = [v > cp for v, cp in zip(ob["values"], caps) if cp > 0]
-        if any(over):
-            w = max(range(len(caps)), key=lambda c: ob["values"][c] / caps[c] if caps[c] > 0 else 0.0)
-            ob["implausible"] = (f"{ob['values'][w]:.3g} W exceeds {LOOP_LOSS_FRAC:.0%} of the cell's throughput "
-                                 f"V I = {caps[w] / LOOP_LOSS_FRAC:.3g} W: beyond any working converter (are the "
-                                 f"cell's I, V and switches right?)")
-            ob["cap_values"] = caps
-            notes.append(f"{name}: {ob['id']} implausible, capped: {ob['implausible']}")
+    cap_implausible_losses(observations, cps, notes)
     # each cell's parasitic ring: its copper loop with the switch node's capacitance
     rings = []
     for pr in pairs:
@@ -1054,6 +1035,31 @@ OPEN_R_FRAC = 1.0
 OPEN_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac")
 
 
+def cap_implausible_losses(observations, cps, notes):
+    """A closed cell's layout losses above LOOP_LOSS_FRAC of its throughput |V| I are no working converter's: the
+    inputs are wrong (the cell's I, V or circuit), not the copper. Flagged implausible and capped there (kae.intent
+    prices the cap, the same for every layout, and lists them), never reported as a layout's loss. The throughput
+    is a magnitude: a -12 V cell's signed cap was negative, so its losses were never checked."""
+    for ob in observations:
+        if ob["id"] not in ("loss.loop", "loss.loop_ac", "loss.copper_ac") or ob.get("open"):
+            continue
+        name = ob["scope"].get("source")
+        if name not in cps:
+            continue
+        caps = []
+        for c in range(len(ob["values"])):
+            val = {k[1]: v for k, v in cps[name][c].items()}
+            caps.append(loss_cap(val))
+        over = [v > cp for v, cp in zip(ob["values"], caps) if cp > 0]
+        if any(over):
+            w = max(range(len(caps)), key=lambda c: ob["values"][c] / caps[c] if caps[c] > 0 else 0.0)
+            ob["implausible"] = (f"{ob['values'][w]:.3g} W exceeds {LOOP_LOSS_FRAC:.0%} of the cell's throughput "
+                                 f"|V| I = {caps[w] / LOOP_LOSS_FRAC:.3g} W: beyond any working converter (are the "
+                                 f"cell's I, V and switches right?)")
+            ob["cap_values"] = caps
+            notes.append(f"{name}: {ob['id']} implausible, capped: {ob['implausible']}")
+
+
 def open_cell_observations(bd, o, s, vals, where):
     """An open hot loop's observations at their caps, per corner (vals[c]: {param: value}): the commutated
     current has no path but the switch itself, so the switch node rings until the switch's absolute maximum
@@ -1068,7 +1074,9 @@ def open_cell_observations(bd, o, s, vals, where):
     us = [x / max(HA.overshoot_bound(v, o.bound), 1e-9) for x, v in zip(ov, vals)]
     out = [O.observation(bd, o, s, ov, us)]
     out[0]["label"] = f"{o.name} <- {s.name}: OPEN, at the switch's absolute maximum"
-    P_ = [Vc * v.get("I_A", 0.0) for Vc, v in zip(V, vals)]
+    # the throughput |V| I: a negative bus (-12 V) converts as much power as a positive one (the signed bus
+    # priced an open -12 V cell's losses negative, below any closed layout's)
+    P_ = [abs(Vc) * v.get("I_A", 0.0) for Vc, v in zip(V, vals)]
     for id_, kind in (("loss.loop", "loop_loss"), ("loss.loop_ac", "loop_ac_loss")):
         ob = O.observation(bd, o, s, list(P_), [0.0] * len(vals))
         ob.update(id=id_, unit="W", reference=dict(value=None, basis="none: a loss is priced, not bounded"),
