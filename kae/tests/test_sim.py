@@ -484,3 +484,16 @@ def test_line_capacitance_uses_the_dielectric_under_its_layer():
             z={"F.Cu": 0.0, "In1.Cu": 0.2, "In2.Cu": 1.4, "B.Cu": 1.6}, er=3.0)
     assert _er(rb, "F.Cu") == 3.0 and _er(rb, "B.Cu") == 6.0      # was 3.0 (the top prepreg) for both
     assert _er(NS(board=NS(stackup=None), cu=[], z={}, er=4.3), "B.Cu") == 4.3
+
+
+def test_a_negative_bus_cell_is_simulated_as_its_mirror_image(tmp_path):
+    """The testbench builds the cell's switches, body diodes and rectifier by their roles in positive polarity
+    (bus -> node -> ground), so a -12 V cell is simulated as its mirror image at +12 V: same ring and loss
+    magnitudes. With the signed bus the source drove -12 V into that positive-polarity cell (its low body diode
+    forward-biased from ground) and the rating limit came from the smallest standard rating."""
+    _, _, pos = _cell_tests(tmp_path / "p", vin=12.0)
+    _, _, neg = _cell_tests(tmp_path / "n", vin=-12.0)
+    assert not neg["cell"].unknown
+    assert neg["cell"].lines == pos["cell"].lines
+    assert neg["cell"].requires == pos["cell"].requires
+    assert any("mirror image at 12 V" in n for n in neg["cell"].notes)
