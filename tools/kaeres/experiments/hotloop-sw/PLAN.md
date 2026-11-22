@@ -414,3 +414,21 @@ Board loss terms (per board, the sum of that observable's terms):
 - A smoke of N and C‴ on 3 dense boards first (`STAGE=r3smoke`): jetson j2032, polarfire som and sinara zotino, profiled.
 - Routing memory and parallelism are set from that smoke. Large boards run at lower parallelism (kaeq admits by memory).
 - The estimate is reported at submission.
+
+**Round 3 sizing and submission (2026-11-22).**
+
+*Smoke* (`intent-r3/smoke.sh`): N and C‴ profiled on jetson j2032, polarfire som and sinara zotino, six runs side by side outside the sandbox.
+- *zotino:* both arms completed, at 3.85× the nominal budget in wall time and about 12 CPU-h per run.
+- *jetson and polarfire:* every attempt was killed by its wall ceiling, waiting for a Freerouting slot. They waited up to 51 % of an attempt's budget. Outside the sandbox the six runs shared the host's `/tmp/kae-fr-slots`.
+  - kaeres jobs run in bwrap with a private `/tmp`, so each job has its own slots. These kills are an artefact of the smoke, not of the run.
+- *Profile:* 58 % of samples idle (waiting) and 36 % in Freerouting (Java). Python's own time is mostly the KiCad bridge (`pcbnew_io._line`) and `select`. There is no Python speed-up that would leave the outputs identical under counted work, so none was made.
+
+*Routing:* `hotloop-sw-r3-bfc6583` (N 861c8b8e8900, C‴ 6e567e445c4f), 546 kaeq jobs, two per board.
+- Settings: timed class, priority 5, 4 CPUs, memory at 0.75 × the kaeres estimate (at most 25 G); kaeq admits by memory.
+- Expected CPU, from the restart portfolio's earlier runs on the 213 set (106–149 CPU-h per arm) and round 2's 60 boards (21 per arm): about 260–340 CPU-h.
+- The jobs' time ceilings reserve up to 5,157 CPU-h.
+
+*Physics,* `--scope losses`, `PYTHONHASHSEED=0`, evaluator bfc65839, measures in `hsw-run3`:
+- human on 272 boards now. jetson j2032 has never finished an evaluation, so it is left out of physics in every arm.
+- N and C‴ follow their routing.
+- About 170 CPU-h per arm (submit.py's estimate of 42.5 job-h at 4 CPUs), so about 510 CPU-h for the three.
