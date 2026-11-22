@@ -1,0 +1,11 @@
+ciaa-hardware-picociaa
+circuitmonkey-chips-0123-class-d-amp-max98365
+embeddedalpha-pcb-design-project-x
+gianlucarenzi-a130kb-mx-atari130mx-adapter
+ifilot-sap-smd-general-purpose-register-halfsize
+rjw57-buri-cpu-board
+robertpheller-esp32-lcc-atlaslightboardwifilcctraction-sound
+skiselev-z80-512k-z80-512k
+sparkfun-voice-recorder-breakout-isd1932-isd1932-breakout-v21
+techy-robot-cackle-expansion-2-connector-sensor-2-connector-sensor-board
+watterott-ffc-extender-ffc-adapter-40-v11
