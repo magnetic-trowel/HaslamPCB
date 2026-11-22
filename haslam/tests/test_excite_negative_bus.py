@@ -112,3 +112,10 @@ def test_a_negative_bus_switch_node_takes_as_long_to_swing_as_the_positive_one()
         return p.typ, p.lo, p.hi
     pos = t_v(12.0)
     assert 0 < pos[1] < pos[0] < pos[2] and t_v(-12.0) == pytest.approx(pos)
+
+
+def test_a_negative_bus_cells_loop_is_judged_open_as_the_positive_ones():
+    from haslam.excite import cellquote as CQ
+    # 1 ohm of loop at f_sw against a 12 V / 2 A = 6 ohm load passes; 10 ohm does not, on either sign
+    for R, bad in ((1.0, False), (10.0, True)):
+        assert bool(CQ.unphysical(1e-9, R, -12.0, 2.0, 1e6)) == bool(CQ.unphysical(1e-9, R, 12.0, 2.0, 1e6)) == bad

@@ -420,7 +420,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     # keep-out read L -19388 nH, R 99 kOhm): it is an open cell, priced at its caps, never reported as a value
     for pr in [pr for pr in pairs if pr["o"].kind == "overshoot" and pr["s"].kind == "cell"]:
         s, Pc = pr["s"], P[pr["s"].name]
-        V, I = (Pc["V"].typ if "V" in Pc else 0.0), (Pc["I"].typ if "I" in Pc else 0.0)
+        # the load V / I is a magnitude: a -12 V cell is checked as a +12 V one (signed, it was never judged open)
+        V, I = (abs(Pc["V"].typ) if "V" in Pc else 0.0), (Pc["I"].typ if "I" in Pc else 0.0)
         if not (V > 0 and I > 0):
             continue
         z_load = V / I
