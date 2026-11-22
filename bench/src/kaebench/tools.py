@@ -5,6 +5,7 @@ import functools
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -426,6 +427,50 @@ def run_drc(board, out_json, timeout=None, stall=None):
         raise ToolError(f"DRC failed (rc={r.returncode}): {(r.stdout + r.stderr)[-800:]}")
     with open(out_json) as f:
         return json.load(f)
+
+
+_ITEM_REF = re.compile(r"(?:^Footprint | of )(\S+)")
+_KEEPOUT_OWNER = re.compile(r"keepout area of (\S+?)\)?$")
+
+
+def drc_footprints(v):
+    """The footprint references a DRC violation involves: the ref of each item (its description's
+    "... of REF ..." or "Footprint REF"), plus the footprint whose own keepout an items_not_allowed
+    names ("keepout area of REF"). None for an item that belongs to no footprint (a board edge,
+    zone, track, board graphic or text, or a board-level rule area) or whose ref KiCad prints empty."""
+    refs = set()
+    for it in v.get("items") or []:
+        m = _ITEM_REF.search(it.get("description") or "")
+        if not m or not m.group(1) or m.group(1) == "on":
+            return None
+        refs.add(m.group(1))
+    desc = v.get("description") or ""
+    if "keepout area" in desc or "rule area" in desc:
+        m = _KEEPOUT_OWNER.search(desc.strip())
+        if not m:
+            return None
+        refs.add(m.group(1))
+    return refs or None
+
+
+def within_footprint(v):
+    """A violation between items of one footprint only (its own pads, copper, holes, edge cuts or
+    keepout): the library's, the same wherever the part is placed (user decision 2026-11-22)."""
+    refs = drc_footprints(v)
+    return refs is not None and len(refs) == 1
+
+
+def drc_by_scope(report, ignore=ENV_DEPENDENT_CHECKS):
+    """Error counts by type, split: `between` (violations not inside one footprint: two footprints,
+    or a footprint against the board) and `within` (inside one footprint, within_footprint). Severities
+    as summarize_drc."""
+    between, within = {}, {}
+    for v in report.get("violations", []):
+        if v.get("type") in ignore or v.get("severity") != "error":
+            continue
+        d = within if within_footprint(v) else between
+        d[v["type"]] = d.get(v["type"], 0) + 1
+    return dict(between=between, within=within)
 
 
 def summarize_drc(report, ignore=ENV_DEPENDENT_CHECKS):

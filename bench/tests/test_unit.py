@@ -325,6 +325,46 @@ def test_summarize_drc_ignores_library_checks():
     assert s == dict(unconnected=2, errors=1, warnings=1, errors_by_type={"clearance": 1})
 
 
+def _v(t, *items, desc="", sev="error"):
+    return dict(type=t, severity=sev, description=desc, items=[dict(description=i) for i in items])
+
+
+def test_within_footprint_reads_kicad_10_item_descriptions():
+    # one footprint's own items (KiCad 10 wording, as in the corpus' DRC reports)
+    assert tools.within_footprint(_v("shorting_items", "Segment [<no net>] of RPI_RXD1 on F.Cu", "Pad 2 [N$3] of RPI_RXD1 on F.Cu"))
+    assert tools.within_footprint(_v("clearance", "NPTH pad of J4", "PTH pad S2 [GND] of J4"))
+    assert tools.within_footprint(_v("copper_edge_clearance", "Segment of RPI1 on Edge.Cuts", "Pad S2 [5.0V] of RPI1 on B.Cu"))
+    assert tools.within_footprint(_v("items_not_allowed", "PTH pad 1 [N$5] of ANT1", desc="Items not allowed (keepout area of ANT1)"))
+    assert tools.within_footprint(_v("malformed_courtyard", "Footprint IC2"))
+    # two footprints, or a footprint against the board
+    assert not tools.within_footprint(_v("courtyards_overlap", "Footprint SW2", "Footprint SW1"))
+    assert not tools.within_footprint(_v("shorting_items", "PTH pad 2 [Earth] of J37", "Pad 5 [+12V] of U10 on F.Cu"))
+    assert not tools.within_footprint(_v("copper_edge_clearance", "Arc on Edge.Cuts", "Pad 1 [<no net>] of FID2 on F.Cu"))
+    assert not tools.within_footprint(_v("shorting_items", "Pad 33 [GND] of U501 on F.Cu", "Rectangle [<no net>] on F.Cu"))
+    assert not tools.within_footprint(_v("items_not_allowed", "Footprint J3", desc="Items not allowed (keepout area of U2)"))
+    assert not tools.within_footprint(_v("items_not_allowed", "Pad 1 [GND] of C1 on F.Cu", desc="Items not allowed (rule area 'antenna')"))
+    assert not tools.within_footprint(_v("npth_inside_courtyard", "NPTH pad of ", "Footprint J11"))   # KiCad printed no ref
+    assert not tools.within_footprint(_v("malformed_courtyard", "Footprint J6", "Zone [Net-(C89-Pad1)] on F.Cu, priority 0"))
+
+
+def test_drc_by_scope_splits_errors_and_keeps_summarize_drc_unchanged():
+    rep = dict(violations=[_v("clearance", "Pad 1 [3.3V] of U2 on F.Cu", "Pad 2 [N$54] of U2 on F.Cu"),
+                           _v("clearance", "Pad 2 [GND] of C35 on B.Cu", "Pad 1 [VPP] of U13 on B.Cu"),
+                           _v("courtyards_overlap", "Footprint SW2", "Footprint SW1"),
+                           _v("clearance", "Pad 1 of R1 on F.Cu", "Pad 1 of R2 on F.Cu", sev="warning"),
+                           _v("lib_footprint_issues", "Footprint U2")],
+               unconnected_items=[{}])
+    assert tools.drc_by_scope(rep) == dict(between={"clearance": 1, "courtyards_overlap": 1}, within={"clearance": 1})
+    assert tools.summarize_drc(rep) == dict(unconnected=1, errors=3, warnings=1,
+                                            errors_by_type={"clearance": 2, "courtyards_overlap": 1})
+    d = score._summarize(rep)
+    assert {k: d[k] for k in ("unconnected", "errors", "warnings", "errors_by_type")} == tools.summarize_drc(rep)
+    assert score.placement_errors(d) == {"clearance": 1, "courtyards_overlap": 1}
+    assert score.library_errors(d) == {"clearance": 1}
+    # a summary without the split (score 12 and earlier) is judged whole
+    assert score.placement_errors(tools.summarize_drc(rep)) == {"clearance": 2, "courtyards_overlap": 1}
+
+
 def test_potential_orders_clean_first():
     clean = dict(valid=True, clean=True, completion=1.0, errors=0, track_length_mm=100)
     longer = dict(clean, track_length_mm=150)
