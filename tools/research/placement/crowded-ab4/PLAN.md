@@ -48,3 +48,9 @@ The ab4 shorts CI on the failing boards reached 0 (-220, CI [-624, 0]). One exte
   about 31 CPU-h).
 - **Else:** the fix is recorded as a no-harm, uncertain-gain option, off by default, and the crowded-header line is
   written up. No further extension.
+
+## Result of the extension (2026-11-22)
+- **Pooled, 42 board-seeds:** clear against control, part-to-part shorts 583 -> 389, -194 [-575, +42].
+- **Legality:** kae's own flag 1 -> 7, all itsybitsy-rp2040.
+- **Decision:** the CI includes 0, so by the addendum the fix is recorded as no-harm with an uncertain gain, off by
+  default. No routed check. Write-up: `docs/research/placement/crowded-headers-2611.md`.
