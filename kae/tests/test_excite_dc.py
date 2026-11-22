@@ -314,3 +314,124 @@ def test_track_heating_in_a_pour_is_steady_under_sub_cell_shifts(angle):
     for off in OFFSETS:
         I, weff, _ = _track_reading(angle, off, w=1.0)
         assert I == pytest.approx(1.0, abs=1e-6) and weff == pytest.approx(1.0)
+
+
+# A KiCad 5 board in the format of 2015-2020 pcbnew: a via is written without a (drill) when it has its net
+# class's drill. VBUS (class Power, via drill 0.35) runs J1 -> F.Cu -> via -> B.Cu -> via -> F.Cu -> U2; GND
+# (class Default, 0.4) the same way back; one VBUS via names its own drill.
+KICAD5_DEFAULT_DRILLS = """(kicad_pcb (version 20171130) (host pcbnew 5.1.9)
+  (general (thickness 1.6))
+  (page A4)
+  (layers
+    (0 F.Cu signal)
+    (31 B.Cu signal)
+    (44 Edge.Cuts user)
+  )
+  (setup (via_size 0.8) (via_drill 0.4) (uvia_size 0.3) (uvia_drill 0.1))
+  (net 0 "")
+  (net 1 GND)
+  (net 2 VBUS)
+  (net_class Default "default"
+    (clearance 0.2) (trace_width 0.25) (via_dia 0.8) (via_drill 0.4) (uvia_dia 0.3) (uvia_drill 0.1)
+    (add_net GND)
+  )
+  (net_class Power ""
+    (clearance 0.2) (trace_width 0.5) (via_dia 0.7) (via_drill 0.35) (uvia_dia 0.3) (uvia_drill 0.1)
+    (add_net VBUS)
+  )
+  (module Test:Conn (layer F.Cu) (tedit 0) (tstamp 5A000001)
+    (at 7 10)
+    (fp_text reference J1 (at 0 -3) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))
+    (fp_text value Conn (at 0 3) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))
+    (pad 1 smd rect (at 0 -1) (size 1 1) (layers F.Cu F.Mask) (net 2 VBUS))
+    (pad 2 smd rect (at 0 1) (size 1 1) (layers F.Cu F.Mask) (net 1 GND))
+  )
+  (module Test:Load (layer F.Cu) (tedit 0) (tstamp 5A000002)
+    (at 23 10)
+    (fp_text reference U2 (at 0 -3) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))
+    (fp_text value Load (at 0 3) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))
+    (pad 1 smd rect (at 0 -1) (size 1 1) (layers F.Cu F.Mask) (net 2 VBUS))
+    (pad 2 smd rect (at 0 1) (size 1 1) (layers F.Cu F.Mask) (net 1 GND))
+  )
+  (gr_line (start 5 5) (end 25 5) (layer Edge.Cuts) (width 0.1))
+  (gr_line (start 25 5) (end 25 15) (layer Edge.Cuts) (width 0.1))
+  (gr_line (start 25 15) (end 5 15) (layer Edge.Cuts) (width 0.1))
+  (gr_line (start 5 15) (end 5 5) (layer Edge.Cuts) (width 0.1))
+  (segment (start 7 9) (end 10 9) (width 0.5) (layer F.Cu) (net 2))
+  (via (at 10 9) (size 0.7) (layers F.Cu B.Cu) (net 2))
+  (segment (start 10 9) (end 20 9) (width 0.5) (layer B.Cu) (net 2))
+  (via (at 20 9) (size 0.7) (drill 0.3) (layers F.Cu B.Cu) (net 2))
+  (segment (start 20 9) (end 23 9) (width 0.5) (layer F.Cu) (net 2))
+  (segment (start 7 11) (end 10 11) (width 0.5) (layer F.Cu) (net 1))
+  (via (at 10 11) (size 0.8) (layers F.Cu B.Cu) (net 1))
+  (segment (start 10 11) (end 20 11) (width 0.5) (layer B.Cu) (net 1))
+  (via (at 20 11) (size 0.8) (layers F.Cu B.Cu) (net 1))
+  (segment (start 20 11) (end 23 11) (width 0.5) (layer F.Cu) (net 1))
+)
+"""
+
+
+def _default_drill_board(tmp_path):
+    from kae.board.kicad_file import load
+    p = tmp_path / "board.kicad_pcb"
+    p.write_text(KICAD5_DEFAULT_DRILLS)
+    return load(p)
+
+
+def test_a_via_written_without_a_drill_has_its_net_class_drill(tmp_path):
+    """KiCad 5 writes a via's drill only when it is not its net class's, and pcbnew drills it with the class's
+    (VIA::GetDrillValue). Read as 0 mm, every such via was a barrel of no radius."""
+    b = _default_drill_board(tmp_path)
+    assert sorted((v.x, v.y, v.drill) for v in b.vias) == [(10.0, 9.0, 0.35), (10.0, 11.0, 0.4), (20.0, 9.0, 0.3),
+                                                           (20.0, 11.0, 0.4)]
+
+
+def test_a_zero_drill_barrel_is_refused_by_the_mesh():
+    """A barrel of no radius has no partial inductance (NaN), which made the DC band's factor 'exactly singular'."""
+    from kae.em.mesh import Layer, Mesh
+    m = Mesh.over(0, 0, 2, 2, 0.25, [Layer("F", 1.6, 0.035, 1), Layer("B", 0, 0.035, 1)])
+    with pytest.raises(ValueError, match="drill"):
+        m.via(1.0, 1.0, [0, 1], "A", drill=0.0)
+
+
+def test_a_board_whose_vias_have_their_default_drill_solves_at_dc(tmp_path):
+    """The DC band of a KiCad 5 board whose rail and ground change layers through default-drill vias (hwstar's
+    battery monitor): the DC factor failed as exactly singular. Its potentials are finite and the band observes
+    the copper loss and the load's rail drop."""
+    import numpy as np
+
+    from kae.em import solve as ES
+    from kae.em.kicad import BoardMesh
+    from kae.excite import evaluate as E
+    from kae.excite.beliefs import Param
+    b = _default_drill_board(tmp_path)
+    bm = BoardMesh(None, (5.0, 5.0, 25.0, 15.0), 0.25, b=b, fills={})
+    for t in ("J1.1", "J1.2", "U2.1", "U2.2"):
+        bm.pad(t)
+    net = ES.Network(bm.m)
+    op = ES.Operator(net)
+    holder = {"sys": ES.System(op, 0.0)}           # the DC factor: 'Factor is exactly singular' with 0 mm drills
+    assert len(net.vseg) == 4 and np.isfinite(np.diag(op.Lv)).all()
+    pl = DC.Plan()
+    pl.grounds = {"GND"}
+    pl.pads = {"J1": [("1", "VBUS", "", ""), ("2", "GND", "", "")],
+               "U2": [("1", "VBUS", "power_in", "VDD"), ("2", "GND", "", "GND")]}
+    pl.volts = {"VBUS": 5.0}
+    pl.loss_share, pl.drop_share, pl.dT_max = DC.LOSS_SHARE, DC.DROP_SHARE, DC.DT_MAX
+    pl.feeds = {"VBUS": dict(kind="external", ref="J1", out=["J1.1"], gnd=["J1.2"], rating=3.0)}
+    pl.loads = [dict(ref="U2", rail="VBUS", sup=["U2.1"], gnd=["U2.2"], key=("dc:U2", "I_A"))]
+    pl.params = [Param("dc:U2", "I_A", 1.0, 0.5, 2.0, "A", "test", "test")]
+    notes, obs = [], []
+    rows = E._dc_harms(pl, bm, b, net, op, {}, [], 1, 0, [0.0] * 4, notes, lambda *a: None, obs_out=obs,
+                       system=holder)
+    assert rows, notes
+    (V, info), = ES.potentials_many(bm.m, [{"J1.1": 1.0, "U2.1": -1.0, "U2.2": 1.0, "J1.2": -1.0}], 0.0, net=net,
+                                    op=op, system=holder["sys"])
+    assert all(np.isfinite(complex(v)) for v in V.values())
+    got = {o["id"]: o for o in obs}
+    assert {"loss.copper", "drop.rail"} <= set(got)
+    for o in got.values():
+        assert np.isfinite(o["values"]).all()
+    # 1 A typical through ~2 x 13 mm of 0.5 mm, 35 um copper and four barrels: milliohms, so the drop is mV, not 0
+    assert 1e-4 < got["drop.rail"]["values"][0] < 0.05
+    assert got["loss.copper"]["values"][0] > 0
