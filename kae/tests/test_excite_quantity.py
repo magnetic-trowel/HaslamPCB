@@ -174,3 +174,42 @@ def test_every_observation_of_an_evaluation_is_typed_and_check_changes_no_number
     monkeypatch.setattr(Q, "check", lambda ob: ob)
     ev0 = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, scope="losses")
     assert json.dumps(_strip(ev), sort_keys=False) == json.dumps(_strip(ev0), sort_keys=False)
+
+
+# ----------------------------------------------------------------------------- a negative bus
+def _open_cell(V):
+    from kae.excite import harm as HA
+    from kae.physics import criteria as CR
+    bd = SimpleNamespace(pads_of={})
+    s = SimpleNamespace(name="cell:buck:U1", kind="cell", a="SW", b="GND", pa=None, pb=None,
+                        meta={"V": V, "cell": "buck:U1"})
+    o = SimpleNamespace(name="overshoot:buck:U1", kind="overshoot", a="SW", b="GND", pa=None, pb=None,
+                        bound=CR.overshoot_limits(abs(V))[0], basis="test", src_class="prior",
+                        meta={"source": s.name})
+    return bd, o, s, HA
+
+
+@pytest.mark.parametrize("V", [12.0, -12.0])
+def test_an_open_cell_on_a_negative_bus_loses_its_throughputs_magnitude(V):
+    """An open cell is priced at its throughput |V| I: on a -12 V bus V I was -24 W, a loss priced as a reward (and now
+    a QuantityError). Its overshoot cap is the 12 V bus's too (overshoot_limits floors a signed -12 V at 1 mV)."""
+    from kae.excite import evaluate as E
+    from kae.physics import criteria as CR
+    bd, o, s, HA = _open_cell(V)
+    vals = [{"V_V": V, "I_A": 2.0}, {"V_V": V * 1.1, "I_A": 1.5}]
+    out = E.open_cell_observations(bd, o, s, vals, "test")
+    by = {ob["id"]: ob for ob in out}
+    for k in ("loss.loop", "loss.loop_ac"):
+        assert by[k]["values"] == [pytest.approx(24.0), pytest.approx(abs(V) * 1.1 * 1.5)]
+        assert Q.check(by[k]) is by[k]
+    ov = by["overshoot.peak"]["values"]
+    assert ov == [CR.overshoot_limits(abs(v["V_V"]))[1] for v in vals]
+    assert by["overshoot.peak"]["u"] == [x / HA.overshoot_bound(dict(v, V_V=abs(v["V_V"])), o.bound)
+                                         for x, v in zip(ov, vals)]
+
+
+@pytest.mark.parametrize("V", [5.0, -5.0])
+def test_the_loss_cap_on_a_negative_bus_is_positive(V):
+    from kae.excite import evaluate as E
+    cap = E.loss_cap({"V_V": V, "I_A": 2.0})
+    assert cap > 0 and cap == pytest.approx(E.LOOP_LOSS_FRAC * 10.0)
