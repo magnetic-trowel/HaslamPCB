@@ -84,6 +84,16 @@ RATES = {
     "legal_cells": 1e-8,      # one cell of a grid-sized numpy pass (a summed-area table, a window or board search); 6e-9-1.7e-8 measured, 3 boards
     "legal_sat_cells": 1.75e-9,      # one summed-area-table cell updated in place when a part is placed or evicted; 1.5-1.9e-9 measured, 3 boards
     "legal_rect": 7.1e-4,      # one rectangle marked into an occupancy map (Python, per obstacle or part); 5.3e-4-5.1e-3 measured, median of 3 boards
+    # the strip-and-tile PEEC cell quote (kae.em.strips; KAE_CELL_QUOTE=strips), calibrated with
+    # tools/research/physics/quickphys/calibrate_strips.py on the buck fixture at P 1.0 and 0.5 mm and one 2-layer
+    # boost board (4 BLAS threads; loaded shared host, 2026-11-22, so a first fit to redo on a quiet one)
+    "em_kernel": 1.2e-5,        # one partial-inductance pair (a table entry or a direct pair), with the network's
+                                # build before it; 8.6e-6 on the board, 1.4-1.9e-5 on the fixture at 0.5, 2.4e-5-1.7e-4
+                                # at 1.0 (few pairs: the build dominates)
+    "em_dense": 3.5e-11,        # one N^3 of a dense complex LU (or N^2 of a solve); 3.2-3.7e-11 at N >= 2,000,
+                                # 1.5-1.8e-10 at N ~ 600 (BLAS start-up)
+    "em_border": 4e-10,         # one k N^2 of a bordered update (k + 1 right-hand sides through the LU, the Schur
+                                # complement); 3.6-6.4e-10 measured
     "seconds": 1.0,             # work already measured in nominal seconds by the caller
 }
 CEILING_FACTOR = 4.0    # a run past CEILING_FACTOR x its nominal budget in wall time has failed
