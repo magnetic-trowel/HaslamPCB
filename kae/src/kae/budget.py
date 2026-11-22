@@ -85,16 +85,23 @@ RATES = {
     "legal_sat_cells": 1.75e-9,      # one summed-area-table cell updated in place when a part is placed or evicted; 1.5-1.9e-9 measured, 3 boards
     "legal_rect": 7.1e-4,      # one rectangle marked into an occupancy map (Python, per obstacle or part); 5.3e-4-5.1e-3 measured, median of 3 boards
     # the field solvers (kae.em: the evaluator, the cell quote, the clear step's quotes). Before they were charged,
-    # a cell quote in work mode cost nothing and the clear step overran its budget 2-3x (quick-physics-design RC4)
-    "em_kernel": 1.0e-7,        # one entry of a partial-inductance or Green's-function kernel table (CALIBRATE)
-    "em_precond": 1.0e-8,       # one (block size)^3 of the preconditioner's dense PATCH block inverses (CALIBRATE)
-    "em_factor": 1.0e-7,        # one nonzero of an LU factor (the node Schur complement, the thermal network; CALIBRATE)
-    "em_iter": 1.0e-7,          # one unknown-iteration of the preconditioned COCG (CALIBRATE)
-    "em_thermal_solve": 1.0e-8, # one LU nonzero applied in a thermal solve (per column and CG iteration; CALIBRATE)
-    "em_static_iter": 1.0e-7,   # one copper-cell iteration of the electrostatic CG (CALIBRATE)
-    "em_paint": 1.0e-7,         # one raster cell-layer of a board's mesh painted (CALIBRATE)
-    "fill_run": 3.5,            # one KiCad zone refill (kae.route.critical_recheck.fills_of; CALIBRATE)
-    "fill_mb": 0.6,             # ... per MB of board file (CALIBRATE)
+    # a cell quote in work mode cost nothing and the clear step overran its budget 2-3x (quick-physics-design RC4).
+    # Calibrated 2026-11-22 with tools/research/budget/evaluate_profile.py (--scope losses, KAE_EM_THREADS 8) on three
+    # boards (98-299 pads, 29-726 s wall; shared host at load 47-58 of 128 cores, so less exact than an idle host);
+    # medians, with the boards' range. With them a board's charged work was 0.86, 1.00 and 1.04 of its wall time
+    # (the small board's start-up and imports are not charged)
+    "em_kernel": 3.3e-7,        # one entry of a partial-inductance or Green's-function kernel table; 2.8-3.9e-7
+    "em_precond": 8.8e-9,       # one (block size)^3 of the preconditioner's dense PATCH block inverses; 8.7e-9-1.7e-8
+    "em_factor": 1.56e-7,       # one nonzero of an LU factor (the node Schur complement, the thermal network);
+                                # 1.3-1.7e-7
+    "em_iter": 3.8e-7,          # one unknown-iteration of the preconditioned COCG (with the solves' read-out);
+                                # 3.6-4.4e-7, 60-80 % of an evaluation's wall
+    "em_static_iter": 1.1e-7,   # one copper-cell iteration of the electrostatic CG; 9.9e-8-1.4e-7
+    "em_thermal_solve": 2.2e-9, # one LU nonzero applied in a thermal solve (per column and CG iteration); 2.0-2.4e-9,
+                                # two boards (the third had no dissipating part)
+    "em_paint": 4.9e-6,         # one raster cell-layer of a board's mesh painted (shapes into cells); 4.6-6.1e-6
+    "fill_run": 2.4,            # one KiCad zone refill (kae.route.critical_recheck.fills_of); 2.0-2.7 s on 0.2-0.7 MB
+    "fill_mb": 0.6,             # ... per MB of board file: the DRC's (drc_mb); three small boards cannot separate it
     "seconds": 1.0,             # work already measured in nominal seconds by the caller
 }
 CEILING_FACTOR = 4.0    # a run past CEILING_FACTOR x its nominal budget in wall time has failed
