@@ -393,7 +393,7 @@ def decap_values(rb, s, structs=(), fallback=None):
     if not pairs:
         return None, extra
     val, alloc, ex2 = decap_spend(pairs, structs, lambda u: rb.fp[u].ref if u in rb.fp else None, fallback)
-    return val, dict(extra, **ex2, _alloc=alloc)
+    return val, dict(extra, **ex2, _alloc=alloc, _pairs=pairs)
 
 
 def decap_pairs(rb, s):
@@ -596,12 +596,13 @@ def _in_window(rb, m, window):
 
 @EX.final_fidelity          # --physics-fidelity exact / multi: loops by PEEC (kae.physics.exact)
 def board_physics(board, brief=None, fills="kicad", kinds=("cell", "path", "decap", "crystal", "chain"), terms=None,
-                  window=None, rails=True):
+                  window=None, rails=True, pdn=False):
     """Every module's routed value, allocation and u on a finished board (see the module
     docstring), priced against the place terms' allocations (`terms`, built when None).
     fills: 'kicad' (refill with KiCad), None (zone outlines) or a dict. window (a shapely
     geometry or (x0, y0, x1, y1), mm): only the modules with a member part there; rails:
-    also the rail drops ('_rails')."""
+    also the rail drops ('_rails'); pdn: also kae.excite.pdn's screen with the routed decap
+    loops ('_pdn', its hazards inside; report-only, so the guards and rechecks leave it off)."""
     b = board if not isinstance(board, (str, Path)) else load(board)
     if brief is None:
         from kae.circuit.brief import build
@@ -616,6 +617,7 @@ def board_physics(board, brief=None, fills="kicad", kinds=("cell", "path", "deca
     if terms is None:
         terms = place_terms(b, brief)
     out = {}
+    loops = {}
     actx = _AllocCtx(rb, brief, terms)
     for m in modules_from_brief(brief, kinds):
         if window is not None and not _in_window(rb, m, window):
@@ -633,6 +635,10 @@ def board_physics(board, brief=None, fills="kicad", kinds=("cell", "path", "deca
             out[m.id] = dict(kind=m.kind, error=f"{type(e).__name__}: {e}")
             continue
         a = extra.pop("_alloc", None) if isinstance(extra, dict) else None
+        for _, cap, lv in (extra.pop("_pairs", None) or []) if isinstance(extra, dict) else ():
+            ref = rb.fp[cap].ref if cap in rb.fp else None
+            if ref:
+                loops[ref] = min(loops.get(ref, INF), lv)
         if v is None:
             out[m.id] = dict(kind=m.kind, **extra)
             continue
@@ -641,6 +647,12 @@ def board_physics(board, brief=None, fills="kicad", kinds=("cell", "path", "deca
                          u=round(v / a.value, 4) if a.value > 0 else None, **extra)
     if rails:
         out["_rails"] = rail_drops(rb, brief)
+    if pdn:
+        try:
+            from kae.excite import pdn as PDN
+            out["_pdn"] = PDN.compact(PDN.screen(b, brief, loops=loops, stage="routed"))
+        except Exception as e:  # noqa: BLE001 - a report-only screen
+            out["_pdn"] = dict(error=f"{type(e).__name__}: {e}")
     return out
 
 

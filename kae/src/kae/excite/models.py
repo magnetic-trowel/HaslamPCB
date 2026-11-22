@@ -76,6 +76,10 @@ SMD_ALU_ESL = 4e-9
 RADIAL = ((5.0, 10e-9, 0.3), (6.3, 10e-9, 0.13), (8.0, 20e-9, 0.15), (12.5, 20e-9, 0.08), (16.0, 26e-9, 0.05),
           (999.0, 34e-9, 0.04))                                                         # (<= D mm, ESL, ESR)
 AXIAL = (20e-9, 0.3)
+# a regulator's output pin (power_out) as seen by its rail (a stand-in): R + L, 0.2 uH reaching 0.13 Ohm at
+# 100 kHz, about where a regulator's loop stops holding its output (AMD UG933: "DC to a few hundred kHz")
+REG_R = 0.05
+REG_L = 0.2e-6
 PKG_L = 1.0e-9                  # IC pin: bond wire plus lead
 PKG_R = 5e-3
 DIE_C = {"logic": 1e-9, "memory": 5e-9, "mcu": 5e-9, "fpga": 50e-9, "opamp": 20e-12, "regulator_linear": 1e-9,
@@ -220,10 +224,12 @@ def _port_supplies(bd):
                 bd.assumptions.append(f"{net}: supplied through {t}, which has no ground pin beside it; left open")
                 continue
             if bd.port[ref] == "module":
+                par = dict(R=0.01, L=PKG_L + ESL_DEFAULT, C=C_MODULE)
                 z, what = _rlc(0.01, PKG_L + ESL_DEFAULT, C_MODULE), f"the module's decoupling ({C_MODULE * 1e6:g} uF)"
             else:
+                par = dict(R=R_CABLE, L=L_CABLE)
                 z, what = _rl(R_CABLE, L_CABLE), f"a cable of {L_CABLE * 1e9:g} nH to the host's decoupling"
-            c.z(f"{t}:supply", net, bd.net_of[g], z, t, g, "port")
+            c.z(f"{t}:supply", net, bd.net_of[g], z, t, g, "port", par=par)
             bd.assumptions.append(f"{net}: nothing on the board supplies it but {t}: {what}, returning at {g}")
 
 
@@ -326,6 +332,7 @@ def _part(bd, ref, part, pins, kind, sub, role, rec, in_cell):
         if C is None:
             C = 100e-9
             bd.assumptions.append(f"{ref}: value '{part.value}' unread; 100 nF assumed")
+        C0 = C
         a, b = tw
         text = part.text() if hasattr(part, "text") else f"{part.value} {part.lib_id}"
         if legacy_parts():
@@ -343,7 +350,8 @@ def _part(bd, ref, part, pins, kind, sub, role, rec, in_cell):
             if vr and vb and vb > vr:
                 bd.assumptions.append(f"{ref}: {vb:g} V across a part rated {vr:g} V")
             C *= k
-        c.z(ref, a.net, b.net, _rlc(esr, esl, C), tok(a), tok(b), "C")
+        c.z(ref, a.net, b.net, _rlc(esr, esl, C), tok(a), tok(b), "C",
+            par=dict(C=C, C_nominal=C0, ESR=esr, ESL=esl, polarized=bool(pkg.polarized)))
     elif kind == "resistor" and len(tw) == 2:
         R = V.resistance(part.value)
         if R is None:
@@ -416,7 +424,7 @@ def _ic(bd, ref, part, pins, sub, role):
                 c.z(f"{ref}:{p.net}:die", v, g, _rlc(0.1, 0, dc), None, None, "die")
             c.z(f"{t}:pkg", p.net, v, _rl(PKG_R, PKG_L), t, None, "pkg")
         elif p.ptype == "power_out":
-            c.z(f"{t}:out", p.net, g, _rl(0.05, 0.2e-6), t, None, "reg_out")
+            c.z(f"{t}:out", p.net, g, _rl(REG_R, REG_L), t, None, "reg_out", par=dict(R=REG_R, L=REG_L))
         elif SW_FN.match(fn):
             c.z(f"{t}:sw", p.net, g, _rlc(1.0, PKG_L, 200e-12), t, None, "sw_off")     # switch node C (off)
         elif p.ptype in ("output", "tri_state", "open_collector", "open_emitter"):
