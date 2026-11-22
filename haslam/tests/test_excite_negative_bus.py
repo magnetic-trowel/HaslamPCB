@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from haslam.em import cprice as CP
 from haslam.excite import heat as H
 from haslam.excite import ripple as RP
 
@@ -40,3 +41,8 @@ def test_a_negative_bus_ripple_is_the_positive_ones(I):
     assert pos > 0 and neg == pytest.approx(pos)
     if I == 0.01:
         assert neg == pytest.approx(2 * I)        # the DCM bound holds on either sign
+
+
+def test_a_negative_bus_swings_as_far_as_the_positive_one():
+    assert CP.swing({"V_V": -12.0, "t_v_s": 2e-9}, 5.0) == CP.swing({"V_V": 12.0, "t_v_s": 2e-9}, 5.0) == (12.0, 2e-9)
+    assert CP.swing({}, -5.0) == (5.0, 1e-9)       # the meta voltage of a negative-rail aggressor too
