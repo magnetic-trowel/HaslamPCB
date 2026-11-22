@@ -15,12 +15,18 @@ the quotes differ by more than 10 %. A cell is "open" when its loop does not clo
 hotloop.MAX_GROW times) or when the DRC report lists a loop member as unconnected (as the evaluator does).
 
 Rows: {source, state ok|open|invalid|not_computed, L_nH, R_mohm (at f_sw, skin-corrected unless --no-skin), window,
-pitch, seconds}. `score(rows)` turns them into one number per board for a portfolio's tie-break."""
+pitch, seconds, engine}. `score(rows)` turns them into one number per board for a portfolio's tie-break.
+
+Engines (`engine=`, KAE_CELL_QUOTE, --engine; default raster until the A/B decides): raster, the window solve above;
+strips, the strip-and-tile PEEC of kae.em.strips on the same window (the cell's nets' tracks, vias, pads and KiCad
+fills, plane tiles at STRIP_PITCH), the same L_loop and R_loop definitions, grown the same way, open by connectivity
+before any solve; its rows add unknowns (MNA size) and work_s (the quote's charged nominal seconds)."""
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import os
 import sys
 import time
 
@@ -28,6 +34,9 @@ from . import hotloop as HL
 
 PITCH = 0.125                # mm: the quote's raster (4x fewer cells than the evaluator's 0.0625, 16x faster)
 MAX_CELLS = 6e5              # raster budget of one quote window (cells x copper layers): the pitch doubles past it
+STRIP_PITCH = 0.5            # mm: the strips engine's plane tiles (design doc section 4: within +4.5 % L, -6 % R of the
+                             # 0.0625 mm window on the fixture; the pitch doubles past kae.em.strips.MAX_UNKNOWNS)
+ENGINES = ("raster", "strips")
 
 
 def _LR(info, f_fund, f_edge):
@@ -41,9 +50,16 @@ def _physical(L, R):
     return 0 < L < 1e-6 and 0 < R < 100
 
 
-def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max_cells=MAX_CELLS, log=print, only=None):
+def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max_cells=MAX_CELLS, log=print, only=None,
+                engine=None, strip_pitch=STRIP_PITCH):
     """One row per switching cell of the board at `path` (see the module doc); `only`: the cell ids (brief
-    structure ids) to quote, the others left out (kae.route.hotloop.clear quotes one cell at a time)."""
+    structure ids) to quote, the others left out (kae.route.hotloop.clear quotes one cell at a time). engine: raster
+    or strips (default KAE_CELL_QUOTE, else raster)."""
+    engine = engine or os.environ.get("KAE_CELL_QUOTE") or "raster"
+    if engine not in ENGINES:
+        raise ValueError(f"cell quote engine {engine!r}: one of {', '.join(ENGINES)}")
+    if engine == "strips":
+        return _quote_strips(path, intent, drc, log, only, strip_pitch)
     from kae.board import pinfacts as PF
     from kae.board.kicad_file import load
     from kae.circuit import brief as B
@@ -117,8 +133,63 @@ def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max
                              R_raw_mohm=round(R * 1e3, 4), window=[round(x, 3) for x in win], pitch=pc))
             continue
         rows.append(dict(row, state="ok", L_nH=round(L * 1e9, 4), R_mohm=round(R * 1e3, 4),
-                         window=[round(x, 3) for x in win], pitch=pc, grown=grown, seconds=round(time.time() - t1, 1)))
+                         window=[round(x, 3) for x in win], pitch=pc, grown=grown, seconds=round(time.time() - t1, 1),
+                         engine="raster"))
         log(f"quote {s.name}: L {L * 1e9:.3f} nH, R {R * 1e3:.3f} mOhm at {pc:g} mm ({time.time() - t1:.1f}s)")
+    return rows
+
+
+def _quote_strips(path, intent, drc, log, only, pitch):
+    """quote_cells with the strips engine (kae.em.strips.from_board per cell and window)."""
+    from kae.em import strips as ST
+    from kae.route.critical_recheck import fills_of
+    from .evaluate import drc_open_cells, load_drc
+    t0 = time.time()
+    ctx = ST.prepare(path, intent, fills=fills_of(path))
+    cells = [s for s in ctx.srcs if s.kind == "cell" and (only is None or s.meta.get("cell") in set(only))]
+    if not cells:
+        return []
+    drc_rep, _ = load_drc(path, drc)
+    open_cells = drc_open_cells(drc_rep, ctx.brief, ctx.srcs) if drc_rep else {}
+    log(f"quote (strips): setup {time.time() - t0:.1f}s, {len(cells)} cells")
+    bw = tuple(ctx.bw)
+    rows = []
+    for s in cells:
+        t1 = time.time()
+        row = dict(source=s.name, cell=s.meta.get("cell"), engine="strips")
+        if s.name in open_cells:
+            rows.append(dict(row, state="open", why=open_cells[s.name]))
+            continue
+        win, box = ST.cell_window(ctx, s)
+        if win is None:
+            rows.append(dict(row, state="not_computed", why="no overshoot observer or no pad of the cell on the copper"))
+            continue
+        margin, grown, work, q = ctx.margin0, 0, 0.0, None
+        while True:
+            win = (max(bw[0], box[0] - margin), max(bw[1], box[1] - margin),
+                   min(bw[2], box[2] + margin), min(bw[3], box[3] + margin))
+            q = ST.from_board(path, s.name, window=win, pitch=pitch, ctx=ctx)
+            work += q.work_s
+            if (q.state == "ok" and _physical(q.L_loop, q.R_loop)) or win == bw or grown >= HL.MAX_GROW:
+                break
+            margin, grown = margin * 2, grown + 1
+        info = dict(window=[round(x, 3) for x in win], pitch=q.pitch, grown=grown, unknowns=q.unknowns,
+                    work_s=round(work, 3))
+        if q.state != "ok":
+            rows.append(dict(row, state="open", why=f"{q.why} (window grown {grown} times)", **info,
+                             seconds=round(time.time() - t1, 1)))
+            continue
+        L, R = q.L_loop, q.R_loop
+        Pc = ctx.P[s.name]
+        bad = unphysical(L, R, Pc["V"].typ if "V" in Pc else 0.0, Pc["I"].typ if "I" in Pc else 0.0, ST.cell_bands(ctx, s)[1])
+        if bad:
+            rows.append(dict(row, state="invalid", why=bad, L_raw_nH=round(L * 1e9, 4), R_raw_mohm=round(R * 1e3, 4),
+                             **info))
+            continue
+        rows.append(dict(row, state="ok", L_nH=round(L * 1e9, 4), R_mohm=round(R * 1e3, 4), **info,
+                         seconds=round(time.time() - t1, 1)))
+        log(f"quote {s.name} (strips): L {L * 1e9:.3f} nH, R {R * 1e3:.3f} mOhm at {q.pitch:g} mm, {q.unknowns} "
+            f"unknowns ({time.time() - t1:.1f}s, {work:.2f} s charged)")
     return rows
 
 
@@ -181,6 +252,8 @@ def main(argv=None):
     ap.add_argument("--intent", help="operating facts JSON (its pin facts and the cells' f_sw)")
     ap.add_argument("--pitch", type=float, default=PITCH)
     ap.add_argument("--no-skin", action="store_true")
+    ap.add_argument("--engine", choices=ENGINES, help="raster (the window solve) or strips (kae.em.strips); default "
+                                                     "KAE_CELL_QUOTE, else raster")
     ap.add_argument("--drc", help="KiCad DRC report of this board (a loop member unconnected: the cell is open; "
                                   "default: drc.json beside the board, if any)")
     ap.add_argument("-o", "--out")
@@ -188,7 +261,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     intent = json.load(open(a.intent)) if a.intent else None
     rows = quote_cells(a.board, intent, pitch=a.pitch, skin=not a.no_skin, drc=a.drc or None,
-                       log=lambda *x: print(*x, file=sys.stderr))
+                       log=lambda *x: print(*x, file=sys.stderr), engine=a.engine)
     txt = json.dumps(rows, indent=1)
     if a.out:
         open(a.out, "w").write(txt)
