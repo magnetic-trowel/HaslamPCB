@@ -15,6 +15,9 @@ VIN_LONG = [((117.0, 110.95), (117.0, 114.0), 0.5), ((117.0, 114.0), (119.69, 11
             ((119.69, 114.0), (119.69, 110.95), 0.5)]
 GND = [((117.0, 109.05), (117.0, 108.0), 0.5), ((122.31, 110.95), (123.3, 111.9), 0.5)]
 GND_VIAS = [(117.0, 108.0), (123.3, 111.9)]
+# "axis": the U1.4 -> via ground hop as an axis-aligned L of the same width to the same via (the staircase's share)
+GND_AXIS = [((117.0, 109.05), (117.0, 108.0), 0.5), ((122.31, 110.95), (123.3, 110.95), 0.5),
+            ((123.3, 110.95), (123.3, 111.9), 0.5)]
 SW = [((122.31, 110.0), (126.0, 110.0), 0.5)]
 # the output side, so the switch node's current has a way back: L1.2 to C2.1, C2.2 to the plane
 OUT = [((129.0, 110.0), (132.0, 110.95), 0.5), ((119.69, 109.05), (119.69, 107.5), 0.25),
@@ -33,13 +36,14 @@ def _via(x, y, net, k):
 
 
 def write_hotloop_board(d, variant="closed", reverse=False):
-    """variant: closed (short VIN track), long (VIN track around a 3 mm detour), open (no ground via at U1).
+    """variant: closed (short VIN track), long (VIN track around a 3 mm detour), open (no ground via at U1), axis
+    (closed with the oblique U1.4 ground hop as an axis-aligned L to the same via).
     reverse: the same copper with its tracks and vias listed in the reverse order."""
     d = Path(d)
     p = write_board(d)
     vin = VIN_LONG if variant == "long" else VIN
     vias = GND_VIAS[:1] if variant == "open" else GND_VIAS
-    gnd = GND[:1] if variant == "open" else GND
+    gnd = GND[:1] if variant == "open" else GND_AXIS if variant == "axis" else GND
     items = [_seg(a, b, w, "VIN", k=k) for k, (a, b, w) in enumerate(vin)]
     items += [_seg(a, b, w, "GND", k=10 + k) for k, (a, b, w) in enumerate(gnd)]
     items += [_seg(a, b, w, "Net-(U1-SW)", k=20 + k) for k, (a, b, w) in enumerate(SW)]
