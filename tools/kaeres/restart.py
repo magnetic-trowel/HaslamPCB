@@ -53,7 +53,6 @@ import importlib.util
 import io
 import resource
 import json
-import math
 import os
 import re
 import shlex
@@ -1116,7 +1115,6 @@ def main():
         done.append(fin)
         if fin.get("kept"):
             best = fin
-            out.parent.mkdir(parents=True, exist_ok=True)
             publish(best["out"], out)
     fz = finish_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s,
                      (b0 or {}).get("overlaps", ())) if a.finish else None
@@ -1127,7 +1125,6 @@ def main():
         done.append(fz)
         if fz.get("kept"):
             best = fz
-            out.parent.mkdir(parents=True, exist_ok=True)
             publish(best["out"], out)
     work = dict(attempts=len(done), clean_found=bool(best and best["rank"][:2] == (0, 0)),
                 best_attempt=best and best["k"], best_seed=best and best["seed"], best_rank=best and list(best["rank"]),
@@ -1160,7 +1157,6 @@ def main():
     if best is None:
         log("no attempt produced a board")
         return 1
-    out.parent.mkdir(parents=True, exist_ok=True)
     publish(best["out"], out)
     log(f"kept #{best['k']} (seed {best['seed']}): {best['rank']}")
     carry_report(carry or best["out"].parent, wd)
@@ -1200,8 +1196,6 @@ def run_policy(ap, a):
     b0 = drc(base_dir / "board.kicad_pcb", inp, a.time if WORK else 0.2 * a.time)
     base, base_pairs = (b0 or {}).get("types", {}), (b0 or {}).get("overlaps", ())
 
-    best_so_far = [None]     # the rank of the board in --output
-
     def phase(k, seed, time_s, command):
         d = wd / f"policy{k}"
         d.mkdir(exist_ok=True)
@@ -1218,9 +1212,6 @@ def run_policy(ap, a):
                 work = json.loads(line[9:])
         rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() and not TERM else None
         log(f"policy phase {k}: rc {r.returncode}, rank {rank}")
-        if rank is not None and (k == 1 or rank < (best_so_far[0] or (math.inf,))):
-            best_so_far[0] = rank
-            publish(o, out)          # a kill during a later phase keeps this one
         return dict(k=k, seed=seed, out=o, dir=d, rank=rank, work=work or {}, command=command[:200])
 
     def open_phase(k, seed, time_s, command, prev):
@@ -1244,9 +1235,6 @@ def run_policy(ap, a):
                            stderr=subprocess.STDOUT)
         rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() else None
         log(f"policy phase {k}: rc {rc}, rank {rank}")
-        if rank is not None and rank < (best_so_far[0] or (math.inf,)):
-            best_so_far[0] = rank
-            publish(o, out)
         used = time.monotonic() - w0
         if (d / "report.json").exists():                # the command's report (@REPORT@): kept beside the summary
             shutil.copy2(d / "report.json", wd / "report-windows.json")
@@ -1266,15 +1254,13 @@ def run_policy(ap, a):
         (wd / "summary.json").write_text(json.dumps(work, indent=1, default=str))
         print("KAE_WORK " + json.dumps(work, default=str), flush=True)
         if p1["out"].exists():
-            out.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(p1["out"], out)
+            publish(p1["out"], out)
         return 143
     out.parent.mkdir(parents=True, exist_ok=True)
     if p1["rank"] is not None and p1["out"].exists():
         # the kept board is on disk from here on, whatever a later phase does: a phase the harness kills at its
         # timeout (s2-merit213: the windows phase of 8 boards ran past it) must not leave the run without output
-        out.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(p1["out"], out)
+        publish(p1["out"], out)
     clean1 = p1["rank"] is not None and p1["rank"][1] == 0
     alt = bool(clean1 and a.alt)
     left = 0.5 * a.time if WORK else a.time - (time.monotonic() - t0)   # work mode: nominal halves
@@ -1288,7 +1274,7 @@ def run_policy(ap, a):
                                                           else p2["rank"] < p1["rank"])):
         best = p2
         if best["out"].exists():
-            shutil.copy2(best["out"], out)        # kept as soon as it is better (a later kill keeps it)
+            publish(best["out"], out)        # kept as soon as it is better (a later kill keeps it)
     else:
         best = p1
     phases = [p1, p2]
@@ -1307,7 +1293,7 @@ def run_policy(ap, a):
                                                                     else p3["rank"] < best["rank"])):
                 best = p3
                 if best["out"].exists():
-                    shutil.copy2(best["out"], out)        # kept as soon as it is better (a later kill keeps it)
+                    publish(best["out"], out)        # kept as soon as it is better (a later kill keeps it)
     work = dict(policy="completion-first", second="alt" if alt else "open-alt" if open_alt else "restart", kept=best["k"],
                 third=third,
                 phases=[dict(k=p["k"], seed=p["seed"], rank=p["rank"], command=p["command"],
