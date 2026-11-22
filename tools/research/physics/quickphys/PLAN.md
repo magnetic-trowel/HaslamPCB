@@ -40,11 +40,15 @@ the clock did not see).
 
 1. **Ordering on the 82 human-layout cell pairs** (the pairs of [hot-loop-evaluation-runs § 2](../../../../docs/research/physics/hot-loop-evaluation-runs.md#2-validation-on-human-layouts-2026-11-14): two layouts of one cell, judged by the 0.0625 mm window). The strips quote orders a pair as the window does. **Kill: fewer than 75 of 82 agree.**
 2. **Ratio spread on the 24 converter boards** (hotloop-ab's boards, human layouts): strips L_loop and R_loop over the 0.0625 mm window's, per cell. **Kill: p90 of |ratio − 1| above 15 %** (the raster's own 0.25 mm spread).
-3. **FastHenry** on the fixture's closed and long loops, if FastHenry builds without root: L at 10 MHz within 5 % of strips at P 0.25.
+3. **Ground truth, both models (mandatory).** The strips model's limit sits about 9 % above the raster on the fixture; a gap between two models says nothing about which is wrong (the raster could be low from window truncation or its staircase). So both the raster (`kae.excite.cellquote`, 0.0625 mm) and the strips model (P 0.25 and its refinement) are run against references of known L:
+   - **FastHenry**, built from source without root if at all possible, on the fixture's closed and long loops (tracks as segments, the plane as a FastHenry ground plane with the via contact points) at 10 MHz; else, and in any case:
+   - **analytic cases** on synthetic boards: a rectangular loop over a plane (image-pair formula with Hoer–Love exact terms), two parallel strips (exact Hoer–Love), a via pair (Grover's parallel-filament formula).
+   Reported: each model's deviation from the reference per case. **Kill: the strips model deviates from the reference by more than the raster does on the majority of cases, or by more than 10 % on any analytic case at P 0.25.**
+3b. **Oblique-track staircase as its own fixture case:** the fixture's ground hop drawn axis-aligned (L-path of the same width) against the oblique original, in both models; the staircase's contribution is the difference, reported separately.
 4. **Fixture tests:** open detected by connectivity before any solve; closed < long in L and R; strips against the raster window within 10 % (L) and 8 % (R) at P 0.5.
 5. **The bound across frequency:** on the fixture, a network and its 2 × 2 refinement (nested by construction) at f ∈ {0, 0.1, 0.3, 1, 3, 10, 30, 100} MHz. Claimed: L_coarse ≥ L_fine and R_coarse ≥ R_fine. The test asserts R at DC and L at 100 MHz; the table reports every frequency. If the ordering fails at f_sw (1.1 MHz) or f_edge (10 MHz), where the router uses it, the design doc's claim is narrowed to the limits where it holds and the quote is reported as an estimate, not a bound.
 
-**A/B (after 1–5 pass):** hotloop-sw-style, cells stage on the 60 boards of `final60.txt`, Freerouting 9a5512d, intents
+**A/B (after 1–5, 3b pass):** hotloop-sw-style, cells stage on the 60 boards of `final60.txt`, Freerouting 9a5512d, intents
 `compiled-0833f61`, counted work. Arms: C″ (control: cells first with the raster quote; round 2's `hotloop-sw-c3-2b51145`
 reused if an identity re-route of 5 boards matches on sorted geometry and score) and S (cells first with
 `KAE_CELL_QUOTE=strips`), equal `--time`. Gates (as round 2): completion CI lower bound > −0.005; cp1 and `clean_strict` CI
