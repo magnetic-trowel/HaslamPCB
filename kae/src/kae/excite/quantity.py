@@ -15,10 +15,13 @@ values may be negative and turns a raw board value into a legal bound or cap for
   side it holds (max or min), and a cost tier may not price one (kae.intent.objective.evaluate): a signed value as a
   price rewards the sign nobody meant (the noise priced as reward, -17,610 mW_eq).
 
-`check(ob)` validates an observation dict where its producer builds it and returns the same object, untouched: the
-types decide, they never change a number (docs/research/physics/quick-physics-design.md, section 3)."""
+`check(ob)` validates an observation dict where its producer builds it and returns the same object: the types decide,
+they never change a number (docs/research/physics/quick-physics-design.md, section 3). In production a violation
+marks the observation `invalid` (with `invalid_why`, the reason) and the objective leaves it unpriced, its term
+incomplete; in strict mode (KAE_QUANTITY_STRICT=1, or check(ob, strict=True); the tests run strict) it raises."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 SIDES = ("max", "min")
@@ -183,23 +186,42 @@ def type_of(ob):
     return Level if u in LOG else None
 
 
-def check(ob):
-    """Validate an observation dict's per-corner values against its kind's type and return the same dict, unchanged.
-    A row marked `invalid` (no value: a cell's L_loop that is no inductance) may carry anything; the objective leaves
-    it unpriced. An observation no type covers is an error: a new kind registers its type in KIND_TYPE."""
+STRICT_ENV = "KAE_QUANTITY_STRICT"
+
+
+def strict_default():
+    """Strict mode from the environment: KAE_QUANTITY_STRICT set to anything but '', '0' or 'false'."""
+    return os.environ.get(STRICT_ENV, "").strip().lower() not in ("", "0", "false", "no")
+
+
+def check(ob, strict=None):
+    """Validate an observation dict's per-corner values against its kind's type and return the same dict. A row
+    already marked `invalid` (no value: a cell's L_loop that is no inductance) may carry anything; the objective leaves
+    it unpriced. An observation no type covers is an error: a new kind registers its type in KIND_TYPE.
+
+    A violation raises QuantityError in strict mode (strict=True, or strict=None with KAE_QUANTITY_STRICT=1). Otherwise
+    (production) it marks the dict itself: `invalid` True and `invalid_why` the error's text, appended after its other
+    keys; its values stay as they are, and the objective leaves it unpriced, its term incomplete. A valid dict comes
+    back untouched."""
     if ob.get("invalid"):
         return ob
-    t = type_of(ob)
-    if t is None:
-        raise QuantityError(f"observation {ob.get('id')!r} (unit {ob.get('unit')!r}) has no type: register it in "
-                            f"kae.excite.quantity.KIND_TYPE")
     try:
-        if t is Transfer:
-            t(ob.get("values") or (), sign_meaning=ob.get("sign_meaning") or "")
-        elif t is Clamp:
-            t(ob.get("values") or (), sign_meaning=ob.get("sign_meaning") or CLAMPED_AWAY.get(ob.get("id")) or "")
-        else:
-            t(ob.get("values") or ())
+        t = type_of(ob)
+        if t is None:
+            raise QuantityError(f"observation {ob.get('id')!r} (unit {ob.get('unit')!r}) has no type: register it in "
+                                f"kae.excite.quantity.KIND_TYPE")
+        try:
+            if t is Transfer:
+                t(ob.get("values") or (), sign_meaning=ob.get("sign_meaning") or "")
+            elif t is Clamp:
+                t(ob.get("values") or (), sign_meaning=ob.get("sign_meaning") or CLAMPED_AWAY.get(ob.get("id")) or "")
+            else:
+                t(ob.get("values") or ())
+        except QuantityError as e:
+            raise QuantityError(f"{ob.get('id')} ({ob.get('label') or ''}): {e}") from None
     except QuantityError as e:
-        raise QuantityError(f"{ob.get('id')} ({ob.get('label') or ''}): {e}") from None
+        if strict if strict is not None else strict_default():
+            raise
+        ob["invalid"] = True
+        ob["invalid_why"] = str(e)
     return ob

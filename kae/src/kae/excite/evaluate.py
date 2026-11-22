@@ -639,6 +639,11 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         uncomputed.append("dc")
     for ob in observations:              # every value as finally reported (TCR, harmonics and caps applied) is typed
         QT.check(ob)
+    # in production a value its type forbids marks its observation invalid (kae.excite.quantity.check): listed once
+    bad = [ob for ob in observations if ob.get("invalid_why")]
+    if bad:
+        notes.append(f"{len(bad)} observation(s) fail their type, marked invalid and left unpriced (kae.excite.quantity): "
+                     + "; ".join(ob["invalid_why"] for ob in bad[:8]) + (" ..." if len(bad) > 8 else ""))
     return dict(board=path, pitch=pitch, window=window, seconds=round(time.time() - t0, 1), seed=seed,
                 total=totals(tot, uncomputed),
                 ledger=ledger.rows(), questions=[dict(subject=p.subject, name=p.name, lo=p.lo, hi=p.hi, unit=p.unit,
