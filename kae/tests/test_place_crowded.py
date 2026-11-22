@@ -73,3 +73,8 @@ def test_finer_grid_only_above_the_threshold():
     assert C.finer_grid(P, u + 0.01) is None
     g = C.finer_grid(P, u - 0.01)
     assert g is not None and g < P.g
+
+
+def test_fits_nowhere_is_false_for_a_part_with_room():
+    P, st = _problem()
+    assert not any(C.fits_nowhere(P, st, i) for i in P.mov[:3])
