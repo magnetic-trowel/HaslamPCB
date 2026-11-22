@@ -114,3 +114,28 @@ def test_stage_wall_is_a_multiple_of_the_stage_budget_within_the_runs_hard_deadl
     budget.note_wall_stop("freerouting")
     assert c.report()["wall_stops"] == {"freerouting": 1}
     budget.set_mode("time")
+
+
+
+def test_frame_counts_from_zero_and_adds_its_work_to_the_total():
+    c = budget.set_mode("work", rates={"x": 0.1, "poll": 0.0})
+    try:
+        budget.charge("x", 263.6125)
+        before = c.spent
+        with budget.frame():
+            assert c.spent == 0.0            # the block reads a fresh process's clock
+            budget.charge("x", 3)
+            with budget.frame():             # nested: no new origin
+                budget.charge("x", 2)
+            inner = c.spent
+        assert inner == 0.1 * 3 + 0.1 * 2
+        assert c.spent == before + inner and not c.framed
+        assert c.units["x"] == 263.6125 + 5
+    finally:
+        budget.set_mode("time")
+
+
+def test_frame_is_a_no_op_in_time_mode():
+    c = budget.set_mode("time")
+    with budget.frame():
+        assert not c.framed

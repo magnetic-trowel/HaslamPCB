@@ -208,6 +208,13 @@ def test_kicad_zone_error_keeps_the_part_off_the_whole_zone():
     assert fb["constraints"] == 1
     (g, why), = P.feedback["avoid"][i.i]
     assert g.contains(sbox(x - 5.9, y - 5.9, x + 5.9, y + 5.9))
+    # a malformed courtyard reported with the zone it touches is the footprint's, not the zone's
+    mal = {"violations": [{"type": "malformed_courtyard", "severity": "error",
+                           "description": "Footprint has malformed courtyard (not a closed shape)", "items": [
+        {"description": f"Footprint {i.ref}", "pos": {"x": x, "y": y}},
+        {"description": "Zone [Z] on F.Cu, priority 0", "pos": {"x": x + 5, "y": y}}]}]}
+    fb = exact.kicad_feedback(P, st, mal)
+    assert fb["fixed_only"] == 1 and fb["constraints"] == 0 and fb["placer_by_type"] == {}
 
 
 def test_exact_rules_follow_kicad_on_copperless_pads_roundrects_and_custom_rules():
@@ -515,6 +522,23 @@ def test_kicad_loop_writes_the_best_judged_placement_back(monkeypatch):
     st.X[i7], st.Y[i7], st.K[i7] = start
     res, (clean, _) = run_loop([3, 0], 2)             # clean: written as it is
     assert clean and res.report["kicad_written_round"] == 1
+    st.X[i7], st.Y[i7], st.K[i7] = start
+    calls = []
+    monkeypatch.setattr(exact, "repair", lambda P, st, time_s, log=None: calls.append(1) or dict(start=2, moved=[], findings=[]))
+    monkeypatch.setattr(kdrc, "run", lambda staged, path, timeout: calls.append("drc") or {"n": 3})
+    res = Result(poses=st.poses(), report={}, state=st, problem=P)
+    a = SimpleNamespace(drc="on", drc_rounds=6, time=600.0, output="o", input="i", writer="sexpr")
+    n_written = len(written)
+    clean, _ = cli._kicad_loop(a, res, time.monotonic(), write)   # a repair that moves nothing: one verdict, stop
+    assert calls == ["drc", 1] and res.report["kicad_drc"][0]["repair"]["unchanged"]
+    assert res.report["kicad_written_round"] == 0 and len(written) == n_written
+    calls.clear()                                     # no findings for the exact model: the rounds go on
+    monkeypatch.setattr(exact, "repair", lambda P, st, time_s, log=None: calls.append(1) or dict(start=0, moved=[], findings=[]))
+    cli._kicad_loop(a, Result(poses=st.poses(), report={}, state=st, problem=P), time.monotonic(), write)
+    assert calls.count("drc") == 7
+    res, (clean, _) = run_loop([1, 1, 1], 2)          # no repair helped: the least-moved round 0 back
+    assert clean is False and res.report["kicad_written_round"] == 0
+    assert (int(st.X[i7]), int(st.Y[i7]), int(st.K[i7])) == start and written[-1] == res.poses
 
 
 def test_mask_only_aperture_across_two_zone_fills_is_a_bridge(monkeypatch):
@@ -768,6 +792,31 @@ def test_intrinsic_footprint_violations_are_not_the_placers():
                                       dict(description="Pad 1 [SCDAT7] of RN2 on F.Cu")])
     assert _own_cutout(rn) and not _own_cutout(dict(type="clearance", items=rn["items"][:1]))
 
+
+
+def test_own_keepout_is_intrinsic():
+    """KiCad names a footprint keepout's owner only in the description, with one item: a pad of
+    the same footprint inside it is the footprint's design (freetronics-kitten REG1, a 78xx whose
+    B.Cu keepout covers its own mounting hole); another part's pad, or a board keepout, is not."""
+    from kae.place.exact import _intrinsic
+    def v(desc, item):
+        return dict(type="items_not_allowed", description=desc, items=[dict(description=item)])
+    assert _intrinsic(v("Items not allowed (keepout area of REG1)", "NPTH pad of REG1"))
+    assert _intrinsic(v("Items not allowed (keepout area of FID2)", "Pad 1 [<no net>] of FID2 on F.Cu"))
+    assert _intrinsic(v("Items not allowed (keepout area 'TOP' of J1)", "Pad 3 [GND] of J1 on F.Cu"))
+    assert not _intrinsic(v("Items not allowed (keepout area of REG1)", "Pad 1 [VIN] of C2 on F.Cu"))
+    assert not _intrinsic(v("Items not allowed (keepout area of J1)", "Via [GND] on F.Cu - B.Cu"))
+    assert not _intrinsic(v("Items not allowed (keepout area)", "Pad [<no net>] of CH1 on F.Cu"))
+    assert not _intrinsic(v("Items not allowed (keepout area 'Left')", "Pad 1 [GND] of SW3 on F.Cu"))
+    # through the DRC report reader, as the KiCad loop sees it (it once dropped the description)
+    from kae.place.legalize import kicad_violations
+    rep = dict(violations=[dict(type="items_not_allowed", severity="error",
+                                description="Items not allowed (keepout area of REG1)",
+                                items=[dict(description="NPTH pad of REG1", pos=dict(x=59.5, y=-35.96))])])
+    assert [_intrinsic(x) for x in kicad_violations(rep)] == [True]
+    # a courtyard that does not close is the footprint's (bkw777 wp2-feather U1)
+    assert _intrinsic(dict(type="malformed_courtyard", description="Footprint has malformed courtyard (not a closed shape)",
+                           items=[dict(description="Footprint U1")]))
 
 def test_anchor_fixes_only_parts_with_no_spot(monkeypatch):
     """place.pipeline._anchor_tight_parts: a part the grid gives no spot free of the fixed

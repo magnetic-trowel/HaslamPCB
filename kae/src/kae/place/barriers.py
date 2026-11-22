@@ -28,7 +28,6 @@ those opens whatever the method does, the human layout included.
 from __future__ import annotations
 
 import dataclasses
-import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -468,7 +467,7 @@ def place_split(place_fn, board, split, seed=0, time_s=300.0, log=None, verify=N
     `verify` (the caller's check of the whole board) runs once on the merged result."""
     log = log or (lambda *a, **k: None)
     from .pipeline import Result
-    t0 = time.monotonic()
+    t0 = clock_now()        # the clock `verify`'s end is read on (kae.cli._kicad_loop: now() in work mode)
     reserve = SPLIT_VERIFY_FRAC * float(time_s) if verify is not None else 0.0
     usable = max(float(time_s) - reserve, SPLIT_MIN_S * len(split.regions))
     subs = [sub_board(board, split, r) for r in range(len(split.regions))]
@@ -486,7 +485,7 @@ def place_split(place_fn, board, split, seed=0, time_s=300.0, log=None, verify=N
     rep["barrier_split"] = dict(regions=len(split.regions), areas=[round(p.area, 1) for p in split.regions],
                                 parts=[sum(1 for v in split.region_of.values() if v == r) for r in range(len(split.regions))],
                                 assignment=split.how, cross_nets=len(split.cross_nets), cross_net_names=split.cross_nets[:30],
-                                over_capacity=split.over_capacity, seconds=round(time.monotonic() - t0, 2))
+                                over_capacity=split.over_capacity, seconds=round(clock_now() - t0, 2))
     if split.over_capacity:
         rep.setdefault("hazards", []).append(dict(code="barrier_region_over_capacity", regions=split.over_capacity))
     out = Result(poses=poses, report=rep)

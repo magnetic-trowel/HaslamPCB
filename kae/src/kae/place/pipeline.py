@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import collections
 
+from kae.budget import frame as budget_frame
 from kae.budget import lap, now as clock_now
 import os
 import time
@@ -392,7 +393,19 @@ def place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, l
     relax_bodies as set. `verify(res, end)`: the caller's check of a rung (kae.cli: write the
     board and run KiCad's DRC loop until `end`, monotonic seconds), called on each rung of a
     two-rung ladder; its return value is kept as res.verified. Report: severity_used,
-    severity_ladder, and a severity_fallback hazard when the fallback ran."""
+    severity_ladder, and a severity_fallback hazard when the fallback ran.
+
+    The work clock counts from zero inside (kae.budget.frame): the result does not depend on what the
+    process did before the call."""
+    with budget_frame():
+        return _place(board, seed=seed, time_s=time_s, physics=physics, brief=brief, workers=workers, log=log,
+                      anneal=anneal, edge_mate=edge_mate, anneal_args=anneal_args, angle_step=angle_step,
+                      fixed=fixed, board_path=board_path, opts=opts, verify=verify)
+
+
+def _place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, log=None, anneal=True,
+           edge_mate=False, anneal_args=None, angle_step=None, fixed=(), board_path=None, opts=None,
+           verify=None):
     log = log or (lambda *a, **k: None)
     kw = dict(seed=seed, physics=physics, workers=workers, log=log, anneal=anneal, edge_mate=edge_mate,
               anneal_args=anneal_args, angle_step=angle_step, fixed=fixed, board_path=board_path, opts=opts)
