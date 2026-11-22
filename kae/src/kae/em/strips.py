@@ -551,9 +551,11 @@ class Network:
         return None
 
     def well(self, node, x, y, layer, net=None, r=None):
-        """Resistive links from `node` to the four tile nodes around (x, y) with bilinear weights w (0.5 R_sq / w each:
-        a Peaceman-style well), over the ones that exist; the nearest tile node within 1.5 pitches if none. Returns
-        the number of links (0: the point is not on tiled copper)."""
+        """Resistive links from `node` to the four tile nodes around (x, y) with bilinear weights w (R_w / w each: a
+        Peaceman well, well_resistance), over the ones that exist; to every tile node within the landing's radius r
+        instead when there are any (a landing wider than the grid is one equipotential, as the raster's landing
+        disk); the nearest tile node within 1.5 pitches if none. Returns the number of links (0: the point is not on
+        tiled copper)."""
         pl = self.in_plane(x, y, layer, net)
         if pl is None or (node, layer, pl["net"]) in self.welled:
             return 0
@@ -565,6 +567,14 @@ class Network:
         cand = [((i, j), (1 - ax) * (1 - ay)), ((i + 1, j), ax * (1 - ay)), ((i, j + 1), (1 - ax) * ay),
                 ((i + 1, j + 1), ax * ay)]
         have = [(pl["nodes"][k], w) for k, w in cand if k in pl["nodes"] and w > 1e-9]
+        if r:
+            # a landing wider than the grid: every tile node under it, one equipotential (the raster's landing disk)
+            m = int(math.ceil(r / P)) + 1
+            disk = [pl["nodes"][(ii, jj)] for ii in range(i - m, i + m + 2) for jj in range(j - m, j + m + 2)
+                    if (ii, jj) in pl["nodes"]
+                    and math.hypot(x0 + (ii + 0.5) * P - x, y0 + (jj + 0.5) * P - y) <= r]
+            if len(set(disk)) >= 4:              # fewer: the bilinear well places it better than a snap
+                have = [(n, 1.0) for n in sorted(set(disk))]
         if not have:
             best = None
             for (ii, jj), n in pl["nodes"].items():
