@@ -37,3 +37,14 @@ Written 2026-11-22, before any run. Sprint tier, prio 5, at most 40 CPU-h.
 
 ## Cost (information)
 4 arms x 59 board-seeds at about 4 min: about 16 CPU-h.
+
+## Addendum 2026-11-22: one extension, written before its results
+The ab4 shorts CI on the failing boards reached 0 (-220, CI [-624, 0]). One extension, then a decision:
+- **Runs:** seeds 17-19 on the 7 failing boards, arms control and clear only (pairs adds nothing), same code and
+  settings. About 3 CPU-h, prio 5.
+- **Analysis:** pooled with ab4's seeds 14-16, giving 42 board-seeds. The board-cluster bootstrap CI of clear's
+  shorts against control.
+- **If the CI is below 0:** the routed sprint check is submitted (the 26 boards, control against clear, k = 2,
+  about 31 CPU-h).
+- **Else:** the fix is recorded as a no-harm, uncertain-gain option, off by default, and the crowded-header line is
+  written up. No further extension.
