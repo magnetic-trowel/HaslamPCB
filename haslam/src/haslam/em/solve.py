@@ -26,6 +26,8 @@ import scipy.fft as sfft
 import scipy.sparse as sp
 import scipy.sparse.linalg as sla
 
+from haslam import budget
+
 from . import blas as BL
 from . import kernels as KN
 from .mesh import MM, Network
@@ -150,6 +152,7 @@ class Operator:
                     w_ = PATCH - 1
                     near = T[m.ny - 1 - w_:m.ny + w_, m.nx - 1 - w_:m.nx + w_] if m.ny > w_ and m.nx > w_ else None
                     Operator._cache[key] = (sfft.rfft2(C, workers=WORKERS), near)
+                    budget.charge("em_kernel", (2 * m.ny - 1) * (2 * m.nx - 1))   # units: kernel-table entries
                 kh, c0 = Operator._cache[key]
                 out[(r, s)] = kh
                 centre[(r, s)] = centre[(s, r)] = c0      # (2 PATCH - 1)^2 table around offset 0
@@ -264,6 +267,7 @@ class System:
         rows, cols, vals = [], [], []
         C0 = {}
         b = PATCH
+        dense = 0
         for o in ("x", "y"):
             C0[o] = np.zeros((len(net.subs), len(net.subs), 2 * b - 1, 2 * b - 1))
             for (r, q), c in op.centre[o].items():
@@ -294,6 +298,7 @@ class System:
                     stack[:, np.arange(size), np.arange(size)] = False
                     B += 1j * w * stack * f["Lc"][idx][:, :, None]
                 Bi = np.linalg.inv(B * self.kap)
+                dense += int(grp.shape[0]) * int(size) ** 3
                 gi = a0 + idx
                 rows.append(np.repeat(gi, size, axis=1).ravel())
                 cols.append(np.tile(gi, (1, size)).ravel())
@@ -308,12 +313,14 @@ class System:
                 rows.append(np.arange(lo, hi)), cols.append(np.arange(lo, hi)), vals.append(1 / (self.kap * d))
         self.Zn_inv = sp.csr_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
                                     shape=(net.n_br, net.n_br))
+        budget.charge("em_precond", dense)          # units: (block size)^3 per PATCH block inverted
         Sn = (self.DT @ self.Zn_inv @ self.D).tocsc()
         t = time.time()
         # Sn is structurally symmetric: a symmetric ordering with diagonal pivots (threshold 0.1) fills
         # 2.9x less than COLAMD, factors 4-6x and solves ~2x faster at equal residuals
         self.lu = sla.splu(Sn, permc_spec="MMD_AT_PLUS_A", options=dict(SymmetricMode=True, DiagPivotThresh=0.1))
         self.t_factor = time.time() - t
+        budget.charge("em_factor", self.lu.L.nnz + self.lu.U.nnz)    # units: nonzeros of the Schur complement's LU
 
     @property
     def nbytes(self):
@@ -416,7 +423,10 @@ class System:
         bn[bn == 0] = 1.0
         act = np.linalg.norm(r, axis=0) > tol * bn
         its = np.zeros(P, int)
+        n_unk = nb + self.nfree
+        warm = 1 if X0 is not None else 0
         if not act.any():
+            budget.charge("em_iter", (1 + warm) * P * n_unk)     # units: unknown-iterations (P columns x unknowns)
             return (x, its, ~act) if with_converged else (x, its)
         z = self.psolve(r)
         p = z.copy()
@@ -437,6 +447,8 @@ class System:
             beta = np.where(act, rzn / np.where(act, rz, 1.0), 0.0)
             p = z + beta * p
             rz = np.where(act, rzn, rz)
+        # units: unknown-iterations (the iterations run, the start and a warm start's correction; P columns x unknowns)
+        budget.charge("em_iter", (int(its.max()) + 1 + warm) * P * n_unk)
         return (x, its, ~act) if with_converged else (x, its)
 
     def solve(self, s, tol=1e-8, maxiter=1000):
@@ -448,7 +460,9 @@ class System:
         x = self.psolve(rhs)
         r = rhs - self.matvec(x)
         bn = np.linalg.norm(rhs)
+        n_unk = len(rhs)
         if np.linalg.norm(r) <= tol * bn:
+            budget.charge("em_iter", n_unk)  # units: unknown-iterations (the start only)
             return x, 0, 0                   # the preconditioner is exact here (e.g. DC)
         z = self.psolve(r)
         p = z.copy()
@@ -459,11 +473,13 @@ class System:
             x += a * p
             r -= a * q
             if np.linalg.norm(r) <= tol * bn:
+                budget.charge("em_iter", (it + 1) * n_unk)      # units: unknown-iterations (iterations and the start)
                 return x, 0, it
             z = self.psolve(r)
             rz_new = r @ z
             p = z + (rz_new / rz) * p
             rz = rz_new
+        budget.charge("em_iter", (maxiter + 1) * n_unk)         # units: unknown-iterations (iterations and the start)
         return x, 1, maxiter
 
     def injection(self, plus, minus):
