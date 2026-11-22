@@ -643,3 +643,53 @@ def test_second_job_loads_kernels_the_first_compiled(tmp_path, monkeypatch):
     assert (hits, misses, added) == (0, 1, 1)
     (hits, misses), added = job(2)
     assert (hits, misses, added) == (1, 0, 0)
+
+
+def test_keep_drc_reports_keeps_placement_and_routing_reports_and_never_overwrites(tmp_path):
+    import gzip
+    sc, ev = tmp_path / "score", tmp_path / "evals"
+    (sc / "placement").mkdir(parents=True)
+    (sc / "routing").mkdir()
+    ev.mkdir()
+    (sc / "placement" / "drc.json").write_text('{"violations": []}')
+    (sc / "routing" / "drc.json").write_text('{"violations": [1]}')
+    assert sorted(kaeres.keep_drc_reports(sc, ev, "e1")) == ["e1.placement-drc.json.gz", "e1.routing-drc.json.gz"]
+    assert gzip.open(ev / "e1.routing-drc.json.gz").read() == b'{"violations": [1]}'
+    (sc / "routing" / "drc.json").write_text('{"changed": true}')
+    assert kaeres.keep_drc_reports(sc, ev, "e1") == []            # never overwritten
+    assert gzip.open(ev / "e1.routing-drc.json.gz").read() == b'{"violations": [1]}'
+    (sc / "drc.json").write_text("{}")                            # a route or place task's single report
+    assert kaeres.keep_drc_reports(sc, ev, "e2") == ["e2.drc.json.gz", "e2.placement-drc.json.gz", "e2.routing-drc.json.gz"]
+
+
+def test_rescore_todo_skips_runs_already_scored_by_the_scorer_and_runs_without_output(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(kaeres, "STORE", tmp_path)
+    runs = tmp_path / "boards" / "b1" / "runs"
+    for name, status, out, ev in (("m.a0", "ok", True, None), ("m.a1", "ok", True, "new"), ("m.a2", "ok", False, None),
+                                  ("m.a3", "score_error", True, None), ("x.a0", "ok", True, None), ("m.a4", "error", True, None)):
+        (runs / name / "evals").mkdir(parents=True)
+        (runs / name / "run.json").write_text(json.dumps(dict(run=name, method_id=name[0], attempt=0, status=status)))
+        if out:
+            (runs / name / "output.kicad_pcb.gz").write_bytes(b"")
+        if ev:
+            (runs / name / "evals" / f"{ev}.json").write_text("{}")
+    todo = sorted(r["run"] for _, r in kaeres._rescore_todo("b1", {"m"}, "new"))
+    assert todo == ["m.a0", "m.a3"]
+
+
+def test_rescore_runs_finds_each_task_kinds_drc_reports(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("rescore_runs", Path(kaeres.__file__).with_name("rescore_runs.py"))
+    try:
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except ImportError:
+        import pytest
+        pytest.skip("kaebench not importable here")
+    (tmp_path / "score" / "placement").mkdir(parents=True)
+    (tmp_path / "score" / "placement" / "drc.json").write_text("{}")
+    (tmp_path / "score" / "drc.json").write_text("{}")
+    assert set(mod.drc_reports(tmp_path, "joint-fixed")) == {"placement"}
+    assert set(mod.drc_reports(tmp_path, "place-fixed")) == {"placement"}
+    assert set(mod.drc_reports(tmp_path, "route")) == {"drc"}
