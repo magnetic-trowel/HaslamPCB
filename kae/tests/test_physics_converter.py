@@ -158,3 +158,30 @@ def test_a_converter_on_negative_rails_runs_as_its_magnitudes(top, Vi, Vo, leg):
     assert pos.D > CV.D_MIN and pos.I_in > 0 and pos.V_bus > 0
     p, n = _op_tuple(pos), _op_tuple(neg)
     assert (n[0], n[6]) == (p[0], p[6]) and [n[i] for i in (1, 2, 3, 4, 5, 7)] == pytest.approx([p[i] for i in (1, 2, 3, 4, 5, 7)])
+
+
+@pytest.mark.parametrize("vo,vi,top", [
+    (-5.0, 12.0, "inverting_buck_boost"),
+    (5.0, -12.0, "inverting_buck_boost"),
+    (-5.0, -12.0, "buck"),                         # a negative buck: rails of one sign
+    (5.0, 12.0, "buck"),
+    (-5.0, None, "inverting_buck_boost"),          # input unknown: a negative output taken as inverting
+])
+def test_a_buck_cell_inverts_only_between_rails_of_opposite_signs(vo, vi, top):
+    assert CV.topology_of("buck", {}, vo, vi)[0] == top
+    st = {"class": "buck", "rail": "IN", "vout": "OUT"}
+    nets = {"IN": {"volts": vi}, "OUT": {"volts": vo}}
+    assert DC.cell_topology(st, nets) == top
+
+
+def test_the_router_classifies_a_cell_by_its_rails_signs():
+    from kae.route.critical_modules import _intent_converter
+
+    def conv(Vi, Vo):
+        nets = {"IN": {"volts": Vi}, "OUT": {"volts": Vo}}
+        ctx = SimpleNamespace(opts={"intent": {"cells": {"c1": {"I_out_A": 0.5, "eta": 0.9}}}}, nets=nets,
+                              volts=lambda n: abs(nets[n]["volts"]) if n in nets else None, brief={})
+        return _intent_converter(ctx, SimpleNamespace(id="c1", spec={"class": "buck", "rail": "IN", "vout": "OUT"}))
+    inv = conv(5.0, -5.0)
+    assert inv.op.topology == "inverting_buck_boost" and inv.I[0] == pytest.approx(0.5 / (1 - 5.0 / 9.5))
+    assert conv(-12.0, -5.0).op.topology == "buck" and conv(-12.0, -5.0).I[0] == pytest.approx(0.5)

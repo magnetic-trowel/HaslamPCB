@@ -71,16 +71,20 @@ def _clip(D):
     return min(max(D, D_MIN), D_MAX)
 
 
-def topology_of(cls, struct=None, v_out=None):
+def topology_of(cls, struct=None, v_out=None, v_in=None):
     """(topology, leg) of a brief commutation cell (class, its structure), or (None, None) when it is no
-    DC-DC converter (half bridges, motor and class-D drivers keep their stated or prior current)."""
+    DC-DC converter (half bridges, motor and class-D drivers keep their stated or prior current).
+    v_out, v_in: the rails' signed voltages. A buck-class cell inverts when its rails have opposite signs
+    (12 V -> -5 V, or -12 V -> 5 V); between rails of one sign (-12 V -> -5 V) it is a buck, the mirror image of
+    a positive one. With v_in unknown a negative v_out is taken as inverting (the common case: a negative rail
+    made from a positive supply); the rails alone cannot tell it from a negative buck."""
     st = struct or {}
     top = st.get("topology")
     if top == "buck_boost_4switch":
         return "buck_boost_4switch", cls
     if top in TOPOLOGIES:
         return top, None
-    if cls == "buck" and v_out is not None and v_out < 0:
+    if cls == "buck" and v_out and ((v_out < 0) != (v_in < 0) if v_in else v_out < 0):
         return "inverting_buck_boost", None
     if cls in ("buck", "boost", "sepic", "cuk", "inverting_buck_boost", "boost_led"):
         return cls, None
