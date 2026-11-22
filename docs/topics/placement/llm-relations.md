@@ -74,7 +74,7 @@ Hazards (`Bundle.hazards`, then `kae.hazards.finalize`):
 
 | Code | Severity | When |
 |---|---|---|
-| `relation_conflict` | warn | a pre-check conflict; or, with `relations_vs_physics tie`, an unmet soft relation on a part that place-term structures also price (`with_physics` names them) |
+| `relation_conflict` | warn | a pre-check conflict; or an unmet soft relation on parts place-term structures also price: `with_physics` names the structures, `physics_terms` the intent's hard and limit terms on them, `winner` physics (default) or tie |
 | `relation_unmet` | warn if required, info otherwise | the oracle finds it unmet |
 | either | block | `category: safety` and `relations_block safety` (default; `required` also blocks unmet required, `never` never) ([Q5](llm-relations-input.md#open-questions)) |
 | `relation_check_failed` | warn | the oracle raised; the placement is still written |
@@ -86,8 +86,8 @@ Hazards (`Bundle.hazards`, then `kae.hazards.finalize`):
 | Setting | Default | Meaning |
 |---|---|---|
 | `relations_mm` | `sourced` | Q1: lengths allowed, `assumed` without a source; `forbid` |
-| `relations_vs_physics` | `tie` | Q2: relations keep their weight on parts the place terms price, and unmet there they are conflicts; `physics`: those pulls weigh as weak and rows say `yielded_to` |
-| `relations_block` | `safety` | Q5: as above |
+| `relations_vs_physics` | `physics` | Q2, answered: physics wins; a pull or keep-away on parts the place terms price weighs as weak, and unmet it is a `relation_conflict` naming the physics, the row `yielded_to` it; `tie`: relations keep their weight (still a conflict when unmet) |
+| `relations_block` | `safety` | Q5, answered as built: as above |
 | `rel_<mag>_decap`, `rel_<mag>_scale`, `rel_gap_min` | 2.5/4.9/15, 0.5/2/6, 0.5 | magnitudes |
 | `rel_w_<strength>` | 0.3/1/3/10 | pull and keep-away weights |
 

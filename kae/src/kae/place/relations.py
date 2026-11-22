@@ -398,6 +398,21 @@ class Bundle:
                 if sid not in self.struct_parts[P.parts[i].uuid]:
                     self.struct_parts[P.parts[i].uuid].append(sid)
 
+    def _physics_terms(self, mem, secs):
+        """Ids of the intent's hard and limit terms scoped to these parts (where.part) or sections."""
+        import fnmatch as fm
+        refs = {self._ref(u) for u in mem}
+        out = []
+        for t in self.intent.get("terms") or []:
+            if t.get("tier") not in ("hard", "limit"):
+                continue
+            w = t.get("where") or {}
+            pats = lambda k: (w.get(k) if isinstance(w.get(k), list) else [w.get(k)]) if w.get(k) else []
+            if any(fm.fnmatch(r, p_) for r in refs for p_ in pats("part")) or \
+                    any(fm.fnmatch(sid, p_) for sid in secs for k in ("section", "from", "to") for p_ in pats(k)):
+                out.append(t["id"])
+        return out
+
     def weight(self, strength, uuids=()):
         """Annealer weight of a soft relation at `strength`; with relations_vs_physics 'physics', a
         relation on a part of a physics structure (a brief section) weighs as weak."""
@@ -1049,16 +1064,25 @@ class Bundle:
                 row["binding"] = m["binding"]
         cf = [c for c in self.precheck if x.id in c["ids"]]
         mem = set(x.members) | set(x.a.parts if x.a else []) | {u for u, _ in x.path}
-        if met is False and self.set["relations_vs_physics"] == "tie":
-            secs = sorted({s for u in mem for s in self.struct_parts.get(u, [])})
-            if secs and x.enforced in ("soft", "strong rule"):
-                cf.append(dict(ids=[x.id], with_physics=secs[:6], proof="measured",
-                               why="its parts are also priced by place terms (structures " + ", ".join(secs[:3])
-                                   + "), which tie with relations (relations_vs_physics 'tie'): the placer may "
-                                   "have traded this relation for them",
-                               fix="raise its strength, or relax the physics terms of those sections"))
-        elif met is False and secs_yield(self, mem):
-            row["yielded_to"] = secs_yield(self, mem)
+        secs = sorted({s_ for u in mem for s_ in self.struct_parts.get(u, [])})
+        if met is False and secs and x.enforced in ("soft", "strong rule"):
+            # a relation and the place terms pull the same parts and the relation lost: a conflict either
+            # way, naming the physics. 'physics' (default, open question 2 as answered): the physics wins,
+            # the relation weighed as weak there; 'tie': both at their strength, the placer traded
+            terms = self._physics_terms(mem, secs)
+            names = ", ".join(secs[:3]) + (f"; intent terms {', '.join(terms[:3])}" if terms else "")
+            if self.set["relations_vs_physics"] == "physics":
+                row["yielded_to"] = secs[:6]
+                why = (f"its parts are priced by physics (place terms of {names}), which wins by default "
+                       f"(relations_vs_physics 'physics'): the relation yielded and is not met")
+                fix = "relax the physics terms of those sections, or ask for relations_vs_physics 'tie'"
+            else:
+                why = (f"its parts are also priced by physics (place terms of {names}), which ties with relations "
+                       f"(relations_vs_physics 'tie'): the placer traded this relation for them")
+                fix = "raise its strength, or relax the physics terms of those sections"
+            cf.append(dict(ids=[x.id], with_physics=secs[:6], physics_terms=terms[:6], proof="measured",
+                           winner="physics" if self.set["relations_vs_physics"] == "physics" else "tie",
+                           why=why, fix=fix))
         if cf:
             row["conflicts"] = cf
         row["proof"] = "precheck" if any(c["proof"] in ("precheck", "capacity") for c in cf) else "measured"
@@ -1132,7 +1156,8 @@ class Bundle:
                 out.append(make("relation_conflict", "block" if block else "warn", cat or "data",
                                 f"relation {r['id']} ({x.kind}) conflicts: {c['why']}", objects=objs,
                                 evidence=dict(ids=c.get("ids"), proof=c["proof"],
-                                              **({"with_physics": c["with_physics"]} if c.get("with_physics") else {})),
+                                              **({"with_physics": c["with_physics"], "physics_terms": c.get("physics_terms"),
+                                                  "winner": c.get("winner")} if c.get("with_physics") else {})),
                                 fix=c.get("fix") or fix))
             if r["met"] is False and not r.get("conflicts"):
                 sev = "block" if block else "warn" if x.strength == "required" else "info"
@@ -1143,13 +1168,6 @@ class Bundle:
                                               enforced=x.enforced, binding=r.get("binding")),
                                 fix=fix))
         return out
-
-
-def secs_yield(bundle, mem):
-    """With relations_vs_physics 'physics': the physics sections a relation's parts yielded to."""
-    if bundle.set["relations_vs_physics"] != "physics":
-        return []
-    return sorted({s for u in mem for s in bundle.struct_parts.get(u, [])})[:6]
 
 
 def compile_intent(intent, board, brief=None, board_path=None, opts=None):
