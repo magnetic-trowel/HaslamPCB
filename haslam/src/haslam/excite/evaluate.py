@@ -1398,7 +1398,8 @@ def main(argv=None):
     ap.add_argument("--window", type=float, nargs=4)
     ap.add_argument("-o")
     ap.add_argument("--no-lumped", action="store_true", help="copper only, with the circuit's ideal-copper split")
-    ap.add_argument("--intent", help="intent file (JSON): operating conditions, part facts, requirements")
+    ap.add_argument("--intent", help="operating facts (JSON: operating conditions, part facts, requirements), or a "
+                    "haslam.intent/1 document that carries them")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--cell-pitch", type=float, default=None,
                     help="pitch (mm) of each switching cell's window solve (default haslam.excite.hotloop.CELL_PITCH)")
@@ -1424,8 +1425,17 @@ def main(argv=None):
                     "switch-node capacitance)")
     a = ap.parse_args(argv)
     from .beliefs import load_intent
+    facts = load_intent(a.intent) if a.intent else None     # None: the board's own intent file (board_facts)
+    if facts and facts.get("schema") == "haslam.intent/1":
+        # the commander's intent (haslam.intent status scores against it): its operating facts, if it carries them.
+        # One without them evaluated the board on class priors alone (no rails, sources, loads or pin facts), and
+        # the DC band then came out open on boards whose facts close it.
+        if not facts.get("facts"):
+            ap.error(f"{a.intent} is a haslam.intent/1 document without operating facts; --intent takes the operating "
+                     f"facts (<board>.operating.json beside it)")
+        facts = facts["facts"]
     r = evaluate(a.board, a.pitch, tuple(a.window) if a.window else None, nsub=a.nsub, log=lambda m: print(m, file=sys.stderr),
-                 lumped=not a.no_lumped, intent=load_intent(a.intent) if a.intent else None, seed=a.seed,
+                 lumped=not a.no_lumped, intent=facts, seed=a.seed,
                  max_cells=int(a.max_cells) if a.max_cells else None, cells=not a.no_cells, cell_pitch=a.cell_pitch,
                  cell_skin=not a.no_cell_skin, drc=False if a.no_drc else a.drc, scope=a.scope,
                  add_parts=a.add_part, remove_parts=a.remove_part, edits=a.edit, sources=a.sources)
