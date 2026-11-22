@@ -1307,18 +1307,21 @@ def _pin_edge_headers(board, brief, held, fixed, angle_step, rep, log, headers=T
     try:
         P0 = Problem.build(board, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | set(fixed),
                            angle_step=angle_step)
-        hdr = dict(crowded.edge_headers(P0)) if headers else {}
+        st0 = State(P0)
+        found = crowded.edge_headers(P0) if headers else {}
+        hdr = {i: v for i, v in found.items() if crowded.fits_nowhere(P0, st0, i)}
         if unfit:
             for i, v in crowded.not_fitting(P0).items():
                 hdr.setdefault(i, v)
         if not hdr:
             return board, {}
-        poses, failed = crowded.pin_headers(P0, State(P0), hdr, log=log)
+        poses, failed = crowded.pin_headers(P0, st0, hdr, log=log)
     except Exception as e:      # noqa: BLE001 - placing without the pin beats not placing
         rep["edge_headers"] = dict(error=f"{type(e).__name__}: {e}")
         return board, {}
     by = {fp.uuid: fp.ref for fp in board.footprints}
-    rep["edge_headers"] = dict(found=sorted(P0.parts[i].ref for i in hdr), pinned=sorted(by[u] for u in poses),
+    rep["edge_headers"] = dict(found=sorted(P0.parts[i].ref for i in found),
+                               fit_nowhere=sorted(P0.parts[i].ref for i in hdr), pinned=sorted(by[u] for u in poses),
                                failed=failed, uuids=sorted(poses))
     return (edge_check.with_poses(board, poses) if poses else board), poses
 
