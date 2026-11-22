@@ -500,6 +500,19 @@ def board_hazards(output, project_board=None, brief=None, board=None, drc=True, 
     return out, meta
 
 
+def edge_hazards(board, brief=None):
+    """kae.circuit.edges.long_net_hazards on a written board: nets whose driver-to-load delay is over t_r/6 (info)
+    or t_r/2 (warn). The brief is built from the board when the caller has none (or an older one without edges)."""
+    try:
+        from kae.circuit import edges as E
+        if not brief or not any(isinstance(d, dict) and 'edge' in d for d in (brief.get("nets") or {}).values()):
+            from kae.circuit.brief import build
+            brief = build(board)
+        return E.long_net_hazards(brief, board)
+    except Exception as e:      # noqa: BLE001 - a report is always written
+        return [H.make("edge_check_failed", "info", "data", f"Edge-rate lengths not checked: {e}"[:200])]
+
+
 def final_summary(report):
     """The last DRC summary a kae report carries for its output ({unconnected, by_type}), or None:
     the joint loop's final card, the bridge's (repair) final, critical routing's bridge."""
@@ -588,12 +601,20 @@ def finish(report, output=None, project_board=None, kind="route", mode="auto", d
         meta = dict(ran=False, error=f"{type(e).__name__}: {e}"[:200])
     if not meta.get("ran"):
         extra += summary_hazards(report, skip=SKIP_BY_KIND.get(kind, ()))
-    if kind == "route" and output and Path(output).exists():
+    out_board = None
+    if output and Path(output).exists():
         try:
             from kae.board.kicad_file import load as load_board
+            out_board = load_board(output)
+        except Exception as e:      # noqa: BLE001 - a report is always written
+            extra.append(H.make("output_load_failed", "info", "data", f"Output board not read back: {e}"[:200]))
+    if kind == "route" and out_board is not None:
+        try:
             from kae.route.pairs import hazards as pair_hazards
-            extra += pair_hazards(load_board(output))
+            extra += pair_hazards(out_board)
         except Exception as e:      # noqa: BLE001 - a report is always written
             extra.append(H.make("pair_check_failed", "info", "data", f"Pair coupling not checked: {e}"[:200]))
+    if out_board is not None:
+        extra += edge_hazards(out_board, brief)
     report["recheck"] = meta
     return H.finalize(report, extra=extra)
