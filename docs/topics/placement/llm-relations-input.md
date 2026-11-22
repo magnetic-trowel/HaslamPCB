@@ -130,7 +130,7 @@ Engine cost: 12 extra `Eng` fields ≈ 10% move rate ([kae-place](kae-place.md#p
 
 Precedence, highest first [I]:
 1. board rules and legality;
-2. required relations and hard terms;
+2. hard terms, then required relations (Q2);
 3. soft relations by strength, then limits and costs;
 4. kae defaults: margin, escape bands and `D-` rows yield first, as `margin_dropped` does today.
 
@@ -216,10 +216,10 @@ Judge B on obeying cheaply, not routing better: coarse hints barely move routing
 ## Open questions
 
 1. **Datasheet millimetres.** May the LLM write "C5 within 2 mm of U1 pin 7" when a datasheet says so? Proposed: only with a `source`, else marked `assumed`. RAC forbids metric values outright.
-2. **Physics against relations.** Should physics hard terms always outrank required relations, or should the two tie and be reported as a conflict, as proposed?
+2. **Physics against relations.** Answered (user, 2026-11-22): physics wins by default and the collision is reported as a conflict; tie stays a switch ([llm-relations](llm-relations.md#settings)).
 3. **Rooms as DRC rules.** `enclosedByArea` assertions would make KiCad's DRC, and the benchmark score, see rooms: a scoring change needing its own commit and re-run baselines. Wanted?
 4. **Side flips.** Is `side` worth the writer work, or does "put it on the bottom" stay a human step for now?
-5. **Blocking.** An unmet required relation is a warning, not a block, unless it is marked `category: safety`. Is that right?
+5. **Blocking.** Answered (user, 2026-11-22): an unmet required relation warns; only `category: safety` blocks.
 6. **"Like the human did."** Fine on the user's own board; on benchmark tasks it copies the answer key. Forbid it there?
 
 ## Sources

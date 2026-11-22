@@ -283,12 +283,13 @@ DEFAULTS = dict(
                                    # fixed outer-layer zone or sit in a board-level mask aperture with another
                                    # net (each 0.1 x this; gecko5: all staged DRC errors, 14 -> 0); 0: off
     # placement relations from the intent (kae.place.relations; llm-relations-input.md). The three switches
-    # carry the proposed answers to the design's open questions 1, 2 and 5 until the user decides them
+    # carry the design's open questions 1 (proposed answer), 2 and 5 (answered by the user)
     relations_mm="sourced",        # Q1: a length ('2 mm') in a relation: 'sourced' takes it (marked assumed without
                                    # a 'source'); 'forbid' allows only tight/close/loose
-    relations_vs_physics="tie",    # Q2: 'tie': relations keep their strength on parts the place terms also price,
-                                   # and an unmet one there is a relation_conflict; 'physics': those weigh as weak
-    relations_block="safety",      # Q5: an unmet relation blocks only with category 'safety'; 'required' also blocks
+    relations_vs_physics="physics",  # Q2 (answered 2026-11-22): physics wins: a relation on parts the place terms
+                                   # price weighs as weak there, and unmet it is a relation_conflict naming the
+                                   # physics; 'tie': relations keep their strength (still a conflict when unmet)
+    relations_block="safety",      # Q5 (answered 2026-11-22): an unmet relation blocks only with category 'safety'; 'required' also blocks
                                    # unmet required ones; 'never'
     rel_tight_decap=2.5,           # mm centre to centre, a 0402 decap near its pin: corpus median, p90, loose
     rel_close_decap=4.9,           # (measured-priors.md, decoupling distance priors)

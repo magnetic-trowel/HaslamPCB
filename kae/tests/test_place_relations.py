@@ -188,9 +188,11 @@ def test_unmet_relations_warn_or_inform_and_only_safety_blocks(board, brief):
     assert "block" not in sev.values()
 
 
-def test_physics_precedence_is_one_switch(board, brief):
-    """Open question 2 (proposed answer 'tie'): a relation on a part the place terms price keeps its
-    weight, and unmet it is a relation_conflict naming the structure; 'physics' weighs it as weak."""
+def test_physics_wins_by_default_and_the_collision_is_a_reported_conflict(board, brief):
+    """Open question 2, as the user answered it: where a relation and physics pull the same parts,
+    physics wins by default (relations_vs_physics 'physics': the relation weighs as weak there), and
+    the collision is still a relation_conflict hazard naming the physics (place-term structure and
+    the intent's hard term) with the relation not met. 'tie' stays behind the switch."""
     from types import SimpleNamespace
 
     from kae.place.problem import Problem
@@ -199,16 +201,26 @@ def test_physics_precedence_is_one_switch(board, brief):
     u, ref = P.parts[i].uuid, "U1"
     structs = [SimpleNamespace(src=dict(id="cell:buck:U1"), kind="commutation_cell", members={i})]
     rel = _rel(id="r", kind="region", members=[ref], region="region:se", strength="strong")
-    tie = _bundle(board, brief, rel)
+    term = dict(id="T1", tier="hard", obs="loss.loop", where=dict(section="cell:buck:*"), max="5 mW",
+                why="hot loop")
+    default = _bundle(board, brief, rel, terms=[term])
+    assert default.set["relations_vs_physics"] == "physics" and default.set["relations_block"] == "safety"
+    default.set_physics(P, structs)
+    tie = _bundle(board, brief, rel, terms=[term], opts=dict(relations_vs_physics="tie"))
     tie.set_physics(P, structs)
-    phys = _bundle(board, brief, rel, opts=dict(relations_vs_physics="physics"))
-    phys.set_physics(P, structs)
-    assert tie.weight("strong", [u]) == 3.0 and phys.weight("strong", [u]) == 0.3
+    assert default.weight("strong", [u]) == 0.3 and tie.weight("strong", [u]) == 3.0
+    assert default.weight("strong", [P.parts[0].uuid if P.parts[0].i != i else P.parts[1].uuid]) == 3.0
+    st = default.status(board)
+    row = st["rows"][0]
+    assert row["met"] is False                              # U1 sits in the north-west
+    c = row["conflicts"][0]
+    assert c["with_physics"] == ["cell:buck:U1"] and c["physics_terms"] == ["T1"] and c["winner"] == "physics"
+    assert row["yielded_to"] == ["cell:buck:U1"] and "r" in st["summary"]["conflicts"]
+    hz = [h for h in st["hazards"] if h["code"] == "relation_conflict"]
+    assert len(hz) == 1 and hz[0]["severity"] == "warn" and "cell:buck:U1" in hz[0]["message"] \
+        and "T1" in hz[0]["message"] and hz[0]["evidence"]["winner"] == "physics"
     r_tie = tie.status(board)["rows"][0]
-    r_phys = phys.status(board)["rows"][0]
-    assert r_tie["met"] is False                            # U1 sits in the north-west
-    assert r_tie["conflicts"][0]["with_physics"] == ["cell:buck:U1"] and "yielded_to" not in r_tie
-    assert r_phys["yielded_to"] == ["cell:buck:U1"] and "conflicts" not in r_phys
+    assert r_tie["met"] is False and r_tie["conflicts"][0]["winner"] == "tie" and "yielded_to" not in r_tie
     with pytest.raises(OB.IntentError, match="relations_vs_physics"):
         _bundle(board, brief, rel, opts=dict(relations_vs_physics="always"))
 

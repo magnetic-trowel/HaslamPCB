@@ -4397,7 +4397,7 @@ Use: `grep -i '<term>' docs/SUBJECTS.md`. The first link is the likeliest main d
 - relations_applied: [placement/llm-relations](topics/placement/llm-relations.md)
 - relations_block: [placement/llm-relations#status-conflicts-and-hazards](topics/placement/llm-relations.md#status-conflicts-and-hazards)
 - relations_mm: [placement/llm-relations#magnitudes](topics/placement/llm-relations.md#magnitudes)
-- relations_vs_physics: [placement/llm-relations#status-conflicts-and-hazards](topics/placement/llm-relations.md#status-conflicts-and-hazards)
+- relations_vs_physics: [placement/llm-relations#settings](topics/placement/llm-relations.md#settings)
 - relative code: [llm/read-representations#schgen-relative-code-vs-raw-kicad](topics/llm/read-representations.md#schgen-relative-code-vs-raw-kicad)
 - relative cycles: [ideas/physics-first/lens-ct#b-the-boardworld-cut-and-external-cycles](ideas/physics-first/lens-ct.md#b-the-boardworld-cut-and-external-cycles)
 - relative-position pruning: [placement/legalization#legalizers](topics/placement/legalization.md#legalizers)
