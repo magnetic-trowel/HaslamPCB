@@ -78,3 +78,7 @@ def test_finer_grid_only_above_the_threshold():
 def test_fits_nowhere_is_false_for_a_part_with_room():
     P, st = _problem()
     assert not any(C.fits_nowhere(P, st, i) for i in P.mov[:3])
+
+
+def test_header_pairs_setting_is_off_by_default():
+    assert DEFAULTS["place_edge_header_pairs"] == 0
