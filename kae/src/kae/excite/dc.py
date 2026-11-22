@@ -47,6 +47,7 @@ DROP_SHARE = 0.02       # rail + ground drop: 2 % of the rail voltage (as kae.ro
 DT_MAX = 10.0           # K, track temperature rise (the common IPC design point)
 ETA = (0.75, 0.85, 0.95)   # efficiency of a switching regulator without a cell model (lo, typ, hi)
 DC_KINDS = ("R", "L", "FB", "D_on", "short")     # circuit elements that conduct at DC
+LEAK = 1e-3             # a piece's imbalance below this share of the largest injection is no open (kae.em.solve's leak)
 LINEAR = ("regulator_linear", "charger", "load_switch", "battery_monitor", "usb_pd")
 SWITCHING = ("regulator_switching", "pmic", "regulator_module")
 # parts that consume power as well as supply a rail: a module (an MCU board of its own: Teensy, XIAO, Pico, ESP32
@@ -104,6 +105,8 @@ class Plan:
         self.notes = []
         self.dc_pads = set()
         self.self_loads = []    # dict(ref, rail, key, pads): parts that power themselves from off the board (heat only)
+        self.piece = {}         # pad token -> its piece of the DC circuit (a net, with the nets DC parts join to it)
+        self.offboard = {}      # piece -> connector ground pads: a ground piece the board joins to the others only off it
 
 
 def _pads(board):
@@ -229,7 +232,17 @@ def plan(board, brief, bd, P, srcs, intent=None):
         else:
             if kind in ("ic", "module"):
                 pl.notes.append(f"{r}: source {src_ref} has no supply pin on another rail; taken as the board's input")
-            pl.feeds[r] = dict(kind="external", ref=src_ref, out=on(src_ref, r), gnd=gnd_pads(src_ref))
+            out = on(src_ref, r)
+            # an input connector through series parts (a fuse, a bead, a reverse-polarity diode: the brief's path,
+            # the rail's neighbour first) has no pad on the rail: its current enters the rail at the series part's
+            # pad there. Without it the feed delivered nothing and its loads' current had no way in.
+            bs = d.get("source") or {}
+            path = (bs.get("path_ref") or []) if ref_of.get(bs.get("part")) == src_ref else []
+            if not out and path and on(path[0], r):
+                out = on(path[0], r)
+                pl.notes.append(f"{r}: source {src_ref} reaches it through {', '.join(path)}; its current enters at "
+                                f"{path[0]}'s pad on {r}")
+            pl.feeds[r] = dict(kind="external", ref=src_ref, out=out, gnd=gnd_pads(src_ref))
     # feeds that feed each other in a cycle (AMP_VDD from PCM_AVDD through U2, PCM_AVDD from AMP_VDD through U2: an
     # intent fact read the regulator backwards) have no way in for their current, and the DC flow cannot close.
     # Power cannot circulate among regulators, so one link is wrong: the one whose part's pins least say it outputs on
@@ -276,7 +289,9 @@ def plan(board, brief, bd, P, srcs, intent=None):
               for t in tok(ref, [n for n, net, _, _ in pp if net in grounds])]
     for r in list(pl.feeds):
         f = pl.feeds[r]
-        if (f["kind"] == "external" or f.get("flow_external")) and not f["gnd"]:
+        # a switching regulator's input current differs from its output current: the difference returns through its
+        # ground, and one with no ground pad (an inverter whose GND pin is its negative rail) dropped it unbalanced
+        if (f["kind"] in ("external", "switching") or f.get("flow_external")) and not f["gnd"]:
             if conn_g:
                 f["gnd"] = conn_g
                 pl.notes.append(f"{r}: source {f['ref']} has no ground pad; its return is taken at the connectors' ground")
@@ -396,7 +411,61 @@ def plan(board, brief, bd, P, srcs, intent=None):
     pl.pads = pads
     pl.grounds = grounds
     pl.volts = {r: volts(r) for r in rails}
+    _offboard(pl, bd, P, cells, {ref for ref in pads if (parts.get(uuid_of.get(ref)) or {}).get("kind") == "connector"})
     return pl
+
+
+def _pieces(pads, elems):
+    """{pad token: piece}: the nets joined by the parts that conduct at DC (DC_KINDS), each net taken as one
+    piece of copper (whether its copper is whole is the field solve's question), named by their first net."""
+    net_at = {f"{ref}.{n}": net for ref, pp in pads.items() for n, net, _, _ in pp}
+    par = {}
+
+    def root(x):
+        while par.get(x, x) != x:
+            x = par[x]
+        return x
+    for e in elems:
+        if e.kind in DC_KINDS and net_at.get(e.pa) and net_at.get(e.pb):
+            a, b = sorted((root(net_at[e.pa]), root(net_at[e.pb])))
+            if a != b:
+                par[b] = a
+    return {t: root(net) for t, net in net_at.items()}
+
+
+def _offboard(pl, bd, P, cells, connectors):
+    """Ground pieces the board joins only off it. A board whose grounds are separate nets with no part between them
+    that conducts at DC (GND, AGND and RELAY_GND each on its own connectors, joined by the cables) sends a load's
+    return into a piece where its source's ground is not: in the copper that current has no way out, and the DC band
+    was void on a board KiCad finds fully connected. Where the plan's flow balances over the whole board but not per
+    piece (at every parameter's typical value), and every unbalanced piece holds a ground net with connector pads on
+    it, the current between the pieces is taken through those connector ground pads (pl.offboard; injections() moves
+    each piece's excess there). Anything else that does not balance is left to the field solve to report as open."""
+    pl.piece = _pieces(pl.pads, bd.circuit.elems)
+    cv0 = {c["src"]: {k: p.typ for k, p in (P.get(c["src"]) or {}).items()} for c in cells.values()}
+    cv0.update({(p.subject, p.name): p.typ for p in pl.params})
+    inj = injections(pl, cv0)
+    big = max((abs(a) for a in inj.values()), default=0.0)
+    if big == 0:
+        return
+    bal = {}
+    for t, a in inj.items():
+        bal[pl.piece.get(t)] = bal.get(pl.piece.get(t), 0.0) + a
+    off = sorted(r for r, b in bal.items() if abs(b) > LEAK * big)
+    if not off or abs(sum(bal.values())) > LEAK * big:
+        return
+    gp = [(f"{ref}.{n}", net) for ref in sorted(connectors) for n, net, _, _ in pl.pads[ref] if net in pl.grounds]
+    pads = {r: sorted({t for t, _ in gp if pl.piece[t] == r}) for r in off}
+    if not all(pads.values()):
+        return
+    pl.offboard = pads
+    pl.dc_pads |= {t for ts in pads.values() for t in ts}
+    nets = sorted({net for t, net in gp if pl.piece[t] in pads})
+    where = "; ".join(f"{'/'.join(sorted({n for t, n in gp if pl.piece[t] == r}))} at {', '.join(pads[r][:3])}"
+                      f"{', ...' if len(pads[r]) > 3 else ''}" for r in off)
+    pl.notes.append(f"grounds {', '.join(nets)} are separate pieces of copper on the board (no part that conducts at DC "
+                    f"joins them) and are joined off it: the current between them is taken through their connectors' "
+                    f"ground pads ({where})")
 
 
 def _add(inj, toks, a):
@@ -535,6 +604,14 @@ def injections(pl, cv):
         _add(inj, ld["sup"], -x)
         _add(inj, ld["gnd"], x)
         deliver(ld["rail"], x)
+    if pl.offboard:
+        # ground pieces joined off the board (_offboard): each one's excess leaves through its connectors' ground
+        bal = {}
+        for t, a in inj.items():
+            if pl.piece.get(t) in pl.offboard:
+                bal[pl.piece[t]] = bal.get(pl.piece[t], 0.0) + a
+        for r in sorted(bal):
+            _add(inj, pl.offboard[r], -bal[r])
     return inj
 
 
