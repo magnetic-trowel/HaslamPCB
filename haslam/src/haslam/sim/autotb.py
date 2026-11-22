@@ -513,6 +513,12 @@ def cell_tests(c):
                 t.unknown.append(f"{bus}: voltage not identified")
                 out.append(t)
                 continue
+            # the stand-in's switches, body diodes and rectifier are placed by their roles in positive polarity
+            # (bus -> node -> ground), so a negative-bus cell is simulated as its mirror image at |V|: its ring
+            # and loss magnitudes are the same (driven at -V, the low body diode would conduct from ground)
+            if vbus < 0:
+                t.notes.append(f"{bus} is {fmt(vbus)} V: simulated as its mirror image at {fmt(-vbus)} V")
+            vbus = abs(vbus)
             ex = s.get("excite") or {}
             basis = "; ".join(ex.get("basis") or [])
             fsw = ex.get("f_sw_Hz")
@@ -543,6 +549,7 @@ def cell_tests(c):
             _ext_source(t, "BUS", at, "0", vbus)
             far_net = s.get("vout") if cls == "buck" else s.get("vin") if cls == "boost" else None
             far_v = (c.nets.get(far_net) or {}).get("volts") if far_net else None
+            far_v = abs(far_v) if far_v is not None else None         # in the mirror image too
             if far_v is None:
                 far_v = vbus * 0.5
                 t.notes.append(f"far end of the inductor or winding held at {fmt(far_v)} V (half the bus: not identified)")
