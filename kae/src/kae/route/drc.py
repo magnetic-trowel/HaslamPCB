@@ -7,7 +7,7 @@ KAE_KICAD_WRAP + kicad-cli (e.g. "apptainer exec ~/kicad.sif"), or kicad-cli on 
 The board must have its project files (.kicad_pro, .kicad_dru) beside it, since KiCad takes
 rule severities and custom rules from them.
 """
-from kae import budget
+from kae import budget, proc
 import functools
 import hashlib
 import json
@@ -43,7 +43,7 @@ def kicad_cli():
     return (p,)
 
 
-def run(board, out_json, timeout=900, cache=True):
+def run(board, out_json, timeout=None, cache=True):
     """kicad-cli pcb drc on `board`; returns the parsed JSON report. `cache=False` runs KiCad even
     with the step cache on (a second run of the same board, to see which checks are noisy)."""
     board, out_json = Path(board).resolve(), Path(out_json).resolve()
@@ -80,6 +80,7 @@ def run(board, out_json, timeout=900, cache=True):
     return rep
 
 
+@budget.in_span("kicad-drc")          # the run and its charge in one row of the ledger
 def _run(board, out_json, timeout, cache, mb):
     cmd = [*kicad_cli(), "pcb", "drc", "--format", "json", "--refill-zones", "--severity-all",
            "--units", "mm", "-o", str(out_json), str(board)]
@@ -87,9 +88,10 @@ def _run(board, out_json, timeout, cache, mb):
         if cache and stepcache.enabled():   # KAE_STEP_CACHE: a board DRC'd before, with the same rules, replays its report
             r = stepcache.run("kicad-drc", cmd, inputs=stepcache.kicad_inputs(board), outputs={"report": out_json},
                               wd=board.parent, timeout=timeout, tool=stepcache.kicad_version(kicad_cli()),
-                              cwd=board.parent)
+                              cwd=board.parent, runner=lambda *a, **k: proc.run(None, *a, **k))
         else:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=board.parent, errors="replace")
+            r = proc.run(None, cmd, capture_output=True, text=True, timeout=timeout, cwd=board.parent,
+                         errors="replace")
     except subprocess.TimeoutExpired:
         raise DrcError(f"DRC timed out after {timeout}s")
     finally:
@@ -421,12 +423,12 @@ def _content_key(v):
     return (v.get("type") or "", v.get("severity") or "", sorted((i.get("description") or "", str(i.get("pos"))) for i in v.get("items") or []))
 
 
-def uncapped_unconnected(board, timeout=900):
+def uncapped_unconnected(board, timeout=None):
     """pcbnew's unconnected count of `board` after a zone fill (no cap), None when it cannot run."""
     from kae.board.pcbnew_io import PcbnewError, _charge, kicad_python
     try:
-        r = subprocess.run([*kicad_python(), "-c", UNCONNECTED_PY, str(board)], capture_output=True, text=True,
-                           timeout=budget.wall_timeout(timeout), cwd=Path(board).parent, errors="replace")
+        r = proc.run("pcbnew-unconnected", [*kicad_python(), "-c", UNCONNECTED_PY, str(board)], capture_output=True,
+                     text=True, timeout=budget.wall_timeout(timeout), cwd=Path(board).parent, errors="replace")
         return int(json.loads(r.stdout.strip().splitlines()[-1])["unconnected"])
     except (PcbnewError, OSError, subprocess.TimeoutExpired, ValueError, IndexError, KeyError):
         return None

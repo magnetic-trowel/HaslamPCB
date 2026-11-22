@@ -860,6 +860,20 @@ def _limit_as():
         pass
 
 
+def deadline_env(env=None, timeout=None):
+    """(env, timeout) under this job's KAE_DEADLINE (epoch s; kaeq sets it): the timeout no later than it,
+    and the child's KAE_DEADLINE that timeout from now less 10 % (at most 30 s). The same contract as
+    kaebench.deadline and kae.proc: no inner layer outlives an outer one."""
+    env = dict(os.environ if env is None else env)
+    d = os.environ.get("KAE_DEADLINE")
+    if d:
+        left = max(1.0, float(d) - time.time())
+        timeout = left if timeout is None else min(float(timeout), left)
+    if timeout is not None:
+        env["KAE_DEADLINE"] = f"{time.time() + timeout - min(30.0, 0.1 * timeout):.0f}"
+    return env, timeout
+
+
 # A job being killed (kaeq: --timeout, cancel, memory; SIGTERM, then SIGKILL after its kill_grace_s): STOP holds why
 # and when. The running step gets the SIGTERM too (it runs in a session of its own) and CHILD_GRACE_S to save what it
 # has; then every method's attempts so far go to the store as incomplete runs (_store_incomplete).
@@ -896,7 +910,9 @@ def _on_sigterm(*_):
 def run_logged(cmd, log, env, timeout):
     """Run cmd with output appended to log, and its progress lines (PROGRESS_RE) also printed as they come, so the
     kaeq job's log says which method and attempt ran even after a SIGKILL; returns (rc, timed_out). In a job being
-    stopped (STOP) the step is killed CHILD_GRACE_S after the SIGTERM."""
+    stopped (STOP) the step is killed CHILD_GRACE_S after the SIGTERM. The timeout is no later than this job's
+    KAE_DEADLINE, which the command inherits less a margin (deadline_env)."""
+    env, timeout = deadline_env(env, timeout)
     with open(log, "ab") as f:
         f.write(f"\n$ {' '.join(map(str, cmd))}\n".encode())
         f.flush()

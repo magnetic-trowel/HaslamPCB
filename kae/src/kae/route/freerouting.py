@@ -19,13 +19,12 @@ logged as unknown and ignored.
 """
 import re
 
-from kae import budget
+from kae import budget, proc
 import fcntl
 import json
 import os
 import re
 import shutil
-import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -426,9 +425,10 @@ def _charge(run, dsn, pins):
         budget.charge("fr_opt_pass_pin2", opt * size)
 
 
+@budget.in_span("freerouting")
 def route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin_s=None, hard_s=None,
           log_path=None):
-    """_route (below). In work mode (kae.budget) the budget becomes Freerouting's own work budget
+    """_route (below), with its charge in the ledger's row "freerouting". In work mode (kae.budget) the budget becomes Freerouting's own work budget
     (autorouter.max_work: it stops cleanly before the pass that would start past it, a counted stop
     the same on any host) less its start-up, and the optimizer gets a pass cap; a build without that
     setting gets a pass cap, budget_s / the nominal seconds of a pass. The job timeout is then only
@@ -502,7 +502,8 @@ def _route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin
     # the wait for a slot is part of the caller's budget: Freerouting gets what is left of it,
     # and after the budget it runs without a slot (a wait without end would hang the caller)
     # (work mode: a wait costs no budget, so it waits as long as the wall ceiling allows)
-    slot = _Slot(timeout=max(1.0, budget_s - margin - 5.0)).__enter__()
+    with budget.span("freerouting-slot-wait"):
+        slot = _Slot(timeout=max(1.0, budget_s - margin - 5.0)).__enter__()
     waited = slot.waited or 0.0
     if slot.gave_up:
         print(f"[kae.route {time.strftime('%H:%M:%S')}] warning: no Freerouting slot within {waited:.0f}s; "
@@ -516,18 +517,13 @@ def _route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin
     argv = _argv(dsn, ses, user, result, job_s, passes, settings)
     try:
         t0 = time.monotonic()
-        p = subprocess.Popen(argv, cwd=workdir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                             errors="replace", env=_env(), start_new_session=True)
-        timed_out = False
+        timed_out, rc = False, None
         try:
-            out, _ = p.communicate(timeout=hard)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            try:
-                os.killpg(p.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            out, _ = p.communicate()
+            r = proc.run(None, argv, timeout=hard, cwd=workdir, stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, errors="replace", env=_env())
+            out, rc = r.stdout, r.returncode
+        except subprocess.TimeoutExpired as e:
+            timed_out, out = True, e.stdout
     finally:
         slot.__exit__()
     dt = time.monotonic() - t0
@@ -540,8 +536,8 @@ def _route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin
         pass
     _keep_raw(ses, out, result)
     if key:
-        _store(key, p.returncode, dt, timed_out, out or "", report, ses, result, workdir, job_s)
-    return Run(rc=p.returncode, ses=ses if ses.exists() and ses.stat().st_size > 0 else None, log=out or "",
+        _store(key, rc, dt, timed_out, out or "", report, ses, result, workdir, job_s)
+    return Run(rc=rc, ses=ses if ses.exists() and ses.stat().st_size > 0 else None, log=out or "",
                seconds=round(dt, 2), timed_out=timed_out,
                report=dict(_summary(report, out or ""), slot_wait_s=slot.waited, job_timeout_s=round(job_s, 1),
                           **({"slot_gave_up": True} if slot.gave_up else {})),

@@ -87,6 +87,6 @@ def test_a_drc_is_charged_its_zone_refill(board, clock, monkeypatch, tmp_path):
         json.dump(dict(violations=[], unconnected_items=[]), open(cmd[cmd.index("-o") + 1], "w"))
         return type("R", (), dict(returncode=0, stdout="", stderr=""))
     monkeypatch.setattr(drc, "kicad_cli", lambda: ("kicad-cli",))
-    monkeypatch.setattr(drc.subprocess, "run", fake_run)
+    monkeypatch.setattr(drc.proc, "run", lambda tool, cmd, **kw: fake_run(cmd, **kw))
     drc.run(board, tmp_path / "drc.json")
     assert clock.units["drc_run"] == 1 and clock.units["drc_zone"] == 7

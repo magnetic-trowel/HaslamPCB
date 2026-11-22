@@ -34,7 +34,7 @@ from __future__ import annotations
 import collections
 
 from kae.budget import frame as budget_frame
-from kae.budget import now as clock_now
+from kae.budget import lap, now as clock_now
 import os
 import time
 from dataclasses import dataclass, field
@@ -591,6 +591,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
 
     def stage(name, t):
         rep["stages"][name] = round(clock_now() - t, 3)
+        lap(name)           # the ledger's side row for this step (kae.budget.lap)
 
     def trace(name, state):
         # physics after each stage that can move parts (anneal, legalize, the exact repairs),
@@ -1243,7 +1244,7 @@ def _kicad_agrees(P, st, i, spot, board_path):
         write(board_path, d / "moved.kicad_pcb", {P.parts[i].uuid: st.pose(i)})
         staged = kdrc.stage_board(d / "moved.kicad_pcb", board_path, d / "drc")
         kdrc.promote_severities(staged, list(FIXED_ERROR_CHECKS))
-        bad = collections.Counter(v["type"] for v in kicad_violations(kdrc.run(staged, staged.parent / "drc.json", timeout=300))
+        bad = collections.Counter(v["type"] for v in kicad_violations(kdrc.run(staged, staged.parent / "drc.json"))
                                   if i in violation_parts(P, st, v))
         return (not bad), (", ".join(f"{k} {n}" for k, n in sorted(bad.items())) or "clean")
     except Exception as e:      # noqa: BLE001 - no verdict: the part keeps the overhang only

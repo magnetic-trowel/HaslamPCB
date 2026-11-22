@@ -14,7 +14,7 @@ def test_summary_counts_past_the_cap(monkeypatch, tmp_path):
         json.dump(dict(violations=[], unconnected_items=items), open(out, "w"))
         return type("R", (), dict(returncode=0, stdout="", stderr=""))
     monkeypatch.setattr(drc, "kicad_cli", lambda: ("kicad-cli",))
-    monkeypatch.setattr(drc.subprocess, "run", fake_run)
+    monkeypatch.setattr(drc.proc, "run", lambda tool, cmd, **kw: fake_run(cmd, **kw))
     monkeypatch.setattr(drc, "uncapped_unconnected", lambda board, timeout=900: 1306)
     b = tmp_path / "board.kicad_pcb"
     b.write_text("(kicad_pcb)\n")
@@ -31,7 +31,7 @@ def test_summary_counts_with_pcbnew_when_the_project_ignores_unconnected(monkeyp
         json.dump(dict(violations=[], unconnected_items=[]), open(cmd[cmd.index("-o") + 1], "w"))
         return type("R", (), dict(returncode=0, stdout="", stderr=""))
     monkeypatch.setattr(drc, "kicad_cli", lambda: ("kicad-cli",))
-    monkeypatch.setattr(drc.subprocess, "run", fake_run)
+    monkeypatch.setattr(drc.proc, "run", lambda tool, cmd, **kw: fake_run(cmd, **kw))
     monkeypatch.setattr(drc, "uncapped_unconnected", lambda board, timeout=900: 7)
     b = tmp_path / "board.kicad_pcb"
     b.write_text("(kicad_pcb)\n")
@@ -122,7 +122,7 @@ def test_work_mode_report_names_the_boards_items_and_is_written_as_returned(monk
             json.dump(dict(violations=[], unconnected_items=items[::-1]), open(cmd[cmd.index("-o") + 1], "w"))
             return type("R", (), dict(returncode=0, stdout="", stderr=""))
         monkeypatch.setattr(drc, "kicad_cli", lambda: ("kicad-cli",))
-        monkeypatch.setattr(drc.subprocess, "run", fake_run)
+        monkeypatch.setattr(drc.proc, "run", lambda tool, cmd, **kw: fake_run(cmd, **kw))
         monkeypatch.setattr(drc, "uncapped_unconnected", lambda board, timeout=900: 777)
         monkeypatch.setattr(drc, "_copper_items", lambda board, timeout: None)     # no KiCad Python here
         reps = []
@@ -152,7 +152,7 @@ def test_work_mode_takes_the_uncapped_count_from_the_copper_items_refill(monkeyp
             json.dump(dict(violations=[], unconnected_items=items), open(cmd[cmd.index("-o") + 1], "w"))
             return type("R", (), dict(returncode=0, stdout="", stderr=""))
         monkeypatch.setattr(drc, "kicad_cli", lambda: ("kicad-cli",))
-        monkeypatch.setattr(drc.subprocess, "run", fake_run)
+        monkeypatch.setattr(drc.proc, "run", lambda tool, cmd, **kw: fake_run(cmd, **kw))
         monkeypatch.setattr(drc, "_copper_items", lambda board, timeout: dict(items=[], unconnected=1234))
 
         def no(*a, **k):

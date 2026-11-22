@@ -99,7 +99,7 @@ def test_start_run_turns_sigterm_into_an_exit_that_flushes_and_reports(tmp_path)
     assert r.stdout.splitlines()[-1].startswith("[kae.budget] ")
 
 
-def test_stage_wall_is_a_multiple_of_the_stage_budget_within_the_runs_ceiling(monkeypatch):
+def test_stage_wall_is_a_multiple_of_the_stage_budget_within_the_runs_hard_deadline(monkeypatch):
     budget.set_mode("time")
     assert budget.stage_wall(30.0) == 30.0                      # time mode: the budget is the wall
     c = budget.set_mode("work")
@@ -109,8 +109,8 @@ def test_stage_wall_is_a_multiple_of_the_stage_budget_within_the_runs_ceiling(mo
     budget.set_ceiling(900.0)                                   # 3,600 s of wall for the run
     assert budget.stage_wall(500.0) == budget.CEILING_FACTOR * 500.0
     assert budget.stage_wall(5.0) == budget.STAGE_WALL_FLOOR
-    t[0] += 3000.0                                              # 600 s to the ceiling: the ceiling binds
-    assert budget.stage_wall(500.0) == 600.0
+    c.hard = budget.time.time() + 600.0                         # 600 s to the hard deadline: it binds
+    assert budget.stage_wall(500.0) == pytest.approx(600.0, abs=1.0)
     budget.note_wall_stop("freerouting")
     assert c.report()["wall_stops"] == {"freerouting": 1}
     budget.set_mode("time")

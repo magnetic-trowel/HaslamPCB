@@ -179,6 +179,51 @@ def alive(pid):
         return False
 
 
+def wall_left():
+    """Wall seconds to this wrapper's KAE_DEADLINE (epoch s, from the harness: kaebench, kaeq), inf without one."""
+    d = os.environ.get("KAE_DEADLINE")
+    return float(d) - time.time() if d else float("inf")
+
+
+def deadline_env(seconds):
+    """KAE_DEADLINE for a child stopped `seconds` from now: no later than this wrapper's, less 10 % (at most
+    30 s) for it to finish in (the contract of kae.proc and kaebench.deadline)."""
+    t = min(float(seconds), wall_left())
+    return {"KAE_DEADLINE": f"{time.time() + t - min(30.0, 0.1 * t):.0f}"} if t != float("inf") else {}
+
+
+def run_group(argv, seconds, **kw):
+    """subprocess.run of `argv` in a process group of its own with deadline_env(seconds); past `seconds` the
+    group is killed (a timeout of subprocess.run kills only the shell, and the kae under it ran on).
+    Returns the exit code, or "timeout"."""
+    env = dict(kw.pop("env", os.environ), **deadline_env(seconds))
+    p = subprocess.Popen(argv, start_new_session=True, env=env, **kw)
+    ATTEMPT_PIDS.add(p.pid)          # a SIGTERM to this wrapper is passed on (_on_term)
+    try:
+        return p.wait(timeout=None if seconds == float("inf") else seconds)
+    except subprocess.TimeoutExpired:
+        for sig, wait in ((signal.SIGTERM, 5.0), (signal.SIGKILL, None)):
+            try:
+                os.killpg(p.pid, sig)
+                p.wait(timeout=wait)
+                break
+            except ProcessLookupError:
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        return "timeout"
+    finally:
+        ATTEMPT_PIDS.discard(p.pid)
+
+
+def publish(src, dst):
+    """Copy the best board to `dst` atomically: a kill at any moment leaves the previous best whole."""
+    Path(dst).parent.mkdir(parents=True, exist_ok=True)
+    tmp = f"{dst}.part-{os.getpid()}"
+    shutil.copy2(src, tmp)
+    os.replace(tmp, dst)
+
+
 def log(msg):
     print(f"[restart {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
@@ -672,8 +717,10 @@ def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, s
     info = dict(k=kind, seed=seed, budget=round(b), out=o, t=t, resumed_from=best["k"])
     if SC:
         info["charge"] = str(d / "charge.jsonl")
+    kill_s = min((WORK_CEILING if WORK else 1.0) * b + GRACE_S, end - judge_est - 5 - time.monotonic())
     p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
-                         start_new_session=True, env=dict(os.environ, KAE_RESUME="1", **charge_env(info), **fr_raw_env(d)))
+                         start_new_session=True, env=dict(os.environ, KAE_RESUME="1", **charge_env(info), **fr_raw_env(d),
+                                                          **deadline_env(kill_s)))
     ATTEMPT_PIDS.add(p.pid)
     while reap(p, info) is None or saving(p):
         if term_over() or time.monotonic() + saved(info) > min(t + (WORK_CEILING if WORK else 1.0) * b + GRACE_S,
@@ -874,7 +921,7 @@ def main():
         nfp = inp.read_text(errors="replace").count("(footprint ")
         a.first_s *= max(1.0, nfp / 40) ** 0.5
         log(f"{nfp} footprints: first wave {a.first_s:.0f}s")
-    end = t0 + (2 * WORK_CEILING * a.time if WORK else a.time)
+    end = t0 + min(2 * WORK_CEILING * a.time if WORK else a.time, wall_left())
     plan_s = max(0.0, a.time - work_final_s(a) - work_finish_s(a))
     plan_used = [0.0]        # work mode: nominal seconds of the batches launched so far
     base_dir = wd / "input"  # the input's own DRC errors (silk, rules) are not the method's
@@ -931,9 +978,11 @@ def main():
         c = c.replace("@BEST@", shlex.quote(str(src)))
         c = c.replace("@SEED@", str(s)).replace("@TIME@", str(int(b)))
         ch = dict(charge=str(d / "charge.jsonl")) if SC else {}
+        kill_s = b * (WORK_CEILING if WORK else a.slack) + GRACE_S
         p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
                              start_new_session=True, env=dict(os.environ, KAE_RESUME="1" if resume else "0",
-                                                              **charge_env(ch), **fr_raw_env(d)))
+                                                              **charge_env(ch), **fr_raw_env(d),
+                                                              **deadline_env(min(kill_s, end - time.monotonic()))))
         ATTEMPT_PIDS.add(p.pid)
         running[p] = dict(k=k, seed=s, budget=round(b), out=o, t=time.monotonic(),
                           resumed_from=frm["k"] if resume else None, **ch)
@@ -1035,8 +1084,7 @@ def main():
             log(f"end #{info['k']} rc {p.returncode} (illegal, not clean, unconnected, new errors, outside) {rank}")
             if rank is not None and (best is None or rank < best["rank"]):
                 best = info
-                out.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(best["out"], out)  # at once: a kill at the deadline keeps the best so far
+                publish(best["out"], out)  # at once: a kill at the deadline keeps the best so far
         if best and best["rank"][:2] == (0, 0):
             log(f"#{best['k']} is clean: stopping the rest")
             meter.sample([p.pid for p in running])
@@ -1067,8 +1115,7 @@ def main():
         done.append(fin)
         if fin.get("kept"):
             best = fin
-            out.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(best["out"], out)
+            publish(best["out"], out)
     fz = finish_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s,
                      (b0 or {}).get("overlaps", ())) if a.finish else None
     carry = best["out"].parent if best else None   # the routed board's own report (blocked, hazards)
@@ -1078,8 +1125,7 @@ def main():
         done.append(fz)
         if fz.get("kept"):
             best = fz
-            out.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(best["out"], out)
+            publish(best["out"], out)
     work = dict(attempts=len(done), clean_found=bool(best and best["rank"][:2] == (0, 0)),
                 best_attempt=best and best["k"], best_seed=best and best["seed"], best_rank=best and list(best["rank"]),
                 cpu_s=round(sum(d.get("cpu_s", 0) for d in done) + judge_cpu, 1),
@@ -1111,8 +1157,7 @@ def main():
     if best is None:
         log("no attempt produced a board")
         return 1
-    out.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(best["out"], out)
+    publish(best["out"], out)
     log(f"kept #{best['k']} (seed {best['seed']}): {best['rank']}")
     carry_report(carry or best["out"].parent, wd)
     origin_report(best, done, wd)
@@ -1156,8 +1201,11 @@ def run_policy(ap, a):
         d.mkdir(exist_ok=True)
         o = d / "out.kicad_pcb"
         log(f"policy phase {k}: seed {seed}, {time_s:.0f}s: {command[:80]}")
-        with open(d / "log", "w") as f:     # (in this process group: a SIGTERM to the job reaches it)
-            r = subprocess.run(_phase_argv(ap, a, time_s, seed, o, command), cwd=d, stdout=f, stderr=subprocess.STDOUT)
+        # in this process group: a SIGTERM to the job reaches it; it ends by its KAE_DEADLINE (phase 1: half the
+        # wall time left), so no kill of its own
+        with open(d / "log", "w") as f:
+            r = subprocess.run(_phase_argv(ap, a, time_s, seed, o, command), cwd=d, stdout=f, stderr=subprocess.STDOUT,
+                               env=dict(os.environ, **deadline_env(wall_left() * (0.5 if k == 1 else 1.0))))
         work = None
         for line in (d / "log").read_text(errors="replace").splitlines():
             if line.startswith("KAE_WORK "):
@@ -1183,12 +1231,8 @@ def run_policy(ap, a):
         log(f"policy phase {k} (open-alt): seed {seed}, {time_s:.0f}s: {command[:80]}")
         w0 = time.monotonic()
         with open(d / "log", "w") as f:
-            try:
-                r = subprocess.run(["sh", "-c", c], cwd=d, stdout=f, stderr=subprocess.STDOUT,
-                                   timeout=(WORK_CEILING * time_s if WORK else time_s + GRACE_S), start_new_session=True)
-                rc = r.returncode
-            except subprocess.TimeoutExpired:
-                rc = "timeout"
+            rc = run_group(["sh", "-c", c], WORK_CEILING * time_s if WORK else time_s + GRACE_S, cwd=d, stdout=f,
+                           stderr=subprocess.STDOUT)
         rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() else None
         log(f"policy phase {k}: rc {rc}, rank {rank}")
         used = time.monotonic() - w0
@@ -1210,15 +1254,13 @@ def run_policy(ap, a):
         (wd / "summary.json").write_text(json.dumps(work, indent=1, default=str))
         print("KAE_WORK " + json.dumps(work, default=str), flush=True)
         if p1["out"].exists():
-            out.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(p1["out"], out)
+            publish(p1["out"], out)
         return 143
     out.parent.mkdir(parents=True, exist_ok=True)
     if p1["rank"] is not None and p1["out"].exists():
         # the kept board is on disk from here on, whatever a later phase does: a phase the harness kills at its
         # timeout (s2-merit213: the windows phase of 8 boards ran past it) must not leave the run without output
-        out.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(p1["out"], out)
+        publish(p1["out"], out)
     clean1 = p1["rank"] is not None and p1["rank"][1] == 0
     alt = bool(clean1 and a.alt)
     left = 0.5 * a.time if WORK else a.time - (time.monotonic() - t0)   # work mode: nominal halves
@@ -1232,7 +1274,7 @@ def run_policy(ap, a):
                                                           else p2["rank"] < p1["rank"])):
         best = p2
         if best["out"].exists():
-            shutil.copy2(best["out"], out)        # kept as soon as it is better (a later kill keeps it)
+            publish(best["out"], out)        # kept as soon as it is better (a later kill keeps it)
     else:
         best = p1
     phases = [p1, p2]
@@ -1251,7 +1293,7 @@ def run_policy(ap, a):
                                                                     else p3["rank"] < best["rank"])):
                 best = p3
                 if best["out"].exists():
-                    shutil.copy2(best["out"], out)        # kept as soon as it is better (a later kill keeps it)
+                    publish(best["out"], out)        # kept as soon as it is better (a later kill keeps it)
     work = dict(policy="completion-first", second="alt" if alt else "open-alt" if open_alt else "restart", kept=best["k"],
                 third=third,
                 phases=[dict(k=p["k"], seed=p["seed"], rank=p["rank"], command=p["command"],
@@ -1271,8 +1313,7 @@ def run_policy(ap, a):
     if best["rank"] is None or not best["out"].exists():
         log("no phase produced a board")
         return 1
-    out.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(best["out"], out)
+    publish(best["out"], out)
     log(f"policy kept phase {best['k']} ({work['second']} second run): {best['rank']}")
     return 0
 
