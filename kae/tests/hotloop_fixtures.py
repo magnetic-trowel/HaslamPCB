@@ -95,3 +95,15 @@ def dc_fills():
     f = plane_fills()
     f["GND"]["B.Cu"] = [f["GND"]["B.Cu"][0].difference(box(102.5, 109.8, 107.6, 111.9))]
     return f
+
+
+def island_fills(w_neck=0.15):
+    """plane_fills with the B.Cu ground pour cut in two at x 119.8 to 120.6 (between the two ground vias), the halves
+    joined only by a 45-degree neck w_neck wide: a copper join a tile grid at the quote's pitch can lose."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    full = plane_fills()["GND"]["B.Cu"][0]
+    x0, y0, x1, y1 = full.bounds
+    d = w_neck * 2 ** 0.5
+    neck = Polygon([(119.7, 109.0), (119.7 + d, 109.0), (120.7 + d, 110.0), (120.7, 110.0)])
+    return {"GND": {"B.Cu": [unary_union([box(x0, y0, 119.8, y1), box(120.6, y0, x1, y1), neck])]}}

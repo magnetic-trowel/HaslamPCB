@@ -20,7 +20,9 @@ pitch, seconds, engine}. `score(rows)` turns them into one number per board for 
 Engines (`engine=`, KAE_CELL_QUOTE, --engine; default raster until the A/B decides): raster, the window solve above;
 strips, the strip-and-tile PEEC of kae.em.strips on the same window (the cell's nets' tracks, vias, pads and KiCad
 fills, plane tiles at STRIP_PITCH), the same L_loop and R_loop definitions, grown the same way, open by connectivity
-before any solve; its rows add unknowns (MNA size) and work_s (the quote's charged nominal seconds)."""
+before any solve, not_computed (never a number) when the loop needs finer tiles than its size budget allows or the
+tiles lose a copper join; its rows add unknowns (MNA size), pitch_near and pitch_far (the graded tiles' P0 and
+largest tile), repairs (copper-join repairs) and work_s (the quote's charged nominal seconds)."""
 from __future__ import annotations
 
 import argparse
@@ -34,8 +36,8 @@ from . import hotloop as HL
 
 PITCH = 0.125                # mm: the quote's raster (4x fewer cells than the evaluator's 0.0625, 16x faster)
 MAX_CELLS = 6e5              # raster budget of one quote window (cells x copper layers): the pitch doubles past it
-STRIP_PITCH = 0.5            # mm: the strips engine's plane tiles (design doc section 4: within +4.5 % L, -6 % R of the
-                             # 0.0625 mm window on the fixture; the pitch doubles past kae.em.strips.MAX_UNKNOWNS)
+STRIP_PITCH = 0.5            # mm: the strips engine's near pitch P0 at most (kae.em.strips.plan_cell: also at most h / 2
+                             # and the narrowest loop strip; the far ring coarsens to meet MAX_UNKNOWNS)
 ENGINES = ("raster", "strips")
 
 
@@ -170,13 +172,15 @@ def _quote_strips(path, intent, drc, log, only, pitch):
                    min(bw[2], box[2] + margin), min(bw[3], box[3] + margin))
             q = ST.from_board(path, s.name, window=win, pitch=pitch, ctx=ctx)
             work += q.work_s
-            if (q.state == "ok" and _physical(q.L_loop, q.R_loop)) or win == bw or grown >= HL.MAX_GROW:
+            # not_computed (the budget, a copper join lost) is not a window question: a larger window cannot help
+            if ((q.state == "ok" and _physical(q.L_loop, q.R_loop)) or q.state == "not_computed" or win == bw
+                    or grown >= HL.MAX_GROW):
                 break
             margin, grown = margin * 2, grown + 1
-        info = dict(window=[round(x, 3) for x in win], pitch=q.pitch, grown=grown, unknowns=q.unknowns,
-                    work_s=round(work, 3))
+        info = dict(window=[round(x, 3) for x in win], pitch=q.pitch, pitch_near=q.pitch_near, pitch_far=q.pitch_far,
+                    grown=grown, unknowns=q.unknowns, work_s=round(work, 3), repairs=q.repairs)
         if q.state != "ok":
-            rows.append(dict(row, state="open", why=f"{q.why} (window grown {grown} times)", **info,
+            rows.append(dict(row, state=q.state, why=f"{q.why} (window grown {grown} times)", **info,
                              seconds=round(time.time() - t1, 1)))
             continue
         L, R = q.L_loop, q.R_loop

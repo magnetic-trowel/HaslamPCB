@@ -11,21 +11,32 @@ Model. Copper is a set of branches between nodes, solved by modified nodal analy
   stops w/2 short of it);
 - pads: one equipotential node per pad over all its copper layers (the raster's terminals);
 - vias: thin-walled tubes between the centre planes of consecutive copper layers (kae.em.mesh's barrel: radius
-  drill/2, R from kae.materials.barrel_area_mm2), landed on each layer they touch: a bilinear well onto the layer's
-  plane tiles when the point is inside tiled copper, else the pad, track junction or track bar whose copper holds it;
-- planes and pours: x and y bars of pitch P between cell-centre nodes, a bar where its centre is inside the fill
-  polygon (with holes), on one grid per network, so every plane-plane coupling comes from one translation table per
-  layer pair (shared by both directions: the cells are square); a cell whose centre is outside the polygon but that
-  one piece of it spans node to node (a neck, a spoke, an edge narrower than the cell) gets a partial bar of that
-  piece's mean width at its place (direct mutuals); a pad's own-net tile nodes inside its polygon are the pad's node;
-  a pad in a relief with no tile in reach gets each spoke as a strip; a remaining pour piece narrower than 2 P that
-  no tile reaches is a strip along its long axis, width area / length; a track is dropped only inside its pour's
-  core (at least a pitch wide);
-- wells: resistive links R_w / w_k from a via, junction or pad node to the four surrounding tile nodes with bilinear
-  weights w_k, R_w = (R_sq / 2 pi) ln(0.198 P / r) (Peaceman: the spreading from the landing's radius r to the grid's
-  equivalent radius; floored where the grid is finer than the landing), copper: they count in R_loop. On the
-  fixture this moved R_loop at P 0.5 from +5.8 % (the prototype's 0.5 R_sq links, counted) to +1.8 % of the
-  0.0625 mm raster, and L_loop from +3.2 % to 0.0 %;
+  drill/2, R from kae.materials.barrel_area_mm2), landed on each layer they touch: on the layer's plane tiles when the
+  point is on tiled copper (land, below), else the pad, track junction or track bar whose copper holds it;
+- planes and pours: graded tiles (plan_cell, quadtree): the leaves of a 2:1-balanced quadtree per fill polygon, P0
+  in the near region (the loop's pads, strips and vias that meet the cell's pad box, buffered by max(NEAR_H h,
+  NEAR_MIN); P0 the lattice pitch LEVEL0 x 2^k at most min(STRIP_PITCH, h / 2, the narrowest loop strip), h the
+  plane's distance to the nearest layer holding loop copper), doubling outward (a leaf of size s at distance d from
+  the near region needs s <= beta d, beta from GRADES) up to the far cap max(P_FAR_MIN, window / P_FAR_DIV), finer
+  (P_via, at most 2 r_barrel) within VIA_ZONE barrel radii of a loop via. A node per leaf centre; x and y bars
+  between touching leaves: as wide as the leaves between two of one size, and at a 2:1 interface from the coarse
+  centre to each of the two fine ones as a bar of the fine leaf's width (the coarse leaf's half facing it), with its
+  R and L. A bar exists where its centre is inside the fill polygon (with holes); one whose centre is outside but
+  that one piece of the polygon spans node to node (a neck, a spoke, an edge narrower than the leaf) is a partial
+  bar of that piece's mean width at its place (direct mutuals); a pad's own-net leaf centres inside its polygon are
+  the pad's node; a pad in a relief with no tile in reach gets each spoke as a strip; a remaining pour piece narrower
+  than 2 P0 that no tile reaches is a strip along its long axis, width area / length; a track is dropped only where
+  its own net's tile bars on that layer carry its copper (Network.tiled);
+- landings (Network.land): a via's barrel, a track's end or a pad holding no tile node joins every tile node whose
+  leaf meets its landing disk (the via pad's radius) by a radial bar of the plane's copper from the barrel wall
+  (drill / 2 + plating) to the node, of the node's share of the wall's circumference: copper with R and L, so no link
+  in the network is free of inductance (the earlier Peaceman wells were resistive shortcuts of up to one pitch and
+  read L 8-98 % low at the coarse pitches real windows forced);
+- size: the far ring coarsens (GRADES in turn) until the MNA size fits MAX_UNKNOWNS; the near region never coarsens:
+  past the coarsest grading the quote is not_computed. The coarsening ladder is not nested (a far tile at 2P is not
+  a union of the uniform grid's bars at P), so no bound relates two gradings: the bound below is for refine() pairs;
+- copper joins (check_joins): the tiles must connect the injected pads as KiCad's union of the same copper does
+  (copper_islands); where they do not, the place is refined (JOIN_TRIES) and else the quote is not_computed;
 - couplings: `kernels.bar_mutual` (Hoer-Love, exact) for pairs closer than FAR_K x their largest cross-section side,
   beyond it the along-axis integral in closed form (`kernels.fil_mutual`) over a 3 x 2 Gauss rule across width and
   thickness (Hoer-Love's 64 terms grow as r^5 against a result falling as 1/r: at 40 mm a 0.25 mm tile's direct value
@@ -33,7 +44,7 @@ Model. Copper is a set of branches between nodes, solved by modified nodal analy
 - circuit parts (capacitors, inductors) are lumped branches with the circuit's impedance; injections at the IC pads.
 
 Observables (per A^2 of the port current I0): L = Re(I^H L_p I) over copper bars (an energy, >= 0: L_p is positive
-definite), R = sum R_b |I_b|^2 over bars and wells (a dissipation, >= 0). Both resolutions of one network share
+definite), R = sum R_b |I_b|^2 over bars (a dissipation, >= 0). Both resolutions of one network share
 these definitions; `refine` splits every bar 2 x 2 (nested current spaces), so by the minimum-energy theorems
 (Thomson at DC; magnetostatic energy for an inductive network) the coarse value bounds the fine one where the
 solution minimises that functional (the bound test reports where it does across frequency).
@@ -42,15 +53,16 @@ Limits (what is not modelled): skin and proximity crowding through the thickness
 is the DC resistance redistributed by inductance); other nets' copper (no induced currents in floating copper, no
 screening by unrelated pours); copper galvanically unconnected to the injection (pruned before the solve); capacitive
 coupling and displacement current (a quasi-static inductive PEEC); oblique and curved copper only as staircases;
-a thin pour piece as one straight strip (an L-shaped neck reads as its bounding rectangle's long axis); the wells'
-links are resistive only, a shortcut of up to one pitch without inductance (it lowers L at coarse P: part of why
-L_loop rises from P 0.5 to 0.25 on the fixture).
+a thin pour piece as one straight strip (an L-shaped neck reads as its bounding rectangle's long axis); a landing's
+radial bars overlap the tiles' own copper near the via (a small double count of conduction); one filament across a
+track by default (uniform current across its width: L 1-2 % high on the fixture against FastHenry's 9 x 3).
 
-Counted work (kae.budget): `em_pair` per partial-inductance pair evaluated (table entries and direct pairs),
+Counted work (kae.budget): `em_pair` per partial-inductance pair evaluated (memo entries computed and direct pairs),
 `em_dense` per N^3 of a factorisation and N^2 per right-hand side solved, `em_border` per k N^2 of a bordered update.
 
-API: Network (node, pad, strip, track, via, plane, well, lumped, port, connected), mutuals(net), System(net, L, f)
-(factor, solve, energy_L, dissipation_R, breakdown), bordered(sys0, net1), refine(net), from_board(...).
+API: Network (node, pad, strip, track, via, plane, land, lumped, port, connected), quadtree, plan_cell, mutuals(net),
+System(net, L, f) (factor, solve, energy_L, dissipation_R, breakdown), bordered(sys0, net1), refine(net),
+check_joins, from_board(...).
 """
 from __future__ import annotations
 
@@ -70,13 +82,24 @@ from . import kernels as KN
 
 MM = 1e-3
 SIGMA = MAT.SIGMA_CU            # S/m
-MAX_UNKNOWNS = 6000             # MNA size of one quote: past it the plane pitch doubles (from_board)
+MAX_UNKNOWNS = 4000             # MNA size of one quote: the far ring coarsens to meet it, else not_computed
+LEVEL0 = 0.5                    # mm: the tile lattice's anchor: every tile is LEVEL0 x 2^k (snap_pitch)
+P_FAR_MIN = 2.0                 # mm: the far ring's cap is the lattice pitch at most max(P_FAR_MIN, window / P_FAR_DIV)
+P_FAR_DIV = 16
+NEAR_H = 2.0                    # the near region: loop copper buffered by max(NEAR_H x its height over the plane,
+NEAR_MIN = 1.0                  #   NEAR_MIN mm)
+GRADES = (0.5, 1.0, 2.0, None)  # far grading tried in turn: a tile of size s > P0 at distance d from the near region
+                                # needs s <= beta d (None: only the 2:1 rule)
+VIA_ZONE = 3.0                  # a loop via's tiles are at P_via within VIA_ZONE x its barrel radius
+LOOP_SHARE = 0.01               # loop nets: those of pads injected with at least this share of the largest injection
+JOIN_TRIES = 2                  # copper-join repairs before a quote is not_computed (check_joins)
+P_FLOOR = 0.03125               # mm: the finest tile a repair makes
 SEG_MM = 0.5                    # a track's bars are at most this long (mm)
 FAR_K = 4.0                     # pairs farther apart than FAR_K x their largest cross-section side: Gauss rule
 W_DC = 1e-6                     # rad/s: a lumped part's DC limit (kae.em.mesh.Lumped)
 OPEN = 1e12                     # ohm: a capacitor at DC
 Z_MIN = 1e-6                    # ohm: the least lumped impedance (kae.excite.circuit.max_abs)
-GROUPS = ("strip", "plane", "via", "well")
+GROUPS = ("strip", "plane", "via", "land")
 _GY = np.polynomial.legendre.leggauss(3)
 _GZ = np.polynomial.legendre.leggauss(2)
 _UY, _WY = (_GY[0] + 1) / 2, _GY[1] / 2
@@ -105,6 +128,35 @@ def _far(a, b):
     return np.einsum("kabcd,abcd->k", F, W)
 
 
+def _near_far(a, b):
+    """The far mask of bar pairs a, b ((..., 6), broadcast): apart by FAR_K x their largest cross-section side."""
+    g = [np.maximum(0.0, np.maximum(a[..., 2 * k], b[..., 2 * k]) - np.minimum(a[..., 2 * k + 1], b[..., 2 * k + 1]))
+         for k in range(3)]
+    s = np.sqrt(g[0] ** 2 + g[1] ** 2 + g[2] ** 2)
+    size = np.maximum(np.maximum(a[..., 3] - a[..., 2], a[..., 5] - a[..., 4]),
+                      np.maximum(b[..., 3] - b[..., 2], b[..., 5] - b[..., 4]))
+    return s >= FAR_K * size
+
+
+def pair_mutual_el(a, b):
+    """Partial mutual inductance (H) of the bar pairs a[k], b[k] ((k, 6) arrays, current along x), elementwise: exact
+    (Hoer-Love) for near pairs, the far rule beyond FAR_K x the largest cross-section side."""
+    a = np.asarray(a, float).reshape(-1, 6)
+    b = np.asarray(b, float).reshape(-1, 6)
+    out = np.empty(len(a))
+    if not len(a):
+        return out
+    far = _near_far(a, b)
+    i = np.nonzero(~far)[0]
+    if i.size:
+        out[i] = KN.bar_mutual([a[i, k] for k in range(6)], [b[i, k] for k in range(6)])
+    i = np.nonzero(far)[0]
+    for c0 in range(0, i.size, CHUNK // 8):
+        sl = i[c0:c0 + CHUNK // 8]
+        out[sl] = _far(a[sl], b[sl])
+    return out
+
+
 def pair_mutual(A, B):
     """Partial mutual inductance (H) of bars A (m, 6) with bars B (n, 6) (x0, x1, y0, y1, z0, z1 in m, current along
     x): (m, n). Exact (Hoer-Love) for near pairs, the far rule beyond FAR_K x the largest cross-section side."""
@@ -117,13 +169,7 @@ def pair_mutual(A, B):
     rows = max(1, CHUNK // max(n, 1))
     for r0 in range(0, m, rows):
         a = A[r0:r0 + rows]
-        aa, bb = a[:, None, :], B[None, :, :]
-        g = [np.maximum(0.0, np.maximum(aa[..., 2 * k], bb[..., 2 * k]) - np.minimum(aa[..., 2 * k + 1], bb[..., 2 * k + 1]))
-             for k in range(3)]
-        s = np.sqrt(g[0] ** 2 + g[1] ** 2 + g[2] ** 2)
-        size = np.maximum(np.maximum(aa[..., 3] - aa[..., 2], aa[..., 5] - aa[..., 4]),
-                          np.maximum(bb[..., 3] - bb[..., 2], bb[..., 5] - bb[..., 4]))
-        far = s >= FAR_K * size
+        far = _near_far(a[:, None, :], B[None, :, :])
         blk = np.empty(far.shape)
         ia, ib = np.nonzero(~far)
         if ia.size:
@@ -138,38 +184,233 @@ def pair_mutual(A, B):
 
 
 class Tables:
-    """Translation tables of square tiles (q x q, one layer's thickness), {(q, za, zb): (T, na, nc)}: T[dc + nc, da + na]
-    is the mutual of a tile at the origin on layer za and one offset da q along and dc q across on layer zb. Kept for
-    one board (a cellquote run): every window, pitch doubling and refinement of it reuses them; entries computed are
-    charged as em_pair."""
+    """A memo of plane-tile mutuals, kept for one board (a cellquote run: every window, grading and refinement of it
+    reuses it). Two bars carrying current along one axis have a mutual that depends only on their two shapes (length,
+    width, z0, z1) and the absolute offsets |dx|, |dy| of their centres (mirror symmetry in x and in y, and
+    M(A, B) = M(B, A)), so tiles of every size on the quadtree's lattice, the 2:1 interface bars and their
+    refinements share entries: one key per (shape pair, |dx|, |dy|), offsets quantised to Q (the lattice's offsets
+    are multiples of microns, far from a rounding boundary). Entries computed are charged as em_pair; a hit is free
+    (the memo's charge depends on what this board quoted before, as the translation tables' did)."""
+
+    Q = 1e-8                    # m: offset quantum
+    BITS = 26                   # bits per offset (2^26 Q = 0.67 m)
 
     def __init__(self):
-        self.t = {}
+        self.shapes = {}        # (length, width, z0, z1) in Q -> shape id
+        self.pairs = {}         # (shape lo, shape hi) -> pair id
+        self.keys = np.zeros(0, np.int64)
+        self.vals = np.zeros(0)
+        self.computed = 0
 
-    def get(self, q, za, zb, na, nc):
-        key = (round(q, 15), round(za[0], 15), round(za[1], 15), round(zb[0], 15), round(zb[1], 15))
-        flip = False
-        if key not in self.t:
-            k2 = (key[0], key[3], key[4], key[1], key[2])
-            if k2 in self.t or key[1:3] > key[3:5]:
-                key, flip, za, zb = k2, True, zb, za
-        T = self.t.get(key)
-        if T is None or T[1] < na or T[2] < nc:
-            na2, nc2 = max(na, T[1] if T else 0), max(nc, T[2] if T else 0)
-            da = np.arange(-na2, na2 + 1) * q
-            dc = np.arange(-nc2, nc2 + 1) * q
-            DA, DC = np.meshgrid(da, dc)
-            Bx = np.stack([DA.ravel(), DA.ravel() + q, DC.ravel(), DC.ravel() + q,
-                           np.full(DA.size, zb[0]), np.full(DA.size, zb[1])], axis=1)
-            tab = pair_mutual(np.array([[0.0, q, 0.0, q, za[0], za[1]]]), Bx).reshape(DA.shape)
-            if key[1:3] == key[3:5]:
-                tab = 0.5 * (tab + tab[::-1, ::-1])
-            BU.charge("em_pair", tab.size)
-            T = (tab, na2, nc2)
-            self.t[key] = T
-        tab, na2, nc2 = T
-        sub = tab[nc2 - nc:nc2 + nc + 1, na2 - na:na2 + na + 1]
-        return sub[::-1, ::-1] if flip else sub
+    def _shape_ids(self, box):
+        q = np.round(np.stack([box[:, 1] - box[:, 0], box[:, 3] - box[:, 2], box[:, 4], box[:, 5]], 1) / self.Q)
+        q = q.astype(np.int64)
+        uq, inv = np.unique(q, axis=0, return_inverse=True)
+        ids = np.array([self.shapes.setdefault(tuple(int(v) for v in row), len(self.shapes)) for row in uq], np.int64)
+        return ids[inv.ravel()]
+
+    def block(self, A, B, sym=False):
+        """The mutuals (m, n) of tile bars A (m, 6) and B (n, 6) (current along x, swapped boxes)."""
+        A = np.asarray(A, float).reshape(-1, 6)
+        B = np.asarray(B, float).reshape(-1, 6)
+        m, n = len(A), len(B)
+        out = np.empty((m, n))
+        if not m or not n:
+            return out
+        sa, sb = self._shape_ids(A), self._shape_ids(B)
+        Q, bits = self.Q, self.BITS
+        ca = np.round((A[:, :4:2] + A[:, 1:4:2]) / 2 / Q).astype(np.int64)        # centres (x, y) in Q
+        cb = np.round((B[:, :4:2] + B[:, 1:4:2]) / 2 / Q).astype(np.int64)
+        lim = (1 << bits) - 1
+        rows = max(1, CHUNK * 2 // max(n, 1))
+        for r0 in range(0, m, rows):
+            r1 = min(m, r0 + rows)
+            dx = np.abs(cb[None, :, 0] - ca[r0:r1, None, 0])
+            dy = np.abs(cb[None, :, 1] - ca[r0:r1, None, 1])
+            lo = np.minimum(sa[r0:r1, None], sb[None, :])
+            hi = np.maximum(sa[r0:r1, None], sb[None, :])
+            pk = lo * (1 << 20) + hi
+            upk, pinv = np.unique(pk, return_inverse=True)
+            pid = np.array([self.pairs.setdefault(int(v), len(self.pairs)) for v in upk], np.int64)[pinv.ravel()]
+            if pid.max() >= (1 << (63 - 2 * bits)) or dx.max() > lim or dy.max() > lim:
+                raise ValueError("tile memo key overflow")
+            key = (pid.reshape(dx.shape) << (2 * bits)) | (dx << bits) | dy
+            uk, first, inv = np.unique(key.ravel(), return_index=True, return_inverse=True)
+            pos = np.searchsorted(self.keys, uk)
+            hit = pos < self.keys.size
+            hit[hit] = self.keys[pos[hit]] == uk[hit]
+            v = np.empty(uk.size)
+            v[hit] = self.vals[pos[hit]]
+            miss = np.nonzero(~hit)[0]
+            if miss.size:
+                fi, fj = np.unravel_index(first[miss], dx.shape)
+                v[miss] = pair_mutual_el(A[r0 + fi], B[fj])
+                BU.charge("em_pair", miss.size)
+                self.computed += miss.size
+                keys = np.concatenate([self.keys, uk[miss]])
+                vals = np.concatenate([self.vals, v[miss]])
+                o = np.argsort(keys, kind="stable")
+                self.keys, self.vals = keys[o], vals[o]
+            out[r0:r1] = v[inv.ravel()].reshape(dx.shape)
+        return out
+
+
+# ----------------------------------------------------------------------------- graded tiles
+def snap_pitch(p, anchor=None):
+    """The largest anchor x 2^k (k an integer, anchor LEVEL0) at most p (mm): every tile size of a quote is on one
+    lattice of powers of two, so the memo's entries are shared across planes, windows and cells."""
+    anchor = LEVEL0 if anchor is None else anchor
+    return anchor * 2.0 ** math.floor(math.log2(p / anchor) + 1e-9)
+
+
+def quadtree(poly, origin, p0, p_far, near=None, beta=None, fine=()):
+    """The leaves (x0, y0, s arrays, mm) of a 2:1-balanced quadtree over `poly` from root cells of size p_far aligned
+    to `origin`: a cell is split while it is larger than p0 and meets `near`, or larger than max(p0, beta x its
+    distance from `near`) (beta None: only the 2:1 rule coarsens it), or larger than s_f and meets a `fine` region
+    (geom, s_f); cells that do not meet `poly` are dropped. near None: every leaf at p0 (a uniform grid)."""
+    import shapely
+    ox, oy = origin
+    S = p_far
+    bx = poly.bounds
+    i0, i1 = int(math.floor((bx[0] - ox) / S)), int(math.ceil((bx[2] - ox) / S))
+    j0, j1 = int(math.floor((bx[1] - oy) / S)), int(math.ceil((bx[3] - oy) / S))
+    I, J = np.meshgrid(np.arange(i0, max(i1, i0 + 1)), np.arange(j0, max(j1, j0 + 1)), indexing="ij")
+    x0 = (ox + I.ravel() * S).astype(float)
+    y0 = (oy + J.ravel() * S).astype(float)
+    s = np.full(x0.size, S)
+    keep = shapely.intersects(poly, shapely.box(x0, y0, x0 + s, y0 + s))
+    x0, y0, s = x0[keep], y0[keep], s[keep]
+    out = [], [], []
+    tol = 1 + 1e-9
+    while x0.size:
+        boxes = shapely.box(x0, y0, x0 + s, y0 + s)
+        big = s > p0 * tol
+        split = big.copy() if near is None else np.zeros(x0.size, bool)
+        if near is not None and big.any():
+            d = shapely.distance(boxes[big], near)
+            allow = np.where(d <= 0, p0, np.inf if beta is None else np.maximum(p0, beta * d))
+            split[big] = s[big] > allow * tol
+        for g, sf in fine:
+            m = (s > sf * tol) & ~split
+            if m.any():
+                split[m] = shapely.intersects(boxes[m], g)
+        for k, v in enumerate((x0, y0, s)):
+            out[k].append(v[~split])
+        if not split.any():
+            break
+        h = s[split] / 2
+        cx = np.concatenate([x0[split], x0[split] + h, x0[split], x0[split] + h])
+        cy = np.concatenate([y0[split], y0[split], y0[split] + h, y0[split] + h])
+        cs = np.concatenate([h, h, h, h])
+        keep = shapely.intersects(poly, shapely.box(cx, cy, cx + cs, cy + cs))
+        x0, y0, s = cx[keep], cy[keep], cs[keep]
+    X0, Y0, S_ = (np.concatenate(v) for v in out)
+    return balance_21(X0, Y0, S_, poly, origin)
+
+
+class _Leaves:
+    """Leaves of a quadtree by level: {k: {(i, j): leaf index}}, s = smin x 2^k, corners origin + (i, j) s."""
+
+    def __init__(self, X0, Y0, S, origin):
+        self.o = origin
+        self.smin = float(S.min()) if S.size else 1.0
+        self.lv = {}
+        for n, (x, y, s) in enumerate(zip(X0.tolist(), Y0.tolist(), S.tolist())):
+            k = int(round(math.log2(s / self.smin)))
+            self.lv.setdefault(k, {})[(int(round((x - self.o[0]) / s)), int(round((y - self.o[1]) / s)))] = n
+        self.levels = sorted(self.lv)
+
+    def size(self, k):
+        return self.smin * 2.0 ** k
+
+    def find(self, px, py):
+        """(level, (i, j), leaf index) of the leaf holding (px, py), or None."""
+        for k in self.levels:
+            s = self.smin * 2.0 ** k
+            ij = (int(math.floor((px - self.o[0]) / s)), int(math.floor((py - self.o[1]) / s)))
+            n = self.lv[k].get(ij)
+            if n is not None:
+                return k, ij, n
+        return None
+
+
+def _probes(x0, y0, s, frac=(0.125, 0.375, 0.625, 0.875)):
+    e = s * 1e-6
+    for f in frac:
+        yield x0 + s + e, y0 + f * s
+        yield x0 - e, y0 + f * s
+        yield x0 + f * s, y0 + s + e
+        yield x0 + f * s, y0 - e
+
+
+def balance_21(X0, Y0, S, poly, origin):
+    """Split leaves until no two touching leaves differ by more than a factor 2 in size (children that do not meet
+    `poly` dropped): every hanging node then has exactly two facing fine nodes."""
+    import shapely
+    if not X0.size:
+        return X0, Y0, S
+    L = _Leaves(X0, Y0, S, origin)
+    smin = L.smin
+    ox, oy = origin
+    cells = {k: set(d) for k, d in L.lv.items()}
+
+    def find(px, py):
+        for k in sorted(cells):
+            s = smin * 2.0 ** k
+            ij = (int(math.floor((px - ox) / s)), int(math.floor((py - oy) / s)))
+            if ij in cells[k]:
+                return k, ij
+        return None
+    queue = [(k, ij) for k in sorted(cells, reverse=True) for ij in cells[k]]
+    while queue:
+        k, (i, j) = queue.pop()
+        if k < 2 or (i, j) not in cells.get(k, ()):
+            continue
+        s = smin * 2.0 ** k
+        x0, y0 = ox + i * s, oy + j * s
+        if not any((f := find(px, py)) is not None and f[0] < k - 1 for px, py in _probes(x0, y0, s)):
+            continue
+        cells[k].discard((i, j))
+        h = s / 2
+        kids = [(2 * i + a, 2 * j + b) for a in (0, 1) for b in (0, 1)]
+        ok = shapely.intersects(poly, shapely.box([ox + c[0] * h for c in kids], [oy + c[1] * h for c in kids],
+                                                  [ox + (c[0] + 1) * h for c in kids],
+                                                  [oy + (c[1] + 1) * h for c in kids]))
+        for c, keep in zip(kids, ok):
+            if keep:
+                cells.setdefault(k - 1, set()).add(c)
+                queue.append((k - 1, c))
+        for px, py in _probes(x0, y0, s, (0.25, 0.75)):
+            f = find(px, py)
+            if f is not None and f[0] > k - 1:
+                queue.append(f)
+    out = [(ox + i * smin * 2.0 ** k, oy + j * smin * 2.0 ** k, smin * 2.0 ** k)
+           for k in sorted(cells) for (i, j) in sorted(cells[k])]
+    a = np.array(out, float).reshape(-1, 3)
+    return a[:, 0], a[:, 1], a[:, 2]
+
+
+def _span_piece(polygon, axis, lo, hi, c0, c1):
+    """(mean width, centre across) of the largest piece of `polygon` in the bar box [lo, hi] along `axis` x [c0, c1]
+    across that spans it from end to end (at least 98 % of its length), or None."""
+    from shapely.geometry import box as sbox
+    bx = sbox(lo, c0, hi, c1) if axis == 0 else sbox(c0, lo, c1, hi)
+    if not polygon.intersects(bx):
+        return None
+    cut = polygon.intersection(bx)
+    L, W = hi - lo, c1 - c0
+    best = None
+    for q in getattr(cut, "geoms", [cut]):
+        if q.geom_type != "Polygon" or q.area < 0.1 * L * W:
+            continue
+        b = q.bounds
+        span = (b[2] - b[0]) if axis == 0 else (b[3] - b[1])
+        if span >= 0.98 * L and (best is None or q.area > best.area):
+            best = q
+    if best is None:
+        return None
+    c = best.centroid
+    return best.area / L, (c.y if axis == 0 else c.x)
 
 
 # ----------------------------------------------------------------------------- network
@@ -189,7 +430,7 @@ class Lump:
     nb: int
     zf: object                  # w -> impedance
     name: str = ""
-    kind: str = "part"          # part (a circuit element: not copper), well or short (copper)
+    kind: str = "part"          # part (a circuit element: not copper), short (copper inside one pad), body
 
     def z(self, w):
         """Impedance at w (rad/s), at least Z_MIN (two ideal shorts in parallel are a singular MNA; the circuit's own
@@ -222,7 +463,7 @@ class Network:
         self.planes = {}            # (layer, net) -> dict(poly, P, nodes {(i, j): node}, thin, ...)
         self.ports = []
         self.origin, self.pitch = origin, pitch
-        self.welled = set()
+        self.landed = {}            # (node, layer, net) -> tile nodes it lands on (land)
         self._arr = None
         self._L = None
 
@@ -413,7 +654,8 @@ class Network:
     def via(self, x, y, layers, drill, plating=None, key=None, land=None, net=None, size=None):
         """A via (or any barrel) at (x, y) mm through `layers` (names; the span from the first to the last in stack
         order): tube pieces between consecutive layers' centre planes. land: {layer: node} to use; a layer not given
-        lands by `land_point` (plane well, else the pad or track copper there). Returns {layer: node}."""
+        lands by `land_point` (the pad there, else the plane tiles by radial bars from the barrel's wall, else the
+        track copper there). Returns {layer: node}."""
         plating = MAT.VIA_PLATING_MM if plating is None else plating
         ks = sorted(self.order.index(l) for l in layers if l in self.order)
         if not ks:
@@ -424,7 +666,8 @@ class Network:
         for l in span:
             n = (land or {}).get(l)
             nodes[l] = n if n is not None else self.land_point(x, y, l, net, key=(key, l),
-                                                                r=size / 2 if size else drill / 2 + plating)
+                                                                r=size / 2 if size else drill / 2 + plating,
+                                                                r_in=drill / 2 + plating)
         R_per_m = 1.0 / (SIGMA * MAT.barrel_area_mm2(drill, plating) * MM * MM)
         for la, lb in zip(span[:-1], span[1:]):      # top to bottom
             zu = sum(self.z[la]) / 2
@@ -434,16 +677,16 @@ class Network:
                      rad=drill / 2 * MM)
         return nodes
 
-    def land_point(self, x, y, layer, net=None, key=None, r=None):
-        """A node for copper reached at (x, y) on `layer`: the pad there, else a track bar's nearer end, else a new node
-        (with a well when the point is inside tiled copper)."""
+    def land_point(self, x, y, layer, net=None, key=None, r=None, r_in=None):
+        """A node for copper reached at (x, y) on `layer`: the pad there, else a new node landed on the plane tiles
+        (land) when the point is on tiled copper, else a track bar's nearer end, else a new node."""
         n = self.pad_at(x, y, layer, net)
         if n is not None:
             return n
         if self.in_plane(x, y, layer, net) is not None:
             n = self.node(key if key is not None else ("land", layer, _rk(x), _rk(y)))
-            self.well(n, x, y, layer, net, r=r)
-            return n
+            if self.land(n, x, y, layer, net, r=r, r_in=r_in):
+                return n
         n = self.bar_at(x, y, layer)
         if n is not None:
             return n
@@ -456,7 +699,7 @@ class Network:
         a = self.arrays()
         z = self.z[layer]
         X, Y = x * MM, y * MM
-        m = ((a.ax < 2) & (a.tq == 0) & (np.abs(a.box[:, 4] - z[0]) < 1e-12) & (a.box[:, 0] <= X + 1e-12)
+        m = ((a.ax < 2) & (a.grp == "strip") & (np.abs(a.box[:, 4] - z[0]) < 1e-12) & (a.box[:, 0] <= X + 1e-12)
              & (a.box[:, 1] >= X - 1e-12) & (a.box[:, 2] <= Y + 1e-12) & (a.box[:, 3] >= Y - 1e-12))
         ids = np.nonzero(m)[0]
         if not ids.size:
@@ -468,103 +711,135 @@ class Network:
         return int(a.na[i] if Y - bx[2] <= bx[3] - Y else a.nb_[i])
 
     # -- planes
-    def plane(self, polygon, layer, net, pitch=None):
-        """Tiles of `polygon` (board mm, holes allowed) on `layer`: x and y bars of the network's grid (origin,
-        pitch) between cell-centre nodes, a bar where its centre is inside the polygon. Tile nodes inside a pad of the
-        same net on this layer are that pad's node; a pad of the net on the polygon with no such node gets a well at a point
-        of its overlap with the polygon."""
+    def plane(self, polygon, layer, net, pitch=None, near=None, p_far=None, beta=None, fine=()):
+        """Tiles of `polygon` (board mm, holes allowed) on `layer`: the leaves of a 2:1-graded quadtree (quadtree():
+        size `pitch` = P0 where it meets `near`, doubling outward up to p_far, finer in the `fine` regions (geom,
+        size); near None: a uniform grid at P0) with a node at each leaf's centre and x and y bars between touching
+        leaves' centres: as wide as the leaves between two of one size; at a 2:1 interface, from the coarse leaf's
+        centre to each of its two fine neighbours' as a bar of the fine leaf's width (the coarse leaf's half facing
+        it), with that bar's R and L, so no link is free of inductance. A bar exists where its centre is inside the
+        polygon; where it is not but one piece of the polygon spans the bar from node to node (a neck, a spoke, an
+        edge narrower than the leaf) a partial bar of that piece's mean width at its place (direct mutuals). Bars
+        between leaves sit on the lattice (tq > 0: mutuals from the memo). A leaf whose centre is inside a pad of
+        the net on this layer is that pad's node; a pad on the pour that holds no tile node lands on the tiles
+        (land), or in a relief through its spokes (spokes)."""
         import shapely
+        P = pitch if pitch is not None else self.pitch
         if self.pitch is None:
-            self.pitch = pitch
+            self.pitch = P
         if self.origin is None:
             b = polygon.bounds
             self.origin = (b[0], b[1])
-        P = self.pitch
-        if pitch is not None and abs(pitch - P) > 1e-12:
-            raise ValueError(f"plane pitch {pitch} differs from the network's grid pitch {P}")
-        x0, y0 = self.origin
-        bx = polygon.bounds
-        i0, i1 = int(math.floor((bx[0] - x0) / P - 1)), int(math.ceil((bx[2] - x0) / P))
-        j0, j1 = int(math.floor((bx[1] - y0) / P - 1)), int(math.ceil((bx[3] - y0) / P))
-        I = np.arange(i0, i1 + 1)
-        J = np.arange(j0, j1 + 1)
-        xc = x0 + (I + 0.5) * P
-        yc = y0 + (J + 0.5) * P
+        pf = P if (near is None or p_far is None) else P * 2.0 ** max(0, math.ceil(math.log2(p_far / P) - 1e-9))
+        X0, Y0, S = quadtree(polygon, self.origin, P, pf, near, beta, fine)
         za, zb = self.z[layer]
         t = zb - za
         Rb = 1.0 / (SIGMA * t)
+        CX, CY = X0 + S / 2, Y0 + S / 2
+        lnode = -np.ones(X0.size, np.int64)
         pads = [(d["node"], d["geoms"][layer]) for d in self.pads.values()
                 if layer in d["geoms"] and d["net"] in (None, net)]
-        alias = {}
-        if pads:
-            GX, GY = np.meshgrid(xc, yc, indexing="ij")
-            for n, g in pads:
-                inside = shapely.contains_xy(g, GX, GY)
-                for a, c in zip(*np.nonzero(inside)):
-                    alias[(int(I[a]), int(J[c]))] = n
-        nodes = {}
-        # where the tiles carry the pour: at least a pitch wide (a track in a narrower neck stays a strip)
-        core = polygon.buffer(-P / 2, join_style=2).buffer(P / 2, join_style=2)
-        pl = dict(poly=polygon, core=core, layer=layer, net=net, P=P, nodes=nodes, Rb=Rb, ncent=0)
-
-        def nd(i, j):
-            k = (i, j)
-            n = nodes.get(k)
-            if n is None:
-                n = alias.get(k)
-                if n is None:
-                    n = self.node(("pl", layer, net, i, j))
-                nodes[k] = n
-            return n
-        q = P * MM
-        cx = []
-        touched = set()                 # nodes a tile bar reaches (a pad's own tiles joined to each other do not)
-        # x bars between (i, j) and (i + 1, j): centre (x0 + (i + 1) P, yc_j)
-        GX, GY = np.meshgrid(x0 + (I[:-1] + 1.0) * P, yc, indexing="ij")
-        ok = shapely.contains_xy(polygon, GX, GY)
-        for a, c in zip(*np.nonzero(ok)):
-            i, j = int(I[a]), int(J[c])
-            na, nb = nd(i, j), nd(i + 1, j)
-            if na != nb:
-                touched.update((na, nb))
-            self.bar(0, (xc[a] * MM, xc[a + 1] * MM, (yc[c] - P / 2) * MM, (yc[c] + P / 2) * MM, za, zb), na, nb, Rb,
-                     "plane", tq=q)
-            cx.append((GX[a, c], GY[a, c]))
-        GX, GY = np.meshgrid(xc, y0 + (J[:-1] + 1.0) * P, indexing="ij")
-        ok = shapely.contains_xy(polygon, GX, GY)
-        for a, c in zip(*np.nonzero(ok)):
-            i, j = int(I[a]), int(J[c])
-            na, nb = nd(i, j), nd(i, j + 1)
-            if na != nb:
-                touched.update((na, nb))
-            self.bar(1, ((xc[a] - P / 2) * MM, (xc[a] + P / 2) * MM, yc[c] * MM, yc[c + 1] * MM, za, zb), na, nb, Rb,
-                     "plane", tq=q)
-            cx.append((GX[a, c], GY[a, c]))
-        # partial tiles: a cell whose bar centre is outside the pour but which one piece of the pour spans from node to
-        # node (a neck, a spoke, a pour's edge narrower than the cell): a bar of that piece's mean width at its
-        # place across, R scaled to that width (not on the table's lattice: its mutuals are direct)
-        self._partial_tiles(polygon, pl, I, J, xc, yc, za, zb, nd, touched)
-        pl["centres"] = np.array(cx).reshape(-1, 2)
-        self.planes[(layer, net)] = pl
-        # a pad on the pour that holds no tile node: a well at its centre
-        held = touched
         for n, g in pads:
-            if n in held or not g.intersects(polygon):
+            lnode[shapely.contains_xy(g, CX, CY) & (lnode < 0)] = n
+        lv = _Leaves(X0, Y0, S, self.origin)
+
+        def nd(k):
+            if lnode[k] < 0:
+                lnode[k] = self.node(("pl", layer, net, _rk(X0[k]), _rk(Y0[k]), _rk(S[k])))
+            return int(lnode[k])
+        # candidate bars from each leaf's +x and +y sides: (axis, a, b, finer leaf)
+        cand = []
+        for k in range(X0.size):
+            x0, y0, s = float(X0[k]), float(Y0[k]), float(S[k])
+            e = s * 1e-6
+            for axis, (px, py) in ((0, (x0 + s + e, y0 + s / 2)), (1, (x0 + s / 2, y0 + s + e))):
+                f = lv.find(px, py)
+                if f is None:
+                    continue
+                m = f[2]
+                if S[m] >= s * (1 - 1e-9):
+                    cand.append((axis, k, m, k))
+                    continue
+                for fr in (0.25, 0.75):
+                    f = lv.find(*((px, y0 + fr * s) if axis == 0 else (x0 + fr * s, py)))
+                    if f is not None:
+                        cand.append((axis, k, f[2], f[2]))
+        cand = np.array(cand, np.int64).reshape(-1, 4)
+        ax, ka, kb, kf = cand.T
+        lo = np.where(ax == 0, CX[ka], CY[ka])
+        hi = np.where(ax == 0, CX[kb], CY[kb])
+        w = S[kf]
+        c0 = np.where(ax == 0, Y0[kf], X0[kf])
+        mx = np.where(ax == 0, (lo + hi) / 2, c0 + w / 2)
+        my = np.where(ax == 0, c0 + w / 2, (lo + hi) / 2)
+        inside = shapely.contains_xy(polygon, mx, my)
+        cx = []
+        boxes = []
+        touched = set()
+        for q in range(ax.size):
+            a_, la, ha, wq, cq = int(ax[q]), lo[q], hi[q], w[q], c0[q]
+            if inside[q]:
+                ext = (la, ha, cq, cq + wq)
+                R = (ha - la) / wq * Rb
+                tq = wq * MM
+            else:
+                piece = _span_piece(polygon, a_, la, ha, cq, cq + wq)
+                if piece is None:
+                    continue
+                wp, cc = piece
+                ext = (la, ha, cc - wp / 2, cc + wp / 2)
+                R = (ha - la) / wp * Rb
+                tq = 0.0
+            na, nb = nd(int(ka[q])), nd(int(kb[q]))
+            if na != nb:
+                touched.update((na, nb))
+            box = ((ext[0] * MM, ext[1] * MM, ext[2] * MM, ext[3] * MM, za, zb) if a_ == 0 else
+                   (ext[2] * MM, ext[3] * MM, ext[0] * MM, ext[1] * MM, za, zb))
+            self.bar(a_, box, na, nb, R, "plane", tq=tq)
+            if inside[q]:
+                cx.append((mx[q], my[q]))
+            boxes.append((box[0] / MM, box[2] / MM, box[1] / MM, box[3] / MM))
+        nodes = {int(k): int(n) for k, n in enumerate(lnode) if n >= 0}
+        pl = dict(poly=polygon, layer=layer, net=net, P=P, p_far=pf, X0=X0, Y0=Y0, S=S, lnode=lnode, nodes=nodes,
+                  Rb=Rb, centres=np.array(cx).reshape(-1, 2), boxes=np.array(boxes).reshape(-1, 4), leaves=lv)
+        self.planes[(layer, net)] = pl
+        # a pad on the pour that holds no tile node: it lands on the tiles around its overlap with the pour
+        for n, g in pads:
+            if n in touched or not g.intersects(polygon):
                 continue
             ov = g.intersection(polygon)
             if ov.is_empty:
                 continue
             c = ov.centroid if ov.contains(ov.centroid) else ov.representative_point()
-            if not self.well(n, c.x, c.y, layer, net, r=math.sqrt(ov.area / math.pi)):
+            r = math.sqrt(ov.area / math.pi)
+            if not self.land(n, c.x, c.y, layer, net, r=r):
                 self.spokes(n, g, pl)
         return pl
 
+    def tiled(self, pl):
+        """The copper the plane's bars carry (the union of their boxes, inside the polygon): a track there is the
+        tiles' copper (build_cell drops it)."""
+        import shapely
+        if "tiled" not in pl:
+            b = pl["boxes"]
+            u = shapely.union_all(shapely.box(b[:, 0], b[:, 1], b[:, 2], b[:, 3])) if len(b) else None
+            pl["tiled"] = None if u is None else u.intersection(pl["poly"])
+        return pl["tiled"]
+
+    def leaf_nodes(self, pl, x, y, rad):
+        """[(distance, node, leaf)] of the plane's tile nodes whose leaf centre is within `rad` of (x, y)."""
+        X0, Y0, S, ln = pl["X0"], pl["Y0"], pl["S"], pl["lnode"]
+        d = np.hypot(X0 + S / 2 - x, Y0 + S / 2 - y)
+        m = np.nonzero((ln >= 0) & (d <= rad))[0]
+        return sorted((float(d[k]), int(ln[k]), int(k)) for k in m)
+
     def spokes(self, node, g, pl, seg=SEG_MM):
-        """A pad in a relief (no tile within reach): each piece of the pour in a band of two pitches around the pad
-        that touches it (a thermal spoke, a neck) as a strip from the pad's edge to the piece's outer end, landed on
-        the nearest tile node there. Returns the number of strips."""
-        P = pl["P"]
-        x0, y0 = self.origin
+        """A pad in a relief (no tile within reach): each piece of the pour in a band of two leaf sizes around the
+        pad that touches it (a thermal spoke, a neck) as a strip from the pad's edge to the piece's outer end, landed
+        on the nearest tile node there. Returns the number of strips."""
+        c = g.centroid
+        near = self.leaf_nodes(pl, c.x, c.y, math.inf)
+        P = pl["S"][near[0][2]] if near else pl["P"]
         band = pl["poly"].intersection(g.buffer(2 * P)).difference(g)
         k = 0
         for q in getattr(band, "geoms", [band]):
@@ -578,13 +853,8 @@ class Network:
             L = math.dist((a.x, a.y), (b.x, b.y))
             if L < 1e-3:
                 continue
-            best = None
-            for (ii, jj), m in pl["nodes"].items():
-                if m == node:
-                    continue
-                d = math.hypot(x0 + (ii + 0.5) * P - b.x, y0 + (jj + 0.5) * P - b.y)
-                if d <= 1.5 * P and (best is None or d < best[0]):
-                    best = (d, m)
+            best = next(((d, m) for d, m, lf in self.leaf_nodes(pl, b.x, b.y, 3 * P)
+                         if m != node and d <= 1.5 * pl["S"][lf]), None)
             if best is None:
                 continue
             w = max(min(q.area / L, 2 * P), 0.02)
@@ -592,51 +862,6 @@ class Network:
                        key=("spoke", pl["layer"], pl["net"], self.keys[node], k), grp="plane", clip=False)
             k += 1
         return k
-
-    def _partial_tiles(self, polygon, pl, I, J, xc, yc, za, zb, nd, touched):
-        import shapely
-        P = pl["P"]
-        t = zb - za
-        for axis in (0, 1):
-            if axis == 0:
-                A, C = np.meshgrid(np.arange(len(I) - 1), np.arange(len(J)), indexing="ij")
-                bx0, bx1 = xc[A], xc[A + 1]
-                by0, by1 = yc[C] - P / 2, yc[C] + P / 2
-                cxs, cys = (bx0 + bx1) / 2, yc[C]
-            else:
-                A, C = np.meshgrid(np.arange(len(I)), np.arange(len(J) - 1), indexing="ij")
-                bx0, bx1 = xc[A] - P / 2, xc[A] + P / 2
-                by0, by1 = yc[C], yc[C + 1]
-                cxs, cys = xc[A], (by0 + by1) / 2
-            boxes = shapely.box(bx0.ravel(), by0.ravel(), bx1.ravel(), by1.ravel())
-            out = ~shapely.contains_xy(polygon, cxs.ravel(), cys.ravel())
-            hit = out & shapely.intersects(polygon, boxes)
-            for k in np.nonzero(hit)[0]:
-                cut = polygon.intersection(boxes[k])
-                best = None
-                for q in getattr(cut, "geoms", [cut]):
-                    if q.geom_type != "Polygon" or q.area < 0.1 * P * P:
-                        continue
-                    b = q.bounds
-                    span = (b[2] - b[0]) if axis == 0 else (b[3] - b[1])
-                    if span >= 0.98 * P and (best is None or q.area > best.area):
-                        best = q
-                if best is None:
-                    continue
-                w = best.area / P
-                c = best.centroid
-                a_, c_ = np.unravel_index(k, A.shape)
-                if axis == 0:
-                    i, j = int(I[a_]), int(J[c_])
-                    na, nb = nd(i, j), nd(i + 1, j)
-                    box = (xc[a_] * MM, xc[a_ + 1] * MM, (c.y - w / 2) * MM, (c.y + w / 2) * MM, za, zb)
-                else:
-                    i, j = int(I[a_]), int(J[c_])
-                    na, nb = nd(i, j), nd(i, j + 1)
-                    box = ((c.x - w / 2) * MM, (c.x + w / 2) * MM, yc[c_] * MM, yc[c_ + 1] * MM, za, zb)
-                if na != nb:
-                    touched.update((na, nb))
-                self.bar(axis, box, na, nb, P / (SIGMA * w * t), "plane")
 
     def in_plane(self, x, y, layer, net=None, tol=1e-6):
         from shapely.geometry import Point
@@ -646,53 +871,51 @@ class Network:
                 return pl
         return None
 
-    def well(self, node, x, y, layer, net=None, r=None):
-        """Resistive links from `node` to the four tile nodes around (x, y) with bilinear weights w (R_w / w each: a
-        Peaceman well, well_resistance), over the ones that exist; to every tile node within the landing's radius r
-        instead when there are any (a landing wider than the grid is one equipotential, as the raster's landing
-        disk); the nearest tile node within 1.5 pitches if none. Returns the number of links (0: the point is not on
-        tiled copper)."""
+    def land(self, node, x, y, layer, net=None, r=None, r_in=None, key=None):
+        """Join `node` at (x, y) to the plane tiles under its landing: a via's annulus (r: its pad's radius; r_in: its
+        barrel's wall, drill / 2 + plating, where the current enters the plane), a track's end (r = r_in = w / 2) or
+        a pad holding no tile node (its equivalent radius). Every tile node whose leaf meets the disk of radius r
+        (else the nearest within 1.5 leaf sizes) is joined by a radial bar of the plane's copper from the circle of
+        radius r_in to the node: width the node's share 2 pi r_in / n of that circle, length the radial distance (at
+        least s / 8), staircased when oblique (strip), so the spreading current has resistance and inductance (no
+        well, no short). Returns the number of nodes joined (0: the point is not on tiled copper)."""
         pl = self.in_plane(x, y, layer, net)
-        if pl is None or (node, layer, pl["net"]) in self.welled:
+        if pl is None:
             return 0
-        P = pl["P"]
-        x0, y0 = self.origin
-        fx, fy = (x - x0) / P - 0.5, (y - y0) / P - 0.5
-        i, j = int(math.floor(fx)), int(math.floor(fy))
-        ax, ay = fx - i, fy - j
-        cand = [((i, j), (1 - ax) * (1 - ay)), ((i + 1, j), ax * (1 - ay)), ((i, j + 1), (1 - ax) * ay),
-                ((i + 1, j + 1), ax * ay)]
-        have = [(pl["nodes"][k], w) for k, w in cand if k in pl["nodes"] and w > 1e-9 and pl["nodes"][k] != node]
-        if r:
-            # a landing wider than the grid: every tile node under it, one equipotential (the raster's landing disk)
-            m = int(math.ceil(r / P)) + 1
-            disk = [pl["nodes"][(ii, jj)] for ii in range(i - m, i + m + 2) for jj in range(j - m, j + m + 2)
-                    if (ii, jj) in pl["nodes"] and pl["nodes"][(ii, jj)] != node
-                    and math.hypot(x0 + (ii + 0.5) * P - x, y0 + (jj + 0.5) * P - y) <= r]
-            if len(set(disk)) >= 4:              # fewer: the bilinear well places it better than a snap
-                have = [(n, 1.0) for n in sorted(set(disk))]
-        if not have:
-            best = None
-            for (ii, jj), n in pl["nodes"].items():
-                d = math.hypot(x0 + (ii + 0.5) * P - x, y0 + (jj + 0.5) * P - y)
-                if n != node and d <= 1.5 * P and (best is None or d < best[0]):
-                    best = (d, n)
-            if best is None:
+        lk = (node, layer, pl["net"])
+        if lk in self.landed:
+            return self.landed[lk]
+        r = r if r else 0.15
+        r_in = min(r_in if r_in else r, r)
+        X0, Y0, S, ln = pl["X0"], pl["Y0"], pl["S"], pl["lnode"]
+        dx = np.maximum(np.maximum(X0 - x, x - (X0 + S)), 0.0)
+        dy = np.maximum(np.maximum(Y0 - y, y - (Y0 + S)), 0.0)
+        has = (ln >= 0) & (ln != node)
+        cand = np.nonzero(has & (np.hypot(dx, dy) <= r + 1e-9))[0]
+        dc = np.hypot(X0 + S / 2 - x, Y0 + S / 2 - y)
+        if not cand.size:
+            m = np.nonzero(has & (dc <= 1.5 * S + r))[0]
+            if not m.size:
                 return 0
-            have = [(best[1], 1.0)]
-        tot = sum(w for _, w in have)
-        Rw = well_resistance(pl["Rb"], P, r)
-        k = 0
-        for n, w in have:
-            if n != node:
-                self.lumped(node, n, _const(Rw * tot / w), name="well", kind="well")
-                k += 1
-        self.welled.add((node, layer, pl["net"]))
-        return k
+            cand = m[[int(np.argmin(dc[m]))]]
+        seen = {}
+        for k in cand[np.argsort(dc[cand], kind="stable")]:
+            seen.setdefault(int(ln[k]), int(k))
+        width = 2 * math.pi * r_in / len(seen)
+        tag = key if key is not None else self.keys[node]
+        for nn, k in seen.items():
+            cx, cy, s = float(X0[k] + S[k] / 2), float(Y0[k] + S[k] / 2), float(S[k])
+            d = math.hypot(cx - x, cy - y)
+            ux, uy = ((cx - x) / d, (cy - y) / d) if d > 1e-9 else (1.0, 0.0)
+            L = max(abs(d - r_in), s / 8)
+            self.strip((cx - ux * L, cy - uy * L), (cx, cy), width, layer, node, nn, clip=False, grp="land",
+                       key=("land", tag, layer, k), stair=max(width / 2, s / 8))
+        self.landed[lk] = len(seen)
+        return len(seen)
 
     def thin_pieces(self, pl, min_len=None):
-        """The pour pieces narrower than 2 pitches that no tile reaches: [(end a, end b, width)] (board mm) along
-        each piece's minimum rotated rectangle's long axis."""
+        """The pour pieces narrower than 2 P0 that no tile reaches: [(end a, end b, width)] (board mm) along each
+        piece's minimum rotated rectangle's long axis."""
         import shapely
         P = pl["P"]
         poly = pl["poly"]
@@ -770,9 +993,14 @@ class Network:
         out.lumps = [Lump(int(new[q.na]), int(new[q.nb]), q.zf, q.name, q.kind) for q in self.lumps
                       if keep[q.na] and keep[q.nb]]
         out.pads = {k: dict(d, node=int(new[d["node"]])) for k, d in self.pads.items() if keep[d["node"]]}
-        out.planes = {k: dict(pl, nodes={ij: int(new[n]) for ij, n in pl["nodes"].items() if keep[n]})
-                      for k, pl in self.planes.items()}
-        out.welled = {(int(new[n]), l, nn) for n, l, nn in self.welled if keep[n]}
+        out.planes = {}
+        for k, pl in self.planes.items():
+            ln = pl["lnode"]
+            ok = ln >= 0
+            ok[ok] = keep[ln[ok]]
+            out.planes[k] = dict(pl, nodes={ij: int(new[n]) for ij, n in pl["nodes"].items() if keep[n]},
+                                 lnode=np.where(ok, new[np.maximum(ln, 0)], -1))
+        out.landed = {(int(new[n]), l, nn): v for (n, l, nn), v in self.landed.items() if keep[n]}
         out.ports = [(int(new[a_]), int(new[b_])) for a_, b_ in self.ports if keep[a_] and keep[b_]]
         out._arr = None
         out._L = None
@@ -800,20 +1028,6 @@ class Network:
         return self.n_bars + len(self.lumps) + len(self.keys) - len(set(self.components().tolist()))
 
 
-WELL = "peaceman"               # or "bilinear": 0.5 R_sq per landing whatever the pitch (the prototype's links)
-WELL_FLOOR = 0.05               # x R_sq / 2 pi: a well's least resistance (a grid finer than the landing)
-
-
-def well_resistance(Rs, P, r):
-    """A well's resistance (ohm) from a landing of radius r (mm) to its grid nodes at pitch P: Peaceman's
-    (R_s / 2 pi) ln(r_e / r), r_e = 0.198 P (a 5-point grid's equivalent radius), at least WELL_FLOOR of R_s / 2 pi
-    (a grid finer than the via: its nodes are nearly one equipotential, as the raster's landing disk)."""
-    if WELL == "bilinear":
-        return 0.5 * Rs
-    r = r if r else 0.15
-    return Rs / (2 * math.pi) * max(WELL_FLOOR, math.log(0.198 * P / r))
-
-
 def _const(v):
     return lambda w: v
 
@@ -837,15 +1051,9 @@ def _swap(box, axis):
     return box if axis == 0 else box[:, [2, 3, 0, 1, 4, 5]]
 
 
-def _tile_coords(box, q):
-    """Integer lattice coordinates (along, across) of tiles' low corners (swapped boxes), relative to their minimum."""
-    lo = box[:, [0, 2]] / q
-    r = np.round(lo - lo.min(axis=0))
-    return r.astype(np.int64)
-
-
 def _block(net, I, J, tables, sym=False):
-    """L_p[I][:, J] (H) for bar index arrays I, J; sym: I == J (fills both triangles from one evaluation)."""
+    """L_p[I][:, J] (H) for bar index arrays I, J; sym: I == J (fills both triangles from one evaluation). Pairs of
+    tile bars (on the quadtree's lattice: tq > 0) come from the memo (Tables.block), every other pair is direct."""
     a = net.arrays()
     I, J = np.asarray(I, np.int64), np.asarray(J, np.int64)
     out = np.zeros((I.size, J.size))
@@ -861,48 +1069,22 @@ def _block(net, I, J, tables, sym=False):
         ri = np.array([pi[int(v)] for v in ii])
         rj = np.array([pj[int(v)] for v in jj])
         ti, tj = a.tq[ii] > 0, a.tq[jj] > 0
-        # tile-tile pairs of one pitch: translation tables per layer pair
-        qs = set(np.round(a.tq[ii[ti]], 15)) & set(np.round(a.tq[jj[tj]], 15))
-        done_t = np.zeros((ii.size, jj.size), bool)
-        for q in sorted(qs):
-            mi = ti & (np.abs(a.tq[ii] - q) < 1e-15)
-            mj = tj & (np.abs(a.tq[jj] - q) < 1e-15)
-            bi, bj = _swap(a.box[ii[mi]], axis), _swap(a.box[jj[mj]], axis)
-            both = np.concatenate([bi, bj])
-            cc = _tile_coords(both, q)
-            ci, cj = cc[:len(bi)], cc[len(bi):]
-            zi = [tuple(np.round(v, 15)) for v in bi[:, 4:6]]
-            zj = [tuple(np.round(v, 15)) for v in bj[:, 4:6]]
-            for za in sorted(set(zi)):
-                for zb in sorted(set(zj)):
-                    xi = np.array([k for k, v in enumerate(zi) if v == za])
-                    xj = np.array([k for k, v in enumerate(zj) if v == zb])
-                    da = cj[xj, 0][None, :] - ci[xi, 0][:, None]
-                    dc = cj[xj, 1][None, :] - ci[xi, 1][:, None]
-                    na, nc = int(np.abs(da).max()), int(np.abs(dc).max())
-                    T = tables.get(q, za, zb, na, nc)
-                    rows = ri[np.nonzero(mi)[0][xi]]
-                    cols = rj[np.nonzero(mj)[0][xj]]
-                    out[np.ix_(rows, cols)] = T[dc + nc, da + na]
-                    done_t[np.ix_(np.nonzero(mi)[0][xi], np.nonzero(mj)[0][xj])] = True
-        # every other pair: direct
-        if sym:
-            oi = np.nonzero(~ti)[0]
-            if oi.size:
-                M = pair_mutual(_swap(a.box[ii[oi]], axis), _swap(a.box[jj], axis))
-                BU.charge("em_pair", M.size)
-                out[np.ix_(ri[oi], rj)] = M
-                out[np.ix_(rj, ri[oi])] = M.T
-            continue
-        rest = ~done_t
-        ra, rb = np.nonzero(rest)
-        if ra.size:
-            ui = np.unique(ra)
-            M = pair_mutual(_swap(a.box[ii[ui]], axis), _swap(a.box[jj], axis))
+        if ti.any() and tj.any():
+            M = tables.block(_swap(a.box[ii[ti]], axis), _swap(a.box[jj[tj]], axis))
+            out[np.ix_(ri[ti], rj[tj])] = M
+        oi = np.nonzero(~ti)[0]
+        if oi.size:
+            M = pair_mutual(_swap(a.box[ii[oi]], axis), _swap(a.box[jj], axis))
             BU.charge("em_pair", M.size)
-            pos = {int(v): k for k, v in enumerate(ui)}
-            sel = np.array([pos[int(v)] for v in ra])
-            out[ri[ra], rj[rb]] = M[sel, rb]
+            out[np.ix_(ri[oi], rj)] = M
+            if sym:
+                out[np.ix_(rj, ri[oi])] = M.T
+        if not sym:
+            oj = np.nonzero(~tj)[0]
+            if oj.size and ti.any():
+                M = pair_mutual(_swap(a.box[ii[ti]], axis), _swap(a.box[jj[oj]], axis))
+                BU.charge("em_pair", M.size)
+                out[np.ix_(ri[ti], rj[oj])] = M
     # vias: tubes, filament mutuals (as the raster's _via_matrix)
     vi, vj = I[a.ax[I] == 2], J[a.ax[J] == 2]
     if vi.size and vj.size:
@@ -1012,7 +1194,7 @@ class System:
         return float(np.real(np.vdot(I, self.L @ I))) / abs(I0) ** 2
 
     def dissipation_R(self, x, I0=None):
-        """sum R_b |I_b|^2 / |I0|^2 (ohm) over bars and the wells' links (copper)."""
+        """sum R_b |I_b|^2 / |I0|^2 (ohm) over bars and the shorts inside a pad (copper)."""
         I0 = self.I0 if I0 is None else I0
         return _dissipation(self.net, x[:self.nb], x[self.nb:self.nb + self.nl], self.w) / abs(I0) ** 2
 
@@ -1026,7 +1208,7 @@ def _dissipation(net, I, Il, w):
     a = net.arrays()
     R = float(np.sum(a.R * np.abs(I) ** 2))
     for q, i in zip(net.lumps, Il):
-        if q.kind in ("well", "short"):
+        if q.kind == "short":
             R += q.z(w).real * abs(i) ** 2
     return R
 
@@ -1039,8 +1221,6 @@ def _breakdown(net, L, I, Il, w, I0):
         m = a.grp == g
         e = float(np.real(np.vdot(I[m], LI[m]))) if m.any() else 0.0
         r = float(np.sum(a.R[m] * np.abs(I[m]) ** 2)) if m.any() else 0.0
-        if g == "well":
-            r += sum(q.z(w).real * abs(i) ** 2 for q, i in zip(net.lumps, Il) if q.kind == "well")
         out[g] = dict(L_nH=round(e / abs(I0) ** 2 * 1e9, 5), R_mohm=round(r / abs(I0) ** 2 * 1e3, 5))
     return out
 
@@ -1233,7 +1413,7 @@ def nest(net, fine, I):
 
 
 # ----------------------------------------------------------------------------- from a board
-STRIP_PITCH = 0.5               # mm: the quote's plane pitch (design doc section 4: within +4.5 % L, -3 % R at 0.5)
+STRIP_PITCH = 0.5               # mm: the quote's near pitch P0 at most (plan_cell)
 
 
 @dataclass
@@ -1245,6 +1425,10 @@ class Quote:
     L_loop: float | None = None
     R_loop: float | None = None
     pitch: float | None = None
+    pitch_near: float | None = None   # mm: P0, the near region's tiles (the finest of the planes')
+    pitch_far: float | None = None    # mm: the largest tile
+    grade: float | None = None        # the far ring's grading used (GRADES)
+    repairs: int = 0                  # copper-join repairs made (check_joins)
     unknowns: int = 0
     bars: int = 0
     nodes: int = 0
@@ -1366,14 +1550,108 @@ def _jkey(layer, net, p):
     return ("j", layer, net, round(p[0], 4), round(p[1], 4))
 
 
-def build_cell(ctx, s, win, pitch, nw=1, seg=SEG_MM, all_nets=False):
-    """The cell's network in window `win` at plane pitch `pitch` (see from_board), with its circuit lumped for both
-    bands. Returns (net_fund, net_edge, inj_fund, inj_edge, info)."""
+@dataclass
+class Plan:
+    """How a cell's planes are tiled (plan_cell): per plane layer its near pitch P0, near region and fine regions; the
+    far ring's cap; the loop's nets, layers and narrowest strip."""
+    P0: dict                    # layer -> mm
+    near: dict                  # layer -> shapely geometry (None: no loop copper near it)
+    fine: dict                  # layer -> [(geometry, size mm)]
+    p_far: float
+    loop_nets: set
+    loop_layers: set
+    w_min: float
+    h: dict                     # layer -> mm: the plane's distance to the nearest layer with loop copper
+
+    @property
+    def pitch_near(self):
+        return min(self.P0.values()) if self.P0 else None
+
+
+def _loop_nets(s, sols, net_of, share=None):
+    """The nets that carry the cell's loop: those of pads injected with at least LOOP_SHARE of the largest injection
+    (either band), and the cell's ground and bus."""
+    share = LOOP_SHARE if share is None else share
+    out = {s.meta.get(k) for k in ("gnd", "bus") if s.meta.get(k)}
+    for sol in sols:
+        big = max((abs(j) for j in sol["Ja"].values()), default=0.0)
+        out |= {net_of[p] for p, j in sol["Ja"].items() if p in net_of and big and abs(j) >= share * big}
+    out.discard(None)
+    return out
+
+
+def plan_cell(net, pour_keys, loop_nets, raw, vias, box, win, pitch, repair=(), p0=None):
+    """The tiling plan of a cell (Plan). Loop copper: the loop nets' pads, track pieces and vias that meet `box` (the
+    cell's pad box). Per plane layer L: h_L, the centre distance to the nearest layer holding loop pads or strips;
+    P0 = the lattice pitch at most min(pitch, h_L / 2, w_min) (w_min: the narrowest loop strip not inside its own
+    pour); the near region, every loop element buffered by max(NEAR_H x its distance to L, NEAR_MIN); fine regions:
+    within VIA_ZONE x r_barrel of each loop via, P_via = the lattice pitch at most min(P0, 2 r_barrel), and every
+    pad on L of a net poured on L, in the near region, at P0 (a pad farther out lands on coarser tiles, land);
+    `repair`: (layer, geometry, size) from the copper-join check. The far cap p_far: the lattice
+    pitch at most max(P_FAR_MIN, the window's larger side / P_FAR_DIV). p0: a forced near pitch (studies and tests
+    of the tiling itself: it bypasses the h / 2 and w_min rule)."""
+    from shapely.geometry import LineString, Point, box as sbox
+    from shapely.ops import unary_union
+    zc = {l: sum(net.z[l]) / 2 / MM for l in net.order}
+    bb = sbox(*(box or win))
+    els = []                                # (layer or None, geometry)
+    for d in net.pads.values():
+        if d["net"] in loop_nets:
+            for layer, g in d["geoms"].items():
+                if g.intersects(bb):
+                    els.append((layer, g))
+    w_min = math.inf
+    for pc in raw:
+        if pc["net"] not in loop_nets:
+            continue
+        g = LineString([pc["a"], pc["b"]]).buffer(pc["w"] / 2, cap_style=2)
+        if not g.intersects(bb):
+            continue
+        els.append((pc["layer"], g))
+        own = pc.get("pour")
+        if own is None or g.difference(own).area > 0.1 * g.area:
+            w_min = min(w_min, pc["w"])
+    vels = []
+    for v in vias:
+        if v["net"] in loop_nets and bb.intersects(Point(v["x"], v["y"])):
+            vels.append(v)
+            els.append((None, Point(v["x"], v["y"]).buffer(v["size"] / 2)))
+    loop_layers = {l for l, _ in els if l is not None}
+    P0, near, fine, h = {}, {}, {}, {}
+    for L in sorted({l for l, _ in pour_keys}):
+        others = [abs(zc[L] - zc[l]) for l in loop_layers if l != L]
+        if not others:
+            others = [abs(zc[L] - zc[l]) for l in net.order if l != L] or [1.0]
+        h[L] = min(others)
+        P0[L] = snap_pitch(p0) if p0 else snap_pitch(min(pitch, h[L] / 2, w_min))
+        near[L] = unary_union([g.buffer(max(NEAR_H * (abs(zc[L] - zc[l]) if l else 0.0), NEAR_MIN))
+                               for l, g in els]) if els else None
+        fl = []
+        for v in vels:
+            if L in v["span"]:
+                rb = v["drill"] / 2 + MAT.VIA_PLATING_MM
+                fl.append((Point(v["x"], v["y"]).buffer(VIA_ZONE * rb), snap_pitch(min(P0[L], 2 * rb))))
+        for d in net.pads.values():
+            g = d["geoms"].get(L)
+            if g is not None and (L, d["net"]) in pour_keys and near[L] is not None and g.intersects(near[L]):
+                fl.append((g, P0[L]))
+        fl += [(g, sz) for l, g, sz in repair if l == L]
+        fine[L] = fl
+    p_far = snap_pitch(max(P_FAR_MIN, max(win[2] - win[0], win[3] - win[1]) / P_FAR_DIV))
+    return Plan(P0, near, fine, p_far, set(loop_nets), loop_layers, w_min, h)
+
+
+def build_cell(ctx, s, win, pitch=None, nw=1, seg=SEG_MM, all_nets=False, beta=None, box=None, repair=(),
+               grade=True, p0=None):
+    """The cell's network in window `win` (see from_board), its planes tiled by plan_cell's plan at far grading `beta`
+    (GRADES; grade False: every plane a uniform grid at its P0), with its circuit lumped for both bands. Returns
+    (net_fund, net_edge, inj_fund, inj_edge, info); info carries the plan and the geometric copper (copper_geo)."""
     from shapely.geometry import LineString, Point, box as sbox
     from shapely.ops import unary_union
 
     from kae.em.kicad import _arc_points
     from kae.excite.circuit import lump_into
+    pitch = STRIP_PITCH if pitch is None else pitch
     b, bd = ctx.b, ctx.bd
     f_fund, f_edge = cell_bands(ctx, s)
     sol_f = bd.circuit.solve(f_fund, [s])[s.name]
@@ -1403,8 +1681,8 @@ def build_cell(ctx, s, win, pitch, nw=1, seg=SEG_MM, all_nets=False):
     if all_nets:
         nets |= {p.net for lst in ctx.pads.values() for _, _, p in lst if p.net}
         nets |= {t.net for t in b.tracks if t.net} | set((ctx.fills or {}).keys())
-    net = Network(ctx.layers, origin=(win[0], win[1]), pitch=pitch)
-    stair_min = pitch / 4
+    loop_nets = _loop_nets(s, (sol_f, sol_e), net_of) & nets
+    net = Network(ctx.layers, origin=(win[0], win[1]))
     # pads; same-net pads whose copper overlaps on a layer are one piece of copper (one node, as the raster's
     # contracted terminals: an exposed pad and the pads drawn inside it)
     toks = sorted(t for t in in_win if any(p.net in nets and l in layers for l, _, p in ctx.pads[t]))
@@ -1443,40 +1721,64 @@ def build_cell(ctx, s, win, pitch, nw=1, seg=SEG_MM, all_nets=False):
                     for pg in pgs:
                         if pg.intersects(wb):
                             pours.setdefault((nname, layer), []).append(pg)
-    for (nname, layer) in sorted(pours):
-        poly = unary_union(pours[(nname, layer)]).intersection(wb)
-        if poly.is_empty or poly.area <= 0:
-            continue
-        net.plane(poly, layer, nname, pitch)
-    # tracks: pieces inside the window and outside the part of their own net's pour on that layer that the tiles
-    # carry (a pour's core, at least a pitch wide: a track through a narrower neck is the neck's copper)
-    pieces = []
+    polys = {}
+    for k in sorted(pours):
+        poly = unary_union(pours[k]).intersection(wb)
+        if not poly.is_empty and poly.area > 0:
+            polys[k] = poly
+    # track pieces inside the window
+    raw = []
     for t in b.tracks:
         if t.net not in nets or t.layer not in layers or not t.width or t.width <= 0:
             continue
         pts = _arc_points(t) if getattr(t, "mid", None) else [tuple(t.start), tuple(t.end)]
-        pl = net.planes.get((t.layer, t.net))
         for a_, b_ in zip(pts[:-1], pts[1:]):
             c = _clip_seg(tuple(a_), tuple(b_), win)
-            if c is None:
-                continue
-            segs = [c]
-            if pl is not None:
-                rest = LineString(c).difference(pl["core"])
-                segs = []
-                for q in getattr(rest, "geoms", [rest]):
-                    if q.is_empty or q.length < 1e-6:
-                        continue
-                    cs = list(q.coords)
-                    p0, p1 = cs[0], cs[-1]
-                    if math.dist(p0, c[0]) > math.dist(p1, c[0]):
-                        p0, p1 = p1, p0
-                    segs.append((p0, p1))
-            for p0, p1 in segs:
-                if math.dist(p0, p1) > 1e-6:
-                    pieces.append(dict(layer=t.layer, net=t.net, a=p0, b=p1, w=float(t.width)))
-    # T-junctions: an end on another piece's copper (not at its ends) splits that piece there
-    snap = {}
+            if c is not None and math.dist(*c) > 1e-6:
+                raw.append(dict(layer=t.layer, net=t.net, a=c[0], b=c[1], w=float(t.width),
+                                pour=polys.get((t.net, t.layer))))
+    vias = []
+    for v in b.vias:
+        if v.net not in nets or not (win[0] <= v.x <= win[2] and win[1] <= v.y <= win[3]):
+            continue
+        ks = [ctx.names.index(l) for l in v.layers if l in ctx.names]
+        if ks:
+            vias.append(dict(x=v.x, y=v.y, size=v.size, drill=v.drill, net=v.net,
+                             span=ctx.names[min(ks):max(ks) + 1]))
+    plan = plan_cell(net, {(l, n) for n, l in polys}, loop_nets, raw, vias, box, win, pitch, repair, p0)
+    for (nname, layer), poly in polys.items():
+        if grade:
+            net.plane(poly, layer, nname, plan.P0[layer], near=plan.near[layer], p_far=plan.p_far, beta=beta,
+                      fine=plan.fine[layer])
+        else:
+            net.plane(poly, layer, nname, plan.P0[layer], fine=plan.fine[layer])
+    if plan.P0:
+        net.pitch = plan.pitch_near
+    p_min = net.pitch or pitch
+    stair_min = p_min / 4
+    # tracks: pieces outside the copper their own net's tiles carry on that layer (a track there is the tiles' copper)
+    pieces = []
+    for pc in raw:
+        pl = net.planes.get((pc["layer"], pc["net"]))
+        segs = [(pc["a"], pc["b"])]
+        core = net.tiled(pl) if pl is not None else None
+        if core is not None and not core.is_empty:
+            c = (pc["a"], pc["b"])
+            rest = LineString(c).difference(core)
+            segs = []
+            for q in getattr(rest, "geoms", [rest]):
+                if q.is_empty or q.length < 1e-6:
+                    continue
+                cs = list(q.coords)
+                p0, p1 = cs[0], cs[-1]
+                if math.dist(p0, c[0]) > math.dist(p1, c[0]):
+                    p0, p1 = p1, p0
+                segs.append((p0, p1))
+        for p0, p1 in segs:
+            if math.dist(p0, p1) > 1e-6:
+                pieces.append(dict(layer=pc["layer"], net=pc["net"], a=p0, b=p1, w=pc["w"]))
+    # T-junctions: an end whose copper meets another piece's (not at its ends) splits that piece there
+    snap, made = {}, set()
     by = {}
     for k, pc in enumerate(pieces):
         by.setdefault((pc["layer"], pc["net"]), []).append(k)
@@ -1487,12 +1789,15 @@ def build_cell(ctx, s, win, pitch, nw=1, seg=SEG_MM, all_nets=False):
             for k in list(ks):
                 for e in ("a", "b"):
                     p = pieces[k][e]
+                    if (k, e) in snap or _jkey(grp_[0], grp_[1], p) in made:
+                        continue                 # already a junction (both sides of a join meet at one point)
                     for m in list(ks):
                         if m == k:
                             continue
                         q = pieces[m]
                         L_ = LineString([q["a"], q["b"]])
-                        if L_.distance(Point(p)) > q["w"] / 2 + 1e-6:
+                        # copper overlap, as KiCad joins them: the end's round cap reaches the other's copper
+                        if L_.distance(Point(p)) > (q["w"] + pieces[k]["w"]) / 2 + 1e-6:
                             continue
                         tt = L_.project(Point(p))
                         if tt < 1e-3:
@@ -1507,6 +1812,7 @@ def build_cell(ctx, s, win, pitch, nw=1, seg=SEG_MM, all_nets=False):
                             ks.append(len(pieces) - 1)
                             snap[(k, e)] = sp
                             changed = True
+                        made.add(_jkey(grp_[0], grp_[1], snap[(k, e)]))
                         break
                     if changed:
                         break
@@ -1548,34 +1854,31 @@ def build_cell(ctx, s, win, pitch, nw=1, seg=SEG_MM, all_nets=False):
               round(pc["b"][1], 4), round(pc["w"], 4))
         net.strip(pa, pb, pc["w"], pc["layer"], na, nb, nw=nw, seg=seg, key=gk,
                   stair=max(pc["w"] / 2, stair_min))
-    # junctions inside their net's pour on that layer: a well
+    # junctions on their net's pour on that layer: landed on its tiles
     for jk, n in jnode.items():
         if not (isinstance(net.keys[n], tuple) and net.keys[n][0] == "pad"):
-            net.well(n, jk[3], jk[4], jk[1], jk[2], r=jw.get(jk, 0.1) / 2)
+            r = jw.get(jk, 0.1) / 2
+            net.land(n, jk[3], jk[4], jk[1], jk[2], r=r, r_in=r)
     # vias of those nets in the window
     jpts = {}
     for jk, n in jnode.items():
         jpts.setdefault((jk[1], jk[2]), []).append(((jk[3], jk[4]), n))
-    for vi, v in enumerate(b.vias):
-        if v.net not in nets or not (win[0] <= v.x <= win[2] and win[1] <= v.y <= win[3]):
-            continue
-        ks = [ctx.names.index(l) for l in v.layers if l in ctx.names]
-        if not ks:
-            continue
-        span = ctx.names[min(ks):max(ks) + 1]
+    for v in vias:
+        span = v["span"]
         land = {}
+        r_in = v["drill"] / 2 + MAT.VIA_PLATING_MM
+        vk = ("via", v["net"], round(v["x"], 4), round(v["y"], 4))
         for l in span:
-            n = net.pad_at(v.x, v.y, l, v.net)
+            n = net.pad_at(v["x"], v["y"], l, v["net"])
             if n is None:
-                near = [(math.dist(p, (v.x, v.y)), nn) for p, nn in jpts.get((l, v.net), [])
-                        if math.dist(p, (v.x, v.y)) <= v.size / 2 + 1e-6]
+                near = [(math.dist(p, (v["x"], v["y"])), nn) for p, nn in jpts.get((l, v["net"]), [])
+                        if math.dist(p, (v["x"], v["y"])) <= v["size"] / 2 + 1e-6]
                 if near:
                     n = min(near)[1]
-                    net.well(n, v.x, v.y, l, v.net, r=v.size / 2)
-            vk = ("via", v.net, round(v.x, 4), round(v.y, 4))
-            land[l] = n if n is not None else net.land_point(v.x, v.y, l, v.net, key=(vk, l), r=v.size / 2)
-        net.via(v.x, v.y, span, v.drill, key=("via", v.net, round(v.x, 4), round(v.y, 4)), land=land, net=v.net,
-                size=v.size)
+                    net.land(n, v["x"], v["y"], l, v["net"], r=v["size"] / 2, r_in=r_in)
+            land[l] = n if n is not None else net.land_point(v["x"], v["y"], l, v["net"], key=(vk, l),
+                                                             r=v["size"] / 2, r_in=r_in)
+        net.via(v["x"], v["y"], span, v["drill"], key=vk, land=land, net=v["net"], size=v["size"])
     # pour pieces no tile reaches (spokes, necks): strips along their long axis
     for (layer, nname), pl in sorted(net.planes.items(), key=lambda kv: (kv[0][0], str(kv[0][1]))):
         P = pl["P"]
@@ -1589,16 +1892,19 @@ def build_cell(ctx, s, win, pitch, nw=1, seg=SEG_MM, all_nets=False):
                     d = math.dist(p, p2)
                     if d <= max(wd, P / 2) and (best is None or d < best[0]):
                         best = (d, nn, None)
-                for (i, j), nn in pl["nodes"].items():
-                    d = math.hypot(net.origin[0] + (i + 0.5) * P - p[0], net.origin[1] + (j + 0.5) * P - p[1])
-                    if d <= P and (best is None or d < best[0]):
-                        best = (d, nn, (i, j))
+                for d, nn, lf in net.leaf_nodes(pl, p[0], p[1], 2 * pl["p_far"]):
+                    if d <= pl["S"][lf] and (best is None or d < best[0]):
+                        best = (d, nn, lf)
                 return (best[1], best[2]) if best else (None, None)
             (na, ia), (nb, ib) = resolve(pa), resolve(pb)
             if na is None or nb is None or na == nb:
                 continue
-            if ia is not None and ib is not None and max(abs(ia[0] - ib[0]), abs(ia[1] - ib[1])) <= 2:
-                continue
+            if ia is not None and ib is not None:
+                sa_, sb_ = pl["S"][ia], pl["S"][ib]
+                ca = (pl["X0"][ia] + sa_ / 2, pl["Y0"][ia] + sa_ / 2)
+                cb = (pl["X0"][ib] + sb_ / 2, pl["Y0"][ib] + sb_ / 2)
+                if max(abs(ca[0] - cb[0]), abs(ca[1] - cb[1])) <= 2 * max(sa_, sb_) + 1e-9:
+                    continue
             net.strip(pa, pb, wd, layer, na, nb, nw=1, seg=seg, key=("thin", layer, nname, k),
                       stair=max(wd / 2, stair_min), grp="plane", clip=False)
     # the circuit's two-pad parts between their pads' nodes: at full RLC (f_fund) and at the edge model (f_edge)
@@ -1627,8 +1933,126 @@ def build_cell(ctx, s, win, pitch, nw=1, seg=SEG_MM, all_nets=False):
         tot = sum(abs(j) for j in Ja.values()) or 1.0
         dropped = max(dropped, sum(abs(j) for p, j in Ja.items() if p not in net.pads) / tot)
         inj[tag] = d
+    geo = dict(polys=polys, raw=raw, vias=vias)
     return net_f, net_e, inj["fund"], inj["edge"], dict(nets=sorted(nets), dropped=dropped, f_fund=f_fund,
-                                                        f_edge=f_edge)
+                                                        f_edge=f_edge, plan=plan, geo=geo, beta=beta)
+
+
+def copper_islands(net, geo):
+    """The geometric connectivity of the cell's copper in its window, as KiCad judges it, independent of the tiles:
+    per net and layer the union of its pads, tracks (width w, round ends) and fills; a via joins the pieces of its
+    net it touches on every layer of its span; a pad joins its pieces on all its layers; the network's circuit parts
+    (its lumped branches of kind part: the band's) join their pads. Returns (pieces [(net, layer, geometry)], label
+    per piece, {pad node: label})."""
+    from shapely.geometry import LineString, Point
+    from shapely.ops import unary_union
+    per = {}
+    for d in net.pads.values():
+        for layer, g in d["geoms"].items():
+            per.setdefault((d["net"], layer), []).append(g)
+    for pc in geo["raw"]:
+        per.setdefault((pc["net"], pc["layer"]), []).append(LineString([pc["a"], pc["b"]]).buffer(pc["w"] / 2))
+    for (nname, layer), poly in geo["polys"].items():
+        per.setdefault((nname, layer), []).append(poly)
+    pieces, by = [], {}
+    for k in sorted(per, key=lambda k: (str(k[0]), k[1])):
+        u = unary_union(per[k])
+        for g in getattr(u, "geoms", [u]):
+            if not g.is_empty and g.area > 0:
+                by.setdefault(k, []).append(len(pieces))
+                pieces.append((k[0], k[1], g))
+    pad_nodes = sorted({d["node"] for d in net.pads.values()})
+    pid = {n: len(pieces) + i for i, n in enumerate(pad_nodes)}
+    parent = list(range(len(pieces) + len(pad_nodes)))
+
+    def fnd(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def join(i, j):
+        a, b = fnd(i), fnd(j)
+        if a != b:
+            parent[max(a, b)] = min(a, b)
+    for d in net.pads.values():
+        for layer, g in d["geoms"].items():
+            for i in by.get((d["net"], layer), []):
+                if pieces[i][2].intersects(g):
+                    join(pid[d["node"]], i)
+    for v in geo["vias"]:
+        c = Point(v["x"], v["y"]).buffer(v["size"] / 2)
+        hit = [i for l in v["span"] for i in by.get((v["net"], l), []) if pieces[i][2].intersects(c)]
+        for i in hit[1:]:
+            join(hit[0], i)
+    for q in net.lumps:
+        if q.kind == "part" and q.na in pid and q.nb in pid:
+            join(pid[q.na], pid[q.nb])
+    lab = [fnd(i) for i in range(len(pieces))]
+    return pieces, lab, {n: fnd(pid[n]) for n in pad_nodes}
+
+
+def check_joins(net, info, nodes):
+    """Does the network connect the pad nodes `nodes` (the injected pads) exactly as the copper does
+    (copper_islands)? Returns None when it does, else (why, repair regions [(layer, geometry, size)]): around each
+    place a piece of copper holds tile, junction or pad nodes of two network components (the closest two), and every
+    piece of the disagreeing islands that holds no node at all, at half the leaf size found there."""
+    import shapely
+    from shapely.geometry import LineString
+    pieces, plab, padlab = copper_islands(net, info["geo"])
+    nlab = net.components()
+    nodes = sorted(n for n in nodes if n in padlab)
+    bad = [(a, b) for i, a in enumerate(nodes) for b in nodes[i + 1:]
+           if (padlab[a] == padlab[b]) != (nlab[a] == nlab[b])]
+    if not bad:
+        return None
+    names = {d["node"]: k for k, d in sorted(net.pads.items(), reverse=True)}
+    a, b = bad[0]
+    lost = padlab[a] == padlab[b]
+    why = (f"copper join {'lost' if lost else 'invented'}: {names.get(a)} and {names.get(b)} are "
+           f"{'' if lost else 'not '}connected in the copper (KiCad's union over the window) but "
+           f"{'not ' if lost else ''}in the tiles")
+    comps = {padlab[x] for pr in bad for x in pr}
+    regions = []
+    for pi_, (nname, layer, g) in enumerate(pieces):
+        if plab[pi_] not in comps:
+            continue
+        pts, sz = [], []
+        pl = net.planes.get((layer, nname))
+        if pl is not None:
+            cx, cy = pl["X0"] + pl["S"] / 2, pl["Y0"] + pl["S"] / 2
+            m = (pl["lnode"] >= 0) & shapely.contains_xy(g, cx, cy)
+            for k in np.nonzero(m)[0]:
+                pts.append((float(cx[k]), float(cy[k]), int(pl["lnode"][k])))
+                sz.append(float(pl["S"][k]))
+        for n, key in enumerate(net.keys):
+            if isinstance(key, tuple) and key[:1] == ("j",) and key[1] == layer and key[2] == nname:
+                if g.distance(shapely.Point(key[3], key[4])) < 1e-6:
+                    pts.append((key[3], key[4], n))
+        for d in net.pads.values():
+            pg = d["geoms"].get(layer)
+            if pg is not None and d["net"] == nname and pg.intersects(g):
+                c = pg.intersection(g).representative_point()
+                pts.append((c.x, c.y, d["node"]))
+        s_loc = min(sz) if sz else (pl["P"] if pl is not None else (net.pitch or STRIP_PITCH))
+        size = max(P_FLOOR, snap_pitch(s_loc) / 2)
+        cl = {}
+        for x, y, n in pts:
+            cl.setdefault(int(nlab[n]), []).append((x, y))
+        if not cl:
+            regions.append((layer, g.buffer(s_loc), size))
+            continue
+        if len(cl) < 2:
+            continue
+        ks = sorted(cl)
+        for i in range(len(ks)):
+            for j in range(i + 1, len(ks)):
+                A, B = np.array(cl[ks[i]]), np.array(cl[ks[j]])
+                D = np.hypot(A[:, None, 0] - B[None, :, 0], A[:, None, 1] - B[None, :, 1])
+                u, v = np.unravel_index(int(np.argmin(D)), D.shape)
+                seg = LineString([tuple(A[u]), tuple(B[v])])
+                regions.append((layer, seg.buffer(max(s_loc, 0.25)).intersection(g.buffer(s_loc)), size))
+    return why, regions
 
 
 LEAK = 0.05                     # an island's imbalance below this share of the largest injection is taken up (raster)
@@ -1640,30 +2064,53 @@ def _units():
 
 
 def from_board(path, cell, window=None, pitch=STRIP_PITCH, b=None, fills=None, nw=1, intent=None, ctx=None,
-               max_unknowns=None, keep=False, floating=False, all_nets=False):
+               max_unknowns=None, keep=False, floating=False, all_nets=False, grade=True, p0=None):
     """The strips quote of one cell of the board at `path` (cell: its source name or brief structure id) in `window`
-    (default: the raster quote's, hotloop.window_pads grown by MARGIN_MM / MARGIN_H x h) at plane pitch `pitch`:
-    the cell's nets' tracks and vias in the window as strips and vias, their pads as pad nodes, their KiCad fills as
-    plane tiles, the circuit's two-pad parts lumped (capacitors at full RLC at f_fund, at the edge model at f_edge, as
-    hotloop._solve_window), the injections Ja of the copper-free circuit at the IC pads. Other nets' copper is left
-    out (induced currents in floating copper are not modelled). The pitch doubles while the MNA would exceed
-    max_unknowns (MAX_UNKNOWNS). Returns a Quote."""
+    (default: the raster quote's, hotloop.window_pads grown by MARGIN_MM / MARGIN_H x h): the cell's nets' tracks and
+    vias in the window as strips and vias, their pads as pad nodes, their KiCad fills as graded plane tiles
+    (plan_cell: P0 at most `pitch`, h / 2 and the narrowest loop strip near the loop, coarser outward), the circuit's
+    two-pad parts lumped (capacitors at full RLC at f_fund, at the edge model at f_edge, as hotloop._solve_window),
+    the injections Ja of the copper-free circuit at the IC pads. Other nets' copper is left out (induced currents in
+    floating copper are not modelled).
+
+    The size budget max_unknowns (MAX_UNKNOWNS) is met by coarsening the far ring (GRADES in turn); the near region
+    never coarsens past P0: when even the coarsest grading exceeds the budget the quote is not_computed ("pitch too
+    coarse for the loop"), never a number. The tiles must connect the injected pads as the copper does
+    (check_joins): where they do not, that place is refined and the cell rebuilt (JOIN_TRIES times), then
+    not_computed ("copper join lost"); "open" is kept for copper that really does not connect. Returns a Quote."""
     t0 = time.time()
     u0, w0 = _units()
     ctx = ctx or prepare(path, intent, b=b, fills=fills)
     s = _source(ctx, cell)
+    win0, box = cell_window(ctx, s)
     if window is None:
-        window, _ = cell_window(ctx, s)
+        window = win0
         if window is None:
             return Quote("not_computed", why="no pad of the cell on the board's copper")
     max_unknowns = max_unknowns or MAX_UNKNOWNS
-    P = pitch
-    while True:
-        net_f, net_e, inj_f, inj_e, info = build_cell(ctx, s, window, P, nw=nw, all_nets=all_nets)
+    repair = []
+    grades = GRADES if grade else (None,)
+    q = None
+    for gi, beta in enumerate(grades):
+        tries = 0
+        while True:
+            net_f, net_e, inj_f, inj_e, info = build_cell(ctx, s, window, pitch, nw=nw, all_nets=all_nets, beta=beta,
+                                                          box=box, repair=repair, grade=grade, p0=p0)
+            bad = check_joins(net_f, info, set(inj_f)) or check_joins(net_e, info, set(inj_e))
+            if bad is None or tries >= JOIN_TRIES:
+                break
+            repair = repair + bad[1]
+            tries += 1
+        plan = info["plan"]
+        p_far = max((float(pl["S"].max()) for pl in net_f.planes.values() if pl["S"].size), default=None)
+        q = Quote("ok", pitch=plan.pitch_near, pitch_near=plan.pitch_near, pitch_far=p_far, window=tuple(window),
+                  nets=info["nets"], dropped=info["dropped"], grade=beta, repairs=tries)
+        if bad is not None:
+            q.state, q.why = "not_computed", bad[0]
+            break
         lab = net_f.components()
         bal_f, open_f = net_f.balance(inj_f, LEAK)
         bal_e, open_e = net_e.balance(inj_e, LEAK)
-        q = Quote("ok", pitch=P, window=tuple(window), nets=info["nets"], dropped=info["dropped"])
         if open_f or open_e or not inj_f:
             q.state = "open"
             q.why = "the loop does not close in its window (connectivity, before any solve)"
@@ -1676,9 +2123,16 @@ def from_board(path, cell, window=None, pitch=STRIP_PITCH, b=None, fills=None, n
         bal_f = {int(newi[n]): v for n, v in bal_f.items() if keepm[n]}
         bal_e = {int(newi[n]): v for n, v in bal_e.items() if keepm[n]}
         nunk = sub_f.unknowns()
-        if nunk > max_unknowns and P * 2 <= max(window[2] - window[0], window[3] - window[1]):
-            P *= 2
-            continue
+        q.unknowns = nunk
+        if nunk > max_unknowns:
+            if gi + 1 < len(grades):
+                continue
+            P0 = plan.pitch_near or pitch
+            allow = snap_pitch(P0 * 2.0 ** math.ceil(0.5 * math.log2(nunk / max_unknowns) - 1e-9) + 1e-12)
+            q.state = "not_computed"
+            q.why = (f"pitch too coarse for the loop: needs P0 <= {P0:g} mm, budget allows about {allow:g} mm "
+                     f"({nunk} unknowns at the coarsest grading, budget {max_unknowns})")
+            break
         L = mutuals(sub_f, ctx.tables)
         sub_e._L = L
         se = System(sub_e, L, info["f_edge"]).factor()
@@ -1735,8 +2189,9 @@ def loop_network(lp, plane_geom=None, pitch=LOOP_PITCH, margin=None):
     """The strips network of a kae.route.critical_physics.Loop: its strips at height h over a plane at z = 0 as bars
     on a layer at that height (a strip at h = inf on the highest layer; an end inside a terminal's pad, Loop.pad, is
     that pad's equipotential node and the strip is clipped to its edge), its plated vertical pieces as via tubes landed
-    on the plane's tiles by wells, each part body (Loop.body) as a lumped inductance between its terminals
-    (kae.physics.fastloop.strip_self at the body's height, R = 0), and the plane as tiles at `pitch` over plane_geom
+    on the plane's tiles by radial bars (Network.land), each part body (Loop.body) as a lumped inductance between its
+    terminals (kae.physics.fastloop.strip_self at the body's height, R = 0), and the plane as uniform tiles at `pitch`
+    (one grid for every loop over it, so a new loop is a bordered update of the last) over plane_geom
     (the cell's ground zone fills) clipped to the loop's box grown by `margin` (max(3 mm, 3 h)), or over that box when
     plane_geom is None. The loop is opened at its first body: the port. Returns (net, port, body_L {lumped index:
     H}, port_L (H), plane_src) or None when the loop has no plane height or no body."""
@@ -1803,7 +2258,7 @@ def loop_network(lp, plane_geom=None, pitch=LOOP_PITCH, margin=None):
             drill = lp_drills.get(q) or 2 * r
             n_top = nd(x, y, hi)
             n_pl = nd(x, y, 0.0)
-            net.well(n_pl, x, y, "plane", "gnd", r=r)
+            net.land(n_pl, x, y, "plane", "gnd", r=r, r_in=min(r, drill / 2 + MAT.VIA_PLATING_MM))
             net.via(x, y, [lay_of[hi], "plane"], drill, key=("lpv", name, k), land={lay_of[hi]: n_top, "plane": n_pl})
     body_L, port, port_L = {}, None, 0.0
     for i, (el, a, b, h, zb, w, _pieces) in enumerate(lp.bodies):

@@ -8,7 +8,7 @@ import time
 import numpy as np
 import pytest
 
-from hotloop_fixtures import plane_fills, write_hotloop_board
+from hotloop_fixtures import island_fills, plane_fills, write_hotloop_board
 from kae import budget as BU
 from kae.em import kernels as KN
 from kae.em import strips as ST
@@ -29,7 +29,7 @@ def boards(tmp_path_factory):
     return out
 
 
-def _q(boards, v, P=0.5, **kw):
+def _q(boards, v, P=ST.STRIP_PITCH, **kw):
     p, ctx = boards[v]
     return ST.from_board(p, CELL, pitch=P, ctx=ctx, **kw)
 
@@ -57,7 +57,7 @@ def test_a_bars_self_term_is_the_sum_of_its_halves():
 
 
 def test_refine_nests_the_coarse_current_space(boards):
-    q = _q(boards, "closed", P=1.0, keep=True)
+    q = _q(boards, "closed", p0=1.0, keep=True)
     se, xe, ne, _ = q.systems["edge"]
     fine = ST.refine(ne)
     Lc, Lf = ST.mutuals(ne), ST.mutuals(fine)
@@ -98,8 +98,9 @@ def test_closed_is_below_long_and_near_the_fine_raster_window(boards):
 
 
 def test_a_bordered_update_equals_an_independent_build(boards):
-    c = _q(boards, "closed", keep=True)
-    l_ = _q(boards, "long", keep=True)
+    # uniform tiles: the two layouts share every tile (a graded plan follows each layout's near region)
+    c = _q(boards, "closed", keep=True, grade=False)
+    l_ = _q(boards, "long", keep=True, grade=False)
     se, _, _, _ = c.systems["edge"]
     _, _, n1, inj1 = l_.systems["edge"]
     BU.set_mode("time")
@@ -117,10 +118,11 @@ def test_a_bordered_update_equals_an_independent_build(boards):
     assert r.t_solve < t_factor, (r.t_solve, t_factor)
 
 
-def bound_table(boards, P=1.0, freqs=F_BOUND):
-    """[(f, L_coarse, L_fine, R_coarse, R_fine)] of the fixture's closed loop at pitch P and its 2 x 2 refinement,
-    with the caps at their edge model (ESR + ESL) at every frequency: one network, so the two are nested at each f."""
-    q = _q(boards, "closed", P=P, keep=True)
+def bound_table(boards, P=1.0, freqs=F_BOUND, variant="closed", q=None):
+    """[(f, L_coarse, L_fine, R_coarse, R_fine)] of the fixture's loop with graded tiles of near pitch P and its 2 x 2
+    refinement (or of the quote q's network, kept), with the caps at their edge model (ESR + ESL) at every frequency:
+    one network, so the two are nested at each f."""
+    q = q if q is not None else _q(boards, variant, p0=P, keep=True)
     _, _, ne, inj = q.systems["edge"]
     fine = ST.refine(ne)
     Lc, Lf = ST.mutuals(ne), ST.mutuals(fine)
@@ -143,8 +145,9 @@ def test_the_coarse_network_bounds_its_refinement_where_the_theorems_hold(boards
     by = {f: r for f, *r in rows}
     Lc, Lf, Rc, Rf = by[0.0]
     assert Rc >= Rf * (1 - 1e-12)                  # Thomson: DC current minimises dissipation
-    Lc, Lf, Rc, Rf = by[100e6]
-    assert Lc >= Lf                                # high frequency: it minimises magnetic energy
+    for f in F_BOUND[1:]:                          # measured: L keeps the inductive limit's order at every f > 0
+        Lc, Lf, Rc, Rf = by[f]
+        assert Lc >= Lf, (f, Lc, Lf)
 
 
 def test_the_cell_quote_engine_switch_and_its_rows(boards, monkeypatch):
@@ -158,7 +161,7 @@ def test_the_cell_quote_engine_switch_and_its_rows(boards, monkeypatch):
     for r in (a, b):
         assert r["state"] == "ok"
         assert {"source", "cell", "state", "L_nH", "R_mohm", "window", "pitch", "grown", "seconds", "engine",
-                "unknowns", "work_s"} <= set(r)
+                "unknowns", "work_s", "pitch_near", "pitch_far", "repairs"} <= set(r)
         assert r["pitch"] == CQ.STRIP_PITCH and r["unknowns"] > 0 and r["work_s"] > 0
     assert c["state"] == "open"
     verdict, total = CQ.compare([a], [b])
@@ -263,3 +266,111 @@ def test_a_cells_loop_takes_r_at_its_switching_frequency(monkeypatch):
     (L1, R1), (L2, R2) = out[3e5], out[3e6]
     assert L1 == L2                                  # L_loop at the edge band, whatever f_sw
     assert R2 > R1 * 1.01                            # the return crowds under the strip as f_sw rises
+
+
+def test_graded_tiles_are_2_to_1_and_tile_the_pour():
+    """quadtree: P0 where the near region is, coarser outward up to p_far, no two touching leaves more than 2:1, the
+    leaves cover the pour once; the plane's interface bars join a coarse leaf to each fine neighbour as wide as it."""
+    from shapely.geometry import Point, box
+    poly = box(0, 0, 16, 12)
+    near = Point(5, 5).buffer(1.5)
+    fine = [(Point(5, 5).buffer(0.3), 0.125)]
+    X0, Y0, S = ST.quadtree(poly, (0, 0), 0.25, 2.0, near, 0.5, fine)
+    assert S.min() == 0.125 and S.max() == 2.0 and set(np.round(S, 9)) <= {0.125, 0.25, 0.5, 1.0, 2.0}
+    assert abs((S ** 2).sum() - poly.area) < 1e-9
+    m = np.array([near.intersects(box(x, y, x + s, y + s)) for x, y, s in zip(X0, Y0, S)])
+    assert (S[m] <= 0.25).all()
+    for k in range(X0.size):                       # touching leaves (sharing an edge) differ at most 2:1
+        dx = np.minimum(X0 + S, X0[k] + S[k]) - np.maximum(X0, X0[k])
+        dy = np.minimum(Y0 + S, Y0[k] + S[k]) - np.maximum(Y0, Y0[k])
+        touch = ((np.abs(dx) < 1e-9) & (dy > 1e-9)) | ((np.abs(dy) < 1e-9) & (dx > 1e-9))
+        assert (S[touch] <= 2 * S[k] + 1e-9).all() and (S[touch] >= S[k] / 2 - 1e-9).all()
+    net = ST.Network({"B.Cu": (0.0, 35e-6)}, origin=(0, 0))
+    pl = net.plane(poly, "B.Cu", "GND", 0.25, near=near, p_far=2.0, beta=0.5, fine=fine)
+    a = net.arrays()
+    L = np.where(a.ax == 0, a.box[:, 1] - a.box[:, 0], a.box[:, 3] - a.box[:, 2])
+    W = np.where(a.ax == 0, a.box[:, 3] - a.box[:, 2], a.box[:, 1] - a.box[:, 0])
+    ratio = np.round(L / W, 9)
+    assert set(ratio) == {1.0, 1.5}                 # equal leaves, and the 2:1 interface bars
+    for axis in (0, 1):            # each axis's bars cover the pour once but for half a leaf at its two far edges
+        m = a.ax == axis
+        cover = (L[m] * W[m]).sum() / 1e-6
+        assert poly.area - 2 * 12 - 1e-9 <= cover <= poly.area + 1e-9
+    assert len(pl["nodes"]) == X0.size
+
+
+def test_no_link_is_free_of_inductance(boards):
+    """Every join of a via, a track's end or a pad to the plane tiles is copper with R and L (radial bars of the
+    landing's copper), not a resistive well: the network's lumped branches are only the circuit's parts and shorts
+    inside one pad."""
+    q = _q(boards, "closed", keep=True)
+    net = q.net
+    assert {lp.kind for lp in net.lumps} <= {"part", "short"}
+    a = net.arrays()
+    land = np.nonzero(a.grp == "land")[0]
+    assert land.size >= 4
+    L = ST.mutuals(net)
+    assert (np.diag(L)[land] > 0).all() and (a.R[land] > 0).all()
+    assert q.breakdown["land"]["L_nH"] > 0
+
+
+def test_a_quote_coarsened_by_its_budget_reports_it(boards):
+    first = _q(boards, "closed", max_unknowns=10 ** 6)
+    assert first.state == "ok" and first.grade == ST.GRADES[0]
+    q = _q(boards, "closed", max_unknowns=first.unknowns - 1)
+    assert q.state == "ok" and q.grade != ST.GRADES[0] and q.unknowns < first.unknowns
+    assert q.pitch_far > q.pitch_near == first.pitch_near
+    assert abs(q.L_loop / first.L_loop - 1) < 0.05
+
+
+def test_a_quote_past_the_refusal_line_is_not_computed(boards, tmp_path):
+    q = _q(boards, "closed", max_unknowns=500)
+    assert q.state == "not_computed" and q.L_loop is None and q.R_loop is None
+    assert q.why.startswith("pitch too coarse for the loop: needs P0 <= 0.5 mm, budget allows about")
+    # a huge window (500 mm, poured): even at its far cap (16 mm tiles) and the 2:1 rule alone it needs more
+    from shapely.geometry import box
+    p = write_hotloop_board(tmp_path / "huge", "closed")
+    win = (-100, -100, 400, 400)
+    ctx = ST.prepare(str(p), fills={"GND": {"B.Cu": [box(*win)]}})
+    q = ST.from_board(str(p), CELL, window=win, ctx=ctx)
+    assert q.state == "not_computed" and q.grade is None and q.pitch_far == 16 and q.L_loop is None
+    assert q.why.startswith("pitch too coarse for the loop") and q.unknowns > ST.MAX_UNKNOWNS
+    assert ST.from_board(str(p), CELL, window=win, ctx=ctx, max_unknowns=8000).state == "ok"
+
+
+def test_a_copper_join_the_tiles_lose_is_repaired_or_not_computed(tmp_path, monkeypatch):
+    """The B.Cu ground cut in two halves joined by a 0.15 mm 45-degree neck (island_fills): KiCad's union connects
+    the two ground vias, a 0.5 mm tile grid does not. The quote refines there and closes the loop; without repairs it
+    is not_computed ("copper join lost"), never "open"; with the neck gone it is open."""
+    p = str(write_hotloop_board(tmp_path / "isl", "closed"))
+    ctx = ST.prepare(p, fills=island_fills(0.15))
+    q = ST.from_board(p, CELL, ctx=ctx)
+    assert q.state == "ok" and q.repairs >= 1
+    monkeypatch.setattr(ST, "JOIN_TRIES", 0)
+    q0 = ST.from_board(p, CELL, ctx=ctx)
+    assert q0.state == "not_computed" and q0.why.startswith("copper join lost")
+    from shapely.geometry import box
+    cut = {"GND": {"B.Cu": [island_fills(0.15)["GND"]["B.Cu"][0].difference(box(119.6, 108.0, 121.0, 111.0))]}}
+    q1 = ST.from_board(p, CELL, ctx=ST.prepare(p, fills=cut))
+    assert q1.state == "open"
+
+
+def test_the_tiles_connect_the_fixture_as_its_copper(boards):
+    p, ctx = boards["closed"]
+    s = ST._source(ctx, CELL)
+    win, box_ = ST.cell_window(ctx, s)
+    nf, ne, inj_f, inj_e, info = ST.build_cell(ctx, s, win, box=box_, beta=ST.GRADES[0])
+    assert ST.check_joins(nf, info, set(inj_f)) is None and ST.check_joins(ne, info, set(inj_e)) is None
+    pieces, plab, padlab = ST.copper_islands(nf, info["geo"])
+    u13, u14 = nf.pads["U1.3"]["node"], nf.pads["U1.4"]["node"]
+    assert padlab[u13] == padlab[u14] and nf.connected(u13, u14)
+
+
+def test_a_track_end_whose_copper_meets_another_track_joins_it(boards):
+    """The fixture's +3V3 track down from (130, 107.5) ends at (130, 110), 0.30 mm from the centre line of the
+    0.5 mm L1.2 -> C2.1 track: farther than that track's half width, but their copper overlaps (0.125 + 0.25 mm), as
+    KiCad joins them. U1.1 reaches L1.2 through it."""
+    p, ctx = boards["closed"]
+    s = ST._source(ctx, CELL)
+    nf, *_ = ST.build_cell(ctx, s, (107.215, 100.0, 131.9, 120.51), box=ST.cell_window(ctx, s)[1])
+    assert nf.connected(nf.pads["U1.1"]["node"], nf.pads["L1.2"]["node"])
