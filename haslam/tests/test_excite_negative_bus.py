@@ -137,3 +137,12 @@ def test_a_negative_bus_cell_gets_the_positive_ones_hot_loop_prior(where):
         return prior_of({"structures": [st], "nets": {"BUS": {"volts": V}} if where == "net" else {}}, "c1")
     assert prior(-12.0) == pytest.approx(prior(12.0)) and prior(12.0) != pytest.approx(prior(1.0))
 
+
+@pytest.mark.parametrize("kind", ["cell"])
+def test_a_negative_bus_module_gets_the_positive_ones_allocation(kind):
+    from haslam.route.critical_modules import allocation
+
+    def alloc(V):
+        spec = {"class": "buck", "rail": "BUS", "rail_in": "BUS", "excite": {"V": V, "I": 2.0}}
+        return allocation(_ctx(BUS=V), SimpleNamespace(id="m1", kind=kind, spec=spec)).value
+    assert alloc(-12.0) == pytest.approx(alloc(12.0))
