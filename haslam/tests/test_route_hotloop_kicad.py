@@ -176,13 +176,18 @@ def _other_net_copper(path, net="+3V3"):
 
 def test_cells_keep_a_pins_short_way_to_its_zone(tmp_path):
     """Escape lanes: the cell's other-net copper keeps the clearance from U1.1's straight way to its
-    +3V3 zone, and the cell stays routed."""
+    +3V3 zone and from the zone's landing beyond it, so the zone still pours there. The GND hop that
+    crossed this 1 mm pour finds no other room: the cell is left partial (the general router joins
+    that hop), not routed through the pour."""
     from shapely.geometry import box
     src = _gap_board(tmp_path / "in")
     info = pcbnew_io.export_dsn(src, tmp_path / "b.dsn")
     rep = hotloop.stage(src, info, tmp_path / "w", CELLS, log=lambda *a: None)
     assert not rep.get("error") and rep["board"]
-    assert rep["cells"][0]["status"] == "routed", rep["cells"]
+    assert rep["cells"][0]["status"] in ("routed", "partial"), rep["cells"]
     lane = box(*GAP_LANE).buffer(0.2 - 1e-3)
     assert not [g for g in _other_net_copper(rep["board"]) if g.intersects(lane)]
+    fills = [Polygon(r[0], r[1:]) for z in pcbnew_io.zone_fills(rep["board"])["zones"] if z["net"] == "+3V3"
+             for r in z["layers"].get("F.Cu", [])]
+    assert any(f.intersects(box(120.6, 108.6, 121.0, 109.5)) for f in fills)    # it pours beside the pin
 
