@@ -649,11 +649,31 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     if edge_mode >= 2:
         board, pinned = _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log)
         fixed = fixed | set(pinned)
+    # header rows spanning a board side (Feather, ItsyBitsy, QT Py): pinned to a parallel edge,
+    # then held like fixed parts (kae.place.crowded; off by default)
+    # and (place_edge_slot) every movable part whose courtyard cannot fit the board
+    hdr_on = bool(int(setting("place_edge_headers", board_path, opts)))
+    slot_on = bool(int(setting("place_edge_slot", board_path, opts)))
+    if hdr_on or slot_on:
+        board, hdr = _pin_edge_headers(board, brief, held, fixed, angle_step, rep, log, headers=hdr_on,
+                                       unfit=slot_on, board_path=board_path, opts=opts)
+        fixed = fixed | set(hdr)
+        pinned = {**pinned, **hdr}
+    grid_step = None
+
     def build(b, frozen):
-        return Problem.build(b, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | frozen,
+        return Problem.build(b, grid=grid_step, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | frozen,
                              angle_step=angle_step, severity=severity or _severity_mode(board, board_path, opts))
 
     P = build(board, fixed)
+    # near capacity the grid's outward rounding costs the room that is missing: one step finer
+    from . import crowded as crowdedmod
+    fine_u = float(setting("place_fine_grid_util", board_path, opts) or 0.0)
+    g_fine = crowdedmod.finer_grid(P, fine_u) if fine_u > 0 else None
+    if g_fine is not None:
+        rep["fine_grid"] = dict(util=round(max(P.utilization()), 4), from_mm=P.g, to_mm=g_fine)
+        grid_step = g_fine
+        P = build(board, fixed)
     if int(setting("anchor_tight", board_path, opts)):
         anchored, hung = _anchor_tight_parts(P, rep, log, board_path=board_path)
         if anchored:
@@ -1275,6 +1295,41 @@ def _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log):
         return board, {}
     by = {fp.uuid: fp.ref for fp in board.footprints}
     rep["edge_pinned"] = dict(pinned=sorted(by[u] for u in poses), failed=failed, uuids=sorted(poses))
+    return (edge_check.with_poses(board, poses) if poses else board), poses
+
+
+def _pin_edge_headers(board, brief, held, fixed, angle_step, rep, log, headers=True, unfit=False, board_path=None,
+                      opts=None):
+    """Edge headers (kae.place.crowded.edge_headers) and/or the movable parts whose courtyard
+    cannot fit (unfit) pinned flush along a board side, on a throwaway Problem; returns (board
+    with them moved there, {uuid: pose})."""
+    from . import crowded, edge_check
+    from .state import State
+    from kae.route.constraints import setting
+    try:
+        P0 = Problem.build(board, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | set(fixed),
+                           angle_step=angle_step)
+        st0 = State(P0)
+        found = crowded.edge_headers(P0) if headers else {}
+        hdr = {i: v for i, v in found.items() if crowded.fits_nowhere(P0, st0, i)}
+        # the other header rows of a board whose header fits nowhere go to the edges with it (a
+        # Feather's two rows: pinning one left the other free, and parts stacked against it)
+        if hdr and int(setting("place_edge_header_pairs", board_path, opts)):
+            hdr = dict(found)
+        if unfit:
+            for i, v in crowded.not_fitting(P0).items():
+                hdr.setdefault(i, v)
+        if not hdr:
+            return board, {}
+        poses, failed = crowded.pin_headers(P0, st0, hdr, log=log,
+                                            clear=bool(int(setting("place_edge_pose_clear", board_path, opts))))
+    except Exception as e:      # noqa: BLE001 - placing without the pin beats not placing
+        rep["edge_headers"] = dict(error=f"{type(e).__name__}: {e}")
+        return board, {}
+    by = {fp.uuid: fp.ref for fp in board.footprints}
+    rep["edge_headers"] = dict(found=sorted(P0.parts[i].ref for i in found),
+                               fit_nowhere=sorted(P0.parts[i].ref for i in hdr), pinned=sorted(by[u] for u in poses),
+                               failed=failed, uuids=sorted(poses))
     return (edge_check.with_poses(board, poses) if poses else board), poses
 
 
