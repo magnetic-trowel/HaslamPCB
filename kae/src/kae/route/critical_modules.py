@@ -963,6 +963,8 @@ def loop_model(ctx, m, T, h, gnd_k=None, vias_by_key=None, hops=None):
     plane."""
     lp = Loop()
     n = len(T)
+    for t in T:
+        lp.pad((t.x, t.y), getattr(t, "geom", None))
     vias_by_key = vias_by_key if vias_by_key is not None else m.vias
     hops = m.hops if hops is None else hops
     for k in range(n):
@@ -1094,6 +1096,20 @@ def cell_operating(ctx, m):
     return got
 
 
+def _plane_geom(ctx, layer, net):
+    """The union of the board's zones of `net` on `layer` (the cell's plane) for the strips engine
+    (KAE_CELL_QUOTE=strips), cached on ctx; None otherwise or without such zones."""
+    import os
+    if layer is None or os.environ.get("KAE_CELL_QUOTE") != "strips":
+        return None
+    cache = ctx.__dict__.setdefault("_plane_geoms", {})
+    if (layer, net) not in cache:
+        from shapely.ops import unary_union
+        gs = [g for n, l, g, _ in getattr(ctx.sp, "zones", []) if l == layer and n == net]
+        cache[(layer, net)] = unary_union(gs) if gs else None
+    return cache[(layer, net)]
+
+
 def _cell_value(ctx, m):
     """The hot loop on the routed copper, in parallel with the loops through the cell's
     other owned input capacitors (cell_variants; their hops not routed here are straight)."""
@@ -1107,12 +1123,20 @@ def _cell_value(ctx, m):
     gk = _ground_hop(ctx, T)
     n = len(T)
     vals = []
+    pgeom = _plane_geom(ctx, pl, pn)
+    # a cell's R_loop at its own switching frequency (the strips engine; the closed form takes DC values)
+    f_sw = cell_operating(ctx, m)[1] if m.kind == "cell" else None
+    srcs = []
     for Tv, cap in cell_variants(m.spec, T, lambda c, net: ctx.pad_term(c, net=net)):
         if Tv is T:
-            vals.append(loop_model(ctx, m, T, h, gnd_k=gk).value_r())
-            continue
-        hops = {k: v for k, v in m.hops.items() if k not in ("hop0", f"hop{n - 1}")}
-        vals.append(loop_model(ctx, m, Tv, h, gnd_k=gk, hops=hops).value_r())
+            lp = loop_model(ctx, m, T, h, gnd_k=gk)
+        else:
+            hops = {k: v for k, v in m.hops.items() if k not in ("hop0", f"hop{n - 1}")}
+            lp = loop_model(ctx, m, Tv, h, gnd_k=gk, hops=hops)
+        lp.plane_geom = pgeom
+        lp.f_sw = f_sw
+        vals.append(lp.value_r())
+        srcs.append(lp.plane_src)
     vals = [(v, r) for v, r in vals if v is not None and math.isfinite(v) and v > 1e-9]
     if not vals:
         return None, {}
@@ -1121,6 +1145,8 @@ def _cell_value(ctx, m):
     R = sum((val / v) ** 2 * r for v, r in vals)
     extra = dict(h_mm=round(h, 3) if h != INF else None, plane=pl, plane_net=pn, variants=len(vals),
                  R_mohm=round(R * 1e3, 4))
+    if any(srcs):
+        extra["plane_src"] = srcs[0]         # the strips engine's plane (KAE_CELL_QUOTE=strips): fills | bbox | none
     if m.kind == "cell":
         from .critical_physics import ac_loss
         I, f, D, _basis = cell_operating(ctx, m)
