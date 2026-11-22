@@ -222,7 +222,8 @@ def test_a_negative_bus_is_rated_and_bounded_as_its_magnitude():
     from haslam.physics import criteria as CR
     for va in (None, 40.0):
         assert CR.overshoot_limits(-12.0, va) == CR.overshoot_limits(12.0, va)
-        assert CR.overshoot_basis(-12.0, va) == CR.overshoot_basis(12.0, va)
+        # the same rating and limit; the text names the bus as written (its sign is information)
+        assert CR.overshoot_basis(-12.0, va).replace("a -12 V bus", "a 12 V bus") == CR.overshoot_basis(12.0, va)
     d = 0.123
     for extra in ({}, {"V_max_V": 30.0}):
         neg, pos = dict(V_V=-12.0, I_A=1.0, **extra), dict(V_V=12.0, I_A=1.0, **extra)
