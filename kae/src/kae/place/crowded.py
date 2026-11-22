@@ -74,12 +74,59 @@ def _pads_at(p, k, x, y):
     return transform.pads_xy(lx, ly, x, y, p.rots[k].rot, p.side)
 
 
-def edge_pose(P, p, used=(), inset=None):
+def part_shapes(p, x, y, rot):
+    """(pads, courtyard) of part p at board pose (x, y, rot) as shapely geometries (pads by their copper
+    rectangles; the courtyard, else the body, else None)."""
+    import shapely
+    from shapely.geometry import Polygon
+    from kae.board import transform
+    from .problem import pad_corners
+    pads = []
+    for pd in p.fp.pads:
+        lays = pd.layers or []
+        if lays and not any(ly.endswith(".Cu") for ly in lays):
+            continue
+        cs = pad_corners(pd)
+        px, py = transform.pads_xy(cs[:, 0], cs[:, 1], x, y, rot, p.side)
+        pads.append(Polygon(list(zip(px, py))))
+    g = p.fp.courtyard or p.fp.body
+    cy = shapely.union_all([transform.place_geom(q, x, y, rot, p.side) for q in g]) if g else None
+    return (shapely.union_all(pads) if pads else None), cy
+
+
+def fixed_obstacles(P):
+    """[(pads grown by the board's clearance, courtyard)] of P's fixed parts at their input poses."""
+    clr = float(getattr(P, "clr_min", 0.0) or 0.0)
+    out = []
+    for q in P.parts:
+        if q.movable:
+            continue
+        pads, cy = part_shapes(q, q.x0, q.y0, q.rot0)
+        out.append((pads.buffer(clr) if pads is not None else None, cy))
+    return out
+
+
+def _clear(obstacles, pads, cy):
+    for op, oc in obstacles:
+        if pads is not None and op is not None and pads.intersects(op):
+            return False
+        if cy is not None and oc is not None and cy.intersection(oc).area > 1e-6:
+            return False
+    return True
+
+
+def edge_pose(P, p, used=(), inset=None, obstacles=None, step=0.25):
     """A pose for part p with its pads flush along one side of the board's bounding box: the
-    pads' bounding box long side parallel to that edge, centred along it, its outer edge `inset`
-    mm in (default: the copper-to-edge clearance). The pads must lie inside the outline.
+    pads' bounding box long side parallel to that edge, its outer edge `inset` mm in (default:
+    the copper-to-edge clearance), centred along the edge. The pads must lie inside the outline.
     Sides in `used` are skipped (the second Feather header goes to the opposite edge). Returns
     (pose (x, y, rot, side), side name) or None.
+
+    `obstacles` (fixed_obstacles; place_edge_pose_clear): the pose must also keep the part's pads
+    a clearance from those parts' pads and its courtyard off theirs. The part slides along the
+    edge from the centre, in `step` mm, to the first such pose; a side with none is skipped, and a
+    part with none on any side is not pinned. Without the check the pin landed on locked
+    connectors (crowded-ab3: teeprom U1 on J1, 24 shorts; uzsito A1 on J5, 18).
 
     No grid spot exists for these parts: a header row as long as the board (ItsyBitsy 33 mm on
     35.6 mm, pads 1.8 mm) cannot keep the copper-to-edge clearance at its ends, and the human
@@ -101,13 +148,25 @@ def edge_pose(P, p, used=(), inset=None):
             if horizontal != (name in ("bottom", "top")):
                 continue
             if horizontal:
-                x = (x0 + x1) / 2 - (bx0 + bx1) / 2
+                c = (x0 + x1) / 2 - (bx0 + bx1) / 2
                 y = (y0 + e - by0) if name == "top" else (y1 - e - by1)
+                span = (x1 - x0) / 2
             else:
-                y = (y0 + y1) / 2 - (by0 + by1) / 2
+                c = (y0 + y1) / 2 - (by0 + by1) / 2
                 x = (x0 + e - bx0) if name == "left" else (x1 - e - bx1)
-            px, py = _pads_at(p, k, x, y)
-            if np.all(shapely.contains_xy(P.outline, px, py)):
+                span = (y1 - y0) / 2
+            offs = [0.0] if obstacles is None else \
+                [d * sgn for d in np.arange(0.0, span + step, step) for sgn in ((1,) if d == 0 else (-1, 1))]
+            for off in offs:
+                if horizontal:
+                    x = c + off
+                else:
+                    y = c + off
+                px, py = _pads_at(p, k, x, y)
+                if not np.all(shapely.contains_xy(P.outline, px, py)):
+                    continue
+                if obstacles is not None and not _clear(obstacles, *part_shapes(p, x, y, r.rot)):
+                    continue
                 return (float(x), float(y), r.rot, p.side), name
     return None
 
@@ -123,18 +182,23 @@ def fits_nowhere(P, st, i, limit=50):
     return not exact._candidates(P, st, i, S, pad, list(range(len(p.rots))), 0.0, limit)
 
 
-def pin_headers(P, st, parts, log=None):
+def pin_headers(P, st, parts, log=None, clear=False):
     """Edge poses (edge_pose) for the parts `parts` ({index: (.., .., length)}), longest first,
     each on a board side not used before. Returns ({uuid: (x, y, rot, side)}, {ref: why})."""
     poses, failed, used = {}, {}, set()
+    obstacles = fixed_obstacles(P) if clear else None
+    clr = float(getattr(P, "clr_min", 0.0) or 0.0)
     for i in sorted(parts, key=lambda i: -parts[i][2]):
         p = P.parts[i]
-        hit = edge_pose(P, p, used)
+        hit = edge_pose(P, p, used, obstacles=obstacles)
         if hit is None:
-            failed[p.ref] = "no board side its pads fit along"
+            failed[p.ref] = "no board side its pads fit along" + (" clear of the fixed parts" if clear else "")
             continue
         poses[p.uuid], side = hit
         used.add(side)
+        if obstacles is not None:      # the next pinned part keeps clear of this one too
+            pads, cy = part_shapes(p, *hit[0][:3])
+            obstacles.append((pads.buffer(clr) if pads is not None else None, cy))
         if log:
             log(f"edge pin: {p.ref} on the {side} edge at ({hit[0][0]:.2f}, {hit[0][1]:.2f}) rot {hit[0][2]:g}")
     return poses, failed

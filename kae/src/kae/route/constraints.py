@@ -244,6 +244,8 @@ DEFAULTS = dict(
     anchor_tight=1,                # placement: a big part with no spot free of the fixed geometry is fixed first (place.pipeline)
     place_edge_headers=0,          # placement: 1 pins header rows spanning a board side (Feather, ItsyBitsy, QT Py)
                                    # to a parallel edge before the seed (kae.place.crowded); off until its test
+    place_edge_pose_clear=0,       # placement: 1 makes an edge pin (place_edge_headers / place_edge_slot) keep
+                                   # clear of the fixed parts' pads and courtyards, sliding along the edge
     place_edge_header_pairs=0,     # placement: with place_edge_headers, a board whose header fits nowhere
                                    # gets every detected header row pinned, not only that one
     place_edge_slot=0,             # placement: 1 pins every movable part whose courtyard cannot fit the board

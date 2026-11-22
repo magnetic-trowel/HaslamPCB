@@ -1321,7 +1321,8 @@ def _pin_edge_headers(board, brief, held, fixed, angle_step, rep, log, headers=T
                 hdr.setdefault(i, v)
         if not hdr:
             return board, {}
-        poses, failed = crowded.pin_headers(P0, st0, hdr, log=log)
+        poses, failed = crowded.pin_headers(P0, st0, hdr, log=log,
+                                            clear=bool(int(setting("place_edge_pose_clear", board_path, opts))))
     except Exception as e:      # noqa: BLE001 - placing without the pin beats not placing
         rep["edge_headers"] = dict(error=f"{type(e).__name__}: {e}")
         return board, {}

@@ -82,3 +82,35 @@ def test_fits_nowhere_is_false_for_a_part_with_room():
 
 def test_header_pairs_setting_is_off_by_default():
     assert DEFAULTS["place_edge_header_pairs"] == 0
+
+
+def test_edge_pose_slides_clear_of_a_fixed_connector_on_the_edge():
+    P, st = _problem()
+    p = P.parts[P.mov[0]]
+    centre = C.edge_pose(P, p)
+    assert centre is not None
+    (x, y, rot, _), side = centre
+    # a fixed connector exactly where the centred pin would go
+    pads, cy = C.part_shapes(p, x, y, rot)
+    obstacles = [(pads.buffer(P.clr_min), cy)]
+    slid = C.edge_pose(P, p, obstacles=obstacles)
+    assert slid is not None and slid[0][:2] != (x, y)
+    sx, sy, srot, _ = slid[0]
+    assert C._clear(obstacles, *C.part_shapes(p, sx, sy, srot))
+    # no clear spot on any side: not pinned
+    from shapely.geometry import box
+    wall = box(*P.outline.buffer(1.0).bounds)
+    assert C.edge_pose(P, p, obstacles=[(wall, None)]) is None
+    # with no fixed part in the way the clear pose is the centred one (and without the check, unchanged)
+    assert C.edge_pose(P, p, obstacles=[]) == centre
+
+
+def test_fixed_obstacles_cover_the_fixed_parts():
+    P, st = _problem()
+    fixed = [q for q in P.parts if not q.movable]
+    obs = C.fixed_obstacles(P)
+    assert len(obs) == len(fixed) and all(o[0] is not None for o in obs)
+
+
+def test_pose_clear_setting_is_off_by_default():
+    assert DEFAULTS["place_edge_pose_clear"] == 0
