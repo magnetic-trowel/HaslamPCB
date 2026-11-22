@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""PLAN.md M2 item 3: the buck fixture's closed and long hot loops in FastHenry against the strips quote at P 0.25.
+"""PLAN.md M2 item 3: the buck fixture's hot loops (closed, long, axis) in FastHenry against both cell models: the
+raster window (kae.excite.cellquote's raw window at 0.0625 mm) and the strips quote at P 0.25.
 
 Decks (FastHenry, MIT / FastFieldSolvers, quasi-static PEEC with multipole acceleration): the fixture's tracks
 (kae/tests/hotloop_fixtures.py) as segments of their width and 35 um height on their centre lines from the pad edges
@@ -13,7 +14,8 @@ is its stored energy, the strips quote's L_loop with the cap's ESL left out), po
     FASTHENRY=/path/to/fasthenry PYTHONPATH=kae/src python tools/research/physics/quickphys/fasthenry_fixture.py \
         [--seg 8] [--nwinc 1 --nhinc 1] [--strips-pitch 0.25] [--out DIR]
 
-Pass criterion (PLAN.md): L at 10 MHz within 5 % of strips at P 0.25.
+Pass criterion (PLAN.md): L at 10 MHz within 5 % of strips at P 0.25. Ground truth covers both models: a gap between
+the two does not say which is wrong.
 """
 from __future__ import annotations
 
@@ -47,7 +49,7 @@ def _edge(pad, a, b):
 
 
 def deck(variant, ctx, win, seg_per_mm, nwinc, nhinc):
-    from hotloop_fixtures import GND, GND_VIAS, VIN, VIN_LONG
+    from hotloop_fixtures import GND, GND_AXIS, GND_VIAS, VIN, VIN_LONG
     lays = {l.name: l for l in ctx.layers}
     zt = lays["F.Cu"].z + lays["F.Cu"].t / 2
     zb = lays["B.Cu"].z + lays["B.Cu"].t / 2
@@ -80,11 +82,19 @@ def deck(variant, ctx, win, seg_per_mm, nwinc, nhinc):
         elem(a, b, vin[0][2], t)
     c11, u13 = vn[0], vn[-1]
     ends = {}
-    for kk, ((a, b, w), (vx, vy)) in enumerate(zip(GND, vias)):
+    hops = [[GND[0]], [GND[1]]] if variant != "axis" else [[GND_AXIS[0]], GND_AXIS[1:]]
+    for kk, (hop, (vx, vy)) in enumerate(zip(hops, vias)):
         p_ = "C1.2" if kk == 0 else "U1.4"
+        a, b, w = hop[0]
         e = _edge(pad[p_], a, b)
-        na, nv = node(*e, zt), node(vx, vy, zt)
-        elem(na, nv, w, t)
+        na = node(*e, zt)
+        prev = na
+        for (_, q, _) in hop[:-1]:
+            nq = node(q[0], q[1], zt)
+            elem(prev, nq, w, t)
+            prev = nq
+        nv = node(vx, vy, zt)
+        elem(prev, nv, w, t)
         nvb = node(vx, vy, zb)
         side = 0.3 / (2 * 0.447)
         elem(nv, nvb, side, side)
@@ -117,16 +127,22 @@ def main(argv=None):
     ap.add_argument("--seg", type=float, default=8.0, help="plane segments per mm")
     ap.add_argument("--nwinc", type=int, default=1)
     ap.add_argument("--nhinc", type=int, default=1)
-    ap.add_argument("--strips-pitch", type=float, default=0.25)
+    ap.add_argument("--strips-pitch", type=float, default=0.25, help="0: no strips quote")
+    ap.add_argument("--raster-pitch", type=float, default=0.0625, help="0: no raster quote (cellquote's raw window)")
+    ap.add_argument("--variants", nargs="+", default=["closed", "long", "axis"])
     ap.add_argument("--out")
     a = ap.parse_args(argv)
     from hotloop_fixtures import plane_fills, write_hotloop_board
     from kae.em import strips as ST
     out = Path(a.out or tempfile.mkdtemp())
     out.mkdir(parents=True, exist_ok=True)
-    print("| variant | FastHenry L (nH) | FastHenry R (mOhm) | strips L (nH) | strips / FastHenry |")
-    print("|---|---|---|---|---|")
-    for v in ("closed", "long"):
+    import kae.route.critical_recheck as CRR
+    from kae.excite import cellquote as CQ
+    CRR.fills_of = lambda p: plane_fills()
+    print(f"| variant | FastHenry L (nH) | FastHenry R (mOhm) | raster {a.raster_pitch:g} mm L (nH) | raster / FH | "
+          f"strips P {a.strips_pitch:g} L (nH) | strips / FH |")
+    print("|---|---|---|---|---|---|---|")
+    for v in a.variants:
         p = str(write_hotloop_board(out / v, v))
         ctx = ST.prepare(p, fills=plane_fills())
         s = ST._source(ctx, CELL)
@@ -135,9 +151,15 @@ def main(argv=None):
         inp.write_text(deck(v, ctx, win, a.seg, a.nwinc, a.nhinc))
         z, log = run_fh(a.fasthenry, inp)
         L_fh = z.imag / (2 * math.pi * F)
-        q = ST.from_board(p, CELL, pitch=a.strips_pitch, ctx=ctx, max_unknowns=30000)
-        print(f"| {v} | {L_fh * 1e9:.4f} | {z.real * 1e3:.4f} | {q.L_loop * 1e9:.4f} | {q.L_loop / L_fh:.4f} |",
-              flush=True)
+        Lr = Ls = float("nan")
+        if a.raster_pitch:
+            (r,) = [r for r in CQ.quote_cells(p, pitch=a.raster_pitch, log=lambda *x: None, engine="raster")
+                    if r["source"] == CELL]
+            Lr = r["L_nH"] * 1e-9
+        if a.strips_pitch:
+            Ls = ST.from_board(p, CELL, pitch=a.strips_pitch, ctx=ctx, max_unknowns=30000).L_loop
+        print(f"| {v} | {L_fh * 1e9:.4f} | {z.real * 1e3:.4f} | {Lr * 1e9:.4f} | {Lr / L_fh:.4f} | {Ls * 1e9:.4f} | "
+              f"{Ls / L_fh:.4f} |", flush=True)
     return 0
 
 
