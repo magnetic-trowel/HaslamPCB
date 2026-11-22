@@ -138,7 +138,7 @@ def test_a_negative_bus_cell_gets_the_positive_ones_hot_loop_prior(where):
     assert prior(-12.0) == pytest.approx(prior(12.0)) and prior(12.0) != pytest.approx(prior(1.0))
 
 
-@pytest.mark.parametrize("kind", ["cell"])
+@pytest.mark.parametrize("kind", ["cell", "path"])
 def test_a_negative_bus_module_gets_the_positive_ones_allocation(kind):
     from kae.route.critical_modules import allocation
 

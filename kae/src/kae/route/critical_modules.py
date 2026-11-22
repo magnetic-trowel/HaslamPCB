@@ -1199,7 +1199,8 @@ def allocation(ctx, m):
         return PR.hot_loop_budget(s.get("class") or "unknown", vin, t_sw_ns=ex.get("t_sw_ns"), v_abs=PR.budget_v_abs(ex))
     if m.kind == "path":
         ex = s.get("excite") or {}
-        v = ex.get("V") or ctx.volts(s.get("rail_in")) or ctx.volts(s.get("rail_out")) or 5.0
+        # L dI/dt against a share of the rail's magnitude: a -12 V path is budgeted as a +12 V one
+        v = abs(ex.get("V") or ctx.volts(s.get("rail_in")) or ctx.volts(s.get("rail_out")) or 5.0)
         return PR.power_path_budget(v, ex.get("I") or 1.0)
     if m.kind == "decap":
         v = ctx.volts(s.get("rail")) or 3.3
