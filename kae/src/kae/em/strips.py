@@ -15,9 +15,12 @@ Model. Copper is a set of branches between nodes, solved by modified nodal analy
   plane tiles when the point is inside tiled copper, else the pad, track junction or track bar whose copper holds it;
 - planes and pours: x and y bars of pitch P between cell-centre nodes, a bar where its centre is inside the fill
   polygon (with holes), on one grid per network, so every plane-plane coupling comes from one translation table per
-  layer pair (shared by both directions: the cells are square); a pad's own-net tile nodes inside its polygon are the
-  pad's node; a pour piece narrower than 2 P that no tile reaches (a thermal spoke, a neck) is a strip along its long
-  axis, width area / length;
+  layer pair (shared by both directions: the cells are square); a cell whose centre is outside the polygon but that
+  one piece of it spans node to node (a neck, a spoke, an edge narrower than the cell) gets a partial bar of that
+  piece's mean width at its place (direct mutuals); a pad's own-net tile nodes inside its polygon are the pad's node;
+  a pad in a relief with no tile in reach gets each spoke as a strip; a remaining pour piece narrower than 2 P that
+  no tile reaches is a strip along its long axis, width area / length; a track is dropped only inside its pour's
+  core (at least a pitch wide);
 - wells: resistive links R_w / w_k from a via, junction or pad node to the four surrounding tile nodes with bilinear
   weights w_k, R_w = (R_sq / 2 pi) ln(0.198 P / r) (Peaceman: the spreading from the landing's radius r to the grid's
   equivalent radius; floored where the grid is finer than the landing), copper: they count in R_loop. On the
@@ -39,7 +42,9 @@ Limits (what is not modelled): skin and proximity crowding through the thickness
 is the DC resistance redistributed by inductance); other nets' copper (no induced currents in floating copper, no
 screening by unrelated pours); copper galvanically unconnected to the injection (pruned before the solve); capacitive
 coupling and displacement current (a quasi-static inductive PEEC); oblique and curved copper only as staircases;
-a thin pour piece as one straight strip (an L-shaped neck reads as its bounding rectangle's long axis).
+a thin pour piece as one straight strip (an L-shaped neck reads as its bounding rectangle's long axis); the wells'
+links are resistive only, a shortcut of up to one pitch without inductance (it lowers L at coarse P: part of why
+L_loop rises from P 0.5 to 0.25 on the fixture).
 
 Counted work (kae.budget): `em_kernel` per partial-inductance pair evaluated (table entries and direct pairs),
 `em_dense` per N^3 of a factorisation and N^2 per right-hand side solved, `em_border` per k N^2 of a bordered update.
