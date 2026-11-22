@@ -157,7 +157,10 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
     # voltage edge: the switch node cannot move faster than I charges C_sw
     V, I, C = out["V"], out["I"], out["C_sw"]
     i_ = lambda x: max(x, 1e-9)             # a static leg (no commutated current) has no edge to speak of
-    tv = (C.lo * V.lo / i_(I.hi), C.typ * V.typ / i_(I.typ), C.hi * V.hi / i_(I.lo))
+    # the node swings |V|: a -12 V bus's edge takes as long as a +12 V one's (signed, t_v was negative and its
+    # interval reversed)
+    va = sorted((abs(V.lo), abs(V.hi)))
+    tv = (C.lo * va[0] / i_(I.hi), C.typ * abs(V.typ) / i_(I.typ), C.hi * va[1] / i_(I.lo))
     out["t_v"] = _p(L, sid, "t_v_s", tv[1], tv[0], tv[2], "s", "physics",
                     "t_v = C_sw V / I: the switch node charged by the commutated current")
     # duty
