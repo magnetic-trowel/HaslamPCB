@@ -43,11 +43,12 @@ import time
 from pathlib import Path
 
 from kae.board import pcbnew_io
+from kae.drc_items import item_nets
 
 from . import constraints, drc, freerouting, specctra, translate
+from .quantize import DSN, fit
 from .specctra import Q, find, findall
 
-_NET = re.compile(r"\[([^\]]*)\]")
 _MIN = re.compile(r"min (?:width )?([\d.]+) mm")
 _SPOKES = re.compile(r"min spoke count (\d+); actual (\d+)")
 _DRC_LAYER = re.compile(r"\(layer ([^;)]+)")
@@ -60,10 +61,6 @@ def _key(s):
     return (s["errors"] == 0 and s["unconnected"] == 0, -(s["errors"] + s["unconnected"]), -s["unconnected"])
 
 
-def _nets_of(item_desc):
-    return [m for m in _NET.findall(item_desc or "") if m and m != "<no net>"]
-
-
 def _is_zone(desc):
     return (desc or "").startswith(("Zone", "Teardrop"))
 
@@ -73,6 +70,15 @@ def _routed_geom(r, grow=0.0):
     if r["kind"] == "via":
         return Point(r["pos"]).buffer(r["size"] / 2 + grow, quad_segs=16)
     return LineString([r["a"], r["b"]]).buffer(r["width"] / 2 + grow, quad_segs=8)
+
+
+def _widened(plan, r, shown_min):
+    """Width for a routed track KiCad found narrower than its minimum: the message's minimum
+    (shown to 0.1 um) plus one 0.1 um step, kept inside the class's [min, max] on that layer,
+    so a min = max rule (0.19079 mm) is met instead of overshot to 0.1909."""
+    rc = plan.classes.get(plan.net_class.get(r.get("net"))) if plan is not None else None
+    lo, hi = (getattr(rc, "limits", None) or {}).get(r.get("layer"), (None, None))
+    return fit(shown_min + DSN, lo, hi, DSN, "up")
 
 
 class _Space:
@@ -253,7 +259,7 @@ def needs_fills(report, info=None):
 def _unconnected_nets(report):
     """The nets of a DRC report's unconnected pairs."""
     return {n for u in report.get("unconnected_items") or [] for it in u.get("items") or []
-            for n in _nets_of(it.get("description"))}
+            for n in item_nets(it.get("description"))}
 
 
 def analyse(report, routed, info=None, plan=None, fills=None, layer_map=None, copper=None):
@@ -324,7 +330,7 @@ def analyse(report, routed, info=None, plan=None, fills=None, layer_map=None, co
             m = _MIN.search(v.get("description", ""))
             for it in ours:
                 r = routed[it["uuid"]]
-                w = float(m.group(1)) + 1e-4 if m else None
+                w = _widened(plan, r, float(m.group(1))) if m else None
                 if w and r["kind"] in ("track", "arc") and info is not None and plan is not None:
                     if get_space().fits(it["uuid"], w):
                         widen[it["uuid"]] = w
@@ -344,7 +350,7 @@ def analyse(report, routed, info=None, plan=None, fills=None, layer_map=None, co
     by_parts = sorted(filled & _unconnected_nets(report))
     for u in report.get("unconnected_items") or []:
         its = u.get("items") or []
-        uns = {n for it in its for n in _nets_of(it.get("description"))}
+        uns = {n for it in its for n in item_nets(it.get("description"))}
         if uns and uns <= set(by_parts):
             continue
         zone_its = [it for it in its if _is_zone(it.get("description"))]

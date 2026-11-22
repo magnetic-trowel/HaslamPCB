@@ -408,9 +408,6 @@ def uncapped_unconnected(board, timeout):
         return None
 
 
-OF_REF = re.compile(r"^(?:Footprint (\S+)$|.*\bpad\b.* of (\S+?)(?: on \S+)?$)", re.I)
-
-
 def overlaps(report):
     """Pairs of parts a placement put on top of each other, from a DRC report: courtyards that
     overlap, and pads of two parts that short (pad to pad: a track's short is the router's).
@@ -421,8 +418,8 @@ def overlaps(report):
             continue
         refs = []
         for it in v.get("items", []):
-            m = OF_REF.match(it.get("description", ""))
-            refs.append((m.group(1) or m.group(2)) if m else None)
+            d = it.get("description", "")       # a pad's or a footprint's owner; a track's short is the router's
+            refs.append(DI.item_ref(d) if DI.item_kind(d) in ("pad", "footprint") else None)
         if len(refs) == 2 and None not in refs and refs[0] != refs[1]:
             pairs.add(tuple(sorted(refs)))
     return sorted(pairs)
@@ -1216,6 +1213,12 @@ def run_policy(ap, a):
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(p1["out"], out)
         return 143
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if p1["rank"] is not None and p1["out"].exists():
+        # the kept board is on disk from here on, whatever a later phase does: a phase the harness kills at its
+        # timeout (s2-merit213: the windows phase of 8 boards ran past it) must not leave the run without output
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p1["out"], out)
     clean1 = p1["rank"] is not None and p1["rank"][1] == 0
     alt = bool(clean1 and a.alt)
     left = 0.5 * a.time if WORK else a.time - (time.monotonic() - t0)   # work mode: nominal halves
@@ -1228,6 +1231,8 @@ def run_policy(ap, a):
     if p2["rank"] is not None and (p1["rank"] is None or (p2["rank"] <= p1["rank"] if (alt or open_alt)
                                                           else p2["rank"] < p1["rank"])):
         best = p2
+        if best["out"].exists():
+            shutil.copy2(best["out"], out)        # kept as soon as it is better (a later kill keeps it)
     else:
         best = p1
     phases = [p1, p2]
@@ -1245,6 +1250,8 @@ def run_policy(ap, a):
             if p3["rank"] is not None and (best["rank"] is None or (p3["rank"] <= best["rank"] if third == "alt"
                                                                     else p3["rank"] < best["rank"])):
                 best = p3
+                if best["out"].exists():
+                    shutil.copy2(best["out"], out)        # kept as soon as it is better (a later kill keeps it)
     work = dict(policy="completion-first", second="alt" if alt else "open-alt" if open_alt else "restart", kept=best["k"],
                 third=third,
                 phases=[dict(k=p["k"], seed=p["seed"], rank=p["rank"], command=p["command"],

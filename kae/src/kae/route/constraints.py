@@ -36,7 +36,8 @@ engine evaluated per pair of items. `plan(info, board_path)` maps one onto the o
   its own net; other zones are planes only, which other nets may cross (KiCad's refill
   flows around them).
 
-All lengths mm. Requirements are rounded up to 0.1 um (the DSN resolution).
+All lengths mm. Requirements are rounded up to 0.1 um (the DSN resolution); class widths and
+via sizes stay inside the board's limits on KiCad's nm grid (quantize.fit).
 """
 import json
 import math
@@ -48,6 +49,7 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon, box
 from shapely.ops import unary_union
 
 from . import rules as R
+from .quantize import UM, fit
 
 RES = 1e-4          # mm: DSN resolution (0.1 um)
 EPS_SHORT = 0.001   # mm: smallest clearance kept against foreign copper (overlap is a short)
@@ -109,6 +111,7 @@ class RoutingClass:
     rep2: str = ""          # a second net of the class (for same-class pairs), or ""
     layers: list | None = None  # the layers its tracks may use, when a custom (constraint disallow track) rule
                                 # keeps them off some (Freerouting's use_layer); None: every copper layer
+    limits: dict = field(default_factory=dict)  # layer -> (min, max or None) track width of every member
 
 
 @dataclass
@@ -165,6 +168,12 @@ IGNORABLE = {"clearance": "clearance", "hole_clearance": "hole_clearance", "copp
 # code: a KAE_<NAME> text variable in the KiCad project wins over the run's opts (<name>), which win
 # over the default here.
 DEFAULTS = dict(
+    ripup_cost_big=200,            # Freerouting's start rip-up cost (scoring.start_ripup_costs; its default 100) on
+                                   # boards with more than ripup_big_pads pads: each pass searches harder, so fewer
+                                   # but better passes. fr-ripup-ab6 (31 boards over 1,000 pads, counted work): opens
+                                   # per attempt x0.950 [0.903, 0.989], DRC errors unchanged; the gain sits on 3-4
+                                   # near-clean boards (x0.991 [0.976, 1.007] where more than 5 stay open). 100: off
+    ripup_big_pads=1000,           # pads (plan pins) above which ripup_cost_big applies
     ignored_clearance_floor=0.1,   # mm: gap kept for a clearance check the board turns off (or the
                                    # board's own minimum, if larger); KiCad then checks only shorts
     plane_strict_share="odd",      # with planes "cost": inner layers whose one-net fill (refilled input)
@@ -215,10 +224,23 @@ DEFAULTS = dict(
                                    # merit boards, k=2) found 0 / 10 / 30 equal (cp1 0.305 / 0.310 / 0.305,
                                    # completion 0.941-0.943), so the simpler setting wins; RUDY also ranks PCB
                                    # routability near chance (docs/research/placement/kae-routability-estimators.md)
-    place_margin=0.0,              # placement: routing room between movable parts, mm (Problem.set_margin);
+    place_untangle=0,              # placement: 1 runs kae.place.crossings.untangle after legalization (swaps of
+                                   # equal parts and half turns that remove ratsnest crossings). Off until its A/B
+                                   # (docs/research/placement/placement-routability-2611.md) says otherwise
+    place_w_xing=2.0,              # placement: mm of weighted HPWL one ratsnest crossing costs in the annealer
+                                   # (kae.place.crossings). On: xing-ext-m6 cut crossings to 0.62x with opens,
+                                   # DRC and legality unharmed (user decision 2026-11-21: adopted on crossings); 0 off
+    place_xing_from=0.25,          # placement: fraction of the anneal schedule after which the crossing term prices
+    place_untangle_x_mm=2.0,       # placement: mm of weighted HPWL one removed crossing may cost in untangle
+    place_margin=-1.0,             # placement: routing room between movable parts, mm (Problem.set_margin);
                                    # negative = auto (Problem.auto_margin: 2 x (0.7 - utilization), 0..1 mm).
-                                   # 0: placement-decide-staged found auto and 0 equal (cp1 0.305 both,
-                                   # completion 0.942 / 0.941), so the formula with no source is dropped
+                                   # auto, gated: margin-gate-m6 (44 dense boards) cut per-attempt opens 14 %
+                                   # [-23, -4] with legality and DRC holding (experiments/margin-gate/RESULT-m6.md)
+    place_margin_gate=4.0,         # placement: keep place_margin only on boards with at least this many pads per cm²
+                                   # per copper layer, else 0 (kae.place.margin_gate.gate); 0 off
+    place_margin_regions=1,        # placement: 1 caps each movable part's margin at its region's own auto margin
+                                   # (sub-boards between cutouts and narrow necks, rule-area walls;
+                                   # kae.place.margin_gate.caps); 0 off
     anchor_tight=1,                # placement: a big part with no spot free of the fixed geometry is fixed first (place.pipeline)
     connector_edge=2,              # placement: user-facing connectors kae places (kae.place.edge_check:
                                    # USB, barrel, audio, RJ/modular, video/D-sub; at or near 100 % on an
@@ -240,6 +262,14 @@ DEFAULTS = dict(
                                    # only on the pour around it (for assembly that cannot plug vias in pads)
     escape_fanout=0,               # placement: 1 also reserves the dog-bone via sites of each ball grid on the
                                    # other side (no part there covers them); 0: off
+    barrier_split=2,               # placement (kae.place.barriers): 1 places each region of a board split by voids or
+                                   # all-copper track keepouts (panels, HV isolation) on its own, parts staying with their
+                                   # net neighbours; 2 also probes first that each region can legalize its parts, moves
+                                   # those it cannot, and places the board whole when a region still cannot (fit_split)
+                                   # or the merged board collides across regions; 0: off. 2: barrier-fit2-ab-m6 cut
+                                   # per-attempt opens 28 % [-42, -13] on 46 split boards, legality and DRC holding
+    barrier_net_weight=1.0,        # placement: nets a seed places across a void or an all-copper keepout have this
+                                   # weight multiplier in the annealer; 1: off
     zone_pull=0.0,                 # placement (kae.place.zones): weight of pads off their own net's fixed copper
                                    # zone (all of them off = zone_pull x the seed HPWL), also the seed's pull and
                                    # package pins; 0: off. Off by default: zone-ab (48 boards, 3 seeds) at 3 left
@@ -355,7 +385,9 @@ def _width_choice(probe_w, strict, nc_width):
     w = max(w, mn or 0.0)
     if mx is not None and w > mx:
         w = max(mx, mn or 0.0)
-    return up(w), mn or 0.0, mx
+    # the board's width, in whole nm inside [min, max] (a DSN grid's rounding would leave a rule
+    # finer than it: 0.19079 mm up to 0.1 um is past a 0.19079 max); routers get their own grid
+    return fit(w, mn, mx) or w, mn or 0.0, mx
 
 
 def _via_choice(info, rb, net):
@@ -379,8 +411,11 @@ def _via_choice(info, rb, net):
     D_max = min([v for v in (pd[2], dia.max) if v is not None] or [None]) if (pd[2] or dia.max) else None
     if D_max is not None and D > D_max:
         D = max(D_max, D_min, d + 2 * ann)
-    d = math.ceil(d * 1000 - 1e-6) / 1000
-    D = math.ceil(D * 1000 - 1e-6) / 1000
+    # whole micrometres (the DSN's via names carry them) inside the rule's limits; finer only
+    # where the limits hold no micrometre
+    # where contradictory limits leave nothing, the minimum wins, as before
+    d = fit(d, d_min, d_max, UM, "up") or up(d, UM)
+    D = fit(D, max(D_min, d + 2 * ann), D_max, UM, "up") or up(max(D, d + 2 * ann), UM)
     return D, d, (D - d) / 2
 
 
@@ -405,12 +440,12 @@ def plan(info, board_path, opts=None):
         pr = info["probes"].get(net, {})
         nc_name = info["nets"][net]["netclass"]
         nc = info["netclasses"].get(nc_name, {})
-        widths, wmin = {}, {}
+        widths, wmin, wmax = {}, {}, {}
         for l in cu:
             ti = net_item(info, net, "track", l, width=None)
             strict = R.strictest(rb, "track_width", ti, None, l)
             w, mn, mx = _width_choice((pr.get("track") or {}).get(l, {}).get("width"), strict, nc.get("track_width"))
-            widths[l], wmin[l] = w, mn
+            widths[l], wmin[l], wmax[l] = w, mn, mx
         D, d, ring = _via_choice(info, rb, net)
         dp = R.diff_base(net) is not None and R.complement_net(net) in info["nets"]
         rsig = []
@@ -428,7 +463,7 @@ def plan(info, board_path, opts=None):
             off = ()        # disallowed everywhere: no layer to restrict to; KiCad reports it whatever we do
         sig = (nc_name, dp, tuple(widths[l] for l in cu), (D, d), tuple(rsig), off)
         sig_of[net] = sig
-        per_net[net] = dict(widths=widths, wmin=wmin, via=(D, d), ring=ring, off=off)
+        per_net[net] = dict(widths=widths, wmin=wmin, wmax=wmax, via=(D, d), ring=ring, off=off)
     groups = {}
     for net in nets:
         groups.setdefault(sig_of[net], []).append(net)
@@ -443,7 +478,10 @@ def plan(info, board_path, opts=None):
         off = per_net[members[0]]["off"]
         rc = RoutingClass(name=name, nets=members, netclass=sig[0], widths=dict(w), via=per_net[members[0]]["via"],
                           rep=members[0], rep2=members[1] if len(members) > 1 else "",
-                          layers=[l for l in cu if l not in off] if off else None)
+                          layers=[l for l in cu if l not in off] if off else None,
+                          limits={l: (max(per_net[n]["wmin"][l] for n in members),
+                                      min((per_net[n]["wmax"][l] for n in members
+                                           if per_net[n]["wmax"][l] is not None), default=None)) for l in cu})
         p.classes[name] = rc
         for n in members:
             p.net_class[n] = name

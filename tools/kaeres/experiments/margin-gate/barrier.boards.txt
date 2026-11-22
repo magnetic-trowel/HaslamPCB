@@ -1,0 +1,13 @@
+aronayub-kicad-f
+bastardkb-tbk-mini-pcb-plate-flex
+connaxio-espoir-espoir
+ctrlshiftbryan-crkbd-ogre-corne-chocolate
+davang-breakout-boards-breakout-boards
+hubertciebiada-open-ambient-sensor-oas
+ohwr-project-fmc-dio-16ch-lvds-a-fmc-dio-16-lvds
+protocentral-protocentral-max30205-pc-max30205-brk
+sg-o-isolator-isolator
+solderedelectronics-smart-led-ws2812b-ring7-12-24-hardware-design-ws2812b-led-ring7-12-24
+sparkfun-gator-control-gatorbytes-button-board
+swanmatch-mxledbitpcb-altana
+tyler-ward-stacklight-hardware-stack-light
