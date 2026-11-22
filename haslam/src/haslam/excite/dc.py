@@ -285,7 +285,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
         src_ = next((x for x in srcs if x.name == sname), None)
         eta = (src_.meta.get("eta") if src_ is not None else None) or CV.ETA[1]      # typical (haslam.excite.params)
         c = dict(id=st["id"], cls=st["class"], src=sname, vin=st.get("vin"), vout=st.get("vout"), sw=st.get("sw"),
-                 top=CV.topology_of(st["class"], st)[0] or st["class"], eta=float(eta),
+                 top=cell_topology(st, nets), eta=float(eta),
                  ctrl=ref_of.get(st.get("controller")), rect=ref_of.get(sw.get("rectifier")),
                  ind=ref_of.get(st.get("inductor")),
                  parts={ref_of.get(u) for u, _ in st.get("loop") or []} | {ref_of.get(st.get("controller")),
@@ -599,6 +599,17 @@ def _cell_cap(pl, r, cv):
         return IL / max(1.0, _ratio(pl, r, cv))
     _, D = _cell_vals(c, cv)
     return CV.output_from_inductor(_top(c), IL, D)
+
+
+def cell_topology(st, nets):
+    """A brief cell's topology (haslam.physics.converter.topology_of) from its rails' signed voltages in the brief's
+    nets: a buck-class cell between rails of opposite signs inverts (its output is I_L (1 - D), not I_L)."""
+    def sv(n):
+        v = (nets.get(n) or {}).get("volts") if n else None
+        return float(v) if isinstance(v, (int, float)) and v else None
+    vin = sv(st.get("vin") if st.get("class") == "boost" else st.get("rail"))
+    vout = sv(st.get("rail") if st.get("class") == "boost" else st.get("vout"))
+    return CV.topology_of(st["class"], st, vout, vin)[0] or st["class"]
 
 
 def load_currents(pl, cv):
