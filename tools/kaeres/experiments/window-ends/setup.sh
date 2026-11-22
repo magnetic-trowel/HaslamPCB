@@ -16,8 +16,8 @@ KH='$HOME/.cache/kaebench'
 FORK="\$HOME/.cache/kaebench/kae-freerouting-fork-37b1a8b/bin/freerouting"
 CP="cp -r $KH/numba-wends-$S7 numba 2>/dev/null;"
 E="env KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1 NUMBA_CACHE_DIR=\$PWD/numba OMP_NUM_THREADS=1 KAE_BRIDGE_FREEROUTING=$FORK {py:kae}"
-# the board id from the task path (.../tasks/<board>/place-fixed/input/board.kicad_pcb)
-START="B=\$(echo {input} | sed -E 's#.*/tasks/([^/]+)/.*#\\\\1#'); cp $KH/window-ends-start/\$B.kicad_pcb best.kicad_pcb; mkdir -p restarts;"
+# the board id from the attempt's path (.../joint-fixed/<board>/attempt-N/work/input/board.kicad_pcb)
+START="B=\$(echo {input} | tr / '\\n' | grep -A1 -x joint-fixed | tail -1); cp $KH/window-ends-start/\$B.kicad_pcb best.kicad_pcb; mkdir -p restarts;"
 RUN="$E -m kae.joint.cli run {input} {output} --start best.kicad_pcb --seed 1 --time 1800 --no-modules --report restarts/report-windows.json"
 add() {  # NAME DESCRIPTION SETS
   $K method add "$1" --kind joint-fixed --description "$2; windows phase on control-w47's staged board (seed 0), 1,800 s counted work, Freerouting 37b1a8b; window-ends at $S7" \
