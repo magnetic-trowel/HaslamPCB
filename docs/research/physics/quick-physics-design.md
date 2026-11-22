@@ -9,7 +9,7 @@ Keys: quick physics, two fidelities, strip PEEC, tile PEEC, geometry-exact mesh,
 
 **Results**
 1. Every trap of the last weeks traces to four root causes: three estimators that are not approximations of the evaluator; observables defined as signed shares instead of energies and dissipations; the raster as the geometric primitive; field work that no budget counts (§1).
-2. A PEEC on the actual strips, pads and vias with the plane as a bar grid reads the 0.0625 mm raster window on the fixture at +0.6 … +6.7 % (L_loop, converging upward to about +9 %) and −1.5 … −6 % (R_loop, converging to it) from 10³–10⁴ unknowns in 1–12 s, and quotes a router move exactly as a rank-k bordered update of one factorisation in 0.09–0.46 s (§4) [C].
+2. On the fixture the raster window matches FastHenry within about ±2 % and the strip-and-tile PEEC reads 2–4 % high at fine pitch, from 10³–10⁴ unknowns, quoting a router move as an exact rank-k bordered update (§4, §4b) [C]. On real boards the first strips quote failed its kill criteria for reasons now understood (missing operating facts, a pitch coarsened past the loop, inductance-free wells), and is being reworked (§4b).
 3. Quick and full physics should be one network at two resolutions. Tested on the fixture (§4b): with nested refinement L_coarse ≥ L_fine at every frequency above DC; R_coarse ≥ R_fine holds at DC only and fails above 0.1 MHz (−4.7 % at 10 MHz: the finer network resolves crowding). So L is a bound of its refinement where the router uses it, R an estimate (§3).
 
 ## 1. Diagnosis: four root causes behind eight traps
@@ -76,20 +76,19 @@ Rejected: a surrogate on solver labels and bias-corrected closed forms ([exact-p
 
 ## 4b. `haslam.em.strips` (M2): ground truth, the bound across frequency, and real boards [C]
 
-The production module (`haslam/src/haslam/em/strips.py`, branch `quick-physics`) adds Peaceman wells counted in R, partial tiles for pour necks, pad nodes and a Gauss far rule; on the fixture it reads the 0.0625 mm raster at +0.0 % (closed) / +1.1 % (long) at P 0.5 and +4.0 / +2.9 % at P 0.25 (the prototype's +9 % limit was its crude wells). Ground truth, FastHenry2 built from source (`tools/research/physics/quickphys/{fasthenry_fixture,ground_truth}.py`), 10 MHz:
+The production module (`haslam/src/haslam/em/strips.py`, branch `quick-physics`) adds Peaceman wells counted in R, partial tiles for pour necks, pad nodes and a Gauss far rule; on the fixture it reads the 0.0625 mm raster at +0.0 % (closed) / +1.1 % (long) at P 0.5 and +4.0 / +2.9 % at P 0.25. **Ground truth** (FastHenry2 built from source; the red team's corrected deck: barrel-radius contact, 9 × 3 track filaments, plane seg 8; the first deck joined each via to one plane node and used one filament per track, which favoured strips by 2–4.5 %), 10 MHz:
 
-| Case | Reference nH | raster 0.0625 | strips P 0.5 | strips P 0.25 |
+| Case | FastHenry nH | raster 0.0625 | strips P 0.5 | strips P 0.25 |
 |---|---|---|---|---|
-| fixture closed | 3.645 (FastHenry) | −3.6 % | −3.6 % | +0.2 % |
-| fixture long | 6.588 | −4.8 % | −3.8 % | −2.0 % |
-| fixture axis (ground hop as an L) | 3.784 | −5.3 % | −5.8 % | −1.7 % |
-| strip loop over a plane (image-pair Hoer–Love) | — | −4.1 % | +1–2 % | |
-| go and return strips (Hoer–Love) | — | −0.7 % | exact | |
-| via pair (Grover) | — | −7.9 % | exact | |
+| fixture closed | 3.511 | +0.1 % | −0.1 % | +4.1 % |
+| fixture long | 6.344 | −1.1 % | −0.1 % | +1.8 % |
+| fixture axis (ground hop as an L) | 3.642 | −1.6 % | −2.0 % | +2.1 % |
 
-The raster reads low on every case; the oblique-track staircase (axis − closed, 0.139 nH in FastHenry) is half captured by both models. **Bound across frequency** (P 1.0 vs its 2 × 2 refinement, f = 0 … 100 MHz, `bound_vs_f.py`): L_coarse ≥ L_fine at every f > 0 (equal at DC); R_coarse ≥ R_fine only at DC, failing by 4.7 % at 10 MHz. Bordered update exact to 2 × 10⁻¹⁵, 0.18 s vs 0.46 s (P 0.5), 1.7 s vs 36 s (P 0.25).
+The raster window is a fair reference at about ±2 %; strips reads 2–4 % high at fine pitch (one uniform bar per track, the staircase). The closed forms (loop over a plane, two strips, a via pair) depend on the via convention: stubs at the barrel wall against the via centre move the via-pair reference 11.6 %, so they bracket rather than decide (M2's rework reports both). The oblique-track staircase is 0.139 nH in FastHenry; both models capture about half.
 
-**Real boards (PLAN items 1–2, 2026-11-22): both kill criteria tripped.** On the 40 human/routed cell pairs with a refined window (74 non-tie comparisons) the strips quote agreed with the window on 20 (L 12 of 38, R 8 of 36; kill below 68); 26 of 80 quotes were not `ok`. On the 21 human layouts (19 cells) it quoted 8: median L ratio 0.78, R 0.44, p90 |ratio − 1| 0.84 (kill above 0.15); 8 cells "no such cell in the strips quote" (the cell is not found when the quote is built from the board without the stored run's operating facts), 3 "open by connectivity" where the raster closes the loop (pour copper the tile builder drops). The fixture and FastHenry agreement does not transfer to real boards yet: `from_board`'s copper selection (which nets, which pours, pad-to-pour joins) is the open problem, not the kernels or the functionals. M2 stops here; the A/B is not run.
+**Bound across frequency** (P 1.0 against its `refine()` 2 × 2 split, f = 0 … 100 MHz, `bound_vs_f.py`): L_coarse ≥ L_fine at every f > 0 (equal at DC); R_coarse ≥ R_fine at DC only, failing by 4.7 % at 10 MHz. The ordering is a property of `refine()`-nested networks only: rebuilding at a doubled pitch (what `from_board` did past its size budget) is not nested and gives no bound. Bordered update exact to 2 × 10⁻¹⁵, 0.18 s vs 0.46 s (P 0.5), 1.7 s vs 36 s (P 0.25).
+
+**Real boards (PLAN items 1–2, first run 2026-11-22): both kill criteria tripped**, 20 of 74 orderings and p90 |ratio − 1| 0.84 on 8 quoted cells. The red team's diagnosis, confirmed: (a) the validation scripts quoted without the operating facts the reference used (8 of 11 unquoted cells; with them 16 of 19 quote, and where both quotes are ok strips orders L like the window in 12 of 13 non-ties); (b) the low ratios are pitch: `MAX_UNKNOWNS` made `from_board` double the plane pitch to 1–4 mm on real windows (median L ratio 0.92 at P 0.5, 0.55 at 1 mm, 0.22 at 2 mm, 0.018 at 4 mm) and the wells are inductance-free shorts of up to one pitch; (c) one copper join was lost (buildacubesat's island). Copper selection was not the cause. M2 continues as a rework (graded tiles with a fine near region, a via-to-plane model with inductance, a refusal when the pitch cannot fit the loop, connectivity checked against the geometric union), re-validated under the same kill criteria before any A/B.
 
 ## 5. Migration, each step leaving the evaluator trustworthy
 
