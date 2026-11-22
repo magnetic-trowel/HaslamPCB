@@ -1,0 +1,10 @@
+{"schema": "kae.intent/1", "generation": 1,
+ "note": "hand-written from the netlist only (no part positions read)",
+ "relations": [
+  {"id": "usb-edge", "kind": "on_edge", "part": "J1", "edge": "edge:nearest", "facing": "out", "why": "USB-C power and programming from outside"},
+  {"id": "sd-edge", "kind": "on_edge", "part": "J11", "edge": "edge:nearest", "facing": "out", "strength": "strong", "why": "the microSD card goes in from the edge"},
+  {"id": "audio-edge", "kind": "on_edge", "part": "J2", "edge": "edge:nearest", "facing": "out", "strength": "strong", "why": "the audio plug enters from the edge"},
+  {"id": "motor-dac", "kind": "keep_away", "a": "IC1", "b": "U1", "mag": "close", "why": "the motor driver's switching edges away from the audio DAC"},
+  {"id": "rmotor-east", "kind": "region", "members": ["J9"], "region": "region:e", "strength": "medium", "why": "the right motor's lead on the right"},
+  {"id": "lmotor-west", "kind": "region", "members": ["J10"], "region": "region:w", "strength": "medium", "why": "the left motor's lead on the left"}
+ ]}

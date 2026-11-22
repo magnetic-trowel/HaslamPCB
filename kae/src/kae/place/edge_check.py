@@ -170,12 +170,14 @@ def facing(fp, outline, pose=None):
     return (bx * ox + by * oy) / (nb * no)
 
 
-def pin_poses(P, st, parts, tol=EDGE_TOL, limit=3000, log=None):
+def pin_poses(P, st, parts, tol=EDGE_TOL, limit=3000, log=None, spec=None):
     """Edge poses for the movable parts `parts` (indices into P.parts) of a seed state `st`:
     for each, the grid-free spot nearest its seed position (clear of the fixed parts and of
     the parts pinned before it) whose courtyard is within `tol` of the outer edge and whose
-    body faces out (FACE_MIN, when the footprint shows a direction). Returns ({uuid: (x, y, rot,
-    side)}, {ref: why} for the parts with no such spot)."""
+    body faces out (FACE_MIN, when the footprint shows a direction). `spec`: {index: (edge lines
+    or None, facing, outward normal)} for parts an intent pins on a named edge (kae.place.relations.
+    edge_lines; None: any outer edge) facing 'out', 'along' (|cos| <= FACE_MIN) or 'any'. Returns ({uuid: (x,
+    y, rot, side)}, {ref: why} for the parts with no such spot)."""
     from shapely.geometry import box
 
     from . import exact
@@ -195,18 +197,27 @@ def pin_poses(P, st, parts, tol=EDGE_TOL, limit=3000, log=None):
         cands = exact._candidates(P, st, i, S, pad, list(range(n_ortho)), 0.0, limit)
         cands.sort(key=lambda c: c[0])
         hit = None
+        lines, face, normal = (spec or {}).get(i, (None, "out", None))
         for _, X, Y, k in cands:
             x, y = P.xy(X, Y)
             r = p.rots[k]
             x0, y0, x1, y1 = r.own
             bb = box(x + x0, y + y0, x + x1, y + y1)
-            if min(pp.exterior.distance(bb) for pp in ext_parts) > tol + 0.5:
-                continue
-            pose = (float(x), float(y), r.rot, p.side)
-            if distance(p.fp, outline, pose) > tol:
-                continue
-            f = facing(p.fp, outline, pose)
-            if f is not None and f < FACE_MIN:
+            if lines is not None:
+                if lines.distance(bb) > tol + 0.5:
+                    continue
+                pose = (float(x), float(y), r.rot, p.side)
+                if _courtyard(p.fp, pose).distance(lines) > tol:
+                    continue
+                f = _facing_dir(p.fp, pose, normal)
+            else:
+                if min(pp.exterior.distance(bb) for pp in ext_parts) > tol + 0.5:
+                    continue
+                pose = (float(x), float(y), r.rot, p.side)
+                if distance(p.fp, outline, pose) > tol:
+                    continue
+                f = facing(p.fp, outline, pose)
+            if f is not None and ((face == "out" and f < FACE_MIN) or (face == "along" and abs(f) > FACE_MIN)):
                 continue
             hit = (X, Y, k, pose)
             break
@@ -219,6 +230,37 @@ def pin_poses(P, st, parts, tol=EDGE_TOL, limit=3000, log=None):
         if log:
             log(f"edge: {p.ref} pinned at ({hit[3][0]:.2f}, {hit[3][1]:.2f}) rot {hit[3][2]:g}")
     return poses, failed
+
+
+def _courtyard(fp, pose):
+    from shapely.geometry import box as _box
+    from shapely.ops import unary_union
+
+    from kae.board import transform
+    cy = transform.courtyard(fp, *pose, which="extent")
+    if cy:
+        return unary_union(cy)
+    xy = transform.fp_pads_xy(fp, *pose)
+    return _box(float(xy[:, 0].min()), float(xy[:, 1].min()), float(xy[:, 0].max()), float(xy[:, 1].max()))
+
+
+def _facing_dir(fp, pose, normal):
+    """cos between the part's body direction (pads -> courtyard centroid) and an outward normal."""
+    import math
+
+    from shapely.ops import unary_union
+
+    from kae.board import transform
+    cy = transform.courtyard(fp, *pose, which="extent")
+    if not cy or not fp.pads:
+        return None
+    c = unary_union(cy).centroid
+    xy = transform.fp_pads_xy(fp, *pose)
+    bx, by = c.x - float(xy[:, 0].mean()), c.y - float(xy[:, 1].mean())
+    nb = math.hypot(bx, by)
+    if nb < 0.3:
+        return None
+    return (bx * normal[0] + by * normal[1]) / nb
 
 
 def with_poses(board, poses):

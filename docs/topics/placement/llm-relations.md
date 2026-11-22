@@ -1,0 +1,100 @@
+<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
+# Placement relations: what `kae place --intent` does
+
+Scope: the built phase 1 of the relations input: format checks, names, the compiler onto the placer's hooks, pre-checks, the oracle, the status rows and hazards, the settings. Not here: the design, vocabulary rationale and later phases -> [llm-relations-input](llm-relations-input.md); the hazard contract -> [hazards](../architecture/hazards.md).
+Keys: kae place --intent, kae.intent.relations, kae.place.relations, Bundle, relations status, kae.relations-status/1, relations_applied, D- rows, defaults_off, D-edge, D-label, D-order, measured only, REL_SEED_W, relations_mm, relations_vs_physics, relations_block, rel_w_strong, relation_conflict, relation_unmet
+
+## Format and loading
+
+`kae place IN OUT --intent FILE` reads a `kae.intent/1` file; its `relations` list follows [R2-R3](llm-relations-input.md#r3-format-kaeintent1-relations). Two stages reject a bad file before anything is placed (exit 2, a JSON line `{"error", "intent_error": true}`, no output board):
+
+1. Shape (`kae.intent.relations.check`, run by `kae.intent.objective.load`): unknown kind, argument, value or strength; a missing `why`/`source`; an id that repeats (across relations and terms) or starts `D-`; an `order` path under 3 members.
+2. Names (`kae.place.relations.Resolver`): refs, pins (`U2.5` by number, `U2.SW` by pin function), sections (the brief's, as the intent's `sections` edits them), `net:`, `label:"TEXT"` (board silk text, exact or one token, must be unique), `area:` (board-level rule area), `region:nw…se|c`, `edge:north|south|east|west|nearest`, `hole:`. Each error lists what exists.
+
+Not built and refused at load: `hold` `as: relative` ([open question 6](llm-relations-input.md#open-questions)).
+
+## Compiler: relation -> hook
+
+| Relation | Hook (`kae/src/kae/place/`) | Enforced |
+|---|---|---|
+| `hold` (as drawn) | fixed at the input pose, as `--fix` | hard |
+| `on_edge`, required or strong | pinned by `edge_check.pin_poses` on the named edge's segments (outward normal within 45° of the compass), facing out (cos ≥ 0.3), along (\|cos\| ≤ 0.3) or any; then fixed | hard |
+| `on_edge`, medium or weak | label-term pull into the edge band (the part's size + 1 mm deep) | soft |
+| `orient allowed` | the part's rotation set (`Problem.build(part_rotations=)`): right_angles, x_axis (0°, 180°), y_axis (90°, 270°), as_drawn | hard |
+| `region` (any strength) | label-term pull: target the region box's centre, dead zone the box less the part | soft |
+| `near` to a label, or to parts that do not move | label-term pull of the one movable part (dead zone: the distance plus both halves, its diagonal share) | soft |
+| `keep_away` (parts, sections, nets) | soft-overlap class `REL_CLASS + k`: a's courtyard box grown by the distance + 1 cell vs b's bodies, same side only | soft |
+| `order` | protection-order rules from each consecutive triple (annealer term, `exact.fix_order`, `OrderGuard`) | strong rule |
+| `side` | none: kae never flips; a part on the other side is a proven conflict ([Q4](llm-relations-input.md#open-questions)) | hard (input) |
+| `near` between movable parts, `group`, `row`, `exclusive`, `pins_toward`, `keep_away` to an area | none yet | measured only |
+
+- Pulls also seed: each pulled part starts the seed at its target and the CP-SAT floorplan holds it there with displacement weight `REL_SEED_W` = 20 (other parts 1). Without it the annealer's local moves left a part 25 mm from its region at pull weight 8 on the fixture board, and met it at 3 with it [M].
+- A part pulled by several relations takes the heaviest; the others are measured only on that part (row `applied` says so). A relation pull replaces a silk-label default on the same part.
+- Required `region`, `near`, `keep_away` are placed soft at the required weight until phase 2 builds them hard; the row says so.
+- Weights per strength (`rel_w_weak/medium/strong/required` = 0.3 / 1 / 3 / 10) are label-term weights; the silk-label default for numbered rows is 1.0.
+- `kae.joint` windows do not read relations yet (phase 2).
+
+## Magnitudes
+
+`tight | close | loose` resolve per relation (`Bundle.target_mm`), all overridable as `KAE_REL_<MAG>_<CLASS>`:
+
+| Pair | Metric | tight / close / loose |
+|---|---|---|
+| a 0402 capacitor (`C…`, 2 pads, 0402/1005 footprint) and a part or pin | centre to centre | 2.5 / 4.9 / 15 mm ([priors](../data/measured-priors.md#decoupling-distance-priors)) |
+| named pins on either side | centre to centre | as below, s of the parts |
+| parts, sections, nets | courtyard gap | max(0.5, 0.5·s) / 2·s / 6·s, s = √(courtyard area of the smaller side) |
+| a part and a label | label box to pad copper | as above, s of the part |
+| `group` | bbox area ÷ Σ courtyard area | 1.5 / 2.5 / 4 |
+
+A length (`"mag": "2 mm"`) is taken as written; without a `source` the row carries `assumed: true` and the status lists it under `assumed` ([Q1](llm-relations-input.md#open-questions), proposed answer). `relations_mm forbid` rejects lengths.
+
+## Pre-checks
+
+Proven from the input alone, before placing (`Bundle._prechecks`); each is a `relation_conflict` with `proof: precheck` or `capacity`:
+
+- one part asked on both sides, or on the side it is not on;
+- a held or locked part that does not meet a `region`, `on_edge` or `orient` where it is;
+- two orient sets with no common rotation; one part on opposite named edges;
+- two strong/required regions of one part overlapping less than its courtyard;
+- capacity: a region's free area (in the outline, less footprint keep-outs and fixed parts) under Σ member courtyards ÷ 0.85; a named edge shorter than the parts pinned to it;
+- `near` and `keep_away` on the same pair.
+
+## Status, conflicts and hazards
+
+After the last write, `kae place` re-reads OUTPUT and measures every relation on it (the oracle, `Bundle.status`). `report.relations` (`kae.relations-status/1`):
+
+- `rows`: per relation `id, kind, strength, enforced, how, met, measured, target, margin`, `binding` (parts on the segment from a member to its target, locked ones marked), `conflicts`, `proof`, `relaxations`, `applied` (what the placer did: pinned or not and why, the pull weight).
+- `defaults`: kae's own relations as `D-` rows, measured the same way: `D-edge-<ref>` (user-facing connectors pinned on an edge), `D-label-<ref>` (silk-label pulls), `D-order-<ref>` (protection order). `"defaults_off": ["D-label-*"]` switches them off; an explicit `on_edge` or pull on the part replaces its default.
+- `precheck`, `assumed`, `settings`, `summary` (`n`, `met`, `unmet`, `conflicts`, `measured_only`).
+
+Relaxations are a ladder predicted on this placement, never applied: looser magnitudes (each re-measured), other compass cells that would hold the members, k of n members, `edge:nearest`, facing any, strength weak (soft rows), drop, and `unlock <ref>` as a board change when a locked part binds.
+
+Hazards (`Bundle.hazards`, then `kae.hazards.finalize`):
+
+| Code | Severity | When |
+|---|---|---|
+| `relation_conflict` | warn | a pre-check conflict; or, with `relations_vs_physics tie`, an unmet soft relation on a part that place-term structures also price (`with_physics` names them) |
+| `relation_unmet` | warn if required, info otherwise | the oracle finds it unmet |
+| either | block | `category: safety` and `relations_block safety` (default; `required` also blocks unmet required, `never` never) ([Q5](llm-relations-input.md#open-questions)) |
+| `relation_check_failed` | warn | the oracle raised; the placement is still written |
+
+## Settings
+
+`kae.route.constraints.DEFAULTS` (project `KAE_<NAME>` text variable, else opts):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `relations_mm` | `sourced` | Q1: lengths allowed, `assumed` without a source; `forbid` |
+| `relations_vs_physics` | `tie` | Q2: relations keep their weight on parts the place terms price, and unmet there they are conflicts; `physics`: those pulls weigh as weak and rows say `yielded_to` |
+| `relations_block` | `safety` | Q5: as above |
+| `rel_<mag>_decap`, `rel_<mag>_scale`, `rel_gap_min` | 2.5/4.9/15, 0.5/2/6, 0.5 | magnitudes |
+| `rel_w_<strength>` | 0.3/1/3/10 | pull and keep-away weights |
+
+## Evaluation (phase 1)
+
+Hand-written relation files for six corpus boards are test fixtures (`kae/tests/data/relations/`), written from the netlist and silk legends only, never from the human placement. Two carry a deliberate conflict (an LQFP-48 asked into the middle third of a 17 mm board; a part asked onto the bottom). Results of the A/B against no relations: `~/kae-baselines/experiments/relations-p1-ab/VERDICT.md`.
+
+## Sources
+
+- Design: [llm-relations-input](llm-relations-input.md). Code: `kae/src/kae/intent/relations.py`, `kae/src/kae/place/relations.py`, `kae/src/kae/place/pipeline.py` (`relations=`), `kae/src/kae/place/edge_check.py` (`pin_poses(spec=)`), `kae/src/kae/cli.py` (`--intent`). Tests: `kae/tests/test_place_relations.py`.

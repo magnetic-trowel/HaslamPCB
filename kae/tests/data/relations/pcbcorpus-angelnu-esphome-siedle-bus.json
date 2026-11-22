@@ -1,0 +1,9 @@
+{"schema": "kae.intent/1", "generation": 1,
+ "note": "hand-written from the netlist and silk legends only (no part positions read)",
+ "relations": [
+  {"id": "bus-terminal", "kind": "on_edge", "part": "J1", "edge": "edge:nearest", "facing": "out", "why": "the intercom bus wires land on the terminal block from outside"},
+  {"id": "prog-edge", "kind": "on_edge", "part": "program_port1", "edge": "edge:nearest", "facing": "any", "strength": "strong", "why": "a USB-serial adapter plugs into the programming header"},
+  {"id": "prog-legend", "kind": "near", "a": "program_port1", "b": "label:\"3.3\"", "mag": "close", "why": "the 3.3 / GND / TX / RX legend names its pins"},
+  {"id": "antenna-edge", "kind": "on_edge", "part": "U2", "edge": "edge:nearest", "facing": "out", "strength": "strong", "why": "the ESP32 module's antenna end at the board edge, clear of copper"},
+  {"id": "input-protection", "kind": "order", "path": ["J1", "D1", "Q1"], "why": "the reverse-polarity diode first on the bus input, then the switch"}
+ ]}
