@@ -110,6 +110,38 @@ def test_the_legacy_cap_from_a_reasons_text_is_the_rails_magnitude():
     assert OB._capped(ob)["capped_at"] == 2.5
 
 
+# ----------------------------------------------------------------------------- the objective
+BRIEF = {"parts": {}, "structures": []}
+
+
+def _transfer_ev():
+    ob = dict(id="transfer.test", unit="V", values=[-0.02, 0.01], u=[0.0, 0.0], sign_meaning="node a above node b",
+              scope=dict(kind="transfer"), reference=dict(value=None, basis="test"), label="a signed transfer")
+    return {"board": "synthetic", "total": {"complete": True}, "questions": [], "observations": [ob]}
+
+
+@pytest.fixture
+def transfer_kind(monkeypatch):
+    monkeypatch.setitem(OB.KINDS, "transfer.test", ("V", "a signed transfer between two ports (test only)"))
+    monkeypatch.setitem(Q.KIND_TYPE, "transfer.test", Q.Transfer)
+
+
+def test_a_cost_on_a_signed_transfer_is_refused(transfer_kind):
+    it = {"terms": [{"id": "X1", "tier": "cost", "obs": "transfer.test", "rate": "1 mW_eq/mV", "why": "test"}]}
+    with pytest.raises(OB.IntentError, match="X1 prices a signed transfer as a cost"):
+        OB.evaluate(_transfer_ev(), it, BRIEF)
+
+
+def test_a_limit_on_a_signed_transfer_has_a_side_and_is_priced(transfer_kind):
+    it = {"terms": [{"id": "X1", "tier": "limit", "obs": "transfer.test", "min": "-10 mV", "rate": "1 mW_eq/mV",
+                     "why": "test"},
+                    {"id": "X2", "tier": "hard", "obs": "transfer.test", "max": "5 mV", "why": "test"}]}
+    st = OB.evaluate(_transfer_ev(), it, BRIEF)
+    x1, x2 = (next(r for r in st["terms"] if r["id"] == i) for i in ("X1", "X2"))
+    assert x1["met"] is False and x1["contribution"] == pytest.approx(10.0)      # 10 mV below the min at 1 per mV
+    assert x2["met"] is False and st["tiers"]["hard"] > 0
+
+
 # ----------------------------------------------------------------------------- end to end
 TIMING = ("seconds", "t_factor_s", "t_total_s")
 

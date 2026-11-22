@@ -345,6 +345,10 @@ def evaluate(ev, intent=None, brief=None):
         if tier == "ignore":
             rows.append(dict(id=t["id"], tier=tier, obs=t["obs"], matched=len(hit), why=t.get("why")))
             continue
+        if tier == "cost" and any(Q.type_of(obs[i]) is Q.Transfer for i in hit):
+            raise IntentError(f"term {t['id']} prices a signed transfer as a cost; a cost needs a magnitude or a "
+                              f"dissipation: state a side with a limit (max/min) or price |value| through a magnitude "
+                              f"kind")
         agg = t.get("agg", "cvar20" if tier == "cost" else "worst")
         combine = t.get("combine", "sum" if tier == "cost" else "each")
         bound, side_ = None, None
