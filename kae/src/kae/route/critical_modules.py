@@ -27,6 +27,7 @@ import numpy as np
 from shapely.geometry import Point
 
 from kae.circuit.names import GND_RE
+from kae.excite import quantity as Q
 from kae.physics import exact as EX
 from kae.physics import priors as PR
 from kae.physics.boardview import body_z
@@ -148,7 +149,7 @@ class Ctx:
         r = self.nets.get(net) or {}
         v = r.get("volts")
         if v:
-            return abs(float(v))
+            return Q.Magnitude.bound(float(v))
         s = (net or "").split("/")[-1].upper().replace("_", "")
         m = re.search(r"(\d+)V(\d+)", s)
         if m:

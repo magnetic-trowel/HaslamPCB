@@ -49,6 +49,7 @@ import math
 import re
 from pathlib import Path
 
+from kae.excite import quantity as Q
 from kae.physics import criteria as CR
 
 from . import sections as SE
@@ -198,10 +199,10 @@ def _emission(ob, cables):
             for v, f in zip(ob["values"], ob.get("f_Hz") or [0.0] * len(ob["values"]))]
     sc = dict(ob["scope"])
     sc["cable_m"] = l
-    return dict(id="emission.cable_E", unit="dBuV/m", values=vals, u=None, scope=sc,
-                reference=dict(value=30.0, basis="CISPR 32 class B, 30-230 MHz, 10 m"),
-                label=f"cable emission at 10 m via {'-'.join(sc.get('connectors', []))} ({l:g} m) <- "
-                      f"{sc.get('source')}", f_Hz=ob.get("f_Hz"))
+    return Q.check(dict(id="emission.cable_E", unit="dBuV/m", values=vals, u=None, scope=sc,
+                        reference=dict(value=30.0, basis="CISPR 32 class B, 30-230 MHz, 10 m"),
+                        label=f"cable emission at 10 m via {'-'.join(sc.get('connectors', []))} ({l:g} m) <- "
+                              f"{sc.get('source')}", f_Hz=ob.get("f_Hz")))
 
 
 def observations(ev, intent):
@@ -556,7 +557,7 @@ def _capped(ob):
     if cap is None:
         m = re.search(r"exceeds (\d+)% of its ([0-9.eE+-]+) V rail", ob["implausible"])
         # the rail's magnitude: a negative rail ("-5 V rail") caps its noise at +2.5 V, never at a negative voltage
-        cap = float(m.group(1)) / 100 * abs(float(m.group(2))) if m else None
+        cap = (Q.type_of(ob) or Q.Magnitude).cap(float(m.group(1)) / 100 * float(m.group(2))) if m else None
     if cap is None:
         return ob
     return dict(ob, values=[min(v, cap) for v in ob.get("values") or []], capped_at=cap)
