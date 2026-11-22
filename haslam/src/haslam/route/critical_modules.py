@@ -28,6 +28,7 @@ from shapely.geometry import Point
 
 from haslam.circuit.values import NUM
 from haslam.circuit.names import GND_RE
+from haslam.excite import quantity as Q
 from haslam.physics import exact as EX
 from haslam.physics import priors as PR
 from haslam.physics.boardview import body_z
@@ -155,7 +156,7 @@ class Ctx:
         r = self.nets.get(net) or {}
         v = r.get("volts")
         if v:
-            return abs(float(v))
+            return Q.Magnitude.bound(float(v))
         s = (net or "").split("/")[-1].upper().replace("_", "")
         m = re.search(r"(\d+)V(\d+)", s)
         if m:
