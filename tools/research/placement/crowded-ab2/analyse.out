@@ -1,0 +1,20 @@
+board-seeds complete 79 of 79
+control twin identical 79 of 79
+
+== failing: 7 boards, 21 board-seeds
+  control  legal   2/21  pe(non-edge)  443  edge_clr   27  shorts  206  hpwl gm 1.000
+  control2 legal   2/21  pe(non-edge)  443  edge_clr   27  shorts  206  hpwl gm 1.000  dLegal +0 [+0,+0]  dPE +0 [+0,+0]  dShort +0 [+0,+0]
+  gated    legal   5/21  pe(non-edge)  369  edge_clr   41  shorts  166  hpwl gm 0.991  dLegal +3 [+0,+9]  dPE -74 [-172,+16]  dShort -40 [-114,+32]
+   flips gated {('adafruit-adafruit-itsybitsy-', 1): 3}
+
+== crowded: 10 boards, 20 board-seeds
+  control  legal  19/20  pe(non-edge)   57  edge_clr    0  shorts   11  hpwl gm 1.000
+  control2 legal  19/20  pe(non-edge)   57  edge_clr    0  shorts   11  hpwl gm 1.000  dLegal +0 [+0,+0]  dPE +0 [+0,+0]  dShort +0 [+0,+0]
+  gated    legal  19/20  pe(non-edge)   57  edge_clr    0  shorts   11  hpwl gm 1.000  dLegal +0 [+0,+0]  dPE +0 [+0,+0]  dShort +0 [+0,+0]
+   flips gated {}
+
+== headers: 19 boards, 38 board-seeds
+  control  legal  29/38  pe(non-edge)  278  edge_clr   61  shorts   38  hpwl gm 1.000
+  control2 legal  29/38  pe(non-edge)  278  edge_clr   61  shorts   38  hpwl gm 1.000  dLegal +0 [+0,+0]  dPE +0 [+0,+0]  dShort +0 [+0,+0]
+  gated    legal  31/38  pe(non-edge)  369  edge_clr   66  shorts  126  hpwl gm 1.003  dLegal +2 [+0,+6]  dPE +91 [+0,+211]  dShort +88 [+0,+204]
+   flips gated {('uzsito-attach-hexa-attach-he', 1): 2}
