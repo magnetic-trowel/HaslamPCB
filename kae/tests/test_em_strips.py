@@ -177,5 +177,5 @@ def test_a_strips_quote_charges_counted_work_the_same_each_time(boards):
         ctx = ST.prepare(p, fills=plane_fills())          # a fresh board: its tables are computed again
         q = ST.from_board(p, CELL, ctx=ctx)
         out.append(dict(q.units))
-    assert out[0].get("em_kernel", 0) > 0 and out[0].get("em_dense", 0) > 0
+    assert out[0].get("em_pair", 0) > 0 and out[0].get("em_dense", 0) > 0
     assert out[0] == out[1]
