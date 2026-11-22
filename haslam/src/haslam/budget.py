@@ -131,6 +131,16 @@ RATES = {
     "em_paint": 4.9e-6,         # one raster cell-layer of a board's mesh painted (shapes into cells); 4.6-6.1e-6
     "fill_run": 2.4,            # one KiCad zone refill (haslam.route.critical_recheck.fills_of); 2.0-2.7 s on 0.2-0.7 MB
     "fill_mb": 0.6,             # ... per MB of board file: the DRC's (drc_mb); three small boards cannot separate it
+    # the strip-and-tile PEEC cell quote (haslam.em.strips; HASLAM_CELL_QUOTE=strips), calibrated with
+    # tools/research/physics/quickphys/calibrate_strips.py on the buck fixture at P 1.0 and 0.5 mm and one 2-layer
+    # boost board (4 BLAS threads; loaded shared host, 2026-11-22, so a first fit to redo on a quiet one)
+    "em_kernel": 1.2e-5,        # one partial-inductance pair (a table entry or a direct pair), with the network's
+                                # build before it; 8.6e-6 on the board, 1.4-1.9e-5 on the fixture at 0.5, 2.4e-5-1.7e-4
+                                # at 1.0 (few pairs: the build dominates)
+    "em_dense": 3.5e-11,        # one N^3 of a dense complex LU (or N^2 of a solve); 3.2-3.7e-11 at N >= 2,000,
+                                # 1.5-1.8e-10 at N ~ 600 (BLAS start-up)
+    "em_border": 4e-10,         # one k N^2 of a bordered update (k + 1 right-hand sides through the LU, the Schur
+                                # complement); 3.6-6.4e-10 measured
     "seconds": 1.0,             # work already measured in nominal seconds by the caller
 }
 CEILING_FACTOR = 4.0    # a run past CEILING_FACTOR x its nominal budget in wall time has failed
