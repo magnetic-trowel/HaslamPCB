@@ -12,11 +12,17 @@ Three synthetic geometries, each built once as a list of copper items and given 
 - (c) a via pair: two 0.3 mm barrels 2 mm apart through a 1.6 mm board, joined by a bottom stub and a top stub with
   the port gap, at 10 kHz. Reference: Grover's filaments at the barrel's GMD (radius), 2 (L_tube - M), plus the stubs.
 The references count exactly the copper the models give inductance to (pads are equipotentials in both models).
+Where a strip meets a via the closed form must pick where the strip's current ends: at the via's centre (the strips
+model's tracks do) or at its barrel wall (radius drill / 2, where the raster's copper ends). Cases (a) and (c) are
+bracketed by both conventions (ref_centre, ref_wall; the wall lowers the via pair's 11.6 % and the loop over a plane's
+4 %); a model is within the bracket or outside it by its deviation from the nearer one.
 
 Raster: kae.em.mesh.Mesh painted as kae.em.kicad.BoardMesh paints a board (polygons by paint_connected, tracks
 narrower than 3 cells by paint_line, vias by Mesh.via), the pads as terminals, solved by
 kae.em.solve.potentials_many with the two-pad port; L = stored_inductance (the evaluator's L_loop) at --raster-pitch
-(0.0625 mm). Strips: kae.em.strips at P 0.5 and 0.25 (the plane's pitch) and refine(P 0.5) (nested, P 0.25 in effect).
+(0.0625 mm). Strips: kae.em.strips with graded plane tiles as kae.em.strips.plan_cell sets them (near region, via
+zones; vias landed by radial bars, Network.land) at its default P0 (min(STRIP_PITCH, h / 2, w): "default") and at the
+--pitches given, and refine() of the coarsest (nested, half its pitch in effect).
 
     PYTHONPATH=kae/src KAE_EM_THREADS=4 python tools/research/physics/quickphys/ground_truth.py [--cases a b c]
 
@@ -89,8 +95,13 @@ def case_a():
     r = 0.15 * MM
     Lv = float(KN.tube_self(2 * h * MM, r)) - float(KN.fil_mutual(0, 2 * h * MM, 0, 2 * h * MM, L_ * MM))
     ref = LSS - MSI + Lv
+    # the wall convention: the strip's current ends at the barrel wall (drill / 2 = r from each via's centre)
+    Sw = [bar(r / MM, xm - g / 2 - pl, -w / 2, w / 2, zs - T / 2, zs + T / 2),
+          bar(xm + g / 2 + pl, L_ - r / MM, -w / 2, w / 2, zs - T / 2, zs + T / 2)]
+    Swi = [(b[0], b[1], b[2], b[3], 2 * zp * MM - b[5], 2 * zp * MM - b[4]) for b in Sw]
+    ref_w = sum(M(a, b) for a in Sw for b in Sw) - sum(M(a, b) for a in Sw for b in Swi) + Lv
     return dict(name="a: strip loop over a plane", lays=lays, items=items, win=win, port=("P1", "P2"), f=10e6,
-                ref=ref, plane=True)
+                ref=ref, ref_wall=ref_w, plane=True)
 
 
 def case_b():
@@ -129,8 +140,13 @@ def case_c():
     bot = bar(0.0, d, -w / 2, w / 2, zb - T / 2, zb + T / 2)
     Lst = sum(M(a, b) for a in top for b in top) + M(bot, bot) - 2 * sum(M(a, bot) for a in top)
     Lv = 2 * (float(KN.tube_self(h, 0.15 * MM)) - float(KN.fil_mutual(0, h, 0, h, d * MM)))
+    r = 0.15                                    # the wall convention: stubs from the barrel walls
+    topw = [bar(r, xm - g / 2 - pl, -w / 2, w / 2, zt - T / 2, zt + T / 2),
+            bar(xm + g / 2 + pl, d - r, -w / 2, w / 2, zt - T / 2, zt + T / 2)]
+    botw = bar(r, d - r, -w / 2, w / 2, zb - T / 2, zb + T / 2)
+    Lw = sum(M(a, b) for a in topw for b in topw) + M(botw, botw) - 2 * sum(M(a, botw) for a in topw)
     return dict(name="c: via pair", lays=lays, items=items, win=(-1.0, -1.0, d + 1.0, 1.0), port=("P1", "P2"),
-                f=1e4, ref=Lst + Lv, plane=False)
+                f=1e4, ref=Lst + Lv, ref_wall=Lw + Lv, plane=False)
 
 
 # ----------------------------------------------------------------------------- the raster
@@ -175,34 +191,51 @@ def raster(c, pitch):
 
 
 # ----------------------------------------------------------------------------- strips
-def strips_net(c, P):
+def strips_net(c, P=None):
+    """The case on kae.em.strips' network as from_board builds a cell: graded plane tiles (near region: the case's
+    copper buffered by max(NEAR_H h, NEAR_MIN); P0 = P, or by default the lattice pitch at most min(STRIP_PITCH,
+    h / 2, the narrowest track); via zones at P_via), track ends and vias landed on the tiles by radial bars."""
+    from shapely.geometry import LineString, Point
+    from shapely.ops import unary_union
     lays = c["lays"]
-    net = ST.Network(lays, origin=(c["win"][0], c["win"][1]), pitch=P)
+    net = ST.Network(lays, origin=(c["win"][0], c["win"][1]))
     it = c["items"]
     for name, layer, g in it["pads"]:
         net.pad(name, g, layer, net=NET)
+    zc_ = {l.name: l.z + l.t / 2 for l in lays}
+    els = [(layer, g) for _, layer, g in it["pads"]]
+    els += [(layer, LineString(pts).buffer(w / 2, cap_style=2)) for layer, pts, w in it["tracks"]]
+    els += [(None, Point(x, y).buffer(size / 2)) for x, y, _, size in it["vias"]]
+    w_min = min((w for _, _, w in it["tracks"]), default=math.inf)
     for layer, g in it["planes"]:
-        net.plane(g, layer, NET, P)
+        h = min(abs(zc_[layer] - zc_[l]) for l, _ in els if l and l != layer)
+        P0 = ST.snap_pitch(P if P else min(ST.STRIP_PITCH, h / 2, w_min))
+        near = unary_union([e.buffer(max(ST.NEAR_H * (abs(zc_[layer] - zc_[l]) if l else 0.0), ST.NEAR_MIN))
+                            for l, e in els])
+        fine = [(Point(x, y).buffer(ST.VIA_ZONE * (dr / 2 + ST.MAT.VIA_PLATING_MM)),
+                 ST.snap_pitch(min(P0, dr + 2 * ST.MAT.VIA_PLATING_MM))) for x, y, dr, _ in it["vias"]]
+        pf = ST.snap_pitch(max(ST.P_FAR_MIN, max(c["win"][2] - c["win"][0], c["win"][3] - c["win"][1]) / ST.P_FAR_DIV))
+        net.plane(g, layer, NET, P0, near=near, p_far=pf, beta=ST.GRADES[0], fine=fine)
     junction = {}
 
-    def end(layer, p):
+    def end(layer, p, w):
         n = net.pad_at(p[0], p[1], layer, NET)
         if n is not None:
             return n
         k = ("j", layer, round(p[0], 4), round(p[1], 4))
         if k not in junction:
             junction[k] = net.node(k)
-            net.well(junction[k], p[0], p[1], layer, NET)
+            net.land(junction[k], p[0], p[1], layer, NET, r=w / 2)
         return junction[k]
     for k, (layer, pts, w) in enumerate(it["tracks"]):
         for q, (a, b) in enumerate(zip(pts[:-1], pts[1:])):
-            net.strip(a, b, w, layer, end(layer, a), end(layer, b), key=("t", k, q))
+            net.strip(a, b, w, layer, end(layer, a, w), end(layer, b, w), key=("t", k, q))
     for x, y, drill, size in it["vias"]:
         land = {}
         for l in lays:
             k = ("j", l.name, round(x, 4), round(y, 4))
-            land[l.name] = junction.get(k) if k in junction else net.land_point(x, y, l.name, NET, key=("v", x, y, l.name),
-                                                                               r=size / 2)
+            land[l.name] = junction.get(k) if k in junction else net.land_point(
+                x, y, l.name, NET, key=("v", x, y, l.name), r=size / 2, r_in=drill / 2 + ST.MAT.VIA_PLATING_MM)
         net.via(x, y, [l.name for l in lays], drill, land=land, size=size)
     a, b = c["port"]
     return net, (net.pads[a]["node"], net.pads[b]["node"])
@@ -219,7 +252,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--cases", nargs="+", default=["a", "b", "c"])
     ap.add_argument("--raster-pitch", type=float, default=0.0625)
-    ap.add_argument("--pitches", type=float, nargs="+", default=[0.5, 0.25])
+    ap.add_argument("--pitches", type=float, nargs="+", default=[0.5, 0.25], help="forced P0s besides the default")
     a = ap.parse_args(argv)
     cases = dict(a=case_a, b=case_b, c=case_c)
     rows = []
@@ -228,30 +261,41 @@ def main(argv=None):
         t0 = time.time()
         Lr = raster(c, a.raster_pitch)
         tr = time.time() - t0
-        out = dict(case=c["name"], f=c["f"], ref=c["ref"], raster=Lr, t_raster=tr, strips={})
-        for P in a.pitches:
+        out = dict(case=c["name"], f=c["f"], ref=c["ref"], ref_wall=c.get("ref_wall"), raster=Lr, t_raster=tr,
+                   strips={})
+        for P in [None] + list(a.pitches):
             t0 = time.time()
             net, port = strips_net(c, P)
             Ls, N = strips_L(net, port, c["f"])
-            out["strips"][f"P {P:g}"] = (Ls, N, time.time() - t0)
+            out["strips"]["default" if P is None else f"P {P:g}"] = (Ls, N, time.time() - t0)
         P0 = max(a.pitches)
         net, port = strips_net(c, P0)
         t0 = time.time()
         Lf, N = strips_L(ST.refine(net), port, c["f"])
         out["strips"][f"refine(P {P0:g})"] = (Lf, N, time.time() - t0)
         rows.append(out)
-        print(f"{c['name']}: ref {c['ref'] * 1e9:.4f} nH, raster {Lr * 1e9 if Lr else float('nan'):.4f} ({tr:.0f} s), "
+        print(f"{c['name']}: ref {c['ref'] * 1e9:.4f} nH (wall {(c.get('ref_wall') or float('nan')) * 1e9:.4f}), "
+              f"raster {Lr * 1e9 if Lr else float('nan'):.4f} ({tr:.0f} s), "
               + ", ".join(f"strips {kk} {v[0] * 1e9:.4f} (N {v[1]}, {v[2]:.0f} s)" for kk, v in out["strips"].items()),
               file=sys.stderr, flush=True)
     keys = list(rows[0]["strips"])
-    print(f"\n| case | f | reference (nH) | raster {a.raster_pitch:g} mm | dev | "
+    print(f"\nDeviation from the reference at the via-centre convention / at the barrel-wall convention "
+          f"(one value: no via in the case)\n")
+    print(f"| case | f | ref centre (nH) | ref wall (nH) | raster {a.raster_pitch:g} mm | dev | "
           + " | ".join(f"strips {k} | dev" for k in keys) + " |")
-    print("|---|---|---|---|---|" + "---|---|" * len(keys))
-    dev = lambda v, r: f"{(v / r - 1) * 100:+.2f} %" if v else "open"
+    print("|---|---|---|---|---|---|" + "---|---|" * len(keys))
+
+    def dev(v, r):
+        if not v:
+            return "open"
+        out = f"{(v / r['ref'] - 1) * 100:+.2f} %"
+        return out + (f" / {(v / r['ref_wall'] - 1) * 100:+.2f} %" if r["ref_wall"] else "")
     for r in rows:
-        print(f"| {r['case']} | {r['f'] / 1e6:g} MHz | {r['ref'] * 1e9:.4f} | "
-              f"{r['raster'] * 1e9 if r['raster'] else float('nan'):.4f} | {dev(r['raster'], r['ref'])} | "
-              + " | ".join(f"{r['strips'][k][0] * 1e9:.4f} | {dev(r['strips'][k][0], r['ref'])}" for k in keys) + " |")
+        rw = f"{r['ref_wall'] * 1e9:.4f}" if r["ref_wall"] else "-"
+        print(f"| {r['case']} | {r['f'] / 1e6:g} MHz | {r['ref'] * 1e9:.4f} | {rw} | "
+              f"{r['raster'] * 1e9 if r['raster'] else float('nan'):.4f} | {dev(r['raster'], r)} | "
+              + " | ".join(f"{r['strips'][k][0] * 1e9:.4f} (N {r['strips'][k][1]}) | {dev(r['strips'][k][0], r)}"
+                           for k in keys) + " |")
     return 0
 
 
