@@ -1076,6 +1076,28 @@ def _composite(rules, name):
     return nc
 
 
+# KiCad's built-in via drills (DEFAULT_VIA_DRILL, DEFAULT_UVIA_DRILL), for a board that names none at all
+KICAD_VIA_DRILL, KICAD_UVIA_DRILL = 0.4, 0.1
+
+
+def _default_via_drills(vias, nets, rules, tree):
+    """Give each via written without a (drill) the drill KiCad gives it. KiCad 4 and 5 write a via's drill only
+    when it differs from the default, and pcbnew then drills it with its net class's via (or microvia) drill
+    (VIA::GetDrillValue). Read as 0, a barrel of no radius has no partial inductance (kae.em: NaN, and the DC
+    band's factor of a 2015 board failed as exactly singular) and no hole for the routers' clearances."""
+    st = first(tree, "setup") or []
+    for v in vias:
+        if v.drill > 0:
+            continue
+        micro = v.type == "micro"
+        net = nets.get(v.net)
+        nc = rules.netclasses.get(net.netclass if net is not None else "Default") or rules.netclasses.get("Default")
+        d = (nc.microvia_drill if micro else nc.via_drill) if nc is not None else None
+        if not d:
+            d = _f(value(st, "uvia_drill" if micro else "via_drill"), None)
+        v.drill = float(d) if d else (KICAD_UVIA_DRILL if micro else KICAD_VIA_DRILL)
+
+
 # ----------------------------------------------------------------------------- load
 def _stroked(g, opens, rings):
     """Copper/mask area of a graphic shape: lines and arcs buffered by half the stroke width,
@@ -1309,6 +1331,7 @@ def load(path, *, arc_tol=geom.ARC_TOL, rules=True):
     for tmp in ("_assign", "_raw_classes"):
         if hasattr(rules_obj, tmp):
             delattr(rules_obj, tmp)
+    _default_via_drills(vias, nets, rules_obj, tree)
 
     gen = value(tree, "generator", "") or ""
     gv = value(tree, "generator_version")

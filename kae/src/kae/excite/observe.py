@@ -77,7 +77,7 @@ def observers(bd, brief, sources):
             analog = sub in ("opamp", "adc_dac", "reference")
             frac, why = TOL["supply_analog" if analog else "supply_digital"]
             V = bd.rails.get(rail) or 3.3
-            out.append(Observer(f"supply:{ref}:{rail}", "supply", v, nodes["g"], bound=frac * V,
+            out.append(Observer(f"supply:{ref}:{rail}", "supply", v, nodes["g"], bound=frac * abs(V),
                                 basis=f"{why}; {rail} = {V:g} V", meta=dict(ref=ref, rail=rail, V=V)))
     # a module (a board of its own: kae.excite.models' ports) sees the carrier's noise between its supply pin and
     # its nearest ground pin, as its own decoupling and regulator do: one supply observer per module and rail
@@ -93,13 +93,13 @@ def observers(bd, brief, sources):
             V = bd.rails.get(net) or 3.3
             mn = (getattr(bd, "module_nodes", None) or {}).get(ref) or {}
             if net in mn:          # a clocked module's inside (kae.excite.sources): what its MCU sees
-                out.append(Observer(f"supply:{ref}:{net}", "supply", mn[net], mn["g"], bound=frac * V,
+                out.append(Observer(f"supply:{ref}:{net}", "supply", mn[net], mn["g"], bound=frac * abs(V),
                                     basis=f"{why} (inside the module); {net} = {V:g} V", meta=dict(ref=ref, rail=net, V=V)))
                 continue
             g = nearest_ground(bd, ref, tok)
             if g is None:
                 continue
-            out.append(Observer(f"supply:{ref}:{net}", "supply", net, bd.net_of[g], tok, g, bound=frac * V,
+            out.append(Observer(f"supply:{ref}:{net}", "supply", net, bd.net_of[g], tok, g, bound=frac * abs(V),
                                 basis=f"{why} (at the module's pins); {net} = {V:g} V", meta=dict(ref=ref, rail=net, V=V)))
     # a radio's RF and antenna pins (kae.circuit.roles.radio_kind; nets of role rf or pins named RF/ANT): the layout's
     # noise there is in its receiver's input
@@ -125,12 +125,7 @@ def observers(bd, brief, sources):
                     bound = frac * vref if cls == "feedback" else frac * (3.3 if cls == "reset" else 1.0)
                     out.append(Observer(f"victim:{cls}:{tok}", "victim", bd.ic_nodes[ref]["g"], net, None, tok,
                                         bound, why, "prior", dict(net=net, cls=cls)))
-    conn_gnd = {}
-    for net in bd.grounds:
-        for tok in bd.pads_of.get(net, []):
-            ref = tok.rsplit(".", 1)[0]
-            if bd.part_kind.get(ref, ("",))[0] == "connector":
-                conn_gnd.setdefault(ref, tok)
+    conn_gnd = connector_grounds(bd)
     refs = sorted(conn_gnd)
     for i in range(len(refs)):
         for j in range(i + 1, len(refs)):
@@ -138,6 +133,28 @@ def observers(bd, brief, sources):
             out.append(Observer(f"cm:{refs[i]}-{refs[j]}", "cm", "", "", conn_gnd[refs[i]], conn_gnd[refs[j]], 0.0, why,
                                 "standard", dict(pads=(conn_gnd[refs[i]], conn_gnd[refs[j]]))))
     return out
+
+
+def pad_order(tok):
+    """Sort key of a pad token REF.NUM by its pad number in natural order ('2' before '10', 'A2' before 'A10')."""
+    ref, num = tok.rsplit(".", 1)
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", num)], tok
+
+
+def connector_grounds(bd):
+    """{connector ref: its ground pad} for the cable common-mode observers: the connector's lowest-numbered pad (natural
+    order, pad_order) on any of the board's ground nets. The rule reads the connector's own pinout, so the pad is the
+    same whatever order the ground nets come in: the first pad met while iterating bd.grounds (a set) changed with
+    the hash seed on a connector with ground pads on two ground nets (duanestorey's J1 and J3: J1 among J1.1, J1.2 and
+    J1.3, J3 between J3.1 and J3.2; its cable_cm.v observations moved by -61 % to +182 % between two runs of the same
+    code, and its hazard count with them)."""
+    pads = {}
+    for net in sorted(bd.grounds):
+        for tok in bd.pads_of.get(net, []):
+            ref = tok.rsplit(".", 1)[0]
+            if bd.part_kind.get(ref, ("",))[0] == "connector":
+                pads.setdefault(ref, []).append(tok)
+    return {ref: min(ts, key=pad_order) for ref, ts in pads.items()}
 
 
 RF_FEED_NET = re.compile(r"(^|[^A-Z])(RF|ANT|ANTENNA)(\d|[^A-Z]|$)", re.I)
@@ -190,9 +207,11 @@ IMPLAUSIBLE_RAIL_FRAC = 0.5
 
 def cap_V(o) -> float | None:
     """The cap an implausible value of this observer is priced at (IMPLAUSIBLE_RAIL_FRAC of its rail), or None
-    for an observer without one. kae.intent prices at it; so does the router (kae.intent.route.Policy)."""
+    for an observer without one. kae.intent prices at it; so does the router (kae.intent.route.Policy).
+    A negative rail (-5 V) bounds the noise by its magnitude: the peak noise is a magnitude, and a signed cap
+    would flag every value implausible and price it at a negative voltage, a harm below none."""
     V = o.meta.get("V") if o.kind == "supply" else None
-    return IMPLAUSIBLE_RAIL_FRAC * V if V else None
+    return IMPLAUSIBLE_RAIL_FRAC * abs(V) if V else None
 
 
 def implausible(o, values) -> str | None:
