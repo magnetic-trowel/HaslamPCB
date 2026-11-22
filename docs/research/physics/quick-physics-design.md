@@ -9,7 +9,7 @@ Keys: quick physics, two fidelities, strip PEEC, tile PEEC, geometry-exact mesh,
 
 **Results**
 1. Every trap of the last weeks traces to four root causes: three estimators that are not approximations of the evaluator; observables defined as signed shares instead of energies and dissipations; the raster as the geometric primitive; field work that no budget counts (§1).
-2. A PEEC on the actual strips, pads and vias with the plane as a bar grid reproduces the 0.0625 mm raster window on the fixture within +0.6 … +4.5 % (L_loop) and −3 … −6 % (R_loop) from about 10³ unknowns in under a second, and quotes a router move exactly as a rank-55 bordered update of one factorisation in 0.09 s (§4) [C].
+2. A PEEC on the actual strips, pads and vias with the plane as a bar grid reads the 0.0625 mm raster window on the fixture at +0.6 … +6.7 % (L_loop, converging upward to about +9 %) and −1.5 … −6 % (R_loop, converging to it) from 10³–10⁴ unknowns in 1–12 s, and quotes a router move exactly as a rank-k bordered update of one factorisation in 0.09–0.46 s (§4) [C].
 3. Quick and full physics should be one network at two resolutions: nested current spaces make the quick L and R upper bounds of the full ones by the minimum-energy theorems, so the router optimises a bound on what is scored (§3).
 
 ## 1. Diagnosis: four root causes behind eight traps
@@ -70,20 +70,23 @@ Rejected: a surrogate on solver labels and bias-corrected closed forms ([exact-p
 | closed | strips + plane P 1.0, nw 1 | 371 | 210 | 3.537 (+0.6 %) | 6.188 (−4.1 %) | 6.084 | 0.08 + 0.7 s |
 | closed | P 0.5, nw 1 | 1,448 | 762 | 3.675 (+4.5 %) | 6.266 (−2.9 %) | 6.198 | 0.3 + 0.9 s |
 | closed | P 0.5, nw 2 | 1,461 | 762 | 3.671 | 6.278 | 6.198 | 0.3 + 0.7 s |
+| closed | P 0.25, nw 1 | 5,857 | 2,994 | 3.751 (+6.7 %) | 6.355 (−1.5 %) | 6.304 | 1.1 + 11 s |
 | long | raster 0.25 / 0.125 / 0.0625 mm | — | — | 6.758 / 6.270 / **6.270** | 12.84 / 13.36 / **12.97** | — | 0.9 / 3.2 / 13.5 s |
 | long | P 1.0, nw 1 | 384 | 223 | 6.437 (+2.7 %) | 12.14 (−6.4 %) | 12.03 | 0.1 + 0.3 s |
 | long | P 0.5, nw 1 | 1,461 | 775 | 6.536 (+4.2 %) | 12.23 (−5.7 %) | 12.14 | 0.3 + 0.8 s |
+| long | P 0.25, nw 1 | 5,870 | 3,007 | 6.608 (+5.4 %) | 12.33 (−4.9 %) | 12.24 | 1.6 + 11 s |
 | open | any | — | — | open by union-find before any solve | | | 0 s |
 
 Percentages against the 0.0625 mm raster. Times: mutuals + one LU and solve; raster: whole quote at 4 threads.
 
 - **Ordering of layouts:** closed < long at every resolution, as the raster; long − closed = 2.86–2.90 nH (strips) against 2.76 nH (raster 0.0625), 3.07 (raster 0.25).
+- **Convergence in P (1.0 → 0.5 → 0.25):** R converges toward the raster (closed 6.19 → 6.27 → 6.36 vs 6.45 mΩ; the plane's spreading resistance near the vias resolves). L moves away from it, upward: 3.54 → 3.67 → 3.75 nH (long 6.44 → 6.54 → 6.61), each step about half the last, so the strip model's own limit is near 3.83 nH, 9 % above the raster's 3.51. The coarse grids under-resolve the via's spreading inductance (the P 1.0 agreement is fortuitous); the converged excess is the model's: one uniform bar per track (the raster lets current crowd across the 8 cells of a 0.5 mm track and turn inside corners) and the overlapped staircase. It is the upper-bound side (§3), and the quantity to validate on real boards is the ratio's spread, not its mean.
 - **Width filaments do not matter at h = 1.5 mm:** nw 1 and 2 agree within 0.1 % (w/h = 0.33), so the quick form can run one bar per track.
 - **Residual.** R low by 0.26 mΩ (closed) and 0.83 mΩ (long): the plane's spreading resistance within 1 mm of each via (≈ (R_s/2π)·ln(1 mm/0.18 mm) = 0.13 mΩ per via at R_s = 0.49 mΩ/□), unresolved by a 0.5–1 mm grid, and the staircase corner. L high by 0.2–0.3 nH at P 0.5: the via spreading term growing as the grid approaches the via radius, and the overlapped staircase. Both are local to vias, corners and junctions, where the design puts small exact patches (Peaceman wells, oblique kernels from `haslam.physics.exact`), not a finer global grid. Snapping a via to the nearest grid node instead of the well moved L by 3 % between P 1.0 and 0.5.
 - **Incremental quote.** The move closed → long (3 bars out, 20 in, 2 corner nodes and 2 station chains in, orphaned station nodes pinned) as a bordered update of the closed board's LU at P 0.5: k = 55, 0.088 s, L identical to an independent full build to 1.2 × 10⁻¹³ nH; the full build and LU take 0.8 s. Mutuals of the new bars against the plane: 0.47 s in plain numpy (38,682 kernel evaluations), the part a cached translation table removes.
 - **Countable:** 5,518 table + 38,682 direct kernel evaluations, one N = 2,231 LU, k·N² for the move: known before the run.
 
-Not yet shown: the P 0.25 point (haslamq #118631, owner `quickphys`, N ≈ 9k), real boards, skin filaments above 3 MHz, planes with cuts, oblique kernels.
+Not yet shown: real boards, skin filaments above 3 MHz, planes with cuts, oblique kernels. At P 0.25 (N = 8,859) the bordered update takes 0.46 s against 11 s for the LU (k = 36, identical to 9e-15 nH).
 
 ## 5. Migration, each step leaving the evaluator trustworthy
 
