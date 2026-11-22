@@ -101,7 +101,7 @@ Report-only: it changes no placement or routing, so it needs no A/B. Runs in `ka
 - **Band:** 100 kHz–100 MHz. UG933 checks decoupling "from 100 KHz to 100 MHz", and the VRM holds the rail "from DC to a few hundred kHz". The upper end is `decap_budget`'s package handover.
 - **Target:** Z_t = 5 % × V / I. I is the loads' `ic_current_prior` (by pin count), split over each IC's supply pins as `decap_budget` splits it. Regulators are not loads.
 - **Findings:**
-  - `pdn_impedance_over_target`: the worst |Z|/Z_t, marked peak, inductive or capacitive, with a fix: a damping ESR ≈ Z_t, the L the rail needs, or the bulk C it needs. Over 1 it is info. It warns only when it stays over 3 (the "tolerated" peak) with the supply stand-in halved and doubled. It never blocks, because the current is a guess.
+  - `pdn_impedance_over_target`: the worst |Z|/Z_t, marked peak, inductive or capacitive, with a fix: a damping ESR ≈ Z_t, the L the rail needs, or the bulk C it needs. Over 1 it is info. It warns only when it stays over 3 (the "tolerated" peak) with the supply stand-in halved and doubled, on a rail with a capacitor, at a peak or a bulk shortfall. The inductive top of the band stays info, because the decap place term's budget (`decap_budget`) already prices it. It never blocks, because the current is a guess. Only ICs are loads.
   - Peak Q = Z_peak/Z0. Z0 = 2/(ω₀·dB/dω), with B = Im(1/Z), is the equivalent tank's √(L/C).
   - `pdn_rogue_wave_risk`: ≥ 2 peaks with Q > 2 above Z_t/2.
   - `pdn_cavity_mode_clock`: f₁₀, f₀₁ or f₁₁ within ±10 % of a stated clock's harmonic 1, 3, 5 or 7.

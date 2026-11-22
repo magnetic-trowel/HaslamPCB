@@ -97,10 +97,12 @@ def _screen(bd, loops=None):
 
 def test_findings_never_block_and_say_the_current_was_assumed(monkeypatch):
     monkeypatch.setattr(pdn, "plane_pairs", lambda *a, **k: [])
-    # one 100 nF at 10 nH of loop: inductive at the top of the band, far over a 150 mA target (55 mOhm x 20)
+    # one 100 nF for a 150 mA load (Z_t 1.1 Ohm): the regulator's L and the capacitor ring near 1 MHz, far over
+    # the target whatever the stand-in's value
     rep = _screen(_bd(), {"C1": 10.0})
     (r,) = rep["rails"]
     assert r["Z_t"] == pytest.approx(0.05 * 3.3 / 0.15)
+    assert r["worst"]["shape"] == "peak" and min(r["worst"]["ratio_supply_probe"]) > 3
     (h,) = [h for h in rep["hazards"] if h["code"] == "pdn_impedance_over_target"]
     assert h["severity"] == "warn" and "assumes" in h["message"]
     assert h["evidence"]["I_source"].startswith("assumed")
@@ -111,6 +113,32 @@ def test_findings_never_block_and_say_the_current_was_assumed(monkeypatch):
         bd.circuit.z(f"C{k}", "3V3", "GND", pdn._rlc(0.003, 0.3e-9, 10e-6), kind="C", par=dict(ESL=0.3e-9))
     rep = _screen(bd, {f"C{k}": 0.5 for k in range(1, 12)})
     assert rep["rails"][0]["worst"]["ratio"] < 1 and not rep["hazards"]
+
+
+def test_inductive_top_of_band_and_an_undecoupled_rail_are_info(monkeypatch):
+    monkeypatch.setattr(pdn, "plane_pairs", lambda *a, **k: [])
+    # eleven 10 uF at 80 nH each: no peak over target, but 7.3 nH at 100 MHz is 4.6 Ohm against 1.1 Ohm (the decap
+    # place term's budget, reported there)
+    bd = _bd(cap_value=10e-6, esl=0.3e-9)
+    for k in range(2, 12):
+        bd.circuit.z(f"C{k}", "3V3", "GND", pdn._rlc(0.003, 0.3e-9, 10e-6), kind="C", par=dict(ESL=0.3e-9))
+    rep = _screen(bd, {f"C{k}": 80.0 for k in range(1, 12)})
+    assert rep["rails"][0]["worst"]["shape"] == "inductive" and rep["rails"][0]["worst"]["ratio"] > 3
+    assert [h["severity"] for h in rep["hazards"]] == ["info"]
+    bd = _bd()
+    bd.circuit.elems = [e for e in bd.circuit.elems if e.kind != "C"]
+    rep = _screen(bd)
+    assert rep["rails"][0]["worst"]["ratio"] > 3
+    assert [h["severity"] for h in rep["hazards"]] == ["info"] and "no capacitor" in rep["hazards"][0]["message"]
+
+
+def test_an_unclassified_many_pin_part_is_not_a_load():
+    assert pdn.rail_loads(_bd(sub=None)) and not pdn.rail_loads(_kind(_bd(), "unknown"))
+
+
+def _kind(bd, kind):
+    bd.part_kind["U1"] = (kind,) + bd.part_kind["U1"][1:]
+    return bd
 
 
 def test_a_finding_that_needs_the_supply_stand_in_is_info(monkeypatch):

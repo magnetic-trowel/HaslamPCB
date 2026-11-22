@@ -23,7 +23,9 @@ never block, and says the current was assumed.
 Findings (Smith, Sandler and Bogatin, "Target Impedance Is Not Enough", SIJ 2019):
 - the worst |Z| / Z_t in the band: a square-wave load at a parallel resonance drives 0.64 I Z_peak, so a
   peak up to 1/0.64 = 1.57 Z_t still meets the tolerance; "many successfully deployed products have a
-  peak height as large as 3x". Over Z_t: info; over PEAK_TOLERATED (3) Z_t: warn;
+  peak height as large as 3x". Over Z_t: info. Warn when it stays over PEAK_TOLERATED (3) Z_t with the
+  supplies' stand-in halved and doubled (SUPPLY_PROBE), the rail has a capacitor, and the worst point is
+  not the inductive top of the band (the decap place term's own budget);
 - each anti-resonance peak's Q = Z_peak / Z0, Z0 = sqrt(L/C) of the equivalent tank, read from the slope
   of the susceptance (peaks()); Z0 also sets the step response below ~100 MHz. Two or more peaks with
   Q > Q_ROGUE (2) near the target can stack into a "rogue wave" (info);
@@ -88,8 +90,8 @@ def rail_loads(bd, brief_parts=None):
     out = {}
     for ref, nodes in bd.ic_nodes.items():
         kind, sub, role = bd.part_kind.get(ref, ("ic", None, ""))
-        if "regulator" in f"{sub or ''} {role or ''}":
-            continue
+        if kind != "ic" or "regulator" in f"{sub or ''} {role or ''}":
+            continue                                  # an unclassified many-pin part is not a known load
         rails = [k for k in nodes if k != "g"]
         if not rails:
             continue
@@ -312,7 +314,10 @@ def screen(board, brief=None, loops=None, bd=None, stage="placement", f_lo=F_LO,
         common = dict(V=V, I_A=round(I, 4), I_source="assumed (pin-count prior)", ripple=RIPPLE,
                       Z_t_ohm=round(zt, 5), stage=stage)
         if ratio > 1.0:
-            sev = "warn" if lo_ratio > PEAK_TOLERATED else "info"
+            # warn: over the tolerated peak whatever the supply stand-in, on a rail the board decouples, and
+            # not the inductive top of the band, which the place terms' decap budget already prices
+            # (priors.decap_budget: L_pin = n Z_t / (2 pi f_h); placement_physics_over_budget)
+            sev = "warn" if lo_ratio > PEAK_TOLERATED and rec["caps"] and shape != "inductive" else "info"
             f, Zw = worst["f"], worst["Z"]
             if shape == "peak":
                 fix = (f"damp the anti-resonance at {f / 1e6:.3g} MHz: a bulk capacitor whose ESR is about Z_t "
@@ -331,7 +336,9 @@ def screen(board, brief=None, loops=None, bd=None, stage="placement", f_lo=F_LO,
                 f"at {f / 1e6:.3g} MHz ({'an anti-resonance, Q ' + format(at_peak['Q'], '.2g') if at_peak else shape}"
                 f"); the target assumes a {I * 1e3:.0f} mA transient"
                 + (f"; with the supply's stand-in impedance halved or doubled it is {lo_ratio:.2g}x"
-                   if lo_ratio < ratio * 0.8 else "") + f" ({stage})",
+                   if lo_ratio < ratio * 0.8 else "")
+                + ("; no capacitor on the rail: a load that decouples itself, or a sense pin, needs none"
+                   if not rec["caps"] else "") + f" ({stage})",
                 objects=objs, evidence=dict(common, f_Hz=round(f), Z_ohm=round(Zw, 5), ratio=round(ratio, 3),
                                             shape=shape, robust=round(PEAK_ROBUST, 2), tolerated=PEAK_TOLERATED,
                                             ratio_min_supply_probe=round(lo_ratio, 3)),
