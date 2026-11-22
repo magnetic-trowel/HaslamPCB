@@ -39,6 +39,12 @@ def _p(L, subject, name, typ, lo, hi, unit, source, basis):
     return L.add(Param(subject, name, typ, lo, hi, unit, source, basis))
 
 
+def _mag(v):
+    """(typ, lo, hi) of a voltage's magnitude: a negative rail's interval [-12.6, -11.4] is [11.4, 12.6]."""
+    a, b = sorted((abs(v[1]), abs(v[2])))
+    return abs(v[0]), a, b
+
+
 def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
     """Add the parameters of commutation-cell source s to ledger L; returns {name: Param}."""
     sid = s.meta["cell"]
@@ -168,17 +174,26 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
         out["D"] = _p(L, sid, "D", *cc.D, "", "physics", f"{cc.op.mode} D at the intent's operating point "
                       f"({CV.SOURCES.get(top, '')}; eta {cc.eta[1]:g}-{cc.eta[2]:g})")
     elif vi and cls == "boost":
-        e = CV.ETA
-        # a bus range reaching 0 V (a source that can go dark) bounds D by its clip, not by a division by zero
-        D = (max(0.05, 1 - vi[2] * e[2] / V.lo) if V.lo > 0 else 0.05, 1 - vi[0] * e[1] / V.typ, min(0.95, 1 - vi[1] * e[0] / V.hi))
-        clip = " (clipped: Vin >= Vout as the rails read, their voltages are suspect)" if vi[0] >= V.typ else ""
+        # in the rails' magnitudes: a -5 V -> -12 V boost is the mirror image of a 5 V -> 12 V one; a bus range
+        # reaching 0 V (a source that can go dark) bounds D by its clip, not by a division by zero
+        e, vi, Vm = CV.ETA, _mag(vi), _mag((V.typ, V.lo, V.hi))
+        D = (max(0.05, 1 - vi[2] * e[2] / Vm[1]) if Vm[1] > 0 else 0.05, 1 - vi[0] * e[1] / Vm[0], min(0.95, 1 - vi[1] * e[0] / Vm[2]))
+        clip = " (clipped: Vin >= Vout as the rails read, their voltages are suspect)" if vi[0] >= Vm[0] else ""
         out["D"] = _p(L, sid, "D", D[1], min(D), max(D), "", "physics",
                       f"boost D = 1 - Vin eta/V with Vin from {vin_net}, eta {e[0]:g}-{e[2]:g} typical (TI SLVA372){clip}")
+    elif cls == "buck" and volts(st.get("vout")) and top == "inverting_buck_boost":
+        # its rails have opposite signs (CV.topology_of): D = |Vout| / (|Vin| eta + |Vout|), TI SLVA721
+        e, vo, Vm = CV.ETA, _mag(volts(st.get("vout"))), _mag((V.typ, V.lo, V.hi))
+        D = (vo[1] / (Vm[2] * e[2] + vo[1]), vo[0] / (Vm[0] * e[1] + vo[0]), vo[2] / (Vm[1] * e[0] + vo[2]))
+        out["D"] = _p(L, sid, "D", D[1], min(D), max(D), "", "physics",
+                      f"inverting buck-boost D = |Vout| / (Vin eta + |Vout|) with Vout from {st.get('vout')}, eta "
+                      f"{e[0]:g}-{e[2]:g} typical ({CV.SOURCES['inverting_buck_boost']})")
     elif cls == "buck" and volts(st.get("vout")):
-        # a buck's bus (V) is its input; its output is the structure's vout
-        vo = volts(st.get("vout"))
-        D = (max(0.02, vo[1] / V.hi), vo[0] / V.typ, min(0.98, vo[2] / V.lo) if V.lo > 0 else 0.98)
-        clip = " (clipped: Vout >= Vin as the rails read, their voltages are suspect)" if vo[0] >= V.typ else ""
+        # a buck's bus (V) is its input; its output is the structure's vout. In the rails' magnitudes: a -12 V ->
+        # -5 V buck is the mirror image of a 12 V -> 5 V one
+        vo, Vm = _mag(volts(st.get("vout"))), _mag((V.typ, V.lo, V.hi))
+        D = (max(0.02, vo[1] / Vm[2]), vo[0] / Vm[0], min(0.98, vo[2] / Vm[1]) if Vm[1] > 0 else 0.98)
+        clip = " (clipped: Vout >= Vin as the rails read, their voltages are suspect)" if vo[0] >= Vm[0] else ""
         out["D"] = _p(L, sid, "D", D[1], min(D), max(D), "", "physics",
                       f"buck D = Vout/Vin with Vout from {st.get('vout')}{clip}")
     else:
