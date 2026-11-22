@@ -9,7 +9,7 @@ hasanberkdasar-buck-converter-buck-converter
 sporniket-dop-module-dc-stepdown-xl4005-dop-module-dc-stepdown-xl4005
 julianschuler-esp-led-dimmer-esp-led-dimmer
 badenlab-open-visual-stimulator-led-driver
-team-impulse-biscay-blueeye-mcu
+stephendade-pipowernew-pipowernew
 bluesatunsw-owr-502-connector-board
 4x1md-nikon-gps-nikon-gps
 trailcurrentoss-trailcurrenttapper-trailcurrent-tapper
@@ -34,7 +34,7 @@ prozsolutions-esp32-dev-board-esp32-dev-board
 # sporniket-dop-module-dc-stepdown-xl4005-dop-module-dc-stepdown-xl4005 intent-sw80/compiled-0833f61
 # julianschuler-esp-led-dimmer-esp-led-dimmer intent-sw80/compiled-0833f61
 # badenlab-open-visual-stimulator-led-driver intent-sw80/compiled-0833f61
-# team-impulse-biscay-blueeye-mcu intent-sw80/compiled-0833f61
+# stephendade-pipowernew-pipowernew intent-sw80/compiled-0833f61
 # bluesatunsw-owr-502-connector-board intent-sw80/compiled-0833f61
 # 4x1md-nikon-gps-nikon-gps intent-sw80/compiled-0833f61
 # trailcurrentoss-trailcurrenttapper-trailcurrent-tapper intent-sw80/compiled-0833f61
