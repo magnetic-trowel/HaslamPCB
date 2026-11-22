@@ -119,6 +119,11 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     priced = {bd.net_of.get(p) for J in [v for _, v in pats.values()] + list(opats.values())
               for p, j in J.items() if abs(j) > 1e-9} - {None}
     mesh_rep, mesh_notes = mesh_report(bm.m, priced, nsub)
+    if bm.topology is not None:
+        # the raster against the board's connectivity (kae.em.topology): what it bridged, what it could not
+        from kae.em import topology as T
+        mesh_rep["topology"] = {k: (v[:50] if isinstance(v, list) else v) for k, v in bm.topology.items()}
+        mesh_notes = T.notes(bm.topology) + mesh_notes
     missing = []
     for p in sorted(pads):
         try:
@@ -399,7 +404,7 @@ def open_note(info, net_of=None):
     out = []
     for isl in info["open_islands"][:3]:
         nets = sorted({(net_of or {}).get(t, "?") for t in isl["terms"]})
-        out.append(f"{abs(isl['current']):.3g} A enters {'/'.join(nets[:3])} ({', '.join(isl['terms'][:4])}"
+        out.append(f"{abs(isl['current']):.3g} A enters {' + '.join(nets[:3])} ({', '.join(isl['terms'][:4])}"
                    f"{', ...' if len(isl['terms']) > 4 else ''}) with no way out")
     more = len(info["open_islands"]) - 3
     return "; ".join(out) + (f"; {more} more pieces" if more > 0 else "")
