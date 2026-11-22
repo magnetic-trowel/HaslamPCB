@@ -72,3 +72,27 @@ def test_deadline_made_past_the_ceiling_has_passed():
         assert late.part(5.0).passed()
     finally:
         budget.set_mode("time")
+
+
+def _field_units(tmp_path, k):
+    from hotloop_fixtures import plane_fills, write_hotloop_board
+    from kae.em import solve as ES
+    from kae.excite.evaluate import evaluate
+    ES.Operator._cache.clear()                    # a fresh process: every kernel table is built again
+    c = budget.set_mode("time")
+    p = write_hotloop_board(tmp_path / f"ev{k}", "closed")
+    evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.25, scope="losses")
+    return {kd: v for kd, v in c.units.items() if kd.startswith("em_")}
+
+
+def test_an_evaluation_charges_its_field_work_and_the_same_on_a_second_run(tmp_path):
+    """The evaluator's kernel tables, factorisations, COCG iterations and raster paint are counted work: before they
+    were charged, a cell quote cost the clear step's work clock nothing (it overran its budget 2-3x)."""
+    try:
+        a = _field_units(tmp_path, 0)
+        b = _field_units(tmp_path, 1)
+    finally:
+        budget.set_mode("time")
+    for kd in ("em_kernel", "em_factor", "em_iter", "em_paint"):
+        assert a.get(kd, 0) > 0, (kd, a)
+    assert a == b

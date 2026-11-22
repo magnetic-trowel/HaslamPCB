@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import os
 
+from kae import budget
 from kae.budget import now as clock_now
 import math
 import time
@@ -666,7 +667,12 @@ def fills_of(board_path):
     """{net: {layer: [Polygon]}} of KiCad's refill of a board (pcbnew_io.zone_fills)."""
     from kae.board import pcbnew_io
     # KAE_ZONE_FILL_TIMEOUT: a heavily poured board's refill can take longer than the default (USB armory: > 15 min)
-    d = pcbnew_io.zone_fills(board_path, timeout=float(os.environ.get("KAE_ZONE_FILL_TIMEOUT", "900")))
+    mb = os.path.getsize(board_path) / 1e6
+    try:
+        d = pcbnew_io.zone_fills(board_path, timeout=float(os.environ.get("KAE_ZONE_FILL_TIMEOUT", "900")))
+    finally:
+        budget.charge("fill_run", 1)            # units: KiCad zone refills (pcbnew subprocess)
+        budget.charge("fill_mb", mb)            # units: MB of the refilled board file
     out = {}
     for z in d.get("zones") or []:
         if not z.get("net") or (z.get("name") or "").startswith("kae-crit:"):
