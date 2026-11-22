@@ -14,6 +14,8 @@ import math
 
 import numpy as np
 
+from kae import budget
+
 from .mesh import Layer, Mesh
 
 
@@ -172,6 +174,7 @@ class BoardMesh:
                 x, y = transform.pad_xy(fp_of[tok], p)
                 if win.contains(Point(x, y)):
                     m.via(x, y, [self.li[l] for l, _, _ in lst if l in self.li], p.net, drill=p.drill)
+        budget.charge("em_paint", m.nx * m.ny * len(m.layers))           # units: raster cell-layers painted
 
     def reliefs(self, max_gap=2.0, step=0.05):
         """Thermal reliefs between pads and their pours, read from KiCad's refill (which has applied every zone's

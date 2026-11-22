@@ -83,6 +83,8 @@ for f in (0.0, 5e7):
     for V, info in res:
         out += [complex(V[t]) for t in sorted(V) if V[t] is not None and np.isfinite(V[t])]
 print(" ".join(f"{z.real.hex()},{z.imag.hex()}" for z in out))
+from kae import budget
+print(" ".join(f"{k}={float(v).hex()}" for k, v in sorted(budget.clock().units.items()) if k.startswith("em_")))
 """
 
 
@@ -95,11 +97,16 @@ def _probe(threads):
     r = subprocess.run([sys.executable, "-W", "ignore", "-c", _PROBE], env=env, capture_output=True, text=True,
                        timeout=600)
     assert r.returncode == 0, r.stderr[-2000:]
-    return r.stdout.split()
+    values, units = r.stdout.strip().split("\n")[-2:]
+    return values.split(), units.split()
 
 
 def test_a_field_solve_is_bit_identical_at_any_thread_count():
     """A DC and a 50 MHz COCG solve of a plane, a pour and a thin track, in fresh processes at 1 and 4 threads (and
-    two hash seeds). A threaded OpenBLAS (SuperLU's solves) had moved the 50 MHz potentials by up to 5e-9."""
-    one, four = _probe(1), _probe(4)
+    two hash seeds). A threaded OpenBLAS (SuperLU's solves) had moved the 50 MHz potentials by up to 5e-9. The work
+    the solves charge to kae.budget (kernel tables, factor, iterations) is the same at either count, so a counted
+    budget buys the same field work on any host."""
+    (one, u1), (four, u4) = _probe(1), _probe(4)
     assert len(one) == 48 and one == four
+    assert {u.split("=")[0] for u in u1} >= {"em_kernel", "em_factor", "em_iter"}
+    assert u1 == u4

@@ -84,6 +84,16 @@ RATES = {
     "legal_cells": 1e-8,      # one cell of a grid-sized numpy pass (a summed-area table, a window or board search); 6e-9-1.7e-8 measured, 3 boards
     "legal_sat_cells": 1.75e-9,      # one summed-area-table cell updated in place when a part is placed or evicted; 1.5-1.9e-9 measured, 3 boards
     "legal_rect": 7.1e-4,      # one rectangle marked into an occupancy map (Python, per obstacle or part); 5.3e-4-5.1e-3 measured, median of 3 boards
+    # the field solvers (kae.em: the evaluator, the cell quote, the clear step's quotes). Before they were charged,
+    # a cell quote in work mode cost nothing and the clear step overran its budget 2-3x (quick-physics-design RC4)
+    "em_kernel": 1.0e-7,        # one entry of a partial-inductance or Green's-function kernel table (CALIBRATE)
+    "em_precond": 1.0e-8,       # one (block size)^3 of the preconditioner's dense PATCH block inverses (CALIBRATE)
+    "em_factor": 1.0e-7,        # one nonzero of the node Schur complement's LU factor (CALIBRATE)
+    "em_iter": 1.0e-7,          # one unknown-iteration of the preconditioned COCG (CALIBRATE)
+    "em_static_iter": 1.0e-7,   # one copper-cell iteration of the electrostatic CG (CALIBRATE)
+    "em_paint": 1.0e-7,         # one raster cell-layer of a board's mesh painted (CALIBRATE)
+    "fill_run": 3.5,            # one KiCad zone refill (kae.route.critical_recheck.fills_of; CALIBRATE)
+    "fill_mb": 0.6,             # ... per MB of board file (CALIBRATE)
     "seconds": 1.0,             # work already measured in nominal seconds by the caller
 }
 CEILING_FACTOR = 4.0    # a run past CEILING_FACTOR x its nominal budget in wall time has failed
