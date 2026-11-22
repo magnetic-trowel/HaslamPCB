@@ -160,6 +160,9 @@ def switching_loss(V, IL, v):
     current the cell carries here. The ledger's t_v interval spans C_sw V / I over the whole current interval,
     sampled apart from I; the heat band then sets I_L to the rail's sustained demand, so a corner's light-load
     t_v (microseconds) times that current read watts in a small buck (solar-small's TPS62933: 1573 C)."""
+    # the switch commutes the bus's magnitude, so a -12 V cell heats its controller as a +12 V one does (the
+    # signed bus made it a negative loss)
+    V = abs(V)
     f = v.get("f_sw_Hz", 1e6)
     C = v.get("C_sw_F")
     edge = C * V * V if C is not None else V * IL * v.get("t_v_s", 1e-9)
@@ -206,7 +209,7 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
                 eta = cv.get((f["eta"].subject, "eta"), f["eta"].typ)
                 if c["cls"] == "buckboost":
                     I_out = IL / max(1.0, DC._ratio(dcp, r, cv))
-                loss = max(1 / eta - 1, 0.0) * vo * I_out
+                loss = max(1 / eta - 1, 0.0) * abs(vo) * I_out
                 rw = 0.0
                 if c["rect"]:
                     rw = min(loss, val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * CV.rectifier_current(top, IL, D))
@@ -227,7 +230,7 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             # a working converter: no more loss than the efficiency prior of a switching regulator without a cell
             # model allows (haslam.excite.dc.ETA, its low end). The class priors' corners alone (C_sw 1.3 nF, a 48 V bus
             # guessed for a 13.5 V input, 2 MHz) read 6 W in a 3.3 V, 0.35 A buck: 1332 C at its junction
-            cap = (1 / DC.ETA[0] - 1) * vo * I_out if vo and I_out > 0 else None
+            cap = (1 / DC.ETA[0] - 1) * abs(vo) * I_out if vo and I_out > 0 else None
             k = min(1.0, cap / (w_c + w_r)) if cap is not None and w_c + w_r > 0 else 1.0
             add(c["ctrl"], k * w_c)
             add(c["rect"], k * w_r)
