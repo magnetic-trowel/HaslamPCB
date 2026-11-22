@@ -590,3 +590,56 @@ def test_plan_chunks_fits_each_job_in_the_queues_timeout():
     # small boards keep the 2-5 jobs of before
     small = {f"m{i}": 900 for i in range(6)}
     assert len(K.plan_chunks(need, small, 3600)) == K.CHUNKS_MIN
+
+
+def _numba_python():
+    """A Python with numba: this one, or $KAE_TEST_NUMBA_PYTHON (e.g. a kae venv's)."""
+    import os
+    import subprocess
+    for py in (sys.executable, os.environ.get("KAE_TEST_NUMBA_PYTHON")):
+        if py and subprocess.run([py, "-c", "import numba"], capture_output=True).returncode == 0:
+            return py
+    return None
+
+
+def test_second_job_loads_kernels_the_first_compiled(tmp_path, monkeypatch):
+    """Two jobs of one method, laid out as kaebench leaves a command run with --keep-work: the first
+    compiles into its work dir's numba copy, finish_numba_cache publishes the kernels to the named cache
+    and deletes the work dirs, and the second job's copy of that cache loads the kernel instead of
+    compiling it. Before 2026-11-21 kaebench deleted the work dirs before kaeres looked, so the named
+    cache was never made and every job compiled."""
+    import os
+    import shutil
+    import subprocess
+    import pytest
+    py = _numba_python()
+    if py is None:
+        pytest.skip("no Python with numba (set KAE_TEST_NUMBA_PYTHON)")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    code = tmp_path / "code"
+    code.mkdir()
+    (code / "kern.py").write_text("import numba\n\n@numba.njit(cache=True)\ndef f(x):\n    return x * 2 + 1\n")
+    tpl = ("cp -r $HOME/.cache/kaebench/numba-t-1234567 numba 2>/dev/null; "
+           "env NUMBA_CACHE_DIR=$PWD/numba {py:kae} -m kae.joint.cli run")
+    m = dict(id="m1", recipe=dict(runner=dict(template=tpl)))
+    assert kaeres.numba_keep_work(m) == ["--keep-work"]
+    assert kaeres.numba_keep_work(dict(id="m2", recipe=dict(runner=dict(template="kae route")))) == []
+    named = tmp_path / "home" / ".cache" / "kaebench" / "numba-t-1234567"
+
+    def job(n):
+        rdir = tmp_path / f"job{n}" / "results" / "cmd-m1"
+        work = rdir / "mm1" / "joint-fixed" / "board" / "attempt-0" / "work"
+        work.mkdir(parents=True)
+        if named.is_dir():
+            shutil.copytree(named, work / "numba")
+        out = subprocess.run([py, "-c", "import kern; kern.f(3); s = kern.f.stats; print(len(s.cache_hits), len(s.cache_misses))"],
+                             cwd=code, env=dict(os.environ, NUMBA_CACHE_DIR=str(work / "numba"), PYTHONPATH=str(code)),
+                             capture_output=True, text=True, check=True).stdout.split()
+        added = kaeres.finish_numba_cache(m, rdir)
+        assert not work.exists()
+        return [int(x) for x in out], added
+
+    (hits, misses), added = job(1)
+    assert (hits, misses, added) == (0, 1, 1)
+    (hits, misses), added = job(2)
+    assert (hits, misses, added) == (1, 0, 0)
