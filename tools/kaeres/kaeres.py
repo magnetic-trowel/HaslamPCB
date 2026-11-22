@@ -1097,6 +1097,24 @@ def publish_numba_cache(m, rdir, log=None):
     return added
 
 
+def numba_keep_work(m):
+    """kaebench run flags for a method whose template names a numba cache: keep the attempts' work dirs,
+    where its kae processes left the kernels they compiled ($PWD/numba), until finish_numba_cache has
+    read them. kaebench deletes them after scoring otherwise, and until 2026-11-21 it did so before
+    publish_numba_cache looked, so no named cache was ever filled."""
+    return ["--keep-work"] if NUMBA_CACHE_RE.search(m["recipe"]["runner"].get("template") or "") else []
+
+
+def finish_numba_cache(m, rdir, log=None):
+    """After a command method's run: publish its compiled kernels to its named numba cache, then delete
+    the attempts' work dirs that numba_keep_work kept (as kaebench would have). Returns kernels added."""
+    added = publish_numba_cache(m, rdir, log)
+    if numba_keep_work(m) and rdir.is_dir():
+        for w in rdir.glob("*/*/*/attempt-*/work"):
+            shutil.rmtree(w, ignore_errors=True)
+    return added
+
+
 def prep_harness(hc, exp_hc):
     """The harness that prepares the tasks a method of harness hc runs on in an experiment of harness
     exp_hc: its own, unless its task spec is older than the experiment's and the experiment's is 10 or
@@ -1316,7 +1334,7 @@ def _job_group(bid, row, hc, kae, items, human, ws, env, log, kicad, a, size, ph
                 probe, ro = ["--probe", p.get("probe", "cmd-probe"), "--probe-command", ptpl], list(dict.fromkeys(ro + pro))
             else:
                 probe = ["--probe", p["probe"]] if p.get("probe") else []
-            extra = [x for r_ in ro for x in ("--sandbox-ro", r_)] + probe
+            extra = [x for r_ in ro for x in ("--sandbox-ro", r_)] + probe + numba_keep_work(m)
             # the sandbox hides the corpus, and Apptainer refuses to start when a bind source is missing;
             # the method's code must be bound too (KiCad's Python runs its scripts)
             cenv = dict(genv, APPTAINER_BIND=",".join([str(ws), *map(str, ro)]))
@@ -1324,7 +1342,7 @@ def _job_group(bid, row, hc, kae, items, human, ws, env, log, kicad, a, size, ph
                                       "-k", str(k), "--timeout", str(method_timeout(m, row)), "--all", "--only", bid,
                                       "--name", f"cmd-{m['id']}", "-j", "1"], log, cenv,
                                 timeout=k * (method_timeout(m, row) + 1800) + 3600)
-            publish_numba_cache(m, work / "results" / f"cmd-{m['id']}", log)
+            finish_numba_cache(m, work / "results" / f"cmd-{m['id']}", log)
     adirs = {}
     for m, att in todo:
         rn = f"base-{hc[:8]}" if m["recipe"]["runner"]["type"] != "command" else f"cmd-{m['id']}"

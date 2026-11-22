@@ -382,8 +382,7 @@ def diagnose(board, info, plan, fills, report, sev=None, input_ids=(), deadline=
     fp = LM._fill_polys(fills)
     input_ids = set(input_ids)
     known = sorted({it.net for it in sp.pads if it.net and it.kind == "pad"})
-    by_shown = {LM.unescape(n): n for n in known}
-    nets = [n if n in known else by_shown.get(n, n) for n in LM.open_nets(report)]
+    nets = LM.board_nets(LM.open_nets(report), known)
     out = dict(blocked=[], congestion=[], summary=[], undiagnosed=0)
     n = 0
     for net in nets:

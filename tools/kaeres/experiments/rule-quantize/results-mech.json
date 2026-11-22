@@ -1,0 +1,432 @@
+{
+ "experiments": [
+  "rule-quantize-mech"
+ ],
+ "level": 0.95,
+ "Q_vs_C": {
+  "primary": {
+   "boards": {
+    "eevengers-thunderscope-thunderscope-rev5-3": {
+     "gw_C": 171.4,
+     "gw_Q": 0.0,
+     "gr_C": 199.0,
+     "gr_Q": 0.0,
+     "r0_tw_C": 148.4,
+     "r0_tw_Q": 0.0,
+     "r0_ring_C": 159.2,
+     "r0_ring_Q": 0.0,
+     "max_gw_Q": 0,
+     "max_gr_Q": 0,
+     "k": [
+      5,
+      5
+     ]
+    },
+    "ewoudvv-ducktop2-ducktop2-center": {
+     "gw_C": 0.0,
+     "gw_Q": 0.0,
+     "gr_C": 0.0,
+     "gr_Q": 0.0,
+     "r0_tw_C": 2.6,
+     "r0_tw_Q": 0.0,
+     "r0_ring_C": 0.0,
+     "r0_ring_Q": 0.0,
+     "max_gw_Q": 0,
+     "max_gr_Q": 0,
+     "k": [
+      5,
+      5
+     ]
+    },
+    "ewoudvv-ducktop2-left-io": {
+     "gw_C": 0.0,
+     "gw_Q": 0.0,
+     "gr_C": 0.0,
+     "gr_Q": 0.0,
+     "r0_tw_C": 0.0,
+     "r0_tw_Q": 0.0,
+     "r0_ring_C": 0.0,
+     "r0_ring_Q": 0.0,
+     "max_gw_Q": 0,
+     "max_gr_Q": 0,
+     "k": [
+      5,
+      5
+     ]
+    },
+    "ewoudvv-ducktop2-right-io": {
+     "gw_C": 38.0,
+     "gw_Q": 0.0,
+     "gr_C": 0.0,
+     "gr_Q": 0.0,
+     "r0_tw_C": 91.2,
+     "r0_tw_Q": 0.0,
+     "r0_ring_C": 0.0,
+     "r0_ring_Q": 0.0,
+     "max_gw_Q": 0,
+     "max_gr_Q": 0,
+     "k": [
+      5,
+      5
+     ]
+    },
+    "regymm-pynqsdr-ebaz-sdr": {
+     "gw_C": 0.0,
+     "gw_Q": 0.0,
+     "gr_C": 2.4,
+     "gr_Q": 0.0,
+     "r0_tw_C": 0.0,
+     "r0_tw_Q": 0.0,
+     "r0_ring_C": 16.4,
+     "r0_ring_Q": 0.0,
+     "max_gw_Q": 0,
+     "max_gr_Q": 0,
+     "k": [
+      5,
+      5
+     ]
+    }
+   },
+   "totals": {
+    "gw_C": 209.4,
+    "gw_Q": 0.0,
+    "gr_C": 201.4,
+    "gr_Q": 0.0,
+    "r0_tw_C": 242.2,
+    "r0_tw_Q": 0.0,
+    "r0_ring_C": 175.6,
+    "r0_ring_Q": 0.0
+   }
+  },
+  "primary_verdict": "fixed",
+  "guards_mech": {
+   "opens": {
+    "boards": 5,
+    "ratio": 0.6191,
+    "ci": [
+     0.238,
+     1.0312
+    ],
+    "total_ctl": 2202.8,
+    "total_arm": 2202.8,
+    "worse_boards": 1,
+    "better_boards": 4,
+    "verdict": "pass"
+   },
+   "other_errors": {
+    "boards": 5,
+    "ratio": 0.5039,
+    "ci": [
+     0.1783,
+     1.0235
+    ],
+    "total_ctl": 268.0,
+    "total_arm": 47.6,
+    "worse_boards": 1,
+    "better_boards": 4,
+    "verdict": "pass"
+   },
+   "errors": {
+    "boards": 5,
+    "ratio": 0.4019,
+    "ci": [
+     0.122,
+     1.0343
+    ],
+    "total_ctl": 531.0,
+    "total_arm": 97.6,
+    "worse_boards": 1,
+    "better_boards": 4,
+    "verdict": "pass"
+   },
+   "defects": {
+    "boards": 5,
+    "ratio": 0.7621,
+    "ci": [
+     0.6178,
+     0.9401
+    ],
+    "total_ctl": 2733.8,
+    "total_arm": 2300.4,
+    "worse_boards": 1,
+    "better_boards": 4,
+    "verdict": "pass"
+   }
+  },
+  "guards_set": {},
+  "summary_mech": {
+   "C": {
+    "boards": 5,
+    "cp1": 0,
+    "cpk": 0,
+    "completion": 0.6686,
+    "cpu_h": 5.4,
+    "runs": 25,
+    "by_type": {
+     "annular_width": 40.28,
+     "clearance": 0.2,
+     "connection_width": 6.04,
+     "copper_edge_clearance": 0.8,
+     "diff_pair_gap_out_of_range": 1.4,
+     "items_not_allowed": 10.72,
+     "length_out_of_range": 0.8,
+     "shorting_items": 3.4,
+     "starved_thermal": 0.44,
+     "too_many_vias": 0.24,
+     "track_width": 41.88
+    }
+   },
+   "Q": {
+    "boards": 5,
+    "cp1": 0,
+    "cpk": 0,
+    "completion": 0.691,
+    "cpu_h": 8.8,
+    "runs": 25,
+    "by_type": {
+     "clearance": 0.2,
+     "connection_width": 2.4,
+     "copper_edge_clearance": 0.8,
+     "diff_pair_gap_out_of_range": 1.28,
+     "items_not_allowed": 10.0,
+     "length_out_of_range": 0.8,
+     "shorting_items": 3.4,
+     "starved_thermal": 0.32,
+     "too_many_vias": 0.32
+    }
+   }
+  },
+  "summary_set": {
+   "C": {
+    "boards": 0,
+    "cp1": 0,
+    "cpk": 0,
+    "completion": null,
+    "cpu_h": 0.0,
+    "runs": 0,
+    "by_type": {}
+   },
+   "Q": {
+    "boards": 0,
+    "cp1": 0,
+    "cpk": 0,
+    "completion": null,
+    "cpu_h": 0.0,
+    "runs": 0,
+    "by_type": {}
+   }
+  }
+ },
+ "QL_vs_CB": {
+  "primary": {
+   "boards": {
+    "eevengers-thunderscope-thunderscope-rev5-3": {
+     "gw_CB": 179.6,
+     "gw_QL": 0.0,
+     "gr_CB": 199.0,
+     "gr_QL": 0.0,
+     "r0_tw_CB": 60.2,
+     "r0_tw_QL": 0.0,
+     "r0_ring_CB": 79.6,
+     "r0_ring_QL": 0.0,
+     "max_gw_QL": 0,
+     "max_gr_QL": 0,
+     "k": [
+      5,
+      5
+     ]
+    },
+    "ewoudvv-ducktop2-ducktop2-center": {
+     "gw_CB": 0.0,
+     "gw_QL": 0.0,
+     "gr_CB": 0.0,
+     "gr_QL": 0.0,
+     "r0_tw_CB": 0.0,
+     "r0_tw_QL": 0.0,
+     "r0_ring_CB": 0.0,
+     "r0_ring_QL": 0.0,
+     "max_gw_QL": 0,
+     "max_gr_QL": 0,
+     "k": [
+      5,
+      5
+     ]
+    },
+    "ewoudvv-ducktop2-left-io": {
+     "gw_CB": 0.0,
+     "gw_QL": 0.0,
+     "gr_CB": 0.0,
+     "gr_QL": 0.0,
+     "r0_tw_CB": 0.0,
+     "r0_tw_QL": 0.0,
+     "r0_ring_CB": 0.0,
+     "r0_ring_QL": 0.0,
+     "max_gw_QL": 0,
+     "max_gr_QL": 0,
+     "k": [
+      5,
+      5
+     ]
+    },
+    "ewoudvv-ducktop2-right-io": {
+     "gw_CB": 0.0,
+     "gw_QL": 0.0,
+     "gr_CB": 0.0,
+     "gr_QL": 0.0,
+     "r0_tw_CB": 0.0,
+     "r0_tw_QL": 0.0,
+     "r0_ring_CB": 0.0,
+     "r0_ring_QL": 0.0,
+     "max_gw_QL": 0,
+     "max_gr_QL": 0,
+     "k": [
+      5,
+      5
+     ]
+    },
+    "regymm-pynqsdr-ebaz-sdr": {
+     "gw_CB": 0.0,
+     "gw_QL": 0.0,
+     "gr_CB": 2.4,
+     "gr_QL": 0.0,
+     "r0_tw_CB": 0.0,
+     "r0_tw_QL": 0.0,
+     "r0_ring_CB": 16.4,
+     "r0_ring_QL": 0.0,
+     "max_gw_QL": 0,
+     "max_gr_QL": 0,
+     "k": [
+      5,
+      5
+     ]
+    }
+   },
+   "totals": {
+    "gw_CB": 179.6,
+    "gw_QL": 0.0,
+    "gr_CB": 201.4,
+    "gr_QL": 0.0,
+    "r0_tw_CB": 60.2,
+    "r0_tw_QL": 0.0,
+    "r0_ring_CB": 96.0,
+    "r0_ring_QL": 0.0
+   }
+  },
+  "primary_verdict": "not shown",
+  "guards_mech": {
+   "opens": {
+    "boards": 5,
+    "ratio": 0.6168,
+    "ci": [
+     0.241,
+     0.9987
+    ],
+    "total_ctl": 2164.8,
+    "total_arm": 2123.4,
+    "worse_boards": 2,
+    "better_boards": 3,
+    "verdict": "pass"
+   },
+   "other_errors": {
+    "boards": 5,
+    "ratio": 0.6273,
+    "ci": [
+     0.1849,
+     1.4032
+    ],
+    "total_ctl": 268.0,
+    "total_arm": 44.6,
+    "worse_boards": 1,
+    "better_boards": 3,
+    "verdict": "undecided"
+   },
+   "errors": {
+    "boards": 5,
+    "ratio": 0.5614,
+    "ci": [
+     0.1326,
+     1.4032
+    ],
+    "total_ctl": 447.6,
+    "total_arm": 44.6,
+    "worse_boards": 1,
+    "better_boards": 3,
+    "verdict": "undecided"
+   },
+   "defects": {
+    "boards": 5,
+    "ratio": 0.7909,
+    "ci": [
+     0.6233,
+     0.9911
+    ],
+    "total_ctl": 2612.4,
+    "total_arm": 2168.0,
+    "worse_boards": 1,
+    "better_boards": 4,
+    "verdict": "pass"
+   }
+  },
+  "guards_set": {},
+  "summary_mech": {
+   "CB": {
+    "boards": 5,
+    "cp1": 0,
+    "cpk": 0,
+    "completion": 0.6796,
+    "cpu_h": 4.6,
+    "runs": 25,
+    "by_type": {
+     "annular_width": 40.28,
+     "clearance": 0.24,
+     "connection_width": 6.0,
+     "copper_edge_clearance": 0.8,
+     "diff_pair_gap_out_of_range": 1.44,
+     "length_out_of_range": 0.8,
+     "shorting_items": 3.4,
+     "starved_thermal": 0.4,
+     "too_many_vias": 0.24,
+     "track_width": 35.92
+    }
+   },
+   "QL": {
+    "boards": 5,
+    "cp1": 0,
+    "cpk": 0,
+    "completion": 0.7053,
+    "cpu_h": 14.0,
+    "runs": 25,
+    "by_type": {
+     "clearance": 0.2,
+     "connection_width": 1.24,
+     "copper_edge_clearance": 0.8,
+     "diff_pair_gap_out_of_range": 1.92,
+     "length_out_of_range": 0.8,
+     "shorting_items": 3.4,
+     "starved_thermal": 0.24,
+     "too_many_vias": 0.32
+    }
+   }
+  },
+  "summary_set": {
+   "CB": {
+    "boards": 0,
+    "cp1": 0,
+    "cpk": 0,
+    "completion": null,
+    "cpu_h": 0.0,
+    "runs": 0,
+    "by_type": {}
+   },
+   "QL": {
+    "boards": 0,
+    "cp1": 0,
+    "cpk": 0,
+    "completion": null,
+    "cpu_h": 0.0,
+    "runs": 0,
+    "by_type": {}
+   }
+  }
+ }
+}

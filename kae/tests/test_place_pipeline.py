@@ -262,19 +262,20 @@ def test_relax_bodies_off_skips_the_step_and_relaxed_overlaps_are_hazards():
     assert j[0]["code"] in ("body_overlap", "body_relaxed")
 def test_congestion_weight_and_margin_are_settings_and_physics_is_traced():
     """Audit P5/P10: place_w_cong and place_margin (kae.route.constraints.DEFAULTS, so --set
-    and KAE_ text variables reach them) default to off (0) since placement-decide-staged found
-    0 / 10 / 30 and auto / 0 equal; the old behaviour (30, auto) is still reachable as settings.
+    and KAE_ text variables reach them): place_w_cong defaults to off (0); place_margin defaults to
+    auto (-1), gated to dense boards (margin-gate-m6); 0 still turns it off.
     P6: the report traces physics per stage."""
     from kae.place.pipeline import place
     from kae.route.constraints import DEFAULTS
-    assert DEFAULTS["place_w_cong"] == 0.0 and DEFAULTS["place_margin"] == 0.0
+    assert DEFAULTS["place_w_cong"] == 0.0 and DEFAULTS["place_margin"] == -1.0
+    assert DEFAULTS["place_margin_gate"] == 4.0 and DEFAULTS["place_margin_regions"] == 1
     b = kicad_file.load(FIXTURE)
-    off = place(b, seed=0, time_s=10, physics=True, workers=1).report
+    off = place(b, seed=0, time_s=10, physics=True, workers=1, opts=dict(place_margin=0)).report
     assert off["margin_set"] == 0.0 and off["margin_mm"] == 0.0 and off["w_cong"] == 0.0
     stages = [t["stage"] for t in off.get("physics_trace", [])]
     assert stages[:2] == ["seed", "anneal"] and all("total_linear" in t for t in off["physics_trace"])
     on = place(kicad_file.load(FIXTURE), seed=0, time_s=10, physics=True, workers=1,
-               opts=dict(place_w_cong=30, place_margin=-1)).report
+               opts=dict(place_w_cong=30, place_margin=-1, place_margin_gate=0)).report
     assert "margin_set" not in on and on["w_cong"] == 30.0
 
 
