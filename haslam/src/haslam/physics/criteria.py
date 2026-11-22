@@ -53,12 +53,13 @@ def v_abs_prior(v_bus, margin=RATING_MARGIN):
 
 def overshoot_limits(v_bus, v_abs=None, derate=OVERSHOOT_DERATE):
     """(allowed overshoot above V_bus at the derated line, overshoot that reaches V_abs itself, V_abs used,
-    whether V_abs is the part's own rating). Overshoots are in V above the bus. The bus is a magnitude: a -12 V
-    switch is rated and rings as a 12 V one (a signed bus read 1 mV and gave V_abs + 12 V of headroom)."""
-    v_bus = QT.Magnitude.bound(v_bus)
+    whether V_abs is the part's own rating). Overshoots are in V above the bus. The switch stands off the bus's
+    magnitude and its rating is one: a -12 V bus has the +12 V one's limits (signed, its prior rating was the
+    smallest of the ladder and its headroom V_abs + 12 V)."""
     known = v_abs is not None and v_abs > 0
-    va = float(v_abs) if known else v_abs_prior(max(v_bus, 1e-3))
-    return max(derate * va - v_bus, 1e-3), max(va - v_bus, 1e-3), va, known
+    vb = abs(v_bus)
+    va = float(v_abs) if known else v_abs_prior(max(vb, 1e-3))
+    return max(derate * va - vb, 1e-3), max(va - vb, 1e-3), va, known
 
 
 def overshoot_basis(v_bus, v_abs=None, derate=OVERSHOOT_DERATE):
@@ -77,7 +78,7 @@ def overshoot_hazard(cell, objects, v_bus, overshoot, v_abs=None, derate=OVERSHO
     ok, at_abs, va, known = overshoot_limits(v_bus, v_abs, derate)
     if overshoot <= ok:
         return None
-    peak = v_bus + overshoot
+    peak = math.copysign(abs(v_bus) + overshoot, v_bus)       # the ring runs past the bus, away from ground
     ev = dict(V_bus=round(v_bus, 3), overshoot_V=round(overshoot, 3), peak_V=round(peak, 3), V_abs=va,
               V_abs_source="part" if known else "prior", derated_peak_V=round(derate * va, 3),
               limit_source="hot-loops.md: peak <= 0.85 x V_abs; above V_abs the switch is outside its rating")
