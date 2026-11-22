@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: CC-BY-4.0
 markwestbroek-musicbrain-gswitch-brain
-hwstar-esp8266-mqtt-battery-monitor-hw-battery-monitor
+asterics-esp32-mouse-keyboard-esp32minibt
 hubertciebiada-open-ambient-sensor-oas
 z2amiller-sensorboard-sensorboard
 duanestorey-hifi-amp-multipsu
@@ -26,7 +26,7 @@ wose-ferro-dactyl-ferro-dactyl
 prozsolutions-esp32-dev-board-esp32-dev-board
 0xpolybit-pcb-kicad-center-tap-rectifier
 # markwestbroek-musicbrain-gswitch-brain intent-sw80/compiled-0833f61
-# hwstar-esp8266-mqtt-battery-monitor-hw-battery-monitor intent-sw80/compiled-0833f61
+# asterics-esp32-mouse-keyboard-esp32minibt intent-sw80/compiled-0833f61
 # hubertciebiada-open-ambient-sensor-oas intent-sw80/compiled-0833f61
 # z2amiller-sensorboard-sensorboard intent-sw80/compiled-0833f61
 # duanestorey-hifi-amp-multipsu intent-sw80/compiled-0833f61
