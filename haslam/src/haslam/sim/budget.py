@@ -172,6 +172,7 @@ def prior_of(brief, sid):
         return None
     ex = s.get("excite") or {}
     v, _ = PR.cell_v_in(ex, ((brief.get("nets") or {}).get(s.get("rail")) or {}).get("volts"))
+    v = abs(v)          # the switch stands off the bus's magnitude: a -12 V cell's budget is a +12 V one's
     return PR.hot_loop_budget(s.get("class") or "unknown", v, t_sw_ns=ex.get("t_sw_ns"), v_abs=PR.budget_v_abs(ex)).value
 
 
