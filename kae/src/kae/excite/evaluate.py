@@ -1062,13 +1062,10 @@ def open_cell_observations(bd, o, s, vals, where):
     loss is far below it: 1/2 L I^2 f_sw = V I needs L = 2 V / (I f_sw), microhenries). Each layout with the cell
     open prices alike, at most what any closed loop could; kae.intent prices them and lists them as open."""
     why = f"hot loop open: {where}"
-    # the bus's magnitude: a -12 V cell's throughput is 12 V x I (a dissipation, never negative), and its switch rings
-    # toward its rating's magnitude (overshoot_limits picks a rating >= its v_bus and floors v_bus at 1 mV: a signed
-    # -12 V read a 1 mV bus and an overshoot of V_abs + 12 V)
+    # the bus's magnitude: a -12 V cell's throughput is 12 V x I (a dissipation, never negative)
     V = [Q.Magnitude.bound(v.get("V_V", s.meta.get("V", 0.0))) for v in vals]
     ov = [CR.overshoot_limits(Vc, v.get("V_max_V"))[1] for Vc, v in zip(V, vals)]
-    us = [x / max(HA.overshoot_bound(dict(v, V_V=Vc) if "V_V" in v else v, o.bound), 1e-9)
-          for x, v, Vc in zip(ov, vals, V)]
+    us = [x / max(HA.overshoot_bound(v, o.bound), 1e-9) for x, v in zip(ov, vals)]
     out = [O.observation(bd, o, s, ov, us)]
     out[0]["label"] = f"{o.name} <- {s.name}: OPEN, at the switch's absolute maximum"
     P_ = [Vc * v.get("I_A", 0.0) for Vc, v in zip(V, vals)]
