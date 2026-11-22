@@ -2137,8 +2137,12 @@ def _signal_roles(nl: Netlist, roles: Roles):
 # 2020: a 10 uF and a 0.1 uF MLCC in one body have "exactly the same high frequency impedance"; Archambeault 2009:
 # 0402 < 0603 < 0805 connection inductance at every via depth); larger bodies, through-hole and unknown packages
 # fall back to the value classes. 'value': the value classes alone (<= 1 uF HF, >= 4.7 uF bulk), as before.
+# 0805 is in: at equal mounting it costs 0.3 nH over an 0402 (Archambeault's 10 mil row: 1.2 vs 0.9 nH), less than a
+# 50 mil pad-to-via trace adds (+0.5 nH) or 10 mil more via depth; KYOCERA AVX measures 0.1 uF at 0.87 / 1.05 / 1.20 nH
+# for 0603 / 0805 / 1206 with ESL independent of value within +-10 %; AMD UG483 calls its 4.7 uF 0805 the "PCB
+# high-frequency" capacitor (ESL <= 0.5 nH, Table 2-5). 1206 and larger stay with the value classes.
 CAP_CLASS = 'package'
-HF_CHIP_SIZES = ('01005', '0201', '0402', '0603')
+HF_CHIP_SIZES = ('01005', '0201', '0402', '0603', '0805')
 
 
 def cap_class(part: Part, mode: str | None = None) -> tuple[str, float | None, list]:
