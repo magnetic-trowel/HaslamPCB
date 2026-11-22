@@ -228,16 +228,23 @@ def hot_loop_hazards(rows):
         if L <= la:
             continue
         known = bool(info.get("V_abs_known"))
-        out.append(dict(code="hot_loop_over_abs_max", severity="block" if known else "warn", category="electrical",
+        # block only when both ends are the board's: the part's rating and a named input voltage. On an
+        # unnamed rail V_in is a prior (priors.cell_v_in), so the ring past V_abs is an estimate: warn.
+        sure = known and not info.get("V_in_prior")
+        out.append(dict(code="hot_loop_over_abs_max", severity="block" if sure else "warn", category="electrical",
                         message=(f"{r.get('id')}: the hot loop's estimated {L:.2g} nH lets the switch node ring past "
                                  f"its {info.get('V_abs'):g} V absolute maximum (at most {la:.2g} nH)"
-                                 + ("" if known else "; the rating is a prior, the part may be rated higher")),
+                                 + ("" if known else "; the rating is a prior, the part may be rated higher")
+                                 + (f"; the input voltage {info.get('V_in'):g} V is a prior (the rail has no named "
+                                    f"voltage)" if info.get("V_in_prior") else "")),
                         objects=list(r.get("members") or [])[:8],
                         evidence=dict(L_nH=round(L, 3), L_abs_nH=round(la, 3), V_in=info.get("V_in"),
                                       V_abs=info.get("V_abs"), V_abs_source="part" if known else "prior",
+                                      V_in_source="prior" if info.get("V_in_prior") else "board",
                                       limit_source="kae.physics.criteria: peak <= V_abs (derate 1)"),
                         fix="place the input capacitor beside the switch and its ground pin, same side, with the "
-                            "return on the adjacent plane" + ("" if known else "; or state the switch's V_max")))
+                            "return on the adjacent plane" + ("" if known else "; or state the switch's V_max")
+                            + ("; or name the input rail's voltage" if info.get("V_in_prior") else "")))
     return out
 
 

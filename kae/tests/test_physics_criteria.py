@@ -102,3 +102,12 @@ def test_unknown_input_voltage_stays_below_a_known_rating():
     l_abs = PR.hot_loop_budget("buck", v, derate=1.0, v_abs=20.0).value
     assert l_abs > 1.0
     assert PR.hot_loop_budget("buck", 24.0, derate=1.0, v_abs=20.0).value < 0.5    # what it was
+
+
+def test_place_report_warns_when_the_input_voltage_is_a_prior():
+    from kae.place.pipeline import hot_loop_hazards
+    row = dict(id="cell:U1", kind="commutation", value=3.7, members=["U1", "C1"],
+               info=dict(L_abs_nH=2.56, V_abs=20.0, V_abs_known=True, V_in=16.0, V_in_prior=True))
+    h = hot_loop_hazards([row])[0]
+    assert h["severity"] == "warn" and h["evidence"]["V_in_source"] == "prior"
+    assert hot_loop_hazards([dict(row, info=dict(row["info"], V_in_prior=False))])[0]["severity"] == "block"
