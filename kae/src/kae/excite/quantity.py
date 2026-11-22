@@ -12,8 +12,11 @@ values may be negative and turns a raw board value into a legal bound or cap for
   of this kind (a rail's drop, where a load whose ground sits below its source's reads 0, not a drop).
 - Temperature (C, absolute) and Level (a log unit such as dBuV/m): any sign; a bound is the value itself.
 - Transfer (signed, between two ports; `sign_meaning` says what a positive value is): a bound or cap must say which
-  side it holds (max or min), and a cost tier may not price one (kae.intent.objective.evaluate): a signed value as a
-  price rewards the sign nobody meant (the noise priced as reward, -17,610 mW_eq).
+  side it holds (max or min).
+
+A cost tier prices only COST_TYPES (Energy, Dissipation, Magnitude, Clamp; kae.intent.objective.evaluate): a cost is
+rate x value, so a value that can be negative (a Transfer, a Level, a Temperature) prices the sign nobody meant as a
+reward (the noise priced as reward, -17,610 mW_eq), and a temperature or a rise is held to a limit with a side.
 
 `check(ob)` validates an observation dict where its producer builds it and returns the same object: the types decide,
 they never change a number (docs/research/physics/quick-physics-design.md, section 3). In production a violation
@@ -144,6 +147,8 @@ class Transfer(Quantity):
 
 
 TYPES = (Energy, Dissipation, Magnitude, Clamp, Rise, Temperature, Level, Transfer)
+# the types a cost tier may price (rate x value): never negative, and more of it is always worse
+COST_TYPES = (Energy, Dissipation, Magnitude, Clamp)
 
 # every observation kind kae emits (kae.intent.objective.KINDS) and its type
 KIND_TYPE = {
