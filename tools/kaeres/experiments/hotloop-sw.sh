@@ -18,7 +18,7 @@
 # Everything else as route-finish-ab: restart.py --parallel 4 --first-s 60 --scale-first --slack 1.15 --resume 0.5,
 # 900 s x sqrt(footprints/40) (at most 4 h), Freerouting fork FORK, operating facts by content hash, step cache.
 #
-#   SHA=<pushed commit> [STAGE=full|fix|c2|nid|n2|c3|smoke] [BOARD=...|BOARDS=...] tools/kaeres/experiments/hotloop-sw.sh
+#   SHA=<pushed commit> [STAGE=full|fix|c2|nid|n2|c3|r3|r3smoke|smoke] [BOARD=...|BOARDS=...] tools/kaeres/experiments/hotloop-sw.sh
 # Registers only; submission, physics and analysis: hotloop-sw/PLAN.md section "Running order".
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -80,8 +80,12 @@ case "$STAGE" in
           --env KAE_STEP_CACHE=$STEP_CACHE --description "N re-routed at $S7 on all 60 boards: the identity run differed from 908e21ff on 3 of 5 boards (PLAN.md, round 2). $desc" >/dev/null ;;
   c3) $K exp create hotloop-sw-c3-$S7 --method "$C" --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "C2: cells first at $S7 (escape lanes and the reachability backstop) on all 60 boards, against N at 908e21ff (PLAN.md, round 2). $desc" >/dev/null ;;
+  r3) $K exp create hotloop-sw-r3-$S7 --method "$N" --method "$C" --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
+          --env KAE_STEP_CACHE=$STEP_CACHE --description "round 3, the confirming run: N and C3 at $S7 on the 60 regulator boards and the 213-board physics set (PLAN.md, round 3). $desc" >/dev/null ;;
+  r3smoke) $K exp create hotloop-sw-r3smoke-$S7 --method "$N" --method "$C" --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
+          --env KAE_STEP_CACHE=$STEP_CACHE --description "round 3 smoke on dense boards, for sizing (PLAN.md, round 3). $desc" >/dev/null ;;
   smoke) $K exp create hotloop-sw-smoke-$S7 "${M[@]}" --boards "${BOARD:?BOARD}" --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "smoke (${BOARD}) of the $desc" >/dev/null ;;
-  *) echo "STAGE: full, fix, c2, nid, n2, c3 or smoke" >&2; exit 2 ;;
+  *) echo "STAGE: full, fix, c2, nid, n2, c3, r3, r3smoke or smoke" >&2; exit 2 ;;
 esac
 echo "experiment created (STAGE=$STAGE); nothing submitted"

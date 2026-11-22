@@ -345,3 +345,72 @@ Board loss terms (per board, the sum of that observable's terms):
 - Scores are the same on all 5, and so are the kept attempt and the attempt count. The paths differ in places, so N's 908e21ff boards are not reused.
 - N is re-routed at 2b51145b as `hotloop-sw-n2-2b51145` (55 new runs plus the 5 identity runs), and its physics is evaluated at the same SHA.
 - C″ is compared with this N. N at 908e21ff and its round-1 physics are not used in round 2.
+
+## Round 3: the confirming run (pre-registered 2026-11-22, before any round-3 result)
+
+**Code: bfc65839** (`hotloop-cells2`), if its suites pass; otherwise the commit that fixes them, named here before submission. It is round 2's 2b51145b plus:
+- **The merge of `default-and-fixes`** (PR #111, 8b6046ba): the drill-less-via fix, cm pad-order determinism, the negative-rail and other evaluator fixes.
+- **bfc65839, the pour-fill lane fix.**
+  - Escape lanes aim at the zone's pourable core (outline less other nets' pads at the zone's clearance, shrunk by half its minimum width), with a landing round the lane's end.
+  - Escape lanes and pour links keep other nets' vias out, not only tracks.
+  - The reachability backstop takes a zone as a pin's goal only where it can still pour.
+  - Effect: open-authenticator's U4.2 in round 2. On its input both cells now route and keep U4.2's way.
+
+**leodj shmod24 in C′ and C″** (SDA and P10 unconnected, not in N): search-path variation, not cell copper.
+- None of C″'s cell copper (/SW, GND, VCC) lies on or within 0.2 mm of N's SDA or P10 tracks.
+- The repair report calls both "congestion, a path exists without our other copper".
+- The portfolio's open counts:
+  - N: 13, 9, 13, 17, 3, 3, 17, 11, 2, 2, 1, 0 over its 12 attempts, and 0 after finish.
+  - C″: 7, 14, 9, 9, 7, 7, 6, 8, then 2 from the 9th attempt on, through final and finish.
+  - Both reached 2 open; N's resume chain closed the last two, C″'s did not.
+- No cells-stage fix applies. Round 3 measures how often this happens across many boards.
+
+**Arms:** N and C‴ (cells first), both routed at one SHA as `hotloop-sw-r3-<sha>` (`STAGE=r3`).
+- Freerouting fork 9a5512d, counted work (`KAE_BUDGET=work`, `PYTHONHASHSEED=0`, `KAE_WORKERS=1`), restart portfolio as before.
+- Physics for human, N and C‴ at the same SHA: `--scope losses`, each run's DRC.
+
+**Boards: 273.** The 60 regulator boards plus the 213-board physics set (`intent-213/all.txt`); the two sets do not overlap.
+- Intents:
+  - the 60: `compiled-0833f61`, as rounds 1–2;
+  - the 213: recompiled at the round-3 SHA, because the converter-current and evaluator changes since `compiled-9867d0b` reach them.
+  - Both go into one folder, `intent-r3/compiled-r3-<sha>`.
+- The cells stage does nothing on a board without a switching cell, so C‴ equals N there. Gates are computed on all 273 boards, and the cell measures on the cells present.
+
+**Gates** (C‴ against N):
+- *cp1 and clean_strict, non-inferiority (gated):* the lower bound of the 95 % CI (paired, resampling repositories) above **−0.04**, a margin of 4 points of cp1.
+  - *Power,* with n = 273 and a normal approximation of the paired difference (SE = sqrt(p_d / n), p_d the share of boards that flip):
+
+    | p_d (share of boards flipping) | power if C‴ gains +0.033 (rounds 1–2's estimate) | power if C‴ has no effect |
+    |---|---|---|
+    | 5 % | ≥ 0.99 | 0.84 |
+    | 7 % (rounds 1–2) | ≥ 0.99 | 0.70 |
+    | 10 % | 0.97 | 0.55 |
+
+  - Round 2's −0.02 at n = 60 could not be met with 1 loss in 4 flips.
+- *Completion:* CI lower bound above −0.005.
+- *DRC errors per board:* sign-flip p ≥ 0.05, or lower.
+- *No new error type* with more than 5 occurrences.
+- *No invalid output.*
+
+**Reported, not gated:**
+- Cells: per-cell L_loop and R_loop against N and against human, by topology and layer count. Median ratio with a 95 % CI; cells better, worse and within tolerance.
+- Open cells per arm, each extra one explained.
+- Board terms loss.loop, loss.loop_ac, loss.copper and loss.copper_ac against N and against human, with floor verdicts.
+- Every ratio above 10×, with its cause.
+- Boards that lose connections in C‴ against N, each with its cause (cells stage or search path).
+
+**Floors and tolerances:** as rounds 1–2.
+- Cells: L_loop 0.5 %, R_loop 3 %.
+- loss.copper 0.5 % and loss.copper_ac 0.5 %.
+- loss.loop and loss.loop_ac 3 %.
+- Verdicts: "signal" when the CI of the median ratio lies past the floor, "noise" inside, otherwise "unresolved".
+
+**Reading:** C‴ becomes the default when:
+- it passes every gate;
+- its L_loop and R_loop medians against N are below 1, with more cells better than worse;
+- no lost connection is a cells-stage defect.
+
+**Sizing:**
+- A smoke of N and C‴ on 3 dense boards first (`STAGE=r3smoke`): jetson j2032, polarfire som and sinara zotino, profiled.
+- Routing memory and parallelism are set from that smoke. Large boards run at lower parallelism (kaeq admits by memory).
+- The estimate is reported at submission.
