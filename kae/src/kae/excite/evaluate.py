@@ -35,7 +35,7 @@ def _vin_net(bd, brief, st):
     nets = {bd.net_of.get(t) for t in bd.net_of if ref and t.startswith(ref + ".")}
     nets.discard(st.get("sw"))
     nets.discard(None)
-    return next(iter(nets), None)
+    return min(nets, default=None)          # a set: the first by name, not by hash (a coupled inductor has more)
 
 
 def ledger_for(bd, brief, srcs, intent=None):

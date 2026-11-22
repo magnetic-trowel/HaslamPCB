@@ -125,12 +125,7 @@ def observers(bd, brief, sources):
                     bound = frac * vref if cls == "feedback" else frac * (3.3 if cls == "reset" else 1.0)
                     out.append(Observer(f"victim:{cls}:{tok}", "victim", bd.ic_nodes[ref]["g"], net, None, tok,
                                         bound, why, "prior", dict(net=net, cls=cls)))
-    conn_gnd = {}
-    for net in bd.grounds:
-        for tok in bd.pads_of.get(net, []):
-            ref = tok.rsplit(".", 1)[0]
-            if bd.part_kind.get(ref, ("",))[0] == "connector":
-                conn_gnd.setdefault(ref, tok)
+    conn_gnd = connector_grounds(bd)
     refs = sorted(conn_gnd)
     for i in range(len(refs)):
         for j in range(i + 1, len(refs)):
@@ -138,6 +133,27 @@ def observers(bd, brief, sources):
             out.append(Observer(f"cm:{refs[i]}-{refs[j]}", "cm", "", "", conn_gnd[refs[i]], conn_gnd[refs[j]], 0.0, why,
                                 "standard", dict(pads=(conn_gnd[refs[i]], conn_gnd[refs[j]]))))
     return out
+
+
+def pad_order(tok):
+    """Sort key of a pad token REF.NUM by its pad number in natural order ('2' before '10', 'A2' before 'A10')."""
+    ref, num = tok.rsplit(".", 1)
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", num)], tok
+
+
+def connector_grounds(bd):
+    """{connector ref: its ground pad} for the cable common-mode observers: the connector's lowest-numbered pad (natural
+    order, pad_order) on any of the board's ground nets. The rule reads the connector's own pinout, so the pad is the
+    same whatever order the ground nets come in: the first pad met while iterating bd.grounds (a set) changed with
+    the hash seed on a connector with ground pads on two ground nets (duanestorey's J1 and J3: J1.1 or J1.3, and the
+    cable_cm.v observations by about 11 %, between two runs of the same code)."""
+    pads = {}
+    for net in sorted(bd.grounds):
+        for tok in bd.pads_of.get(net, []):
+            ref = tok.rsplit(".", 1)[0]
+            if bd.part_kind.get(ref, ("",))[0] == "connector":
+                pads.setdefault(ref, []).append(tok)
+    return {ref: min(ts, key=pad_order) for ref, ts in pads.items()}
 
 
 RF_FEED_NET = re.compile(r"(^|[^A-Z])(RF|ANT|ANTENNA)(\d|[^A-Z]|$)", re.I)

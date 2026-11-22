@@ -88,7 +88,7 @@ def add_all(bd, brief, nl=None):
             nodes = bd.module_nodes.setdefault(ref, {})
             if "g" not in nodes:
                 nodes["g"] = gi = f"{ref}:mgnd"
-                for tg in [t for nt in bd.grounds for t in bd.pads_of.get(nt, []) if t.rsplit(".", 1)[0] == ref]:
+                for tg in [t for nt in sorted(bd.grounds) for t in bd.pads_of.get(nt, []) if t.rsplit(".", 1)[0] == ref]:
                     c.z(f"{tg}:mpkg", bd.net_of[tg], gi, _rl(PKG_R, PKG_L), tg, None, "pkg")
             v = nodes[net] = f"{ref}:m{net}"
             c.z(f"{tok}:mpkg", net, v, _rl(PKG_R, PKG_L), tok, None, "pkg")

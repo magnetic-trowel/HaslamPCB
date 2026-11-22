@@ -154,7 +154,9 @@ def build(board, brief=None):
     nets = brief["nets"]
     grounds = {n for n, d in nets.items() if d.get("role") == "ground"}
     rails = {n: d.get("volts") for n, d in nets.items() if d.get("role") == "rail"}
-    ground = max(grounds, key=lambda g: len(nl.nets[g].pins) if g in nl.nets else 0) if grounds else "GND"
+    # the reference ground: the ground net with the most pins, the first by name among equals (grounds is a set: its
+    # order is the hash seed's)
+    ground = max(sorted(grounds), key=lambda g: len(nl.nets[g].pins) if g in nl.nets else 0) if grounds else "GND"
     c = Circuit(ground)
     bd = Board(c, ground, grounds, rails, {}, {}, {})
     cell_parts = {}
@@ -196,9 +198,11 @@ def build(board, brief=None):
 
 
 def nearest_ground(bd, ref, pad):
-    """The part's ground pin nearest to its pad (the return path of a signal it drives or receives)."""
+    """The part's ground pin nearest to its pad (the return path of a signal it drives or receives); among pins at
+    the same distance, the first in ground-net name order, then the net's pad order (never bd.grounds' set order,
+    which is the hash seed's)."""
     import math
-    gs = [t for nt in bd.grounds for t in bd.pads_of.get(nt, []) if t.rsplit(".", 1)[0] == ref]
+    gs = [t for nt in sorted(bd.grounds) for t in bd.pads_of.get(nt, []) if t.rsplit(".", 1)[0] == ref]
     if not gs:
         return None
     x, y = bd.pad_xy.get(pad, (0.0, 0.0))
