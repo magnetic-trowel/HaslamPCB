@@ -1,0 +1,12 @@
+atx-silence-silence
+bitwiseajeet-esp32-based-pcb-kicad-esp32-pcb
+dchwebb-spectralist-spectralist-components
+def12345678-m-fc-g474-rev-a-m-fc
+dmcke5-zendeck-lhs-controller-pcb
+ghous-ali-custom-esp32-dev-board-twlog-v1
+hussamkoman-devotchi-devotchi
+jordanaceto-rust-ribbon-controller-ribbon-controller
+martinberlin-h-cinread-it8951-it8951-hat
+pcbcorpus-sufst-pcb-8ch-sensor-hub
+mohamedyanis-stm32l0-esp32-breakout-board-stm32l0-esp32-breakout-board
+kaitallaoua-capstone-pcb-mcu-integration

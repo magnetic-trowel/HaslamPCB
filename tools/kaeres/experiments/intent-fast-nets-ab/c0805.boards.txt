@@ -1,0 +1,12 @@
+adafruit-adafruit-1-3in-color-tft-bonnet-pcb-adafruit-1-3in-color-tft-bonnet
+adafruit-adafruit-circuit-playground-bluefruit-pcb-adafruit-circuit-playground-bluefruit
+adafruit-adafruit-fona808-shield-pcb-adafruit-sim808-shield
+adafruit-adafruit-powerboost-500-charger-pcb-adafruit-powerboost-500c
+adafruit-adafruit-servo-hat-bonnet-pcb-servo-bonnet-rev-b
+adafruit-adafruit-tft-gizmo-pcb-adafruit-circuit-playground-tft-gizmo
+bybzmt-practise-tas5805m
+glydrfreak-vspeed-vario-adafruit-feather-zero-ble-rev-b
+meo98-picostack-dimmer4
+adafruit-adafruit-sgp30-pcb-sgp30-rev-d
+adafruit-adafruit-led-backpacks-adafruit-bicolor-8x8
+adafruit-adafruit-oled-featherwing-pcb-adafruit-oled-featherwing
