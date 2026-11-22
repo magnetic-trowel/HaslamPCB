@@ -46,3 +46,19 @@ def test_a_negative_bus_ripple_is_the_positive_ones(I):
 def test_a_negative_bus_swings_as_far_as_the_positive_one():
     assert CP.swing({"V_V": -12.0, "t_v_s": 2e-9}, 5.0) == CP.swing({"V_V": 12.0, "t_v_s": 2e-9}, 5.0) == (12.0, 2e-9)
     assert CP.swing({}, -5.0) == (5.0, 1e-9)       # the meta voltage of a negative-rail aggressor too
+
+
+def _open_cell(V):
+    from kae.excite import evaluate as EV
+    from kae.excite.observe import Observer
+    bd = SimpleNamespace(pads_of={})
+    o = Observer("overshoot:cell1", "overshoot", "SW", "GND", None, None, 1.0, "test", "prior", {"source": "cell:U1"})
+    s = SimpleNamespace(name="cell:U1", kind="cell", a="SW", b="GND", pa=None, pb=None, meta={"cell": "cell1", "V": V})
+    obs = EV.open_cell_observations(bd, o, s, [{"V_V": V, "I_A": 2.0, "V_max_V": 30.0}], "test")
+    return {ob["id"]: ob["values"] for ob in obs}
+
+
+def test_an_open_negative_bus_cell_loses_its_throughput_as_the_positive_one():
+    pos, neg = _open_cell(12.0), _open_cell(-12.0)
+    for k in ("loss.loop", "loss.loop_ac"):
+        assert pos[k] == pytest.approx([24.0]) and neg[k] == pytest.approx(pos[k])

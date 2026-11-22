@@ -1052,7 +1052,9 @@ def open_cell_observations(bd, o, s, vals, where):
     us = [x / max(HA.overshoot_bound(v, o.bound), 1e-9) for x, v in zip(ov, vals)]
     out = [O.observation(bd, o, s, ov, us)]
     out[0]["label"] = f"{o.name} <- {s.name}: OPEN, at the switch's absolute maximum"
-    P_ = [Vc * v.get("I_A", 0.0) for Vc, v in zip(V, vals)]
+    # the throughput |V| I: a negative bus (-12 V) converts as much power as a positive one (the signed bus
+    # priced an open -12 V cell's losses negative, below any closed layout's)
+    P_ = [abs(Vc) * v.get("I_A", 0.0) for Vc, v in zip(V, vals)]
     for id_, kind in (("loss.loop", "loop_loss"), ("loss.loop_ac", "loop_ac_loss")):
         ob = O.observation(bd, o, s, list(P_), [0.0] * len(vals))
         ob.update(id=id_, unit="W", reference=dict(value=None, basis="none: a loss is priced, not bounded"),
