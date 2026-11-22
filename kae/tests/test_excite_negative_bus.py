@@ -119,3 +119,21 @@ def test_a_negative_bus_cells_loop_is_judged_open_as_the_positive_ones():
     # 1 ohm of loop at f_sw against a 12 V / 2 A = 6 ohm load passes; 10 ohm does not, on either sign
     for R, bad in ((1.0, False), (10.0, True)):
         assert bool(CQ.unphysical(1e-9, R, -12.0, 2.0, 1e6)) == bool(CQ.unphysical(1e-9, R, 12.0, 2.0, 1e6)) == bad
+
+
+# ----------------------------------------------------------------------------- the placer's and router's rail reads
+def _ctx(**nets):
+    return SimpleNamespace(terms=None, nets={n: {"volts": v} for n, v in nets.items()},
+                           volts=lambda n: abs(nets[n]) if nets.get(n) else None)
+
+
+@pytest.mark.parametrize("where", ["excite", "net"])
+def test_a_negative_bus_cell_gets_the_positive_ones_hot_loop_prior(where):
+    from kae.sim.budget import prior_of
+
+    def prior(V):
+        st = {"id": "c1", "kind": "commutation_cell", "class": "buck", "rail": "BUS",
+              "excite": {"V": V} if where == "excite" else {}}
+        return prior_of({"structures": [st], "nets": {"BUS": {"volts": V}} if where == "net" else {}}, "c1")
+    assert prior(-12.0) == pytest.approx(prior(12.0)) and prior(12.0) != pytest.approx(prior(1.0))
+
