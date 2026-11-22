@@ -1275,9 +1275,10 @@ def escape_lanes(info, p=None, reach=1.5):
     own net's copper keeps its short way there (pour_links, the hot-loop cells stage).
 
     For each pad with a net, on each of its copper layers: when no zone of its net covers the pad
-    there, the shortest straight piece from the pad to the nearest zone of its net on that layer, if
-    that is at most `reach` mm and crosses no other net's pad, widened to the net's track width plus
-    its clearance each side and run on into the zone by its minimum width. open-authenticator: U4's
+    there, the shortest straight piece from the pad to the nearest zone of its net on that layer (the
+    zone within `reach` mm), to where that zone can pour at its minimum width (its pourable core: the
+    outline less other nets' pads at its clearance, shrunk by half that width), if it crosses no other
+    net's pad, widened to the net's track width plus its clearance each side and run on into the core. open-authenticator: U4's
     L1 pins (U4.2, U4.4) sit 0.2-0.55 mm below their own L1 zones and join them by short tracks; the
     cell's GND via between the pins and the zone corners took that gap and both pins were left
     unconnected. Lanes to the nearest other pad of the net are not laid: on ericmullally's power
@@ -1289,13 +1290,27 @@ def escape_lanes(info, p=None, reach=1.5):
     for z in zones:
         g = unary_union([x for x in (_poly(r) for r in z["rings"]) if x is not None] or [Polygon()])
         for l in z.get("layers") or []:
-            zgeo.setdefault((z["net"], l), []).append((g, float(z.get("min_thickness") or 0.0)))
+            zgeo.setdefault((z["net"], l), []).append((g, float(z.get("min_thickness") or 0.0),
+                                                       float(z.get("clearance") or 0.0)))
     by_layer = {}
     for q in info.get("pads") or []:
         for l, g in (_pad_shapes(q)[1] or {}).items():
             if g is not None and not g.is_empty:
                 by_layer.setdefault(l, []).append((q, g))
     trees = {l: (shapely.STRtree([g for _, g in v]), v) for l, v in by_layer.items()}
+    cores = {}
+
+    def core(zg, mt, zclr, net, l):
+        """Where the zone's fill can run at its minimum width: its outline less other nets' pads at the zone's
+        clearance, shrunk by half that width (the centres of every mt-wide strip of fill it can pour)."""
+        k = (id(zg), l)
+        if k not in cores:
+            tree, items = trees.get(l, (None, []))
+            foreign = [g.buffer(zclr) for q, g in (items[int(i)] for i in (tree.query(zg) if tree is not None else []))
+                       if q.get("net") != net] if items else []
+            room = zg.difference(unary_union(foreign)) if foreign else zg
+            cores[k] = room.buffer(-max(mt, 0.05) / 2)
+        return cores[k]
     out = []
     for l, (tree, items) in trees.items():
         for pad, cop in items:
@@ -1303,24 +1318,33 @@ def escape_lanes(info, p=None, reach=1.5):
             if not net:
                 continue
             own_z = zgeo.get((net, l)) or []
-            if any(zg.intersects(cop) for zg, _ in own_z):
+            if any(zg.intersects(cop) for zg, _, _ in own_z):
                 continue          # touches its zone: a solid or thermal link (thermal_corridors)
             clr, w = _class_of(info, net)
             best = None
-            for zg, mt in own_z:
-                if zg.is_empty:
+            for zg, mt, zclr in own_z:
+                if zg.is_empty or cop.distance(zg) > reach:
                     continue
-                d = cop.distance(zg)
-                if d <= reach and (best is None or d < best[0]):
-                    best = (d, zg, mt)
+                # aimed at the zone's pourable core, not its outline: open-authenticator's U4.2 aimed at its
+                # L1-Pad2 zone's corner, a wedge the cell's +3V3 hop then left too thin to pour
+                c = core(zg, mt, zclr, net, l)
+                if c.is_empty:
+                    continue
+                d = cop.distance(c)
+                if d <= reach + max(mt, 0.05) and (best is None or d < best[0]):
+                    best = (d, c, mt, zg, zclr)
             if best is None or best[0] <= 1e-6:
                 continue
             a, b = nearest_points(cop, best[1])
             dx, dy = b.x - a.x, b.y - a.y
             n = math.hypot(dx, dy) or 1.0
-            ext = max(best[2], w / 2)
+            ext = max(best[2] / 2, w / 2)        # on into the core by half the fill's width
             line = LineString([(a.x, a.y), (b.x + dx / n * ext, b.y + dy / n * ext)])
             lane = line.buffer(w / 2 + clr, cap_style="flat")
+            # and a landing where the lane meets the zone: room for the fill to pour its minimum width round the
+            # track's end past the zone's clearance, so the other nets' copper beside the lane cannot thin it away
+            end = Point(line.coords[-1])
+            lane = lane.union(end.buffer(max(best[2], 0.05) + best[4]).intersection(best[3]))
             hit = False
             for i in tree.query(line.buffer(w / 2)):
                 q, g = items[int(i)]

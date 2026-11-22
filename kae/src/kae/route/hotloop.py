@@ -887,7 +887,17 @@ def _reach(pad, cop, layer, items, info, window):
             raw.append(g)
     for z in info.get("zones") or []:
         if z.get("net") == net and layer in (z.get("layers") or []) and not z.get("rule_area"):
-            own += [x for x in (CN._poly(r) for r in z["rings"]) if x is not None]
+            # the zone where it can still pour past the other nets' copper here (its clearance, then its minimum
+            # width): open-authenticator's U4.2 reached its L1-Pad2 zone's outline at a corner the cell's +3V3 hop
+            # had left too thin to pour, and was left unconnected
+            zg = unary_union([x for x in (CN._poly(r) for r in z["rings"]) if x is not None]).intersection(win)
+            if zg.is_empty:
+                continue
+            zc, mt = float(z.get("clearance") or 0.0), max(float(z.get("min_thickness") or 0.0), 0.05)
+            pour = zg.difference(unary_union([g.buffer(zc) for g in raw])) if raw else zg
+            pour = pour.buffer(-mt / 2).buffer(mt / 2)
+            if not pour.is_empty:
+                own.append(pour)
     free = win.difference(unary_union(obst)) if obst else win
     seed = cop.buffer(-min(w / 2, 0.05)) if not cop.buffer(-min(w / 2, 0.05)).is_empty else cop.centroid.buffer(1e-3)
     comps = [c for c in getattr(free, "geoms", [free]) if c.intersects(seed)]
