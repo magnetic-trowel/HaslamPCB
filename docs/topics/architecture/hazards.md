@@ -3,7 +3,7 @@
 # Hazards: what kae tells the commanding LLM about the board it hands back
 
 Scope: the `hazards` / `hazard_summary` contract of every kae JSON report: codes, severities (block, warn, info), the forced-safety DRC recheck, static project hazards and the size caps. Not here: placement severity ladder -> [kae-exact-legality](../../research/placement/kae-exact-legality.md); the tool envelope -> [mcp-tool-surface-spec](../kicad/mcp-tool-surface-spec.md).
-Keys: hazards, `hazard_summary`, `blocked`, block hazard, warn, info, `--recheck`, forced-safety recheck, `ignored_checks`, severity downgrade, `dru_rejected`, fab minimums, IPC-2221B clearance, `body_overlap`, `body_relaxed`, `severity_fallback`, `connector_off_edge`, `kae.route.blocked`
+Keys: hazards, `hazard_summary`, `blocked`, block hazard, warn, info, `--recheck`, forced-safety recheck, `ignored_checks`, severity downgrade, `dru_rejected`, fab minimums, IPC-2221B clearance, `body_overlap`, `body_relaxed`, `severity_fallback`, `connector_off_edge`, `relation_conflict`, `relation_unmet`, `kae.route.blocked`
 
 **Results**
 - **Every JSON report the LLM reads ends with `hazards` and `hazard_summary`** (`kae place`, `kae.route.cli`, `kae.route.critical_cli`, `kae.joint.cli`, `kae brief`, `kae.excite.evaluate`, `kae.sim`). `hazard_summary.blocked` is true when the board would not work or cannot be built as drawn [M].
@@ -36,7 +36,7 @@ Keys: hazards, `hazard_summary`, `blocked`, block hazard, warn, info, `--recheck
 
 | Command | Hazards from |
 |---|---|
-| `kae place` | static project hazards; recheck of OUTPUT (opens and dangling copper left out: a placement is not routed); `body_overlap`/`body_relaxed`; `connector_off_edge`; `placement_physics_over_budget`; writer checks; `dru_rejected` |
+| `kae place` | static project hazards; recheck of OUTPUT (opens and dangling copper left out: a placement is not routed); `body_overlap`/`body_relaxed`; `connector_off_edge`; `placement_physics_over_budget`; `relation_*` (`--intent`); writer checks; `dru_rejected` |
 | `kae.route.cli route`, `lastmile` | static; recheck of OUTPUT; BGA `escape_infeasible`; else the bridge's final DRC counts |
 | `kae.route.critical_cli route` | static; recheck; `copper_below_ipc_width`, `rail_left_narrow`, `vias_below_current` (heat of the copper drawn, [critical-net-routing](../routing/critical-net-routing.md)); `class_max_below_ipc` module flags; `crystal_ground_no_plane`; the plan's `land_enlarged_by_track` (a two-terminal land in series with a rail whose current needs more than the land, `constraints.PadRule`) |
 | `kae.route.critical_cli physics` | `physics_over_budget` (u > 1), `physics_unmeasured`; static |
@@ -96,6 +96,7 @@ Keys: hazards, `hazard_summary`, `blocked`, block hazard, warn, info, `--recheck
 | `placement_physics_over_budget` | warn | a structure of the placement scorecard (`kae place`, unrouted) with util > 1; evidence `u_before_kicad_repair` when the KiCad repair loop pushed it over. Left out when the report carries routed physics |
 | `outline_incomplete` | block, manufacturing | `kae place`: staged footprints carry Edge.Cuts, the outline is open |
 | `placement_illegal` | block, assembly | `kae place` `legal: false` (exit 3): overlaps or outline violations remain |
+| `relation_conflict` / `relation_unmet` / `relation_check_failed` | warn / warn (required) or info (soft) / warn; block only with `category: safety` | `kae place --intent`: a relation the pre-checks prove unmeetable, or one tied with place terms and unmet; a relation the oracle finds unmet on the written board; `fix` is the first relaxation ([llm-relations](../placement/llm-relations.md#status-conflicts-and-hazards)) |
 | `rules_not_modelled`, `rule_errors` | warn, data | the bridge's plan: custom-rule functions the router does not model, rules it could not evaluate |
 | `hard_term_violated` / `hard_term_unchecked` / `noise_prediction_capped` | block / warn / warn (info when no hard term is on it) | `kae.em.pnr --intent` (`kae.intent.route.Policy.hazards`): a hard term the field solve finds violated; one the router did not compute; a supply-noise prediction beyond half its rail, priced at the evaluator's cap ([intent-driven-objectives-build](intent-driven-objectives-build.md)), whose hard terms are unverified rather than violated |
 

@@ -53,6 +53,7 @@ from .stubs import make_brief, make_terms
 ROLE_KIND = {"ground": "ground", "rail": "power", "power": "power"}
 ANCHOR_AREA_SHARE = 0.05   # parts over this share of the board are tested for a spot (_anchor_tight_parts)
 ANCHOR_SPOTS = 800         # ... and this many spots judged by the exact check (near edges, then spread)
+REL_SEED_W = 20.0          # floorplan displacement weight of a part an intent's relation pulls (others: 1)
 ANCHOR_KICAD_TRIES = 3     # exact-only spots (no grid-free one) KiCad's DRC judges before a part is fixed there
 FLOORPLAN_MAX_ITEMS = 40   # above this the global HPWL floorplan rarely finds a solution in time
 ROLE_WEIGHT = {"clock": 1.5, "high_speed": 1.5, "analog": 1.2, "rf": 1.5, "switch_node": 1.0}
@@ -378,7 +379,7 @@ def _rung_summary(res, seconds):
 
 def place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, log=None, anneal=True,
           edge_mate=False, anneal_args=None, angle_step=None, fixed=(), board_path=None, opts=None,
-          verify=None):
+          verify=None, relations=None):
     """Place the unlocked footprints of `board` within `time_s` seconds (resolve_severity picks
     the legality profile). The default, 'strict_then_level_c', places at 'strict' with body
     relaxation off, in LADDER_STRICT_SHARE of the time; when that leaves placement errors
@@ -393,22 +394,24 @@ def place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, l
     relax_bodies as set. `verify(res, end)`: the caller's check of a rung (kae.cli: write the
     board and run KiCad's DRC loop until `end`, monotonic seconds), called on each rung of a
     two-rung ladder; its return value is kept as res.verified. Report: severity_used,
-    severity_ladder, and a severity_fallback hazard when the fallback ran.
+    severity_ladder, and a severity_fallback hazard when the fallback ran. `relations`: an
+    intent's compiled relations (kae.place.relations.Bundle), applied in every rung.
 
     The work clock counts from zero inside (kae.budget.frame): the result does not depend on what the
     process did before the call."""
     with budget_frame():
         return _place(board, seed=seed, time_s=time_s, physics=physics, brief=brief, workers=workers, log=log,
                       anneal=anneal, edge_mate=edge_mate, anneal_args=anneal_args, angle_step=angle_step,
-                      fixed=fixed, board_path=board_path, opts=opts, verify=verify)
+                      fixed=fixed, board_path=board_path, opts=opts, verify=verify, relations=relations)
 
 
 def _place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, log=None, anneal=True,
            edge_mate=False, anneal_args=None, angle_step=None, fixed=(), board_path=None, opts=None,
-           verify=None):
+           verify=None, relations=None):
     log = log or (lambda *a, **k: None)
     kw = dict(seed=seed, physics=physics, workers=workers, log=log, anneal=anneal, edge_mate=edge_mate,
-              anneal_args=anneal_args, angle_step=angle_step, fixed=fixed, board_path=board_path, opts=opts)
+              anneal_args=anneal_args, angle_step=angle_step, fixed=fixed, board_path=board_path, opts=opts,
+              relations=relations)
     from kae.route.constraints import setting
     split_mode = int(setting("barrier_split", board_path, opts))
     if split_mode >= 1:
@@ -450,7 +453,7 @@ def _place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, 
             opts = dict(opts or {}, barrier_split=0)
             res = place(board, seed=seed, time_s=left, physics=physics, brief=brief, workers=workers, log=log,
                         anneal=anneal, edge_mate=edge_mate, anneal_args=anneal_args, angle_step=angle_step,
-                        fixed=fixed, board_path=board_path, opts=opts, verify=verify)
+                        fixed=fixed, board_path=board_path, opts=opts, verify=verify, relations=relations)
             res.report["barrier_split"] = skipped
             return res
     mode = resolve_severity(board, board_path, opts)
@@ -569,7 +572,7 @@ def _place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, 
 
 def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, log=None, anneal=True,
                 edge_mate=False, anneal_args=None, angle_step=None, fixed=(), board_path=None, opts=None,
-                severity=None, relax=None, hard_end=None, max_util=None):
+                severity=None, relax=None, hard_end=None, max_util=None, relations=None):
     """One placement at one legality profile (place() runs one or two of these). `severity`:
     'strict', 'level_c' or 'board' (None: _severity_mode); `relax`: a relax_bodies mode that
     overrides the setting (the strict rung of the severity ladder runs with 'off'). The ladder's
@@ -577,7 +580,9 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     time (escalation, final legalization, the closed loop and its diagnosis, the order and silk
     passes), so a rung ends in its share; `max_util`: return at once, with report['aborted'] and
     no poses, when the parts' occupancy on a side is over this fraction of the board (they
-    cannot all fit)."""
+    cannot all fit). `relations`: the intent's compiled relations (kae.place.relations): held parts
+    fixed, edge pins, rotation sets, order rules, label-term pulls and keep-away overlap classes;
+    report: relations_applied (with kae's own default rows, D-...)."""
     t0 = clock_now()
 
     def cap(s):     # a stage's time, within hard_end
@@ -634,6 +639,12 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     # parts held at their input pose by the caller (kae place --fix / --fix-class: the board's
     # mechanical interface): fixed obstacles like locked parts, their nets still pulling
     fixed = set(fixed or ())
+    rel = relations
+    if rel is not None:
+        rel.applied, rel.struct_parts = {}, {}
+        fixed |= set(rel.hold)
+        rep["relations_applied"] = dict(held=sorted(rel._ref(u) for u in rel.hold), defaults=[],
+                                        rotations={rel._ref(u): v for u, v in rel.rotations.items()})
     if fixed:
         staged_fixed = sorted(fp.ref for fp in board.footprints if fp.uuid in fixed and not fp.on_board)
         rep["fixed"] = dict(n=len(fixed), refs=sorted(fp.ref for fp in board.footprints if fp.uuid in fixed)[:80])
@@ -646,12 +657,15 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     from kae.route.constraints import setting
     edge_mode = int(setting("connector_edge", board_path, opts))
     pinned = {}
-    if edge_mode >= 2:
-        board, pinned = _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log)
+    if edge_mode >= 2 or (rel is not None and rel.pins):
+        board, pinned = _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log,
+                                             auto=edge_mode >= 2, relations=rel)
         fixed = fixed | set(pinned)
+
     def build(b, frozen):
         return Problem.build(b, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | frozen,
-                             angle_step=angle_step, severity=severity or _severity_mode(board, board_path, opts))
+                             angle_step=angle_step, severity=severity or _severity_mode(board, board_path, opts),
+                             part_rotations=rel.rotations if rel is not None else None)
 
     P = build(board, fixed)
     if int(setting("anchor_tight", board_path, opts)):
@@ -782,6 +796,8 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
                                        seed=seed, log=log, terms=terms)
         order = clusters.protection_order(P, brief)
         P.order_rules = order          # the closed loop's repair keeps them (kae.place.exact)
+        if rel is not None:
+            rel.set_physics(P, structs)
         rep["physics_terms"] = dict(source=tsrc, structures=len(structs), macros=len(macros),
                                     macro_sizes=[len(m.members) for m in macros], order_rules=len(order))
         # nets inside structures are critical: pull them together harder in the seed
@@ -797,6 +813,23 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             if P.nets[j].kind == "signal":
                 P.nets[j].weight *= 2.0
         stage("macros", t)
+    if rel is not None:
+        # the intent's order relations join the protection-order rules; a default rule (D-order-<part>)
+        # the intent switched off is dropped
+        kept = []
+        for rule in order:
+            rid = f"D-order-{P.parts[rule[1][0]].ref}"
+            if rel.default_on(rid):
+                kept.append(rule)
+                rep["relations_applied"]["defaults"].append(dict(
+                    id=rid, kind="order", uuid=P.parts[rule[1][0]].uuid,
+                    path=[(P.parts[i].uuid, list(ks)) for i, ks in rule], why="protected connector chain"))
+        order = kept + rel.order_for(P)
+        P.order_rules = order
+    # the intent's pulls (regions, near a label or a fixed part, soft edges): the seed starts each pulled
+    # part at its target and the floorplan holds it there (displacement weight REL_SEED_W), since the
+    # annealer's local moves rarely carry a part across the board; the annealer then prices them
+    rel_pulls = rel.anchors_for(P) if rel is not None else {}
     net_w = {net.i: net.weight for net in P.nets}
 
     # ---- fixed copper zones (kae.place.zones): the seed's anchors and annealer's table (None
@@ -816,6 +849,10 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     big = n_items > FLOORPLAN_MAX_ITEMS
     st, _ = _seed_state(P, free_macros, net_w, seed, log, partition=big, jitter=seed_jitter,
                         zones=zone_tab, zone_w=zone_pull)
+    in_mac = {i for m in macros for i in m.members}
+    for i, (tg, _r, _w) in rel_pulls.items():
+        if i not in in_mac:
+            st.X[i], st.Y[i] = tg[int(st.K[i])]
     for mac in macros:
         if mac.anchored:   # members start at their layout around the locked anchor
             a = P.parts[mac.anchor]
@@ -837,7 +874,8 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         in_macro.update(mac.members)
     for i in P.mov:
         if i not in in_macro:
-            items.append(cpsat.single(P, i, int(st.X[i]), int(st.Y[i]), int(st.K[i])))
+            items.append(cpsat.single(P, i, int(st.X[i]), int(st.Y[i]), int(st.K[i]),
+                                      weight=REL_SEED_W if i in rel_pulls else 1.0))
     sol, model = None, None
     retries = []
     if len(items) <= FLOORPLAN_MAX_ITEMS:
@@ -947,6 +985,26 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
                 kw["labels"] = lab
                 if not float(kw.get("w_label") or 0.0) > 0:
                     kw["w_label"] = labelsmod.DEFAULT_WEIGHT
+        if rel is not None:
+            # the intent's pulls (regions, near a label or a fixed part, soft edges) on the same term: a
+            # label default the intent switched off (D-label-<ref>), or on a part a relation pulls, goes
+            lab = {}
+            pulls = rel_pulls
+            assoc_by = {a["part"]: a for a in assoc}
+            for i_, a_ in (kw.get("labels") or {}).items():
+                p_ = P.parts[i_]
+                rid = f"D-label-{p_.ref}"
+                if i_ in pulls or (p_.uuid in assoc_by and not rel.default_on(rid)):
+                    continue
+                lab[i_] = a_
+                if p_.uuid in assoc_by:
+                    rep["relations_applied"]["defaults"].append(dict(id=rid, kind="near", uuid=p_.uuid,
+                                                                     label=assoc_by[p_.uuid]["label"],
+                                                                     why=assoc_by[p_.uuid].get("evidence")))
+            lab.update(pulls)
+            kw["labels"] = lab
+            if pulls and not float(kw.get("w_label") or 0.0) > 0:
+                kw["w_label"] = labelsmod.DEFAULT_WEIGHT
         # soft overlaps: silkscreen where the project makes it an error (on KiCad's glyphs) and
         # routing channels between parts' pads (kae.place.exact.channel_grid)
         w_silk = float(kw.pop("w_silk", SILK_W) or 0.0)
@@ -964,6 +1022,9 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             w_band = float(setting("escape_band_w", board_path, opts))
             grids.append(EB.escape_grid(P, soft_bands, weight=w_band))
             rep["escape_term"] = dict(packages=len(soft_bands), parts=len(grids[-1]), w_band=w_band)
+        if rel is not None and rel.keep:
+            grids.append(rel.keep_grid(P))
+            rep["relations_applied"]["keep_away"] = len(rel.keep)
         if grids:
             kw["silk"] = exactmod.soft_grid(*grids)
             kw["w_silk"] = 1.0
@@ -1128,6 +1189,8 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     poses.update(mated)          # held fixed here, but movable in the file: write them too
     poses.update(pinned)
     res.poses = poses
+    if rel is not None:
+        rep["relations_applied"]["notes"] = {k: v[:6] for k, v in rel.applied.items()}
     if edge_mode >= 1:
         edge_hazards(rep, board, poses)
     return res
@@ -1253,23 +1316,44 @@ def _kicad_agrees(P, st, i, spot, board_path):
         st.X[i], st.Y[i], st.K[i] = saved
 
 
-def _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log):
+def _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log, auto=True, relations=None):
     """The edge connectors' poses from a quick seed (quadratic with connector anchors, spread)
-    on a throwaway Problem; returns (board with them moved there, {uuid: pose})."""
+    on a throwaway Problem; returns (board with them moved there, {uuid: pose}). auto: kae's own
+    pins (user-facing connectors, D-edge-<ref> rows); relations: an intent's on_edge pins, on the
+    edge and facing it names (they replace a default pin of the same part)."""
     from . import edge_check
+    locked = {fp.uuid for fp in board.footprints if fp.locked}
+    by_ref = {fp.uuid: fp.ref for fp in board.footprints}
     want = {u for u in edge_check.edge_parts(board, edge_check.PIN_KINDS)
-            if u not in fixed and not any(fp.uuid == u and fp.locked for fp in board.footprints)}
+            if u not in fixed and u not in locked} if auto else set()
+    spec = {}
+    if relations is not None:
+        want = {u for u in want if u not in relations.pins and relations.default_on(f"D-edge-{by_ref[u]}")}
+        for u in sorted(want):
+            rep["relations_applied"]["defaults"].append(dict(id=f"D-edge-{by_ref[u]}", kind="on_edge", uuid=u,
+                                                             why="user-facing connector (connector_edge)"))
+        for u, (lines, facing, rid, edge) in relations.pins.items():
+            if u not in fixed and u not in locked:
+                want.add(u)
+                spec[u] = (lines, facing, rid, edge)
     if not want:
         return board, {}
     try:
         P0 = Problem.build(board, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | set(fixed),
-                           angle_step=angle_step)
+                           angle_step=angle_step, part_rotations=relations.rotations if relations is not None else None)
         idx = [p.i for p in P0.parts if p.movable and p.uuid in want]
         if not idx:
             return board, {}
         net_w = {net.i: net.weight for net in P0.nets}
         st0, _ = _seed_state(P0, [], net_w, seed, log, partition=len(P0.mov) > FLOORPLAN_MAX_ITEMS)
-        poses, failed = edge_check.pin_poses(P0, st0, idx, log=log)
+        from .relations import NORMAL
+        pspec = {p.i: (spec[p.uuid][0], spec[p.uuid][1], NORMAL.get(spec[p.uuid][3])) for p in P0.parts
+                 if p.uuid in spec}
+        poses, failed = edge_check.pin_poses(P0, st0, idx, log=log, spec=pspec)
+        for p in P0.parts:
+            if p.uuid in spec:
+                relations.applied.setdefault(spec[p.uuid][2], []).append(
+                    f"{p.ref}: " + ("pinned" if p.uuid in poses else f"not pinned ({failed.get(p.ref)})"))
     except Exception as e:      # noqa: BLE001 - placing without the pin beats not placing
         rep["edge_pinned"] = dict(error=f"{type(e).__name__}: {e}")
         return board, {}

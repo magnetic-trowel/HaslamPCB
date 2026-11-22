@@ -97,6 +97,23 @@ def cmd_place(a):
         except ValueError as e:
             raise SystemExit(str(e))
         _log(f"fixed at their input pose: {len(kw['fixed'])} parts ({','.join(fix_classes) or 'by reference'})")
+    bundle = None
+    if getattr(a, "intent", None):
+        # the intent's placement relations (kae.place.relations): names resolved and pre-checked before
+        # anything is placed; an unknown name or a malformed relation stops here with what exists
+        from kae.place.relations import compile_intent
+        from kae.place.stubs import make_brief
+        brief, bsrc = make_brief(board)
+        try:
+            bundle = compile_intent(a.intent, board, brief, a.input, kw["opts"])
+        except ValueError as e:
+            print(json.dumps(dict(error=str(e), intent=a.intent, intent_error=True)), flush=True)
+            _log(f"intent: {e}")
+            return 2
+        kw["brief"] = brief
+        if bundle is not None:
+            kw["relations"] = bundle
+            _log(f"intent: {len(bundle.rels)} relations, {len(bundle.precheck)} conflicts proven before placing")
     on_disk = []           # the severity ladder's rungs, in the order their poses were written
 
     def verify(r, end):
@@ -149,6 +166,19 @@ def cmd_place(a):
     res.report["total_s"] = round(clock_now() - t0, 2)
     legal = not res.report.get("exact") and not res.report.get("outline_incomplete") and kicad_clean is not False
     res.report["legal"] = bool(legal)
+    if bundle is not None:
+        # the oracle: every relation measured on the board as written, re-read from the file
+        try:
+            st = bundle.status(load(a.output), defaults=(res.report.get("relations_applied") or {}).get("defaults"))
+            res.report.setdefault("hazards", []).extend(st.pop("hazards"))
+            res.report["relations"] = st
+            sm = st["summary"]
+            _log(f"relations: {sm['met']} of {sm['n']} met; unmet {sm['unmet'][:8]}; conflicts {sm['conflicts'][:8]}")
+        except Exception as e:      # noqa: BLE001 - a report section; never lose the placement
+            res.report.setdefault("hazards", []).append(dict(
+                code="relation_check_failed", severity="warn", category="data",
+                message=f"the relations could not be measured on the written board ({type(e).__name__}: {e})",
+                objects=[], fix="report it; the placement itself is written"))
     _hazards(res.report, a, "place", t0, brief=getattr(res, "brief", None), board=board)
     text = json.dumps(res.report, default=str)
     print(text, flush=True)          # last line of stdout: what kaebench keeps (adapter.log)
@@ -470,6 +500,10 @@ def main(argv=None):
                     help="parts without a courtyard: 'off' (default) keeps their bodies as obstacles; 'escalate' "
                          "frees them to their pads when legalization fails; 'auto' also up front on a board over "
                          "95%% full (the old behaviour). Relaxed parts are hazards in the report")
+    sp.add_argument("--intent", default=None, metavar="FILE",
+                    help="kae.intent/1 file whose 'relations' steer placement (near, region, on_edge, keep_away, "
+                         "order, orient, hold, side, group, row; kae.place.relations); every relation is measured "
+                         "on the written board and reported under 'relations', with conflicts and relaxations")
     sp.add_argument("--fix-class", default="", metavar="CLASS[,CLASS...]",
                     help="keep every part of these classes at its input pose: connectors, mounting, user "
                          "(kae.place.fixed.classify)")

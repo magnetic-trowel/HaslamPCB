@@ -2,16 +2,16 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # LLM relations as placer input: design proposal
 
-Scope: how the commanding LLM tells `kae place` and `kae.joint` what it wants as typed relations: vocabulary, format, compiler onto placer hooks, conflict feedback, evaluation, build plan. Status: proposal [I]. Not here: why relations beat coordinates -> [interfaces-relations-vs-coordinates](../llm/interfaces-relations-vs-coordinates.md); physics objectives -> [intent-driven-objectives](../architecture/intent-driven-objectives.md); hazard contract -> [hazards](../architecture/hazards.md).
+Scope: how the commanding LLM tells `kae place` and `kae.joint` what it wants as typed relations: vocabulary, format, compiler onto placer hooks, conflict feedback, evaluation, build plan. Status: phase 1 built ([llm-relations](llm-relations.md)), rest proposed [I]. Not here: why relations beat coordinates -> [interfaces-relations-vs-coordinates](../llm/interfaces-relations-vs-coordinates.md); physics objectives -> [intent-driven-objectives](../architecture/intent-driven-objectives.md); hazard contract -> [hazards](../architecture/hazards.md).
 Keys: relations, relation bundle, kae.intent/1 relations, near, group, region, room, on_edge, keep_away, row, order, orient, side, hold, symmetric, copy_layout, magnitude, tight/close/loose, strength, required/strong/medium/weak, relation_unmet, relation_conflict, admissible relaxation, RelationGuard, unsat core, synthetic asks
 
 Tags: [P] primary source read, [S] secondary or search summary, [M] measured here, [I] inference.
 
 **Results**
-1. Today the LLM steers the placer only by `--fix`, `--anneal-args` and `--set`: coordinates and solver internals, the interface RAC scored at 23.2% clean-pass vs 90.9% for relations ([RAC](../llm/interfaces-relations-vs-coordinates.md#rac-relational-agent-contract)).
+1. Before phase 1 the LLM steered the placer by `--fix`, `--anneal-args` and `--set` only: coordinates and solver internals, which RAC scored 23.2% clean-pass vs 90.9% for relations ([RAC](../llm/interfaces-relations-vs-coordinates.md#rac-relational-agent-contract)).
 2. Ten relation kinds cover 76% of the relation calls in four LLM-authored kaesynth designs. Physics terms cover another 8% ([R1](#r1-coverage-evidence)).
 3. Relations go in `kae.intent/1` as a `relations` key, next to `sections` and `terms` ([R3](#r3-format-kaeintent1-relations)).
-4. Six kinds reuse existing placer hooks; four need new terms or flips ([R4](#r4-compiler-relation--placer-hook)).
+4. Six kinds reuse placer hooks; four need new terms or flips ([R4](#r4-compiler-relation--placer-hook)).
 5. Board rules outrank every relation; an unmet hard relation returns conflicts and admissible relaxations, never a silent drop ([R5](#r5-feedback-conflicts-and-relaxations)).
 
 ## R1. Coverage evidence
@@ -24,7 +24,7 @@ Tags: [P] primary source read, [S] secondary or search summary, [M] measured her
 | Scene layout [P] | Holodeck: 10 types (edge, middle, near, far, 4 positional, center-aligned, face-to). LayoutVLM: 5 types; without relations in-bounds falls 94.9 → 14.1 |
 | ALIGN [P] | hard: Order, Align, Spread, Boundary, SymmetricBlocks; soft: PlaceCloser, PlaceOnBoundary |
 
-No source counts relation coverage [S]; the 76% comes from one LLM's designs.
+No source counts coverage [S]; the 76% comes from one LLM's designs.
 
 **Geometric wants become relations; physical wants become terms.** "Small hot loop" and "don't desense the mic" are `loss.loop` and `pickup.peak` terms, which kae prices directly (loop L within 5% median of PEEC, [physics terms](../../research/placement/kae-physics-terms.md)). A relation says where, beside what, and which way [I].
 
@@ -41,9 +41,9 @@ No coordinates and no millimetres, except datasheet distances with a `source` ([
 **Magnitudes** `tight | close | loose` resolve on the solver side:
 - 0402 decaps use the corpus priors ([measured priors](../data/measured-priors.md#decoupling-distance-priors)): tight ≤ 2.5 mm (median), close ≤ 4.9 mm (p90), loose ≤ 15 mm, centre to centre.
 - Other parts scale with s = √(courtyard area of the smaller member): tight gap ≤ max(0.5 mm, 0.5·s), close ≤ 2·s, loose ≤ 6·s.
-- Overridable as `KAE_REL_<MAG>_<CLASS>` via `kae.route.constraints.setting` [I].
+- Overridable as `KAE_REL_<MAG>_<CLASS>` [I].
 
-**Strength** (Cassowary: a strength completely dominates every weaker one [P]): `required` > `strong` > `medium` (default) > `weak`. Compare levels lexicographically: under 1000× weights enough weak terms outvote a strong one [P].
+**Strength** (Cassowary: a strength dominates every weaker one [P]): `required` > `strong` > `medium` (default) > `weak`. Compare levels lexicographically: under 1000× weights enough weak terms outvote a strong one [P].
 
 | Kind | Arguments | Measured by the oracle | Default |
 |---|---|---|---|
@@ -69,13 +69,13 @@ No coordinates and no millimetres, except datasheet distances with a `source` ([
 | `pcb-intent/0.2` ([constraint-ir](../architecture/constraint-ir.md#ir-sketch)) | kaesynth emits it; its names are close to v1 | nothing reads it; it carries mm (`max: 2.0`, `MAGNITUDES_MM` 3/8/20), against the write-interface rule |
 | **`kae.intent/1` + `relations`** | `load` already rejects shape errors with fixes, `sections.apply` resolves names, `generation` and status rows exist, routers and evaluator read it | geometric and physical rows share one status |
 
-Choose `kae.intent/1` + `relations`, and add a kaesynth converter from `pcb-intent/0.2` relations that drops the mm [I].
+Choose `kae.intent/1` + `relations`, and add a kaesynth converter from `pcb-intent/0.2` that drops the mm [I].
 
-Loading stays strict: an unknown kind, argument, name or section is an `IntentError` that lists what exists, and every relation needs a unique `id` and a `why` or `source`.
+Loading stays strict: an unknown kind, argument, name or section is an `IntentError` listing what exists; every relation needs a unique `id` and a `why` or `source`.
 
-kae's implicit relations show up as synthetic `D-` rows (`D-edge-J3`, `D-order-…`, `D-label-D4`). The LLM can switch them off with `"defaults_off": ["D-label-*"]`, and an explicit relation on the same part replaces its default [I].
+kae's implicit relations show up as synthetic `D-` rows (`D-edge-J3`, `D-order-…`, `D-label-D4`). The LLM switches them off with `"defaults_off": ["D-label-*"]`, and an explicit relation on the same part replaces its default [I].
 
-Worked example: corpus board `pcbcorpus-tcsullivan-noisecard-noisecard` (32 parts: buck U2/L1, MCU U1, locked mic MK1, LED bar D1–D10 at printed dB labels, switch SW1 at "ON", solar cell B1; brief sections `cell:buck:U2`, `decap:U1:+1V8`, `victim:analog:MIC_WS`) [M].
+Worked example: corpus board `pcbcorpus-tcsullivan-noisecard-noisecard` (32 parts: buck U2/L1, MCU U1, locked mic MK1, LED bar D1–D10 at printed dB labels, switch SW1 at "ON", solar cell B1) [M].
 
 ```json
 {"schema": "kae.intent/1", "generation": 3,
@@ -97,11 +97,11 @@ Worked example: corpus board `pcbcorpus-tcsullivan-noisecard-noisecard` (32 part
             "max": "1 mV", "rate": "5 mW_eq/mV", "why": "mic noise floor"}]}
 ```
 
-`quiet` (geometry) and `T1` (physics) state one want twice; the status shows whether the proxy bought the physics [I].
+`quiet` (geometry) and `T1` (physics) state one want twice; the status shows whether the proxy bought it [I].
 
 ## R4. Compiler: relation → placer hook
 
-Files are in `kae/src/kae/place/` unless named. Cost: S ≤ 2 days, M ≤ 1 week, L > 1 week.
+Files: `kae/src/kae/place/` unless named. Cost: S ≤ 2 days, M ≤ 1 week, L > 1 week.
 
 | Relation | Seed / floorplan (`seed.py`, `cpsat.Model`) | Annealer (`engine.build`, `anneal.Annealer`) | Legalize / exact / KiCad loop | Cost |
 |---|---|---|---|---|
@@ -126,7 +126,7 @@ Shared new code [I]:
 - `kae.place.relations` (M): resolves names, magnitudes and regions; runs the pre-checks; measures each relation on poses and on the written board re-read from file (the oracle).
 - `exact.RelationGuard` (M): an `OrderGuard` copy. The exact and KiCad-loop repairs reject moves that break a required relation.
 
-Engine cost: 12 extra `Eng` fields ≈ 10% move rate ([kae-place](kae-place.md#pipeline)); kinds share the order-rule arrays via a kind code: one field [I].
+Engine cost: 12 extra `Eng` fields ≈ 10% move rate ([kae-place](kae-place.md#pipeline)); a kind code in the order-rule arrays needs one [I].
 
 Precedence, highest first [I]:
 1. board rules and legality;
@@ -147,7 +147,7 @@ Precedence, highest first [I]:
 | geometry | required `near` tighter than the courtyards allow at any rotation; `orient` set empty |
 | board rule | every cell of a required region or edge spot is under a rule-area keep-out, outside the outline, or under a locked part |
 
-**Stage 2: solver core.** In CP-SAT windows and the floorplan (≤ 40 items), each required relation gets an enforcement literal passed as an assumption. On INFEASIBLE, `sufficient_assumptions_for_infeasibility` names the conflicting relations, as ALIGN does with Z3's labelled unsat core [P]. A timeout proves nothing, since CP-SAT rarely proves packings infeasible ([legalization](legalization.md#open-questions)); the row then says `unproven` and gives the shortfall.
+**Stage 2: solver core.** In CP-SAT windows and the floorplan (≤ 40 items), each required relation gets an enforcement literal passed as an assumption. On INFEASIBLE, `sufficient_assumptions_for_infeasibility` names the conflicting relations, as ALIGN does with Z3's labelled unsat core [P]. A timeout proves nothing: CP-SAT rarely proves packings infeasible ([legalization](legalization.md#open-questions)); the row then says `unproven` and gives the shortfall.
 
 **Stage 3: measured outcome.** The oracle measures every relation on the final board. `binding` lists the parts and obstacles on the segment from a member to its target.
 
