@@ -71,3 +71,32 @@ def test_a_module_drives_a_clock_before_a_connector_and_an_untyped_ic_pin():
     assert clock_driver(bd, "CLK") == "U3.30"
     bd.pads_of["CLK"] = ["U1.16", "JP1.6"]
     assert clock_driver(bd, "CLK") == "JP1.6"            # the I2S clock arrives on the header, not at the amp's input
+
+
+class _OrderedSet(set):
+    """A set whose iteration order is the one given: the hash seed's freedom, fixed for a test."""
+
+    def __init__(self, items):
+        super().__init__(items)
+        self._order = list(items)
+
+    def __iter__(self):
+        return iter(self._order)
+
+
+def test_a_connectors_cm_ground_pad_does_not_depend_on_the_ground_nets_order():
+    """duanestorey's J1 and J3 have ground pads on two ground nets: the cable common-mode observer took the first pad
+    met while iterating bd.grounds, a set, so two runs of the same code picked J1.1 or J1.3 by the hash seed (and the
+    cable_cm.v observations moved by about 11 %). It is now the connector's lowest-numbered ground pad."""
+    from kae.excite.observe import observers
+
+    def cm(order):
+        pads_of = {"GND": ["J1.3", "J3.2", "J2.10"], "GNDA": ["J1.1", "J3.1", "J2.2"], "SIG": ["J1.2", "J2.1"]}
+        bd = M.Board(Circuit("GND"), "GND", _OrderedSet(order), {}, pads_of,
+                     {t: n for n, ts in pads_of.items() for t in ts},
+                     {r: ("connector", None, "") for r in ("J1", "J2", "J3")})
+        return {o.name: o.meta["pads"] for o in observers(bd, {}, []) if o.kind == "cm"}
+
+    a, b = cm(["GND", "GNDA"]), cm(["GNDA", "GND"])
+    assert a == b
+    assert a == {"cm:J1-J2": ("J1.1", "J2.2"), "cm:J1-J3": ("J1.1", "J3.1"), "cm:J2-J3": ("J2.2", "J3.1")}

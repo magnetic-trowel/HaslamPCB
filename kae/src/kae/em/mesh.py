@@ -301,6 +301,8 @@ class Mesh:
         return self.paint(layer, net, cov=self.coverage(rect=(x0, y0, x1, y1)))
 
     def via(self, x, y, layers, net, drill=0.3, plating=PLATING):
+        if not drill > 0:       # a barrel of no radius: its self inductance is NaN, and every solve with it
+            raise ValueError(f"via at ({x}, {y}) on {net}: drill {drill} mm; a barrel needs a positive drill")
         self.vias.append(Via(x, y, list(layers), self.net_id(net), drill, plating))
 
     def cell(self, x, y):
