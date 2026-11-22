@@ -208,6 +208,29 @@ def test_an_open_cell_on_a_negative_bus_loses_its_throughputs_magnitude(V):
                                          for x, v in zip(ov, vals)]
 
 
+def test_a_negative_bus_is_rated_and_bounded_as_its_magnitude():
+    """overshoot_limits floored a signed -12 V bus at 1 mV: the smallest prior rating and V_abs + 12 V of headroom, so
+    a closed cell on a negative bus was never flagged. The bus is a magnitude at the root (criteria, harm)."""
+    from haslam.excite import harm as HA
+    from haslam.physics import criteria as CR
+    for va in (None, 40.0):
+        assert CR.overshoot_limits(-12.0, va) == CR.overshoot_limits(12.0, va)
+        assert CR.overshoot_basis(-12.0, va) == CR.overshoot_basis(12.0, va)
+    d = 0.123
+    for extra in ({}, {"V_max_V": 30.0}):
+        neg, pos = dict(V_V=-12.0, I_A=1.0, **extra), dict(V_V=12.0, I_A=1.0, **extra)
+        assert HA.overshoot_bound(neg, d) == HA.overshoot_bound(pos, d)
+        assert HA.overshoot_bound(neg, d, legacy=2.4) == HA.overshoot_bound(pos, d, legacy=2.4)
+        # the closed-cell path: the pair's u and its hazard on a -12 V bus are the 12 V bus's
+        val = dict(neg, t_i_s=5e-9, f_sw_Hz=1e6, D=0.4)
+        u_n, p_n = HA.pair_u("overshoot", d, 0.05 + 0.02j, 5e-9, val)
+        u_p, p_p = HA.pair_u("overshoot", d, 0.05 + 0.02j, 5e-9, dict(val, V_V=12.0))
+        assert (u_n, p_n) == (u_p, p_p)
+        h_n = HA.overshoot_hazard("cell:x", ["U1"], [val], [30.0])
+        h_p = HA.overshoot_hazard("cell:x", ["U1"], [dict(val, V_V=12.0)], [30.0])
+        assert h_n is not None and h_n == h_p and h_n["evidence"]["peak_V"] == 42.0
+
+
 @pytest.mark.parametrize("V", [5.0, -5.0])
 def test_the_loss_cap_on_a_negative_bus_is_positive(V):
     from haslam.excite import evaluate as E
