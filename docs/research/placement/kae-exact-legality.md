@@ -86,6 +86,16 @@ Split-C placement sweeps across versions (`csweep.py`, 600 s, seed 0), the human
 
 Summed over the 14 boards: 59.5 -> 67.8 (+14%), all of it decap loops. The "kept only if not costlier than the seed" guard runs before the exact repair, and in ubertooth's case the legalized candidate still beat the seed (36.1). It concentrates where repair already struggles: all three ended with KiCad errors left. Proposed fix, not built: a physics tie-break in `exact.move_clean`, which takes the cheapest of the first few exactly clean candidates within ~2 mm of the nearest, using the `phys` callable `fix_order` already takes. A matching term for members of physics macros would go in `legalize._window_solve` (rigid offsets to the macro anchor, as `legalization.md` recommends with "decap distance"). Measure either with `physics_trace` before an A/B.
 
+Why post-anneal legalization raises decap Σu (p6-repair-place2 control at 03664dc, about 10% of the loss after the KiCad loop fix; the four states reproduced bit for bit under counted work and replayed offline):
+
+| board | anneal -> legalize decap Σu | cause |
+|---|---|---|
+| pi-w-controller a1 | 0.49 -> 1.59 (commutation 1.3 -> 7.7) | the anneal left a 28 mm module on the locked 40-pin header; its nearest clear pose is 30 mm away, but a window's origin box is the freed parts' extent + 2-3 mm, so windows were infeasible or UNKNOWN; the greedy rip-up (eviction priced 4 per covered cell, so the module jumped 91 mm) moved 10 parts 240 mm and split the buck macro |
+| tinkerforge temperature a1 | 1.19 -> 2.45 | a connector over a fiducial went to two windows (centres > 4 mm apart), each holding the other fixed: 9 parts moved 15 mm; in one window 7 parts move 3 mm, but the optimum is not unique and the seed picks decap Σu 1.46 or 2.40 |
+| melexin bs-base a0, c64 mouse a0 | 1.04 -> 1.59, 0.29 -> 0.75 | the anneal ended with a decap on its own IC's courtyard (illegal); the minimum legal move takes the cap out (4.9 mm, 3.75 mm): inherent to that end state |
+
+The decap-pair term of `repair_physics` could not act on these: tinkerforge and melexin have no decap structures in the macro builder (their caps are `nearest_load`), and on pi-w the window never found a solution. The legalizer now (`place_legalize_structures`, [kae-placer](kae-placer.md) §6) reaches the escape pose, groups overlapping violators, moves macros as blocks and breaks exact ties by physics. Replayed on the four states: tinkerforge 2.45 -> 1.46 (3 mm moved instead of 15), melexin and c64 unchanged (inherent); pi-w still depends on CP-SAT finding any solution for 16-38 freed parts in its time slice (one replay found one: commutation stays 1.3, decap 0.49 -> 1.99; others fall back to the greedy rip-up). Seeding the window with the greedy fit cost as much time as the fallback itself and left the final greedy out of time (an illegal end), so it was dropped. Left open: the annealer may leave a part on fixed geometry (pi-w) or a decap on its IC (melexin, c64); legality there is a penalty the physics pull outweighs at `lam1`.
+
 Residuals: one paw3222 copper_edge_clearance on one attempt (fixed in [644b268](https://github.com/magnetic-trowel/kicad-auto-everything/commit/644b26865698f2be6d2e252cfc5d896dcb6fc7f3)); a pcbnew zone-fill assert on pingdevkit is pcbnew's.
 
 ## Verdict
