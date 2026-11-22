@@ -656,7 +656,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     slot_on = bool(int(setting("place_edge_slot", board_path, opts)))
     if hdr_on or slot_on:
         board, hdr = _pin_edge_headers(board, brief, held, fixed, angle_step, rep, log, headers=hdr_on,
-                                       unfit=slot_on)
+                                       unfit=slot_on, board_path=board_path, opts=opts)
         fixed = fixed | set(hdr)
         pinned = {**pinned, **hdr}
     grid_step = None
@@ -1298,18 +1298,24 @@ def _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log):
     return (edge_check.with_poses(board, poses) if poses else board), poses
 
 
-def _pin_edge_headers(board, brief, held, fixed, angle_step, rep, log, headers=True, unfit=False):
+def _pin_edge_headers(board, brief, held, fixed, angle_step, rep, log, headers=True, unfit=False, board_path=None,
+                      opts=None):
     """Edge headers (kae.place.crowded.edge_headers) and/or the movable parts whose courtyard
     cannot fit (unfit) pinned flush along a board side, on a throwaway Problem; returns (board
     with them moved there, {uuid: pose})."""
     from . import crowded, edge_check
     from .state import State
+    from kae.route.constraints import setting
     try:
         P0 = Problem.build(board, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | set(fixed),
                            angle_step=angle_step)
         st0 = State(P0)
         found = crowded.edge_headers(P0) if headers else {}
         hdr = {i: v for i, v in found.items() if crowded.fits_nowhere(P0, st0, i)}
+        # the other header rows of a board whose header fits nowhere go to the edges with it (a
+        # Feather's two rows: pinning one left the other free, and parts stacked against it)
+        if hdr and int(setting("place_edge_header_pairs", board_path, opts)):
+            hdr = dict(found)
         if unfit:
             for i, v in crowded.not_fitting(P0).items():
                 hdr.setdefault(i, v)
