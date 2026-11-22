@@ -10,7 +10,7 @@ Keys: quick physics, two fidelities, strip PEEC, tile PEEC, geometry-exact mesh,
 **Results**
 1. Every trap of the last weeks traces to four root causes: three estimators that are not approximations of the evaluator; observables defined as signed shares instead of energies and dissipations; the raster as the geometric primitive; field work that no budget counts (§1).
 2. A PEEC on the actual strips, pads and vias with the plane as a bar grid reads the 0.0625 mm raster window on the fixture at +0.6 … +6.7 % (L_loop, converging upward to about +9 %) and −1.5 … −6 % (R_loop, converging to it) from 10³–10⁴ unknowns in 1–12 s, and quotes a router move exactly as a rank-k bordered update of one factorisation in 0.09–0.46 s (§4) [C].
-3. Quick and full physics should be one network at two resolutions: nested current spaces make the quick L and R upper bounds of the full ones by the minimum-energy theorems, so the router optimises a bound on what is scored (§3).
+3. Quick and full physics should be one network at two resolutions. Tested on the fixture (§4b): with nested refinement L_coarse ≥ L_fine at every frequency above DC; R_coarse ≥ R_fine holds at DC only and fails above 0.1 MHz (−4.7 % at 10 MHz: the finer network resolves crowding). So L is a bound of its refinement where the router uses it, R an estimate (§3).
 
 ## 1. Diagnosis: four root causes behind eight traps
 
@@ -29,7 +29,7 @@ Two more: the cap anti-resonance is a class-C quantity ([lens-vp](../../topics/p
 |---|---|---|---|
 | Geometry | unchanged raster; sparse tiles only where copper is | tracks = strips (Hoer–Love bars of the true width, `nw` filaments across, `nt` through the thickness); pads = equipotential polygons; vias = tubes landed by a bilinear well; pours and planes = bar tiles clipped to KiCad's fill polygons, pitch P | as B for cells; planes beyond the cell window as a cavity or sheet model; the rest of the board as the passive reduced model of `em/reduce.py` |
 | Quick vs full | quick = coarser pitch, warm-started COCG; same definitions | quick = coarse P and nw = nt = 1; full = fine P, nw, nt with skin filaments. Same elements, same circuit, same functionals | quick = cell network at coarse P with the board model's port impedance as a boundary; full = fine |
-| Guarantee | none: decap loops are non-monotone in pitch ([field-solver-accuracy](field-solver-accuracy.md#3-mesh-bias-at-025-mm-e7)) | nested current spaces ⇒ L_quick ≥ L_full ≥ L_true, R_quick ≥ R_full ≥ R_true at DC (minimum energy, Thomson); error = a local tile refinement study | as B in the window; the board model's dual-weighted residual ([physics-frequency-coverage](../../topics/architecture/physics-frequency-coverage.md)) |
+| Guarantee | none: decap loops are non-monotone in pitch ([field-solver-accuracy](field-solver-accuracy.md#3-mesh-bias-at-025-mm-e7)) | nested current spaces ⇒ L_quick ≥ L_full (held at every f > 0 on the fixture), R_quick ≥ R_full at DC only (§4b); error = a local tile refinement study | as B in the window; the board model's dual-weighted residual ([physics-frequency-coverage](../../topics/architecture/physics-frequency-coverage.md)) |
 | Incremental quote | no (matrix-free, iterative) | yes: dense LU per cell, bordered rank-k update per move (removed bars constrained, new bars and nodes bordered), exact | yes, plus the board model reused across moves within its Woodbury radius |
 | Cost per cell | 0.0625 mm window: 10⁵–10⁶ cells, 4–6 factorisations and COCG runs per attempt, median 104 s per board | N ≈ 10³ (P 0.5 mm) to 10⁴ (P 0.25 mm) unknowns: mutuals O(N·N_strip) + one table, LU O(N³) once, moves O(k·N²) | B plus one reduced build per board (437–1825 s today) |
 | Countable work | iterations vary with conditioning | kernel evaluations, N³, k·N²: known before the solve | as B plus the reduced model's snapshot count |
@@ -48,7 +48,7 @@ Rejected: a surrogate on solver labels and bias-corrected closed forms ([exact-p
 - `pdn.peak = max_n |Z_port(n f_sw)| · |c_n|` on the harmonic grid from the cell's passive port model in the circuit: the anti-resonance priced as the voltage it makes, never linearised (class C).
 - Every observation carries a type: `Energy`, `Dissipation`, `Magnitude` (|V|, |I|), `Transfer` (signed, two ports). A bound or price on a `Transfer` must say which sign it penalises; a `Magnitude` cannot go negative; a cost tier accepts only `Energy`, `Dissipation`, `Magnitude`. The negative-rail and signed-drop bugs become type errors.
 
-**Why nesting gives an ordering.** With the port currents fixed, the true current minimises ½ IᵀL_p I (Thomson's theorem for magnetostatics; Karlsson 1984, Fiolhais & Providência 2009) and, at DC, Iᵀ R I. A coarse bar with uniform current is one vector in the span of its fine sub-bars (`bar_mutual` is additive to 10⁻¹³ on touching sub-bars [C]), so the coarse minimum is over a subspace: L_coarse ≥ L_fine, R_coarse ≥ R_fine. It holds between nested resolutions of one network, not between a raster and a strip model nor between unaligned grids (§4's P steps move L up). Two rules keep it exact: refine by splitting bars; land vias and pad edges on the same points at every resolution. In the transition band the current minimises neither functional alone: the ordering is tested across frequency in M2, not assumed.
+**Why nesting gives an ordering.** With the port currents fixed, the true current minimises ½ IᵀL_p I (Thomson's theorem for magnetostatics; Karlsson 1984, Fiolhais & Providência 2009) and, at DC, Iᵀ R I. A coarse bar with uniform current is one vector in the span of its fine sub-bars (`bar_mutual` is additive to 10⁻¹³ on touching sub-bars [C]), so the coarse minimum is over a subspace: L_coarse ≥ L_fine in the inductive limit, R_coarse ≥ R_fine at DC. Between those limits the current minimises neither functional alone; measured (§4b): L keeps the ordering at every f > 0, R loses it above 0.1 MHz. It holds between nested resolutions of one network, not between a raster and a strip model nor between unaligned grids. Two rules keep it exact: refine by splitting bars; land vias and pad edges on the same points at every resolution.
 
 **Where the code goes.**
 
@@ -62,31 +62,34 @@ Rejected: a surrogate on solver labels and bias-corrected closed forms ([exact-p
 
 ## 4. Prototype: strip-and-tile PEEC on the buck fixture [C]
 
-`tools/research/physics/quickphys/strip_peec.py` builds the fixture's hot loop (`kae/tests/hotloop_fixtures.py`: C1 → U1 on F.Cu, ground through two vias to a B.Cu plane, gap 1.51 mm): VIN and ground tracks as 0.5 mm bars from the pad edges (the oblique ground track as a staircase at w/2, DC resistance scaled to the true length as the raster's `paint_line`), pads as nodes, vias as tubes on bilinear wells, the plane as x and y bars of pitch P over the quote's window (15.6 × 12 mm), couplings from `kae.em.kernels.bar_mutual` (a translation table for the plane, direct for strips), x to x and y to y only, the capacitor as ESR + ESL. MNA, dense complex LU, port ±1 A at U1.4 / U1.3. Reference: `kae.excite.cellquote` raw window values at 0.25, 0.125 and 0.0625 mm, same window.
+`tools/research/physics/quickphys/strip_peec.py` builds the fixture's hot loop (`kae/tests/hotloop_fixtures.py`: C1 → U1 on F.Cu, ground through two vias to a B.Cu plane, gap 1.51 mm) from its geometry: tracks as 0.5 mm bars from the pad edges (the oblique ground hop as a staircase at w/2), pads as nodes, vias as tubes on bilinear wells, the plane as bars of pitch P over the quote's window (15.6 × 12 mm), `kae.em.kernels.bar_mutual` couplings (x to x, y to y), the capacitor as ESR + ESL; MNA, dense complex LU, port ±1 A at U1.4 / U1.3. Reference: `kae.excite.cellquote`'s raw window at 0.0625 mm.
 
-| Variant | Model | Bars | Nodes | L_loop nH (10 MHz) | R_loop mΩ (1.1 MHz) | R_dc mΩ | Time |
-|---|---|---|---|---|---|---|---|
-| closed | raster 0.25 / 0.125 / 0.0625 mm | — | — | 3.693 / 3.528 / **3.515** | 6.649 / 6.740 / **6.452** | — | 5.1 / 3.8 / 17.2 s |
-| closed | strips + plane P 1.0, nw 1 | 371 | 210 | 3.537 (+0.6 %) | 6.188 (−4.1 %) | 6.084 | 0.08 + 0.7 s |
-| closed | P 0.5, nw 1 | 1,448 | 762 | 3.675 (+4.5 %) | 6.266 (−2.9 %) | 6.198 | 0.3 + 0.9 s |
-| closed | P 0.5, nw 2 | 1,461 | 762 | 3.671 | 6.278 | 6.198 | 0.3 + 0.7 s |
-| closed | P 0.25, nw 1 | 5,857 | 2,994 | 3.751 (+6.7 %) | 6.355 (−1.5 %) | 6.304 | 1.1 + 11 s |
-| long | raster 0.25 / 0.125 / 0.0625 mm | — | — | 6.758 / 6.270 / **6.270** | 12.84 / 13.36 / **12.97** | — | 0.9 / 3.2 / 13.5 s |
-| long | P 1.0, nw 1 | 384 | 223 | 6.437 (+2.7 %) | 12.14 (−6.4 %) | 12.03 | 0.1 + 0.3 s |
-| long | P 0.5, nw 1 | 1,461 | 775 | 6.536 (+4.2 %) | 12.23 (−5.7 %) | 12.14 | 0.3 + 0.8 s |
-| long | P 0.25, nw 1 | 5,870 | 3,007 | 6.608 (+5.4 %) | 12.33 (−4.9 %) | 12.24 | 1.6 + 11 s |
-| open | any | — | — | open by union-find before any solve | | | 0 s |
+| Variant | raster 0.0625 (nH / mΩ) | P 1.0 | P 0.5 | P 0.25 | N at P 0.25 |
+|---|---|---|---|---|---|
+| closed | 3.515 / 6.452 | 3.537 / 6.188 | 3.675 / 6.266 | 3.751 / 6.355 | 8,851 |
+| long | 6.270 / 12.97 | 6.437 / 12.14 | 6.536 / 12.23 | 6.608 / 12.33 | 8,877 |
+| open | — | open by union-find before any solve | | | |
 
-Percentages against the 0.0625 mm raster. Times: mutuals + one LU and solve; raster: whole quote at 4 threads.
+- Closed < long at every resolution; nw 1 and 2 agree within 0.1 % (w/h = 0.33).
+- Convergence in P: R converges to the raster; L moves upward, each step half the last, toward ≈ 3.83 nH, 9 % above the raster: the prototype's resistive links under-resolve the via's spreading L at coarse P (fixed by the Peaceman wells of §4b).
+- Incremental quote: closed → long as a bordered update of the closed board's LU, identical to an independent build to 10⁻¹³ nH: 0.088 s vs 0.8 s (P 0.5, k = 55), 0.46 s vs 11 s (P 0.25). Work is countable before the run (kernel evaluations, N³, k·N²).
 
-- **Ordering of layouts:** closed < long at every resolution, as the raster; long − closed = 2.86–2.90 nH (strips) against 2.76 nH (raster 0.0625), 3.07 (raster 0.25).
-- **Convergence in P (1.0 → 0.5 → 0.25):** R converges to the raster (closed 6.19 → 6.27 → 6.36 vs 6.45 mΩ). L moves away from it, upward, each step half the last: 3.54 → 3.67 → 3.75 nH (long 6.44 → 6.54 → 6.61), limit ≈ 3.83, 9 % above the raster's 3.51. Coarse tiles under-resolve the via's spreading inductance (the P 1.0 agreement is fortuitous); the converged excess is the model's: one uniform bar per track and the overlapped staircase. That is the upper-bound side (§3); on real boards the ratio's spread, not its mean, is what to validate.
-- **Width filaments:** nw 1 and 2 agree within 0.1 % at h = 1.5 mm (w/h = 0.33): one bar per track suffices.
-- **Residual.** R low by 0.1–0.8 mΩ: the plane's spreading resistance within 1 mm of each via (≈ (R_s/2π)·ln(1 mm/0.18 mm) = 0.13 mΩ per via at R_s = 0.49 mΩ/□) and the staircase corner. Both residuals are local to vias, corners and junctions, where the design puts small exact patches (Peaceman wells, oblique kernels from `kae.physics.exact`), not a finer global grid. Snapping a via to the nearest grid node instead of the well moved L by 3 % between P 1.0 and 0.5.
-- **Incremental quote.** The move closed → long (3 bars out, 20 in, orphaned station nodes pinned) as a bordered update of the closed board's LU at P 0.5: k = 55, 0.088 s, identical to an independent build to 1.2 × 10⁻¹³ nH; the full build and LU take 0.8 s. New-bar mutuals: 0.47 s in plain numpy (38,682 kernel evaluations), which a cached table removes.
-- **Countable:** 5,518 table + 38,682 direct kernel evaluations, one N = 2,231 LU, k·N² for the move: known before the run.
+## 4b. `kae.em.strips` (M2): ground truth, the bound across frequency, and real boards [C]
 
-Not yet shown: real boards, skin filaments above 3 MHz, planes with cuts, oblique kernels. At P 0.25 (N = 8,859) the bordered update takes 0.46 s against 11 s for the LU.
+The production module (`kae/src/kae/em/strips.py`, branch `quick-physics`) adds Peaceman wells counted in R, partial tiles for pour necks, pad nodes and a Gauss far rule; on the fixture it reads the 0.0625 mm raster at +0.0 % (closed) / +1.1 % (long) at P 0.5 and +4.0 / +2.9 % at P 0.25 (the prototype's +9 % limit was its crude wells). Ground truth, FastHenry2 built from source (`tools/research/physics/quickphys/{fasthenry_fixture,ground_truth}.py`), 10 MHz:
+
+| Case | Reference nH | raster 0.0625 | strips P 0.5 | strips P 0.25 |
+|---|---|---|---|---|
+| fixture closed | 3.645 (FastHenry) | −3.6 % | −3.6 % | +0.2 % |
+| fixture long | 6.588 | −4.8 % | −3.8 % | −2.0 % |
+| fixture axis (ground hop as an L) | 3.784 | −5.3 % | −5.8 % | −1.7 % |
+| strip loop over a plane (image-pair Hoer–Love) | — | −4.1 % | +1–2 % | |
+| go and return strips (Hoer–Love) | — | −0.7 % | exact | |
+| via pair (Grover) | — | −7.9 % | exact | |
+
+The raster reads low on every case; the oblique-track staircase (axis − closed, 0.139 nH in FastHenry) is half captured by both models. **Bound across frequency** (P 1.0 vs its 2 × 2 refinement, f = 0 … 100 MHz, `bound_vs_f.py`): L_coarse ≥ L_fine at every f > 0 (equal at DC); R_coarse ≥ R_fine only at DC, failing by 4.7 % at 10 MHz. Bordered update exact to 2 × 10⁻¹⁵, 0.18 s vs 0.46 s (P 0.5), 1.7 s vs 36 s (P 0.25).
+
+**Real boards (PLAN items 1–2, 2026-11-22): both kill criteria tripped.** On the 40 human/routed cell pairs with a refined window (74 non-tie comparisons) the strips quote agreed with the window on 20 (L 12 of 38, R 8 of 36; kill below 68); 26 of 80 quotes were not `ok`. On the 21 human layouts (19 cells) it quoted 8: median L ratio 0.78, R 0.44, p90 |ratio − 1| 0.84 (kill above 0.15); 8 cells "no such cell in the strips quote" (the cell is not found when the quote is built from the board without the stored run's operating facts), 3 "open by connectivity" where the raster closes the loop (pour copper the tile builder drops). The fixture and FastHenry agreement does not transfer to real boards yet: `from_board`'s copper selection (which nets, which pours, pad-to-pour joins) is the open problem, not the kernels or the functionals. M2 stops here; the A/B is not run.
 
 ## 5. Migration, each step leaving the evaluator trustworthy
 
