@@ -205,7 +205,8 @@ def _emission(ob, cables):
             for v, f in zip(ob["values"], ob.get("f_Hz") or [0.0] * len(ob["values"]))]
     sc = dict(ob["scope"])
     sc["cable_m"] = l
-    return QT.check(dict(id="emission.cable_E", unit="dBuV/m", values=vals, u=None, scope=sc,
+    # derived here from stored data: never strict (an evaluation from before a type existed must still load)
+    return QT.check(strict=False, ob=dict(id="emission.cable_E", unit="dBuV/m", values=vals, u=None, scope=sc,
                         reference=dict(value=30.0, basis="CISPR 32 class B, 30-230 MHz, 10 m"),
                         label=f"cable emission at 10 m via {'-'.join(sc.get('connectors', []))} ({l:g} m) <- "
                               f"{sc.get('source')}", f_Hz=ob.get("f_Hz")))
@@ -368,10 +369,11 @@ def evaluate(ev, intent=None, brief=None):
         if "rate" in t:
             r, rdim = U.rate(t["rate"], cur)
         inst = []
-        bad = sorted({obs[i]["scope"].get("source") for i in hit if obs[i].get("invalid")})
+        bad = sorted({obs[i]["scope"].get("source") or obs[i].get("label") or obs[i]["id"] for i in hit
+                      if obs[i].get("invalid")})
         if bad:
-            # an observation the evaluator marks invalid (a cell's L_loop that is no inductance) is no value: the term
-            # is incomplete for it, never priced with it
+            # an observation the evaluator marks invalid (a cell's L_loop that is no inductance, a value its type
+            # forbids) is no value: the term is incomplete for it, never priced with it
             hit = [i for i in hit if not obs[i].get("invalid")]
         for i in hit:
             ob = obs[i]

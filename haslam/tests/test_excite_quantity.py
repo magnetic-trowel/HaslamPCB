@@ -4,7 +4,8 @@
 
 A magnitude or a dissipation is never negative; a bound or cap built from a signed board value (a -5 V rail) is its
 magnitude; a clamp's bound is max(x, 0); a signed transfer needs a side before it can be bounded, and no cost tier
-may price it."""
+may price it. In production a violation marks the observation invalid; in strict
+mode (the tests' default, conftest.py) it raises."""
 import dataclasses
 import json
 from types import SimpleNamespace
@@ -161,6 +162,44 @@ def test_a_limit_on_a_signed_transfer_has_a_side_and_is_priced(transfer_kind):
     assert x2["met"] is False and st["tiers"]["hard"] > 0
 
 
+def _ob(id_, unit, values, **scope):
+    return dict(id=id_, unit=unit, values=list(values), u=[0.0] * len(values), scope=dict(scope),
+                reference=dict(value=None, basis="test"), label=f"{id_} (test)")
+
+
+def _ev(*obs):
+    return {"board": "synthetic", "total": {"complete": True}, "questions": [], "observations": list(obs)}
+
+
+# ----------------------------------------------------------------------------- production and strict modes
+def test_in_production_a_forbidden_value_marks_its_observation_invalid_and_the_term_incomplete(monkeypatch):
+    monkeypatch.delenv("HASLAM_QUANTITY_STRICT")
+    ob = _ob("loss.copper", "W", [0.010, -0.020])
+    keys = list(ob)
+    assert QT.check(ob) is ob and ob["values"] == [0.010, -0.020]          # marked, its numbers untouched
+    assert list(ob) == keys + ["invalid", "invalid_why"] and ob["invalid"] is True
+    assert "loss.copper" in ob["invalid_why"] and "never negative" in ob["invalid_why"]
+    it = {"defaults": "none", "terms": [{"id": "C1", "tier": "cost", "obs": "loss.copper", "rate": "1 mW_eq/mW",
+                                         "why": "test"}]}
+    st = OB.evaluate(_ev(ob, _ob("loss.copper", "W", [0.001, 0.002])), it, BRIEF)
+    (row,) = st["terms"]
+    assert row["incomplete"] and any("invalid" in g for g in row["not_computed"]) and row["matched"] == 1
+    assert st["incomplete_terms"] == ["C1"] and st["tiers"]["cost"] == 0.0       # incomplete: never priced
+    # an unknown kind is invalid too in production, never a crash
+    unk = QT.check(dict(id="new.thing", unit="furlong", values=[1.0]))
+    assert unk["invalid"] is True and "no type" in unk["invalid_why"]
+
+
+def test_in_strict_mode_a_forbidden_value_raises():
+    with pytest.raises(QT.QuantityError, match="never negative"):           # HASLAM_QUANTITY_STRICT=1 (conftest)
+        QT.check(_ob("loss.copper", "W", [0.010, -0.020]))
+    ob = _ob("loss.copper", "W", [-0.020])
+    with pytest.raises(QT.QuantityError, match="never negative"):
+        QT.check(ob, strict=True)
+    assert "invalid" not in ob
+    assert QT.check(ob, strict=False)["invalid"] is True                     # an explicit mode beats the environment
+
+
 # ----------------------------------------------------------------------------- end to end
 TIMING = ("seconds", "t_factor_s", "t_total_s")
 
@@ -200,6 +239,25 @@ def test_every_observation_of_an_evaluation_is_typed_and_check_changes_no_number
     monkeypatch.setattr(QT, "check", lambda ob: ob)
     ev0 = evaluate(str(p), pitch=0.25, fills=fills, log=lambda *a: None, dc=dc, scope="losses")
     assert json.dumps(_strip(ev), sort_keys=False) == json.dumps(_strip(ev0), sort_keys=False)
+
+
+def test_the_evaluator_lists_its_invalid_observations_once_in_production(tmp_path, monkeypatch):
+    """A producer's value its type forbids (here a hot loop's AC loss forced negative) does not stop a production
+    evaluation: the observation comes back invalid, with why, and one note lists it."""
+    from hotloop_fixtures import plane_fills, write_hotloop_board
+    from haslam.excite import hotloop as HL
+    from haslam.excite.evaluate import evaluate
+    monkeypatch.delenv("HASLAM_QUANTITY_STRICT")
+    monkeypatch.setattr(HL, "ac_loop_loss", lambda *a, **k: -1.0)
+    p = write_hotloop_board(tmp_path / "closed", "closed")
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, scope="losses")
+    bad = [ob for ob in ev["observations"] if ob.get("invalid_why")]
+    assert bad and all(ob["id"] == "loss.loop_ac" and ob["invalid"] is True for ob in bad)
+    notes = [n for n in ev["notes"] if "fail their type" in n]
+    assert len(notes) == 1 and notes[0].startswith(f"{len(bad)} observation(s)") and "loss.loop_ac" in notes[0]
+    monkeypatch.setenv("HASLAM_QUANTITY_STRICT", "1")
+    with pytest.raises(QT.QuantityError, match="loss.loop_ac"):
+        evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, scope="losses")
 
 
 # ----------------------------------------------------------------------------- a negative bus
