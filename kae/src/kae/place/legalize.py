@@ -35,12 +35,13 @@ from .state import grid_violations
 
 
 # ----------------------------------------------------------------------------- grid repair
-def _groups(st, bad, radius_mm, viol=None):
+def _groups(st, bad, radius_mm, viol=None, cap=8):
     """Violators near each other (centres within radius_mm, L1), and violators that overlap
     each other (`viol` reasons ('overlap', j)), form one group. Without the overlap rule a big
     part and a small part on its courtyard (centres far apart) went to separate windows, each
     holding the other fixed (tinkerforge temperature: a connector over a fiducial, two windows
-    moving 9 parts 15 mm in all; one window moves 7 parts 3 mm)."""
+    moving 9 parts 15 mm in all; one window moves 7 parts 3 mm). Overlap merges stop at `cap`
+    violators a group (machdyne blaustahl, an overfull board: 36 violators in one chain)."""
     pts = {i: st.center(i) for i in bad}
     groups = []
     for b in sorted(bad):
@@ -61,12 +62,16 @@ def _groups(st, bad, radius_mm, viol=None):
             x = parent[x]
         return x
     root = {b: gi for gi, gr in enumerate(groups) for b in gr}
+    size = [len(gr) for gr in groups]
     for b in sorted(bad):
         for why, j in viol.get(b, ()):
             if why == "overlap" and j in root:
                 ra, rb = find(root[b]), find(root[j])
-                if ra != rb:
+                # pairs only up to `cap` violators a group: on a crowded board the overlaps chain
+                # every violator into one window that cannot be solved
+                if ra != rb and size[ra] + size[rb] <= cap:
                     parent[max(ra, rb)] = min(ra, rb)
+                    size[min(ra, rb)] += size[max(ra, rb)]
     merged = {}
     for gi, gr in enumerate(groups):
         merged.setdefault(find(gi), []).extend(gr)
