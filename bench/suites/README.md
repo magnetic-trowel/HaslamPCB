@@ -14,7 +14,8 @@ Every experiment starts here. Tiers and rules: [experiment tiers](../../docs/top
    Cost and the 0.5 CPU-h board limit come from the control's own runs. It refuses a campaign over the sprint limits
    (40 CPU-h per arm) and says what to do: `--skip-over-cap` drops the boards over the limit, `--allow-over-cap "REASON"`
    keeps them when the question needs them (the plan says so). Two settings: `--arm A:K=V --arm B:K=V`, one campaign.
-   `--smoke 2` queues two boards first; then `kaeres exp submit NAME --prio 5`.
+   `--smoke 2` queues two boards first; then `kaeres exp submit NAME --prio 5`. `--param parallel=8` reserves 8 CPUs per
+   job for an arm whose router runs 8 threads; `--note TEXT` goes into each arm's method description.
 4. Stop. When the queue reports the end: `kaeres exp report NAME && kaeres quality NAME --control '<control name>'`
    (step 3 prints it). `kaeres quality` is on branch `quality-report`, not merged yet: run it from a checkout of that branch.
 5. Verdict: better, worse or undecided, paired per board and seed; write it into the experiment folder. Only a change that
