@@ -13,6 +13,9 @@
 2. constraints.plan computes what KiCad's DRC will require; translate.apply writes it into
    the DSN (classes, clearance matrix, pin and obstacle classes, vias).
 3. Freerouting routes with settings that stop it narrowing tracks, inside its own deadline.
+   With opts first_router "tracemaker", TraceMaker (a separate GPL-3.0-or-later program, run by
+   kae.route.tracemaker on its own wall clock) routes the escaped input instead, with the plane
+   policy as its layer options, and its board goes on to step 5 as Freerouting's would.
 4. The session is fixed up (translate.fix_session) and imported by KiCad into OUTPUT.
 5. repair.loop runs KiCad's DRC on the result and repairs what it finds (see repair).
 
@@ -28,7 +31,7 @@ from pathlib import Path
 
 from kae.board import pcbnew_io
 
-from . import constraints, drc, freerouting, specctra, stepcache, translate
+from . import constraints, drc, freerouting, specctra, stepcache, tracemaker, translate
 
 def check_import(ses_path, res):
     """Compare what a session holds (specctra.session_counts) with what KiCad's import put
@@ -147,6 +150,15 @@ DEFAULT_OPTS = dict(
                              # ground vias at decap/IC pads, stitch pours, kept only where DRC is no worse
     pad_trim=None,           # Freerouting's centre ends cut back to the pad edge, through finish (part "trim",
                              # last); None = when the pad_entry setting is "edge"
+    first_router="freerouting",  # the first routing (step 3): "freerouting"; "tracemaker" (kae.route.tracemaker,
+                             # a separate GPL program, routes the escaped input; every later stage runs as after
+                             # Freerouting, the repair rounds re-routing with Freerouting); "tracemaker-only"
+                             # (TraceMaker on the input and nothing else: no escapes, no repair, no DRC)
+    tracemaker=None,         # with TraceMaker: the build (KAE_HOME/tracemaker-<sha8>, e.g. "db5950f4") or a path
+    tm_seconds=600.0,        # with TraceMaker: its --time, each variant's WALL-clock limit (not counted work)
+    tm_threads=8,            # with TraceMaker: its --threads (= its portfolio of variants; keep it fixed)
+    tm_planes="kae",         # with "tracemaker": the plane policy as its layer options ("kae": plane layers cost
+                             # plane_cost x, strict planes get no tracks) or "none" (TraceMaker's own)
 )
 
 
@@ -179,11 +191,26 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
     wd.mkdir(parents=True, exist_ok=True)
     report = dict(input=str(input_path), seed=seed, budget_s=time_s, opts=opts)
     original_input = input_path
+    t_start = t0
 
     def left():
         return time_s - (clock_now() - t0)
 
+    first = opts.get("first_router") or "freerouting"
+    if first not in ("freerouting", "tracemaker", "tracemaker-only"):
+        raise ValueError(f"first_router {first!r}: freerouting, tracemaker or tracemaker-only")
     try:
+        if first == "tracemaker-only":
+            # TraceMaker alone, called as in the hybrid: the arm that shows what kae's stages add
+            out = wd / "tracemaker" / "out.kicad_pcb"
+            report["router"] = tm = tracemaker.route(
+                input_path, out, wd / "tracemaker", seconds=opts["tm_seconds"], threads=opts["tm_threads"],
+                seed=seed, bin_spec=opts.get("tracemaker"), log=log)
+            if not tm["ok"]:
+                raise RuntimeError(f"TraceMaker wrote no board (rc {tm['rc']}{', killed' if tm['killed'] else ''})")
+            shutil.copy2(out, output_path)
+            report["status"] = "routed"
+            return report
         # 1-2: export and plan
         kdsn = wd / "kicad.dsn"
         info = pcbnew_io.export_dsn(input_path, kdsn)
@@ -254,14 +281,41 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
         reserve = 20.0 if opts.get("repair") else 10.0
         grace = opts.get("router_grace", freerouting.GRACE_S)
         budget = router_budget(left(), opts)
-        run = freerouting.route(dsn, wd / "board.ses", wd, passes=opts.get("passes") or 0, settings=settings,
-                                budget_s=budget, hard_s=max(budget, min(budget + grace, left() - reserve)),
-                                log_path=wd / "freerouting.log")
-        report["router"] = dict(seconds=run.seconds, rc=run.rc, timed_out=run.timed_out, report=run.report,
-                                settings=settings)
-        log(f"freerouting: rc={run.rc} {run.seconds:.1f}s state={run.report.get('final_state')} "
-            f"score={run.report.get('router_score')}")
-        if run.ses is None and left() > 25:
+        if first == "tracemaker":
+            # TraceMaker on the escaped input (the plane escapes in place), on its own wall clock. Its
+            # time stands for the router's share: the stages after it get the budget they get after
+            # Freerouting (t0 moves by the clock it spent less that share; under counted work, kae.budget,
+            # it charges nothing, so t0 moves back by the share)
+            run = None
+            tb = clock_now()
+            out = wd / "tracemaker" / "out.kicad_pcb"
+            report["router"] = tm = tracemaker.route(
+                input_path, out, wd / "tracemaker", seconds=opts["tm_seconds"], threads=opts["tm_threads"],
+                seed=seed, extra=tm_layer_args(p, info, opts), bin_spec=opts.get("tracemaker"), log=log)
+            t0 += (clock_now() - tb) - budget
+            tm["router_share_s"] = round(budget, 1)
+            from .critical_write import routing
+            if tm["ok"]:
+                shutil.copy2(out, output_path)
+                report["status"] = "routed"
+            else:
+                # as a Freerouting run without a session: the input goes on unrouted, and the
+                # repair rounds and the last mile route what they can
+                log(f"tracemaker wrote no board (rc {tm['rc']}): the repair rounds start from the input")
+                shutil.copy2(input_path, output_path)
+                report["status"] = "no_session"
+            routed = routing(output_path)
+        else:
+            run = freerouting.route(dsn, wd / "board.ses", wd, passes=opts.get("passes") or 0, settings=settings,
+                                    budget_s=budget, hard_s=max(budget, min(budget + grace, left() - reserve)),
+                                    log_path=wd / "freerouting.log")
+            report["router"] = dict(seconds=run.seconds, rc=run.rc, timed_out=run.timed_out, report=run.report,
+                                    settings=settings)
+            log(f"freerouting: rc={run.rc} {run.seconds:.1f}s state={run.report.get('final_state')} "
+                f"score={run.report.get('router_score')}")
+        if run is None:
+            pass    # TraceMaker's board is in place
+        elif run.ses is None and left() > 25:
             quick = max(10.0, min(60.0, (left() - 15) * 0.5))
             log(f"freerouting wrote no session ({'killed' if run.timed_out else 'rc=' + str(run.rc)}): "
                 f"one quick pass ({quick:.0f}s)")
@@ -270,7 +324,9 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
                                     log_path=wd / "freerouting_quick.log")
             report["router_quick"] = dict(seconds=run.seconds, rc=run.rc, timed_out=run.timed_out,
                                           report=run.report)
-        if run.ses is None:
+        if run is None:
+            pass
+        elif run.ses is None:
             # nothing from the router (a board too big for one pass in the time: polarfire SoM,
             # every attempt): the input goes on unrouted, and the repair rounds and the last
             # mile route what they can, instead of ending the attempt with no board
@@ -289,7 +345,7 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
             report["import_check"] = imp["import_check"]
             report.setdefault("hazards", []).extend(imp["hazards"])
             report["status"] = "routed"
-        stepcache.save_fork(fork, "routed", {"board": output_path, "ses": run.ses}, clock_now() - t0)
+        stepcache.save_fork(fork, "routed", {"board": output_path, "ses": run.ses if run else None}, clock_now() - t0)
         # the input's locked tracks and vias (pre-routes): exported as fixed wiring, never
         # returned by Freerouting, kept as they are by KiCad's import; the repair loop never
         # rips, widens or unlocks them
@@ -356,11 +412,27 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
     finally:
         report["opts"] = {k: v for k, v in opts.items()
                           if k not in ("crit_zones", "fixed_uuids", "severities", "soft_fixed", "physics_guard")}
-        report["seconds"] = round(clock_now() - t0, 2)
+        report["seconds"] = round(clock_now() - t_start, 2)
         if own_wd and not opts.get("keep"):
             shutil.rmtree(wd, ignore_errors=True)
         else:
             report["workdir"] = str(wd)
+
+
+def tm_layer_args(p, info, opts):
+    """The attempt's plane policy as TraceMaker's layer options (opts tm_planes "kae"): the inner plane
+    layers (translate.plane_layers) cost plane_cost x where Freerouting's would (planes "cost"), and get
+    no tracks where Freerouting's are power layers (the attempt's strict planes; planes "keep"/"strict":
+    all of them). Vias still pass through and reach the fills there."""
+    if (opts.get("tm_planes") or "kae") == "none":
+        return []
+    planes = set(translate.plane_layers(info))
+    pol = getattr(p, "plane_policy", "cost")
+    if pol == "signal":
+        return []
+    strict = set(getattr(p, "strict_planes", None) or ()) if pol == "cost" else planes
+    cost = {l: float(getattr(p, "plane_cost", None) or translate.PLANE_COST) for l in planes} if pol == "cost" else {}
+    return tracemaker.layer_args(sorted(strict), cost)
 
 
 def finish_parts(opts, plan=None):
