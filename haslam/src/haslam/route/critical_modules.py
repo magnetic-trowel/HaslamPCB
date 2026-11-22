@@ -1233,6 +1233,7 @@ def allocation(ctx, m):
     if m.kind == "cell":
         ex = s.get("excite") or {}
         vin, _ = PR.cell_v_in(ex, ctx.volts(s.get("rail")))
+        vin = abs(vin)          # the bus's magnitude (excite V is the rail's signed voltage): a -12 V cell's budget is a +12 V one's
         return PR.hot_loop_budget(s.get("class") or "unknown", vin, t_sw_ns=ex.get("t_sw_ns"), v_abs=PR.budget_v_abs(ex))
     if m.kind == "path":
         ex = s.get("excite") or {}
