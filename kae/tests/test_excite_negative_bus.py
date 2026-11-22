@@ -84,3 +84,16 @@ def test_a_negative_bus_switch_has_the_positive_ones_overshoot_limits(V_abs):
     assert h is not None and h["evidence"]["peak_V"] == pytest.approx(-12.0 - ring)
     # an open cell rings to the rating on either sign
     assert _open_cell(-12.0)["overshoot.peak"] == pytest.approx(_open_cell(12.0)["overshoot.peak"])
+
+
+@pytest.mark.parametrize("val", [{"V_max_V": 30.0}, {}])
+def test_a_negative_bus_has_the_positive_ones_legacy_overshoot_bound(val):
+    from kae.excite import harm as HA
+    from kae.excite import observe as O
+
+    def legacy(V):
+        s = SimpleNamespace(name="cell:U1", kind="cell", a="SW", b="GND", pa=None, pb=None, meta={"cell": "cell1", "V": V})
+        bd = SimpleNamespace(ic_nodes={}, part_kind={}, rails={}, grounds=set(), pads_of={}, net_of={}, port={}, pin_type={})
+        o = next(x for x in O.observers(bd, {"parts": {}, "nets": {}}, [s]) if x.kind == "overshoot")
+        return o.meta["bound_legacy"], HA.overshoot_bound({**val, "V_V": V}, o.bound, o.meta["bound_legacy"])
+    assert legacy(-12.0) == pytest.approx(legacy(12.0)) and min(legacy(-12.0)) > 0

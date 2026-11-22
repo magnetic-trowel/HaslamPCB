@@ -66,7 +66,8 @@ def overshoot_bound(val, default, legacy=None):
     V_max - V with a rating, else `legacy` (20 % of the nominal bus)."""
     if legacy is not None:
         if "V_max_V" in val:
-            return max(val["V_max_V"] - val.get("V_V", 0.0), 1e-3)
+            # the headroom V_max - |V|: the rating is a magnitude (signed, a -12 V bus had V_max + 12 V)
+            return max(val["V_max_V"] - abs(val.get("V_V", 0.0)), 1e-3)
         return legacy
     if "V_V" not in val:
         return default
