@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from kae.excite import heat as H
+from kae.excite import ripple as RP
 
 
 def _cell_heat(V):
@@ -29,3 +30,13 @@ def test_a_negative_bus_cell_heats_its_controller_as_the_positive_one():
     # conduction 1 A^2 * 0.1 ohm (synchronous, no rectifier part) + switching 12 V * 1 A * 4 ns * 1 MHz
     assert pos["U1"] == pytest.approx(0.1 + 12 * 4e-9 * 1e6)
     assert neg == pytest.approx(pos) and lneg == pytest.approx(lpos)
+
+
+@pytest.mark.parametrize("I", [None, 10.0, 0.01])
+def test_a_negative_bus_ripple_is_the_positive_ones(I):
+    val = {"D": 0.3, "f_sw_Hz": 1e6, **({} if I is None else {"I_A": I})}
+    pos = RP.ripple_amplitude({**val, "V_V": 12.0}, 10e-6)
+    neg = RP.ripple_amplitude({**val, "V_V": -12.0}, 10e-6)
+    assert pos > 0 and neg == pytest.approx(pos)
+    if I == 0.01:
+        assert neg == pytest.approx(2 * I)        # the DCM bound holds on either sign
