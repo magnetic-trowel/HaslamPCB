@@ -502,7 +502,11 @@ def _route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin
     # the wait for a slot is part of the caller's budget: Freerouting gets what is left of it,
     # and after the budget it runs without a slot (a wait without end would hang the caller)
     # (work mode: a wait costs no budget, so it waits as long as the wall ceiling allows)
-    slot = _Slot(timeout=max(1.0, budget_s - margin - 5.0)).__enter__()
+    work = budget.work_mode()
+    # work mode: the wait is wall time, not work, so it neither shortens Freerouting's run nor gives up before the
+    # wall ceiling (4 x the budget); otherwise a loaded host cut a window's router to its 5 s floor (window-ends:
+    # two identical runs, 147 s vs 5 s at the same window)
+    slot = _Slot(timeout=(budget.CEILING_FACTOR * budget_s) if work else max(1.0, budget_s - margin - 5.0)).__enter__()
     waited = slot.waited or 0.0
     if slot.gave_up:
         print(f"[kae.route {time.strftime('%H:%M:%S')}] warning: no Freerouting slot within {waited:.0f}s; "
@@ -511,8 +515,9 @@ def _route(dsn, ses, workdir, *, passes=0, settings=None, budget_s=600.0, margin
         print(f"[kae.route {time.strftime('%H:%M:%S')}] warning: waited {waited:.0f}s for a Freerouting slot "
               f"({waited / max(budget_s, 1e-9):.0%} of the {budget_s:.0f}s budget; KAE_FR_SLOTS / KAE_FR_XMX)",
               flush=True)
-    job_s = max(5.0, budget_s - margin - waited)
-    hard = max(job_s + 5.0, (hard_s if hard_s is not None else budget_s + GRACE_S) - waited)
+    lost = 0.0 if work else waited
+    job_s = max(5.0, budget_s - margin - lost)
+    hard = max(job_s + 5.0, (hard_s if hard_s is not None else budget_s + GRACE_S) - lost)
     argv = _argv(dsn, ses, user, result, job_s, passes, settings)
     try:
         t0 = time.monotonic()
