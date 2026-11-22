@@ -35,6 +35,7 @@ from pathlib import Path
 from haslam import budget
 from haslam import hazards as H
 from haslam.drc_items import item_nets, item_ref
+from haslam.excite import quantity as Q
 
 # DRC check -> (hazard severity, category, what it means for the board, fix). block: the board
 # would not work or cannot be built as drawn. Sources: KiCad 10.0 drc_item.cpp (the keys),
@@ -138,7 +139,7 @@ HV_VOLTS = 30.0               # register RC10: warn above 30 V, where B2 jumps f
 
 def ipc2221b_spacing(volts, external=True):
     """IPC-2221B Table 6-1 spacing (mm) for `volts` (peak) between conductors."""
-    v = abs(float(volts))
+    v = Q.Magnitude.bound(float(volts))          # a peak voltage between conductors: its magnitude
     for top, b1, b2 in IPC2221B:
         if v <= top:
             return b2 if external else b1

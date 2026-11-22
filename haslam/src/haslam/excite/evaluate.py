@@ -642,7 +642,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         caps = []
         for c in range(len(ob["values"])):
             val = {k[1]: v for k, v in cps[name][c].items()}
-            caps.append(LOOP_LOSS_FRAC * val.get("V_V", 0.0) * val.get("I_A", 0.0))
+            caps.append(loss_cap(val))
         over = [v > cp for v, cp in zip(ob["values"], caps) if cp > 0]
         if any(over):
             w = max(range(len(caps)), key=lambda c: ob["values"][c] / caps[c] if caps[c] > 0 else 0.0)
@@ -1211,6 +1211,14 @@ CELL_LEAK = 0.01             # share of a cell's current an island may hold befo
 
 # a working converter's hot-loop and AC copper losses stay far below its throughput; above this share they are flagged
 LOOP_LOSS_FRAC = 0.1
+
+
+def loss_cap(val):
+    """The most a working cell's layout may lose at one corner (val: {param: value}): LOOP_LOSS_FRAC of its throughput
+    |V| I. A dissipation: a negative bus (-12 V) caps at its magnitude; a signed cap read negative and the `cap > 0`
+    guard then switched the check off on that bus."""
+    return LOOP_LOSS_FRAC * Q.Magnitude.bound(val.get("V_V", 0.0)) * val.get("I_A", 0.0)
+
 # a loop whose copper resistance at f_sw exceeds this share of the load's V / I is open: it closes through a part, not
 # copper (largest working loop seen: 0.031; kestrel's 20 kHz half bridges, working, 0.11-0.16). Between, a loss above
 # LOOP_LOSS_FRAC of V I is flagged implausible instead
@@ -1228,9 +1236,13 @@ def open_cell_observations(bd, o, s, vals, where):
     loss is far below it: 1/2 L I^2 f_sw = V I needs L = 2 V / (I f_sw), microhenries). Each layout with the cell
     open prices alike, at most what any closed loop could; haslam.intent prices them and lists them as open."""
     why = f"hot loop open: {where}"
-    V = [v.get("V_V", s.meta.get("V", 0.0)) for v in vals]
+    # the bus's magnitude: a -12 V cell's throughput is 12 V x I (a dissipation, never negative), and its switch rings
+    # toward its rating's magnitude (overshoot_limits picks a rating >= its v_bus and floors v_bus at 1 mV: a signed
+    # -12 V read a 1 mV bus and an overshoot of V_abs + 12 V)
+    V = [Q.Magnitude.bound(v.get("V_V", s.meta.get("V", 0.0))) for v in vals]
     ov = [CR.overshoot_limits(Vc, v.get("V_max_V"))[1] for Vc, v in zip(V, vals)]
-    us = [x / max(HA.overshoot_bound(v, o.bound), 1e-9) for x, v in zip(ov, vals)]
+    us = [x / max(HA.overshoot_bound(dict(v, V_V=Vc) if "V_V" in v else v, o.bound), 1e-9)
+          for x, v, Vc in zip(ov, vals, V)]
     out = [O.observation(bd, o, s, ov, us)]
     out[0]["label"] = f"{o.name} <- {s.name}: OPEN, at the switch's absolute maximum"
     P_ = [Vc * v.get("I_A", 0.0) for Vc, v in zip(V, vals)]
