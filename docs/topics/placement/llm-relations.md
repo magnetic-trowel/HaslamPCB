@@ -19,7 +19,7 @@ Not built and refused at load: `hold` `as: relative` ([open question 6](llm-rela
 | Relation | Hook (`kae/src/kae/place/`) | Enforced |
 |---|---|---|
 | `hold` (as drawn) | fixed at the input pose, as `--fix` | hard |
-| `on_edge`, required or strong | pinned by `edge_check.pin_poses` on the named edge's segments (outward normal within 45° of the compass), facing out (cos ≥ 0.3), along (\|cos\| ≤ 0.3) or any; then fixed | hard |
+| `on_edge`, required or strong | pinned by `edge_check.pin_poses` on the named edge's segments (outward normal within 45° of the compass), facing out (cos ≥ 0.3), along (\|cos\| ≤ 0.3) or any, at the spot nearest another relation's target on the part (a label, a region), else nearest its seed; then fixed. KiCad errors among pinned parts stay placement errors (`P.kae_placed`) | hard |
 | `on_edge`, medium or weak | label-term pull into the edge band (the part's size + 1 mm deep) | soft |
 | `orient allowed` | the part's rotation set (`Problem.build(part_rotations=)`): right_angles, x_axis (0°, 180°), y_axis (90°, 270°), as_drawn | hard |
 | `region` (any strength) | label-term pull: target the region box's centre, dead zone the box less the part | soft |

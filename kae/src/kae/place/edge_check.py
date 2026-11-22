@@ -274,16 +274,40 @@ def _facing_dir(fp, pose, normal):
 
 def with_poses(board, poses):
     """A copy of the board model with footprints moved to `poses` ({uuid: (x, y, rot, side)};
-    the side must be the footprint's own) and marked on the board."""
+    the side must be the footprint's own) and marked on the board. Rule areas and zones the
+    footprint owns move with it: they are in board coordinates, and a pinned module whose antenna
+    keepout stayed at its staged pose let the placer put other parts into it (relations-p1-ab)."""
     import dataclasses
 
+    from shapely import ops as sops
+
     from kae.board import transform
-    fps = []
+    fps, old = [], {}
     for fp in board.footprints:
         if fp.uuid in poses:
             x, y, rot, side = poses[fp.uuid]
+            old[fp.uuid] = ((fp.x, fp.y, fp.rot, fp.side), (x, y, rot, side))
             pads = [dataclasses.replace(pd, **dict(zip(("x", "y"), map(float, transform.pad_xy(fp, pd, x, y, rot, side)))))
                     for pd in fp.pads]
             fp = dataclasses.replace(fp, x=x, y=y, rot=rot, pads=pads, on_board=True)
         fps.append(fp)
-    return dataclasses.replace(board, footprints=fps)
+
+    def moved(items):
+        out = []
+        for it in items or []:
+            if getattr(it, "footprint", "") in old and getattr(it, "outline", None) is not None:
+                a, b = old[it.footprint]
+
+                def f(px, py, a=a, b=b):
+                    lx, ly = transform.to_local(px, py, *a)
+                    return transform.to_board(lx, ly, *b)
+                it = dataclasses.replace(it, outline=sops.transform(lambda xs, ys, z=None: tuple(
+                    zip(*[f(px, py) for px, py in zip(xs, ys)])), it.outline))
+            out.append(it)
+        return out
+    extra = {}
+    if old and getattr(board, "keepouts", None):
+        extra["keepouts"] = moved(board.keepouts)
+    if old and getattr(board, "zones", None):
+        extra["zones"] = moved(board.zones)
+    return dataclasses.replace(board, footprints=fps, **extra)

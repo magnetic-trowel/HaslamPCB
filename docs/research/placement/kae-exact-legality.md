@@ -23,7 +23,7 @@ The [kae placer](kae-placer.md) ends with a legality stage that reproduces what 
 - pair separations: current distance + a step, growing while KiCad still objects;
 - avoid-geometry: keep a part off a given text or graphic (by uuid);
 - edge-clearance growth: +0.05 mm per report, blaming only the part whose copper KiCad names (blaming the neighbour left paw3222 illegal);
-- findings that involve only fixed items count as `fixed_only` and are not the placer's.
+- findings that involve only fixed items count as `fixed_only` and are not the placer's; parts kae fixed itself (edge pins, anchored tight parts: `P.kae_placed`) are not fixed items here, so their errors keep the board illegal (relations-p1-ab: a pinned module's keepout over an anchored capacitor had passed as legal). A pinned or anchored footprint's own rule areas and zones move with it (`edge_check.with_poses`); they had stayed at the staged pose.
 
 Up to 6 rounds; a kicad-cli run killed by a signal (rc < 0, seen on buspirate5) is retried up to 2 times on a freshly staged copy; a **safety net** keeps the best KiCad-judged placement (fewest placement errors) and writes it back if the loop ends worse or on a repair KiCad never judged (`kicad_written_round`). Since 2026-10-25 a round that moves parts re-runs the silk pass (on a fixed pic-programmer, 40 evictions had left 18 silk errors).
 
