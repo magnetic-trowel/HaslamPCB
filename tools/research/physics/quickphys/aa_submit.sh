@@ -8,16 +8,22 @@
 #
 #   aa_submit.sh BASE_CODE_DIR NEW_CODE_DIR OUT_DIR [LIST]        LIST default: aa25.txt beside this script
 #
-# LIST: one board id per line; a line "# <id> <intent folder>" names the folder (relative to KAE_AA_INTENTS) holding
-# <id>.intent.json. Environment:
-#   KAE_AA_INTENTS  the directory the intent folders are relative to (required)
+# LIST: one board id per line; a line "# <id> <folder>" names the folder (relative to KAE_AA_INTENTS) holding
+# <id>.operating.json, the board's operating facts, passed as the evaluator's --intent. (Not <id>.intent.json: that
+# is a kae.intent/1 objective, which the evaluator read as empty facts, priors only.) A missing operating file stops
+# the script before anything is submitted. Environment:
+#   KAE_AA_INTENTS  the directory the folders are relative to (required)
 #   KAE_AA_PYTHON   the Python with kae's dependencies (required; kae itself comes from each code dir's kae/src)
 #   KAE_AA_BOARDS   board corpus: <id>/board.kicad_pcb and <id>/drc.json (default $HOME/kae-boards/boards)
 #   KAE_AA_ENV      a script sourced first for KiCad (KAE_KICAD_WRAP; default $HOME/.cache/kaebench/env.sh if present)
 #   KAEQ_OWNER      the kaeq owner (default qp-aa)
 #   DRY=1           print the jobs instead of submitting them
+#
+# Every job runs with PYTHONHASHSEED=0: an A/A compares numbers, so nothing may depend on Python's per-process string
+# hash seed. kae.excite.observe.connector_grounds no longer does (its cable-CM ground pad was picked by set order),
+# but pinning the seed is cheap insurance against the next set-order dependence turning into a false A/A difference.
 set -euo pipefail
-usage() { sed -n '4,20p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+usage() { sed -n '4,26p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] && usage 0
 [ $# -ge 3 ] || usage
 BASE=$(readlink -f "$1"); NEW=$(readlink -f "$2"); OUT=$(readlink -m "$3")
@@ -35,8 +41,8 @@ src=; [ -f "$ENVSH" ] && src="source $(printf %q "$ENVSH"); "
 n=0
 for id in $(grep -v '^#' "$LIST" | grep -v '^\s*$'); do
   folder=$(awk -v id="$id" '$1 == "#" && $2 == id {print $3}' "$LIST")
-  [ -n "$folder" ] || { echo "$id: no '# $id <intent folder>' line in $LIST" >&2; exit 2; }
-  intent=$INTENTS/$folder/$id.intent.json
+  [ -n "$folder" ] || { echo "$id: no '# $id <folder>' line in $LIST" >&2; exit 2; }
+  intent=$INTENTS/$folder/$id.operating.json                   # the operating facts, not the kae.intent/1 objective
   for f in "$BOARDS/$id/board.kicad_pcb" "$BOARDS/$id/drc.json" "$intent"; do
     [ -f "$f" ] || { echo "$id: missing $f" >&2; exit 2; }
   done
@@ -45,7 +51,7 @@ for id in $(grep -v '^#' "$LIST" | grep -v '^\s*$'); do
     ev=$OUT/$tag/$id.ev.json
     [ -s "$ev" ] && continue                                     # re-running resumes
     cmd="${src}export APPTAINER_BIND=\${APPTAINER_BIND:+\$APPTAINER_BIND,}$(printf %q "$OUT"); ulimit -v 40000000; \
-cd $(printf %q "$code") && PYTHONPATH=kae/src KAE_EM_THREADS=8 NUMBA_CACHE_DIR=$(printf %q "$OUT/$tag/numba") \
+cd $(printf %q "$code") && PYTHONPATH=kae/src PYTHONHASHSEED=0 KAE_EM_THREADS=8 NUMBA_CACHE_DIR=$(printf %q "$OUT/$tag/numba") \
 $(printf %q "$PY") -m kae.excite.evaluate $(printf %q "$BOARDS/$id/board.kicad_pcb") --intent $(printf %q "$intent") \
 --drc $(printf %q "$BOARDS/$id/drc.json") -o $(printf %q "$ev.tmp") > $(printf %q "$OUT/$tag/$id.log") 2>&1 \
 && mv $(printf %q "$ev.tmp") $(printf %q "$ev")"
