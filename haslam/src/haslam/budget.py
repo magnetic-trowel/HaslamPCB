@@ -134,7 +134,7 @@ RATES = {
     # the strip-and-tile PEEC cell quote (haslam.em.strips; HASLAM_CELL_QUOTE=strips), calibrated with
     # tools/research/physics/quickphys/calibrate_strips.py (a timed haslamq job, 4 BLAS threads, 2026-11-22) on the buck
     # fixture at P 1.0, 0.5 and 0.25 mm with its bordered move, and one 2-layer boost board
-    "em_kernel": 1.4e-5,        # one partial-inductance pair (a table entry or a direct pair), with the network's
+    "em_pair": 1.4e-5,          # one partial-inductance pair (a table entry or a direct pair), with the network's
                                 # build before it: 7.3e-6-1.8e-5 (2.4e-5-2.2e-4 at P 1.0, where the build dominates)
     "em_dense": 3e-11,          # one N^3 of a dense complex LU (or N^2 of a solve): 3.2-3.4e-11 at N 2,300-3,400,
                                 # 2.5e-11 at N 9,000, 1.4-2.5e-10 at N ~ 600 (BLAS start-up)

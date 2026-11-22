@@ -46,7 +46,7 @@ a thin pour piece as one straight strip (an L-shaped neck reads as its bounding 
 links are resistive only, a shortcut of up to one pitch without inductance (it lowers L at coarse P: part of why
 L_loop rises from P 0.5 to 0.25 on the fixture).
 
-Counted work (haslam.budget): `em_kernel` per partial-inductance pair evaluated (table entries and direct pairs),
+Counted work (haslam.budget): `em_pair` per partial-inductance pair evaluated (table entries and direct pairs),
 `em_dense` per N^3 of a factorisation and N^2 per right-hand side solved, `em_border` per k N^2 of a bordered update.
 
 API: Network (node, pad, strip, track, via, plane, well, lumped, port, connected), mutuals(net), System(net, L, f)
@@ -141,7 +141,7 @@ class Tables:
     """Translation tables of square tiles (q x q, one layer's thickness), {(q, za, zb): (T, na, nc)}: T[dc + nc, da + na]
     is the mutual of a tile at the origin on layer za and one offset da q along and dc q across on layer zb. Kept for
     one board (a cellquote run): every window, pitch doubling and refinement of it reuses them; entries computed are
-    charged as em_kernel."""
+    charged as em_pair."""
 
     def __init__(self):
         self.t = {}
@@ -164,7 +164,7 @@ class Tables:
             tab = pair_mutual(np.array([[0.0, q, 0.0, q, za[0], za[1]]]), Bx).reshape(DA.shape)
             if key[1:3] == key[3:5]:
                 tab = 0.5 * (tab + tab[::-1, ::-1])
-            BU.charge("em_kernel", tab.size)
+            BU.charge("em_pair", tab.size)
             T = (tab, na2, nc2)
             self.t[key] = T
         tab, na2, nc2 = T
@@ -890,7 +890,7 @@ def _block(net, I, J, tables, sym=False):
             oi = np.nonzero(~ti)[0]
             if oi.size:
                 M = pair_mutual(_swap(a.box[ii[oi]], axis), _swap(a.box[jj], axis))
-                BU.charge("em_kernel", M.size)
+                BU.charge("em_pair", M.size)
                 out[np.ix_(ri[oi], rj)] = M
                 out[np.ix_(rj, ri[oi])] = M.T
             continue
@@ -899,7 +899,7 @@ def _block(net, I, J, tables, sym=False):
         if ra.size:
             ui = np.unique(ra)
             M = pair_mutual(_swap(a.box[ii[ui]], axis), _swap(a.box[jj], axis))
-            BU.charge("em_kernel", M.size)
+            BU.charge("em_pair", M.size)
             pos = {int(v): k for k, v in enumerate(ui)}
             sel = np.array([pos[int(v)] for v in ra])
             out[ri[ra], rj[rb]] = M[sel, rb]
@@ -911,7 +911,7 @@ def _block(net, I, J, tables, sym=False):
         same = d < 1e-12
         d = np.where(same, np.maximum(a.rad[vi][:, None], a.rad[vj][None]), d)
         M = KN.fil_mutual(bi[:, 4][:, None], bi[:, 5][:, None], bj[:, 4][None], bj[:, 5][None], d)
-        BU.charge("em_kernel", M.size)
+        BU.charge("em_pair", M.size)
         out[np.ix_([pi[int(v)] for v in vi], [pj[int(v)] for v in vj])] = M
     return out
 
@@ -1693,7 +1693,7 @@ def from_board(path, cell, window=None, pitch=STRIP_PITCH, b=None, fills=None, n
             q.net, q.systems = sub_f, dict(edge=(se, xe, sub_e, bal_e), fund=(sf, xf, sub_f, bal_f))
         break
     u1, w1 = _units()
-    q.units = {k: u1.get(k, 0) - u0.get(k, 0) for k in ("em_kernel", "em_dense", "em_border") if u1.get(k, 0) - u0.get(k, 0)}
+    q.units = {k: u1.get(k, 0) - u0.get(k, 0) for k in ("em_pair", "em_dense", "em_border") if u1.get(k, 0) - u0.get(k, 0)}
     q.work_s = w1 - w0
     q.seconds = time.time() - t0
     return q

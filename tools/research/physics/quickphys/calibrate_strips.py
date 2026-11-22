@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Calibrate haslam.budget.RATES for the strips quote's kinds (em_kernel, em_dense, em_border) from wall time per kind.
+"""Calibrate haslam.budget.RATES for the strips quote's kinds (em_pair, em_dense, em_border) from wall time per kind.
 
 Runs the buck fixture's closed and long loops at P 1.0, 0.5 and 0.25 mm (with a bordered closed -> long update at
 each pitch) and, with --board, the strips quote of every cell of real boards, under HASLAM_BUDGET_PROFILE=1 (each charge
@@ -23,7 +23,7 @@ from pathlib import Path
 os.environ.setdefault("HASLAM_BUDGET_PROFILE", "1")
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "haslam" / "tests"))
 
-KINDS = ("em_kernel", "em_dense", "em_border")
+KINDS = ("em_pair", "em_dense", "em_border")
 
 
 def _run(label, fn, out):
