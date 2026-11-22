@@ -25,6 +25,7 @@ only polls still ends, after a counted number of checks.
 """
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import threading
@@ -127,6 +128,7 @@ class Clock:
         self.ceiling = None                  # wall seconds after which now() is infinite (work mode)
         self.ceiling_hit = False
         self.wall_stops = defaultdict(int)   # stages stopped at their own wall limit (stage_wall), by stage
+        self.framed = False                  # inside frame(): spent counts from the frame's start
 
     def charge(self, kind, units=1.0):
         """Count `units` of `kind` work; in work mode they advance the clock at RATES[kind]."""
@@ -333,6 +335,33 @@ def cpsat_charge(solver):
 
 def charge(kind, units=1.0):
     return clock().charge(kind, units)
+
+
+@contextlib.contextmanager
+def frame():
+    """Count the work clock from zero while the block runs (work mode; outermost frame only), and add
+    what the block charged to the clock's total when it ends.
+
+    A stage's deadlines are differences of now() readings, but a float sum rounds differently at
+    different magnitudes: `t0 + s` and `end - now()` at a clock of 27 s carry other low bits than at
+    0.6 s. CP-SAT's deterministic-time limits (cpsat_limit) are such differences, so the same placement
+    call gave a different board when the process had done other work before it (bfit-equiv: two boards
+    in a row in one pool worker; on dvorak55-dobrock69 the only counted work that changed was CP-SAT's,
+    2.12916 dtime alone and 2.12923 second, and the poses differed). In a
+    frame the clock reads the same values as in a fresh process, whatever ran before. Deadlines made
+    outside the frame must not be read inside it (pipeline.place takes none). Nested frames, other
+    threads' charges and the wall ceiling are unaffected; time mode is unchanged."""
+    c = clock()
+    if c.mode != "work" or c.framed:
+        yield
+        return
+    with _lock:
+        before, c.spent, c.framed = c.spent, 0.0, True
+    try:
+        yield
+    finally:
+        with _lock:
+            c.spent, c.framed = before + c.spent, False
 
 
 def work_mode():

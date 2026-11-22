@@ -497,3 +497,25 @@ def test_close_loop_without_a_deadline_diagnoses_only_within_its_time(monkeypatc
     monkeypatch.setattr(exact, "diagnose", lambda *a, **k: called.append(1) or dict(reason="unknown"))
     rep = exact.close_loop(P, st, time_s=0.0)
     assert called == [] and len(rep.get("diagnosis_skipped") or []) == min(3, len(P.mov))
+
+
+def test_placement_does_not_depend_on_what_the_process_placed_before(monkeypatch):
+    """Counted work: place() reads the work clock from zero (kae.budget.frame), so a board placed after
+    other work in the same process (a pool worker's second board) gets the poses it gets alone. Before,
+    the clock's absolute value changed the low bits of every deadline difference, CP-SAT's
+    deterministic-time limits among them, and with them the placement (bfit-equiv, 2 of 47 boards)."""
+    from kae import budget
+    from kae.place import pipeline
+    seen = []
+    real = pipeline._place
+    monkeypatch.setattr(pipeline, "_place", lambda *a, **k: seen.append(budget.clock().spent) or real(*a, **k))
+    budget.set_mode("work")
+    try:
+        alone = pipeline.place(kicad_file.load(FIXTURE), seed=0, time_s=10, workers=1).poses
+        budget.charge("seconds", 26.36125)          # what another board's placement might have charged
+        second = pipeline.place(kicad_file.load(FIXTURE), seed=0, time_s=10, workers=1).poses
+        third = pipeline.place(kicad_file.load(FIXTURE), seed=0, time_s=10, workers=1).poses
+    finally:
+        budget.set_mode("time")
+    assert seen[0] == seen[1] == seen[2] == 0.0
+    assert alone and second == alone and third == alone
