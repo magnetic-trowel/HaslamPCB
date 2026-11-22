@@ -73,3 +73,14 @@ def test_a_negative_bus_cells_implausible_loss_is_capped_at_its_throughput(V):
     EV.cap_implausible_losses(obs, cps, notes)
     # 5 W of loop loss in a 24 W converter is past LOOP_LOSS_FRAC (10 %): capped at 2.4 W on either sign
     assert obs[0]["cap_values"] == pytest.approx([EV.LOOP_LOSS_FRAC * 24.0]) and "implausible" in obs[0] and notes
+
+
+@pytest.mark.parametrize("V_abs", [None, 30.0])
+def test_a_negative_bus_switch_has_the_positive_ones_overshoot_limits(V_abs):
+    from kae.physics import criteria as CR
+    assert CR.overshoot_limits(-12.0, V_abs) == pytest.approx(CR.overshoot_limits(12.0, V_abs))
+    ring = 5.0 if V_abs is None else 15.0           # past the derated line: 1.6 V (16 V prior) or 13.5 V
+    h = CR.overshoot_hazard("cell1", [], -12.0, ring, V_abs)
+    assert h is not None and h["evidence"]["peak_V"] == pytest.approx(-12.0 - ring)
+    # an open cell rings to the rating on either sign
+    assert _open_cell(-12.0)["overshoot.peak"] == pytest.approx(_open_cell(12.0)["overshoot.peak"])
