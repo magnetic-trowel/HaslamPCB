@@ -1089,6 +1089,9 @@ def _cell_watts(q, s, m):
     return 0.5 * q["L_nH"] * 1e-9 * I * I * f + I * I * D * (1 - D) * q["R_mohm"] * 1e-3
 
 
+CLEAR_EST_SLACK = 1.1     # a cell's estimate held when its charged time stayed within this factor of it
+
+
 def _reroute_s(items):
     """Budget seconds a cell's re-route is given (the last mile, a repair round, the last mile again): 60 s and
     1.5 s per foreign item ripped."""
@@ -1096,10 +1099,36 @@ def _reroute_s(items):
 
 
 def _cell_estimate(t_drc, t_q, items):
-    """Budget seconds one cell of `clear` is expected to take: two DRCs (rip, after), the quote before it, the
-    re-route (_reroute_s). t_drc and t_q are read off the process clock (kae.budget.now), so
-    in work mode they are the DRC's and the quote's charged work (kae.em's kinds for the quote), not wall time."""
-    return 2 * t_drc + t_q + _reroute_s(items)
+    """Budget seconds one cell of `clear` is expected to take: two DRCs (rip, after), two quotes (before, after),
+    the re-route (_reroute_s). t_drc and t_q are what one DRC and one quote cost in this run so far (_Mean); they
+    are read off the process clock (kae.budget.now), so in work mode they are the DRC's and the quote's charged
+    work (kae.em's kinds for the quote), not wall time."""
+    return 2 * t_drc + 2 * t_q + _reroute_s(items)
+
+
+class _Mean:
+    """The running mean of what one step of `clear` (a DRC, a cell quote) cost in this run: a board's quotes are
+    of one size across its cells, and nothing else predicts them (one boost cell's quote charged 153 s on a 0.4 MB
+    board). None until the first is measured, so no cell is admitted on a guess."""
+    __slots__ = ("n", "total")
+
+    def __init__(self):
+        self.n, self.total = 0, 0.0
+
+    def add(self, seconds):
+        self.n += 1
+        self.total += seconds
+
+    @property
+    def value(self):
+        return self.total / self.n if self.n else None
+
+
+def _timed_into(mean, fn, *args, **kw):
+    """fn(*args, **kw), its budget seconds added to `mean`."""
+    out, t = _timed(fn, *args, **kw)
+    mean.add(t)
+    return out
 
 
 def _timed(fn, *args, **kw):
@@ -1117,7 +1146,9 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
     cell's changes are kept only when every ripped net is connected again, KiCad's DRC is no worse and the
     cell's quote (kae.excite.cellquote, in watts at its operating point) falls by more than CLEAR_GAIN; else
     they are reverted. Cells go in order of foreign copper under them. `board_path` is changed in place.
-    Returns a report {cells: [...], seconds, hazards}."""
+    A cell is started only when its estimate (_cell_estimate at the DRC and quote costs measured in this run; the
+    first cell's quote runs before it is admitted) fits the time left; each cell row records estimate_s and the
+    actual_s it was charged. Returns a report {cells: [...], seconds, hazards, overrun_cells, max_estimate_ratio}."""
     import shutil
     from kae import hazards as H
     from kae.board import pcbnew_io
@@ -1154,9 +1185,13 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
         def quotes(board, drc_json, only=None):
             rows = quote_cells(str(board), intent=intent, drc=str(drc_json), log=lambda *a: None, only=only)
             return {r.get("cell"): r for r in rows}
-        rep0, t_drc = _timed(check, board_path, wd / "drc0")
+        m_drc, m_q = _Mean(), _Mean()       # what a DRC and a cell quote cost in this run
+        rep0 = _timed_into(m_drc, check, board_path, wd / "drc0")
         base = drc.summary(rep0)
-        q0, t_q = {}, 30.0           # quoted per cell, just before it is cleared (a big board's all-cell quote: minutes)
+        q0 = {}           # quoted per cell, just before it is cleared (a big board's all-cell quote: minutes)
+        # the input's own errors (repair.input_errors, cached per file): one more DRC, run by the first cell on a
+        # board with errors
+        input_drc = bool(base["errors"])
         listing = pcbnew_io.edit_routing(board_path, wd / "listing.kicad_pcb")["routing"]
         fixed = {r["uuid"] for r in W.routing(input_path) if r.get("locked")}      # the task's pre-routes
         from shapely.geometry import LineString, Point
@@ -1169,13 +1204,25 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
                               else LineString([r["a"], r["b"]]).intersection(core).length) for r, _ in cr["foreign"])
         regions.sort(key=lambda c: (-c["core"], -c["amount"]))
         kept_any, last_drc = False, wd / "drc0" / "drc.json"
-        rep["estimate_s_per_cell"] = round(_cell_estimate(t_drc, t_q, 0), 1)     # updated after each quote
+        rep["estimate_s_per_cell"] = None        # set once a quote is measured, updated after each step
+
+        def estimate(items, t_q=None):
+            t_q = m_q.value if t_q is None else t_q
+            return _cell_estimate(m_drc.value, t_q, items) + (m_drc.value if input_drc else 0.0)
+
+        def input_errors(cd):
+            nonlocal input_drc
+            if not input_drc:
+                return repair.input_errors(input_path, cd, deadline)
+            input_drc = False
+            return _timed_into(m_drc, repair.input_errors, input_path, cd, deadline)
+
+        def quote_src(k):
+            return (wd / "drc0" / "drc.json") if k == 0 or not kept_any else last_drc
         for k, cr in enumerate(regions):
             row = dict(cell=cr["cell"], foreign_items=len(cr["foreign"]), foreign_mm=round(cr["amount"], 2),
                        under_loop_mm=round(cr["core"], 2), layers=sorted(cr["layers"]))
             rep["cells"].append(row)
-            per_cell = _cell_estimate(t_drc, t_q, len(cr["foreign"]))
-            row["estimate_s"] = round(per_cell, 1)
             if not cr["foreign"]:
                 row.update(kept=False, why="no foreign copper in the region")
                 continue
@@ -1187,21 +1234,31 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
                     f"clearing that many is left to the routing (more than {CLEAR_MAX_ITEMS}).",
                     objects=[cr["cell"]], evidence=dict(items=len(cr["foreign"]), under_loop_mm=round(cr["core"], 2))))
                 continue
-            if left() < per_cell:
-                row.update(kept=False, why=f"time: {left():.0f} s left, {per_cell:.0f} s estimated")
+            t_cell, spent = clock_now(), 0.0
+            if m_q.value is None and left() >= estimate(len(cr["foreign"]), t_q=0.0):
+                # no quote measured yet: this cell's before quote runs first, and the cell is admitted on what it
+                # cost (the first cell was admitted on a 30 s placeholder; forestierr's quote charged 153 s). A
+                # cell that would not fit even with free quotes is not quoted
+                q0.update(_timed_into(m_q, quotes, board_path, quote_src(k), only=[cr["cell"]]))
+                spent = m_q.value
+            per_cell = None if m_q.value is None else estimate(len(cr["foreign"]))
+            row["estimate_s"] = per_cell and round(per_cell, 1)
+            if per_cell is None or left() < per_cell - spent:
+                need = ("no quote measured" if per_cell is None else f"{per_cell:.0f} s estimated"
+                        + (f", {spent:.0f} s of it spent on its quote" if spent else ""))
+                row.update(kept=False, why=f"time: {left():.0f} s left, {need}")
                 rep["hazards"].append(H.make(
                     "hotloop_clear_skipped", "info", "data",
                     f"{cr['cell']}: its return was not cleared of {len(cr['foreign'])} foreign item(s): no time left "
-                    f"({left():.0f} s, about {per_cell:.0f} s needed).", objects=[cr["cell"]],
+                    f"({left():.0f} s, " + (f"about {per_cell:.0f} s needed)." if per_cell is not None
+                                             else "not even for its quote)."), objects=[cr["cell"]],
                     evidence=dict(foreign_mm=round(cr["amount"], 2))))
                 continue
             cd = wd / f"cell{k}"
             cd.mkdir(exist_ok=True)
             if cr["cell"] not in q0:
-                got, t_q = _timed(quotes, board_path, (cd.parent / "drc0" / "drc.json") if k == 0 or not kept_any
-                                  else last_drc, only=[cr["cell"]])
-                q0.update(got)
-                rep["estimate_s_per_cell"] = round(_cell_estimate(t_drc, t_q, 0), 1)
+                q0.update(_timed_into(m_q, quotes, board_path, quote_src(k), only=[cr["cell"]]))
+            rep["estimate_s_per_cell"] = round(estimate(0), 1)
             snap = cd / "before.kicad_pcb"
             shutil.copy2(board_path, snap)
             # the current board's routing (earlier cells may have changed it)
@@ -1236,12 +1293,15 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             p2.plane_cost = o2.get("plane_cost")
             p2.pad_shapes = o2.get("pad_shapes") or "kicad"
             shutil.copy2(wd / "kicad.dsn", cd / "kicad.dsn")
-            cur = check(board_path, cd / "rip")
-            # the re-route's deadline: its own share from here, whatever the quote before it cost (a quote dearer
-            # than the estimate's left the last mile no time at all: forestierr's cell, 153 s against 30)
-            cdl = min(deadline, clock_now() + _reroute_s(len(fr)))
+            cur = _timed_into(m_drc, check, board_path, cd / "rip")
+            b_in = input_errors(cd) if drc.summary(cur)["errors"] else {}
+            # the re-route's deadline: what the cell's estimate leaves after the after DRC and quote (the steps
+            # before it may have run under their means), at least its own share from here, whatever the quote
+            # before it cost (a quote dearer than the estimate's left the last mile no time at all: forestierr's
+            # cell, 153 s against 30)
+            cdl = min(deadline, max(clock_now() + _reroute_s(len(fr)),
+                                    t_cell + estimate(len(fr)) - m_drc.value - m_q.value))
             rounds = []
-            b_in = repair.input_errors(input_path, cd, cdl) if drc.summary(cur)["errors"] else {}
             # kae's grid router (the last mile), one Freerouting repair round, the last mile again
             cur = repair._last_mile(input_path, board_path, cd, p2, info, o2, cdl, rounds, drc.summary(cur), cur,
                                     set(o2["fixed_uuids"]), log, base=b_in) or cur
@@ -1250,10 +1310,10 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
                 cur = rr.pop("_report", None) or cur
             # the keep-outs go, the loop's copper is unlocked again
             W.edit(board_path, board_path, drop_guards=True, unlock=loop_cu or None)
-            after = check(board_path, cd / "after")
+            after = _timed_into(m_drc, check, board_path, cd / "after")
             sa = drc.summary(after)
             still = sorted({net_ for net_, _seg in _open_pairs(after)} & set(ripped_nets))
-            qa = quotes(board_path, cd / "after" / "drc.json", only=[cr["cell"]])
+            qa = _timed_into(m_q, quotes, board_path, cd / "after" / "drc.json", only=[cr["cell"]])
             w0 = _cell_watts(q0.get(cr["cell"]), s, cr["module"])
             w1 = _cell_watts(qa.get(cr["cell"]), s, cr["module"])
             row.update(ripped=len(fr), nets=ripped_nets, rerouted=len(ripped_nets) - len(still),
@@ -1267,8 +1327,7 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
                 why.append(f"ripped net(s) left open: {', '.join(still[:4])}")
             if sa["unconnected"] > base["unconnected"] and not (st.get("clear_force") and set(still)):
                 why.append(f"unconnected {base['unconnected']} -> {sa['unconnected']}")
-            if sa["errors"] > base["errors"] and not repair.errors_no_worse(
-                    sa, base, b_in or repair.input_errors(input_path, cd, deadline)):
+            if sa["errors"] > base["errors"] and not repair.errors_no_worse(sa, base, b_in or input_errors(cd)):
                 why.append(f"DRC errors {base['errors']} -> {sa['errors']}")
             if w1 is None or (w0 is not None and w1 > w0 * (1 - CLEAR_GAIN)):
                 why.append(f"quote {w0 and round(w0 * 1e3, 4)} -> {w1 and round(w1 * 1e3, 4)} mW, not "
@@ -1294,6 +1353,9 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
                 base = sa
                 q0 = {}                   # the board changed: later cells are quoted on it
                 kept_any, last_drc = True, cd / "after" / "drc.json"
+            actual = clock_now() - t_cell
+            row.update(actual_s=round(actual, 1), estimate_held=actual <= CLEAR_EST_SLACK * per_cell)
+            rep["estimate_s_per_cell"] = round(estimate(0), 1)
             log(f"hotloop clear {cr['cell']}: {len(fr)} foreign item(s) of {len(ripped_nets)} net(s); "
                 f"{'kept' if row['kept'] else 'reverted: ' + row['why']}")
     except Exception as e:  # noqa: BLE001 - the routed board stands (each cell restored from its snapshot)
@@ -1309,5 +1371,9 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
         rep["hazards"].append(H.make("hotloop_clear_failed", "warn", "data",
                                      f"Clearing the hot loops' returns failed: {rep['error']}"[:300],
                                      objects=["hotloop_clear"], fix="Report the board; it is kept as routed."))
+    ratios = [(c["actual_s"] / c["estimate_s"], c["cell"]) for c in rep["cells"]
+              if c.get("actual_s") is not None and c.get("estimate_s")]
+    rep["overrun_cells"] = [cell for r, cell in ratios if r > CLEAR_EST_SLACK]
+    rep["max_estimate_ratio"] = round(max(r for r, _ in ratios), 3) if ratios else None
     rep["seconds"] = round(clock_now() - t0, 1)
     return rep

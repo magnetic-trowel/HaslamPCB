@@ -138,6 +138,38 @@ def _admitted(rep):
     return [c["cell"] for c in rep["cells"] if "ripped" in c]
 
 
+def test_clear_admits_the_cells_that_fit_and_each_stays_within_its_estimate(work, monkeypatch, tmp_path):
+    """Three cells of 2 foreign items, quotes of 40 s: a cell costs 2 DRCs + 2 quotes + its re-route
+    (60 + 1.5 x 2 s) = 150 s. With 360 s after drc0's 3.5 s, two fit and the third is skipped for time."""
+    cells = [_region(f"cell:buck:U{i}", 10.0 * i, 2) for i in range(3)]
+    rig = Rig(monkeypatch, tmp_path, cells, lambda n: 40.0)
+    rep, used = rig.run(360.0)
+    per_cell = 2 * T_DRC + 2 * 40.0 + 60.0 + 1.5 * 2
+    assert len(rep["cells"]) == 3 and _admitted(rep) == [c["cell"] for c in rep["cells"][:2]]
+    skipped = rep["cells"][2]
+    assert skipped["why"].startswith("time:") and "ripped" not in skipped
+    assert used + per_cell > 360.0                           # it would not have fit
+    for k in (0, 1):
+        row = rep["cells"][k]
+        assert row["estimate_s"] == pytest.approx(per_cell, abs=0.1)
+        assert rig.cell_cost(rep, k) <= 1.1 * row["estimate_s"]
+        assert row["actual_s"] == pytest.approx(rig.cell_cost(rep, k), abs=0.1) and row["estimate_held"]
+    assert used <= 1.1 * 360.0
+    assert rep["overrun_cells"] == [] and rep["max_estimate_ratio"] <= 1.1
+
+
+def test_the_after_quote_is_timed_and_enters_the_next_cells_estimate(work, monkeypatch, tmp_path):
+    """Quotes of 20, 40, 60, 80 s: the first cell is estimated on its before quote (20 s), the second on the mean
+    of both of the first cell's quotes (30 s); an untimed after quote would leave it at 20 s."""
+    cells = [_region(f"cell:buck:U{i}", 10.0 * i, 2) for i in range(2)]
+    rig = Rig(monkeypatch, tmp_path, cells, lambda n: 20.0 * (n + 1))
+    rep, _used = rig.run(3600.0)
+    e0, e1 = rep["cells"][0]["estimate_s"], rep["cells"][1]["estimate_s"]
+    assert e0 == pytest.approx(2 * T_DRC + 2 * 20.0 + 63.0, abs=0.1)
+    assert e1 == pytest.approx(2 * T_DRC + 2 * 30.0 + 63.0, abs=0.1)
+    assert e1 > e0
+
+
 def test_the_reroute_deadline_leaves_the_last_mile_its_share(work, monkeypatch, tmp_path):
     """A quote dearer than any placeholder (153 s, forestierr's): the last mile still gets 60 + 1.5 x items."""
     cells = [_region("cell:boost:U1", 0.0, 3)]
@@ -146,3 +178,19 @@ def test_the_reroute_deadline_leaves_the_last_mile_its_share(work, monkeypatch, 
     assert _admitted(rep) == ["cell:boost:U1"]
     (lm,) = rig.last_mile
     assert lm["deadline"] - lm["now"] >= 60.0 + 1.5 * 3 - 1e-6
+    assert rep["cells"][0]["estimate_held"]
+
+
+def test_the_first_cell_waits_for_a_measured_quote(work, monkeypatch, tmp_path):
+    """forestierr under counted work: one cell of 3 items whose quotes take 153 s each, a 360 s budget. The cell
+    needs 2 x 3.5 + 2 x 153 + 64.5 = 377.5 s; on the old 30 s placeholder it was admitted and overran. Now its
+    before quote is measured first, the cell is skipped for time, and the step stays within its budget."""
+    cells = [_region("cell:boost:U1", 0.0, 3)]
+    rig = Rig(monkeypatch, tmp_path, cells, lambda n: 153.0)
+    rep, used = rig.run(360.0)
+    row = rep["cells"][0]
+    assert row["estimate_s"] == pytest.approx(2 * T_DRC + 2 * 153.0 + 64.5, abs=0.1)
+    assert row["why"].startswith("time:") and not rig.last_mile
+    assert rig.n_q == 1                                       # the one quote that measured it
+    assert used <= 1.1 * 360.0
+    assert any(h["code"] == "hotloop_clear_skipped" for h in rep["hazards"])
