@@ -33,7 +33,7 @@ import re
 import numpy as np
 
 from haslam import materials as MAT
-from haslam.excite import quantity as Q
+from haslam.excite import quantity as QT
 
 from . import priors as PR
 from .kernels import fin_params
@@ -166,7 +166,7 @@ class _Ctx:
         its loops and decaps as 12 V does (as critical_modules.Ctx.volts and excite.dc read it)."""
         r = self.nets.get(net) or {}
         v = r.get('volts')
-        return Q.Magnitude.bound(float(v)) if v else _volts(net)
+        return QT.Magnitude.bound(float(v)) if v else _volts(net)
 
 
 def _is_ic(p):

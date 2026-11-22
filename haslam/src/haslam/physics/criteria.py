@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import math
 
-from haslam.excite import quantity as Q
+from haslam.excite import quantity as QT
 
 # ----------------------------------------------------------------------------- switch-node overshoot
 V_ABS_LADDER = (5.5, 6.0, 7.0, 10.0, 12.0, 16.0, 18.0, 20.0, 24.0, 28.0, 30.0, 36.0, 40.0, 42.0, 50.0,
@@ -55,14 +55,14 @@ def overshoot_limits(v_bus, v_abs=None, derate=OVERSHOOT_DERATE):
     """(allowed overshoot above V_bus at the derated line, overshoot that reaches V_abs itself, V_abs used,
     whether V_abs is the part's own rating). Overshoots are in V above the bus. The bus is a magnitude: a -12 V
     switch is rated and rings as a 12 V one (a signed bus read 1 mV and gave V_abs + 12 V of headroom)."""
-    v_bus = Q.Magnitude.bound(v_bus)
+    v_bus = QT.Magnitude.bound(v_bus)
     known = v_abs is not None and v_abs > 0
     va = float(v_abs) if known else v_abs_prior(max(v_bus, 1e-3))
     return max(derate * va - v_bus, 1e-3), max(va - v_bus, 1e-3), va, known
 
 
 def overshoot_basis(v_bus, v_abs=None, derate=OVERSHOOT_DERATE):
-    v_bus = Q.Magnitude.bound(v_bus)
+    v_bus = QT.Magnitude.bound(v_bus)
     _, _, va, known = overshoot_limits(v_bus, v_abs, derate)
     src = "the switch's rating" if known else f"prior: the next standard rating >= {RATING_MARGIN:g} x V"
     return f"peak <= {derate:g} x V_abs ({va:g} V, {src}) on a {v_bus:g} V bus"
@@ -73,7 +73,7 @@ def overshoot_hazard(cell, objects, v_bus, overshoot, v_abs=None, derate=OVERSHO
     passes the derated line (warn) or the absolute maximum itself (block when the rating is the part's,
     warn when it is the prior's: the part may be rated higher). None when within the derated line. The bus is a
     magnitude (overshoot_limits): the peak is |V_bus| + overshoot."""
-    v_bus = Q.Magnitude.bound(v_bus)
+    v_bus = QT.Magnitude.bound(v_bus)
     ok, at_abs, va, known = overshoot_limits(v_bus, v_abs, derate)
     if overshoot <= ok:
         return None

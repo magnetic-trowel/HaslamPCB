@@ -21,7 +21,7 @@ import math
 
 from haslam.physics import criteria as CR
 
-from . import quantity as Q
+from . import quantity as QT
 
 from .observe import F_CM, F_KNEE, cm_v_lim
 
@@ -68,11 +68,11 @@ def overshoot_bound(val, default, legacy=None):
     V_max - V with a rating, else `legacy` (20 % of the nominal bus)."""
     if legacy is not None:
         if "V_max_V" in val:
-            return max(val["V_max_V"] - Q.Magnitude.bound(val.get("V_V", 0.0)), 1e-3)
+            return max(val["V_max_V"] - QT.Magnitude.bound(val.get("V_V", 0.0)), 1e-3)
         return legacy
     if "V_V" not in val:
         return default
-    return CR.overshoot_limits(Q.Magnitude.bound(val["V_V"]), val.get("V_max_V"))[0]     # the bus's magnitude
+    return CR.overshoot_limits(QT.Magnitude.bound(val["V_V"]), val.get("V_max_V"))[0]     # the bus's magnitude
 
 
 def overshoot_hazard(cell, objects, vals, volts, where=""):

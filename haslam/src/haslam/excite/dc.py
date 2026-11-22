@@ -51,7 +51,7 @@ import numpy as np
 
 from haslam.physics import converter as CV
 
-from . import quantity as Q
+from . import quantity as QT
 from .beliefs import Param
 from .beliefs import lookup as lookup_part
 
@@ -240,7 +240,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
         if isinstance(fv, (int, float)) and fv > 0:
             return float(fv)
         v = (nets.get(net) or {}).get("volts")
-        return Q.Magnitude.bound(float(v)) if v else None      # a rail's magnitude: -5 V budgets as 5 V
+        return QT.Magnitude.bound(float(v)) if v else None      # a rail's magnitude: -5 V budgets as 5 V
 
     def input_connector(r):
         """Where a rail without a source part is fed: the facts state its voltage (V_V or range_V, an input the

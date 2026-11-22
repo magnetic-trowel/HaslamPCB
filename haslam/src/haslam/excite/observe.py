@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 
 from haslam.physics import criteria as CR
 
-from . import quantity as Q
+from . import quantity as QT
 
 # priors for what each observer tolerates from the copper (V, peak), used when nothing better is known
 TOL = {
@@ -79,7 +79,7 @@ def observers(bd, brief, sources):
             analog = sub in ("opamp", "adc_dac", "reference")
             frac, why = TOL["supply_analog" if analog else "supply_digital"]
             V = bd.rails.get(rail) or 3.3
-            out.append(Observer(f"supply:{ref}:{rail}", "supply", v, nodes["g"], bound=Q.Magnitude.bound(frac * V),
+            out.append(Observer(f"supply:{ref}:{rail}", "supply", v, nodes["g"], bound=QT.Magnitude.bound(frac * V),
                                 basis=f"{why}; {rail} = {V:g} V", meta=dict(ref=ref, rail=rail, V=V)))
     # a module (a board of its own: haslam.excite.models' ports) sees the carrier's noise between its supply pin and
     # its nearest ground pin, as its own decoupling and regulator do: one supply observer per module and rail
@@ -95,14 +95,14 @@ def observers(bd, brief, sources):
             V = bd.rails.get(net) or 3.3
             mn = (getattr(bd, "module_nodes", None) or {}).get(ref) or {}
             if net in mn:          # a clocked module's inside (haslam.excite.sources): what its MCU sees
-                out.append(Observer(f"supply:{ref}:{net}", "supply", mn[net], mn["g"], bound=Q.Magnitude.bound(frac * V),
+                out.append(Observer(f"supply:{ref}:{net}", "supply", mn[net], mn["g"], bound=QT.Magnitude.bound(frac * V),
                                     basis=f"{why} (inside the module); {net} = {V:g} V", meta=dict(ref=ref, rail=net, V=V)))
                 continue
             g = nearest_ground(bd, ref, tok)
             if g is None:
                 continue
             out.append(Observer(f"supply:{ref}:{net}", "supply", net, bd.net_of[g], tok, g,
-                                bound=Q.Magnitude.bound(frac * V),
+                                bound=QT.Magnitude.bound(frac * V),
                                 basis=f"{why} (at the module's pins); {net} = {V:g} V", meta=dict(ref=ref, rail=net, V=V)))
     # a radio's RF and antenna pins (haslam.circuit.roles.radio_kind; nets of role rf or pins named RF/ANT): the layout's
     # noise there is in its receiver's input
@@ -214,7 +214,7 @@ def cap_V(o) -> float | None:
     A negative rail (-5 V) bounds the noise by its magnitude: the peak noise is a magnitude, and a signed cap
     would flag every value implausible and price it at a negative voltage, a harm below none."""
     V = o.meta.get("V") if o.kind == "supply" else None
-    return Q.Magnitude.cap(IMPLAUSIBLE_RAIL_FRAC * V) if V else None
+    return QT.Magnitude.cap(IMPLAUSIBLE_RAIL_FRAC * V) if V else None
 
 
 def implausible(o, values) -> str | None:
@@ -279,7 +279,7 @@ def observation(bd, o, s, values, us, fs=()):
         out["scope"]["connectors"] = to_parts
         out["reference"] = dict(value=None, basis=o.basis + " (the limit as a voltage at f: "
                                 "cable_v_lim(f), for 1 m of cable)", src_class=o.src_class)
-    return Q.check(out)
+    return QT.check(out)
 
 
 def pattern(bd, obs, f, active=False):
