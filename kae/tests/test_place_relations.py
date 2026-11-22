@@ -311,3 +311,19 @@ def test_kicad_errors_among_parts_kae_fixed_itself_stay_placement_errors(board, 
     P.feedback = None
     fb = exact.kicad_feedback(P, st, {})
     assert fb["errors"] == 1 and fb["fixed_only"] == 0
+
+
+def test_a_pinned_footprint_takes_its_own_rule_areas_along(board):
+    """edge_check.with_poses (edge pins, anchored parts) moves the rule areas a footprint owns with it:
+    left at the input pose, a pinned module's antenna keepout was no obstacle where the module went."""
+    from kae.place import edge_check
+    ae = next(f for f in board.footprints if f.ref == "AE1")
+    ko0 = next(k for k in board.keepouts if k.footprint == ae.uuid).outline
+    b2 = edge_check.with_poses(board, {ae.uuid: (ae.x + 5.0, ae.y - 3.0, ae.rot, ae.side)})
+    ko1 = next(k for k in b2.keepouts if k.footprint == ae.uuid).outline
+    assert ko1.centroid.x == pytest.approx(ko0.centroid.x + 5.0) and ko1.centroid.y == pytest.approx(ko0.centroid.y - 3.0)
+    b3 = edge_check.with_poses(board, {ae.uuid: (ae.x, ae.y, ae.rot + 90.0, ae.side)})
+    ko3 = next(k for k in b3.keepouts if k.footprint == ae.uuid).outline
+    assert ko3.area == pytest.approx(ko0.area) and ko3.bounds != pytest.approx(ko0.bounds)
+    assert [k.outline for k in b2.keepouts if k.footprint != ae.uuid] == \
+        [k.outline for k in board.keepouts if k.footprint != ae.uuid]
