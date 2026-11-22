@@ -83,7 +83,7 @@ Percentages against the 0.0625 mm raster. Times: mutuals + one LU and solve; ras
 - **Incremental quote.** The move closed → long (3 bars out, 20 in, 2 corner nodes and 2 station chains in, orphaned station nodes pinned) as a bordered update of the closed board's LU at P 0.5: k = 55, 0.088 s, L identical to an independent full build to 1.2 × 10⁻¹³ nH; the full build and LU take 0.8 s. Mutuals of the new bars against the plane: 0.47 s in plain numpy (38,682 kernel evaluations), the part a cached translation table removes.
 - **Countable:** 5,518 table + 38,682 direct kernel evaluations, one N = 2,231 LU, k·N² for the move: known before the run.
 
-Not yet shown: real boards, skin filaments above 3 MHz, planes with cuts, oblique kernels.
+Not yet shown: the P 0.25 point (kaeq #118631, owner `quickphys`, N ≈ 9k), real boards, skin filaments above 3 MHz, planes with cuts, oblique kernels.
 
 ## 5. Migration, each step leaving the evaluator trustworthy
 
