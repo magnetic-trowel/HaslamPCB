@@ -268,6 +268,11 @@ class Loop:
         self.el = {"A": ([], [])}
         self.cons = []
         self.res = {}       # element -> DC resistance (ohm) of its board copper (r_strip, r_via)
+        self.bodies = []    # (el, a, b, h, zb, w, its pieces): parts' internal paths (the strips engine lumps them)
+        self.drills = {}    # vertical piece -> its drill (mm): plated barrels (the strips engine's via tubes)
+        self.pads = []      # ((x, y), polygon): the terminals' pad copper (the strips engine's equipotential pads)
+        self.plane_geom = None     # the plane's zone fills under the loop, if the caller knows them (strips engine)
+        self.plane_src = None      # how the strips engine took the plane: fills | bbox | none (after value_r)
 
     def _r(self, el, r):
         self.res[el] = self.res.get(el, 0.0) + float(r)
@@ -289,19 +294,31 @@ class Loop:
     def vert(self, x, y, z0, z1, r, el="A", drill=None):
         """A vertical piece; with `drill`, a plated via barrel (its resistance counts)."""
         if abs(z1 - z0) > 1e-9 and z0 != INF and z1 != INF:
-            self._e(el)[1].append((float(x), float(y), float(z0), float(z1), float(r)))
+            q = (float(x), float(y), float(z0), float(z1), float(r))
+            self._e(el)[1].append(q)
             if drill:
                 self._r(el, r_via(abs(z1 - z0), drill))
+                self.drills[q] = float(drill)
 
     def body(self, a, b, h, zb, w, el="A"):
         """A part's internal path from terminal a to b: tie up, strip at h + zb, tie down."""
         r = gmd_rect(max(w, 0.1))
+        H, V = self._e(el)
+        n0, m0 = len(H), len(V)
         if h == INF:
             self.strip(a, b, max(w, 0.1), INF, el, copper=False)
-            return
-        self.vert(a[0], a[1], h, h + zb, r, el)
-        self.strip(a, b, max(w, 0.1), h + zb, el, copper=False)
-        self.vert(b[0], b[1], h + zb, h, r, el)
+        else:
+            self.vert(a[0], a[1], h, h + zb, r, el)
+            self.strip(a, b, max(w, 0.1), h + zb, el, copper=False)
+            self.vert(b[0], b[1], h + zb, h, r, el)
+        self.bodies.append((el, (float(a[0]), float(a[1])), (float(b[0]), float(b[1])), float(h), float(zb), float(w),
+                            tuple(H[n0:]) + tuple(V[m0:])))
+
+    def pad(self, xy, geom):
+        """A terminal's pad copper at the strips' height (the strips engine takes it as one equipotential, as the
+        evaluator does; the closed form ignores it)."""
+        if geom is not None and not geom.is_empty:
+            self.pads.append(((float(xy[0]), float(xy[1])), geom))
 
     def kcl(self, coeffs, rhs=1.0):
         self.cons.append((dict(coeffs), float(rhs)))
@@ -326,7 +343,20 @@ class Loop:
         that `value` finds, sum x_e^2 R_e. At the switching frequency (0.1-3 MHz) the return already
         follows the inductive path (power-copper.md section 5: f_c ~ 0.6 MHz at h = 0.1 mm), so the
         split that minimizes L is the one that carries the AC current; DC values, no skin effect
-        (as the evaluator's raster)."""
+        (as the evaluator's raster).
+
+        With KAE_CELL_QUOTE=strips the loop is quoted on kae.em.strips' network (loop_value_r): its strips and vias
+        over plane tiles (self.plane_geom, the cell's zone fills, else the loop's box), the bodies lumped, L the
+        copper's stored energy at the edge band and R its dissipation at f_sw (the evaluator's definitions). A loop
+        with no plane height (h = inf everywhere) or no part body keeps the closed form (plane_src "none")."""
+        import os
+        if os.environ.get("KAE_CELL_QUOTE") == "strips":
+            from kae.em import strips as ST
+            got = ST.loop_value_r(self, self.plane_geom)
+            if got is not None:
+                L, R, self.plane_src = got
+                return L, R
+            self.plane_src = "none"
         got = self.value(shares=True)
         if isinstance(got, tuple) and len(got) == 2 and isinstance(got[1], dict):
             L, x = got

@@ -179,3 +179,75 @@ def test_a_strips_quote_charges_counted_work_the_same_each_time(boards):
         out.append(dict(q.units))
     assert out[0].get("em_pair", 0) > 0 and out[0].get("em_dense", 0) > 0
     assert out[0] == out[1]
+
+
+def _fixture_loop():
+    """The buck fixture's closed hot loop as kae.route.critical_modules.loop_model builds one: the VIN hop, U1's
+    body, the ground hop through its two vias and the plane, C1's body; the terminals' pads; the B.Cu pour."""
+    from shapely.geometry import box
+    from kae.route.critical_physics import Loop
+    h = 1.545                                         # F.Cu to B.Cu, centre to centre
+    C11, U13, U14, C12 = (117.0, 110.95), (119.69, 110.95), (122.31, 110.95), (117.0, 109.05)
+    lp = Loop()
+    for (x, y), (wx, wy) in ((C11, (1.45, 1.0)), (C12, (1.45, 1.0)), (U13, (1.06, 0.65)), (U14, (1.06, 0.65))):
+        lp.pad((x, y), box(x - wx / 2, y - wy / 2, x + wx / 2, y + wy / 2))
+    lp.strip(C11, U13, 0.5, h)
+    lp.body(U13, U14, h, 0.8, 0.3)
+    lp.strip(U14, (123.3, 111.9), 0.6, h, "va0")
+    lp.vert(123.3, 111.9, h, 0.0, 0.3, "va0", drill=0.3)
+    lp.vert(117.0, 108.0, 0.0, h, 0.3, "vb0", drill=0.3)
+    lp.strip((117.0, 108.0), C12, 0.6, h, "vb0")
+    lp.kcl({"va0": 1.0})
+    lp.kcl({"vb0": 1.0})
+    lp.body(C12, C11, h, 0.8, 0.8)
+    lp.plane_geom = plane_fills()["GND"]["B.Cu"][0]
+    return lp
+
+
+def test_a_cells_stage_loop_on_the_strips_network(boards, monkeypatch):
+    from kae.physics import fastloop as FL
+    monkeypatch.setenv("KAE_CELL_QUOTE", "strips")
+    ST._LOOP_CACHE.clear()
+    ST._LOOP_BASE.clear()
+    lp = _fixture_loop()
+    BU.set_mode("time")
+    L, R = lp.value_r()
+    assert lp.plane_src == "fills" and R > 0
+    bodies = sum(FL.strip_self(math.dist(b[1], b[2]), max(b[5], 0.1), b[3] + b[4]) for b in lp.bodies)
+    q = _q(boards, "closed")
+    assert abs((L - bodies) / (q.L_loop * 1e9) - 1) < 0.15, (L - bodies, q.L_loop * 1e9)
+    before = dict(BU.clock().units)
+    assert _fixture_loop().value_r() == (L, R)              # the same loop again: the cache, no work
+    after = dict(BU.clock().units)
+    assert {k: after.get(k, 0) - before.get(k, 0) for k in after if after.get(k, 0) != before.get(k, 0)} == {}
+    # without a plane height the closed form stands
+    from kae.route.critical_physics import Loop
+    free = Loop()
+    free.path([(0, 0), (5, 0), (5, 3), (0, 3), (0, 0)], 0.5, math.inf)
+    monkeypatch.delenv("KAE_CELL_QUOTE")
+    ref = free.value_r()
+    monkeypatch.setenv("KAE_CELL_QUOTE", "strips")
+    assert free.value_r() == ref and free.plane_src == "none"
+
+
+def test_the_module_stage_routes_alike_with_the_strips_engine(tmp_path, monkeypatch):
+    """The critical router's module stage on the synthetic board in every fidelity with the strips engine on: the
+    same modules route to the same statuses as with the closed forms."""
+    import critical_fixtures as F
+    from kae.physics import exact as EX
+    from kae.route.critical_modules import modules_from_brief, route_module
+    res = {}
+    for engine in ("raster", "strips"):
+        monkeypatch.setenv("KAE_CELL_QUOTE", engine)
+        for mode in ("fast", "multi", "exact"):
+            with EX.scope(mode, k=4):
+                s = F.session(tmp_path / f"{engine}-{mode}", kinds=("cell", "decap", "chain"), rails="none")
+                mods = modules_from_brief(s.brief, ("cell", "decap", "chain"))
+                for m in mods:
+                    route_module(s.ctx, m)
+                res[(engine, mode)] = {m.id: m.status for m in mods}
+                if engine == "strips":
+                    cells = [m for m in mods if m.kind == "cell" and m.physics]
+                    assert cells and all(m.physics.get("plane_src") in ("fills", "bbox") for m in cells), \
+                        [m.physics for m in cells]
+    assert len({tuple(sorted(v.items())) for v in res.values()}) == 1, res

@@ -1064,7 +1064,7 @@ class Bordered:
         return _dissipation(self.net, self.I, self.Il, self.w) / abs(self.I0) ** 2
 
 
-def bordered(sys0, net1, inj=None, port=None, I0=1.0, tables=None):
+def bordered(sys0, net1, inj=None, port=None, I0=1.0, tables=None, max_k=None):
     """net1's solution from sys0's factorisation (net1 = sys0's network with branches removed and added and nodes
     appended, matched by their keys): removed branches are constrained to zero current, nodes the move orphaned are
     pinned, new branches and nodes are bordered (exact: a Schur complement of size k = removed + pinned + new
@@ -1107,6 +1107,8 @@ def bordered(sys0, net1, inj=None, port=None, I0=1.0, tables=None):
     new_nodes = [n for n in new_nodes if n not in gauge_new]
     pins = orphans + pins
     k = len(removed) + len(pins) + len(new) + len(new_nodes)
+    if max_k is not None and k > max_k:
+        raise ValueError(f"a bordered update of {k} > {max_k}: refactor instead")
     N0 = sys0.N
     B = np.zeros((N0, k), complex)
     C = np.zeros((k, k), complex)
@@ -1697,3 +1699,178 @@ def from_board(path, cell, window=None, pitch=STRIP_PITCH, b=None, fills=None, n
     q.work_s = w1 - w0
     q.seconds = time.time() - t0
     return q
+
+
+# ----------------------------------------------------------------------------- the cells stage's loops
+LOOP_F_EDGE = 10e6              # Hz: a Loop's L_loop band (kae.excite.observe.gentle_f's cap, the cells' edge band)
+LOOP_F_SW = 1e6                 # Hz: a Loop's R_loop frequency when the Loop does not state its f_sw (lp.f_sw)
+LOOP_PITCH = 0.5                # mm: a Loop's plane tiles
+_LOOP_CACHE = {}                # loop signature -> (L nH, R ohm)
+_LOOP_BASE = {}                 # plane key -> (systems of the last full build, its network): bordered updates
+_LOOP_CACHE_MAX = 4096
+
+
+def _rr(v):
+    return round(float(v), 4)
+
+
+def loop_signature(lp, plane_geom=None):
+    """A Loop's content as a sorted, hashable key (element names, pieces, bodies, drills, plane): equal loops quote
+    once, whatever order their dicts were built in."""
+    els = []
+    for name in sorted(lp.el):
+        H, V = lp.el[name]
+        els.append((name, tuple(tuple(_rr(v) if v != math.inf else -1.0 for v in h) for h in H),
+                    tuple(tuple(_rr(v) if v != math.inf else -1.0 for v in q) for q in V)))
+    cons = tuple(sorted((tuple(sorted((k, _rr(c)) for k, c in co.items())), _rr(r)) for co, r in lp.cons))
+    bodies = tuple(sorted(tuple(_rr(v) if v != math.inf else -1.0 for v in (*b[1], *b[2], *b[3:6])) + (b[0],)
+                          for b in getattr(lp, "bodies", [])))
+    drills = tuple(sorted((tuple(_rr(v) for v in k), _rr(d)) for k, d in getattr(lp, "drills", {}).items()))
+    pads = tuple(sorted((_rr(xy[0]), _rr(xy[1]), g.wkb_hex) for xy, g in getattr(lp, "pads", [])))
+    pk = None if plane_geom is None else plane_geom.wkb_hex
+    return (tuple(els), cons, bodies, drills, pads, pk, getattr(lp, "f_sw", None))
+
+
+def loop_network(lp, plane_geom=None, pitch=LOOP_PITCH, margin=None):
+    """The strips network of a kae.route.critical_physics.Loop: its strips at height h over a plane at z = 0 as bars
+    on a layer at that height (a strip at h = inf on the highest layer; an end inside a terminal's pad, Loop.pad, is
+    that pad's equipotential node and the strip is clipped to its edge), its plated vertical pieces as via tubes landed
+    on the plane's tiles by wells, each part body (Loop.body) as a lumped inductance between its terminals
+    (kae.physics.fastloop.strip_self at the body's height, R = 0), and the plane as tiles at `pitch` over plane_geom
+    (the cell's ground zone fills) clipped to the loop's box grown by `margin` (max(3 mm, 3 h)), or over that box when
+    plane_geom is None. The loop is opened at its first body: the port. Returns (net, port, body_L {lumped index:
+    H}, port_L (H), plane_src) or None when the loop has no plane height or no body."""
+    from shapely.geometry import box as sbox
+
+    from kae.physics import fastloop as FL
+    from .mesh import Layer
+    body_pieces = set()
+    for b in getattr(lp, "bodies", []):
+        body_pieces |= set(b[-1])
+    hs = sorted({h[5] for H, _ in lp.el.values() for h in H if h[5] != math.inf and h not in body_pieces})
+    if not hs or not getattr(lp, "bodies", None):
+        return None
+    t = 0.035
+    layers = [Layer(f"h{k}", h - t / 2, t) for k, h in enumerate(hs[::-1])] + [Layer("plane", -t / 2, t)]
+    lay_of = {h: f"h{k}" for k, h in enumerate(hs[::-1])}
+    top = lay_of[hs[-1]]
+    xs, ys = [], []
+    for H, V in lp.el.values():
+        for h in H:
+            xs += [h[0], h[2]]
+            ys += [h[1], h[3]]
+        for q in V:
+            xs.append(q[0])
+            ys.append(q[1])
+    m = max(3.0, 3.0 * hs[-1]) if margin is None else margin
+    win = (min(xs) - m, min(ys) - m, max(xs) + m, max(ys) + m)
+    wb = sbox(*win)
+    if plane_geom is not None and not plane_geom.is_empty:
+        poly, src = plane_geom.intersection(wb), "fills"
+        if poly.is_empty or poly.area <= 0:
+            poly, src = wb, "bbox"
+    else:
+        poly, src = wb, "bbox"
+    net = Network(layers, origin=(win[0], win[1]), pitch=pitch)
+    # the terminals' pads at the top strips' height: equipotentials, strips clipped to their edges (as from_board)
+    for i, (xy, g) in enumerate(sorted(getattr(lp, "pads", []), key=lambda p: p[0])):
+        net.pad(f"t{_rr(xy[0])},{_rr(xy[1])}", g, top)
+    net.plane(poly, "plane", "gnd", pitch)
+
+    def nd(x, y, z):
+        if z == hs[-1]:
+            n = net.pad_at(x, y, top)
+            if n is not None:
+                return n
+        return net.node(("lp", _rr(x), _rr(y), _rr(z)))
+    lp_drills = getattr(lp, "drills", {})
+    for name in sorted(lp.el):
+        H, V = lp.el[name]
+        for k, h in enumerate(H):
+            if h in body_pieces:
+                continue
+            x0, y0, x1, y1, w, hh = h
+            layer = lay_of.get(hh, top)
+            z = hh if hh != math.inf else hs[-1]
+            net.strip((x0, y0), (x1, y1), w, layer, nd(x0, y0, z), nd(x1, y1, z), key=("lps", name, k))
+        for k, q in enumerate(V):
+            if q in body_pieces:
+                continue
+            x, y, z0, z1, r = q
+            lo, hi = min(z0, z1), max(z0, z1)
+            if hi not in lay_of or lo > 1e-9:
+                continue                         # not a via between a strip's height and the plane
+            drill = lp_drills.get(q) or 2 * r
+            n_top = nd(x, y, hi)
+            n_pl = nd(x, y, 0.0)
+            net.well(n_pl, x, y, "plane", "gnd", r=r)
+            net.via(x, y, [lay_of[hi], "plane"], drill, key=("lpv", name, k), land={lay_of[hi]: n_top, "plane": n_pl})
+    body_L, port, port_L = {}, None, 0.0
+    for i, (el, a, b, h, zb, w, _pieces) in enumerate(lp.bodies):
+        hb = (h + zb) if h != math.inf else math.inf
+        L = FL.strip_self(math.dist(a, b), max(w, 0.1), hb) * 1e-9 if math.dist(a, b) > 1e-9 else 0.0
+        z = h if h != math.inf else hs[-1]
+        na, nb = nd(a[0], a[1], z), nd(b[0], b[1], z)
+        if port is None:
+            port, port_L = (nb, na), L         # the loop opened at its first body: 1 A in at b, out at a
+            continue
+        k = net.lumped(na, nb, (lambda L_: (lambda w_: 1j * w_ * L_))(L), name=f"body{i}", kind="body")
+        if k is not None:
+            body_L[k] = L
+    net.loop_window = win
+    return net, port, body_L, port_L, src
+
+
+def loop_value_r(lp, plane_geom=None):
+    """(L_loop nH at LOOP_F_EDGE, R_loop ohm at lp.f_sw or LOOP_F_SW, plane_src) of a Loop on its strips network
+    (loop_network), or None when the strips network does not apply (no plane height or no body: the closed form
+    stands). Cached by loop_signature; a new loop over the same plane is quoted as a bordered update of the last full
+    build of that plane when the update is exact, else built in full."""
+    sig = loop_signature(lp, plane_geom)
+    hit = _LOOP_CACHE.get(sig)
+    if hit is not None:
+        return hit
+    got = loop_network(lp, plane_geom)
+    if got is None:
+        return None
+    net, port, body_L, port_L, src = got
+    f_sw = getattr(lp, "f_sw", None) or LOOP_F_SW
+    inj = {port[0]: 1.0, port[1]: -1.0}
+    pkey = (None if plane_geom is None else plane_geom.wkb_hex, f_sw, tuple(sorted(net.z.items())), src,
+            tuple(_rr(v) for v in net.loop_window))
+    base = _LOOP_BASE.get(pkey)
+    out = None
+    if base is not None:
+        try:
+            res = []
+            for s0 in base:
+                r = bordered(s0, net, inj=inj, max_k=s0.N // 4)
+                res.append(r)
+            re_, rf = res
+            E = re_.E + sum(L * abs(re_.Il[k]) ** 2 for k, L in body_L.items()) + port_L
+            out = (E * 1e9, rf.dissipation_R(), src)
+        except (ValueError, KeyError, np.linalg.LinAlgError):
+            out = None
+    if out is None:
+        if not net.connected(*port):
+            return None
+        L = mutuals(net)
+        se = System(net, L, LOOP_F_EDGE).factor()
+        xe = se.solve(inj=inj)
+        sf = System(net, L, f_sw).factor()
+        xf = sf.solve(inj=inj)
+        Il = xe[se.nb:se.nb + se.nl]
+        E = se.energy_L(xe) + sum(L_ * abs(Il[k]) ** 2 for k, L_ in body_L.items()) + port_L
+        out = (E * 1e9, sf.dissipation_R(xf), src)
+        _LOOP_BASE[pkey] = (se, sf)
+        if len(_LOOP_BASE) > 64:
+            _LOOP_BASE.pop(next(iter(_LOOP_BASE)))
+    if len(_LOOP_CACHE) > _LOOP_CACHE_MAX:
+        _LOOP_CACHE.clear()
+    _LOOP_CACHE[sig] = out
+    return out
+
+
+def from_loop(lp, plane_geom=None, stack=None):
+    """The design's name for loop_value_r (stack: the Loop's own heights; kept for the API)."""
+    return loop_value_r(lp, plane_geom)
