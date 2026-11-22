@@ -23,7 +23,7 @@ ut8ifg-ptt-usb-cable-ptt-usb-cable
 dimitrit-pal1gadgets-snes-adapter
 baldengineer-c64-1351-to-ps2-mouse-pcb-c64-mouse-adapter
 wose-ferro-dactyl-ferro-dactyl
-prozsolutions-esp32-dev-board-esp32-dev-board
+sparkfun-qwiic-accelerometer-mma8452q-qwiic-accelerometer-mma8452q
 0xpolybit-pcb-kicad-center-tap-rectifier
 # markwestbroek-musicbrain-gswitch-brain intent-sw80/compiled-0833f61
 # asterics-esp32-mouse-keyboard-esp32minibt intent-sw80/compiled-0833f61
@@ -48,5 +48,5 @@ prozsolutions-esp32-dev-board-esp32-dev-board
 # dimitrit-pal1gadgets-snes-adapter intent-213/compiled-9867d0b
 # baldengineer-c64-1351-to-ps2-mouse-pcb-c64-mouse-adapter intent-213/compiled-9867d0b
 # wose-ferro-dactyl-ferro-dactyl intent-213/compiled-9867d0b
-# prozsolutions-esp32-dev-board-esp32-dev-board intent-213/compiled-9867d0b
+# sparkfun-qwiic-accelerometer-mma8452q-qwiic-accelerometer-mma8452q intent-213/compiled-9867d0b
 # 0xpolybit-pcb-kicad-center-tap-rectifier intent-213/compiled-9867d0b
