@@ -813,8 +813,35 @@ def infer_roles(nl: Netlist) -> Roles:
     _rail_sources(nl, roles)
     _pairs(nl, roles)
     _signal_roles(nl, roles)
+    _edge_roles(nl, roles)
     _part_roles(nl, roles)
     return roles
+
+
+EDGE_ROLES = ('signal', 'clock', 'high_speed', 'reset', 'boot', 'analog', 'rf')
+
+
+def _edge_roles(nl: Netlist, roles: Roles):
+    """'Is this net fast?' as a computation (docs/topics/llm/net-role-classification.md, kae.circuit.edges): every
+    signal net gets its driver's edge in attrs['edge']; a plain signal net whose driver's edge would ring on an
+    unterminated route this board is long enough for (t_r/2 shorter than the outline's w + h) becomes high_speed
+    ('fast_edge'), so placement keeps it short and power copper keeps away from it. A slow driver on a big board,
+    or any driver on a board too small to ring, leaves the net as it is."""
+    from . import edges as E
+    t_pd = E.board_t_pd(nl)
+    for net, nr in roles.nets.items():
+        if nr.role not in EDGE_ROLES:
+            continue
+        d = E.net_edge(nl, roles, net, t_pd)
+        nr.attrs['edge'] = d
+        if nr.role == 'signal' and d.get('can_ring'):
+            why = ev('derived', f"driver {d['driver']} ({d['family']}, t_r {d['t_r_ns']:g} ns{', assumed' if d['assumed'] else ''}): "
+                                f"an unterminated route over {d['terminate_mm']:.0f} mm rings (t_r/2), and this board spans "
+                                f"{d['board_span_mm']:.0f} mm (w + h)", MODERATE)
+            evs = [why] + [e for e in nr.evidence if e.kind != 'derived']
+            c = confidence(evs, -0.5)
+            nr.tags = dict(nr.tags or {}, signal=round(nr.confidence, 3))
+            nr.role, nr.subrole, nr.confidence, nr.evidence = 'high_speed', 'fast_edge', c, evs
 
 
 # ------------------------------------------------------------------------------- grounds

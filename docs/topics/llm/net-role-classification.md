@@ -19,6 +19,27 @@ Rules [I]:
 - Resolve MCU pin-mux from vendor pin-config exports or an explicit schematic table, not by LLM inference (LLMs fail on multiplexed and redundant pins -> [Pin semantics](#pin-semantics)).
 - Show defaults (Quilter-style 200/500 mA) as needing confirmation; state undetected nets as "generic low-speed".
 
+## Fast nets (built)
+
+`kae.circuit.edges` answers "is this net fast?" with the computation above, not with names.
+
+- **t_r** is the fastest driver on the net: an IC, module or oscillator pin typed output, bidirectional, tri-state or open-drain (untyped pins count). Each family row names its source and is marked `assumed`: it is a family default, not this part's datasheet or IBIS `[Ramp]`. Values are 10–90 % at the fastest setting firmware may pick:
+
+  | Family | t_r | Source |
+  |---|---|---|
+  | 74LVC/ALVC/AVC/LVT, NC7SZ; 74AC/ACT/F | 1.5 ns | TI E2E [S]; *Complete PCB Design* family table [S] |
+  | 74AHC; 74HC; 74HCT; 74LS | 2.3; 6; 8; 10 ns | TI E2E (0.7 ns/V) [S]; [SN74HC04](https://www.ti.com/lit/ds/symlink/sn74hc04.pdf) t_t typ at 6 V [P]; SN74HCT04 [P]; family table [S] |
+  | STM32 | 2.5 ns | DS8626 I/O AC table, OSPEEDR=11 at 10 pF (reset default 100 ns) [S] |
+  | AVR | 3.6 ns | ATmega328P Table 28-6, SPI master [P] |
+  | other MCUs, MCU modules | 2.5 ns | assumed: RP2040, ESP32, nRF datasheets give none [I] |
+  | FPGA | 0.5 ns | assumed: vendors defer to IBIS; as fast as a CMOS oscillator at 5 pF [I] |
+  | oscillator | 1.3 ns | [SiT8008B](https://www.sitime.com/sites/default/files/gated/SiT8008B-datasheet.pdf) 1 ns 20–80 % at 15 pF, ×1.33 [P] |
+
+  Other parts have no row and their nets are not judged (`edge.t_r_ns: null`). Interfaces whose standards set edge and termination (USB, PCIe, SATA, HDMI, DP, MIPI, LVDS, SerDes, Ethernet MDI, DDR, CAN, RS-485) are left to their rule packs.
+- **t_pd**: microstrip √(0.475 εr + 0.67)/c (IPC-2141 fit), stripline √εr/c, εr from the stackup or 4.5. At εr 4.6, TI [SCAA082A](https://www.ti.com/lit/an/scaa082a/scaa082a.pdf) Table 2 gives 5.8–5.9 ps/mm microstrip and 7.15 ps/mm stripline [P]; the fit gives 5.65 and 7.15.
+- **Brief** (`nets[n].edge`): t_r, source, the review (t_r/6) and terminate (t_r/2) lengths. A plain `signal` net whose terminate length is shorter than the outline's w + h becomes `high_speed`/`fast_edge` (confidence 0.73): placement weights it 1.5× and power copper keeps its victim gap from it. An analog victim structure still outranks it.
+- **Hazards** on every board kae writes (`board_hazards.finish`): driver-to-farthest-load delay over t_r/2 is `edge_ringing_risk` (warn), over t_r/6 `edge_si_review` (info); routed copper where it reaches the load (Dijkstra on delay per layer), else a Manhattan estimate. The fix names a series resistor at the driver pin, a shorter route or a lower slew, per rule 5 of [si-fundamentals](../rules/si-fundamentals.md): never auto-insert terminations.
+
 ## KiCad naming and class rules
 
 - Diff pairs are strictly name-based: "nets with a common base name and a positive and negative suffix… + and -, or P and N… cannot be mixed: USB+ and USB_N do not form a differential pair". Gap comes from the net class ([KiCad 9 PCB manual](https://docs.kicad.org/9.0/en/pcbnew/pcbnew.html)) [P].
