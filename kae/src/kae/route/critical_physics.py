@@ -273,6 +273,7 @@ class Loop:
         self.pads = []      # ((x, y), polygon): the terminals' pad copper (the strips engine's equipotential pads)
         self.plane_geom = None     # the plane's zone fills under the loop, if the caller knows them (strips engine)
         self.plane_src = None      # how the strips engine took the plane: fills | bbox | none (after value_r)
+        self.f_sw = None           # Hz: the cell's switching frequency, R_loop's (strips engine; default 1 MHz)
 
     def _r(self, el, r):
         self.res[el] = self.res.get(el, 0.0) + float(r)

@@ -1123,6 +1123,8 @@ def _cell_value(ctx, m):
     n = len(T)
     vals = []
     pgeom = _plane_geom(ctx, pl, pn)
+    # a cell's R_loop at its own switching frequency (the strips engine; the closed form takes DC values)
+    f_sw = cell_operating(ctx, m)[1] if m.kind == "cell" else None
     srcs = []
     for Tv, cap in cell_variants(m.spec, T, lambda c, net: ctx.pad_term(c, net=net)):
         if Tv is T:
@@ -1131,6 +1133,7 @@ def _cell_value(ctx, m):
             hops = {k: v for k, v in m.hops.items() if k not in ("hop0", f"hop{n - 1}")}
             lp = loop_model(ctx, m, Tv, h, gnd_k=gk, hops=hops)
         lp.plane_geom = pgeom
+        lp.f_sw = f_sw
         vals.append(lp.value_r())
         srcs.append(lp.plane_src)
     vals = [(v, r) for v, r in vals if v is not None and math.isfinite(v) and v > 1e-9]

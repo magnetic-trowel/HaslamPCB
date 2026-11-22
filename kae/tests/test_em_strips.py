@@ -251,3 +251,15 @@ def test_the_module_stage_routes_alike_with_the_strips_engine(tmp_path, monkeypa
                     assert cells and all(m.physics.get("plane_src") in ("fills", "bbox") for m in cells), \
                         [m.physics for m in cells]
     assert len({tuple(sorted(v.items())) for v in res.values()}) == 1, res
+
+
+def test_a_cells_loop_takes_r_at_its_switching_frequency(monkeypatch):
+    monkeypatch.setenv("KAE_CELL_QUOTE", "strips")
+    out = {}
+    for f in (3e5, 3e6):
+        lp = _fixture_loop()
+        lp.f_sw = f
+        out[f] = lp.value_r()
+    (L1, R1), (L2, R2) = out[3e5], out[3e6]
+    assert L1 == L2                                  # L_loop at the edge band, whatever f_sw
+    assert R2 > R1 * 1.01                            # the return crowds under the strip as f_sw rises
