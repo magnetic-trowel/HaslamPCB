@@ -10,7 +10,6 @@ sporniket-dop-module-dc-stepdown-xl4005-dop-module-dc-stepdown-xl4005
 julianschuler-esp-led-dimmer-esp-led-dimmer
 badenlab-open-visual-stimulator-led-driver
 stephendade-pipowernew-pipowernew
-bluesatunsw-owr-502-connector-board
 4x1md-nikon-gps-nikon-gps
 trailcurrentoss-trailcurrenttapper-trailcurrent-tapper
 reversebias-mitosis-hardware-receiver
@@ -25,17 +24,17 @@ baldengineer-c64-1351-to-ps2-mouse-pcb-c64-mouse-adapter
 wose-ferro-dactyl-ferro-dactyl
 sparkfun-qwiic-accelerometer-mma8452q-qwiic-accelerometer-mma8452q
 0xpolybit-pcb-kicad-center-tap-rectifier
+jrsteensen-openhornet-controller-ampcd-ddi
 # markwestbroek-musicbrain-gswitch-brain intent-sw80/compiled-0833f61
 # asterics-esp32-mouse-keyboard-esp32minibt intent-sw80/compiled-0833f61
 # hubertciebiada-open-ambient-sensor-oas intent-sw80/compiled-0833f61
 # z2amiller-sensorboard-sensorboard intent-sw80/compiled-0833f61
-# duanestorey-hifi-amp-multipsu intent-sw80/compiled-0833f61
+# duanestorey-hifi-amp-multipsu intent-sw80/compiled-0833f61   negative bus: -12 V (U2 inverting buck-boost), +/-9.6 V analog
 # hasanberkdasar-buck-converter-buck-converter intent-sw80/compiled-0833f61
 # sporniket-dop-module-dc-stepdown-xl4005-dop-module-dc-stepdown-xl4005 intent-sw80/compiled-0833f61
 # julianschuler-esp-led-dimmer-esp-led-dimmer intent-sw80/compiled-0833f61
 # badenlab-open-visual-stimulator-led-driver intent-sw80/compiled-0833f61
 # stephendade-pipowernew-pipowernew intent-sw80/compiled-0833f61
-# bluesatunsw-owr-502-connector-board intent-sw80/compiled-0833f61
 # 4x1md-nikon-gps-nikon-gps intent-sw80/compiled-0833f61
 # trailcurrentoss-trailcurrenttapper-trailcurrent-tapper intent-sw80/compiled-0833f61
 # reversebias-mitosis-hardware-receiver intent-213/compiled-9867d0b
@@ -50,3 +49,4 @@ sparkfun-qwiic-accelerometer-mma8452q-qwiic-accelerometer-mma8452q
 # wose-ferro-dactyl-ferro-dactyl intent-213/compiled-9867d0b
 # sparkfun-qwiic-accelerometer-mma8452q-qwiic-accelerometer-mma8452q intent-213/compiled-9867d0b
 # 0xpolybit-pcb-kicad-center-tap-rectifier intent-213/compiled-9867d0b
+# jrsteensen-openhornet-controller-ampcd-ddi intent-213/compiled-9867d0b   open cell in the human layout: cell:cell:buck:IC2 (1 A enters Net-(IC2-VIN) with no way out)
