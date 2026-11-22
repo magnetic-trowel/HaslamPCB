@@ -29,7 +29,7 @@ The question is whether the hot-loop stage's two options earn a place in kae's r
 
 | Criterion | Verdict |
 |---|---|
-| **Routing, C′ against N** (gated) | **PASS** on all five gates. cp1 0.483 → 0.517, diff +0.033, CI −0.033 to 0.100, McNemar p 0.63 (+3/−1). Completion 0.9994 → 0.9987, diff −0.0007, CI −0.0028 to 0.0013. Errors 14.15 → 14.03 per board (p 0.85). No new error type. 0 invalid outputs |
+| **Routing, C′ against N** (gated) | **cp1 and clean_strict FAIL as registered; the other three PASS** (corrected 2026-11-22: this row first said PASS on all five). cp1 0.483 → 0.517, diff +0.033, CI −0.033 to 0.100: the lower bound is below the registered −0.02. McNemar p 0.63 (+3/−1). Completion 0.9994 → 0.9987, diff −0.0007, CI −0.0028 to 0.0013. Errors 14.15 → 14.03 per board (p 0.85). No new error type. 0 invalid outputs |
 | Routing, CD′ against N; D against N | **PASS**. CD′ is the same as C′: cp1 0.517, errors 13.78. D: cp1 0.483 with no flips, completion 0.9989 |
 | **Cells, C′ against N** (L_loop, R_loop) | **Better.** L median 0.830, CI 0.684–0.868, 54 better and 11 worse of 65 cells. R median 0.823, CI 0.703–0.887, 50 better, 11 worse, 4 within |
 | Cells, C′ against human | L 0.896, CI 0.771–1.003 (40 better, 24 worse). R 0.925, CI 0.803–0.971 (40 better, 23 worse). N against human was L 1.102 and R 1.151 |
@@ -126,7 +126,7 @@ The question is whether the hot-loop stage's two options earn a place in kae's r
 
 - **C′ (cells first): more work needed, a small amount, then adopt it as the default.**
   - The physics case is clear and holds across topologies and layer counts. Loop L and R are down 17–18 % against N, and loop loss 14–16 %. The median cell moves from 10–15 % worse than human to at or slightly better.
-  - The routing gates pass.
+  - The routing gates: completion, errors, new error types and validity pass; cp1 and clean_strict fail as registered (CI lower bound −0.033 against −0.02, with 3 gains and 1 loss: with only 4 boards flipping out of 60, one loss keeps the lower bound below −0.02; corrected 2026-11-22).
   - One real cells defect remains: open-authenticator, 2 connections lost to a cell via that closes neighbour pins' only escape to their zone. The default should not ship with a known completion loss of this kind.
   - Fix: the cells stage should respect neighbour escapes, as `thermal_corridors` does with `gives_way` and `has_way`, or a post-cells check should compare each pad's reachability to its own net. Then confirm with a re-run of C′ on the 60 boards plus a twin.
   - Until then, keep it opt-in (`KAE_HOTLOOP_CELLS=1`).
