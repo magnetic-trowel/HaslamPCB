@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 
 from . import values as V
 from .evidence import MODERATE, STRONG, WEAK, confidence, ev, softmax_pick
+from .mcu_pins import adc_channel
 from .netlist import Netlist, Part
 
 # =============================================================================== keyword tables
@@ -815,6 +816,7 @@ def infer_roles(nl: Netlist) -> Roles:
     _signal_roles(nl, roles)
     _part_roles(nl, roles)
     return roles
+
 
 
 # ------------------------------------------------------------------------------- grounds
@@ -2040,12 +2042,20 @@ def _signal_roles(nl: Netlist, roles: Roles):
         # a converter's or charger's programming pin (LTC4054 PROG: its voltage reads the charge current; ISET, ILIM, RSET
         # take a resistor that sets a current): an analog node, not the MCU boot pin of the same name
         prog = [p for p in pins if PROG_PIN.match(p.fn) and roles.parts[p.ref].kind == 'ic' and roles.parts[p.ref].subtype in PROG_SUBS]
+        # an MCU pin whose symbol names only its GPIO ('IO35' on an ESP32) but that the vendor's pin table lists as an ADC
+        # input (kae.circuit.mcu_pins): the same weight as a named analog alternate, so an analog name on it (ADC_BAT)
+        # has the second fact, and the pin alone (IO32 as I2C) does not make a net analog
+        adc = [(p, ch) for p in pins if roles.parts[p.ref].kind in ('ic', 'module') and roles.parts[p.ref].subtype not in no_ana
+               for ch in [adc_channel(nl.parts[p.ref].text(), p.fn)] if ch]
         if ap:
             evs.append(ev('pinfunction', f"analog pin {ap[0].label}", MODERATE))
         elif prog:
             evs.append(ev('pinfunction', f"current-setting pin {prog[0].label} of {roles.parts[prog[0].ref].subtype} {prog[0].ref}", MODERATE))
         elif alt:
             evs.append(ev('pinfunction', f"pin with an analog alternate function {alt[0].label}", WEAK))
+        elif adc:
+            (p, (ch, src)), = adc[:1]
+            evs.append(ev('table', f"{p.label} of {nl.parts[p.ref].value} is ADC input {ch} ({src.split(' http')[0]})", WEAK))
         if net in opamp_in:
             ref, p = opamp_in[net]
             evs.append(ev('topology', f"input of {roles.parts[ref].subtype} {ref} ({p.label})", STRONG))
