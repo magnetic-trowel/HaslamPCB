@@ -87,3 +87,18 @@ def test_place_report_flags_a_loop_past_the_abs_max():
     h = hot_loop_hazards([row, dict(row, value=1.0)])
     assert len(h) == 1 and h[0]["severity"] == "warn"
     assert hot_loop_hazards([dict(row, info=dict(row["info"], V_abs_known=True))])[0]["severity"] == "block"
+
+
+def test_unknown_input_voltage_stays_below_a_known_rating():
+    # a 20 V-rated converter on an unnamed rail: the 24 V prior would sit past its own rating
+    assert PR.cell_v_in({"V_abs": 20.0}) == (pytest.approx(16.0), True)
+    assert PR.cell_v_in({"V_abs": 65.0}) == (24.0, True)              # the cap only lowers the prior
+    assert PR.cell_v_in({}) == (24.0, True)
+    assert PR.cell_v_in({"V_abs": 20.0}, 12.0) == (12.0, False)       # a named rail wins
+    assert PR.cell_v_in({"V": 5.0, "V_abs": 20.0}, 12.0) == (5.0, False)
+    v, _ = PR.cell_v_in({"V_abs": 20.0})
+    # the switch is then inside its rating with ring headroom: not the 0.45 nH floor, which made the place
+    # report call any real loop a block hazard
+    l_abs = PR.hot_loop_budget("buck", v, derate=1.0, v_abs=20.0).value
+    assert l_abs > 1.0
+    assert PR.hot_loop_budget("buck", 24.0, derate=1.0, v_abs=20.0).value < 0.5    # what it was

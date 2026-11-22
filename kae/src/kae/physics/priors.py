@@ -187,6 +187,24 @@ def power_path_budget(v=5.0, i=1.0):
 V_IN_UNKNOWN = Belief(24.0, 'V', 'unnamed converter input: high prior, above 90 % of named inputs in the corpus')
 
 
+def cell_v_in(excite, named_v=None):
+    """Input voltage a commutation cell is priced at: the brief's (excite V), else the rail's named
+    voltage, else V_IN_UNKNOWN. When only the switch's rating is known (excite V_abs, parts.json), the
+    prior is capped at V_abs / RATING_MARGIN: a part is not run above its rating, and E5 rates parts one
+    step above 1.25 x their bus. Without the cap a 20 V converter on an unnamed rail was priced at 24 V,
+    past its own rating, so its loop budget hit the floor and the place report called any loop over
+    0.45 nH a block hazard. Returns (V, whether V is a prior)."""
+    ex = excite or {}
+    v = ex.get('V') or named_v
+    if v:
+        return v, False
+    v = V_IN_UNKNOWN.value
+    va = ex.get('V_abs')
+    if va:
+        v = min(v, va / CR.RATING_MARGIN)
+    return v, True
+
+
 def hot_loop_excite(cell_class='buck', v_in=12.0, i_out=None, t_sw_ns=None):
     """(dI/dt A/ns, dV/dt V/ns, I A, V V, t_sw ns) of a commutation cell (E5 class priors)."""
     c0, t0, i0, _, _ = CELL_CLASS.get(cell_class, CELL_CLASS['unknown'])
