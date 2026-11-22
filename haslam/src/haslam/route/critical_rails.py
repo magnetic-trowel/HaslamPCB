@@ -142,7 +142,7 @@ def load_current(ctx, u, net, cells, draws=None):
     if u in cells:                            # a buck's input: its output power / (eta V_in) (haslam.physics.converter)
         c = cells[u]
         ex = c.get("excite") or {}
-        vin = ex.get("V") or v
+        vin = abs(ex.get("V") or v)        # a -12 V -> -5 V buck draws what a +12 V -> +5 V one does
         vout = ctx.volts(c.get("vout")) or 0.5 * vin
         i_out = float(ex.get("I") or 1.0)
         if c.get("rail") == net and c.get("class") in ("buck", None):

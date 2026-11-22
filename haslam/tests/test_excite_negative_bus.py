@@ -146,3 +146,15 @@ def test_a_negative_bus_module_gets_the_positive_ones_allocation(kind):
         spec = {"class": "buck", "rail": "BUS", "rail_in": "BUS", "excite": {"V": V, "I": 2.0}}
         return allocation(_ctx(BUS=V), SimpleNamespace(id="m1", kind=kind, spec=spec)).value
     assert alloc(-12.0) == pytest.approx(alloc(12.0))
+
+
+def test_a_negative_bus_bucks_input_current_is_the_positive_ones():
+    from haslam.route.critical_rails import load_current
+
+    def i_in(V, Vo):
+        ctx = _ctx(BUS=V, OUT=Vo)
+        ctx.parts = {"U1": {"kind": "ic", "subtype": "regulator"}}
+        cells = {"U1": {"rail": "BUS", "class": "buck", "vout": "OUT", "excite": {"V": V, "I": 2.0}}}
+        return load_current(ctx, "U1", "BUS", cells)
+    # 2 A out at 5 V from 12 V: about 1 A in, on either sign (a -12 V -> -5 V buck is the mirror image)
+    assert i_in(-12.0, -5.0) == pytest.approx(i_in(12.0, 5.0)) and i_in(12.0, 5.0) < 1.2
