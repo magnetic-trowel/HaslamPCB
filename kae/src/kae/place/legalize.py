@@ -7,7 +7,8 @@ tools/research/solver-bench/legalize_clusters.py): violators near each other for
 the group and its k nearest movable parts are freed inside a window, everything else is a
 fixed obstacle, and CP-SAT minimizes L1 displacement plus a rotation-change charge. A
 window that fails grows (k x 1.6, larger margin); if rounds run out, every movable part is
-freed at once.
+freed at once. Physics structures survive it: a window reaches where a violator must go,
+physics macros move as blocks, and physics breaks exact displacement ties (`legalize`).
 
 `exact_check(P, st)` re-checks the result with KiCad's shapes (shapely): courtyards per
 side (deflated by max_error, as KiCad does), holes inside other courtyards, pad-to-pad
@@ -34,7 +35,12 @@ from .state import grid_violations
 
 
 # ----------------------------------------------------------------------------- grid repair
-def _groups(st, bad, radius_mm):
+def _groups(st, bad, radius_mm, viol=None):
+    """Violators near each other (centres within radius_mm, L1), and violators that overlap
+    each other (`viol` reasons ('overlap', j)), form one group. Without the overlap rule a big
+    part and a small part on its courtyard (centres far apart) went to separate windows, each
+    holding the other fixed (tinkerforge temperature: a connector over a fiducial, two windows
+    moving 9 parts 15 mm in all; one window moves 7 parts 3 mm)."""
     pts = {i: st.center(i) for i in bad}
     groups = []
     for b in sorted(bad):
@@ -45,19 +51,86 @@ def _groups(st, bad, radius_mm):
                 break
         else:
             groups.append([b])
-    return groups
+    if not viol:
+        return groups
+    parent = list(range(len(groups)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    root = {b: gi for gi, gr in enumerate(groups) for b in gr}
+    for b in sorted(bad):
+        for why, j in viol.get(b, ()):
+            if why == "overlap" and j in root:
+                ra, rb = find(root[b]), find(root[j])
+                if ra != rb:
+                    parent[max(ra, rb)] = min(ra, rb)
+    merged = {}
+    for gi, gr in enumerate(groups):
+        merged.setdefault(find(gi), []).extend(gr)
+    return [sorted(merged[k]) for k in sorted(merged)]
 
 
-def _window_solve(P, st, free, margin_cells, time_s, workers, seed, w_rot=1.0):
-    """Re-place the `free` parts inside a window around them; others are obstacles."""
+def _rigid_ok(P, st, members):
+    """A group may move as one block at its current offsets: every member movable and no two
+    members' rectangles meeting (a block cannot repair an overlap inside itself)."""
+    if len(members) < 2 or not all(P.parts[i].movable for i in members):
+        return False
+    rs = [(i, s, r) for i in members for s, r, _ in st.grid_rects(i)]
+    return not any(i != j and s == t and a[1] > b[0] and b[1] > a[0] and a[3] > b[2] and b[3] > a[2]
+                   for k, (i, s, a) in enumerate(rs) for (j, t, b) in rs[k + 1:])
+
+
+def _block(P, st, members):
+    """cpsat.Item moving `members` together at their current offsets and rotations (one
+    variant), anchored on the largest; displacement weighs as many parts as it holds."""
+    a = max(members, key=lambda i: (P.parts[i].area, -i))
+    X0, Y0 = int(st.X[a]), int(st.Y[a])
+    v = {i: (int(st.X[i]) - X0, int(st.Y[i]) - Y0, int(st.K[i])) for i in members}
+    return cpsat.Item(members=list(members), variants=[v], X0=X0, Y0=Y0, v0=0, weight=float(len(members)),
+                      name=f"B_{P.parts[a].ref}")
+
+
+def _escape_rects(P, st, i):
+    """Grid rectangles of part i at the nearest pose clear of the fixed obstacles and inside
+    the outline, ignoring movable parts (where it must go at least), or [] when it is
+    already clear of them or has no such pose. A window that cannot reach this pose can
+    never legalize i, however many neighbours it frees."""
+    p = P.parts[i]
+    pad = 1
+    for r in p.rots:
+        for (a, b, c, d) in (r.g_own,) + tuple(r.g_opp):
+            pad = max(pad, -a, b, -c, d)
+    pad += 1
+    occ = _occupancy(P, st, set(P.mov), pad)
+    span = max(P.ncx, P.ncy) + 2 * pad
+    best = _nearest_spot(P, p, int(st.X[i]), int(st.Y[i]), int(st.K[i]), occ, pad, 2.0 / P.g, span)
+    if best is None or (best[1], best[2], best[3]) == (int(st.X[i]), int(st.Y[i]), int(st.K[i])):
+        return []
+    t = st.copy()
+    t.X[i], t.Y[i], t.K[i] = best[1], best[2], best[3]
+    return [r for _, r, _ in t.grid_rects(i)]
+
+
+def _window_solve(P, st, free, margin_cells, time_s, workers, seed, w_rot=1.0, blocks=(), reach=(), phys=None):
+    """Re-place the `free` parts inside a window around them; others are obstacles. `blocks`:
+    groups of free parts that move as one (`_block`); `reach`: extra grid rectangles the
+    window must cover (a violator's escape pose). `phys(state) -> float`: when the window is
+    solved to optimality, the tie-break among its equal-displacement optima (`TIE_SOLUTIONS`
+    of them); displacement stays the objective, physics only chooses between exact ties."""
     g = P.g
-    rects = [r for i in free for (_, r, _) in st.grid_rects(i)]
+    rects = [r for i in free for (_, r, _) in st.grid_rects(i)] + list(reach)
     wi0 = min(r[0] for r in rects) - margin_cells
     wi1 = max(r[1] for r in rects) + margin_cells
     wj0 = min(r[2] for r in rects) - margin_cells
     wj1 = max(r[3] for r in rects) + margin_cells
     # origin box: the window; obstacles: everything that can reach into it
     ext = max(max(r[1] - r[0], r[3] - r[2]) for r in rects) + 2
+    for b in blocks:                # a block's members reach as far from its anchor's origin as it spans
+        br = [r for i in b for (_, r, _) in st.grid_rects(i)]
+        ext = max(ext, max(r[1] for r in br) - min(r[0] for r in br) + 2, max(r[3] for r in br) - min(r[2] for r in br) + 2)
     obstacles = []
     fs = set(free)
     for i in P.mov:
@@ -71,23 +144,59 @@ def _window_solve(P, st, free, margin_cells, time_s, workers, seed, w_rot=1.0):
         if r[1] > wi0 - ext and r[0] < wi1 + ext and r[3] > wj0 - ext and r[2] < wj1 + ext:
             obstacles.append((ob.side, r))
     items = []
+    in_block = {i for b in blocks for i in b}
+    for b in blocks:
+        items.append(_block(P, st, b))
     for i in free:
-        it = cpsat.single(P, i, int(st.X[i]), int(st.Y[i]), int(st.K[i]))
+        if i not in in_block:
+            items.append(cpsat.single(P, i, int(st.X[i]), int(st.Y[i]), int(st.K[i])))
+    for it in items:
         it.bounds = (wi0, wi1, wj0, wj1)
-        items.append(it)
     model = cpsat.Model(P, items, obstacles, w_disp=1.0, w_rot=w_rot)
     sol = model.solve(time_s, workers=workers, seed=seed)
     _ = g
-    if sol is not None:      # variant index -> rotation index
-        sol = [(X, Y, it.variants[v][i][2]) for it, i, (X, Y, v) in zip(items, free, sol)]
+
+    def poses(sol):          # per freed part: origin and rotation index
+        pos = {}
+        for it, (X, Y, v) in zip(items, sol):
+            for i, (dx, dy, k) in it.variants[v].items():
+                pos[i] = (X + dx, Y + dy, k)
+        return [pos[i] for i in free]
+    if sol is None:
+        return None, model
+    sol = poses(sol)
+    model.ties = 1
+    if phys is not None and model.status == "OPTIMAL":
+        cands = [poses(c) for c in model.optima(max(0.05, min(2.0, 0.5 * time_s)), n=TIE_SOLUTIONS, seed=seed)]
+        model.ties = len(cands)
+        if len(cands) > 1:
+            t = st.copy()
+            best = None
+            for c in cands:
+                for i, (X, Y, k) in zip(free, c):
+                    t.X[i], t.Y[i], t.K[i] = X, Y, k
+                v = float(phys(t))
+                if best is None or v < best[0] - 1e-9:
+                    best = (v, c)
+            model.tie_gain = round(float(phys(_with(st, free, sol))) - best[0], 5)
+            sol = best[1]
     return sol, model
 
 
+def _with(st, free, sol):
+    t = st.copy()
+    for i, (X, Y, k) in zip(free, sol):
+        t.X[i], t.Y[i], t.K[i] = X, Y, k
+    return t
+
+
 MAX_WINDOW = 40          # parts freed in one CP-SAT window
+TIE_SOLUTIONS = 16       # equal-displacement optima a window compares by physics
 GLOBAL_MAX = 40          # all parts in one CP-SAT model only up to this many
 
 
-def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None, force=(), window_share=0.6):
+def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None, force=(), window_share=0.6,
+             rigid=(), phys=None):
     """Repair grid violations in place (parts in `force` are re-placed in the first round even
     when the grid finds them legal, e.g. after a KiCad violation). Returns a report dict.
 
@@ -95,6 +204,18 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
        (k, growing x1.6 on failure, at most MAX_WINDOW) are re-placed by CP-SAT at minimum
        displacement inside a window around them, everything else fixed; rounds repeat while
        violations remain, for at most `window_share` of the budget.
+       - Reach: a violator on a fixed obstacle or over the outline must go at least to its
+         nearest pose clear of them (`_escape_rects`); the window covers that pose and also
+         frees the k parts nearest to it.
+       - Rigid groups (`rigid`: the physics macros, a decap with its IC): a group whose
+         members are all freed and do not overlap each other moves as one block at its
+         current offsets, so the displacement minimum cannot pull a cap off its pin to save
+         a millimetre elsewhere. When such a window fails, the same window is tried again
+         with every part single before it grows.
+       - Groups: violators that overlap each other share a window however far apart their
+         centres are (`_groups`).
+       - Ties (`phys`): a window solved to optimality compares up to TIE_SOLUTIONS of its
+         equal-displacement optima by placement physics and keeps the lowest.
     2. Greedy: whatever is still illegal goes to the nearest free spot, largest first,
        evicting smaller parts when nothing is free nearby (`greedy`).
     3. Small boards only (<= GLOBAL_MAX parts): one CP-SAT model over every part."""
@@ -102,6 +223,14 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
     win = dl.part(window_share * time_s)
     rep = dict(rounds=0, windows=0, solved=0, global_used=False, start_violators=0)
     kk = {}
+    singles = set()          # group keys whose rigid window failed at the current k
+    escape = {}
+    group_of = {}
+    for gi, mem in enumerate(rigid or ()):
+        mem = [i for i in dict.fromkeys(mem) if P.parts[i].movable]
+        if len(mem) >= 2:
+            for i in mem:
+                group_of.setdefault(i, mem)
     force = {i for i in force if P.parts[i].movable}
     for rnd in range(max_rounds):
         viol = grid_violations(st)
@@ -113,7 +242,7 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
             break
         rep["rounds"] = rnd + 1
         bad = set(viol)
-        for gr in _groups(st, bad, radius_mm=4.0):
+        for gr in _groups(st, bad, radius_mm=4.0, viol=viol):
             win_left = win.left()
             if win_left < 0:
                 break
@@ -122,21 +251,60 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
             cx = np.mean([st.center(b)[0] for b in gr])
             cy = np.mean([st.center(b)[1] for b in gr])
             near = sorted(P.mov, key=lambda c: abs(st.center(c)[0] - cx) + abs(st.center(c)[1] - cy))
-            free = list(dict.fromkeys(gr[:MAX_WINDOW] + near[:kw]))[:max(MAX_WINDOW, len(gr[:MAX_WINDOW]))]
-            margin = int(math.ceil((2.0 + 0.5 * (kw // k)) / P.g))
+            # reach: violators held by fixed geometry, and the parts around where they must go
+            reach, near_t = [], []
+            for b in gr:
+                if not any(r[0] in ("obstacle", "outline") for r in viol.get(b, ())):
+                    continue
+                if (b, int(st.X[b]), int(st.Y[b]), int(st.K[b])) not in escape:
+                    escape[(b, int(st.X[b]), int(st.Y[b]), int(st.K[b]))] = _escape_rects(P, st, b)
+                er = escape[(b, int(st.X[b]), int(st.Y[b]), int(st.K[b]))]
+                if er:
+                    reach += er
+                    tx = (min(r[0] for r in er) + max(r[1] for r in er)) / 2 * P.g + P.ox
+                    ty = (min(r[2] for r in er) + max(r[3] for r in er)) / 2 * P.g + P.oy
+                    near_t += sorted(P.mov, key=lambda c: abs(st.center(c)[0] - tx) + abs(st.center(c)[1] - ty))[:kw]
+            cap_n = max(MAX_WINDOW, len(gr[:MAX_WINDOW]))
             budget = min(max(1.0, 0.15 * time_s), win_left)
             if budget <= 0.2:
                 break
-            sol, model = _window_solve(P, st, free, margin, budget, workers, seed + rnd)
+            free = list(dict.fromkeys(gr[:MAX_WINDOW] + near_t + near[:kw]))[:cap_n]
+            blocks = []
+            if key not in singles and group_of:
+                fs = set(free)
+                seen = set()
+                for i in list(free):
+                    mem = group_of.get(i)
+                    if mem is None or id(mem) in seen:
+                        continue
+                    seen.add(id(mem))
+                    # a group with a member in the window comes whole, when it fits
+                    if not fs.issuperset(mem) and len(fs | set(mem)) <= cap_n:
+                        fs |= set(mem)
+                        free += [j for j in mem if j not in free]
+                    if fs.issuperset(mem) and _rigid_ok(P, st, mem):
+                        blocks.append(list(mem))
+            margin = int(math.ceil((2.0 + 0.5 * (kw // k)) / P.g))
+            sol, model = _window_solve(P, st, free, margin, budget, workers, seed + rnd, blocks=blocks, reach=reach,
+                                       phys=phys)
             rep["windows"] += 1
             if sol is not None:
                 rep["solved"] += 1
+                if blocks:
+                    rep["rigid_solved"] = rep.get("rigid_solved", 0) + 1
+                if getattr(model, "tie_gain", 0) > 0:
+                    rep["tie_gain"] = round(rep.get("tie_gain", 0.0) + model.tie_gain, 5)
                 for i, (X, Y, v) in zip(free, sol):
                     st.X[i], st.Y[i], st.K[i] = X, Y, v
+                singles.discard(key)
+            elif blocks:
+                singles.add(key)            # the same window again, every part single
             else:
+                singles.discard(key)
                 kk[key] = int(kw * 1.6) + 1
             if log:
-                log(f"legalize window {gr[:4]} free={len(free)} status={model.status} {model.wall:.2f}s")
+                log(f"legalize window {gr[:4]} free={len(free)} blocks={len(blocks)} reach={bool(reach)} "
+                    f"status={model.status} {model.wall:.2f}s")
     viol = grid_violations(st)
     if viol:
         rep["greedy"] = greedy(P, st, list(viol), log=log, time_s=max(1.0, dl.left()))

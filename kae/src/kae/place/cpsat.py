@@ -248,8 +248,9 @@ class Model:
                 m.add_no_overlap_2d(xi[side], yi[side])
         if w_wl > 0 and hpwl_nets:
             obj += self._hpwl(hpwl_nets, w_wl)
+        self.obj = sum(obj) if obj else None
         if obj:
-            m.minimize(sum(obj))
+            m.minimize(self.obj)
 
     def _hpwl(self, nets, w_wl):
         P, m, g = self.P, self.m, self.P.g
@@ -301,6 +302,39 @@ class Model:
             m.add_min_equality(d, ys)
             terms += [w * (a - b), w * (c - d)]
         return terms
+
+    def optima(self, time_s, n=16, seed=0):
+        """Up to `n` distinct solutions with the objective of the last OPTIMAL solve (the ties a
+        solver would otherwise break arbitrarily), the solved one first: [[(X, Y, v)] per item].
+        Clears the objective (the model then keeps it as a bound); call after solve()."""
+        if getattr(self, "status", None) != "OPTIMAL" or self.obj is None:
+            return []
+        first = [(self.solver.value(X), self.solver.value(Y),
+                  next((v for v, l in enumerate(lits) if self.solver.value(l)), 0)) for (X, Y, lits) in self.V]
+        if n <= 1:
+            return [first]
+        best = int(round(self.solver.objective_value))
+        self.m.clear_objective()
+        self.m.add(self.obj <= best)
+        out = [first]
+        V = self.V
+
+        class Collect(cp_model.CpSolverSolutionCallback):
+            def on_solution_callback(self):
+                sol = [(self.value(X), self.value(Y), next((v for v, l in enumerate(lits) if self.value(l)), 0))
+                       for (X, Y, lits) in V]
+                if sol not in out:
+                    out.append(sol)
+                if len(out) >= n:
+                    self.stop_search()
+        s = cp_model.CpSolver()
+        cpsat_limit(s.parameters, time_s)
+        s.parameters.num_workers = 1
+        s.parameters.random_seed = int(seed)
+        s.parameters.enumerate_all_solutions = True
+        s.solve(self.m, Collect())
+        cpsat_charge(s)
+        return out
 
     def solve(self, time_s, workers=2, seed=0, log=False, stop_first=False):
         s = cp_model.CpSolver()
