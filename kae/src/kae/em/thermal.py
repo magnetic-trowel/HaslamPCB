@@ -23,6 +23,7 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as sla
 
+from kae import budget
 from kae import materials as MAT
 
 K_CU = MAT.K_CU                 # W/(m K)
@@ -112,6 +113,8 @@ class Thermal:
         A = sp.csc_matrix((vals, (rows, cols)), shape=(n, n)) + sp.diags(diag)
         self.A, self.diag, self.h, self.p2, self.idx = A.tocsc(), diag, h, p * p, idx
         self.lu = sla.splu(self.A, permc_spec="MMD_AT_PLUS_A", options=dict(SymmetricMode=True))
+        self.nnz = self.lu.L.nnz + self.lu.U.nnz
+        budget.charge("em_factor", self.nnz)        # units: nonzeros of the thermal network's LU factor
         self.delta = None                # a variant's diagonal change (cooling), solved by CG on this factor
 
     def variant(self, h=None, sinks=None):
@@ -142,13 +145,22 @@ class Thermal:
         flat = Q.reshape(int(np.prod(self.shape)), -1)
         X = self.lu.solve(flat)
         if self.delta is None:
+            budget.charge("em_thermal_solve", self.nnz * flat.shape[1])   # units: factor nonzeros applied
             return X.reshape(Q.shape)
         # a variant: A + diag(delta), symmetric positive definite; the base factor preconditions CG
         A = self.Av
         M = sla.LinearOperator(A.shape, matvec=lambda r: self.lu.solve(np.asarray(r, float)), dtype=float)
+        its = [0]
+
+        def count(_x):
+            its[0] += 1
         for k in range(flat.shape[1]):
-            x, info = sla.cg(A, flat[:, k], x0=X[:, k], rtol=1e-9, atol=0.0, M=M, maxiter=200)
+            x, info = sla.cg(A, flat[:, k], x0=X[:, k], rtol=1e-9, atol=0.0, M=M, maxiter=200, callback=count)
             if info != 0:                # not converged: factor this variant exactly (never seen in tests)
-                return sla.splu(A.tocsc(), permc_spec="MMD_AT_PLUS_A", options=dict(SymmetricMode=True)).solve(flat).reshape(Q.shape)
+                budget.charge("em_thermal_solve", self.nnz * (flat.shape[1] + its[0]))
+                lu = sla.splu(A.tocsc(), permc_spec="MMD_AT_PLUS_A", options=dict(SymmetricMode=True))
+                budget.charge("em_factor", lu.L.nnz + lu.U.nnz)
+                return lu.solve(flat).reshape(Q.shape)
             X[:, k] = x
+        budget.charge("em_thermal_solve", self.nnz * (flat.shape[1] + its[0]))   # units: factor nonzeros applied
         return X.reshape(Q.shape)
