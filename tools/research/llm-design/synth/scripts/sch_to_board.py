@@ -120,6 +120,45 @@ def zone(board, rect, layer_names, net=None, keepout=None, name=""):
     return z
 
 
+# JLCPCB's standard 2-layer FR-4 board (jlcpcb.com/capabilities/pcb-capabilities: 1.6 mm, 1 oz outer copper, FR-4
+# dielectric constant 4.5 on 2 layers). JLC publishes no 2-layer core thickness: it is the rest of the finished
+# 1.6 mm after the copper and a 10 um mask per side; the loss tangent is FR-4's usual 0.02 (assumed, unpublished)
+JLC_2L = dict(thickness_mm=1.6, copper_mm=0.035, mask_mm=0.01, er=4.5, loss_tangent=0.02, material="FR4",
+              finish="HAL lead-free", source="JLCPCB standard 2-layer FR-4 (core derived from the 1.6 mm total)")
+
+
+def stackup_text(st):
+    """The board file's (stackup ...) block of a 2-layer board, KiCad 10 syntax (as KiCad's own demos write it)."""
+    core = round(st["thickness_mm"] - 2 * st["copper_mm"] - 2 * st["mask_mm"], 4)
+    if core <= 0:
+        raise SystemExit(f"stackup: copper and mask leave no core in {st['thickness_mm']} mm")
+    t = lambda name, typ, extra="": f'\t\t\t(layer "{name}"\n\t\t\t\t(type "{typ}")\n{extra}\t\t\t)\n'
+    th = lambda v: f"\t\t\t\t(thickness {v:g})\n"
+    return ("\t\t(stackup\n"
+            + t("F.SilkS", "Top Silk Screen") + t("F.Paste", "Top Solder Paste")
+            + t("F.Mask", "Top Solder Mask", th(st["mask_mm"])) + t("F.Cu", "copper", th(st["copper_mm"]))
+            + t("dielectric 1", "core", th(core) + f'\t\t\t\t(material "{st["material"]}")\n'
+                f'\t\t\t\t(epsilon_r {st["er"]:g})\n\t\t\t\t(loss_tangent {st["loss_tangent"]:g})\n')
+            + t("B.Cu", "copper", th(st["copper_mm"])) + t("B.Mask", "Bottom Solder Mask", th(st["mask_mm"]))
+            + t("B.Paste", "Bottom Solder Paste") + t("B.SilkS", "Bottom Silk Screen")
+            + f'\t\t\t(copper_finish "{st["finish"]}")\n\t\t\t(dielectric_constraints no)\n\t\t)\n')
+
+
+def write_stackup(path, spec):
+    """Put the fab's stackup into the saved board (pcbnew's Python has no stackup API): haslam's field solver and
+    capacitance read the copper heights and dielectric from it, and fall back to KiCad's default without one.
+    board.json "stackup" overrides JLC_2L key by key."""
+    st = {**JLC_2L, **(spec.get("stackup") or {})}
+    txt = Path(path).read_text()
+    if "(stackup" in txt:
+        return st
+    i = txt.index("\t(setup\n") + len("\t(setup\n")
+    txt = txt[:i] + stackup_text(st) + txt[i:]
+    txt = txt.replace("\t\t(thickness 1.6)\n", f"\t\t(thickness {st['thickness_mm']:g})\n", 1)
+    Path(path).write_text(txt)
+    return st
+
+
 def main(out_dir, board_json):
     out_dir = Path(out_dir).resolve()
     spec = json.loads(Path(board_json).read_text())
@@ -223,7 +262,8 @@ def main(out_dir, board_json):
 
     path = out_dir / f"{slug}.kicad_pcb"
     pcbnew.SaveBoard(str(path), board)
-    print(json.dumps({"board": str(path), "footprints": len(fps), "nets": len(nets),
+    st = write_stackup(path, spec)
+    print(json.dumps({"board": str(path), "footprints": len(fps), "nets": len(nets), "stackup": st["source"],
                       "fixed": sorted(fixed), "holes": len(spec.get("holes", []))}))
 
 

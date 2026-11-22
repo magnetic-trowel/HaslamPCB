@@ -14,6 +14,8 @@ Checks, each PASS / FAIL / WARN with the fix:
   .kicad_dru silently)
 - board.parity: KiCad's schematic parity is 0 (when the schematic is beside the board)
 - board.fixed: no DRC error between locked parts or between a locked part and the board edge
+- board.stackup: the board file has a stackup matching its copper layers (WARN otherwise: haslam's field solver
+  and capacitances then assume KiCad's default 1.6 mm FR-4, not the fab's board)
 - intent.facts: the board's intent file loads, its facts match the board (brief["facts"]["unmatched"] empty),
   and every commutation cell has V, I and f_sw (WARN when one rests on a class default)
 - probe (--probe): `haslam place` for 60 s and `haslam.route.cli route` for 120 s on a copy, so a rule that blocks
@@ -136,6 +138,16 @@ def check_drc(board):
         "move the fixed parts in board.json (edge clearance, courtyards, keepouts)")
 
 
+def check_stackup(board):
+    from haslam.board.kicad_file import load
+    b = load(board)
+    st = b.stackup
+    desc = (f"{st.source}: {' / '.join(f'{c} {t * 1000:g} um' for c, t in zip(st.copper, st.cu_thickness))}, "
+            f"gaps {[round(g, 3) for g in st.gaps]} mm, er {[round(e, 2) for e in st.er]}, total {st.thickness:g} mm")
+    rec("board.stackup", "PASS" if st.source == "file" else "WARN", desc,
+        "" if st.source == "file" else "write the fab's stackup into the board (sch_to_board.py does: board.json 'stackup')")
+
+
 def check_intent(board):
     from haslam.board.kicad_file import load
     from haslam.circuit import brief as B
@@ -206,6 +218,7 @@ def main(argv=None):
     check_env(board)
     check_project(board)
     check_drc(board)
+    check_stackup(board)
     check_intent(board)
     if a.probe:
         probe(board)
