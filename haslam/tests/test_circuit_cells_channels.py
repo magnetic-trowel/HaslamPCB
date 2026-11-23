@@ -75,3 +75,9 @@ def test_a_four_switch_buck_boosts_input_leg(value, leg_in, tmp_path, monkeypatc
     assert cells["buck"]["sw"] == leg_in and cells["buck"]["rail"] == "VIN"
     assert cells["boost"]["sw"] != leg_in and cells["boost"]["rail"] == "+3V3"
     assert cells["buck"]["topology"] == cells["boost"]["topology"] == "buck_boost_4switch"
+
+
+def test_the_input_leg_table_reads_jw3651s_sw2_from_its_datasheet():
+    from haslam.circuit.structures import SW_INPUT_LEG
+    (row,) = [r for r in SW_INPUT_LEG if r[0] == r"JW3651"]
+    assert row[1] == "SW2" and "Rev 0.91" in row[2] and "VIN side" in row[2]

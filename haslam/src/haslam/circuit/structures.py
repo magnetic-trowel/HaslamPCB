@@ -869,8 +869,9 @@ def _inverting(b: _B, L, lpart, swn, gnd):
 # 4-switch buck-boost ICs whose input half-bridge is not the first-numbered switch pin: (part regex, the input
 # leg's switch pin function, source). Without a row the input leg is the one named L1 / SW1 / SWA / LX1 (TI's
 # TPS63xxx L1, TPS5528x SW1), else the first switch node found.
-SW_INPUT_LEG = [(r'JW3651', 'SW2', "JoulWatt JW3651 datasheet pin description: SW1 is the output (VO) side's switch node, "
-                                   "SW2 the input side's (as read by the facts compiler)")]
+SW_INPUT_LEG = [(r'JW3651', 'SW2', "Joulwatt JW3651 datasheet Rev 0.91, pin description: 'SW1: the VO side power "
+                                   "switching node'; 'SW2: the VIN side power switching node, connects to SW1 through the "
+                                   "inductor'")]
 _LEG1 = re.compile(r'^(L1|SW1|SWA|LX1|SW_?IN|LXI)$', re.I)
 
 
