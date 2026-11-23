@@ -35,7 +35,7 @@ import time
 
 from .evidence import evidence_json
 from .netlist import Netlist
-from .roles import ZDIFF, ZDIFF_SRC, infer_roles
+from .roles import ZDIFF, ZDIFF_SRC, cells_inverting, infer_roles
 from .structures import EXTERNAL, find_structures
 
 SCHEMA = 'kae.brief/1'
@@ -202,14 +202,17 @@ def _priority(s: dict) -> tuple[float, str]:
 
 
 # ------------------------------------------------------------------------------- build
-def build(board, *, use_sheets: bool = True) -> dict:
-    """The brief for a kae.board Board (or any object with Contract 1 field names)."""
+def build(board, *, use_sheets: bool = True, inverting: bool | None = None) -> dict:
+    """The brief for a kae.board Board (or any object with Contract 1 field names). inverting: recognise inverting
+    buck-boost cells (None: KAE_CELLS_INVERTING, off by default; kae.circuit.roles.cells_inverting)."""
     t0 = time.perf_counter()
+    if inverting is None:
+        inverting = cells_inverting(False)
     nl = Netlist.from_board(board)
     if not use_sheets:
         for p in nl.parts.values():
             p.sheet = None
-    roles = infer_roles(nl)
+    roles = infer_roles(nl, inverting=inverting)
     st = find_structures(nl, roles)
     ids = _Ids(nl)        # part key -> footprint uuid, for every part reference the brief emits
     sroles = _structure_roles(st)

@@ -59,3 +59,41 @@ def plane_fills():
     """The B.Cu ground pour as KiCad would fill it with nothing else on B.Cu (no KiCad needed)."""
     x0, y0 = ORIGIN
     return {"GND": {"B.Cu": [box(x0 + 0.5, y0 + 0.5, x0 + SIZE[0] - 0.5, y0 + SIZE[1] - 0.5)]}}
+
+
+def inverting_parts():
+    """critical_fixtures' parts with U1 as an inverting buck-boost (an LMR51430 from +12V to -5V, as TI SLVA721
+    draws it): its ground pin on -5V, L1 from the switch node to ground, C2 from -5V to ground."""
+    import critical_fixtures as CF
+    ren = {("U1", "1"): "Net-(U1-FB)", ("U1", "4"): "-5V", ("L1", "2"): "GND", ("C2", "1"): "-5V"}
+    out = []
+    for ref, val, lib, x, y, rot, pads, cy in CF.PARTS:
+        pads = [(n, ren.get((ref, n), "+12V" if net == "VIN" else net), *rest) for n, net, *rest in pads]
+        out.append((ref, "LMR51430" if ref == "U1" else val, lib, x, y, rot, pads, cy))
+    return out
+
+
+# the inverting cell's loop: C1 (+12V, GND) - U1.3 VIN - U1.4 (-5V) - C2 (-5V, GND), ground through vias
+INV_TRACKS = [("+12V", (117.0, 110.95), (119.69, 110.95), 0.5), ("GND", (117.0, 109.05), (117.0, 108.0), 0.5),
+              ("-5V", (122.31, 110.95), (122.31, 112.8), 0.5), ("-5V", (122.31, 112.8), (132.0, 112.8), 0.5),
+              ("-5V", (132.0, 112.8), (132.0, 110.95), 0.5), ("GND", (132.0, 109.05), (132.0, 108.0), 0.5),
+              ("Net-(U1-SW)", (122.31, 110.0), (126.0, 110.0), 0.5), ("GND", (129.0, 110.0), (129.0, 108.5), 0.5)]
+INV_VIAS = [(117.0, 108.0), (132.0, 108.0), (129.0, 108.5)]
+
+
+def write_inverting_board(d):
+    """The synthetic board with its converter inverting (inverting_parts), its hot loop routed and grounded."""
+    import critical_fixtures as CF
+    d = Path(d)
+    old = CF.PARTS
+    CF.PARTS = inverting_parts()
+    try:
+        p = write_board(d)
+        text = board_text()
+    finally:
+        CF.PARTS = old
+    items = [_seg(a, b, w, net, k=k) for k, (net, a, b, w) in enumerate(INV_TRACKS)]
+    items += [_via(x, y, "GND", k) for k, (x, y) in enumerate(INV_VIAS)]
+    tail = "\t(embedded_fonts no)\n)\n"
+    p.write_text(text[:-len(tail)] + "".join(items) + tail)
+    return p
