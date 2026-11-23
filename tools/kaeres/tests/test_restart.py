@@ -192,7 +192,6 @@ def test_judge_reports_unconnected_items_a_project_ignores(tmp_path):
     (gamaphy-freedom-rp2040): the judge's own copy turns the check back on, other
     severities stay as the board set them."""
     import json
-    import restart
     pro = tmp_path / "board.kicad_pro"
     sev = {"unconnected_items": "ignore", "clearance": "warning"}
     pro.write_text(json.dumps({"board": {"design_settings": {"rule_severities": sev}}}))
