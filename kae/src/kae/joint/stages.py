@@ -69,6 +69,7 @@ STAGE_KEYS = frozenset({
     "module_clock",       # the module stage keeps its clock (kae.route.critical_joint.optimize_modules clock=True)
     # set by kae.joint.cli from its flags
     "keep", "no_physics", "no_modules", "budget_s", "route_parallel", "first_last_mile", "first_blocked",
+    "next_stage_s",       # placement: the time of the stages after it (exact_repack takes its share; default budget_s less the placement)
     # placer and module stage
     "writer", "edge_mate", "angle_step", "module_time", "window_module_time", "drop_modules_attempt",
     # window re-placement and rip-up
@@ -145,9 +146,13 @@ class KaeStages:
         board = self._load(self.input)
         self.locked = {fp.uuid for fp in board.footprints if fp.locked}
         self.edge_parts = {fp.uuid for fp in board.footprints if fp.edge_cuts}
+        # exact_repack's time comes from the stages after placement: the run's budget less the placement's
+        opts = dict(self.opts)
+        if self.opts.get("budget_s") and "next_stage_s" not in opts:
+            opts["next_stage_s"] = max(0.0, float(self.opts["budget_s"]) - float(time_s))
         res = place(board, seed=seed, time_s=time_s, physics=not self.opts.get("no_physics"), workers=1,
                     log=lambda m: self.log(f"place: {m}"), edge_mate=bool(self.opts.get("edge_mate")),
-                    angle_step=self.opts.get("angle_step") or None, board_path=str(self.input), opts=self.opts)
+                    angle_step=self.opts.get("angle_step") or None, board_path=str(self.input), opts=opts)
         out = self._path(0, "placed")
         if res.poses:
             self._write_poses(self.input, out, res.poses)
