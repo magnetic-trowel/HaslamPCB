@@ -188,18 +188,29 @@ def net_voltage(name: str | None) -> tuple[float, str] | None:
     '+3V3' 3.3; '3.3V' 3.3; '1V8' 1.8; 'VCC_12V' 12; '12V0' 12.0; 'P3V3' 3.3; '-12V' -12;
     '+5VA' 5; a bare signed number '+12', '-5', '+3.3' (Altium and Eagle imports name rails so);
     'Net3V3_1' 3.3 (an imported net named after a 3V3 port). Names without a digit-V pattern ('VCC',
-    'VBUS') return None."""
+    'VBUS') return None.
+
+    A rail is negative only by an explicit sign: a leading '-' ('-12V'); a '-' right before its digits after a
+    letter ('A-2V5', 'VCC-5V'; not a range '18-50V' nor a KiCad pin-named net 'Net-(U1-3V3)'); NEG or MINUS in the
+    name ('NEG5V', '5V_NEG', 'MINUS12V'); or N before the digits, the negative half of a P/N pair ('N12V0A' beside
+    'P12V0A', 'N5V'). A bare M is no sign: 'M3V3' reads +3.3 V (an M prefix for minus made such a rail -3.3 V,
+    and M is as often a module or a net letter)."""
     n = clean_net(name).short
     if not n:
         return None
-    neg = n.startswith('-') or re.match(r'^(N|NEG|M)\d', n) is not None or 'NEG' in n
+    word_neg = re.search(r'NEG|MINUS', n) is not None or re.match(r'^N\d', n) is not None
+    auto = n.upper().startswith('NET-(')
+
+    def is_neg(start):
+        return n.startswith('-') or word_neg or \
+            (not auto and start > 1 and n[start - 1] == '-' and n[start - 2].isalpha())
 
     def prefix_ok(i):
         # the digits must start the name or follow a separator, a sign, P/N, or a supply word
         if i == 0 or not n[i - 1].isalnum():
             return True
         pre = n[:i]
-        return re.search(r'(^[PNM]|^NET|VCC|VDD|VIN|VOUT|VBAT|VSYS|VBUS|VCCIO|VDDIO|PWR|AVDD|DVDD|VREG|V)$', pre) is not None
+        return re.search(r'(^[PNM]|^NET|NEG|MINUS|VCC|VDD|VIN|VOUT|VBAT|VSYS|VBUS|VCCIO|VDDIO|PWR|AVDD|DVDD|VREG|V)$', pre) is not None
     m = re.match(r'^([+-])(\d{1,3}(?:\.\d{1,2})?)(?:_[A-Z0-9_]*)?$', n)                    # +12, -5, +3.3, +12_ISO
     if m and 1.2 <= float(m.group(2)) <= 1000:          # '+1', '-2' are more often pin or pair names than rails
         v = float(m.group(2))
@@ -207,7 +218,7 @@ def net_voltage(name: str | None) -> tuple[float, str] | None:
     m = re.search(r'(?<![0-9.])(\d{1,3})P(\d{1,3})V(?![0-9A-Z])', n)                  # 12P0V, 3P3V
     if m and prefix_ok(m.start()):
         v = float(f"{m.group(1)}.{m.group(2)}")
-        return (-v if neg else v), m.group(0)
+        return (-v if is_neg(m.start()) else v), m.group(0)
     for m in re.finditer(r'(?<![0-9.])(\d{1,3})V(\d{1,3})(?![0-9])', n):              # 3V3, 12V0, P3V3, VDD3V3
         if prefix_ok(m.start()):
             v = float(f"{m.group(1)}.{m.group(2)}")
@@ -221,7 +232,7 @@ def net_voltage(name: str | None) -> tuple[float, str] | None:
             return None
     if v <= 0 or v > 1000:
         return None
-    return (-v if neg else v), m.group(0)
+    return (-v if is_neg(m.start()) else v), m.group(0)
 
 
 # ------------------------------------------------------------------ packages
