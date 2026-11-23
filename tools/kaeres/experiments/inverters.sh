@@ -68,19 +68,42 @@ case "$STAGE" in
         --env KAE_STEP_CACHE=$STEP_CACHE --description "smoke (${BOARD}) of the $desc" >/dev/null
     fi ;;
   synthetic)
-    # the synthetic inputs are no corpus tasks: one kaeq job per board and arm, the same wrapper and settings, run from
-    # a checkout of $SHA (kaeq snapshots it), boards and facts written by make_boards.py
-    out=$D/synthetic-jobs.jsonl; : > $out
-    for b in inv-dedicated-2l inv-ground-2l inv-direct-4l; do
-      fp=$(python3 -c "import sys,re;print(len(re.findall(r'^\t\(footprint ', open(sys.argv[1]).read(), re.M)))" kae/tests/data/inverters/$b/board.kicad_pcb)
-      t=$(python3 -c "import math,sys;print(int(min(14400, 900*math.sqrt(int(sys.argv[1])/40))))" $fp)
-      for arm in N C; do
-        inv=$([ $arm = C ] && echo 1 || echo 0)
-        w=/var/tmp/\$USER/inverters-$S7/$b-$arm
-        cmd="export KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1 $Z KAE_CELLS_INVERTING=$inv KAE_BRIDGE_FREEROUTING=$FORK; mkdir -p $w && cd $w && python3 \$OLDPWD/tools/kaeres/restart.py --input \$OLDPWD/kae/tests/data/inverters/$b/board.kicad_pcb --output $w/out --time $t --seed 1 --parallel 4 --first-s 60 --scale-first --slack 1.15 --resume 0.5 -- python3 -m kae.route.cli route @IN@ @OUT@ --seed @SEED@ --time @TIME@ --set operating=\$OLDPWD/kae/tests/data/inverters/$b.operating.json"
-        python3 -c "import json,sys;print(json.dumps(dict(cmd=sys.argv[1],name=sys.argv[2],cpus=4,mem='8G',timeout=str(4*int(sys.argv[3]))+'s')))" "$cmd" "inv-$arm-$b-$S7" $t >> $out
-      done
-    done
+    # the synthetic inputs are no corpus tasks: one kaeq job per board and arm, the corpus arms' wrapper and settings
+    # (restart.py with lastmile as --final and finish as --finish), run from a snapshot of $SHA (kaeq snapshots the
+    # submitting checkout: \$R in the jobs is that snapshot), boards and facts written by make_boards.py
+    out=${OUT:-$D/synthetic-jobs.jsonl}           # generated (machine paths): not committed
+    python3 - "$out" "$S7" "$FORK" "$Z" <<'PY'
+import json, math, re, sys
+from pathlib import Path
+out, s7, fork, z = sys.argv[1:5]
+lines = []
+for b in ("inv-dedicated-2l", "inv-ground-2l", "inv-direct-4l"):
+    pcb = Path("kae/tests/data/inverters") / b / "board.kicad_pcb"
+    fp = len(re.findall(r"^\t\(footprint ", pcb.read_text(), re.M))
+    t = int(min(14400, 900 * math.sqrt(fp / 40)))
+    for arm, inv in (("N", 0), ("C", 1)):
+        opj = f"$R/kae/tests/data/inverters/{b}.operating.json"
+        e = (f"env PYTHONPATH=$R/kae/src NUMBA_CACHE_DIR=$PWD/numba OMP_NUM_THREADS=1 KAE_WORKERS=1 {z} "
+             f"KAE_CELLS_INVERTING={inv} KAE_BRIDGE_FREEROUTING={fork} ${{KAE_PY:-python3}}")
+        lm = f"{e} -m kae.route.cli lastmile @IN@ @BEST@ @OUT@ --seed @SEED@ --time @TIME@ --set operating={opj}"
+        fn = f"{e} -m kae.route.cli finish @IN@ @BEST@ @OUT@ --time @TIME@ --input-drc @DRC@ --drc-s @DRC_S@ --set operating={opj}"
+        inner = (f'if [ "$KAE_RESUME" = 1 ]; then {e} -m kae.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@ '
+                 f'--set operating={opj}; else {e} -m kae.route.cli route @IN@ @OUT@ --seed @SEED@ --time @TIME@ '
+                 f'--set operating={opj}; fi')
+        w = f"/var/tmp/$USER/inverters-{s7}/{b}-{arm}"
+        cmd = (f"source $HOME/.cache/kaebench/env.sh; export R=$PWD APPTAINER_BIND=/var/tmp/$USER KAE_BUDGET=work "
+               f"PYTHONHASHSEED=0 KAE_WORKERS=1; rm -rf {w}; mkdir -p {w} && cd {w} && ${{KAE_PY:-python3}} "
+               f"$R/tools/kaeres/restart.py --input $R/{pcb} --output {w}/out.kicad_pcb --time {t} --seed 1 --parallel 4 "
+               f"--first-s 60 --scale-first --slack 1.15 --resume 0.5 --final '{lm}' --finish '{fn}' -- '{inner}'; "
+               # the physics step: the routed board under its operating facts, evaluator classes on (both arms)
+               f"rc=$?; cp $R/{pcb.with_suffix('.kicad_pro')} {w}/out.kicad_pro; (ulimit -v 40000000; "
+               f"$KAE_KICAD_WRAP kicad-cli pcb drc --format json -o {w}/drc.json {w}/out.kicad_pcb >/dev/null 2>&1); "
+               f"PYTHONPATH=$R/kae/src ${{KAE_PY:-python3}} -m kae.excite.evaluate {w}/out.kicad_pcb --pitch 0.25 "
+               f"--cell-pitch 0.0625 --scope losses --intent {opj} --drc {w}/drc.json -o {w}/ev.json > {w}/ev.txt 2>&1; "
+               f"exit $rc")
+        lines.append(json.dumps(dict(cmd=cmd, name=f"inv-{arm}-{b}-{s7}", cpus=4, mem="8G", timeout=f"{4 * t}s")))
+Path(out).write_text("\n".join(lines) + "\n")
+PY
     echo "wrote $out (kaeq submit --jobs $out, after the coordinator's go)" ;;
   *) echo "STAGE: full, smoke or synthetic" >&2; exit 2 ;;
 esac
