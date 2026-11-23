@@ -333,6 +333,10 @@ def compile_spec(spec, summary):
             opwhy[f"cells.{cid}"] = why(c, "converter operating point") + field_bases(c) + extra
         vmax = S.num(c, "switch_V_max_V", "V", w)
         if vmax:
+            # the switch's rating is an operating fact too: the evaluator's overshoot bound reads it
+            # (haslam.excite.params.switch_rating: cells.<id>.v_sw_max_V)
+            op["cells"].setdefault(cid, {})["v_sw_max_V"] = vmax
+        if vmax:
             terms.append(dict(id=f"O{i}", tier="hard", obs="overshoot.peak", where={"observer": f"overshoot:{cid}"},
                               max=f"{vmax:g} V", source=f"{cid}: switch rating {vmax:g} V", why=why(c, "switch voltage rating")))
     # sensitive pins: feedback, ADC, reset, reference, RF inputs
