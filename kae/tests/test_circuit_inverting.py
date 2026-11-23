@@ -120,3 +120,34 @@ def test_each_inverters_dc_feed_balances(variant, tmp_path):
     assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
     # its input current comes from +12V at J1
     assert inj["J1.1"] > 0
+
+
+DUAL = {("U1", "1"): ("-5V", "VNEG", "power_out"), ("U1", "5"): ("Net-(U1-SWN)", "SWN", "output"),
+        ("L1", "1"): ("Net-(U1-SWN)", "", "passive"), ("L1", "2"): ("GND", "", "passive"),
+        ("C2", "1"): ("-5V", "", "passive")}
+
+
+def test_a_dual_rail_ics_negative_half_is_an_inverting_cell(tmp_path, monkeypatch):
+    """A dual +/- rail IC (TPS65133: its SWN switch from the input, L from SWN to ground, the rectifier inside from
+    SWN to its VNEG pin) on ground: its negative half was missed, since its ground is the system's. Behind
+    KAE_CELLS_DUALRAIL: the cell's reference and return are ground, its loop the input capacitor, the IC's input
+    and VNEG pins and the output capacitor."""
+    import critical_fixtures as CF
+    parts = []
+    for ref, val, lib, x, y, rot, pads, cy in CF.PARTS:
+        out = []
+        for n, net, lx, ly, w, h, kind, drill, fn, pt in pads:
+            if (ref, n) in DUAL:
+                net, f2, pt = DUAL[(ref, n)]
+                fn = f2 or fn
+            out.append((n, net, lx, ly, w, h, kind, drill, fn, pt))
+        parts.append((ref, "TPS65133" if ref == "U1" else val, lib, x, y, rot, out, cy))
+    monkeypatch.setattr(CF, "PARTS", parts)
+    p = str(CF.write_board(tmp_path))
+    monkeypatch.delenv("KAE_CELLS_DUALRAIL", raising=False)
+    assert CELL not in _cells(build(load(p), inverting=True))
+    monkeypatch.setenv("KAE_CELLS_DUALRAIL", "1")
+    s = _cells(build(load(p), inverting=True))[CELL]
+    assert (s["vin"], s["vout"], s["gnd"], s["ret"]) == ("VIN", "-5V", "GND", "GND")
+    assert [(s["members_ref"][u], q) for u, q in s["loop"]] == [("C1", "1"), ("U1", ["3"]), ("U1", ["1"]), ("C2", "1"),
+                                                                ("C2", "2"), ("C1", "2")]

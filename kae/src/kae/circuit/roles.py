@@ -865,6 +865,31 @@ def inverting_ic(nl: Netlist, roles: Roles, ref):
     return n if n and n not in g else None
 
 
+def cells_flag(name, default=False):
+    """A recogniser class's own flag (env `name` = 1/0; unset: `default`): each new cell class stays behind one until
+    its tests pass (KAE_CELLS_DUALRAIL: the negative half of a dual +/- rail IC)."""
+    import os
+    v = os.environ.get(name)
+    return default if v is None or not v.strip() else v.strip().lower() in ("1", "true", "yes", "on")
+
+
+NEG_OUT_PIN = re.compile(r'^(VNEG|VN|NEG\w*|VOUTN|OUTN|VOUT_?N|V_?NEG\w*|VOUT2|OUT2|V-)$', re.I)
+
+
+def inverting_output(nl: Netlist, roles: Roles, ic, swn):
+    """The negative rail a dual +/- rail IC's inverting half makes (TPS65131/2/3: its SWN switch from the input, the
+    inductor SWN to ground, an internal rectifier from SWN to its VNEG pin), or None: a pin of the IC named for a
+    negative output (NEG_OUT_PIN) on a net that is no ground and, where its name states a voltage, below ground."""
+    g = set(roles.grounds)
+    for p in nl.parts[ic].active_pins():
+        if not p.net or p.net in g or p.net == swn or not NEG_OUT_PIN.match(p.fn or ''):
+            continue
+        nv_ = V.net_voltage(p.net)
+        if nv_ is None or nv_[0] < 0:
+            return p.net
+    return None
+
+
 def inverting_rectifier(nl: Netlist, roles: Roles, swn, ind_ref=None):
     """(diode, negative rail) of a dedicated inverter's switch node (TPS63700, MC34063 in its inverting circuit): a
     rectifier with its cathode on the switch node and its anode on a net that is not a ground (the negative output,
@@ -1104,11 +1129,16 @@ def _switch_nodes(nl: Netlist, roles: Roles, inverting: bool = False):
                      and roles.parts[p.ref].kind in ('ic', 'module')}
             ics = {x for x in swics if inverting_ic(nl, roles, x)}
             d_, neg_ = inverting_rectifier(nl, roles, n, ref) if swics and not ics else (None, None)
+            dual = None
+            if swics and not ics and not d_ and cells_flag("KAE_CELLS_DUALRAIL"):
+                dual = next(((x, inverting_output(nl, roles, x, n)) for x in sorted(swics)
+                             if inverting_output(nl, roles, x, n)), None)
             s, evs = score_side(n, o, ref)
-            if (ics or d_) and s >= 2.0:
-                ic = sorted(ics or swics)[0]
+            if (ics or d_ or dual) and s >= 2.0:
+                ic = sorted(ics or swics)[0] if not dual else dual[0]
                 why = (f"{ic}'s ground pins on '{nl.nets[inverting_ic(nl, roles, ic)].short}', not a ground" if ics else
-                       f"rectifier {d_} from the switch node (cathode) to '{nl.nets[neg_].short}' (anode)")
+                       f"rectifier {d_} from the switch node (cathode) to '{nl.nets[neg_].short}' (anode)" if d_ else
+                       f"{ic}'s negative output on '{nl.nets[dual[1]].short}' (a dual +/- rail IC's inverting half)")
                 evs = [ev('topology', f"one end of power inductor {ref} ({part.value}), the other on ground", 1.0),
                        ev('topology', f"{why}: an inverting buck-boost", MODERATE)] + evs
                 sw.setdefault(n, dict(kind='inductor', inductors=[], evidence=evs, score=s, inverting=True))['inductors'].append(ref)
