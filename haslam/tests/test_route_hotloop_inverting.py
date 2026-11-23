@@ -123,3 +123,31 @@ def test_the_cells_stage_lays_an_inverting_buck(tmp_path, monkeypatch):
     W.edit(rep["board"], out, drop_guards=True)
     (tmp_path / "out.kicad_pro").write_text((tmp_path / "in" / "board.kicad_pro").read_text())
     assert len(drc.errors(drc.run(out, tmp_path / "out.json"))) <= len(base)
+
+
+def test_the_cells_stage_lays_a_dual_rail_ics_negative_half(tmp_path, monkeypatch):
+    """A TPS65133's inverting half (HASLAM_CELLS_DUALRAIL=1): its loop through the IC's input and VNEG pins and the
+    output capacitor to ground, laid, priced, closing no pin's way, adding no DRC error."""
+    from test_circuit_inverting import DUAL
+    parts = []
+    for ref, val, lib, x, y, rot, pads, cy in F.PARTS:
+        out = []
+        for n, net, lx, ly, w, h, kind, drill, fn, pt in pads:
+            if (ref, n) in DUAL:
+                net, f2, pt = DUAL[(ref, n)]
+                fn = f2 or fn
+            out.append((n, net, lx, ly, w, h, kind, drill, fn, pt))
+        parts.append((ref, "TPS65133" if ref == "U1" else val, lib, x, y, rot, out, cy))
+    monkeypatch.setattr(F, "PARTS", parts)
+    monkeypatch.setenv("HASLAM_CELLS_INVERTING", "1")
+    monkeypatch.setenv("HASLAM_CELLS_DUALRAIL", "1")
+    src = F.write_board(tmp_path / "in")
+    rep = hotloop.stage(src, F.synth_info(load(src)), tmp_path / "w", ALL, log=lambda *a: None)
+    (c,) = [c for c in rep["cells"] if c["id"] == CELL]
+    assert c["status"] == "routed" and c["L_nH"] > 0 and c["R_mohm"] > 0 and c["ret"] == "GND"
+    assert not [h for h in rep["hazards"] if h["code"] in ("hotloop_cell_blocks_pin", "hotloop_cell_unrouted")]
+    base = drc.errors(drc.run(src, tmp_path / "base.json"))
+    out = tmp_path / "out.kicad_pcb"
+    W.edit(rep["board"], out, drop_guards=True)
+    (tmp_path / "out.kicad_pro").write_text((tmp_path / "in" / "board.kicad_pro").read_text())
+    assert len(drc.errors(drc.run(out, tmp_path / "out.json"))) <= len(base)
