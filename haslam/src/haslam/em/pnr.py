@@ -156,7 +156,12 @@ class PhysRouter:
         ncp = n_corners + 3
         own = corners(self.dcp.params, n=n_corners, seed=seed + 1) if self.dcp.params else [{} for _ in range(ncp)]
         self.dcv = [dict(own[c], **{s.name: self.cval[s.name][c] for s in self.srcs if s.kind == "cell"}) for c in range(ncp)]
-        self.dc_inj = [DC.injections(self.dcp, cv) for cv in self.dcv]
+        self.dc_inj, bad = [], []
+        for cv in self.dcv:
+            lost = []
+            self.dc_inj.append(DC.injections(self.dcp, cv, lost))
+            bad += [x for x in DC.imbalance(self.dcp, self.dc_inj[-1], lost) if x not in bad]
+        self.dc_unbalanced = bad          # a plan whose current does not balance prices no DC band (said in the log)
         self.dc_obs = None
         # priced nets: every non-ground net carrying pattern current (above 1% of the pattern's largest),
         # switching or DC
@@ -288,7 +293,10 @@ class PhysRouter:
         net = ES.Network(bm.m)
         op = ES.Operator(net)
         self.dc_obs = None
-        if self.dcp.loads:
+        if self.dcp.loads and self.dc_unbalanced:
+            self.log(f"pnr: the DC plan's current does not balance ({'; '.join(self.dc_unbalanced[:3])}); the DC band is "
+                     f"unpriced")
+        elif self.dcp.loads:
             # the DC copper: the shorts and the parts that conduct at DC; one solve per corner at f = 0
             ac = bm.m.lumped
             bm.m.lumped = list(base)
