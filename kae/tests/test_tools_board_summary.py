@@ -47,3 +47,23 @@ def test_a_sections_parts_are_all_listed(tmp_path, monkeypatch):
                                                                             kind="commutation_cell", parts=parts, nets=set())})
     out = _summary()(str(CF.write_board(tmp_path)))
     assert set(out["sections"][0]["parts"]) == parts
+
+
+def test_the_summary_and_the_brief_find_the_same_cells_on_a_board_without_pin_names(tmp_path, monkeypatch):
+    """A board whose footprints carry no pin functions (meshsat's a-power board: its bucks have only their nodes'
+    names): the summary's sections are the brief's cells (an older summary showed none where the brief had five)."""
+    import critical_fixtures as CF
+    from kae.board.kicad_file import load
+    from kae.circuit.brief import build
+    from test_circuit_cells_channels import BOOT
+    parts = [(ref, val, lib, x, y, rot,
+              [(n, net, lx, ly, w, h, kind, drill, "" if ref == "U1" else fn, "" if ref == "U1" else pt)
+               for n, net, lx, ly, w, h, kind, drill, fn, pt in pads], cy)
+             for ref, val, lib, x, y, rot, pads, cy in CF.PARTS]
+    monkeypatch.setattr(CF, "PARTS", parts + [BOOT])
+    monkeypatch.delenv("KAE_CELLS_INVERTING", raising=False)
+    p = str(CF.write_board(tmp_path))
+    cells = sorted(s["id"] for s in build(load(p), inverting=True)["structures"] if s["kind"] == "commutation_cell")
+    out = _summary()(p)
+    assert cells == ["cell:buck:U1"]
+    assert sorted(s["id"] for s in out["sections"] if s["kind"] == "commutation_cell") == cells
