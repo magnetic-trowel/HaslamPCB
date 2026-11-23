@@ -20,10 +20,9 @@ and pours 0, clear 0), so the arms differ in one switch:
 | N | `HASLAM_HOTLOOP_CELLS=1 HASLAM_CELLS_INVERTING=0` (the inverter is not a cell: the general router lays it) |
 | C | `HASLAM_HOTLOOP_CELLS=1 HASLAM_CELLS_INVERTING=1` (the inverter is a cell, laid first through `ret`) |
 
-Open question for the coordinator: should N be the default router (`HASLAM_HOTLOOP_CELLS=0`) instead? With cells
-off in N, C's change would mix the inverter with the boards' bucks being laid first; with cells on in both, the
-bucks are laid identically (A/A: a buck's stage is the same with the flag on or off) and only the inverter
-differs.
+This measures inverter routing within cells-first, not against the default router: with cells on in both
+arms the boards' bucks are laid identically (A/A: a buck's stage is the same with the flag on or off) and only the
+inverter differs (decided with the coordinator).
 
 Everything else as hotloop-sw round 3 (`tools/haslamres/experiments/hotloop-sw.sh`, commit 80193220): counted
 work (`HASLAM_BUDGET=work PYTHONHASHSEED=0 HASLAM_WORKERS=1`), `restart.py --parallel 4 --first-s 60 --scale-first
