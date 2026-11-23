@@ -1005,6 +1005,32 @@ def _ext_leg(b: _B, swn, ctrl=None):
     return hs[0], hs[1], ls[0], ls[1], ls[2]
 
 
+LOAD_SWITCH_IN = re.compile(r'^(P?VIN\d*|IN\d*|VI|VBUS_?IN)$', re.I)
+LOAD_SWITCH_OUT = re.compile(r'^(P?VOUT\d*|OUT\d*|VO|VBUS_?OUT)$', re.I)
+
+
+def series_conductors(b: _B, net):
+    """Parts in series from `net` that conduct at a switching edge, as [(ref, near pads, far net)]: a low-ohm
+    resistor (a current-sense shunt), a fuse, a ferrite, or a load switch / eFuse (closed in operation) with its
+    input pins on `net` and its output pins on the far net."""
+    out = []
+    for ref in sorted({p.ref for p in b.nl.pins(net)}, key=_refkey):
+        part = b.nl.parts[ref]
+        k = b.k(ref)
+        if k in ('resistor', 'fuse', 'ferrite') and len(part.nets) == 2:
+            if k == 'resistor' and not ((V.resistance(part.value) or 1) <= 0.2 or b.sub(ref) == 'shunt'):
+                continue
+            far = b.nl.other_net(part, net)
+            if far and far not in b.g:
+                out.append((ref, b.pad_sel(ref, net), far))
+        elif k == 'ic' and b.sub(ref) == 'load_switch':
+            ins = [p for p in part.active_pins() if p.net == net and LOAD_SWITCH_IN.match(p.fn or '')]
+            outs = {p.net for p in part.active_pins() if LOAD_SWITCH_OUT.match(p.fn or '') and p.net not in b.g}
+            if ins and len(outs) == 1:
+                out.append((ref, sorted({p.number for p in ins}, key=_natkey), next(iter(outs))))
+    return out
+
+
 def _buck_boost_ext(b: _B, L, swnets):
     """A 4-switch buck-boost with external FETs (LM5176, LT8705A, LTC3780: two discrete half-bridges, the inductor
     between their switch nodes), behind KAE_CELLS_EXTBB: one buck cell on the input leg, one boost cell on the
@@ -1055,13 +1081,29 @@ def _buck_boost_ext(b: _B, L, swnets):
         core = [[hs, b.pad_sel(hs, rail)], [hs, b.pad_sel(hs, swn)], [ls, b.pad_sel(ls, swn)], [ls, b.pad_sel(ls, lret)]]
         if shunt:
             core += [[shunt, b.pad_sel(shunt, lret)], [shunt, b.pad_sel(shunt, gnd)]]
+        cap_rail, through = rail, None
+        if not caps:
+            # the leg's capacitor behind a series conductor (meshsat's LM5176 outputs: a 5 mOhm output-current shunt
+            # to the capacitors; an eFuse or load switch, closed in operation): the loop runs through it
+            for ref_, near, far_ in series_conductors(b, rail):
+                c2, p2 = _caps_with_p(b, far_, gnd, hs, [x for x in _consumers(b, far_, exclude={ctrl, L, ref_} | fets)])
+                if c2:
+                    caps, cp, cap_rail, through = c2, p2, far_, ref_
+                    far_pads = b.pad_sel(ref_, far_) if b.k(ref_) != 'ic' else sorted(
+                        {p.number for p in b.nl.parts[ref_].active_pins() if p.net == far_}, key=_natkey)
+                    core = [[ref_, far_pads], [ref_, near]] + core
+                    break
         evs = [ev('topology', f"both ends of {L} are switch nodes of discrete half-bridges driven by {ctrl} "
                               f"(4-switch buck-boost, external FETs)", STRONG),
                ev('topology', f"{kind} leg: {hs} from '{b.short(rail)}' and {ls} to '{b.short(lret)}' on "
                               f"'{b.short(swn)}'", MODERATE),
                ev('derived', f"input leg: {why}", 0.0)]
+        if through:
+            evs.append(ev('topology', f"its capacitor behind {through} (a series conductor, closed in operation) on "
+                                      f"'{b.short(cap_rail)}'", WEAK))
         if not caps:
-            evs.append(ev('topology', 'no capacitor on that rail', -2.0))
+            evs.append(ev('topology', f"no capacitor on '{b.short(rail)}', nor behind a series conductor (shunt, fuse, "
+                                      f"ferrite, load switch): the loop is open", -2.0))
         V_ = b.volts(rail)
         out.append(_struct('commutation_cell', f"cell:{kind}:{ctrl or L}", evs, conf_cap=0.9, prior=-0.5,
                            **{'class': kind, 'loop': [], 'rail': rail, 'sw': swn, 'gnd': gnd,
@@ -1074,7 +1116,7 @@ def _buck_boost_ext(b: _B, L, swnets):
                                            'out_high': legs[order[1]][0], 'out_low': legs[order[1]][2]},
                               'vin': legs[order[0]][1], 'vout': legs[order[1]][1],
                               'unmodelled': ['common_source_inductance'],
-                              'loop_core': core, 'cap_rail': rail, 'cap_gnd': gnd, 'anchor': hs}))
+                              'loop_core': core, 'cap_rail': cap_rail, 'cap_gnd': gnd, 'anchor': hs}))
     return out
 
 

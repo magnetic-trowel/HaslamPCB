@@ -83,3 +83,28 @@ def test_evaluator_a_a_on_a_board_without_one(tmp_path):
     p = str(CF.write_board(tmp_path))
     a, b_ = _ev(p, "0"), _ev(p, "1")
     assert a["observations"] == b_["observations"]
+
+
+def test_a_legs_capacitor_behind_an_efuse_closes_its_loop(tmp_path, monkeypatch):
+    """The output capacitor behind an eFuse (closed in operation; meshsat's LM5176 outputs are behind a 5 mOhm
+    output-current shunt): the leg's loop runs through it, and the evaluator lumps the eFuse as a closed switch. With
+    no capacitor at all the leg stays open and says why."""
+    monkeypatch.setenv("KAE_CELLS_EXTBB", "1")
+    s = _cells(build(load(str(write_extbb_board(tmp_path / "e", series="efuse")))))["cell:boost:U1"]
+    assert [s["members_ref"][u] for u, _ in s["loop"]][:3] == ["C2", "U5", "U5"]
+    assert any("behind U5" in e["fact"] for e in s["evidence"])
+    s = _cells(build(load(str(write_extbb_board(tmp_path / "n", series="none")))))["cell:boost:U1"]
+    assert not s["caps"] and any("nor behind a series conductor" in e["fact"] for e in s["evidence"])
+
+
+def test_the_evaluators_circuit_has_the_efuse_closed(tmp_path, monkeypatch):
+    """The evaluator's circuit lumps the eFuse as a closed switch from its IN to its OUT pins (no DC element: the DC
+    band keeps its own feeds), so the field solve carries the leg's loop current through it to the capacitor."""
+    from kae.excite import models as M
+    monkeypatch.setenv("KAE_CELLS_EXTBB", "1")
+    b = load(str(write_extbb_board(tmp_path, series="efuse")))
+    bd = M.build(b, build(b))
+    (e,) = [e for e in bd.circuit.elems if e.name == "U5:pass"]
+    assert (e.pa, e.pb, e.kind) == ("U5.1", "U5.2", "pass")
+    monkeypatch.setenv("KAE_CELLS_EXTBB", "0")
+    assert not [e for e in M.build(b, build(b)).circuit.elems if e.name == "U5:pass"]

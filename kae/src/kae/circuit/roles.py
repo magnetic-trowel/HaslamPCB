@@ -261,7 +261,8 @@ IC_RULES = [  # specific families first: the first match wins
     ('current_sense', rx(r'\bINA1[89]\d|\bINA2[0-9]\d|\bINA3\d{2}|\bINA4\d{2}|\bACS7\d{2}|\bMAX40\d{2}|\bMAX9938|\bLMP86\d{2}|\bAD8418|'
                          r'\bZXCT\d|\bLT6106|\bINA2\d{2}A|\bcurrent sense')),
     ('load_switch', rx(r'\bTPS22\d{3}|\bTPS2[01]\d{2}|\bAP22[89]\d|\bAP25\d{2}|\bSLG5NT|\bRT9742|\bMAX17613|\bNCP4556\d|\bSY62\d{2}|\bMIC20\d{2}|'
-                       r'\bLTC4412|\bTPS2115|\bLM6600|\bpower switch|\bload switch|\bideal diode|\bLM5050|\bLTC435\d|\bTPS2116')),
+                       r'\bLTC4412|\bTPS2115|\bLM6600|\bpower switch|\bload switch|\bideal diode|\bLM5050|\bLTC435\d|\bTPS2116|'
+                       r'\bTPS259\d|\bTPS2660|\bLM5069|\bLTC4365|\beFuse')),
     ('adc_dac', rx(r'\bADS\d{4}|\bADS1\d{3}|\bMCP3\d{3}|\bMCP4\d{3}|\bAD7\d{3}|\bAD5\d{3}|\bDAC\d{3,5}|\bMAX11\d{3}|\bMAX5\d{3}|\bLTC2\d{3}|'
                     r'\bMAX6675|\bMAX31855|\bMAX318\d{2}|\bADC\d{3,4}|\bPCM18\d{2}|\bDS4432|\bAD9\d{3}|\bHX711|\bNAU7802|\bCS55\d{2}')),
     ('reference', rx(r'\bLM4040|\bLM4041|\bREF\d{2,4}|\bTL431|\bLM431|\bADR\d{3}|\bMAX6\d{3}|\bLT6656|\bLT1009|\bAZ431|\bvoltage reference|\bshunt reference')),
