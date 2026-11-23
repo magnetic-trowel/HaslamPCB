@@ -38,3 +38,8 @@ Setup: 18 sprint-frontier boards that `control-w47`'s staged run left open; each
 Undecided. Unlocking the window copper does not make more windows succeed.
 
 **Calibration finding:** the windows phase's counted work undercharges real CPU time by 2-3×. It is spent mostly in window re-placement and the last mile.
+
+## Conclusion: the windows line (2026-11-23)
+Every change tested on the windows phase failed to move the share of kept windows: windows-fixes (legalize, skip empty windows, rip own nets), ends-only rip-up, soft window copper, and the bridge as window router (counterfactual). The keep rate stayed at about 5-8 % (window-fixes 5.0 → 7.8 %, window-ends5 26/440 vs 27/411). Freed windows fail on completion instead of on legality. CF-W stays the default: windows on boards open after phase 1 beat a second restart (−15.9 % opens).
+
+**Open lever:** the window re-placer is blind to copper. `kae.place.problem` has no tracks or vias (window-diag, code check b), so moved parts land on foreign routing that must then be ripped. A copper-aware re-placement would price those landings. It has not been tried.
