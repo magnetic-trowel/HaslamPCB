@@ -155,11 +155,11 @@ def main(argv=None):
         return _finish(a, run_finish, dict(parts=tuple(p for p in a.parts.split(",") if p)))
     if a.cmd == "clear":
         def run_clear(opts):
-            import shutil
             import tempfile
+            from kae import proc
             from kae.route import hotloop
             from pathlib import Path
-            shutil.copy2(a.board, a.output)
+            proc.publish(a.board, a.output)
             wd = Path(a.workdir or tempfile.mkdtemp(prefix="kae-clear-", dir=str(Path(a.output).parent)))
             rep = hotloop.clear(a.input, a.output, wd, opts=dict(opts, hotloop_clear=1),
                                 deadline=clock_now() + a.time - 10)
