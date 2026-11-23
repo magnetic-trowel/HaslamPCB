@@ -826,9 +826,9 @@ def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes,
         for c in range(ncp):
             tot[c] += HA.phi(u_[c])
         v0 = vals[0] or (0.0, 0.0, 0.0, 0.0)
-        # values >= 0, a Clamp (kae.excite.quantity): max(dv, 0) at kae.excite.dc.observe, not |dv|; signed: rail plus
-        # ground difference as solved, negative where the load's ground sits below its source's (another rail's return
-        # current in shared ground copper)
+        # values >= 0, a Clamp (kae.excite.quantity): max(sigma dv, 0) at kae.excite.dc.observe (sigma the rail's sign),
+        # not |dv|; signed: rail plus ground difference as solved, of the other sign where the load's ground sits below
+        # its source's (another rail's return current in shared ground copper)
         obs.append(dict(id="drop.rail", unit="V", values=[v[1] if v else 0.0 for v in vals], u=u_,
                         signed=[v[3] if v else 0.0 for v in vals],
                         scope=dict(kind="dc_drop", load=ref, rail=rail, parts=[ref], nets=[rail]),
