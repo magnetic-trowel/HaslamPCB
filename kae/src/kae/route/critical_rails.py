@@ -146,6 +146,14 @@ def load_current(ctx, u, net, cells, draws=None):
         i_out = float(ex.get("I") or 1.0)
         if c.get("rail") == net and c.get("class") in ("buck", None):
             return CV.input_current("buck", max(vin, 0.5), vout, i_out)
+        if c.get("rail") == net and c.get("class") == "inverting":
+            # its input: |V_out| I_out / (V_in eta) (TI SLVA721). Its excitation V is the switch's swing, so V_in is
+            # the input rail's own voltage; its excitation I is the switch's (the inductor's), I_out / (1 - D)
+            vo = ctx.volts(c.get("vout"))
+            if not vo:
+                return i_out
+            D = CV.duty("inverting_buck_boost", max(v, 0.5), vo)
+            return CV.input_current("inverting_buck_boost", max(v, 0.5), vo, i_out * (1 - D))
         if c.get("rail") == net:
             return i_out
     if kind == "inductor":

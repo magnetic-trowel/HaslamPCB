@@ -171,8 +171,10 @@ def prior_of(brief, sid):
     if s is None or s.get("kind") != "commutation_cell":
         return None
     ex = s.get("excite") or {}
-    v = ex.get("V") or ((brief.get("nets") or {}).get(s.get("rail")) or {}).get("volts") or PR.V_IN_UNKNOWN.value
-    v = abs(v)          # the switch stands off the bus's magnitude: a -12 V cell's budget is a +12 V one's
+    nets = brief.get("nets") or {}
+    # the switch stands off the bus's magnitude: a -12 V cell's budget is a +12 V one's; an inverting cell's
+    # bus is V_in + |V_out| (PR.cell_bus)
+    v = PR.cell_bus(s, lambda n: (nets.get(n) or {}).get("volts"), PR.V_IN_UNKNOWN.value)
     return PR.hot_loop_budget(s.get("class") or "unknown", v, t_sw_ns=ex.get("t_sw_ns"), v_abs=PR.budget_v_abs(ex)).value
 
 

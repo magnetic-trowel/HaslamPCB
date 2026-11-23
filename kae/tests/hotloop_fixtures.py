@@ -115,9 +115,20 @@ INV_VIAS = {"ground": [(117.0, 108.0), (132.0, 108.0), (129.0, 108.5)],
             "dedicated": [(117.0, 108.0), (123.3, 111.9), (132.0, 108.0), (129.0, 108.5)]}
 
 
-def write_inverting_board(d, variant="ground", routed=True):
+NEG_POUR = (112.0, 106.0, 136.0, 116.0)        # a -5V pour on B.Cu under the cell (over the ground pour)
+
+
+def _neg_pour():
+    x0, y0, x1, y1 = NEG_POUR
+    return (f'\t(zone\n\t\t(net "-5V")\n\t\t(layer "B.Cu")\n\t\t(uuid "00000000-0000-4000-a000-000000000001")\n'
+            f'\t\t(name "neg_pour")\n\t\t(hatch edge 0.5)\n\t\t(priority 1)\n\t\t(connect_pads\n\t\t\t(clearance 0.3)\n\t\t)\n'
+            f'\t\t(min_thickness 0.25)\n\t\t(fill\n\t\t\t(thermal_gap 0.5)\n\t\t\t(thermal_bridge_width 0.5)\n\t\t)\n'
+            f'\t\t(polygon\n\t\t\t(pts\n\t\t\t\t(xy {x0} {y0}) (xy {x1} {y0}) (xy {x1} {y1}) (xy {x0} {y1})\n\t\t\t)\n\t\t)\n\t)\n')
+
+
+def write_inverting_board(d, variant="ground", routed=True, neg_pour=False):
     """The synthetic board with its converter inverting (inverting_parts), its hot loop routed and grounded
-    (routed=False: the parts only, for the router)."""
+    (routed=False: the parts only, for the router; neg_pour: a -5V pour on B.Cu under the cell, NEG_POUR)."""
     import critical_fixtures as CF
     d = Path(d)
     old = CF.PARTS
@@ -127,10 +138,13 @@ def write_inverting_board(d, variant="ground", routed=True):
         text = board_text()
     finally:
         CF.PARTS = old
+    tail = "\t(embedded_fonts no)\n)\n"
+    if neg_pour:
+        text = text[:-len(tail)] + _neg_pour() + tail
+        p.write_text(text)
     if not routed:
         return p
     items = [_seg(a, b, w, net, k=k) for k, (net, a, b, w) in enumerate(INV_TRACKS[variant])]
     items += [_via(x, y, "GND", k) for k, (x, y) in enumerate(INV_VIAS[variant])]
-    tail = "\t(embedded_fonts no)\n)\n"
     p.write_text(text[:-len(tail)] + "".join(items) + tail)
     return p

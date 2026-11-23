@@ -353,7 +353,7 @@ def _commutation(ctx, s, Struct):
     labels = [lab for _, _, lab in variants]
     cls = s.get('class') or 'unknown'
     ex = s.get('excite') or {}
-    vin = ex.get('V') or ctx.net_volts(s.get('rail')) or PR.V_IN_UNKNOWN.value
+    vin = PR.cell_bus(s, ctx.net_volts, PR.V_IN_UNKNOWN.value)       # an inverting cell's V_in + |V_out|
     alloc = ctx.budget(s, 'L_nH') or PR.hot_loop_budget(cls, vin, t_sw_ns=ex.get('t_sw_ns'), v_abs=PR.budget_v_abs(ex))
     # the loop inductance at which the ring reaches the switch's absolute maximum itself (derate 1): beyond
     # it the part is outside its rating (kae.physics.criteria; a hazard in the place report)

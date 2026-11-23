@@ -100,6 +100,7 @@ V_ABS_LADDER = CR.V_ABS_LADDER       # the overshoot criterion is shared with th
 # class -> (C_oss pF, t_sw ns, I A, rating margin, ring Q)
 CELL_CLASS = {
     'buck': (100.0, 1.5, 1.0, 1.25, 8.0),          # integrated switches, <= 3 A
+    'inverting': (100.0, 1.5, 1.0, 1.25, 8.0),     # a buck IC (or a dedicated inverter) on V_in + |V_out| (SLVA721)
     'boost': (100.0, 1.5, 1.0, 1.25, 8.0),
     'bridge_driver': (200.0, 5.0, 1.0, 1.25, 8.0),  # integrated motor driver
     'half_bridge': (500.0, 10.0, 5.0, 1.25, 8.0),   # discrete FETs
@@ -124,6 +125,20 @@ def budget_v_abs(excite):
 def v_abs_rating(v_in, margin=CR.RATING_MARGIN):
     """Smallest standard rating >= margin * V_in (E5: parts are rated one step above)."""
     return CR.v_abs_prior(v_in, margin)
+
+
+def cell_bus(spec, volts, default=None):
+    """The voltage a cell's switch stands off, for its budgets: the brief's excitation V (an inverting cell's is
+    already V_in + |V_out|), else its rail's magnitude (`volts(net)`), for an inverting cell its input's plus
+    its negative output's magnitude; `default` when none is known."""
+    ex = spec.get('excite') or {}
+    if ex.get('V'):
+        return abs(float(ex['V']))
+    v = volts(spec.get('rail')) if spec.get('rail') else None
+    if spec.get('class') == 'inverting' and v:
+        vo = volts(spec.get('vout')) if spec.get('vout') else None
+        return abs(v) + abs(vo) if vo else (default if default is not None else abs(v))
+    return abs(v) if v else default
 
 
 def hot_loop_budget(cell_class='buck', v_in=12.0, c_oss_pf=None, t_sw_ns=None, derate=CR.OVERSHOOT_DERATE, q=None,
