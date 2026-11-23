@@ -613,10 +613,22 @@ def part_number_text(part: Part) -> str:
     return ' '.join([part.value] + [str(part.fields[k]) for k in PART_NUMBER_FIELDS if part.fields.get(k)])
 
 
+# negative-output linear regulators (datasheets: TI TPS723xx and TPS7A30/33, ADI LT1964, LT3090, LT3015 and ADP7182,
+# TI LM2990, the 79xx family): a fixed voltage read from their part number is below ground
+NEG_LDO = re.compile(r'TPS723\d|TPS7A3[03]|LT1964|LT3090|LT3015|ADP7182|LM2990|LM79|MC79|UA79|L79')
+
+
 def regulator_vout(text: str) -> tuple[float, str] | None:
     """Fixed output voltage from a regulator part number ('AMS1117-3.3', 'MCP1700-3302E', 'XC6206P332MR',
     'L7805', 'NCP177AMX330', 'TLV74318'); None for adjustable or unknown parts. Pass the part-number
-    text (part_number_text), not Part.text()."""
+    text (part_number_text), not Part.text(). A negative regulator's (NEG_LDO: 'TPS72325', -2.5 V) is negative."""
+    rv = _regulator_vout(text)
+    if rv and rv[0] > 0 and NEG_LDO.search((text or '').upper()):
+        return -rv[0], rv[1]
+    return rv
+
+
+def _regulator_vout(text: str) -> tuple[float, str] | None:
     t = (text or '').upper().replace(',', '.')
     if re.search(r'ADJ', t):
         return None
@@ -958,6 +970,10 @@ def _grounds(nl: Netlist, roles: Roles):
             evs.append(ev('zone', f"pour on {nl.zone_layers[net]} layer(s)", 0.5))
         if PWR_NET.search(s) and not GND_ANY.search(s):
             evs.append(ev('name', f"name '{s}' matches a rail pattern", -STRONG))
+        elif not GND_ANY.search(s) and V.net_voltage(net):
+            # a name that states a rail voltage ('A-2V5', the -2.5 V analog rail its op-amps' V- pins sit on) is a
+            # rail, however many ground-like pin names (V-) it carries
+            evs.append(ev('name', f"name '{s}' states a voltage ({V.net_voltage(net)[0]:g} V)", -STRONG))
         if not evs:
             continue
         name_ev = any(e.kind == 'name' and e.weight > 0 for e in evs) or gnd_cls
