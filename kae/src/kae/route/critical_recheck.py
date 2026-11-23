@@ -267,7 +267,8 @@ class LoopBuilder:
 def cell_ret(rb, s):
     """The nets a cell's loop returns through, as the router reads them (critical_modules.cell_return): the board's
     grounds, except an inverting cell whose input capacitor returns to its negative rail (`ret` not a ground)."""
-    ret = s.get("ret")
+    from kae.circuit.structures import loops_of
+    ret = loops_of(s)[0][2]
     return {ret} if s.get("class") == "inverting" and ret and ret not in rb.gnd else rb.gnd
 
 
