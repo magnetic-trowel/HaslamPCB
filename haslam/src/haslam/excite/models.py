@@ -417,8 +417,31 @@ def _part(bd, ref, part, pins, kind, sub, role, rec, in_cell):
     elif kind == "battery" and len(tw) == 2:
         c.z(ref, tw[0].net, tw[1].net, _rl(0.1, 10e-9), tok(tw[0]), tok(tw[1]), "batt")
     elif kind == "ic" or (kind == "unknown" and len(pins) > 3):
+        if sub == "load_switch":
+            from haslam.circuit.roles import cells_flag
+            if cells_flag("HASLAM_CELLS_EXTBB"):
+                _pass_element(bd, ref, pins)
         _ic(bd, ref, part, pins, sub or "", role)
     # connectors, test points, holes, fiducials: no circuit inside the board (the world is outside)
+
+
+PASS_R = 0.03                   # ohm, a load switch's or eFuse's on-resistance (class prior: TPS22xxx, TPS259x 10-60 mOhm)
+PASS_IN = re.compile(r"^(P?VIN\d*|IN\d*|VI|VBUS_?IN)$", re.I)
+PASS_OUT = re.compile(r"^(P?VOUT\d*|OUT\d*|VO|VBUS_?OUT)$", re.I)
+
+
+def _pass_element(bd, ref, pins):
+    """A load switch or eFuse conducts from its input pins to its output pins (closed in operation): PASS_R, no
+    inductance of its own (its pins' copper carries that), so a converter leg's capacitor behind it is in the loop.
+    With HASLAM_CELLS_EXTBB only for now (it changes every board with a load switch's field solve); the DC band keeps
+    the switch as its own feed."""
+    ins = [p for p in pins if PASS_IN.match(p.fn or "") and p.net]
+    outs = [p for p in pins if PASS_OUT.match(p.fn or "") and p.net]
+    if not ins or not outs or ins[0].net == outs[0].net:
+        return
+    bd.circuit.z(f"{ref}:pass", ins[0].net, outs[0].net, _rl(PASS_R, 0.0), f"{ref}.{ins[0].number}",
+                 f"{ref}.{outs[0].number}", "pass")      # not a DC element: the DC band keeps its own feeds
+    bd.assumptions.append(f"{ref}: a load switch / eFuse, closed, at {PASS_R * 1e3:g} mOhm (class prior)")
 
 
 def _ic(bd, ref, part, pins, sub, role):
