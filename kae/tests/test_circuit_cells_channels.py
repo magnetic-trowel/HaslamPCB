@@ -81,3 +81,26 @@ def test_the_input_leg_table_reads_jw3651s_sw2_from_its_datasheet():
     from kae.circuit.structures import SW_INPUT_LEG
     (row,) = [r for r in SW_INPUT_LEG if r[0] == r"JW3651"]
     assert row[1] == "SW2" and "Rev 0.91" in row[2] and "VIN side" in row[2]
+
+
+BOOST_HALF = {("U1", "1"): ("+5VA", "VPOS", "power_out"), ("U1", "3"): ("VIN", "PVIN", "power_in"),
+              ("U1", "5"): ("Net-(U1-SWP)", "SWP", "output"), ("L1", "1"): ("VIN", "", "passive"),
+              ("L1", "2"): ("Net-(U1-SWP)", "", "passive"), ("C2", "1"): ("+5VA", "", "passive")}
+
+
+def test_a_dual_rail_ics_boost_half_is_a_boost(tmp_path, monkeypatch):
+    """A TPS65133's positive half: L from its input (PVIN's net) to SWP, its output on VPOS. With no IN-named pin
+    off the inductor's far end, its VPOS output stood in for an input and the half was typed a buck from +5VA."""
+    parts = []
+    for ref, val, lib, x, y, rot, pads, cy in CF.PARTS:
+        out = []
+        for n, net, lx, ly, w, h, kind, drill, fn, pt in pads:
+            if (ref, n) in BOOST_HALF:
+                net, f2, pt = BOOST_HALF[(ref, n)]
+                fn = f2 or fn
+            out.append((n, net, lx, ly, w, h, kind, drill, fn, pt))
+        parts.append((ref, "TPS65133" if ref == "U1" else val, lib, x, y, rot, out, cy))
+    monkeypatch.setattr(CF, "PARTS", parts)
+    br = build(load(str(CF.write_board(tmp_path))))
+    cells = [(s["class"], s["rail"], s["vin"], s["vout"]) for s in br["structures"] if s["kind"] == "commutation_cell"]
+    assert cells == [("boost", "+5VA", "VIN", "+5VA")]
