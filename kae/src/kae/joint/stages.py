@@ -101,6 +101,7 @@ class KaeStages:
         self.locked = set()
         self.module_parts = {}
         self.writer_hz = []              # hazards of KiCad's writer, one list over every pose write
+        self.place_hz = {}               # placement hazards for the caller, one per code (input_locked_errors)
         self.edge_parts = set()
 
     # ------------------------------------------------------------------ helpers
@@ -122,6 +123,10 @@ class KaeStages:
         self.writer_hz += (wrep or {}).get("hazards") or []
         _project(self.input, dst)
         return dst
+
+    def place_hazards(self):
+        """Placement hazards the caller must see (the latest placement's input_locked_errors)."""
+        return list(self.place_hz.values())
 
     def writer_hazards(self):
         """The writer's post-write hazards (kae.board.pcbnew_io.write_hazards) over the run, one per
@@ -155,6 +160,9 @@ class KaeStages:
             shutil.copy2(self.input, out)
             _project(self.input, out)
         rep = res.report
+        for h in rep.get("hazards") or []:
+            if h.get("code") == "input_locked_errors":
+                self.place_hz[h["code"]] = h
         # connectors the placer pinned to the edge stay there: the windows must not pull them in
         self.locked |= set((rep.get("edge_pinned") or {}).get("uuids") or ())
         # big parts fixed before the seed (place.pipeline._anchor_tight_parts) stay there too
@@ -164,6 +172,7 @@ class KaeStages:
         info = dict(place=dict(seconds=round(clock_now() - t0, 1), legal=legal, hpwl=rep.get("hpwl"),
                                scorecard=(rep.get("scorecard") or {}).get("total"), budget_s=rep.get("budget_s"),
                                crossings=rep.get("crossings"), untangle=rep.get("untangle"),
+                               input_locked_errors=rep.get("input_locked_errors"),
                                stops=place_stops(rep)))
         return Layout(board=str(out), poses=self._all_poses(b), info=info)
 
