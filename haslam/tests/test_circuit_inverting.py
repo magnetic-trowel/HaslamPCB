@@ -199,3 +199,22 @@ def test_the_recheck_measures_an_inverter_over_its_return_plane(tmp_path):
     s = _cells(br)[CELL]
     v, extra = cell_value(RoutedBoard(b, fills=None, brief=br), s)
     assert v is not None and v > 0 and extra["gnd_layer"] == "B.Cu"
+
+
+def test_a_vss_named_net_an_inverter_drives_below_ground_is_its_output(tmp_path, monkeypatch):
+    """A buck IC wired as an inverter with its ground on a VSS-named net and a rectifier from its switch node into
+    that net (mecsem's beam deflector: TPS5430 on VSSA, D2 into VSSA, L2 to ground): VSSA was a ground by its name,
+    so the inverter was never seen. With inverting cells on it leaves the grounds and is the cell's output."""
+    import critical_fixtures as CF
+    from hotloop_fixtures import D2, inverting_parts
+
+    def vssa(parts):
+        return [(r, v, lib, x, y, rot, [(n, "VSSA" if net == "-5V" else net, *rest) for n, net, *rest in pads], cy)
+                for r, v, lib, x, y, rot, pads, cy in parts]
+    monkeypatch.setattr(CF, "PARTS", vssa(inverting_parts("ground") + [D2]))
+    p = str(CF.write_board(tmp_path))
+    assert "VSSA" in build(load(p))["summary"]["grounds"]
+    br = build(load(p), inverting=True)
+    assert "VSSA" not in br["summary"]["grounds"]
+    s = _cells(br)[CELL]
+    assert (s["vout"], s["gnd"]) == ("VSSA", "VSSA")
