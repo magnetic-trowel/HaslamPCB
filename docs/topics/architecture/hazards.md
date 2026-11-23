@@ -36,7 +36,7 @@ Keys: hazards, `hazard_summary`, `blocked`, block hazard, warn, info, `--recheck
 
 | Command | Hazards from |
 |---|---|
-| `kae place` | static project hazards; recheck of OUTPUT (opens and dangling copper left out: a placement is not routed); `body_overlap`/`body_relaxed`; `connector_off_edge`; writer checks; `dru_rejected` |
+| `kae place` | static project hazards; recheck of OUTPUT (opens and dangling copper left out: a placement is not routed); `body_overlap`/`body_relaxed`; `connector_off_edge`; `placement_physics_over_budget`; writer checks; `dru_rejected` |
 | `kae.route.cli route`, `lastmile` | static; recheck of OUTPUT; BGA `escape_infeasible`; else the bridge's final DRC counts |
 | `kae.route.cli finish` (and a portfolio's kept finish) | the finish parts' own: `land_enlarged_by_track`; power copper's `tht_pad_necked` (info: THT pads necked, with the `KAE_THT_WIDE` setting that keeps them wide) `tht_pad_kept_wide` (info: left wide for want of a DC plan or over the loss budget, with `KAE_THT_NARROW`) and `tht_pad_heatsunk` (warn: the current needs more than a relief) ([kae-power-copper](../../research/routing/kae-power-copper.md)); `finish_*` |
 | `kae.route.critical_cli route` | static; recheck; `copper_below_ipc_width`, `rail_left_narrow`, `vias_below_current` (heat of the copper drawn, [critical-net-routing](../routing/critical-net-routing.md)); `class_max_below_ipc` module flags; `crystal_ground_no_plane`; the plan's `land_enlarged_by_track` (a two-terminal land in series with a rail whose current needs more than the land, `constraints.PadRule`) |
@@ -95,6 +95,7 @@ Keys: hazards, `hazard_summary`, `blocked`, block hazard, warn, info, `--recheck
 | `severity_fallback` | info / warn, assembly | `kae place` severity ladder (`strict_then_level_c`, the default): drawn courtyards did not fit, so level_c (courtyards 0.15 mm in) was kept, or strict was skipped because drawn courtyards overfill the board: info, objects the parts whose drawn courtyards share margin; warn when courtyard overlaps remain. Info when level_c was tried and strict kept; warn when no time was left to try it ([kae-exact-legality](../../research/placement/kae-exact-legality.md)) |
 | `check_not_run` | warn, data | the joint loop's final card `checked` has `false` (values reported `null`) |
 | `physics_over_budget` | warn | a module's routed u > 1 (the critical recheck flags u crossing 1, [critical-net-routing.md](../routing/critical-net-routing.md)) |
+| `placement_physics_over_budget` | warn | a structure of the placement scorecard (`kae place`, unrouted) with util > 1; evidence `u_before_kicad_repair` when the KiCad repair loop pushed it over. Left out when the report carries routed physics |
 | `outline_incomplete` | block, manufacturing | `kae place`: staged footprints carry Edge.Cuts, the outline is open |
 | `placement_illegal` | block, assembly | `kae place` `legal: false` (exit 3): overlaps or outline violations remain |
 | `rules_not_modelled`, `rule_errors` | warn, data | the bridge's plan: custom-rule functions the router does not model, rules it could not evaluate |

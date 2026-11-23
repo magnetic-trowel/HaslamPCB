@@ -224,7 +224,7 @@ def test_a_worse_finish_is_not_kept_and_a_late_one_is_skipped(tmp_path, monkeypa
                         workdir=tmp_path / "wd", log=lambda m: None, final="fake_fin", finish="fake_fin")
     assert not rep["finish"]["kept"] and out.read_text() == "board 3 + last mile"
     rec = portfolio.finish_pass("fake_fin", "in", dict(k=0, out=out, rank=(1, 0)), out, tmp_path,
-                                time.monotonic() + 5, lambda r: (0, 0), lambda p: None)
+                                time.monotonic() + 5, lambda r: (0, 0))
     assert rec["skipped"].startswith("time:") and rec["hazards"][0]["code"] == "finish_part_skipped"
 
 

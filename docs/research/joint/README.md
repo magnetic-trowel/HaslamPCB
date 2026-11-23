@@ -32,6 +32,7 @@ Keys: joint place-and-route, pnr, pnr line, ab33, dev6, phys10, v5 era, v7 era, 
 | [window-outcomes-2611.md](window-outcomes-2611.md) | how the joint loop's windows end; J3 skip windows on DRC types no move can change | J3 did not work: futile windows gone, freed time unused |
 | [window-budget-2611.md](window-budget-2611.md) | joint-loop windows at 1–4 budgets; fixes J2, J4, J5, J14; compute-matched vs restarts | windows pay only with extra compute; J2/J4/J5 did not work; J14 (`first_last_mile`) worked; restarts beat windows at equal CPU |
 | [restart-screen-2611.md](restart-screen-2611.md) | `restart.py --screen` on the joint method (j1-screen) | did not work: inside replicate noise |
+| [restart-last-slot-2611.md](restart-last-slot-2611.md) | restarts' last slot: fresh attempt vs resumed bridge pass vs windows polish on the kept board (pk3-ab) | resumed pass worked (-6.3 % opens); windows add nothing on top; the default recipe already resumes via `--open-alt` |
 
 Older micro-benchmarks of the same research, listed in the placement area: synthetic CP-SAT / annealing placement (`tools/research/solver-bench`, [solver benchmarks](../../topics/solvers/benchmarks.md)); decap distance statistics (`tools/research/layout-data`).
 

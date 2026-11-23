@@ -8,6 +8,7 @@ so the restart judge and kae count the same way. kaebench keeps its own copies (
 scorer stays independent of kae); kae/tests/test_drc_items.py asserts they are equal.
 """
 import json
+import re
 from pathlib import Path
 
 # Violation types that depend on the local library setup, not on the board (kaebench.tools
@@ -62,3 +63,64 @@ def unconnected_ignored(board):
         return pro["board"]["design_settings"]["rule_severities"]["unconnected_items"] == "ignore"
     except (OSError, ValueError, KeyError, TypeError):
         return False
+
+
+# --- the items a violation names ------------------------------------------------------------
+# KiCad writes each item as text: "Pad 2 [GND] of C3 on F.Cu", "PTH pad 6 [GND] of J11",
+# "NPTH pad of H1", "Footprint U1", "Footprint text of U3 (${REV})", "Reference field of D1",
+# "Track [SDA] on F.Cu, length 1.2 mm", "Via [VCC] on F.Cu - B.Cu", "Zone [GND] on L1 [Top],
+# priority 0", "Segment on Edge.Cuts". Net names are shown unescaped ("A/B" for the board's
+# "A{slash}B": unescape) and may hold brackets themselves ("sdram_dq[0]"), and user layer names
+# may too ("Via [GND] on L1 [TOP] - L4 [BOT]"): an item names at most one net, opened by its first
+# bracket and closed by the bracket followed by " of ", " on " or the end.
+_NET = re.compile(r"^([^\[]*)\[(.*?)\](?= of | on |\s*$)", re.S)   # the first bracket opens the net
+_OF = re.compile(r"\bof (\S.*?)(?= on | \(|\s*$)", re.S)        # references may hold spaces ("On - Off")
+_FOOTPRINT = re.compile(r"^Footprint (?!text of )(\S.*?)(?= \(|\s*$)")   # "Footprint U1", "Footprint ADS4 (0x4B)"
+_KINDS = (("pad", ("pad", "pth pad", "npth pad", "smd pad")), ("track", ("track", "arc")), ("via", ("via",)),
+          ("zone", ("zone", "teardrop")), ("footprint", ("footprint",)))
+_ESCAPES = {"{slash}": "/", "{backslash}": "\\", "{lt}": "<", "{gt}": ">", "{colon}": ":", "{dblquote}": '"',
+            "{quote}": "'", "{space}": " ", "{tab}": "\t", "{return}": "\n", "{brace}": "{", "{comma}": ","}
+
+
+def item_kind(desc):
+    """pad | track | via | zone | footprint | other, from an item's description."""
+    low = (desc or "").lower()
+    return next((k for k, heads in _KINDS if low.startswith(heads)), "other")
+
+
+def item_nets(desc):
+    """Net names an item's description shows, "<no net>" left out."""
+    d = desc or ""
+    m = None if d.startswith("PCB text") else _NET.match(d)
+    return [m.group(2)] if m and m.group(2) and m.group(2) != "<no net>" else []
+
+
+def item_ref(desc):
+    """The reference of the footprint an item belongs to ("C3" of "Pad 2 [GND] of C3 on F.Cu",
+    "U1" of "Footprint U1"), None for a board item (a track, a zone, board text, Edge.Cuts)."""
+    d = desc or ""
+    if d.startswith("PCB text"):
+        return None
+    d = _NET.sub(r"\1[]", d, count=1)
+    m = _FOOTPRINT.match(d) or _OF.search(d)
+    return m.group(1) if m else None
+
+
+def open_nets(report):
+    """Nets of the unconnected items of a DRC report, sorted (as shown: see unescape)."""
+    return sorted({n for u in (report or {}).get("unconnected_items") or [] for it in u.get("items") or []
+                   for n in item_nets(it.get("description"))})
+
+
+def unescape(name):
+    """A board net name as KiCad's DRC report shows it."""
+    for k, v in _ESCAPES.items():
+        name = name.replace(k, v)
+    return name
+
+
+def board_nets(shown, known):
+    """The board's names (`known`) of nets a report shows (`shown`); a name not known stays as is."""
+    known = list(known)
+    have, by_shown = set(known), {unescape(n): n for n in known}
+    return [n if n in have else by_shown.get(n, n) for n in shown]

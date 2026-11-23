@@ -536,3 +536,61 @@ def test_open_rest_alt_runs_alt_on_a_board_the_windows_completed(tmp_path):
                             "--open-alt", win, "--open-rest", "--open-rest-alt"))
     assert r.returncode == 0, r.stdout + r.stderr
     assert s["third"] == "alt" and s["kept"] == 3 and "alt" in out.read_text()
+
+
+def test_sigterm_stops_attempts_and_writes_the_summary_of_what_was_done(tmp_path):
+    """A job killed by its queue (SIGTERM): the running attempt gets it too, nothing new starts, nothing is judged,
+    and summary.json / KAE_WORK say what ran (killed), so a killed run is still diagnosable."""
+    import signal
+    import time
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "kicad-cli").write_text(FAKE_CLI)
+    (bin_ / "kicad-cli").chmod(0o755)
+    inp = tmp_path / "in" / "board.kicad_pcb"
+    inp.parent.mkdir()
+    inp.write_text("(kicad_pcb OPEN=5)\n")
+    work = tmp_path / "work"
+    work.mkdir()
+    # the method saves for 3 s after its shell has died (the shell does not exec it: `; true`)
+    attempt = ("python3 -c \"import signal,sys,time; signal.signal(signal.SIGTERM, lambda *a: (time.sleep(3), "
+               "print('attempt saved', flush=True), sys.exit(143))); print('attempt running', flush=True); "
+               "time.sleep(120)\"; true")
+    p = subprocess.Popen([sys.executable, str(RESTART), "--input", str(inp), "--output", str(tmp_path / "out.kicad_pcb"),
+                          "--time", "600", "--parallel", "2", "--first-s", "300", "--", attempt], cwd=work,
+                         env=dict(os.environ, PATH=f"{bin_}:{os.environ['PATH']}", KAE_KICAD_WRAP=""),
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    logs = [work / "restarts" / f"a{k}" / "log" for k in (0, 1)]
+    end = time.time() + 30
+    while time.time() < end and not all(lg.exists() and "running" in lg.read_text() for lg in logs):
+        time.sleep(0.2)
+    p.send_signal(signal.SIGTERM)       # to restart.py alone: it passes it on to the attempts' sessions
+    out, _ = p.communicate(timeout=60)
+    assert p.returncode == 143, out
+    summary = json.loads((work / "restarts" / "summary.json").read_text())
+    assert summary["killed"] and summary["attempts"] == 2
+    assert all(a["not_judged"] == "killed" and a["rc"] in (143, -15) for a in summary["attempt_log"])
+    assert all("attempt saved" in a["failure"]["log_tail"] for a in summary["attempt_log"])   # waited for it
+    assert any(line.startswith("KAE_WORK ") and '"killed": true' in line for line in out.splitlines())
+
+
+def test_completion_first_keeps_phase_one_board_when_a_later_phase_is_killed(tmp_path):
+    """The harness killing the wrapper during the windows phase (s2-merit213: 8 boards with no output) still leaves
+    phase 1's board as the output."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    cli = bin_ / "kicad-cli"
+    cli.write_text(FAKE_CLI)
+    cli.chmod(0o755)
+    inp = tmp_path / "in" / "board.kicad_pcb"
+    inp.parent.mkdir()
+    inp.write_text("(kicad_pcb OPEN=5)\n")
+    out = tmp_path / "out" / "board.kicad_pcb"
+    work = tmp_path / "work"
+    work.mkdir()
+    env = dict(os.environ, PATH=f"{bin_}:{os.environ['PATH']}", KAE_KICAD_WRAP="")
+    args = [sys.executable, str(RESTART), "--input", str(inp), "--output", str(out), "--time", "200",
+            "--parallel", "1", "--first-s", "25", "--max-attempts", "1", "--policy", "completion-first",
+            "--open-alt", "kill -9 $PPID", "--", "echo '(kicad_pcb OPEN=3 first)' > @OUT@"]
+    subprocess.run(args, cwd=work, env=env, capture_output=True, text=True, timeout=300)
+    assert out.exists() and "first" in out.read_text()

@@ -325,6 +325,46 @@ def test_summarize_drc_ignores_library_checks():
     assert s == dict(unconnected=2, errors=1, warnings=1, errors_by_type={"clearance": 1})
 
 
+def _v(t, *items, desc="", sev="error"):
+    return dict(type=t, severity=sev, description=desc, items=[dict(description=i) for i in items])
+
+
+def test_within_footprint_reads_kicad_10_item_descriptions():
+    # one footprint's own items (KiCad 10 wording, as in the corpus' DRC reports)
+    assert tools.within_footprint(_v("shorting_items", "Segment [<no net>] of RPI_RXD1 on F.Cu", "Pad 2 [N$3] of RPI_RXD1 on F.Cu"))
+    assert tools.within_footprint(_v("clearance", "NPTH pad of J4", "PTH pad S2 [GND] of J4"))
+    assert tools.within_footprint(_v("copper_edge_clearance", "Segment of RPI1 on Edge.Cuts", "Pad S2 [5.0V] of RPI1 on B.Cu"))
+    assert tools.within_footprint(_v("items_not_allowed", "PTH pad 1 [N$5] of ANT1", desc="Items not allowed (keepout area of ANT1)"))
+    assert tools.within_footprint(_v("malformed_courtyard", "Footprint IC2"))
+    # two footprints, or a footprint against the board
+    assert not tools.within_footprint(_v("courtyards_overlap", "Footprint SW2", "Footprint SW1"))
+    assert not tools.within_footprint(_v("shorting_items", "PTH pad 2 [Earth] of J37", "Pad 5 [+12V] of U10 on F.Cu"))
+    assert not tools.within_footprint(_v("copper_edge_clearance", "Arc on Edge.Cuts", "Pad 1 [<no net>] of FID2 on F.Cu"))
+    assert not tools.within_footprint(_v("shorting_items", "Pad 33 [GND] of U501 on F.Cu", "Rectangle [<no net>] on F.Cu"))
+    assert not tools.within_footprint(_v("items_not_allowed", "Footprint J3", desc="Items not allowed (keepout area of U2)"))
+    assert not tools.within_footprint(_v("items_not_allowed", "Pad 1 [GND] of C1 on F.Cu", desc="Items not allowed (rule area 'antenna')"))
+    assert not tools.within_footprint(_v("npth_inside_courtyard", "NPTH pad of ", "Footprint J11"))   # KiCad printed no ref
+    assert not tools.within_footprint(_v("malformed_courtyard", "Footprint J6", "Zone [Net-(C89-Pad1)] on F.Cu, priority 0"))
+
+
+def test_drc_by_scope_splits_errors_and_keeps_summarize_drc_unchanged():
+    rep = dict(violations=[_v("clearance", "Pad 1 [3.3V] of U2 on F.Cu", "Pad 2 [N$54] of U2 on F.Cu"),
+                           _v("clearance", "Pad 2 [GND] of C35 on B.Cu", "Pad 1 [VPP] of U13 on B.Cu"),
+                           _v("courtyards_overlap", "Footprint SW2", "Footprint SW1"),
+                           _v("clearance", "Pad 1 of R1 on F.Cu", "Pad 1 of R2 on F.Cu", sev="warning"),
+                           _v("lib_footprint_issues", "Footprint U2")],
+               unconnected_items=[{}])
+    assert tools.drc_by_scope(rep) == dict(between={"clearance": 1, "courtyards_overlap": 1}, within={"clearance": 1})
+    assert tools.summarize_drc(rep) == dict(unconnected=1, errors=3, warnings=1,
+                                            errors_by_type={"clearance": 2, "courtyards_overlap": 1})
+    d = score._summarize(rep)
+    assert {k: d[k] for k in ("unconnected", "errors", "warnings", "errors_by_type")} == tools.summarize_drc(rep)
+    assert score.placement_errors(d) == {"clearance": 1, "courtyards_overlap": 1}
+    assert score.library_errors(d) == {"clearance": 1}
+    # a summary without the split (score 12 and earlier) is judged whole
+    assert score.placement_errors(tools.summarize_drc(rep)) == {"clearance": 2, "courtyards_overlap": 1}
+
+
 def test_potential_orders_clean_first():
     clean = dict(valid=True, clean=True, completion=1.0, errors=0, track_length_mm=100)
     longer = dict(clean, track_length_mm=150)
@@ -842,3 +882,96 @@ def test_command_keeps_restart_reports_as_artifacts(tmp_path):
     (tmp_path / "elsewhere").write_text("secret")
     assert sorted(p.name for p in adapters._restart_reports(w)) == ["report.json", "summary.json"]
     assert adapters._restart_reports(tmp_path / "empty") == []
+
+
+
+SAVER = ("import signal, sys, time\n"
+         "def term(*_):\n"
+         "    print('[restart x] SIGTERM: saving', flush=True); time.sleep(0.5); print('saved', flush=True); sys.exit(143)\n"
+         "signal.signal(signal.SIGTERM, term)\n"
+         "print('[restart x] start #0', flush=True)\n"
+         "time.sleep(60)\n")
+
+
+def test_stop_passes_sigterm_to_the_method_and_keeps_its_output(tmp_path, monkeypatch):
+    """stopping.STOP (the harness got SIGTERM): the method below run_measured gets SIGTERM and time to save, the
+    launcher stays to reap it, its output so far is returned, and the tee's live log and echo have it."""
+    import threading
+    import time
+    from kaebench import stopping
+    monkeypatch.setattr(stopping, "STOP", stopping.Flag())
+    stopping.watch(poll=0.05)
+    echo = tmp_path / "echo"
+    argv = stopping.tee_argv([sys.executable, "-c", SAVER], tmp_path / "method.log", echo=False)
+    argv[5:5] = ["--echo", str(echo)]
+    threading.Timer(1.5, stopping.STOP.set).start()
+    t0 = time.monotonic()
+    r = tools.run_measured(argv, timeout=120)
+    assert time.monotonic() - t0 < 20
+    assert r.returncode == 143 and "saved" in r.stdout and "start #0" in r.stdout
+    assert (tmp_path / "method.log").read_text().splitlines() == ["[restart x] start #0", "[restart x] SIGTERM: saving",
+                                                                  "saved"]
+    assert echo.read_text().splitlines() == ["[restart x] start #0", "[restart x] SIGTERM: saving"]
+    assert tools.usage_take()["processes"] == 1      # the launcher reaped and accounted it
+
+
+def test_stop_kills_a_method_that_ignores_sigterm_after_the_grace(monkeypatch):
+    import threading
+    import time
+    from kaebench import stopping
+    monkeypatch.setattr(stopping, "STOP", stopping.Flag())
+    monkeypatch.setattr(stopping, "STOP_GRACE_S", 1.0)
+    stopping.watch(poll=0.05)
+    threading.Timer(0.5, stopping.STOP.set).start()
+    t0 = time.monotonic()
+    tools.run_measured(["sh", "-c", "trap '' TERM; sleep 60"], timeout=120)
+    assert time.monotonic() - t0 < 15
+
+
+def test_runner_records_a_stopped_attempt_as_killed_and_starts_no_more(tmp_path, monkeypatch):
+    from kaebench import stopping
+    monkeypatch.setattr(stopping, "STOP", stopping.Flag())
+
+    class Stopper(adapters.Adapter):
+        name = "stopper"
+
+        def run(self, kind, input_dir, workdir, attempt, timeout, reference=None):
+            stopping.STOP.set()     # as if SIGTERM came while it ran
+            out = Path(workdir) / "output"
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "board.kicad_pcb").write_text("(kicad_pcb)")
+            return adapters.AdapterResult(out / "board.kicad_pcb", "partial log", dict(rc=143))
+
+    task = tmp_path / "task"
+    (task / "route" / "input").mkdir(parents=True)
+    (task / "route" / "input" / "board.kicad_pcb").write_text("(kicad_pcb)")
+    rec = dict(id="b", split="A")
+    row = runner._attempt(task, rec, Stopper(), "route", 0, 60, tmp_path / "a0", None, False)
+    assert row["status"] == "killed" and row["stopped_status"] == "ok" and "score" not in row
+    assert (tmp_path / "a0" / "output" / "board.kicad_pcb").exists()
+    assert (tmp_path / "a0" / "adapter.log").read_text() == "partial log"
+    assert (tmp_path / "a0" / "work").exists()                     # kept for the store's incomplete run
+    row1 = runner._attempt(task, rec, Stopper(), "route", 1, 60, tmp_path / "a1", None, False)
+    assert row1["status"] == "not_started" and not (tmp_path / "a1").exists()
+
+
+def test_repeated_sigterms_set_stop_without_deadlock(monkeypatch):
+    """kaeq signals every process of a job and kaeres passes the signal on too: the handler gets it twice, and once
+    deadlocked inside threading.Event.set (a lock taken by the first call). Now it only sets a flag."""
+    import signal
+    from kaebench import cli, stopping
+    monkeypatch.setattr(stopping, "STOP", stopping.Flag())
+    monkeypatch.setattr(stopping, "watch", lambda: None)
+    old = signal.getsignal(signal.SIGTERM)
+    try:
+        cli._stop_on_sigterm()
+        for _ in range(3):
+            os.kill(os.getpid(), signal.SIGTERM)
+        assert stopping.STOP.is_set()
+    finally:
+        signal.signal(signal.SIGTERM, old)
+
+
+def test_evaluator_files_are_untouched_by_the_stop_path():
+    """tools.py is part of the DRC evaluator's identity (kaeres SCORER_PATHS): the stop path lives in stopping.py."""
+    assert "STOP" not in (Path(tools.__file__)).read_text()

@@ -71,7 +71,10 @@ from .boardfiles import board_path, install_rules, unconnected_ignored
 # 11: clean_strict / legal_strict / errors_strict (fixed-severity profile, STRICT_CHECKS)
 # 12: the integrated scorer: 10 and 11 together, and duplicate uuids matched by content on both sides
 #     (11 had meant different things on the decide and route-finish lines)
-SCORE_VERSION = 12
+# 13: placement errors (and so legal, legal_strict) count only violations not inside one footprint;
+#     a part's own pads, copper, holes and keepout are reported as placement_errors_library (user
+#     decision 2026-11-22: placement cannot change them)
+SCORE_VERSION = 13
 # KiCad 10's DRC report stops listing unconnected items at 499 and other violations at 199
 # per type (drc_engine ERROR_LIMIT / EXTENDED_ERROR_LIMIT).
 DRC_UNCONNECTED_CAP = 499
@@ -95,6 +98,29 @@ STRICT_CHECKS = ("shorting_items", "clearance", "hole_clearance", "copper_edge_c
                  "items_not_allowed")
 
 
+def _summarize(report):
+    """tools.summarize_drc, plus the error counts split by footprint scope (tools.drc_by_scope):
+    errors_by_type_between (between two footprints, or a footprint and the board) and
+    errors_by_type_within (inside one footprint). Every other field is summarize_drc's, unchanged."""
+    d = tools.summarize_drc(report)
+    sc = tools.drc_by_scope(report)
+    d.update(errors_by_type_between=sc["between"], errors_by_type_within=sc["within"])
+    return d
+
+
+def placement_errors(drc):
+    """Placement-type errors that make a placement illegal: those not inside one footprint (score 13).
+    A summary without the split (a caller's own summarize_drc) is taken whole, as before."""
+    by = drc.get("errors_by_type_between", drc["errors_by_type"])
+    return {k: v for k, v in by.items() if k in PLACEMENT_ERROR_TYPES}
+
+
+def library_errors(drc):
+    """Placement-type errors inside one footprint (its own pads, copper, holes, keepout): reported, not
+    judged (score 13)."""
+    return {k: v for k, v in (drc.get("errors_by_type_within") or {}).items() if k in PLACEMENT_ERROR_TYPES}
+
+
 def _strict_drc(staged, scoring_dir, drc):
     """DRC summary under the fixed-severity profile: `drc` itself when the staged board's project
     downgrades none of STRICT_CHECKS, else a second DRC of a copy whose project has them all at
@@ -115,7 +141,7 @@ def _strict_drc(staged, scoring_dir, drc):
     for c in down:
         rs[c] = "error"
     sb.with_suffix(".kicad_pro").write_text(json.dumps(d, indent=2))
-    return tools.summarize_drc(tools.run_drc(sb, sdir / "drc.json")), down
+    return _summarize(tools.run_drc(sb, sdir / "drc.json")), down
 
 
 def _strict_fields(staged, scoring_dir, drc):
@@ -181,7 +207,7 @@ def _capped_types(drc):
 
 def _measure(staged, scoring_dir):
     st = tools.run_ops("stats", staged)
-    drc = tools.summarize_drc(tools.run_drc(staged, Path(scoring_dir) / "drc.json"))
+    drc = _summarize(tools.run_drc(staged, Path(scoring_dir) / "drc.json"))
     (Path(scoring_dir) / "stats.json").write_text(json.dumps(st, indent=1))  # full KiCad statistics
     return st, drc
 
@@ -274,16 +300,17 @@ def score_place_task(task_dir, placed_board, scoring_dir, record, allow_copy=Fal
     )
     valid = all(integrity.values())
     outside = outside_count(st["placement"], record["reference"].get("pads_outside", {}))
-    place_errors = {k: v for k, v in drc["errors_by_type"].items() if k in PLACEMENT_ERROR_TYPES}
+    place_errors = placement_errors(drc)
     sdrc, strict = _strict_fields(staged, scoring_dir, drc)
-    place_errors_strict = {k: v for k, v in sdrc["errors_by_type"].items() if k in PLACEMENT_ERROR_TYPES}
+    place_errors_strict = placement_errors(sdrc)
     ref = record["reference"]["stats"]
     score = dict(
         valid=valid, integrity=integrity, foreign=foreign, **_copy_fields(tr, allow_copy),
         locked_moved=tr["locked_moved"], legal=valid and outside == 0 and not place_errors,
         legal_strict=valid and outside == 0 and not place_errors and not place_errors_strict,
         placement_errors_strict=place_errors_strict, strict_promoted=strict["strict_promoted"],
-        outside=outside, placement_errors=place_errors, hpwl_mm=st["hpwl_mm"],
+        outside=outside, placement_errors=place_errors, placement_errors_library=library_errors(drc),
+        hpwl_mm=st["hpwl_mm"],
         hpwl_ratio=round(st["hpwl_mm"] / ref["hpwl_mm"], 4) if ref["hpwl_mm"] else None,
         unconnected=_uncapped(staged, drc["unconnected"])[0], drc_unconnected=drc["unconnected"],
         drc_capped=_capped_types(drc), score_version=SCORE_VERSION,
@@ -318,9 +345,9 @@ def score_joint_task(task_dir, output_board, scoring_dir, record, allow_copy=Fal
     if not s.get("valid") and s.get("integrity", {}).get("loadable") is False:
         return s
     outside = outside_count(pst["placement"], record["reference"].get("pads_outside", {}))
-    place_errors = {k: v for k, v in pdrc["errors_by_type"].items() if k in PLACEMENT_ERROR_TYPES}
+    place_errors = placement_errors(pdrc)
     psdrc, _ = _strict_drc(staged_p, placed_dir, pdrc)
-    place_errors_strict = {k: v for k, v in psdrc["errors_by_type"].items() if k in PLACEMENT_ERROR_TYPES}
+    place_errors_strict = placement_errors(psdrc)
     valid = all(place_integrity.values()) and s["valid"]
     legal = valid and outside == 0 and not place_errors
     legal_strict = legal and not place_errors_strict
@@ -331,7 +358,7 @@ def score_joint_task(task_dir, output_board, scoring_dir, record, allow_copy=Fal
         place_foreign=tp["foreign"], place_copy=tp.get("copy"),
         suspect_copy=s["suspect_copy"] or (bool((tp.get("copy") or {}).get("suspect")) and not allow_copy),
         locked_moved=tp["locked_moved"], valid=valid, legal=legal, outside=outside,
-        placement_errors=place_errors, hpwl_mm=pst["hpwl_mm"],
+        placement_errors=place_errors, placement_errors_library=library_errors(pdrc), hpwl_mm=pst["hpwl_mm"],
         hpwl_ratio=round(pst["hpwl_mm"] / ref["hpwl_mm"], 4) if ref["hpwl_mm"] else None,
         clean=legal and s["unconnected"] == 0 and s["errors"] == 0,
         legal_strict=legal_strict, placement_errors_strict=place_errors_strict,

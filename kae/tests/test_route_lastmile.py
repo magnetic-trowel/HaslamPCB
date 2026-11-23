@@ -148,3 +148,83 @@ def test_prepared_anchor_cells_are_the_unprepared_ones():
     before = shapely.contains_xy(g, xs, ys)
     shapely.prepare(g)
     assert (shapely.contains_xy(g, xs, ys) == before).all()
+
+
+def _two_pad_nets(names):
+    """Extra parts for F.write_board: one 0402 per net in `names`, pad 1 on the net, two per net
+    (so each net is open by one connection), in a column right of the fixture's parts."""
+    out = []
+    for i, net in enumerate(names):
+        for k in range(2):
+            out.append((f"R{40 + 2 * i + k}", "1k", "Resistor_SMD:R_0402_1005Metric", 136.0 + 2.0 * k,
+                        101.0 + 2.0 * i, 0.0,
+                        [("1", net, -0.48, 0.0, 0.56, 0.62, "smd", 0.0, "", "passive"),
+                         ("2", "", 0.48, 0.0, 0.56, 0.62, "smd", 0.0, "", "passive")], (0.95, 0.5)))
+    return out
+
+
+def test_a_net_that_never_improves_stops_and_charges_its_work(tmp_path, monkeypatch):
+    """A join that leaves the open count where it was (atrivatech ch32v003 D+: 2 -> 2 open, queued
+    again 205 times until the wall ceiling) is retried at most RETRY_NO_PROGRESS times, and each
+    turn's connectivity passes are charged to the counted-work budget."""
+    from types import SimpleNamespace
+    from kae import budget
+    p = F.write_board(tmp_path)
+    info = F.synth_info(load(p))
+    sp = _space(p, info)
+    calls = []
+
+    def useless(gr, sp_, net, *a, **k):      # a "join" that joins nothing
+        calls.append(net)
+        return SimpleNamespace(segs=[], vias=[]), [], []
+    monkeypatch.setattr(LM, "_join", useless)
+    clk = budget.set_mode("work")
+    try:
+        lines = []
+        rep = LM.close(p, info, sp.plan, [], tmp_path / "out.kicad_pcb", nets=[NET], txn=False, max_joins=10_000,
+                       log=lines.append)
+    finally:
+        budget.set_mode("time")
+    turns = [m for m in lines if m.startswith(f"last mile {NET}:")]
+    assert len(turns) == 1 + LM.RETRY_NO_PROGRESS
+    assert rep["reached"] == [NET] * len(turns)
+    assert len(calls) <= len(turns) * 8          # max_parts joins a turn at most
+    assert clk.units["lastmile_part_nodes"] > 0 and clk.by_kind["lastmile_part_nodes"] > 0
+
+
+def test_a_bus_cannot_starve_the_other_nets(tmp_path, monkeypatch):
+    """A round's deadline stops its queue part-way; with round_robin the next round starts with the
+    nets no round reached, so a bus early in the alphabet (alphaonex86 socket7: cpu_d[n]) cannot
+    take every round and leave the later nets (eth_*) without a turn."""
+    from kae import budget
+    bus = [f"cpu_d[{i}]" for i in range(6)]
+    p = F.write_board(tmp_path, extra=_two_pad_nets(bus + ["eth_rx"]))
+    info = F.synth_info(load(p))
+    sp = _space(p, info)
+
+    def slow_fail(gr, sp_, net, *a, **k):     # every join attempt costs one nominal second and fails
+        budget.charge("seconds", 1.0)
+        return None
+    monkeypatch.setattr(LM, "_join", slow_fail)
+    budget.set_mode("work")
+    try:
+        nets = sorted(bus + ["eth_rx"])
+        reached, seen = {}, []
+        for j in range(1, 5):                  # four rounds of three nominal seconds (a failed net costs two)
+            r = LM.close(p, info, sp.plan, [], tmp_path / f"o{j}.kicad_pcb", nets=LM.round_robin(nets, reached),
+                         deadline=budget.now() + 3.0, log=lambda *a: None)
+            assert 0 < len(r["reached"]) < len(nets)
+            reached.update((n, j) for n in r["reached"])
+            seen.append(set(r["reached"]))
+        # name order alone gives every round the same first nets; the last net is never reached
+        r = LM.close(p, info, sp.plan, [], tmp_path / "x.kicad_pcb", nets=nets, deadline=budget.now() + 3.0,
+                     log=lambda *a: None)
+        assert "eth_rx" not in r["reached"]
+    finally:
+        budget.set_mode("time")
+    assert set().union(*seen) == set(nets)
+    assert "eth_rx" in seen[-1]
+
+
+def test_round_robin_puts_unreached_nets_first():
+    assert LM.round_robin(["a", "b", "c", "d"], {"a": 2, "b": 1}) == ["c", "d", "b", "a"]

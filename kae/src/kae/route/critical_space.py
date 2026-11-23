@@ -43,6 +43,7 @@ from shapely.ops import unary_union
 from . import constraints as CN
 from . import effective as EF
 from . import rules as R
+from .quantize import UM, fit
 
 TOL = 0.002          # mm kept above every requirement
 EXACT_TOL = -1e-7    # mm: no margin, only float slack (0.1 nm; KiCad stores whole nm), for the
@@ -371,7 +372,11 @@ class Space:
 
     def width_limits(self, net, layer):
         """(min, opt, max) track width of `net` on `layer`: effective.Rules.track_width
-        (KiCad's limits; opt = the bridge's class width)."""
+        (KiCad's limits; opt = the bridge's class width). The board's rules win; kae only fills
+        their silence: where the board states no minimum (min_track_width 0 and no rule), the
+        minimum is the narrowest class width, the bridge's own neck then (constraints.plan),
+        capped at opt and max. With a minimum of 0, width ladders that end at the minimum laid
+        zero-width copper (chassis-soft M: 63 locked segments on 9 boards)."""
         key = ("w", net, layer)
         v = self._req_cache.get(key)
         if v is None:
@@ -381,16 +386,26 @@ class Space:
             except KeyError:
                 mn = self.settings.get("min_track", 0.0) or 0.0
                 v = (mn, max(mn, 0.2), None)
+            if v[0] <= 0:
+                f = self._class_floor()
+                f = min(f, v[1]) if f > 0 and v[1] > 0 else (f or v[1])
+                v = (min(f, v[2]) if v[2] else f, v[1], v[2])
             self._req_cache[key] = v
         return v
 
+    def _class_floor(self):
+        """The narrowest width of any routing class (0 without classes)."""
+        f = self._req_cache.get("class_floor")
+        if f is None:
+            ws = [w for rc in self.plan.classes.values() for w in rc.widths.values() if w and w > 0]
+            f = self._req_cache["class_floor"] = min(ws) if ws else 0.0
+        return f
+
     def clamp_width(self, net, layer, w):
-        """w inside [min, max] of `net` on `layer`, in whole micrometres."""
+        """w inside [min, max] of `net` on `layer` (width_limits), in whole micrometres where the
+        limits hold one, else whole nm (quantize.fit)."""
         mn, _, mx = self.width_limits(net, layer)
-        w = CN.up(max(w, mn), 0.001)
-        if mx is not None and w > mx + 1e-9:
-            w = mx
-        return w
+        return fit(max(w, mn), mn, mx, UM, "up") or mx
 
     def via_size(self, net):
         """(diameter, drill) of a through via of `net`: effective.Rules.via."""

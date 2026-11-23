@@ -272,3 +272,137 @@ def test_thermal_all_keeps_every_pads_corridors_after_a_starved_thermal(monkeypa
     assert repair._thermal_plan(base, {}, "b.kicad_pcb", {"thermal_pads": "all"}, {}, {"p1"}) is base
     got = repair._thermal_plan(base, {}, "b.kicad_pcb", {"thermal_pads": ["p0"]}, {}, {"p0", "p1"})
     assert calls == [["p0", "p1"]] and got.plane_policy == "keep"
+
+
+def test_no_time_for_a_routed_round_still_draws_the_spokes(tmp_path, monkeypatch):
+    """With too little time left for a routed repair round (counted budgets: the router spends its
+    whole share) and no last mile, the starved thermals of round 0 still get their spoke tracks,
+    without the router, and the board with them is kept when KiCad's DRC finds it better."""
+    starved = dict(violations=[dict(type="starved_thermal", severity="error", items=[]) for _ in range(3)],
+                   unconnected_items=[])
+    clean = dict(violations=[], unconnected_items=[])
+    reports = [starved, clean]
+    monkeypatch.setattr(repair.drc, "run", lambda board, out, timeout=900, cache=True: reports.pop(0))
+    edits = []
+
+    def edit_routing(path, dst, **kw):
+        edits.append(kw)
+        if path != dst:
+            dst.write_text(path.read_text())
+        else:
+            dst.write_text(path.read_text() + "+spokes")
+        return {"routing": []}
+    monkeypatch.setattr(repair.pcbnew_io, "edit_routing", edit_routing)
+    monkeypatch.setattr(repair.pcbnew_io, "zone_fills", lambda p: {"zones": []})
+    spoke = dict(net="GND", layer="F.Cu", a=[0, 0], b=[1, 0], width=0.3)
+    monkeypatch.setattr(repair, "analyse", lambda *a, **k: dict(
+        widen={}, items=set(), nets=set(), spokes=[spoke], connect=set(), open={}, thermal=set(), unattributed=[]))
+    monkeypatch.setattr(repair.freerouting, "route", lambda *a, **k: (_ for _ in ()).throw(AssertionError("router")))
+    monkeypatch.setattr(repair, "clock_now", lambda: 1000.0)
+    inp, out = tmp_path / "in.kicad_pcb", tmp_path / "out.kicad_pcb"
+    inp.write_text("board")
+    out.write_text("routed")
+    rep = repair.loop(inp, out, tmp_path / "wd", SimpleNamespace(), {}, {}, deadline=1030.0, log=lambda m: None)
+    assert rep["final"]["errors"] == 0
+    assert rep["rounds"][1]["stopped"] == "time" and rep["rounds"][1]["spokes_only"]["kept"]
+    assert out.read_text() == "routed+spokes"
+    assert edits[-1] == dict(add=[spoke])
+    # below SPOKES_MIN_S nothing is tried
+    reports[:] = [starved]
+    out.write_text("routed")
+    rep = repair.loop(inp, out, tmp_path / "wd2", SimpleNamespace(), {}, {}, deadline=1010.0, log=lambda m: None)
+    assert rep["final"]["errors"] == 3 and "spokes_only" not in rep["rounds"][1] and out.read_text() == "routed"
+
+
+import pytest
+
+
+@pytest.mark.parametrize("joined", [1, 0])
+def test_spokes_with_no_routed_round_go_into_the_last_miles_first_round(tmp_path, monkeypatch, joined):
+    """With the last mile on, the spoke tracks no routed round had time for are added to the last
+    mile's first board before its joins and judged by that round's DRC (also when it joins
+    nothing); there is no spokes-only round taking the last mile's time."""
+    from kae.route import lastmile
+    starved = dict(violations=[dict(type="starved_thermal", severity="error", items=[]) for _ in range(3)],
+                   unconnected_items=[{"items": []}, {"items": []}])
+    after = dict(violations=[], unconnected_items=[{"items": []}] * (2 - joined))
+    reports = [starved]
+    monkeypatch.setattr(repair.drc, "run",
+                        lambda board, out, timeout=900, cache=True: reports.pop(0) if reports else after)
+    edits = []
+
+    def edit_routing(path, dst, **kw):
+        edits.append(kw)
+        dst.write_text(path.read_text() + ("+spokes" if kw.get("add") else ""))
+        return {"routing": []}
+    monkeypatch.setattr(repair.pcbnew_io, "edit_routing", edit_routing)
+    monkeypatch.setattr(repair.pcbnew_io, "zone_fills", lambda p: {"zones": []})
+    spoke = dict(net="GND", layer="F.Cu", a=[0, 0], b=[1, 0], width=0.3)
+    monkeypatch.setattr(repair, "analyse", lambda *a, **k: dict(
+        widen={}, items=set(), nets=set(), spokes=[spoke], connect=set(), open={}, thermal=set(), unattributed=[]))
+    monkeypatch.setattr(repair, "input_errors", lambda *a: {})
+    seen = []
+
+    def close(board, info, plan, fills, out, **kw):
+        seen.append(board.read_text())
+        if joined:
+            out.write_text(board.read_text() + "+join")
+        return dict(joined=joined, failed=0, ripped=[], added=["j"] * joined, nets={})
+    monkeypatch.setattr(lastmile, "close", close)
+    monkeypatch.setattr(lastmile, "open_nets", lambda rep: [])   # a list, as open_nets returns: round_robin sorts it
+    monkeypatch.setattr(repair, "clock_now", lambda: 1000.0)
+    inp, out = tmp_path / "in.kicad_pcb", tmp_path / "out.kicad_pcb"
+    inp.write_text("board")
+    out.write_text("routed")
+    rep = repair.loop(inp, out, tmp_path / "wd", SimpleNamespace(), {}, {"last_mile": True}, deadline=1100.0,
+                      log=lambda m: None)
+    assert seen[0] == "routed+spokes"                 # the spokes were on the board the last mile joined on
+    assert sum(1 for e in edits if e.get("add")) == 1   # once: later rounds build on that board
+    assert rep["rounds"][1]["stopped"] == "time" and rep["rounds"][1]["spokes_pending"] == 1
+    assert not any("spokes_only" in r for r in rep["rounds"])
+    lm = next(r for r in rep["rounds"] if r["round"] == "lm1")
+    assert lm["spokes"] == 1 and lm["kept"]
+    assert rep["final"]["errors"] == 0 and rep["final"]["unconnected"] == 2 - joined
+    assert out.read_text() == "routed+spokes" + ("+join" if joined else "")
+
+
+def test_a_zone_nets_repair_does_not_depend_on_which_pair_kicad_names():
+    """KiCad's DRC names a net's cut-off fill island as the zone in one run and as pads of its island in
+    the next (atrivatech ch32v003, one input: 2 of 6 runs, at 2 threads as at 16), and analyse() spoked or
+    split the plane by those names. Judged by the net's parts, both reports ask for the same repair."""
+    pad, other = _pad("p1", "N", 0, 0), _pad("q1", "N", 5, 0)
+    info = dict(pads=[pad, other], graphics=[], copper=["F.Cu", "B.Cu"], zones=[dict(uuid="z", net="N")])
+    island = box(-2, -2, 2, 2).difference(box(-0.9, -0.9, 0.9, 0.9)).union(box(0.4, -0.1, 0.95, 0.1))
+    main = box(3, -3, 8, 3)
+    zone = dict(uuid="z", net="N", layers={"F.Cu": [_ring(island), _ring(main)]})
+    plan = SimpleNamespace(net_class={"N": "kae_A"}, classes={"kae_A": SimpleNamespace(widths={"F.Cu": 0.2})},
+                           matrix={}, pin_class={}, obstacle_classes={}, obstacles=[], copper=["F.Cu", "B.Cu"])
+    as_zones = dict(violations=[], unconnected_items=[dict(items=[
+        dict(description="Zone [N] on F.Cu, priority 0", uuid="z", pos=dict(x=-2, y=-2)),
+        dict(description="Zone [N] on F.Cu, priority 0", uuid="z", pos=dict(x=3, y=-3))])])
+    as_pads = dict(violations=[], unconnected_items=[dict(items=[
+        dict(description="Pad 1 [N] of U1 on F.Cu", uuid="p1", pos=dict(x=0, y=0)),
+        dict(description="Pad 1 [N] of U2 on F.Cu", uuid="q1", pos=dict(x=5, y=0))])])
+    got = [repair.analyse(r, {}, info, plan, fills=[zone], layer_map={}, copper={}) for r in (as_zones, as_pads)]
+    for a in got:
+        assert len(a["spokes"]) == 1 and not a["connect"] and not a["open"]
+        assert main.contains(Point(a["spokes"][0]["b"]))
+    assert got[0]["spokes"] == got[1]["spokes"]
+    # the fill geometry is fetched for both: the open net has a zone on the board
+    assert repair.needs_fills(as_pads, info) and not repair.needs_fills(as_pads)
+
+
+def test_a_zone_nets_cut_off_fill_without_a_spoke_splits_the_plane():
+    """A fill island no spoke can join (no pad in it) makes the net's planes its pieces (`connect`) and
+    re-routes it on the fill's layers, whichever items KiCad names."""
+    other = _pad("q1", "N", 5, 0)
+    info = dict(pads=[other], graphics=[], copper=["F.Cu", "B.Cu"], zones=[dict(uuid="z", net="N")])
+    island, main = box(-2, -2, 1, 1), box(3, -3, 8, 3)
+    zone = dict(uuid="z", net="N", layers={"F.Cu": [_ring(island), _ring(main)]})
+    plan = SimpleNamespace(net_class={"N": "kae_A"}, classes={"kae_A": SimpleNamespace(widths={"F.Cu": 0.2})},
+                           matrix={}, pin_class={}, obstacle_classes={}, obstacles=[], copper=["F.Cu", "B.Cu"])
+    rep = dict(violations=[], unconnected_items=[dict(items=[
+        dict(description="Zone [N] on F.Cu, priority 0", uuid="z", pos=dict(x=-2, y=-2)),
+        dict(description="Pad 1 [N] of U2 on F.Cu", uuid="q1", pos=dict(x=5, y=0))])])
+    a = repair.analyse(rep, {}, info, plan, fills=[zone], layer_map={}, copper={})
+    assert a["connect"] == {"N"} and a["open"] == {"N": {"F.Cu"}} and not a["spokes"]

@@ -574,3 +574,122 @@ def test_publish_numba_cache_adds_missing_kernels_only(tmp_path, monkeypatch):
     assert kaeres.publish_numba_cache(m, run) == 0
     assert not (cache / sub / "engine.step-40.py312.nbi").exists()
     assert kaeres.publish_numba_cache(dict(id="m2", recipe=dict(runner=dict(template="kae route"))), run) == 0
+
+
+def test_plan_chunks_fits_each_job_in_the_queues_timeout():
+    K = kaeres
+    # loop-win polarfire (2026-11-17): 6 methods x 2 attempts of 38,995 s each went out as 5 jobs of
+    # 2-3 arms; a 3-arm job (117,000 s of timeouts) got kaeq's 24 h cap and kept nothing
+    need = [(f"m{i}", a) for i in range(6) for a in (0, 1)]
+    cost = {f"m{i}": 38995 for i in range(6)}
+    over = K.job_overhead_s(43.0)
+    chunks = K.plan_chunks(need, cost, over)
+    assert sorted(p for ch in chunks for p in ch) == sorted(need)
+    assert all(sum(cost[m] for m, _ in ch) + over <= K.JOB_TIMEOUT_MAX_S for ch in chunks)
+    assert len(chunks) == 12                     # 2 arms (78,000 s) + overhead do not fit 24 h either
+    # small boards keep the 2-5 jobs of before
+    small = {f"m{i}": 900 for i in range(6)}
+    assert len(K.plan_chunks(need, small, 3600)) == K.CHUNKS_MIN
+
+
+def _numba_python():
+    """A Python with numba: this one, or $KAE_TEST_NUMBA_PYTHON (e.g. a kae venv's)."""
+    import os
+    import subprocess
+    for py in (sys.executable, os.environ.get("KAE_TEST_NUMBA_PYTHON")):
+        if py and subprocess.run([py, "-c", "import numba"], capture_output=True).returncode == 0:
+            return py
+    return None
+
+
+def test_second_job_loads_kernels_the_first_compiled(tmp_path, monkeypatch):
+    """Two jobs of one method, laid out as kaebench leaves a command run with --keep-work: the first
+    compiles into its work dir's numba copy, finish_numba_cache publishes the kernels to the named cache
+    and deletes the work dirs, and the second job's copy of that cache loads the kernel instead of
+    compiling it. Before 2026-11-21 kaebench deleted the work dirs before kaeres looked, so the named
+    cache was never made and every job compiled."""
+    import os
+    import shutil
+    import subprocess
+    import pytest
+    py = _numba_python()
+    if py is None:
+        pytest.skip("no Python with numba (set KAE_TEST_NUMBA_PYTHON)")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    code = tmp_path / "code"
+    code.mkdir()
+    (code / "kern.py").write_text("import numba\n\n@numba.njit(cache=True)\ndef f(x):\n    return x * 2 + 1\n")
+    tpl = ("cp -r $HOME/.cache/kaebench/numba-t-1234567 numba 2>/dev/null; "
+           "env NUMBA_CACHE_DIR=$PWD/numba {py:kae} -m kae.joint.cli run")
+    m = dict(id="m1", recipe=dict(runner=dict(template=tpl)))
+    assert kaeres.numba_keep_work(m) == ["--keep-work"]
+    assert kaeres.numba_keep_work(dict(id="m2", recipe=dict(runner=dict(template="kae route")))) == []
+    named = tmp_path / "home" / ".cache" / "kaebench" / "numba-t-1234567"
+
+    def job(n):
+        rdir = tmp_path / f"job{n}" / "results" / "cmd-m1"
+        work = rdir / "mm1" / "joint-fixed" / "board" / "attempt-0" / "work"
+        work.mkdir(parents=True)
+        if named.is_dir():
+            shutil.copytree(named, work / "numba")
+        out = subprocess.run([py, "-c", "import kern; kern.f(3); s = kern.f.stats; print(len(s.cache_hits), len(s.cache_misses))"],
+                             cwd=code, env=dict(os.environ, NUMBA_CACHE_DIR=str(work / "numba"), PYTHONPATH=str(code)),
+                             capture_output=True, text=True, check=True).stdout.split()
+        added = kaeres.finish_numba_cache(m, rdir)
+        assert not work.exists()
+        return [int(x) for x in out], added
+
+    (hits, misses), added = job(1)
+    assert (hits, misses, added) == (0, 1, 1)
+    (hits, misses), added = job(2)
+    assert (hits, misses, added) == (1, 0, 0)
+
+
+def test_keep_drc_reports_keeps_placement_and_routing_reports_and_never_overwrites(tmp_path):
+    import gzip
+    sc, ev = tmp_path / "score", tmp_path / "evals"
+    (sc / "placement").mkdir(parents=True)
+    (sc / "routing").mkdir()
+    ev.mkdir()
+    (sc / "placement" / "drc.json").write_text('{"violations": []}')
+    (sc / "routing" / "drc.json").write_text('{"violations": [1]}')
+    assert sorted(kaeres.keep_drc_reports(sc, ev, "e1")) == ["e1.placement-drc.json.gz", "e1.routing-drc.json.gz"]
+    assert gzip.open(ev / "e1.routing-drc.json.gz").read() == b'{"violations": [1]}'
+    (sc / "routing" / "drc.json").write_text('{"changed": true}')
+    assert kaeres.keep_drc_reports(sc, ev, "e1") == []            # never overwritten
+    assert gzip.open(ev / "e1.routing-drc.json.gz").read() == b'{"violations": [1]}'
+    (sc / "drc.json").write_text("{}")                            # a route or place task's single report
+    assert kaeres.keep_drc_reports(sc, ev, "e2") == ["e2.drc.json.gz", "e2.placement-drc.json.gz", "e2.routing-drc.json.gz"]
+
+
+def test_rescore_todo_skips_runs_already_scored_by_the_scorer_and_runs_without_output(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(kaeres, "STORE", tmp_path)
+    runs = tmp_path / "boards" / "b1" / "runs"
+    for name, status, out, ev in (("m.a0", "ok", True, None), ("m.a1", "ok", True, "new"), ("m.a2", "ok", False, None),
+                                  ("m.a3", "score_error", True, None), ("x.a0", "ok", True, None), ("m.a4", "error", True, None)):
+        (runs / name / "evals").mkdir(parents=True)
+        (runs / name / "run.json").write_text(json.dumps(dict(run=name, method_id=name[0], attempt=0, status=status)))
+        if out:
+            (runs / name / "output.kicad_pcb.gz").write_bytes(b"")
+        if ev:
+            (runs / name / "evals" / f"{ev}.json").write_text("{}")
+    todo = sorted(r["run"] for _, r in kaeres._rescore_todo("b1", {"m"}, "new"))
+    assert todo == ["m.a0", "m.a3"]
+
+
+def test_rescore_runs_finds_each_task_kinds_drc_reports(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("rescore_runs", Path(kaeres.__file__).with_name("rescore_runs.py"))
+    try:
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except ImportError:
+        import pytest
+        pytest.skip("kaebench not importable here")
+    (tmp_path / "score" / "placement").mkdir(parents=True)
+    (tmp_path / "score" / "placement" / "drc.json").write_text("{}")
+    (tmp_path / "score" / "drc.json").write_text("{}")
+    assert set(mod.drc_reports(tmp_path, "joint-fixed")) == {"placement"}
+    assert set(mod.drc_reports(tmp_path, "place-fixed")) == {"placement"}
+    assert set(mod.drc_reports(tmp_path, "route")) == {"drc"}

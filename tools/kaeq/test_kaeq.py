@@ -1353,3 +1353,107 @@ def test_a_campaign_without_history_is_pooled_with_the_profile_of_all_recent_job
     assert d.owner_profiles(cfg, 1e6, running)["new"] == pytest.approx([1 / kq.MEM_BINS] * kq.MEM_BINS)
     d.profiles_ts = 0
     assert "new" not in d.owner_profiles(dict(cfg, mem_pool_prior_jobs=0), 2e6, running)
+
+
+def test_a_timed_start_may_exceed_the_burst_forecast_while_timed_jobs_do_not_wait_for_cpus(kq):
+    d = kq.Daemon(host=kq.Host())
+    cfg = dict(kq.config(), threads=20, reserve_cpu=0)
+    d.others_ema = 0.0
+    d.cpu_profile = lambda r, cfg, now: (2.0, 9.0)           # 4 running: means 8, bursts of 7 each
+    d.learned_cpu = lambda j, cfg, now: (2.0, 4.0, True)
+    running = [dict(qos="timed")] * 4
+    d.timed_wait = 0.0
+    assert d.timed_cpu_fits(dict(qos="timed"), cfg, 0, running)          # 8 + 4 <= 20 though 10 + 15.5 > 20
+    d.timed_wait = 0.01                                                  # they do wait: the forecast rules
+    assert not d.timed_cpu_fits(dict(qos="timed"), cfg, 0, running)
+
+
+def _salvaged(tmp_path, jid=1):
+    """{relative name: text} of a job's salvaged scratch files (gzipped text)."""
+    import gzip
+    out = {}
+    for d in (tmp_path / "jobs" / str(jid) / "salvage").glob("*"):
+        for p in d.rglob("*.gz"):
+            out[str(p.relative_to(d))[:-3]] = gzip.open(p).read().decode()
+    return out
+
+
+SAVER = r'''
+import os, signal, sys, time
+s = os.environ["KAEQ_SCRATCH"]
+def term(*_):
+    why = open(os.path.join(s, ".kaeq-stop")).read().strip()
+    print("SIGTERM:", why, flush=True)
+    time.sleep(1)                      # saving takes a moment
+    open(os.path.join(s, "partial.json"), "w").write('{"stage": 2}')
+    sys.exit(143)
+signal.signal(signal.SIGTERM, term)
+open(os.path.join(s, "progress.log"), "w").write("stage 1 done\n")
+print("stage 1", flush=True)
+time.sleep(60)
+'''
+
+
+def test_timeout_sends_sigterm_waits_for_the_job_to_save_and_salvages_its_scratch(kq, tmp_path):
+    d = kq.Daemon()
+    (tmp_path / "saver.py").write_text(SAVER)
+    submit(kq, f"{sys.executable} {tmp_path / 'saver.py'}", name="slow", timeout="2s")
+    drive(kq, d, lambda: states(d)["slow"] == "timeout")
+    d.dying[1].join(30)
+    log = (tmp_path / "jobs" / "1" / "log").read_text()
+    assert "stage 1" in log and "SIGTERM: timeout" in log      # its output, and why it was stopped
+    assert "(timeout): exited" in log and "salvaged to" in log   # kaeq's own line: it exited within the grace
+    got = _salvaged(tmp_path)
+    assert got["partial.json"] == '{"stage": 2}' and got["progress.log"] == "stage 1 done\n"
+    assert not (tmp_path / "scratch" / "1").exists()             # deleted once salvaged
+    ev = [r["msg"] for r in d.c.execute("SELECT msg FROM events WHERE kind='timeout'")]
+    assert ev and "salvage" in ev[0]
+
+
+def test_a_job_that_ignores_sigterm_is_killed_after_the_grace(kq, tmp_path):
+    cfg = json.loads(open(kq.CONF).read())
+    cfg["kill_grace_s"] = 1
+    open(kq.CONF, "w").write(json.dumps(cfg))
+    d = kq.Daemon()
+    submit(kq, "trap '' TERM; sleep 60", name="deaf", timeout="1s")
+    drive(kq, d, lambda: states(d)["deaf"] == "timeout")
+    pid = d.c.execute("SELECT pid FROM jobs").fetchone()[0] or 0
+    t0 = time.time()
+    d.dying[1].join(30)
+    assert time.time() - t0 < 10
+    assert "SIGKILLed after 1s grace" in (tmp_path / "jobs" / "1" / "log").read_text()
+    assert pid == 0 or not kq.pid_alive(pid)
+
+
+def test_cancel_of_a_running_job_stops_it_gracefully_through_the_daemon(kq, tmp_path):
+    import argparse
+    d = kq.Daemon()
+    (tmp_path / "saver.py").write_text(SAVER)
+    submit(kq, f"{sys.executable} {tmp_path / 'saver.py'}", name="c", timeout="1m")
+    drive(kq, d, lambda: states(d)["c"] == "running" and "stage 1" in (tmp_path / "jobs" / "1" / "log").read_text())
+    kq.cmd_cancel(argparse.Namespace(ids=["1"], owner=None, tag=None, force=True))
+    d.tick()
+    d.dying[1].join(30)
+    r = d.c.execute("SELECT state, note, pid FROM jobs").fetchone()
+    assert (r["state"], r["note"], r["pid"]) == ("cancelled", "cancelled", None)
+    assert "SIGTERM: cancelled" in (tmp_path / "jobs" / "1" / "log").read_text()
+    assert _salvaged(tmp_path)["partial.json"] == '{"stage": 2}'
+
+
+def test_salvage_keeps_logs_first_within_the_cap(kq, tmp_path):
+    from kaeqlib.store import salvage_scratch
+    src = tmp_path / "s"
+    (src / "a").mkdir(parents=True)
+    (src / "a" / "log").write_text("x" * 600_000 + "THE END\n")     # over a quarter of a 1 MB cap: its tail only
+    (src / "summary.json").write_text("{}")
+    (src / "board.kicad_pcb").write_bytes(b"b" * 900_000)           # does not fit after the logs
+    (src / "small.ses").write_bytes(b"s" * 1000)
+    dst = salvage_scratch(str(src), str(tmp_path / "d"), 1)
+    m = json.loads(open(os.path.join(dst, "manifest.json")).read())
+    kept = {k["file"]: k for k in m["kept"]}
+    assert set(kept) == {"a/log", "summary.json", "small.ses"}
+    assert kept["a/log"]["tail_bytes"] == (1 << 20) // 4
+    assert [x["file"] for x in m["dropped"]] == ["board.kicad_pcb"]
+    import gzip
+    assert gzip.open(os.path.join(dst, "a", "log.gz")).read().endswith(b"THE END\n")
+    assert salvage_scratch(str(tmp_path / "empty"), str(tmp_path / "d2"), 1) is None

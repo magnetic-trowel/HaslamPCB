@@ -70,6 +70,7 @@ import numpy as np
 from shapely.geometry import LineString, Point
 
 from . import critical_write as W
+from . import quantize as QZ
 
 MIN_BALLS = 16          # a ball grid has at least this many pads
 LATTICE_TOL = 0.1       # pitches: a ball further than this off its lattice site puts the grid off the lattice
@@ -192,6 +193,12 @@ def find_packages(sp):
     return out
 
 
+def _up_via(D, d):
+    """(D, d) on the 0.1 um grid, never below the minimums they come from (rounding to nearest
+    put a 0.24892 mm minimum drill at 0.2489), or None without a drill."""
+    return (QZ.fit(D, D, q=QZ.DSN, side="up"), QZ.fit(d, d, q=QZ.DSN, side="up")) if d > 0 and D > d else None
+
+
 def small_via(sp):
     """(diameter, drill) of the smallest through via the board setup allows (minimum drill,
     annular ring and via diameter), or None when it sets no minimum drill. A board-rule
@@ -199,7 +206,7 @@ def small_via(sp):
     s = sp.settings
     d = s.get("min_drill") or 0.0
     D = max(s.get("min_via") or 0.0, d + 2 * (s.get("min_annular") or 0.0))
-    return (round(D, 4), round(d, 4)) if d > 0 and D > d else None
+    return _up_via(D, d)
 
 
 def _reps(sp, nets):
@@ -731,7 +738,7 @@ def legal_via(sp, floors=None):
     fD, fd = (floors or {}).get("D") or (0.0, 0.0)
     d = max(s.get("min_drill") or 0.0, fd)
     D = max(s.get("min_via") or 0.0, d + 2 * (s.get("min_annular") or 0.0), fD)
-    return (round(D, 4), round(d, 4)) if d > 0 and D > d else None
+    return _up_via(D, d)
 
 
 def _site_ok(sp, ctx, override=None, check=True, small=None):

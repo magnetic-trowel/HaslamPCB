@@ -29,7 +29,10 @@ the routing unlocked again, and the result checked by the next round's DRC. A ro
 replaces the output only if it is better (clean; then fewer violations in all; then fewer
 missing connections), so the output never gets worse. Stops when the board is clean, nothing
 more can be done, FAILS rounds in a row were not better, the round limit is reached, or time
-runs out.
+runs out. When the time left is too short for a routed round, the spoke tracks that round
+would have drawn go into the last mile's first round and are judged with its joins by its
+DRC; only when the last mile does not run are they added alone (_spokes_round), judged by
+the same rule.
 """
 from kae.budget import now as clock_now
 import json
@@ -40,11 +43,12 @@ import time
 from pathlib import Path
 
 from kae.board import pcbnew_io
+from kae.drc_items import item_nets
 
 from . import constraints, drc, freerouting, specctra, translate
+from .quantize import DSN, fit
 from .specctra import Q, find, findall
 
-_NET = re.compile(r"\[([^\]]*)\]")
 _MIN = re.compile(r"min (?:width )?([\d.]+) mm")
 _SPOKES = re.compile(r"min spoke count (\d+); actual (\d+)")
 _DRC_LAYER = re.compile(r"\(layer ([^;)]+)")
@@ -57,10 +61,6 @@ def _key(s):
     return (s["errors"] == 0 and s["unconnected"] == 0, -(s["errors"] + s["unconnected"]), -s["unconnected"])
 
 
-def _nets_of(item_desc):
-    return [m for m in _NET.findall(item_desc or "") if m and m != "<no net>"]
-
-
 def _is_zone(desc):
     return (desc or "").startswith(("Zone", "Teardrop"))
 
@@ -70,6 +70,15 @@ def _routed_geom(r, grow=0.0):
     if r["kind"] == "via":
         return Point(r["pos"]).buffer(r["size"] / 2 + grow, quad_segs=16)
     return LineString([r["a"], r["b"]]).buffer(r["width"] / 2 + grow, quad_segs=8)
+
+
+def _widened(plan, r, shown_min):
+    """Width for a routed track KiCad found narrower than its minimum: the message's minimum
+    (shown to 0.1 um) plus one 0.1 um step, kept inside the class's [min, max] on that layer,
+    so a min = max rule (0.19079 mm) is met instead of overshot to 0.1909."""
+    rc = plan.classes.get(plan.net_class.get(r.get("net"))) if plan is not None else None
+    lo, hi = (getattr(rc, "limits", None) or {}).get(r.get("layer"), (None, None))
+    return fit(shown_min + DSN, lo, hi, DSN, "up")
 
 
 class _Space:
@@ -232,12 +241,25 @@ def spoke_tracks(pad, zone, layer, need, plan, space, taken=None, skip=()):
 
 
 # ----------------------------------------------------------------------------- analysis
-def needs_fills(report):
-    """Whether a DRC report has zone trouble the fill geometry helps with."""
+def needs_fills(report, info=None):
+    """Whether a DRC report has zone trouble the fill geometry helps with: a starved thermal, an
+    unconnected pair that names a zone, or (with `info`) an open net that has a zone on the board.
+    Which pairs KiCad names varies from run to run (a net's cut-off fill island is named as the
+    zone in one DRC and as a pad of its island in the next, at 2 threads as at 16), so the open
+    nets and the board's zones decide, not the names."""
     if any(v.get("type") == "starved_thermal" for v in drc.errors(report)):
         return True
-    return any(_is_zone(it.get("description")) for u in report.get("unconnected_items") or []
-               for it in u.get("items") or [])
+    if any(_is_zone(it.get("description")) for u in report.get("unconnected_items") or []
+           for it in u.get("items") or []):
+        return True
+    zoned = {z.get("net") for z in (info or {}).get("zones") or [] if z.get("net")}
+    return bool(zoned & _unconnected_nets(report))
+
+
+def _unconnected_nets(report):
+    """The nets of a DRC report's unconnected pairs."""
+    return {n for u in report.get("unconnected_items") or [] for it in u.get("items") or []
+            for n in item_nets(it.get("description"))}
 
 
 def analyse(report, routed, info=None, plan=None, fills=None, layer_map=None, copper=None):
@@ -308,7 +330,7 @@ def analyse(report, routed, info=None, plan=None, fills=None, layer_map=None, co
             m = _MIN.search(v.get("description", ""))
             for it in ours:
                 r = routed[it["uuid"]]
-                w = float(m.group(1)) + 1e-4 if m else None
+                w = _widened(plan, r, float(m.group(1))) if m else None
                 if w and r["kind"] in ("track", "arc") and info is not None and plan is not None:
                     if get_space().fits(it["uuid"], w):
                         widen[it["uuid"]] = w
@@ -319,9 +341,18 @@ def analyse(report, routed, info=None, plan=None, fills=None, layer_map=None, co
         for it in ours:
             items.add(it["uuid"])
             nets.add(routed[it["uuid"]]["net"])
+    # a net with fills is judged by its parts (net_clusters), not by which of its items KiCad's
+    # unconnected pairs name: those names vary between DRCs of one board (atrivatech ch32v003: GND's
+    # cut-off island named as a zone pair in 2 of 6 runs of one input, spokes in the others and a
+    # split plane in those 2)
+    filled = {z.get("net") for z in zones.values() if z.get("net")} if (info is not None and plan is not None) \
+        else set()
+    by_parts = sorted(filled & _unconnected_nets(report))
     for u in report.get("unconnected_items") or []:
         its = u.get("items") or []
-        uns = {n for it in its for n in _nets_of(it.get("description"))}
+        uns = {n for it in its for n in item_nets(it.get("description"))}
+        if uns and uns <= set(by_parts):
+            continue
         zone_its = [it for it in its if _is_zone(it.get("description"))]
         if not zone_its:
             for n in uns:
@@ -345,6 +376,9 @@ def analyse(report, routed, info=None, plan=None, fills=None, layer_map=None, co
                 connect.add(n)
             cur = opened.get(n, set())
             opened[n] = None if cur is None else (cur | zl)
+    for n in by_parts:
+        _zone_net_parts(n, info, plan, copper if copper is not None else routed, fills, zones, lmap,
+                        try_spokes, own_pieces, want_corridor, connect, opened)
     thermal = set()
     if want_corridor and info is not None and plan is not None:
         from shapely.strtree import STRtree
@@ -362,6 +396,46 @@ def analyse(report, routed, info=None, plan=None, fills=None, layer_map=None, co
                     nets.add(r["net"])
     return dict(widen=widen, items=items, nets=nets, spokes=spokes, connect=connect, open=opened,
                 thermal=thermal, unattributed=other)
+
+
+def _zone_net_parts(net, info, plan, copper, fills, zones, lmap, try_spokes, own_pieces, want_corridor, connect,
+                    opened):
+    """analyse() for an open net with fills, from its parts (net_clusters: the part with the most pads
+    first) in a fixed order. Each other part with pads gets a spoke track from its first pad (by uuid)
+    into a zone of the net (by zone uuid) on a layer they share, outside the part's own fill pieces;
+    a part no spoke joins and that has no fill gets a spoke corridor at its first pad. When the main
+    part and the parts left hold fill in more than one part, the net's planes are replaced by its
+    pieces (`connect`), and a net with parts left is re-routed on its fills' layers; a net whole by
+    its parts but open by KiCad's, on every layer."""
+    parts = net_clusters(net, info, copper, fills, plan.copper)
+    if not parts:
+        return
+    pads = {pd["uuid"]: pd for pd in info.get("pads") or [] if pd.get("uuid")}
+    own = sorted((z for z in zones.values() if z.get("net") == net), key=lambda z: z["uuid"])
+    left = []
+    for p in parts[1:]:
+        firsts = [pads[u] for u in sorted(p["pads"]) if u in pads]
+        joined = False
+        for pad in firsts:
+            for z in own:
+                layers = [l for l in pad.get("layers") or [] if l in z.get("layers", {})]
+                if layers and try_spokes(pad, z, layers, 1, skip=own_pieces(pad)):
+                    joined = True
+                    break
+            if joined:
+                break
+        if not joined:
+            left.append(p)
+            if firsts and not p["pieces"]:
+                want_corridor.add(firsts[0]["uuid"])
+    if sum(1 for p in [parts[0]] + left if p["pieces"]) > 1:
+        connect.add(net)
+    cur = opened.get(net, set())
+    if left:
+        if cur is not None:
+            opened[net] = cur | {lmap.get(l, l) for z in own for l in z.get("layers", {})}
+    elif len(parts) == 1:
+        opened[net] = None       # whole by its parts, open by KiCad's: re-route it on every layer
 
 
 # ----------------------------------------------------------------------------- DSN edits
@@ -583,6 +657,7 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
     output_path = Path(output_path)
     rounds = []
     hazards = []    # from the rounds whose board was kept (each kept board builds on the last)
+    pending = dict(tracks=None, used=False)   # spoke tracks no routed round had the time to draw
     t_start = clock_now()
     thermal = set(opts.get("thermal_pads") or []) if opts.get("thermal_pads") != "all" else set()
     sev = opts.get("severities") or {}
@@ -629,6 +704,15 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
         rounds.append(rec)
         if left() - reserve < 45:
             rec["stopped"] = "time"
+            if left() >= SPOKES_MIN_S and needs_fills(best_rep, info):
+                # no time for a routed round, but spoke tracks need no router (under counted
+                # budgets the router spends its whole share, so a short attempt never reached
+                # round 1 and kept every starved thermal: bestelampe 24). They go into the last
+                # mile's first round, judged by its DRC; a spokes-only round of their own only
+                # when the last mile does not run (a round of their own took the last mile's
+                # time: bestelampe 4 -> 6 open)
+                pending["tracks"] = _spoke_plan(output_path, input_path, wd / f"repair{k}", best_rep, info, plan,
+                                                lmap, fixed, rec)
             break
         rdir = wd / f"repair{k}"
         if rdir.exists():
@@ -638,7 +722,7 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
         copper = {r["uuid"]: r for r in listing}
         routed = {u: r for u, r in copper.items() if not r.get("locked") and u not in fixed}
         fills = None
-        if needs_fills(best_rep):
+        if needs_fills(best_rep, info):
             try:  # refilled with the board's rules: next to its project files
                 fills = pcbnew_io.zone_fills(drc.stage_board(output_path, input_path, rdir / "fills"))["zones"]
             except pcbnew_io.PcbnewError as e:
@@ -818,12 +902,69 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
         # only a board with errors needs the baseline (one more DRC, minutes on big boards)
         base = input_errors(input_path, wd, deadline) if best["errors"] else {}
         best_rep = _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, best, best_rep, fixed,
-                              log, base=base) or best_rep
+                              log, base=base, spokes=pending) or best_rep
         best = next((r for r in reversed(rounds) if r.get("final")), {}).get("final") or best
+    if pending["tracks"] and not pending["used"] and left() >= SPOKES_MIN_S:
+        # the last mile did not run (or is off): the spokes alone, by the loop's rule
+        rec = next(r for r in reversed(rounds) if r.get("stopped") == "time")
+        got = _spokes_round(output_path, input_path, wd / f"repair{rec['round']}", pending["tracks"], fixed, check,
+                            no_worse, best, rec, log)
+        if got is not None:
+            best, best_rep, best_dir = got
     return dict(rounds=rounds, final=best, thermal_pads=len(thermal), seconds=round(clock_now() - t_start, 1),
                 hazards=hazards,
                 drc_dir=None if opts.get("last_mile") else str(best_dir),   # the DRC of the board kept
                 _report=best_rep)   # its DRC report (for kae.route.blocked; the bridge takes it out)
+
+
+SPOKES_MIN_S = 20.0   # time a spokes-only round needs: one refill, one edit and one DRC
+
+
+def _spoke_plan(output_path, input_path, rdir, best_rep, info, plan, lmap, fixed, rec):
+    """The spoke tracks analyse() draws for the starved thermals and zone-cut pads of `best_rep`
+    on the board `output_path` (its routing as it is, KiCad's fills of it). Records their count
+    in rec["spokes_pending"]; [] when there are none or pcbnew fails."""
+    rdir = Path(rdir)
+    if rdir.exists():
+        shutil.rmtree(rdir)
+    rdir.mkdir(parents=True)
+    try:
+        listing = pcbnew_io.edit_routing(output_path, rdir / "listing.kicad_pcb")["routing"]
+        copper = {r["uuid"]: r for r in listing}
+        routed = {u: r for u, r in copper.items() if not r.get("locked") and u not in fixed}
+        fills = pcbnew_io.zone_fills(drc.stage_board(output_path, input_path, rdir / "fills"))["zones"]
+    except pcbnew_io.PcbnewError as e:
+        rec["spokes_error"] = str(e)
+        return []
+    spokes = analyse(best_rep, routed, info, plan, fills=fills, layer_map=lmap, copper=copper)["spokes"]
+    rec["spokes_pending"] = len(spokes)
+    return spokes
+
+
+def _spokes_round(output_path, input_path, rdir, spokes, fixed, check, no_worse, best, rec, log=print):
+    """The spoke tracks `spokes` (_spoke_plan) added to the board `output_path` as it is, with
+    no router and nothing ripped up, judged by loop()'s rule (better, and no worse in errors).
+    Updates `rec`; returns (summary, report, drc dir) of the board kept, or None."""
+    cand = drc.stage_board(output_path, input_path, Path(rdir) / "fixed")
+    rec["spokes_only"] = dict(spokes=len(spokes))
+    try:
+        pcbnew_io.edit_routing(cand, cand, add=spokes)
+        rep = check(cand, Path(rdir) / "drc")
+    except pcbnew_io.PcbnewError as e:   # a spoke on a net or layer the board lacks (PcbnewRefused)
+        rec["spokes_only"]["edit_error"] = str(e)
+        return None
+    except drc.DrcError as e:
+        rec["spokes_only"]["drc_error"] = str(e)
+        return None
+    s_ = drc.summary(rep)
+    kept = _key(s_) > _key(best) and no_worse(s_, best)
+    rec["spokes_only"].update(kept=kept, **s_)
+    log(f"repair round {rec.get('round')} (spokes only, {len(spokes)}): {s_['errors']} errors {s_['by_type']}, "
+        f"{s_['unconnected']} unconnected ({'kept' if kept else 'discarded'})")
+    if not kept:
+        return None
+    shutil.copy2(cand, output_path)
+    return s_, rep, Path(rdir) / "drc"
 
 
 def import_tails(cand, input_path, imp, wd, log=print, timeout=60.0):
@@ -978,7 +1119,7 @@ def input_errors(input_path, wd, deadline):
         d = Path(wd) / "input_drc"
         try:
             rep = drc.run(drc.stage_board(p, p, d), d / "drc.json",
-                          timeout=max(10, min(600, deadline - clock_now() - 60)))
+                          timeout=max(10, deadline - clock_now() - 60))
             _BASE[key] = drc.summary(rep)["by_type"]
         except (drc.DrcError, OSError):
             return {}
@@ -1000,7 +1141,7 @@ def errors_no_worse(s_, ref, base):
 
 
 def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, best, best_rep, fixed, log,
-               base=None):
+               base=None, spokes=None):
     """Last-mile rounds (kae.route.lastmile) after the repair rounds: join what is still
     open with the grid router, rip what the new copper must cross, and let a nested repair
     loop route the ripped nets with the new copper fixed. Each round works on the previous
@@ -1011,7 +1152,9 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
     a join adds only copper checked exactly, and the result is judged by the same rule
     (adafruit ds2482s: a solder-jumper mask bridge beyond the input's 4 kept it from 7 open
     connections). Appends its records to `rounds`
-    (each kept one carries `final`)."""
+    (each kept one carries `final`). `spokes` {tracks, used}: spoke tracks the repair rounds had
+    no time to draw (loop()); they are added to the first round's board before its joins and
+    judged with them by that round's DRC (used set True), even when it joins nothing."""
     from . import lastmile
 
     def left():
@@ -1023,11 +1166,18 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
     guard = opts.get("physics_guard")
     soft = set(opts.get("soft_fixed") or ()) if guard is not None else set()
     cur, cur_rep, cur_sum = output_path, best_rep, best
-    if drc.excess(cur_sum, base) and left() > 90:
+    # starved thermals with spoke tracks pending are the spokes' to fix, not lm0's to rip for
+    rip_rep, rip_sum = cur_rep, cur_sum
+    if spokes and spokes.get("tracks") and not spokes.get("used"):
+        rip_rep = dict(cur_rep, violations=[v for v in cur_rep.get("violations") or []
+                                            if v.get("type") != "starved_thermal"])
+        rip_sum = dict(cur_sum, by_type={t: n for t, n in (cur_sum.get("by_type") or {}).items()
+                                         if t != "starved_thermal"})
+    if drc.excess(rip_sum, base) and left() > 90:
         # errors the router keeps making (bms-c1 crit: a Freerouting track 0.19 mm from a
         # 0.3 mm HV tab, in every round): take out the router's own copper that each error
         # names, so the last mile, whose every segment is checked exactly, routes it instead
-        got = _rip_errors(input_path, cur, cur_rep, wd / "lastmile0", fixed, left, info=info, plan=plan, base=base)
+        got = _rip_errors(input_path, cur, rip_rep, wd / "lastmile0", fixed, left, info=info, plan=plan, base=base)
         if got is not None:
             cur, cur_rep, cur_sum = got
             rounds.append(dict(round="lm0", level="rip errors", **cur_sum))
@@ -1041,6 +1191,7 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
     # no bound on the open connections or rounds: joins stop at their deadline, rounds after FAILS in
     # a row not better (a bound of 40 open skipped transistorfet z280's last mile, 2 minutes unused)
     fails = 0
+    reached = {}     # net -> the last round whose close() gave it a turn (lastmile.round_robin)
     for j in range(1, AUTO_ROUNDS + 1):
         rip = not (free_first and j == 1)
         # with time for the nested reroute, a rip-up keeps its joins and the reroute takes the
@@ -1060,21 +1211,33 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
         ldir.mkdir(parents=True)
         try:
             staged = drc.stage_board(cur, input_path, ldir / "base")
+            with_spokes = bool(spokes and spokes.get("tracks") and not spokes.get("used"))
+            if with_spokes:
+                pcbnew_io.edit_routing(staged, staged, add=spokes["tracks"])
+                spokes["used"] = True
+                rec["spokes"] = len(spokes["tracks"])
             fills = pcbnew_io.zone_fills(staged)["zones"]
             cand = ldir / "cand.kicad_pcb"
             # bounded by time, not by a count of joins (kata0510 rp2040: 39 open connections
             # behind 0.4 mm-pitch escapes took 40 joins, the old cap, in 20 s); the round keeps
             # time for its DRC and the rounds after it
-            r = lastmile.close(staged, info, plan, fills, cand, nets=lastmile.open_nets(cur_rep), sev=sev,
+            # nets no round reached go first: a round's deadline must not leave the same tail every time
+            r = lastmile.close(staged, info, plan, fills, cand, sev=sev,
+                               nets=lastmile.round_robin(lastmile.open_nets(cur_rep), reached),
                                fixed=fixed, log=log, soft=soft, rip=rip, txn=not greedy, max_joins=None,
                                deadline=clock_now() + max(LAST_MILE_MIN_S / 2, 0.5 * (left() - LAST_MILE_MIN_S)))
         except Exception as e:  # noqa: BLE001 - the repaired board stays
             rec["error"] = f"{type(e).__name__}: {e}"
+            if spokes and rec.get("spokes"):
+                spokes["used"] = False   # never judged: loop()'s spokes-only round may still try them
             break
         rec.update(joined=r["joined"], failed=r["failed"], added=len(r["added"]), ripped=len(r["ripped"]),
                    ripped_soft=len(r.get("ripped_soft") or ()))
+        reached.update((n, j) for n in r.get("reached") or ())
         soft -= set(r["ripped"])
-        if not r["joined"]:
+        if not r["joined"] and with_spokes:
+            shutil.copy2(staged, cand)   # nothing joined: the round's board is the spokes alone
+        elif not r["joined"]:
             rec["stopped"] = "nothing joined"
             if not rip:
                 continue    # the rip-up rounds work on the same board
@@ -1131,7 +1294,8 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
                 rec["kept"] = False
                 soft = set()
                 continue
-        log(f"last mile {j}: joined {r['joined']}, ripped {len(r['ripped'])}: {s_['errors']} errors {s_['by_type']}, "
+        log(f"last mile {j}: joined {r['joined']}, ripped {len(r['ripped'])}"
+            f"{', spokes ' + str(rec['spokes']) if rec.get('spokes') else ''}: {s_['errors']} errors {s_['by_type']}, "
             f"{s_['unconnected']} unconnected ({'kept' if rec['kept'] else 'not better'})")
         if rec["kept"]:
             shutil.copy2(cand, output_path)

@@ -171,8 +171,9 @@ _DRC_SIGNAL = __import__("re").compile(r"rc=-\d+")
 def _kicad_loop(a, res, t0, write, end=None):
     """KiCad's DRC on the written placement, fed back until it is clean (kae.place.exact:
     kicad_feedback -> repair -> write again), within the caller's time. The best placement
-    KiCad has judged (clean, else fewest placement errors) is kept: when the loop ends on a
-    worse verdict, or on a repair KiCad has not judged (time, a DRC failure), that one is
+    KiCad has judged (clean, else fewest placement errors, the earliest of equals) is kept: when
+    the loop ends on a worse or merely equal verdict, or on a repair KiCad has not judged (time, a
+    DRC failure), that one is
     written again (report: kicad_written_round). `end` (monotonic seconds): when the loop's
     share of the time ends (a rung of the severity ladder), else t0 + a.time. Report:
     kicad_verdict, the placer's errors by type on the board as written. Returns (clean or None
@@ -216,7 +217,7 @@ def _kicad_loop(a, res, t0, write, end=None):
             left = limit - clock_now()
             try:
                 report = kdrc.run(staged, Path(staged).parent / "drc.json",
-                                  timeout=max(10.0, min(600.0, (left - 5.0) if it == 0 else 0.5 * left)))
+                                  timeout=max(10.0, (left - 5.0) if it == 0 else 0.5 * left))
                 err = None
                 break
             except kdrc.DrcError as e:
@@ -242,9 +243,19 @@ def _kicad_loop(a, res, t0, write, end=None):
         if clean or it == a.drc_rounds:
             break
         left = limit - clock_now()
+        pre_repair = st.poses()
         rounds[-1]["repair"] = X.repair(P, st, time_s=max(3.0, min(120.0, 0.4 * left)), log=_log)
         rounds[-1]["repair"].pop("findings", None)
         rep_r = rounds[-1]["repair"]
+        if rep_r.get("start") and st.poses() == pre_repair:
+            # the repair had findings and left every pose as it was (each reseed rejected): KiCad
+            # would judge the same board again, and the next round's grown constraints only make it
+            # harder (hanqaqa, terjeio, zynthian: 6 such rounds, ~560 s, no change). With no
+            # findings (start 0: KiCad objects, the exact model does not yet) the loop goes on: the
+            # constraints grow each round until the model sees it (kotbenek's LCD1 moved in round 2)
+            rep_r["unchanged"] = True
+            _log(f"KiCad DRC: round {it}'s repair changed nothing; stopping")
+            break
         if X.silk_on(P) and (rep_r.get("moved") or rep_r.get("evicted") or rep_r.get("reseeds")):
             # the repair re-placed parts without the silkscreen: the silk pass again (pic-
             # programmer with its interface fixed: 40 parts evicted, 18 silk errors after)
@@ -259,8 +270,12 @@ def _kicad_loop(a, res, t0, write, end=None):
         wrep = write(a.input, a.output, res.poses, mode=a.writer, log=_log)
         judged = None
     written = None if judged is None else rounds[-1]["round"] if "errors" in rounds[-1] else None
-    if not clean and best is not None and (judged is None or judged > best[0]):
-        # the loop ended worse than a placement KiCad already judged: write that one again
+    if not clean and best is not None and (judged is None or judged > best[0]
+                                           or (judged == best[0] and written != best[1])):
+        # the loop ended worse than a placement KiCad already judged, or no better than an
+        # earlier one: write that one again. On a tie the earliest round wins, the one least
+        # moved from the annealed placement (freetronics-kitten: 1 error every round, and the
+        # last round's REG1 sat 40 mm from its input caps, decap loop 3.0 -> 17.0)
         _, written, X0, Y0, K0, poses0, judged_types = best
         judged = best[0]
         st.X[:], st.Y[:], st.K[:] = X0, Y0, K0
@@ -339,7 +354,7 @@ def _probe_select(a, board, kw, t0, write):
                 # count the routed board's opens with kicad-cli instead
                 d = c["out"].parent / "drc"
                 staged = kdrc.stage_board(str(routed), a.input, str(d))
-                unc = kdrc.summary(kdrc.run(staged, d / "drc.json", timeout=300))["unconnected"]
+                unc = kdrc.summary(kdrc.run(staged, d / "drc.json"))["unconnected"]
             return unc
         except Exception as e:      # noqa: BLE001 - a probe that fails leaves the candidate unranked
             _log(f"probe of seed {c['seed']} failed: {type(e).__name__}: {e}")

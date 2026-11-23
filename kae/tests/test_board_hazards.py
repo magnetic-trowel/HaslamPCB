@@ -178,7 +178,7 @@ def test_finish_reads_the_deadline_on_the_budget_clock(monkeypatch, tmp_path, mo
     try:
         budget.set_ceiling(600.0)
         rep = B.finish(dict(), str(pcb), str(pcb), mode="auto", deadline=budget.now() + 300)
-        assert rep["recheck"] == dict(ran=True) and B.MIN_RECHECK_S <= seen["timeout"] <= 900.0
+        assert rep["recheck"] == dict(ran=True) and B.MIN_RECHECK_S <= seen["timeout"] <= budget.wall_left() + 1
         rep = B.finish(dict(), str(pcb), str(pcb), mode="auto", deadline=budget.now() + 1)
         assert rep["recheck"]["skipped"].startswith("time")
     finally:

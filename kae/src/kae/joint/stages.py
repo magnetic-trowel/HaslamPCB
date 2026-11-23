@@ -163,6 +163,7 @@ class KaeStages:
         b = self._load(out)
         info = dict(place=dict(seconds=round(clock_now() - t0, 1), legal=legal, hpwl=rep.get("hpwl"),
                                scorecard=(rep.get("scorecard") or {}).get("total"), budget_s=rep.get("budget_s"),
+                               crossings=rep.get("crossings"), untangle=rep.get("untangle"),
                                stops=place_stops(rep)))
         return Layout(board=str(out), poses=self._all_poses(b), info=info)
 
@@ -572,7 +573,7 @@ class KaeStages:
         d = self.wd / f"it{it:02d}" / "drc"
         staged = D.stage_board(lay.board, self.input, d)
         try:
-            rep = D.run(staged, d / "drc.json", timeout=int(self.opts.get("drc_timeout", 600)))
+            rep = D.run(staged, d / "drc.json", timeout=self.opts.get("drc_timeout"))
         except D.DrcError as e:
             self.log(f"DRC failed: {e}")
             rep = {"violations": [], "unconnected_items": [], "error": str(e)}

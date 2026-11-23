@@ -47,6 +47,7 @@ from kae.board.kicad_file import load
 from . import critical_write as W
 from .critical_grid import Anchor, GridRouter
 from .critical_space import Space
+from .quantize import fit
 
 MARGINS = (1.0, 3.0, 8.0)       # mm around a part and the nearest other part: search windows
 WIDE = 15.0                     # mm around a part: the last window, before any rip-up
@@ -58,6 +59,7 @@ HIST_WEIGHT = 2.0               # a net's copper costs (1 + HIST_WEIGHT * times 
 HIST_MAX = 3                    # a net ripped this often is not ripped again
 SOFT_FACTOR = 3.0               # critical copper (close's `soft`) costs this many times more to rip
 TXN_JOINS = 24                  # joins one rip-up transaction (close) makes at most
+RETRY_NO_PROGRESS = 1           # turns a net is queued again for after a turn that did not lower its open count
 RIP_COST = 20.0                 # per cell of foreign copper crossed in a rip-up search (crossing a
                                 # 0.25 mm track at 0.2 mm clearance costs as much as an 18 mm detour)
 
@@ -143,6 +145,9 @@ def parts(space, fills, net):
                 hit = a.copper.distance(b.copper) <= eps
             if hit:
                 join(i, j)
+    # the connectivity pass is work a budget must see: a net whose joins kept adding copper made
+    # each later pass dearer (atrivatech ch32v003: D+ re-joined 205 times, 50 s a turn uncharged)
+    charge("lastmile_part_nodes", len(nodes))
     groups = {}
     for i in range(len(nodes)):
         groups.setdefault(find(i), []).append(nodes[i])
@@ -269,9 +274,13 @@ def _width_ok(sp, net, layer, w):
     return w >= (mn or 0.0) - 1e-6 and (mx is None or w <= mx + 1e-6)
 
 
-def widths_of(sp, net):
-    """The track widths to try for `net`, widest first: each layer's opt and min."""
-    ws = {round(w, 4) for l in sp.cu for w in sp.width_limits(net, l)[:2] if w and w > 0}
+def widths_of(sp, net, layers=None):
+    """The track widths to try for `net`, widest first: each layer's opt and min (of `layers`,
+    default all), in whole nm inside that layer's [min, max]."""
+    ws = set()
+    for l in layers or sp.cu:
+        mn, opt, mx = sp.width_limits(net, l)
+        ws.update(fit(w, mn, mx) or w for w in (opt, mn) if w and w > 0)
     return sorted(ws, reverse=True) or [0.2]
 
 
@@ -366,28 +375,18 @@ def _join(gr, sp, net, src, others, widths, fixed, hist=None, soft=(), rip=True)
     return None
 
 
-# KiCad escapes these characters in net names in the board file and shows them unescaped in
-# its DRC report (EscapeString / UnescapeString)
-_ESCAPES = {"{slash}": "/", "{backslash}": "\\", "{lt}": "<", "{gt}": ">", "{colon}": ":", "{dblquote}": '"',
-            "{quote}": "'", "{space}": " ", "{tab}": "\t", "{return}": "\n", "{brace}": "{", "{comma}": ","}
+# the DRC report shows net names unescaped ("A/B" for the board's "A{slash}B")
+from kae.drc_items import board_nets, open_nets, unescape  # noqa: E402,F401
 
 
-def unescape(name):
-    """A board net name as KiCad's DRC report writes it."""
-    for k, v in _ESCAPES.items():
-        name = name.replace(k, v)
-    return name
-
-
-def open_nets(report):
-    """Nets of the unconnected items of a KiCad DRC report (the name in brackets)."""
-    out = set()
-    for u in report.get("unconnected_items") or []:
-        for it in u.get("items") or []:
-            d = it.get("description") or ""
-            if "[" in d and "]" in d:
-                out.add(d[d.index("[") + 1:d.index("]")])
-    return sorted(out)
+def round_robin(nets, reached):
+    """`nets` in last-mile order across rounds: the nets no round has reached first, then those
+    reached longest ago (`reached` {net: round that last reached it}), by name within each. A
+    round's deadline stops it part-way down the queue; in name order every round started again
+    at the top, so a large group early in the alphabet (a bus) took every round and later nets
+    never had a turn (alphaonex86 socket7, with bus names parsed: about 40 cpu_d[n] / cpu_a[n]
+    nets reached, eth_* and tsen_* never, about 100 more open per seed)."""
+    return sorted(nets, key=lambda n: (reached.get(n, -1), n))
 
 
 def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=print, max_parts=8, soft=(),
@@ -401,7 +400,8 @@ def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=prin
     the time: no join starts after it; `rip` False: joins around everything only, nothing is
     ripped. Rip-up works in transactions (see below); `txn` False keeps every join (for a caller
     that reroutes the ripped nets afterwards). Returns {joined, failed, ripped: [uuid],
-    ripped_soft: [uuid], rerouted: [net], added: [uuid], nets: {net: status}, undone}."""
+    ripped_soft: [uuid], rerouted: [net], added: [uuid], nets: {net: status}, undone,
+    reached: [net] (the nets that had a turn, as `nets` names them; see round_robin)}."""
     import time
     cap = max_joins if max_joins is not None else float("inf")
 
@@ -417,11 +417,19 @@ def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=prin
     known = sorted({it.net for it in sp.pads if it.net and it.kind == "pad"})
     if nets is None:
         nets = known
+        given = {}
     else:
         # the DRC report names nets unescaped ("A/B" for the board's "A{slash}B")
-        by_shown = {unescape(n): n for n in known}
-        nets = [n if n in known else by_shown.get(n, n) for n in nets]
+        given = dict(zip(board_nets(nets, known), nets))     # board name -> caller's
+        nets = list(given)
     queue = [net for net in nets if len([p for p in parts(sp, fp, net) if _relevant(p)]) > 1]
+    # a net goes back on the queue only after progress: when its open count falls below the
+    # lowest it has had (best), or once more (RETRY_NO_PROGRESS) after a turn that did not lower
+    # it, e.g. a closed net ripped open again. best only falls, so no net is retried for ever
+    # (atrivatech ch32v003: D+'s free joins left it at 2 open, and it was queued again 205 times
+    # until the run's wall ceiling, delivering 26 open where earlier builds left 3)
+    best, stale = {}, {}
+    rep["reached"] = []      # the nets that had a turn, in order, named as the caller named them
     # rip-up as transactions: an open net's join, and the re-joins of the nets it rips (and of
     # the nets those rip), are kept only when the nets touched end with fewer missing connections
     # than before; otherwise the new copper goes and the ripped copper comes back. A greedy
@@ -432,6 +440,7 @@ def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=prin
     ripped_ids = {}
     joins = 0
     open_now = {n: _open_count(sp, fp, n) for n in queue}   # nets the DRC did not name are whole
+    best.update(open_now)
 
     def join_net(net, local, added, removed, before):
         """Join `net`'s parts (at most max_parts joins); nets it rips go to `local`. True when
@@ -496,6 +505,7 @@ def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=prin
 
     while queue and more():
         root = queue.pop(0)
+        rep["reached"].append(given.get(root) or (unescape(root) if given else root))
         added, removed, before, local = [], [], {root: open_now.get(root, 0)}, [root]
         saved = (dict(hist), dict(ripped_ids), rep["joined"], rep["failed"], joins)
         left = False
@@ -506,7 +516,14 @@ def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=prin
         if not txn or sum(after.values()) < sum(before.values()):
             open_now.update(after)
             # nets still open (a pour in many pieces, a ripped net not re-joined): their turn later
-            queue += [n for n, v in after.items() if v and n not in queue and (n != root or left)]
+            # only after progress (best, stale above)
+            for n, v in after.items():
+                if v < best.get(n, float("inf")):
+                    best[n], stale[n] = v, 0
+                else:
+                    stale[n] = stale.get(n, 0) + 1
+            queue += [n for n, v in after.items() if v and n not in queue and (n != root or left)
+                      and stale[n] <= RETRY_NO_PROGRESS]
             log(f"last mile {root}: kept, {sum(before.values())} -> {sum(after.values())} open on "
                 f"{len(before)} nets ({joins - saved[4]} joins)")
             continue
@@ -677,8 +694,7 @@ def plane_escapes(board, info, plan, fills, out, sev=None, log=print, deadline=N
             break
         if not any(it.net == net and it.kind == "pad" for it in sp.pads):
             continue
-        mn, opt, _mx = sp.width_limits(net, sp.cu[0])
-        widths = sorted({round(w, 4) for w in (opt, mn) if w and w > 0}, reverse=True) or [0.2]
+        widths = widths_of(sp, net, sp.cu[:1])
         st = rep["nets"].setdefault(net, [0, 0])
         ps = parts(sp, fp, net)
         planes = [p for p in ps if any(n.kind == "fill" for n in p)]
