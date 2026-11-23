@@ -918,8 +918,20 @@ PIN_ALIAS = [(re.compile(r'TPS6513[0-3]', re.I), {'INP': 'SWP', 'OUTN': 'SWN', '
               "TI TPS6513x datasheet (SLVS493) pin functions")]
 
 
+def _label_pins(nl: Netlist):
+    """A part whose every named pin is named after its own net (pin facts taken from a schematic's net labels: a
+    meshsat board's 'S2_SW', 'VBAT', 'GND' on the pins of those nets, all typed passive) has no pin functions:
+    its names are read as absent, so the rules for unannotated pins apply (an AP64500 alone on its switch node)."""
+    for part in nl.parts.values():
+        named = [p for p in part.pins if p.fn and p.net]
+        if len(named) >= 3 and all(p.fn == nl.nets[p.net].short.upper().lstrip('/') for p in named if p.net in nl.nets):
+            for p in part.pins:
+                p.__dict__['fn'] = ''
+
+
 def _alias_pins(nl: Netlist):
     """Pin functions read through PIN_ALIAS (the parts' own names kept in Pin.function; Pin.fn reads the alias)."""
+    _label_pins(nl)
     for part in nl.parts.values():
         text = part.text()
         for rx_, alias, _src in PIN_ALIAS:
@@ -1166,10 +1178,11 @@ def _switch_nodes(nl: Netlist, roles: Roles, inverting: bool = False):
             boot = [p for p in alone if p.ref != ic_ and roles.parts[p.ref].kind == 'capacitor'
                     and nl.other_net(nl.parts[p.ref], net) in ic_nets and nl.other_net(nl.parts[p.ref], net) not in g]
             mine = [p for p in alone if p.ref == ic_]
-            if mine and len(mine) + len(boot) == len(alone) and not any(p.fn or p.ptype for p in mine):
+            if mine and len(mine) + len(boot) == len(alone) and not any(p.fn or p.ptype not in ('', 'passive')
+                                                                        for p in mine):
                 alone = mine[:1]
         if (alone and len(alone) == 1 and roles.parts[alone[0].ref].subtype in SWITCHER_SUBS and not alone[0].fn
-                and not alone[0].ptype and not caps and (len(roles.caps_to.get(other, ())) >= 1 or swname)
+                and alone[0].ptype in ('', 'passive') and not caps and (len(roles.caps_to.get(other, ())) >= 1 or swname)
                 and not roles.sem(alone[0])):
             # (a far end with no capacitor of its own, its output behind a load switch, when the node's name says
             # it switches: /S2_SW)

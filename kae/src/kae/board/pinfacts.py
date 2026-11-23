@@ -25,12 +25,22 @@ def from_pintypes(doc):
     return out
 
 
+def matches(fp, m):
+    """Whether pin facts `m` ({pad number: ...}) are this footprint's: every number they name is one of its pads. A
+    schematic of another revision gives a reference to another part (meshsat's U5: an LM5176's 29 pins on an
+    AP64500's 9 pads), whose pin names would then be read as this part's."""
+    pads = {str(p.number) for p in fp.pads if p.number}
+    return bool(m) and set(m) <= pads
+
+
 def apply(board, pins):
     """Fill each pad's pin type and name from `pins` where the board carries neither (a pad the board's own
-    file annotates is left alone). Returns the number of pads filled."""
+    file annotates is left alone), for footprints the facts match (matches). Returns the number of pads filled."""
     n = 0
     for fp in board.footprints if pins else ():
         m = pins.get(fp.ref)
+        if m and not matches(fp, m):
+            continue
         for pad in fp.pads if m else ():
             pin = m.get(str(pad.number))
             if pin and not pad.pintype and not pad.pinfunction:

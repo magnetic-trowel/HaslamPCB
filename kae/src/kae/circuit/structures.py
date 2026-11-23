@@ -650,6 +650,19 @@ def _converter(b: _B, L, lpart, swn, other):
         elif side == 'A' and o and o not in b.g and o != other:
             d_boost = (d, o)
     vin_pins = _vin_pins(b, ctrl, {swn, other}, suffix, token) if ctrl else []
+    if ctrl and not vin_pins and not any(p.fn for p in b.nl.parts[ctrl].active_pins()) and \
+            b.sub(ctrl) in ('regulator_switching', 'regulator_module', 'pmic'):
+        # a switcher with no pin names at all: its input is the net of most of its pins off the switch node, the
+        # inductor's far end, ground and its bootstrap capacitor (an AP63205 with EN tied to VIN: two pins on it)
+        boot = {n for n in b.nl.parts[ctrl].nets for p in b.nl.pins(n)
+                if b.k(p.ref) == 'capacitor' and b.nl.other_net(b.nl.parts[p.ref], n) == swn}
+        cnt = defaultdict(int)
+        for p in b.nl.parts[ctrl].active_pins():
+            if p.net and p.net not in b.g and p.net not in (swn, other) and p.net not in boot:
+                cnt[p.net] += 1
+        best = sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0]))
+        if best and (len(best) == 1 or best[0][1] > best[1][1]):
+            vin_pins = [p for p in b.nl.parts[ctrl].active_pins() if p.net == best[0][0]]
     out_pins = [p for p in b.nl.parts[ctrl].active_pins() if OUT_PIN.match(p.fn) and p.net not in (swn,) and p.net not in b.g] if ctrl else []
     if ctrl and not out_pins:
         # a dual-rail IC's positive output (TPS6513x VPOS beside its SWP boost)
