@@ -23,15 +23,17 @@ Rules [I]:
 
 `kae.circuit.edges` answers "is this net fast?" with the computation above, not with names.
 
-- **t_r** is the fastest driver on the net: an IC, module or oscillator pin typed output, bidirectional, tri-state or open-drain (untyped pins count). Each family row names its source and is marked `assumed`: it is a family default, not this part's datasheet or IBIS `[Ramp]`. Values are 10–90 % at the fastest setting firmware may pick:
+- **t_r** is the fastest driver on the net: an IC, module or oscillator pin typed output, bidirectional, tri-state or open-drain (untyped pins count). Each family row names its source and is marked `assumed`: it is a family default, not this part's datasheet or IBIS `[Ramp]`. Values are 10–90 %. Logic and FPGA rows are the family's fastest edge; MCU rows are the pin's reset default, since the netlist cannot show what slew firmware sets (user decision, 2026-11): the brief's `edge.slew` and every edge hazard's fix say that a pin set to a fast slew or higher drive needs review.
 
   | Family | t_r | Source |
   |---|---|---|
   | 74LVC/ALVC/AVC/LVT, NC7SZ; 74AC/ACT/F | 1.5 ns | TI E2E [S]; *Complete PCB Design* family table [S] |
   | 74AHC; 74HC; 74HCT; 74LS | 2.3; 6; 8; 10 ns | TI E2E (0.7 ns/V) [S]; [SN74HC04](https://www.ti.com/lit/ds/symlink/sn74hc04.pdf) t_t typ at 6 V [P]; SN74HCT04 [P]; family table [S] |
-  | STM32 | 2.5 ns | DS8626 I/O AC table, OSPEEDR=11 at 10 pF (reset default 100 ns) [S] |
-  | AVR | 3.6 ns | ATmega328P Table 28-6, SPI master [P] |
-  | other MCUs, MCU modules | 2.5 ns | assumed: RP2040, ESP32, nRF datasheets give none [I] |
+  | STM32; GD32/APM32 | 100 ns | DS8626 I/O AC table, OSPEEDR=00 (reset) at 50 pF; 2.5 ns only at OSPEEDR=11 [S]; GD32 assumed alike [I] |
+  | nRF52 | 8 ns | PS GPIO: DRIVE resets to S0S1, 8 ns at 15 pF (simulated) [S] |
+  | SAM D/L/C | 13 ns | I/O pin characteristics: DRVSTR=0 at reset, 13–15 ns at 20 pF [S] |
+  | AVR | 3.6 ns | ATmega328P Table 28-6, SPI master; no slew setting [P] |
+  | RP2040/RP2350, ESP32, PIC, other MCUs and MCU modules | 10 ns | assumed slow: reset is slow slew (RP2040 `SLEWFAST=0`, PIC `SLRCON=1`) or undocumented, and no rise time is published [I] |
   | FPGA | 0.5 ns | assumed: vendors defer to IBIS; as fast as a CMOS oscillator at 5 pF [I] |
   | oscillator | 1.3 ns | [SiT8008B](https://www.sitime.com/sites/default/files/gated/SiT8008B-datasheet.pdf) 1 ns 20–80 % at 15 pF, ×1.33 [P] |
 

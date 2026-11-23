@@ -14,6 +14,7 @@
 # the arm's brief for both arms), with guards: legality, KiCad placement errors, Freerouting probe completion.
 #
 #   ARM=edges SHA=<arm commit> intent-fast-nets-ab.sh register
+#   ARM=adc SHA=<arm commit> SEED0=2 K_SEEDS=4 BOARDS=<file> intent-fast-nets-ab.sh seeds   # more seeds, new replicate
 set -euo pipefail
 K=${K:-python3 tools/kaeres/kaeres.py}
 B=tools/kaeres/experiments/intent-fast-nets-ab
@@ -21,6 +22,8 @@ KH='$HOME/.cache/kaebench'
 FORK="$KH/kae-freerouting-fork-37b1a8b/bin/freerouting"
 TAG=c2dd008ae33098240ae086543b528c3f3590ea55
 CODE=${CODE:-.}      # the repository holding the arm commits
+SEED0=${SEED0:-0}    # seeds SEED0.. (the 'seeds' re-check runs new seeds beside the first campaign's 0 and 1)
+if [ "$SEED0" = 0 ]; then SEEDARG='{attempt}'; else SEEDARG="\$(( {attempt} + $SEED0 ))"; fi
 
 place() {  # NAME SHA [extra args]
   local n=$1 sha=$2; shift 2
@@ -28,9 +31,20 @@ place() {  # NAME SHA [extra args]
   # an existing method (the shared control) exits non-zero: keep going
   { $K method add "$n" --kind place --param probe=freerouting \
     --description "kae place (physics, defaults) at ${sha:0:7}, counted work (nominal 600 s x sqrt(fp/40), ceiling 4x), Freerouting fork 37b1a8b" \
-    --command "$env {py:kae} -m kae.cli place {input} {output} --seed {attempt} --time \$(( {timeout} / 4 ))" \
+    --command "$env {py:kae} -m kae.cli place {input} {output} --seed $SEEDARG --time \$(( {timeout} / 4 ))" \
     --param timeout_s=2400 --param timeout_scale=sqrt-fp40 --param timeout_cap_s=57600 \
     --code "kae=$CODE@$sha" --harness "$TAG" "$@" 2>&1 || true; } | tail -1
+}
+
+seeds() {  # ARM on BOARDS (default its suite) with K_SEEDS more seeds from SEED0, both arms as a new replicate
+  local FIX; FIX=$(git -C "$CODE" rev-parse "${SHA:?the arm commit}")
+  local tag="intent-fast-nets-$ARM-seeds$SEED0"
+  local C0="kae place w47 c2dd008 fr37b1a8b (replicate $tag)" C1="kae place intent-fast-nets-$ARM ${FIX:0:7} fr37b1a8b (replicate $tag)"
+  place "$C0" "$TAG" --param replicate=$tag
+  place "$C1" "$FIX" --param replicate=$tag
+  $K exp create "$tag" --boards "@${BOARDS:-$B/$ARM.boards.txt}" --attempts "${K_SEEDS:-4}" --method "$C0" --method "$C1" \
+    --tier sprint --harness "$TAG" --kae "$FIX" \
+    --description "intent-fast-nets $ARM re-check: seeds $SEED0.. vs baseline/2026-w47, kae place, k=${K_SEEDS:-4}"
 }
 
 smoke() {  # one board, one attempt, both arms
@@ -56,5 +70,6 @@ register() {
 case ${1:-} in
   register) register ;;
   smoke) smoke ;;
+  seeds) seeds ;;
   *) echo "usage: ARM=edges|adc|c0805 SHA=<commit> $0 register" >&2; exit 2 ;;
 esac
