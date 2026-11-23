@@ -37,12 +37,13 @@ from dataclasses import dataclass, field
 ETA = (0.8, 0.9, 0.95)        # efficiency (lo, typ, hi) of a converter whose efficiency nobody states
 BAND_4SW = 0.1                # a 4-switch buck-boost is in its buck (boost) region when V_in / V_out >= 1.1 (<= 0.9)
 D_MIN, D_MAX = 0.02, 0.98
-TOPOLOGIES = ("buck", "boost", "inverting_buck_boost", "buck_boost_4switch", "sepic", "cuk", "boost_led")
+TOPOLOGIES = ("buck", "boost", "inverting_buck_boost", "inverting_buck", "buck_boost_4switch", "sepic", "cuk", "boost_led")
 SOURCES = {
     "buck": "TI SLVA477 (buck power stage)",
     "boost": "TI SLVA372 (boost power stage)",
     "boost_led": "TI SLVA372 (boost power stage) at the LED string's current",
     "inverting_buck_boost": "TI SLVA721 (inverting buck-boost power stage)",
+    "inverting_buck": "TI TPS6371x (inverting buck: a flying capacitor shifts the switch node below ground)",
     "buck_boost_4switch": "TI SLVA535 (4-switch buck-boost power stage)",
     "sepic": "TI SLYT309 / SNVA168 (SEPIC)",
     "cuk": "Erickson and Maksimovic, Fundamentals of Power Electronics, ch. 2 (Cuk)",
@@ -101,7 +102,7 @@ def region_4switch(V_in, V_out):
 def duty(topology, V_in, V_out, eta=ETA[1], leg=None):
     """The switching leg's duty (clipped to [D_MIN, D_MAX]); 0 for a static 4-switch leg."""
     V_in, Vo = abs(V_in), abs(V_out)
-    if topology == "buck":
+    if topology in ("buck", "inverting_buck"):
         return _clip(Vo / V_in)
     if topology in ("boost", "boost_led"):
         return _clip(1 - V_in * eta / Vo)
@@ -141,7 +142,7 @@ def operating(topology, V_in, V_out, I_out, eta=ETA[1], L=None, f_sw=None, leg=N
     D = duty(topology, V_in, V_out, eta, leg)
     basis = [src]
     mode = topology
-    if topology == "buck":
+    if topology in ("buck", "inverting_buck"):
         IL, Isw, Vb, loop = I_out, I_out, V_in, "input"
     elif topology in ("boost", "boost_led"):
         IL, Isw, Vb, loop = I_in, I_in, Vo, "output"
@@ -171,7 +172,7 @@ def operating(topology, V_in, V_out, I_out, eta=ETA[1], L=None, f_sw=None, leg=N
     op = Operating(topology, leg, mode, D, I_in, I_out, IL, Isw, Vb, loop, basis=basis)
     if Isw > 0 and L and L > 0 and f_sw and f_sw > 0:
         # the inductor's volt-seconds during the on time, as each note writes them
-        v_on = (V_in - Vo) if (topology == "buck" or (topology == "buck_boost_4switch" and mode == "buck")) else V_in
+        v_on = (V_in - Vo) if (topology in ("buck", "inverting_buck") or (topology == "buck_boost_4switch" and mode == "buck")) else V_in
         dI = max(v_on, 0.0) * D / (L * f_sw)
         if dI is not None:
             dI = min(dI, 2 * IL)
