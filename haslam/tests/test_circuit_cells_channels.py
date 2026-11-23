@@ -28,3 +28,22 @@ def test_a_pmic_channel_with_its_own_output_on_the_far_end_is_a_buck(tmp_path, m
     br = build(load(str(CF.write_board(tmp_path))))
     cells = [(s["id"], s["class"], s["rail"], s["vout"]) for s in br["structures"] if s["kind"] == "commutation_cell"]
     assert cells == [("cell:buck:U1:1", "buck", "VIN", "+1V8")]
+
+
+BOOT = ("C7", "100nF", "Capacitor_SMD:C_0402_1005Metric", 124.0, 106.0, 0.0,
+        [("1", "Net-(U1-BST)", -0.48, 0.0, 0.56, 0.62, "smd", 0.0, "", "passive"),
+         ("2", "Net-(U1-SW)", 0.48, 0.0, 0.56, 0.62, "smd", 0.0, "", "passive")], (0.95, 0.5))
+
+
+def test_a_buck_without_pin_names_is_a_cell_beside_its_bootstrap_capacitor(tmp_path, monkeypatch):
+    """A footprint with no pin functions or types (no schematic netlist: an import, a hand-made footprint): the
+    switcher's pin is alone on its node but for its bootstrap capacitor to its own BST pin, which kept the node from
+    being a switch node, so the board had no cell (an AP64500 on /S2_SW beside C34; a TPS563201 beside C30)."""
+    parts = [(ref, val, lib, x, y, rot,
+              [(n, net, lx, ly, w, h, kind, drill, "" if ref == "U1" else fn, "" if ref == "U1" else pt)
+               for n, net, lx, ly, w, h, kind, drill, fn, pt in pads], cy)
+             for ref, val, lib, x, y, rot, pads, cy in CF.PARTS]
+    monkeypatch.setattr(CF, "PARTS", parts + [BOOT])
+    br = build(load(str(CF.write_board(tmp_path))))
+    cells = [(s["id"], s["class"], s["rail"], s["vout"], s["sw"]) for s in br["structures"] if s["kind"] == "commutation_cell"]
+    assert cells == [("cell:buck:U1", "buck", "VIN", "+3V3", "Net-(U1-SW)")]

@@ -1079,8 +1079,22 @@ def _switch_nodes(nl: Netlist, roles: Roles, inverting: bool = False):
         if (PWR_NET.search(nv.short) or V.net_voltage(net)) and not swname:
             # '1V25_SW' states its converter's output and is its switch node: the switch word decides
             evs.append(ev('name', f"rail-like name '{nv.short}'", -2.5))
+        # without pin names the switcher's node also holds its bootstrap capacitor (to another pin of the same IC)
+        # and often a second pad of the same SW pin: neither is a second part on the node
+        ics_ = {p.ref for p in alone if roles.parts[p.ref].kind in ('ic', 'module')}
+        if len(ics_) == 1 and len(alone) > 1:
+            ic_ = next(iter(ics_))
+            ic_nets = {q.net for q in nl.parts[ic_].pins if q.net and q.net != net}
+            boot = [p for p in alone if p.ref != ic_ and roles.parts[p.ref].kind == 'capacitor'
+                    and nl.other_net(nl.parts[p.ref], net) in ic_nets and nl.other_net(nl.parts[p.ref], net) not in g]
+            mine = [p for p in alone if p.ref == ic_]
+            if mine and len(mine) + len(boot) == len(alone) and not any(p.fn or p.ptype for p in mine):
+                alone = mine[:1]
         if (alone and len(alone) == 1 and roles.parts[alone[0].ref].subtype in SWITCHER_SUBS and not alone[0].fn
-                and not alone[0].ptype and not caps and len(roles.caps_to.get(other, ())) >= 1 and not roles.sem(alone[0])):
+                and not alone[0].ptype and not caps and (len(roles.caps_to.get(other, ())) >= 1 or swname)
+                and not roles.sem(alone[0])):
+            # (a far end with no capacitor of its own, its output behind a load switch, when the node's name says
+            # it switches: /S2_SW)
             # an unannotated pin (Eagle, Altium or KiCad 5 import) of a switching regulator alone with the inductor
             evs.append(ev('topology', f"only unnamed pin {alone[0].label} of switching regulator {alone[0].ref} and the inductor on this node",
                           MODERATE + 1.0))
