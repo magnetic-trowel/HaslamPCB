@@ -22,13 +22,9 @@ def summarize(path, row=None, pintypes=None):
     from haslam.intent import sections as SE
     b = load(path)
     if pintypes:
-        refs = pintypes.get("refs") or {}
-        for fp in b.footprints:
-            m = refs.get(fp.ref) or {}
-            for pad in fp.pads:
-                pin = m.get(str(pad.number))
-                if pin and not pad.pintype and not pad.pinfunction:
-                    pad.pintype, pad.pinfunction = pin.get("type") or "", pin.get("name") or ""
+        # as the evaluator applies them (haslam.board.pinfacts: only to footprints whose pads they name)
+        from haslam.board import pinfacts as PF
+        PF.apply(b, PF.from_pintypes(pintypes))
     from haslam.circuit.roles import cells_inverting
     br = BR.build(b, inverting=cells_inverting(True))       # the evaluator's brief (haslam.excite.evaluate)
     pads_by_ref = {}
