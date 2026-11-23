@@ -135,3 +135,10 @@ def test_a_boost_and_an_ldo_feeding_each_other_break_their_cycle(tmp_path, monke
     b = load(str(CF.write_board(tmp_path)))
     inj = DC.planned_injections(b, {"parts": {"U2": {"I_A": [0.01, 0.01]}}})       # raises if it does not balance
     assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_a_cells_loops_are_read_through_one_accessor():
+    from haslam.circuit.structures import loops_of
+    cell = {"loop": [["c1", "1"], ["u1", ["3"]]], "ret": "-5V", "gnd": "-5V", "sw": "SW"}
+    assert loops_of(cell) == [("main", cell["loop"], "-5V", "-5V", "SW")]
+    assert loops_of({"loop": [], "gnd": "GND"})[0][2] == "GND"           # a brief before `ret`: its ground
