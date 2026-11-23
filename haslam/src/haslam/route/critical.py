@@ -43,7 +43,7 @@ from haslam.board.model import Track, Via
 from . import arcs as A
 from . import critical_write as W
 from .critical_grid import GridRouter
-from .critical_modules import Ctx, modules_from_brief, route_module
+from .critical_modules import Ctx, cell_return, modules_from_brief, route_module
 from .critical_space import Space
 
 DEFAULTS = dict(
@@ -507,8 +507,9 @@ class Session:
                 continue
             c = region.centroid
             seen = set()
+            R = cell_return(self.ctx, m.spec) if m.kind == "cell" else None
             for u in m.parts:
-                h, pl, pn = self.ctx.plane(self.ctx.side_layer(u), c.x, c.y, gnd=True)
+                h, pl, pn = self.ctx.plane(self.ctx.side_layer(u), c.x, c.y, gnd=True, nets=R)
                 if pl is None or (pl, pn) in seen:
                     continue
                 seen.add((pl, pn))
