@@ -256,6 +256,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
     # is dropped, the intent's fact before the brief's; the rail it fed is then fed by a connector on it with a ground
     # pad (the board's way in), else by nothing.
     def evidence(r, f):
+        f = dict(f, rin=f.get("rin") or (f.get("cell") or {}).get("vin"))
         out_ = sum(1 for _, nt, pt, fn in pads.get(f["ref"], []) if nt == r and (pt == "power_out" or OUT_PIN.match(fn)))
         in_ = sum(1 for _, nt, pt, fn in pads.get(f["ref"], []) if nt == f.get("rin") and (pt == "power_in" or SUPPLY_PIN.match(fn)))
         bad = sum(1 for _, nt, pt, fn in pads.get(f["ref"], []) if nt == r and (pt == "power_in" or SUPPLY_PIN.match(fn)))
@@ -264,9 +265,10 @@ def plan(board, brief, bd, P, srcs, intent=None):
         cyc = None
         for r0 in sorted(pl.feeds):
             seen, x = [], r0
-            while x in pl.feeds and x not in seen and pl.feeds[x]["kind"] in ("linear", "switching"):
+            while x in pl.feeds and x not in seen and pl.feeds[x]["kind"] in ("linear", "switching", "cell"):
                 seen.append(x)
-                x = pl.feeds[x].get("rin")
+                # a cell's input is its cell's (a boost from +3V3 to +5V beside an LDO from +5V to +3V3 is a cycle too)
+                x = pl.feeds[x]["cell"]["vin"] if pl.feeds[x]["kind"] == "cell" else pl.feeds[x].get("rin")
             if x == r0 and seen:
                 cyc = seen
                 break
@@ -274,6 +276,8 @@ def plan(board, brief, bd, P, srcs, intent=None):
             break
         r = min(cyc, key=lambda q: (evidence(q, pl.feeds[q]), q))
         f = pl.feeds.pop(r)
+        if f["kind"] == "cell":
+            f = dict(f, rin=f["cell"]["vin"])
         conns = [(sum(1 for _, nt, _, _ in pp if nt == r), ref) for ref, pp in pads.items()
                  if (parts.get(uuid_of.get(ref)) or {}).get("kind") == "connector" and any(nt == r for _, nt, _, _ in pp)
                  and gnd_pads(ref)]
