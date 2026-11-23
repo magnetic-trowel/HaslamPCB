@@ -61,16 +61,18 @@ def rail_demand(dcp, rail, load_amps, depth=0):
     one or a cell draws output power / (efficiency x input voltage))."""
     if depth > 6:
         return 0.0
-    tot = sum(load_amps(ld) for ld in dcp.loads if ld["rail"] == rail)
-    v_in = dcp.volts.get(rail) or 0.0
+    # a split-supply load (haslam.excite.dc: an op-amp across +-12 V) draws from its negative rail as well
+    tot = sum(load_amps(ld) for ld in dcp.loads if ld["rail"] == rail or ld.get("ret") == rail)
+    # magnitudes: dcp.volts carries each rail's sign, and a -12 V rail's power is |V| I as a +12 V one's
+    v_in = abs(dcp.volts.get(rail) or 0.0)
     for r2, f in dcp.feeds.items():
         c = f.get("cell")
         if f["kind"] == "cell" and c and c.get("vin") == rail and r2 != rail:
             d = rail_demand(dcp, r2, load_amps, depth + 1)
-            tot += d * (dcp.volts.get(r2) or v_in) / (0.88 * max(v_in, 0.5)) if v_in else d
+            tot += d * (abs(dcp.volts.get(r2) or 0.0) or v_in) / (0.88 * max(v_in, 0.5)) if v_in else d
         elif f.get("rin") == rail and r2 != rail and f["kind"] in ("linear", "switching"):
             d = rail_demand(dcp, r2, load_amps, depth + 1)
-            tot += d if f["kind"] == "linear" else d * (dcp.volts.get(r2) or v_in) / (0.85 * max(v_in, 0.5)) if v_in else d
+            tot += d if f["kind"] == "linear" else d * (abs(dcp.volts.get(r2) or 0.0) or v_in) / (0.85 * max(v_in, 0.5)) if v_in else d
     return tot
 
 
@@ -211,10 +213,10 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
         pk = bd.part_kind.get(ld["ref"], ("", None))
         if pk[0] != "connector" and (pk[1] if len(pk) > 1 else None) not in PASS_ON:
             # a rail of unknown voltage at the DC band's 3.3 V (haslam.excite.dc.observe): at 0 V its loads made no heat
-            add(ld["ref"], x * (dcp.volts.get(ld["rail"]) or 3.3), loss=False)
+            add(ld["ref"], x * DC.load_volts(dcp, ld), loss=False)
     for sl in getattr(dcp, "self_loads", []):
         # a part powered from off the board (its own USB): its own draw at its rail's voltage, all heat
-        add(sl["ref"], cv.get(sl["key"], 0.0) * (dcp.volts.get(sl["rail"]) or 3.3), loss=False)
+        add(sl["ref"], cv.get(sl["key"], 0.0) * (abs(dcp.volts.get(sl["rail"]) or 0.0) or 3.3), loss=False)
     for r, f in dcp.feeds.items():
         if f["kind"] == "cell":
             c = f["cell"]
@@ -231,7 +233,7 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             cond = IL ** 2 * ron * (D if c["rect"] else 1.0)
             top = c.get("top") or c["cls"]
             I_out = CV.output_from_inductor(top, IL, D)
-            vo = dcp.volts.get(r)
+            vo = abs(dcp.volts.get(r) or 0.0) or None              # magnitudes: dcp.volts carries the rail's sign
             if f.get("eta") and vo:
                 # the facts state the converter's efficiency: its loss is (1/eta - 1) P_out (the DC flow's input
                 # current is P_out / eta, haslam.excite.dc), the rectifier's V_f I share of it at the rectifier;
@@ -239,7 +241,7 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
                 eta = cv.get((f["eta"].subject, "eta"), f["eta"].typ)
                 if c["cls"] == "buckboost":
                     I_out = IL / max(1.0, DC._ratio(dcp, r, cv))
-                loss = max(1 / eta - 1, 0.0) * abs(vo) * I_out
+                loss = max(1 / eta - 1, 0.0) * vo * I_out
                 rw = 0.0
                 if c["rect"]:
                     rw = min(loss, val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * CV.rectifier_current(top, IL, D))
@@ -249,7 +251,7 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             if c["cls"] == "buckboost":
                 # a 4-switch buck-boost: one switch of each leg is on at any time (two R_on in the inductor's path);
                 # the leg that switches is the input one bucking, the output one boosting (its own cell's values)
-                vo, vi = dcp.volts.get(r), dcp.volts.get(c["vin"])
+                vi = abs(dcp.volts.get(c["vin"]) or 0.0) or None
                 cond = 2 * IL ** 2 * ron
                 if vo and vi and vi < vo and c.get("src2"):
                     v = dict(cv.get(c["src2"]) or {}, I_A=IL)
@@ -260,16 +262,19 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             # a working converter: no more loss than the efficiency prior of a switching regulator without a cell
             # model allows (haslam.excite.dc.ETA, its low end). The class priors' corners alone (C_sw 1.3 nF, a 48 V bus
             # guessed for a 13.5 V input, 2 MHz) read 6 W in a 3.3 V, 0.35 A buck: 1332 C at its junction
-            cap = (1 / DC.ETA[0] - 1) * abs(vo) * I_out if vo and I_out > 0 else None
+            cap = (1 / DC.ETA[0] - 1) * vo * I_out if vo and I_out > 0 else None
             k = min(1.0, cap / (w_c + w_r)) if cap is not None and w_c + w_r > 0 else 1.0
             add(c["ctrl"], k * w_c)
             add(c["rect"], k * w_r)
             continue
-        I_out = sum(inj.get(q, 0.0) for q in f.get("out") or [])
+        # the current it delivers into its rail: on a rail below ground the feed's output pads take current out of
+        # the copper (a negative injection), so the sum is read in the rail's sign (signed, every negative
+        # regulator's heat was skipped)
+        I_out = DC._sign(dcp, r) * sum(inj.get(q, 0.0) for q in f.get("out") or [])
         if I_out <= 0:
             continue
         if f["kind"] == "linear":
-            vi, vo = dcp.volts.get(f["rin"]) or 0.0, dcp.volts.get(r) or 0.0
+            vi, vo = abs(dcp.volts.get(f["rin"]) or 0.0), abs(dcp.volts.get(r) or 0.0)
             kind = bd.part_kind.get(f["ref"], ("",))[0]
             drop = val.get((f"heat:{f['ref']}", "V_f_V"), V_F[1]) if kind == "diode" else max(vi - vo, 0.0)
             if kind == "transistor":
@@ -279,7 +284,7 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
                 add(f["ref"], drop * I_out)
         elif f["kind"] == "switching":
             eta = cv.get((f["eta"].subject, "eta"), 0.85)
-            add(f["ref"], (1 / eta - 1) * (dcp.volts.get(r) or 0.0) * I_out)
+            add(f["ref"], (1 / eta - 1) * abs(dcp.volts.get(r) or 0.0) * I_out)
     for ref, w in (ac_parts or {}).items():
         add(ref, w)
     return out

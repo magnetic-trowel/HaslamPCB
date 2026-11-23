@@ -558,7 +558,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         sys_dc = {}                          # built by the first solve that needs it (_dc_system)
         harms += _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes, log, obs_out=observations,
                            system=sys_dc)
-        if (dcp.loads or dcp.self_loads) and not any(n.startswith("DC: copper open") for n in notes):
+        if (dcp.loads or dcp.self_loads) and not any(n.startswith(("DC: copper open", DC_UNBALANCED)) for n in notes):
             # part temperatures from the board's own heat flow, and each part's loss (haslam.excite.heat)
             from . import heat as HT
             harms += HT.evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, [0.0] * ncp, notes,
@@ -930,7 +930,8 @@ def print_total(t):
 
 
 # the DC band's notes that void the score: an open flow, or load/source currents left out of the copper
-DC_VOID = ("DC: copper open", "DC: pads outside the copper model")
+DC_UNBALANCED = "DC: the plan's current does not balance"
+DC_VOID = ("DC: copper open", "DC: pads outside the copper model", DC_UNBALANCED)
 
 
 def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes, log, ac_copper=None, obs_out=None,
@@ -952,7 +953,16 @@ def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes,
                 cv[s.name] = {k[1]: v for k, v in cps[s.name][c].items()}
         cvs.append(cv)
     m = bm.m
-    raw = [DC.injections(dcp, cv) for cv in cvs]
+    raw, bad = [], []
+    for cv in cvs:
+        lost = []
+        raw.append(DC.injections(dcp, cv, lost))
+        bad += [x for x in DC.imbalance(dcp, raw[-1], lost) if x not in bad]
+    if bad:
+        # a plan whose current does not balance is no power flow: the solve would call it open copper (or absorb a
+        # small error as a cut-off pad). Said as what it is, and the band is not computed
+        notes.append(f"{DC_UNBALANCED}: {'; '.join(bad[:4])}{'; ...' if len(bad) > 4 else ''}: the DC band is not computed")
+        return []
     out_ = sorted({p for inj in raw for p in inj if p not in m.terminals})
     if out_:
         notes.append(f"DC: pads outside the copper model ({', '.join(out_[:6])}): their currents are left out")

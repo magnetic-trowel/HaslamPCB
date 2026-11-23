@@ -56,7 +56,7 @@ def test_grounds_joined_only_off_the_board_take_their_current_through_their_conn
     assert pl.piece["J2.2"] != pl.piece["J1.2"]
     assert sorted(pl.offboard.values()) == [["J1.2"], ["J2.2"]]
     assert {"J1.2", "J2.2"} <= pl.dc_pads
-    assert any("joined off it" in n for n in pl.notes), pl.notes
+    assert any("joined outside it" in n and "off the board" in n for n in pl.notes), pl.notes
     for I in (0.1, 0.17, 0.3):
         inj = DC.injections(pl, {(p.subject, p.name): I for p in pl.params})
         assert all(abs(v) < 1e-12 for v in _piece_sums(pl, inj).values()), inj
@@ -88,7 +88,7 @@ def test_one_ground_needs_nothing_off_the_board(tmp_path):
                        "+3V3": {"source": "U1", "from": "VIN", "kind": "linear", "V_V": 3.3}},
               "parts": {"J2": {"I_A": [0.1, 0.3]}}}
     pl, _, _, _ = _plan(_board(tmp_path, nets, fps), intent)
-    assert not pl.offboard and not any("off it" in n for n in pl.notes)
+    assert not pl.offboard and not any("outside it" in n for n in pl.notes)
     inj = DC.injections(pl, _typical(pl, {}))
     assert inj["J2.2"] == pytest.approx(-inj["J2.1"]) and inj["J1.2"] == pytest.approx(-inj["J1.1"])
 
