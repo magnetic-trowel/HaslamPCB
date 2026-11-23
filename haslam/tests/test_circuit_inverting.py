@@ -129,8 +129,8 @@ DUAL = {("U1", "1"): ("-5V", "VNEG", "power_out"), ("U1", "5"): ("Net-(U1-SWN)",
 
 def test_a_dual_rail_ics_negative_half_is_an_inverting_cell(tmp_path, monkeypatch):
     """A dual +/- rail IC (TPS65133: its SWN switch from the input, L from SWN to ground, the rectifier inside from
-    SWN to its VNEG pin) on ground: its negative half was missed, since its ground is the system's. Behind
-    HASLAM_CELLS_DUALRAIL: the cell's reference and return are ground, its loop the input capacitor, the IC's input
+    SWN to its VNEG pin) on ground: its negative half was missed, since its ground is the system's. HASLAM_CELLS_DUALRAIL
+    (default: as the inverting recognition): the cell's reference and return are ground, its loop the input capacitor, the IC's input
     and VNEG pins and the output capacitor."""
     import critical_fixtures as CF
     parts = []
@@ -144,9 +144,10 @@ def test_a_dual_rail_ics_negative_half_is_an_inverting_cell(tmp_path, monkeypatc
         parts.append((ref, "TPS65133" if ref == "U1" else val, lib, x, y, rot, out, cy))
     monkeypatch.setattr(CF, "PARTS", parts)
     p = str(CF.write_board(tmp_path))
-    monkeypatch.delenv("HASLAM_CELLS_DUALRAIL", raising=False)
+    monkeypatch.setenv("HASLAM_CELLS_DUALRAIL", "0")
     assert CELL not in _cells(build(load(p), inverting=True))
-    monkeypatch.setenv("HASLAM_CELLS_DUALRAIL", "1")
+    monkeypatch.delenv("HASLAM_CELLS_DUALRAIL", raising=False)
+    assert CELL not in _cells(build(load(p), inverting=False))       # it follows the inverting recognition
     s = _cells(build(load(p), inverting=True))[CELL]
     assert (s["vin"], s["vout"], s["gnd"], s["ret"]) == ("VIN", "-5V", "GND", "GND")
     assert [(s["members_ref"][u], q) for u, q in s["loop"]] == [("C1", "1"), ("U1", ["3"]), ("U1", ["1"]), ("C2", "1"),
@@ -178,9 +179,11 @@ def test_an_inverting_buck_is_an_inverting_cell_with_a_bucks_loop(tmp_path, monk
     monkeypatch.setattr(CF, "PARTS", parts + [FLY])
     p = str(CF.write_board(tmp_path))
     monkeypatch.delenv("HASLAM_CELLS_INVBUCK", raising=False)
-    assert [s["class"] for s in _cells(build(load(p))).values()] == ["buck"]
-    monkeypatch.setenv("HASLAM_CELLS_INVBUCK", "1")
-    (s,) = _cells(build(load(p))).values()
+    assert [s["class"] for s in _cells(build(load(p))).values()] == ["buck"]        # the router's brief: off
+    monkeypatch.setenv("HASLAM_CELLS_INVBUCK", "0")
+    assert [s["class"] for s in _cells(build(load(p), inverting=True)).values()] == ["buck"]
+    monkeypatch.delenv("HASLAM_CELLS_INVBUCK", raising=False)
+    (s,) = _cells(build(load(p), inverting=True)).values()                          # the evaluator's: on
     assert (s["id"], s["class"], s["topology"], s["vout"], s["gnd"], s["ret"]) == \
         ("cell:inverting:U1", "inverting", "inverting_buck", "-5V", "GND", "GND")
     assert [s["members_ref"][u] for u, _ in s["loop"]] == ["C1", "U1", "U1", "C1"]
@@ -328,3 +331,33 @@ def test_the_evaluator_prices_an_inverting_bucks_hot_loop(tmp_path, monkeypatch)
     obs = {o["id"]: o for o in ev["observations"] if o["scope"].get("source") == f"cell:{CELL}"}
     assert ev["open_cells"] == [] and min(obs["loss.loop"]["values"]) > 0 and min(obs["loss.loop_ac"]["values"]) > 0
     assert obs["overshoot.peak"]["reference"]["value"] == pytest.approx(CR.overshoot_limits(12.0)[0])
+
+
+def test_the_evaluator_and_the_dc_band_take_a_dual_rail_ics_negative_half(tmp_path, monkeypatch):
+    """With HASLAM_CELLS_DUALRAIL the evaluator excites and prices the negative half (here unrouted: an open loop,
+    priced at its caps, its bus V_in + |V_out|), and its DC feed (the IC's VNEG pin takes the output current back)
+    balances."""
+    import critical_fixtures as CF
+    from hotloop_fixtures import J2, plane_fills
+    from haslam.excite import dc as DC
+    from haslam.excite.evaluate import evaluate
+    parts = []
+    for ref, val, lib, x, y, rot, pads, cy in CF.PARTS:
+        out = []
+        for n, net, lx, ly, w, h, kind, drill, fn, pt in pads:
+            if (ref, n) in DUAL:
+                net, f2, pt = DUAL[(ref, n)]
+                fn = f2 or fn
+            out.append((n, "+12V" if net == "VIN" else net, lx, ly, w, h, kind, drill, fn, pt))
+        parts.append((ref, "TPS65133" if ref == "U1" else val, lib, x, y, rot, out, cy))
+    monkeypatch.setattr(CF, "PARTS", parts + [J2])
+    monkeypatch.setenv("HASLAM_CELLS_DUALRAIL", "1")
+    p = str(CF.write_board(tmp_path))
+    b = load(p)
+    inj = DC.planned_injections(b, {"nets": {"+12V": {"source": "J1", "V_V": 12.0}, "-5V": {"V_V": -5.0}}},
+                                brief=build(b, inverting=True))
+    assert inj["J2.1"] > 0 and sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
+    ev = evaluate(p, pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.125)
+    obs = {o["id"]: o for o in ev["observations"] if o["scope"].get("source") == f"cell:{CELL}"}
+    assert min(obs["loss.loop"]["values"]) > 0 and min(obs["loss.loop_ac"]["values"]) > 0
+    assert any(o["source"] == f"cell:{CELL}" for o in ev["open_cells"])
