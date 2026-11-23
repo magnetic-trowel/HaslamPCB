@@ -46,16 +46,18 @@ def rail_demand(dcp, rail, load_amps, depth=0):
     one or a cell draws output power / (efficiency x input voltage))."""
     if depth > 6:
         return 0.0
-    tot = sum(load_amps(ld) for ld in dcp.loads if ld["rail"] == rail)
-    v_in = dcp.volts.get(rail) or 0.0
+    # a split-supply load (kae.excite.dc: an op-amp across +-12 V) draws from its negative rail as well
+    tot = sum(load_amps(ld) for ld in dcp.loads if ld["rail"] == rail or ld.get("ret") == rail)
+    # magnitudes: dcp.volts carries each rail's sign, and a -12 V rail's power is |V| I as a +12 V one's
+    v_in = abs(dcp.volts.get(rail) or 0.0)
     for r2, f in dcp.feeds.items():
         c = f.get("cell")
         if f["kind"] == "cell" and c and c.get("vin") == rail and r2 != rail:
             d = rail_demand(dcp, r2, load_amps, depth + 1)
-            tot += d * (dcp.volts.get(r2) or v_in) / (0.88 * max(v_in, 0.5)) if v_in else d
+            tot += d * (abs(dcp.volts.get(r2) or 0.0) or v_in) / (0.88 * max(v_in, 0.5)) if v_in else d
         elif f.get("rin") == rail and r2 != rail and f["kind"] in ("linear", "switching"):
             d = rail_demand(dcp, r2, load_amps, depth + 1)
-            tot += d if f["kind"] == "linear" else d * (dcp.volts.get(r2) or v_in) / (0.85 * max(v_in, 0.5)) if v_in else d
+            tot += d if f["kind"] == "linear" else d * (abs(dcp.volts.get(r2) or 0.0) or v_in) / (0.85 * max(v_in, 0.5)) if v_in else d
     return tot
 
 
@@ -161,10 +163,10 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
         pk = bd.part_kind.get(ld["ref"], ("", None))
         if pk[0] != "connector" and (pk[1] if len(pk) > 1 else None) not in PASS_ON:
             # a rail of unknown voltage at the DC band's 3.3 V (kae.excite.dc.observe): at 0 V its loads made no heat
-            add(ld["ref"], x * (dcp.volts.get(ld["rail"]) or 3.3), loss=False)
+            add(ld["ref"], x * DC.load_volts(dcp, ld), loss=False)
     for sl in getattr(dcp, "self_loads", []):
         # a part powered from off the board (its own USB): its own draw at its rail's voltage, all heat
-        add(sl["ref"], cv.get(sl["key"], 0.0) * (dcp.volts.get(sl["rail"]) or 3.3), loss=False)
+        add(sl["ref"], cv.get(sl["key"], 0.0) * (abs(dcp.volts.get(sl["rail"]) or 0.0) or 3.3), loss=False)
     for r, f in dcp.feeds.items():
         if f["kind"] == "cell":
             c = f["cell"]
@@ -180,18 +182,21 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             if c["rect"]:
                 add(c["rect"], val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * CV.rectifier_current(c.get("top") or c["cls"], IL, D))
             continue
-        I_out = sum(inj.get(q, 0.0) for q in f.get("out") or [])
+        # the current it delivers into its rail: on a rail below ground the feed's output pads take current out of
+        # the copper (a negative injection), so the sum is read in the rail's sign (signed, every negative
+        # regulator's heat was skipped)
+        I_out = DC._sign(dcp, r) * sum(inj.get(q, 0.0) for q in f.get("out") or [])
         if I_out <= 0:
             continue
         if f["kind"] == "linear":
-            vi, vo = dcp.volts.get(f["rin"]) or 0.0, dcp.volts.get(r) or 0.0
+            vi, vo = abs(dcp.volts.get(f["rin"]) or 0.0), abs(dcp.volts.get(r) or 0.0)
             kind = bd.part_kind.get(f["ref"], ("",))[0]
             drop = val.get((f"heat:{f['ref']}", "V_f_V"), V_F[1]) if kind == "diode" else max(vi - vo, 0.0)
             if kind not in ("inductor", "ferrite", "resistor"):       # those dissipate in the DC copper model
                 add(f["ref"], drop * I_out)
         elif f["kind"] == "switching":
             eta = cv.get((f["eta"].subject, "eta"), 0.85)
-            add(f["ref"], (1 / eta - 1) * (dcp.volts.get(r) or 0.0) * I_out)
+            add(f["ref"], (1 / eta - 1) * abs(dcp.volts.get(r) or 0.0) * I_out)
     for ref, w in (ac_parts or {}).items():
         add(ref, w)
     return out
