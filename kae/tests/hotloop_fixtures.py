@@ -175,3 +175,66 @@ def write_inverting_board(d, variant="ground", routed=True, neg_pour=False, load
     items += [_via(x, y, "GND", k) for k, (x, y) in enumerate(INV_VIAS[variant])]
     p.write_text(text[:-len(tail)] + "".join(items) + tail)
     return p
+
+
+# a 4-switch buck-boost with external FETs (LM5176-style controller, our own layout), +12V in, +15V out at 3 A,
+# on four layers: Q1/Q2 the input (buck) leg on SW1, Q4/Q3 the output (boost) leg on SW2, L1 between them, R1 the
+# shared low-side current-sense shunt to ground, C1 and C2 the legs' bulk capacitors
+def _fet(ref, x, y, g, s, d):
+    return (ref, "CSD18510Q5B", "Package_TO_SOT_SMD:SOT-23", x, y, 0.0,
+            [("1", g, -0.95, 1.0, 0.8, 0.9, "smd", 0.0, "G", "input"),
+             ("2", s, 0.95, 1.0, 0.8, 0.9, "smd", 0.0, "S", "passive"),
+             ("3", d, 0.0, -1.0, 0.8, 0.9, "smd", 0.0, "D", "passive")], (1.7, 1.7))
+
+
+def _two(ref, val, lib, x, y, a, b_, dx=1.4, w=1.0, h=1.6, rot=90.0, cy=(2.3, 1.2)):
+    return (ref, val, lib, x, y, rot, [("1", a, -dx, 0.0, w, h, "smd", 0.0, "", "passive"),
+                                       ("2", b_, dx, 0.0, w, h, "smd", 0.0, "", "passive")], cy)
+
+
+EXTBB_PINS = [("2", "+12V", "VIN", "power_in"), ("5", "GND", "AGND", "power_in"), ("14", "+15V", "VOUT", "input"),
+              ("16", "CS", "CS", "input"), ("18", "SW2", "SW2", "output"), ("19", "HDRV2", "HDRV2", "output"),
+              ("21", "LDRV2", "LDRV2", "output"), ("25", "LDRV1", "LDRV1", "output"), ("27", "HDRV1", "HDRV1", "output"),
+              ("28", "SW1", "SW1", "output")]
+
+
+def extbb_parts(pin_names=True):
+    """The external-FET buck-boost's parts (pin_names=False: a footprint without pin functions or types)."""
+    pads = []
+    for k, (num, net, fn, pt) in enumerate(EXTBB_PINS):
+        x, y = -2.6 + (k % 5) * 1.3, (-1.6 if k < 5 else 1.6)
+        pads.append((num, net, x, y, 0.6, 1.2, "smd", 0.0, fn if pin_names else "", pt if pin_names else ""))
+    return [
+        ("J1", "Conn_01x02", "Connector_JST:JST_PH_B2B-PH-K_1x02_P2.00mm_Vertical", 104.0, 112.0, 0.0,
+         [("1", "+12V", 0.0, -1.0, 1.4, 1.4, "thru_hole", 0.8, "Pin_1", "passive"),
+          ("2", "GND", 0.0, 1.0, 1.4, 1.4, "thru_hole", 0.8, "Pin_2", "passive")], (1.6, 2.4)),
+        _two("C1", "22uF", "Capacitor_SMD:C_1206_3216Metric", 110.0, 108.0, "+12V", "GND"),
+        _fet("Q1", 115.0, 107.0, "HDRV1", "SW1", "+12V"),
+        _fet("Q2", 115.0, 114.0, "LDRV1", "CS", "SW1"),
+        _two("L1", "4.7uH 10A", "Inductor_SMD:L_1210_3225Metric", 120.5, 110.5, "SW1", "SW2", dx=1.5, w=1.2, h=2.7,
+             rot=0.0, cy=(2.4, 1.8)),
+        _fet("Q3", 126.0, 114.0, "LDRV2", "CS", "SW2"),
+        _fet("Q4", 126.0, 107.0, "HDRV2", "SW2", "+15V"),
+        _two("C2", "22uF", "Capacitor_SMD:C_1206_3216Metric", 131.0, 108.0, "+15V", "GND"),
+        _two("R1", "0.005", "Resistor_SMD:R_1206_3216Metric", 120.5, 117.0, "CS", "GND", rot=0.0, cy=(2.3, 1.2)),
+        ("U1", "LM5176PWPR", "Package_SO:HTSSOP-28-1EP_4.4x9.7mm_P0.65mm", 120.5, 123.0, 0.0, pads, (3.6, 2.6)),
+        ("J2", "Conn_01x02", "Connector_JST:JST_PH_B2B-PH-K_1x02_P2.00mm_Vertical", 136.0, 120.0, 0.0,
+         [("1", "+15V", 0.0, -1.0, 1.4, 1.4, "thru_hole", 0.8, "Pin_1", "passive"),
+          ("2", "GND", 0.0, 1.0, 1.4, 1.4, "thru_hole", 0.8, "Pin_2", "passive")], (1.6, 2.4)),
+    ]
+
+
+def write_extbb_board(d, pin_names=True, layers=4):
+    """The external-FET buck-boost board (extbb_parts), unrouted, on `layers` copper layers (4: GND on In1.Cu)."""
+    import critical_fixtures as CF
+    d = Path(d)
+    old = CF.PARTS
+    CF.PARTS = extbb_parts(pin_names)
+    try:
+        p = write_board(d)
+        text = board_text()
+    finally:
+        CF.PARTS = old
+    if layers == 4:
+        p.write_text(_four_layers(text))
+    return p

@@ -189,6 +189,9 @@ def plan(board, brief, bd, P, srcs, intent=None):
                  parts={ref_of.get(u) for u, _ in st.get("loop") or []} | {ref_of.get(st.get("controller")),
                                                                          ref_of.get(st.get("inductor"))})
         c["parts"] |= {ref_of.get(u) for u in st.get("caps") or []}
+        if sw.get("in_high") and sw.get("out_high"):
+            # a 4-switch buck-boost with external FETs: its DC flow enters and leaves at its high-side FETs' drains
+            c["ext"] = {k: ref_of.get(sw.get(k)) for k in ("in_high", "in_low", "out_high", "out_low", "shunt")}
         c["parts"].discard(None)
         cells[st["id"]] = c
     cell_parts = set().union(*[c["parts"] for c in cells.values()]) if cells else set()
@@ -473,7 +476,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
             pl.dc_pads |= set(f.get(k) or [])
         if f["kind"] == "cell":
             c = f["cell"]
-            for ref in (c["ctrl"], c["rect"]):
+            for ref in (c["ctrl"], c["rect"], *((c.get("ext") or {}).values())):
                 if ref:
                     pl.dc_pads |= {f"{ref}.{n}" for n, net, _, _ in pads.get(ref, [])
                                    if net in rails or net in grounds or net == c["sw"]}
@@ -721,6 +724,19 @@ def injections(pl, cv, lost=None):
                 if not c["rect"]:
                     add(on(ctrl, r), s, f"{r}: {c['id']} low side")
                     add(on(ctrl, sw), -s, f"{r}: {c['id']} low side")
+                deliver(c["vin"], s_in, depth + 1)
+                return
+            if c.get("ext"):
+                # a 4-switch buck-boost with external FETs (either region): the input current enters at the input
+                # leg's high-side FET's drain, the output current leaves at the output leg's, and their difference
+                # (the conversion's balance) returns at the sense shunt's ground pad, else the low-side FETs'
+                e = c["ext"]
+                xin = x * _mag(pl, r) / (c.get("eta", 1.0) * _mag(pl, c["vin"]))
+                s_in = _sign(pl, c["vin"]) * xin
+                add(on(e["in_high"], c["vin"]), -s_in, f"{r}: {c['id']} input")
+                add(on(e["out_high"], r), s, f"{r}: {c['id']} output")
+                ret = (gnd(e["shunt"]) if e.get("shunt") else []) or gnd(e["in_low"]) or gnd(e["out_low"])
+                add(ret, s_in - s, f"{r}: {c['id']} return")
                 deliver(c["vin"], s_in, depth + 1)
                 return
             if top == "inverting_buck":
