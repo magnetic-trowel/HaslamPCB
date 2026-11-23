@@ -55,7 +55,10 @@ ANCHOR_AREA_SHARE = 0.05   # parts over this share of the board are tested for a
 ANCHOR_SPOTS = 800         # ... and this many spots judged by the exact check (near edges, then spread)
 ANCHOR_KICAD_TRIES = 3     # exact-only spots (no grid-free one) KiCad's DRC judges before a part is fixed there
 FLOORPLAN_MAX_ITEMS = 40   # above this the global HPWL floorplan rarely finds a solution in time
-ROLE_WEIGHT = {"clock": 1.5, "high_speed": 1.5, "analog": 1.2, "rf": 1.5, "switch_node": 1.0}
+# analog nets keep weight 1.0 (user decision 2026-11, A/B intent-fast-nets-analogw): at 1.2 the nets made analog by
+# kae.circuit.mcu_pins were no shorter (+0.1 mm [-5.1, +6.1]) while placement physics_total rose +0.52 [+0.15, +1.00]
+# (intent-fast-nets-adc + -adc-seeds2, 12 boards x 6 seeds); their role still sets the router's victim gap
+ROLE_WEIGHT = {"clock": 1.5, "high_speed": 1.5, "rf": 1.5, "switch_node": 1.0}
 
 
 @dataclass
