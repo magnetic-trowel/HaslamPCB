@@ -102,3 +102,21 @@ def test_an_inverting_cells_bus_and_duty():
     assert P["V"].typ == pytest.approx(17.0)
     assert P["D"].typ == pytest.approx(5.0 / (12.0 * CV.ETA[1] + 5.0))
     assert CV.topology_of("inverting", {})[0] == "inverting_buck_boost"
+
+
+@pytest.mark.parametrize("variant", sorted(VARIANTS))
+def test_each_inverters_dc_feed_balances(variant, tmp_path):
+    """The inverting cell feeds -5V in the DC band (haslam.excite.dc's signed convention: from its pins, its return
+    through the switch node and the inductor to ground), and the plan's injections balance exactly, for each wiring:
+    the IC's reference on -5V (capacitor to ground or to -5V) or on ground with a rectifier into -5V."""
+    from haslam.excite import dc as DC
+    p = write_inverting_board(tmp_path, variant, load=True)
+    b = load(str(p))
+    intent = {"nets": {"+12V": {"source": "J1", "V_V": 12.0}, "-5V": {"V_V": -5.0}},
+              "parts": {"J2": {"I_A": [0.3, 0.3]}}}
+    inj = DC.planned_injections(b, intent, brief=build(b, inverting=True))     # raises on any imbalance
+    # -5V's load, signed: into the -5V copper at its supply pad, out of ground (the cell sets its current)
+    assert inj["J2.1"] > 0 and inj["J2.2"] == pytest.approx(-inj["J2.1"])
+    assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
+    # its input current comes from +12V at J1
+    assert inj["J1.1"] > 0
