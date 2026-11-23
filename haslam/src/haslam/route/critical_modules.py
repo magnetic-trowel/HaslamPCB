@@ -639,7 +639,8 @@ def cell_return(ctx, spec):
     """The nets a cell's loop returns through (its return plane, its ground hop, its return vias): the board's
     grounds, except for an inverting cell whose input capacitor returns to its negative rail (`ret`, TI SLVA721's
     placement): that rail's copper. Every other cell keeps the board's grounds exactly as before."""
-    ret = spec.get("ret")
+    from haslam.circuit.structures import loops_of
+    ret = loops_of(spec)[0][2]
     if spec.get("class") == "inverting" and ret and ret not in ctx.gnd:
         return {ret}
     return ctx.gnd

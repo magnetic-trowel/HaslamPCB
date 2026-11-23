@@ -224,6 +224,13 @@ def _table(text, table):
 
 
 # =============================================================================== commutation cells
+def loops_of(cell):
+    """A commutation cell's hot loops as [(loop_id, members, ret, gnd, sw)]: today the single legacy loop (`loop`,
+    `ret`, `gnd`, `sw`). The one place a multi-loop cell schema (`loops: [...]`) is to be read, so that readers of a
+    loop's members and return (the cells stage, the recheck) need not change with it."""
+    return [("main", cell.get("loop") or [], cell.get("ret") or cell.get("gnd"), cell.get("gnd"), cell.get("sw"))]
+
+
 def commutation_cells(b: _B) -> list:
     cells = []
     used_sw = set()
