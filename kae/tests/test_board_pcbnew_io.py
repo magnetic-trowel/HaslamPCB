@@ -300,7 +300,11 @@ def test_copper_items_name_copper_as_kicads_drc_does(tmp_path):
     got = pcbnew_io.copper_items(p, clusters=True)
     clustered = got["items"]
     assert got["unconnected"] == drc.uncapped_unconnected(p)        # the same count on the same refill
-    assert [{k: v for k, v in i.items() if k != "cluster"} for i in clustered] == items
+    # with clusters the zones are refilled and each filled island is listed too (one item per island)
+    islands = [i for i in clustered if i["kind"] == "zone"]
+    assert islands and all(i["key"].startswith(i["uuid"] + "/") and i["ring"] for i in islands)
+    assert len({i["key"] for i in islands}) == len(islands)
+    assert [{k: v for k, v in i.items() if k != "cluster"} for i in clustered if i["kind"] != "zone"] == items
     assert all(isinstance(i["cluster"], int) for i in clustered)
     assert len({i["cluster"] for i in clustered}) < len(clustered)      # copper joins
     by = {i["uuid"]: i for i in items}
