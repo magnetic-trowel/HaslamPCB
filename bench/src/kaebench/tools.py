@@ -460,17 +460,49 @@ def within_footprint(v):
     return refs is not None and len(refs) == 1
 
 
-def drc_by_scope(report, ignore=ENV_DEPENDENT_CHECKS):
-    """Error counts by type, split: `between` (violations not inside one footprint: two footprints,
-    or a footprint against the board) and `within` (inside one footprint, within_footprint). Severities
-    as summarize_drc."""
-    between, within = {}, {}
+def drc_item_refs(v):
+    """(footprint refs, board items) of a violation's items: each item's ref ("... of REF ..." or
+    "Footprint REF"), or a board item (edge, zone, track, board text or graphic, rule area) when it
+    names none. A footprint item whose ref KiCad prints empty gives None (unknown)."""
+    refs, board = set(), 0
+    for it in v.get("items") or []:
+        d = it.get("description") or ""
+        m = _ITEM_REF.search(d)
+        if m and m.group(1) and m.group(1) != "on":
+            refs.add(m.group(1))
+        elif " of " in d or d.startswith("Footprint"):
+            return None
+        else:
+            board += 1
+    desc = v.get("description") or ""
+    m = _KEEPOUT_OWNER.search(desc.strip())
+    if m:
+        refs.add(m.group(1))
+    return refs, board
+
+
+def locked_only(v, locked):
+    """A violation between items of locked parts only, or of locked parts and the board (its edge, zones,
+    keepouts): an error of the input that no method can change (user decision 2026-11-22). `locked`: the
+    refs of footprints that may not move (locked, or carrying Edge.Cuts)."""
+    got = drc_item_refs(v)
+    if got is None or not locked:
+        return False
+    refs, _ = got
+    return bool(refs) and refs <= set(locked)
+
+
+def drc_by_scope(report, ignore=ENV_DEPENDENT_CHECKS, locked=None):
+    """Error counts by type, split: `within` (inside one footprint, within_footprint), `locked` (else, locked
+    parts only, locked_only; empty without `locked`) and `between` (the rest: what a placement can change).
+    Severities as summarize_drc."""
+    between, within, lock = {}, {}, {}
     for v in report.get("violations", []):
         if v.get("type") in ignore or v.get("severity") != "error":
             continue
-        d = within if within_footprint(v) else between
+        d = within if within_footprint(v) else lock if locked_only(v, locked) else between
         d[v["type"]] = d.get(v["type"], 0) + 1
-    return dict(between=between, within=within)
+    return dict(between=between, within=within, locked=lock)
 
 
 def summarize_drc(report, ignore=ENV_DEPENDENT_CHECKS):

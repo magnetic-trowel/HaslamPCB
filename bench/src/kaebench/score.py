@@ -74,7 +74,9 @@ from .boardfiles import board_path, install_rules, unconnected_ignored
 # 13: placement errors (and so legal, legal_strict) count only violations not inside one footprint;
 #     a part's own pads, copper, holes and keepout are reported as placement_errors_library (user
 #     decision 2026-11-22: placement cannot change them)
-SCORE_VERSION = 13
+# 14: nor violations of locked parts only (with each other, or with the board edge, zones, keepouts):
+#     input errors, reported as placement_errors_locked (user decision 2026-11-22)
+SCORE_VERSION = 14
 # KiCad 10's DRC report stops listing unconnected items at 499 and other violations at 199
 # per type (drc_engine ERROR_LIMIT / EXTENDED_ERROR_LIMIT).
 DRC_UNCONNECTED_CAP = 499
@@ -98,19 +100,21 @@ STRICT_CHECKS = ("shorting_items", "clearance", "hole_clearance", "copper_edge_c
                  "items_not_allowed")
 
 
-def _summarize(report):
-    """tools.summarize_drc, plus the error counts split by footprint scope (tools.drc_by_scope):
-    errors_by_type_between (between two footprints, or a footprint and the board) and
-    errors_by_type_within (inside one footprint). Every other field is summarize_drc's, unchanged."""
+def _summarize(report, locked=None):
+    """tools.summarize_drc, plus the error counts split by scope (tools.drc_by_scope): errors_by_type_between
+    (what a placement can change), errors_by_type_within (inside one footprint) and errors_by_type_locked
+    (locked parts only, given their refs `locked`). Every other field is summarize_drc's, unchanged."""
     d = tools.summarize_drc(report)
-    sc = tools.drc_by_scope(report)
-    d.update(errors_by_type_between=sc["between"], errors_by_type_within=sc["within"])
+    sc = tools.drc_by_scope(report, locked=locked)
+    d.update(errors_by_type_between=sc["between"], errors_by_type_within=sc["within"],
+             errors_by_type_locked=sc["locked"])
     return d
 
 
 def placement_errors(drc):
-    """Placement-type errors that make a placement illegal: those not inside one footprint (score 13).
-    A summary without the split (a caller's own summarize_drc) is taken whole, as before."""
+    """Placement-type errors that make a placement illegal: those a placement can change (score 13: not
+    inside one footprint; score 14: nor between locked parts only). A summary without the split (a
+    caller's own summarize_drc) is taken whole, as before."""
     by = drc.get("errors_by_type_between", drc["errors_by_type"])
     return {k: v for k, v in by.items() if k in PLACEMENT_ERROR_TYPES}
 
@@ -119,6 +123,21 @@ def library_errors(drc):
     """Placement-type errors inside one footprint (its own pads, copper, holes, keepout): reported, not
     judged (score 13)."""
     return {k: v for k, v in (drc.get("errors_by_type_within") or {}).items() if k in PLACEMENT_ERROR_TYPES}
+
+
+def locked_errors(drc):
+    """Placement-type errors of locked parts only (with each other, the board edge, zones or keepouts):
+    input errors, reported, not judged (score 14)."""
+    return {k: v for k, v in (drc.get("errors_by_type_locked") or {}).items() if k in PLACEMENT_ERROR_TYPES}
+
+
+def locked_refs(stats):
+    """Refs of the footprints a placement may not move (locked, or carrying Edge.Cuts), from the stats'
+    placement rows; a ref shared with a movable footprint is left out."""
+    rows = (stats or {}).get("placement") or []
+    fixed = {r["ref"] for r in rows if r.get("anchored") or r.get("locked")}
+    free = {r["ref"] for r in rows if not (r.get("anchored") or r.get("locked"))}
+    return fixed - free
 
 
 def _strict_drc(staged, scoring_dir, drc):
@@ -141,7 +160,7 @@ def _strict_drc(staged, scoring_dir, drc):
     for c in down:
         rs[c] = "error"
     sb.with_suffix(".kicad_pro").write_text(json.dumps(d, indent=2))
-    return _summarize(tools.run_drc(sb, sdir / "drc.json")), down
+    return _summarize(tools.run_drc(sb, sdir / "drc.json"), drc.get("_locked")), down
 
 
 def _strict_fields(staged, scoring_dir, drc):
@@ -207,7 +226,9 @@ def _capped_types(drc):
 
 def _measure(staged, scoring_dir):
     st = tools.run_ops("stats", staged)
-    drc = _summarize(tools.run_drc(staged, Path(scoring_dir) / "drc.json"))
+    locked = locked_refs(st)
+    drc = _summarize(tools.run_drc(staged, Path(scoring_dir) / "drc.json"), locked)
+    drc["_locked"] = sorted(locked)
     (Path(scoring_dir) / "stats.json").write_text(json.dumps(st, indent=1))  # full KiCad statistics
     return st, drc
 
@@ -310,6 +331,7 @@ def score_place_task(task_dir, placed_board, scoring_dir, record, allow_copy=Fal
         legal_strict=valid and outside == 0 and not place_errors and not place_errors_strict,
         placement_errors_strict=place_errors_strict, strict_promoted=strict["strict_promoted"],
         outside=outside, placement_errors=place_errors, placement_errors_library=library_errors(drc),
+        placement_errors_locked=locked_errors(drc),
         hpwl_mm=st["hpwl_mm"],
         hpwl_ratio=round(st["hpwl_mm"] / ref["hpwl_mm"], 4) if ref["hpwl_mm"] else None,
         unconnected=_uncapped(staged, drc["unconnected"])[0], drc_unconnected=drc["unconnected"],
@@ -358,7 +380,8 @@ def score_joint_task(task_dir, output_board, scoring_dir, record, allow_copy=Fal
         place_foreign=tp["foreign"], place_copy=tp.get("copy"),
         suspect_copy=s["suspect_copy"] or (bool((tp.get("copy") or {}).get("suspect")) and not allow_copy),
         locked_moved=tp["locked_moved"], valid=valid, legal=legal, outside=outside,
-        placement_errors=place_errors, placement_errors_library=library_errors(pdrc), hpwl_mm=pst["hpwl_mm"],
+        placement_errors=place_errors, placement_errors_library=library_errors(pdrc),
+        placement_errors_locked=locked_errors(pdrc), hpwl_mm=pst["hpwl_mm"],
         hpwl_ratio=round(pst["hpwl_mm"] / ref["hpwl_mm"], 4) if ref["hpwl_mm"] else None,
         clean=legal and s["unconnected"] == 0 and s["errors"] == 0,
         legal_strict=legal_strict, placement_errors_strict=place_errors_strict,
