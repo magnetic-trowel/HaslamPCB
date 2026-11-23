@@ -102,6 +102,7 @@ Report-only: it changes no placement or routing, so it needs no A/B. Runs in `ka
 - **Target:** Z_t = 5 % × V / I. I is the loads' `ic_current_prior` (by pin count), split over each IC's supply pins as `decap_budget` splits it. Regulators are not loads.
 - **Findings:**
   - `pdn_impedance_over_target`: the worst |Z|/Z_t, marked peak, inductive or capacitive, with a fix: a damping ESR ≈ Z_t, the L the rail needs, or the bulk C it needs. Over 1 it is info. It warns only when it stays over 3 (the "tolerated" peak) under three changes to the supply stand-in: halved, doubled, and damped (Z_t in series with its L, as a pass device damps a real regulator). The rail must also have a capacitor, and the worst point must be a peak or a bulk shortfall. The inductive top of the band stays info, because the decap place term's budget (`decap_budget`) already prices it. It never blocks, because the current is a guess. Only ICs are loads.
+  - Each rail's `finding` is one of `within_target`, `no_capacitor`, `supply_stand_in` or `board`. `supply_stand_in` means over target, but within 1.57× Z_t once the supply is damped. That finding is made by the regulator stand-in's lossless L, so it stays in the report and is not a hazard. The other two over-target classes are hazards.
   - Peak Q = Z_peak/Z0. Z0 = 2/(ω₀·dB/dω), with B = Im(1/Z), is the equivalent tank's √(L/C).
   - `pdn_rogue_wave_risk`: ≥ 2 peaks with Q > 2 above Z_t/2.
   - `pdn_cavity_mode_clock`: f₁₀, f₀₁ or f₁₁ within ±10 % of a stated clock's harmonic 1, 3, 5 or 7.

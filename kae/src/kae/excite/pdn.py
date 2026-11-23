@@ -21,6 +21,8 @@ IC's supply pins, as decap_budget splits it. That current is a guess, so every f
 never block, and says the current was assumed.
 
 Findings (Smith, Sandler and Bogatin, "Target Impedance Is Not Enough", SIJ 2019):
+- each rail's `finding` (finding_class): a worst point that only the regulator stand-in makes is kept in
+  the report as 'supply_stand_in' and not emitted as a hazard;
 - the worst |Z| / Z_t in the band: a square-wave load at a parallel resonance drives 0.64 I Z_peak, so a
   peak up to 1/0.64 = 1.57 Z_t still meets the tolerance; "many successfully deployed products have a
   peak height as large as 3x". Over Z_t: info. Warn when it stays over PEAK_TOLERATED (3) Z_t with the
@@ -316,19 +318,21 @@ def screen(board, brief=None, loops=None, bd=None, stage="placement", f_lo=F_LO,
         ratio = worst["Z"] / zt
         rng = [float(np.max(np.abs(p[r]))) / zt for p in probe if r in p] + [ratio]
         lo_ratio = min(rng)
+        damped = rng[SUPPLY_PROBE.index("damped")]
         shape = "peak" if at_peak else ("inductive" if np.angle(z[k]) > 0 else "capacitive")
         kh = ib[-1]
         rec.update(Z_t=round(zt, 5), L_eff_nH=round(float(m[kh]) / (2 * math.pi * freqs[kh]) * 1e9, 3), worst=dict(f_Hz=round(worst["f"]), Z_ohm=round(worst["Z"], 5),
                                                 ratio=round(ratio, 3), ratio_supply_probe=[round(x, 3) for x in rng[:-1]],
                                                 shape=shape,
                                                 Q=round(at_peak["Q"], 2) if at_peak else None),
+                   finding=finding_class(ratio, damped, bool(rec["caps"]), shape),
                    peaks=[dict(f_Hz=round(p["f"]), Z_ohm=round(p["Z"], 5), Z0_ohm=round(p["Z0"], 5), Q=round(p["Q"], 2),
                                ratio=round(p["Z"] / zt, 3)) for p in pk])
         out_rails.append(rec)
         objs = [r] + rec["loads"][:4] + rec["caps"][:6]
         common = dict(V=V, I_A=round(I, 4), I_source="assumed (pin-count prior)", ripple=RIPPLE,
                       Z_t_ohm=round(zt, 5), stage=stage)
-        if ratio > 1.0:
+        if rec["finding"] in ("board", "no_capacitor"):
             # warn: over the tolerated peak whatever the supply stand-in, on a rail the board decouples, and
             # not the inductive top of the band, which the place terms' decap budget already prices
             # (priors.decap_budget: L_pin = n Z_t / (2 pi f_h); placement_physics_over_budget)
@@ -387,6 +391,22 @@ def screen(board, brief=None, loops=None, bd=None, stage="placement", f_lo=F_LO,
     return dict(stage=stage, band_Hz=[f_lo, f_hi], ripple=RIPPLE, rails=out_rails, planes=planes, hazards=hz,
                 caps={k: dict(L_nH=round(v[0], 3), basis=v[1]) for k, v in caps.items()},
                 assumptions=notes + [a for a in bd.assumptions if "DC bias" in a or "unread" in a][:20])
+
+
+def finding_class(ratio, damped, has_caps, shape):
+    """What a rail's worst point says (the report's `finding`; only 'board' and 'no_capacitor' become hazards):
+    'within_target'; 'no_capacitor' (nothing on the board decouples it: a module or a sense pin, or a gap);
+    'supply_stand_in' (over target, but with the supply damped to Z_t it meets the tolerance, 1.57 Z_t: the
+    regulator stand-in's lossless L makes the finding, and a real regulator's output impedance decides it;
+    kept in the report, not handed to the LLM as a hazard, user decision 2026-11-22); 'board' (the rail's own
+    decoupling network, or the inductive top of the band)."""
+    if ratio <= 1.0:
+        return "within_target"
+    if not has_caps:
+        return "no_capacitor"
+    if shape != "inductive" and damped <= PEAK_ROBUST:
+        return "supply_stand_in"
+    return "board"
 
 
 def loops_from_breakdown(rows):

@@ -105,7 +105,7 @@ def test_findings_never_block_and_say_the_current_was_assumed(monkeypatch):
     (r,) = rep["rails"]
     assert r["Z_t"] == pytest.approx(0.05 * 3.3 / 0.15)
     assert r["worst"]["shape"] == "peak" and 20e6 < r["worst"]["f_Hz"] < 60e6
-    assert min(r["worst"]["ratio_supply_probe"]) > 3
+    assert min(r["worst"]["ratio_supply_probe"]) > 3 and r["finding"] == "board"
     (h,) = [h for h in rep["hazards"] if h["code"] == "pdn_impedance_over_target"]
     assert h["severity"] == "warn" and "assumes" in h["message"]
     assert h["evidence"]["I_source"].startswith("assumed")
@@ -144,16 +144,25 @@ def _kind(bd, kind):
     return bd
 
 
-def test_a_finding_that_needs_the_supply_stand_in_is_info(monkeypatch):
+def test_a_finding_only_the_supply_stand_in_makes_stays_in_the_report(monkeypatch):
     monkeypatch.setattr(pdn, "plane_pairs", lambda *a, **k: [])
-    # one 100 nF for a 150 mA load: the regulator's lossless stand-in L rings with it near 1 MHz, far over the
-    # target; damped as a regulator's pass device damps it, it does not
-    rep = _screen(_bd(), {"C1": 1.0})
+    # one 100 nF for 20 mA logic: the regulator's lossless stand-in L rings with it near 1 MHz, far over the
+    # target; damped as a regulator's pass device damps it, it meets the tolerance
+    rep = _screen(_bd(n_pins=6, sub="logic"), {"C1": 1.0})
     assert rep["rails"][0]["worst"]["ratio"] > 3 > min(rep["rails"][0]["worst"]["ratio_supply_probe"])
     (r,) = rep["rails"]
     assert r["worst"]["shape"] == "peak" and 0.5e6 < r["worst"]["f_Hz"] < 3e6
-    for h in rep["hazards"]:
-        assert h["severity"] == "info"
+    assert r["finding"] == "supply_stand_in"
+    assert not [h for h in rep["hazards"] if h["code"] == "pdn_impedance_over_target"]
+
+
+def test_finding_classes():
+    assert pdn.finding_class(0.9, 0.5, True, "peak") == "within_target"
+    assert pdn.finding_class(5.0, 1.2, False, "peak") == "no_capacitor"
+    assert pdn.finding_class(5.0, 1.2, True, "peak") == "supply_stand_in"
+    assert pdn.finding_class(5.0, 1.2, True, "capacitive") == "supply_stand_in"
+    assert pdn.finding_class(5.0, 2.0, True, "peak") == "board"
+    assert pdn.finding_class(5.0, 1.0, True, "inductive") == "board"
 
 
 def test_cavity_mode_against_a_clock_harmonic():

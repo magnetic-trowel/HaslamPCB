@@ -10,7 +10,7 @@ Keys: PDN screener, kae.excite.pdn, pdn_impedance_over_target, pdn_rogue_wave_ri
 
 **Results**
 - The sweep and peak extraction reproduce three published cases and agree with ngspice to a median of 5e-5.
-- On the 80 sprint-quality boards, 61 have a rail with a known voltage and an IC load (136 rails). The screen flags 40 rails over target and 5 rogue-wave risks, all info. A first version warned on 8 boards; reading them by hand showed that each warning came from the regulator stand-in, and the warn rule was changed.
+- On the 80 sprint-quality boards, 61 have a rail with a known voltage and an IC load (136 rails). 40 rails are over target. 27 of them are only the regulator stand-in's peak, which stays in the report and is not a hazard (user decision). The LLM gets 13 `pdn_impedance_over_target` and 5 rogue-wave risks, all info. A first version warned on 8 boards; reading them by hand showed that each warning came from the regulator stand-in, and the warn rule was changed.
 - Cost: about 1.2 s per placement on a 65-capacitor board, once per `kae place` result.
 
 ## Validation against published cases
@@ -66,11 +66,11 @@ The rules changed accordingly:
 - a rail with no capacitor is info, and its message says so;
 - only ICs are loads.
 
-**Final (current code): 0 warn, 40 `pdn_impedance_over_target` info, 5 `pdn_rogue_wave_risk` info, 0 cavity hits.**
+**Final (current code): 0 warn, 13 `pdn_impedance_over_target` info, 5 `pdn_rogue_wave_risk` info, 0 cavity hits.** The rails' `finding` classes are 96 `within_target`, 27 `supply_stand_in` (report only), 8 `board` and 5 `no_capacitor`. The `supply_stand_in` class is "within 1.57× Z_t with the supply damped". It holds the 26 regulator–ceramic peaks of the table below plus silvia +3.3V (1.34× damped).
 
 | Class | Rails | Reading |
 |---|---|---|
-| Regulator–ceramic peak, 0.17–2.8 MHz, damped probe ≤ 1.2× | 26 | Depends on the regulator's real output impedance. Info is right: the LLM should state the regulator or its current if it matters |
+| Regulator–ceramic peak, 0.17–2.8 MHz, damped probe ≤ 1.2× | 26 | Depends on the regulator's real output impedance. Now `supply_stand_in`: kept in the report, not a hazard |
 | Peak that survives damping (1.3–2.2×) | 4 | yukidama VDDA (2.0×), fabplane V1V1 (2.2×), ucd-8-bit +5V (1.6×), silvia +3.3V (1.3×). Filtered or lightly decoupled rails, the PDN-06 bead + capacitor case. Plausible concerns, below the 3× tolerated line |
 | No capacitor on the rail | 5 | picogus /VSYS, mylife-home +5V, olimex VBAT, myra VBUS, silvia +5V. Modules and sense pins. The number is a tank of pin capacitances; only the "no capacitor" message is meaningful |
 | Inductive at 100 MHz | 5 | m68k +5V (1.67 A summed pin-count prior over many TTL parts), belegt +5V, attiny DIP, skibidi +1V0, fujinet "BUCK_SW". These duplicate the decap term's own budget |
@@ -78,7 +78,7 @@ The rules changed accordingly:
 
 - No cavity mode met a stated clock harmonic. Most plane pairs are 2-layer pours 1.5 mm apart, with f₁₀ ≥ 700 MHz. The crystals the briefs know (8–40 MHz) have no strong harmonic there.
 - **Open:**
-  - the 0.2 µH regulator stand-in drives most info flags. A datasheet output impedance (parts.json) or a stated load current would turn them into findings;
+  - the 0.2 µH regulator stand-in makes the 27 `supply_stand_in` rails. A datasheet output impedance (parts.json) or a stated load current would turn them into findings;
   - a "BUCK_SW" net that the brief calls a rail was screened (fujinet);
   - capacitor values written as ".1uF" are not read by `kae.circuit.values.capacitance`; the model then assumes 100 nF.
 
