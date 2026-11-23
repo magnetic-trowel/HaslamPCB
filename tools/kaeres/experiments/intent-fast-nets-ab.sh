@@ -38,7 +38,7 @@ place() {  # NAME SHA [extra args]
 
 seeds() {  # ARM on BOARDS (default its suite) with K_SEEDS more seeds from SEED0, both arms as a new replicate
   local FIX; FIX=$(git -C "$CODE" rev-parse "${SHA:?the arm commit}")
-  local tag="intent-fast-nets-$ARM-seeds$SEED0"
+  local tag="${EXP:-intent-fast-nets-$ARM-seeds$SEED0}"
   local C0="kae place w47 c2dd008 fr37b1a8b (replicate $tag)" C1="kae place intent-fast-nets-$ARM ${FIX:0:7} fr37b1a8b (replicate $tag)"
   place "$C0" "$TAG" --param replicate=$tag
   place "$C1" "$FIX" --param replicate=$tag
