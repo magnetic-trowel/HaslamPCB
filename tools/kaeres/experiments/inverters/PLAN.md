@@ -29,16 +29,31 @@ work (`KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1`), `restart.py --parallel 
 --slack 1.15 --resume 0.5`, 900 s x sqrt(footprints/40) (at most 4 h), the pinned Freerouting fork, operating
 facts by content hash, the step cache.
 
-## Boards
+## Boards (10)
 
-- duanestorey-hifi-amp-multipsu (LMR51430 inverter, -12 V; operating facts in intent-sw80)
-- the corpus inverters once their operating facts are compiled: mecsem-electrical-hvdc-test-board (TPS5430,
-  -5 V), mecsem-electrical-hv-probe (TPS5430, -10 V), modos-labs-glider-pcb (two inverters), anyshake-explorer-
-  explorer (-2.5 V), bcecoop's TPS63700 board (dedicated inverter)
-- the synthetic inverters (`make_boards.py`): inv-dedicated-2l (0.3 A), inv-ground-2l (0.5 A), inv-direct-4l
-  (1.5 A, 4 layers)
+| board | inverter | footprints | budget (900 s x sqrt(fp/40), at most 4 h) |
+|---|---|---|---|
+| duanestorey-hifi-amp-multipsu | U2 LMR51430, 12 V -> -12 V | 67 | 0.32 h |
+| anyshake-explorer-explorer | U1 TPS5430, -> -2.5 V rail | 268 | 0.65 h |
+| bcecoop-bce-pcb-tps63700drcr-n15-... | U1 TPS63700 (dedicated) | 18 | 0.17 h |
+| fossasia-pslab-hardware-pslab | U17 MT1470, +5 V -> -9 V | 199 | 0.56 h |
+| mecsem-electrical-hvdc-test-board | U21 TPS5430, +24 V -> -5 V | 356 | 0.75 h |
+| mecsem-electrical-hv-probe | U21 TPS5430, +24 V -> -10 V | 47 | 0.27 h |
+| modos-labs-glider-pcb | U9 LGS5145, U26 SY8113C | 379 | 0.77 h |
+| inv-dedicated-2l (synthetic) | dedicated, 0.3 A | 13 | 0.14 h |
+| inv-ground-2l (synthetic) | buck IC, CIN to ground, 0.5 A | 12 | 0.14 h |
+| inv-direct-4l (synthetic) | buck IC, CIN to -5V, 4 layers, 1.5 A | 12 | 0.14 h |
 
-One run per board and arm (the restart portfolio is seeded; Freerouting is deterministic).
+Operating facts: the real boards' from intent-inv/compiled (by content hash, as hotloop-sw does); the synthetic
+boards' from `kae/tests/data/inverters/<name>.operating.json` (make_boards.py writes both). One run per board and
+arm (the restart portfolio is seeded; Freerouting is deterministic). Boards list: `boards.txt`.
+
+## Sizing
+
+Counted work (`KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1`), `restart.py --parallel 4`: the nominal budgets
+sum to 3.9 h per arm, so about 16 CPU-hours per arm (4 workers), 31 for both; the harness's 4x wall ceiling bounds
+it at 125. The evaluator on every routed board (`--scope losses`, cell windows at 0.0625 mm): duanestorey's took
+1497 s at 4 CPUs, so about 20 runs x 0.4-1.7 CPU-h, 10-35 CPU-hours for both arms. Total about 40-65 CPU-hours.
 
 ## Gates (per board, all must hold for C to pass)
 
