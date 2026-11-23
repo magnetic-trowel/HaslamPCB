@@ -374,3 +374,21 @@ def test_a_track_end_whose_copper_meets_another_track_joins_it(boards):
     s = ST._source(ctx, CELL)
     nf, *_ = ST.build_cell(ctx, s, (107.215, 100.0, 131.9, 120.51), box=ST.cell_window(ctx, s)[1])
     assert nf.connected(nf.pads["U1.1"]["node"], nf.pads["L1.2"]["node"])
+
+
+def test_the_near_pitch_follows_the_planes_height_not_the_narrowest_track(tmp_path):
+    """P0 = the lattice pitch at most min(STRIP_PITCH, h): the tiles resolve the return's lateral spread (about h);
+    a track is a bar of its true width whatever the tile pitch. The fixture with its VIN track 0.2 mm wide keeps
+    P0 0.5 (h 1.545 mm) and quotes; a plane 0.2 mm under the loop gets P0 0.125 (not 0.0625 from h / 2)."""
+    p = write_hotloop_board(tmp_path / "thin", "closed")
+    txt = p.read_text()
+    p.write_text(txt.replace("(width 0.5)", "(width 0.2)", 1))
+    ctx = ST.prepare(str(p), fills=plane_fills())
+    q = ST.from_board(str(p), CELL, ctx=ctx)
+    assert q.state == "ok" and q.pitch_near == 0.5 and abs(q.h_near - 1.545) < 1e-6
+    from shapely.geometry import LineString, box
+    net = ST.Network({"F.Cu": (0.235e-3, 0.27e-3), "In1.Cu": (0.0, 0.035e-3)}, origin=(0, 0))
+    raw = [dict(layer="F.Cu", net="VIN", a=(1.0, 5.0), b=(9.0, 5.0), w=0.15, pour=None)]
+    plan = ST.plan_cell(net, {("In1.Cu", "GND")}, {"VIN", "GND"}, raw, [], (0, 0, 10, 10), (0, 0, 10, 10), 0.5)
+    assert abs(plan.h["In1.Cu"] - 0.235) < 1e-9 and plan.P0["In1.Cu"] == 0.125
+    assert LineString([(1, 5), (9, 5)]).buffer(1.0).within(plan.near["In1.Cu"]) and box(0, 0, 10, 10).area > 0

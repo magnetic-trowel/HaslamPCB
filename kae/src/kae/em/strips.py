@@ -15,7 +15,7 @@ Model. Copper is a set of branches between nodes, solved by modified nodal analy
   point is on tiled copper (land, below), else the pad, track junction or track bar whose copper holds it;
 - planes and pours: graded tiles (plan_cell, quadtree): the leaves of a 2:1-balanced quadtree per fill polygon, P0
   in the near region (the loop's pads, strips and vias that meet the cell's pad box, buffered by max(NEAR_H h,
-  NEAR_MIN); P0 the lattice pitch LEVEL0 x 2^k at most min(STRIP_PITCH, h / 2, the narrowest loop strip), h the
+  NEAR_MIN); P0 the lattice pitch LEVEL0 x 2^k at most min(STRIP_PITCH, h), h the
   plane's distance to the nearest layer holding loop copper), doubling outward (a leaf of size s at distance d from
   the near region needs s <= beta d, beta from GRADES) up to the far cap max(P_FAR_MIN, window / P_FAR_DIV), finer
   (P_via, at most 2 r_barrel) within VIA_ZONE barrel radii of a loop via. A node per leaf centre; x and y bars
@@ -1427,6 +1427,7 @@ class Quote:
     pitch: float | None = None
     pitch_near: float | None = None   # mm: P0, the near region's tiles (the finest of the planes')
     pitch_far: float | None = None    # mm: the largest tile
+    h_near: float | None = None       # mm: the height over its plane that set pitch_near (Plan.h_near)
     grade: float | None = None        # the far ring's grading used (GRADES)
     repairs: int = 0                  # copper-join repairs made (check_joins)
     unknowns: int = 0
@@ -1567,6 +1568,11 @@ class Plan:
     def pitch_near(self):
         return min(self.P0.values()) if self.P0 else None
 
+    @property
+    def h_near(self):
+        """mm: the h of the plane whose P0 is the finest (pitch_near's)."""
+        return min(self.h[L] for L, P in self.P0.items() if P == self.pitch_near) if self.P0 else None
+
 
 def _loop_nets(s, sols, net_of, share=None):
     """The nets that carry the cell's loop: those of pads injected with at least LOOP_SHARE of the largest injection
@@ -1583,13 +1589,15 @@ def _loop_nets(s, sols, net_of, share=None):
 def plan_cell(net, pour_keys, loop_nets, raw, vias, box, win, pitch, repair=(), p0=None):
     """The tiling plan of a cell (Plan). Loop copper: the loop nets' pads, track pieces and vias that meet `box` (the
     cell's pad box). Per plane layer L: h_L, the centre distance to the nearest layer holding loop pads or strips;
-    P0 = the lattice pitch at most min(pitch, h_L / 2, w_min) (w_min: the narrowest loop strip not inside its own
-    pour); the near region, every loop element buffered by max(NEAR_H x its distance to L, NEAR_MIN); fine regions:
+    P0 = the lattice pitch at most min(pitch, h_L): the tiles need to resolve the return current's lateral spread,
+    about h (a track is a bar of its true width whatever the tile pitch, so the narrowest loop strip w_min, recorded,
+    does not set P0: min(h / 2, w_min) refused real 2-layer cells for 8,700 unknowns); the near region, every loop
+    element buffered by max(NEAR_H x its distance to L, NEAR_MIN); fine regions:
     within VIA_ZONE x r_barrel of each loop via, P_via = the lattice pitch at most min(P0, 2 r_barrel), and every
     pad on L of a net poured on L, in the near region, at P0 (a pad farther out lands on coarser tiles, land);
     `repair`: (layer, geometry, size) from the copper-join check. The far cap p_far: the lattice
     pitch at most max(P_FAR_MIN, the window's larger side / P_FAR_DIV). p0: a forced near pitch (studies and tests
-    of the tiling itself: it bypasses the h / 2 and w_min rule)."""
+    of the tiling itself: it bypasses the h rule)."""
     from shapely.geometry import LineString, Point, box as sbox
     from shapely.ops import unary_union
     zc = {l: sum(net.z[l]) / 2 / MM for l in net.order}
@@ -1623,7 +1631,7 @@ def plan_cell(net, pour_keys, loop_nets, raw, vias, box, win, pitch, repair=(), 
         if not others:
             others = [abs(zc[L] - zc[l]) for l in net.order if l != L] or [1.0]
         h[L] = min(others)
-        P0[L] = snap_pitch(p0) if p0 else snap_pitch(min(pitch, h[L] / 2, w_min))
+        P0[L] = snap_pitch(p0) if p0 else snap_pitch(min(pitch, h[L]))
         near[L] = unary_union([g.buffer(max(NEAR_H * (abs(zc[L] - zc[l]) if l else 0.0), NEAR_MIN))
                                for l, g in els]) if els else None
         fl = []
@@ -2068,7 +2076,7 @@ def from_board(path, cell, window=None, pitch=STRIP_PITCH, b=None, fills=None, n
     """The strips quote of one cell of the board at `path` (cell: its source name or brief structure id) in `window`
     (default: the raster quote's, hotloop.window_pads grown by MARGIN_MM / MARGIN_H x h): the cell's nets' tracks and
     vias in the window as strips and vias, their pads as pad nodes, their KiCad fills as graded plane tiles
-    (plan_cell: P0 at most `pitch`, h / 2 and the narrowest loop strip near the loop, coarser outward), the circuit's
+    (plan_cell: P0 at most `pitch` and h near the loop, coarser outward), the circuit's
     two-pad parts lumped (capacitors at full RLC at f_fund, at the edge model at f_edge, as hotloop._solve_window),
     the injections Ja of the copper-free circuit at the IC pads. Other nets' copper is left out (induced currents in
     floating copper are not modelled).
@@ -2103,7 +2111,8 @@ def from_board(path, cell, window=None, pitch=STRIP_PITCH, b=None, fills=None, n
             tries += 1
         plan = info["plan"]
         p_far = max((float(pl["S"].max()) for pl in net_f.planes.values() if pl["S"].size), default=None)
-        q = Quote("ok", pitch=plan.pitch_near, pitch_near=plan.pitch_near, pitch_far=p_far, window=tuple(window),
+        q = Quote("ok", pitch=plan.pitch_near, pitch_near=plan.pitch_near, pitch_far=p_far, h_near=plan.h_near,
+                  window=tuple(window),
                   nets=info["nets"], dropped=info["dropped"], grade=beta, repairs=tries)
         if bad is not None:
             q.state, q.why = "not_computed", bad[0]

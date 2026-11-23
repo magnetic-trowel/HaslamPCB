@@ -36,8 +36,8 @@ from . import hotloop as HL
 
 PITCH = 0.125                # mm: the quote's raster (4x fewer cells than the evaluator's 0.0625, 16x faster)
 MAX_CELLS = 6e5              # raster budget of one quote window (cells x copper layers): the pitch doubles past it
-STRIP_PITCH = 0.5            # mm: the strips engine's near pitch P0 at most (kae.em.strips.plan_cell: also at most h / 2
-                             # and the narrowest loop strip; the far ring coarsens to meet MAX_UNKNOWNS)
+STRIP_PITCH = 0.5            # mm: the strips engine's near pitch P0 at most (kae.em.strips.plan_cell: also at most h,
+                             # the plane's height under the loop; the far ring coarsens to meet MAX_UNKNOWNS)
 ENGINES = ("raster", "strips")
 
 
@@ -178,6 +178,7 @@ def _quote_strips(path, intent, drc, log, only, pitch):
                 break
             margin, grown = margin * 2, grown + 1
         info = dict(window=[round(x, 3) for x in win], pitch=q.pitch, pitch_near=q.pitch_near, pitch_far=q.pitch_far,
+                    h_near=q.h_near,
                     grown=grown, unknowns=q.unknowns, work_s=round(work, 3), repairs=q.repairs)
         if q.state != "ok":
             rows.append(dict(row, state=q.state, why=f"{q.why} (window grown {grown} times)", **info,

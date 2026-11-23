@@ -21,7 +21,7 @@ Raster: kae.em.mesh.Mesh painted as kae.em.kicad.BoardMesh paints a board (polyg
 narrower than 3 cells by paint_line, vias by Mesh.via), the pads as terminals, solved by
 kae.em.solve.potentials_many with the two-pad port; L = stored_inductance (the evaluator's L_loop) at --raster-pitch
 (0.0625 mm). Strips: kae.em.strips with graded plane tiles as kae.em.strips.plan_cell sets them (near region, via
-zones; vias landed by radial bars, Network.land) at its default P0 (min(STRIP_PITCH, h / 2, w): "default") and at the
+zones; vias landed by radial bars, Network.land) at its default P0 (min(STRIP_PITCH, h): "default") and at the
 --pitches given, and refine() of the coarsest (nested, half its pitch in effect).
 
     PYTHONPATH=kae/src KAE_EM_THREADS=4 python tools/research/physics/quickphys/ground_truth.py [--cases a b c]
@@ -194,7 +194,7 @@ def raster(c, pitch):
 def strips_net(c, P=None):
     """The case on kae.em.strips' network as from_board builds a cell: graded plane tiles (near region: the case's
     copper buffered by max(NEAR_H h, NEAR_MIN); P0 = P, or by default the lattice pitch at most min(STRIP_PITCH,
-    h / 2, the narrowest track); via zones at P_via), track ends and vias landed on the tiles by radial bars."""
+    h); via zones at P_via), track ends and vias landed on the tiles by radial bars."""
     from shapely.geometry import LineString, Point
     from shapely.ops import unary_union
     lays = c["lays"]
@@ -206,10 +206,9 @@ def strips_net(c, P=None):
     els = [(layer, g) for _, layer, g in it["pads"]]
     els += [(layer, LineString(pts).buffer(w / 2, cap_style=2)) for layer, pts, w in it["tracks"]]
     els += [(None, Point(x, y).buffer(size / 2)) for x, y, _, size in it["vias"]]
-    w_min = min((w for _, _, w in it["tracks"]), default=math.inf)
     for layer, g in it["planes"]:
         h = min(abs(zc_[layer] - zc_[l]) for l, _ in els if l and l != layer)
-        P0 = ST.snap_pitch(P if P else min(ST.STRIP_PITCH, h / 2, w_min))
+        P0 = ST.snap_pitch(P if P else min(ST.STRIP_PITCH, h))
         near = unary_union([e.buffer(max(ST.NEAR_H * (abs(zc_[layer] - zc_[l]) if l else 0.0), ST.NEAR_MIN))
                             for l, e in els])
         fine = [(Point(x, y).buffer(ST.VIA_ZONE * (dr / 2 + ST.MAT.VIA_PLATING_MM)),
