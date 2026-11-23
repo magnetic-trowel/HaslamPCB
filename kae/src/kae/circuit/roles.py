@@ -916,6 +916,8 @@ def infer_roles(nl: Netlist, inverting: bool = False) -> Roles:
         kind, sub, p, evs = classify_part(part)
         roles.parts[ref] = PartRole(ref=ref, kind=kind, subtype=sub, role=kind, confidence=p, evidence=evs, kind_confidence=p)
     _grounds(nl, roles)
+    if inverting:
+        _demote_inverter_outputs(nl, roles)
     _caps_index(nl, roles)
     _switch_nodes(nl, roles, inverting)
     _rails(nl, roles)
@@ -1010,6 +1012,45 @@ def _grounds(nl: Netlist, roles: Roles):
         else:
             subrole = 'ground' if n == roles.gnd else 'ground_secondary'
         roles.nets[n] = NetRole(n, 'ground', subrole, conf, evs, attrs={'primary': n == roles.gnd})
+
+
+def _demote_inverter_outputs(nl: Netlist, roles: Roles):
+    """A ground-named net an inverting buck-boost drives below ground is its output, no ground: a power inductor
+    from a switch node to one ground, the switching IC's ground pins all on another ground-named net (VSSA), and a
+    rectifier from the switch node (cathode) into that net (anode), as a buck IC wired as an inverter (TPS5430,
+    TI's inverting application). The net leaves the grounds, so the cell and the rails see it as the negative
+    rail it is."""
+    g = set(roles.grounds)
+    out = set()
+    for ref, part in nl.parts.items():
+        ok, _h = _is_power_inductor(part, roles.parts[ref])
+        t = nl.two_nets(part) if ok and not part.dnp else None
+        if not t or (t[0] in g) == (t[1] in g):
+            continue
+        n, g1 = (t[1], t[0]) if t[0] in g else (t[0], t[1])
+        for p in nl.nets[n].pins:
+            if p.ref == ref or not SW_PIN.match(p.fn or '') or roles.parts[p.ref].kind not in ('ic', 'module'):
+                continue
+            gn = {q.net for q in nl.parts[p.ref].active_pins() if GND_FN.match(q.fn or '')}
+            if len(gn) != 1:
+                continue
+            g2 = next(iter(gn))
+            if g2 == g1 or g2 not in g:
+                continue
+            for q in nl.nets[n].pins:
+                if roles.parts[q.ref].kind != 'diode' or q.ref == ref:
+                    continue
+                fn = (q.fn or '').upper()
+                cath = fn in ('K', 'C', 'CATHODE', 'K1', 'K2', '-') or (not fn and q.number == '1')
+                if cath and nl.other_net(nl.parts[q.ref], n) == g2:
+                    out.add(g2)
+    if not out:
+        return
+    roles.grounds = [n for n in roles.grounds if n not in out]
+    for n in out:
+        roles.nets.pop(n, None)
+    if roles.gnd in out:
+        roles.gnd = roles.grounds[0] if roles.grounds else None
 
 
 def _caps_index(nl: Netlist, roles: Roles):
