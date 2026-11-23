@@ -215,6 +215,11 @@ DEFAULTS = dict(
                                    # merit boards, k=2) found 0 / 10 / 30 equal (cp1 0.305 / 0.310 / 0.305,
                                    # completion 0.941-0.943), so the simpler setting wins; RUDY also ranks PCB
                                    # routability near chance (docs/research/placement/kae-routability-estimators.md)
+    place_anneal_hard_fixed=1,     # placement: 1 the annealer rejects a move that adds overlap with fixed obstacles or
+                                   # cells outside the outline (only the part itself could undo it); 0 a penalty only
+    place_anneal_quench=0.1,       # placement: when the anneal ends with overlaps, a legality quench of up to this
+                                   # fraction of its planned moves (legality weight lam1 x 10, 100, 1000 at the final
+                                   # temperature, violators only), before grid legalization; 0 off
     place_legalize_structures=1,   # placement: 1 legalization windows keep the physics structures: each physics macro (an
                                    # IC with its decaps, crystal, switching cell) moves as one block at its annealed
                                    # offsets (single parts when that window fails), and equal-displacement optima are
