@@ -106,3 +106,32 @@ def test_board_hazards_finish_reports_edges_without_a_brief():
             p.layers = ['F.Cu']
             p.x, p.y = {'U1': (10.0, 10.0), 'U2': (150.0, 10.0)}.get(f.ref, (5.0, 5.0))
     assert any(h['code'] == 'edge_ringing_risk' for h in edge_hazards(b))
+
+
+def test_mcu_pins_take_their_reset_default_edge_and_say_so():
+    """The netlist cannot tell what slew firmware sets: an STM32 pin is OSPEEDR=00 at reset (DS8626: 100 ns at 50 pF),
+    an nRF52 pin standard drive (8 ns at 15 pF), an ESP32 or RP2040 pin an assumed 10 ns; the edge entry and the
+    hazard fix say a pin set fast needs review."""
+    parts = [IC('U1', 'STM32F103C8T6', 'Package_QFP:LQFP-48_7x7mm_P0.5mm', [('10', 'PA0', 'LONG_A', 'bidirectional'),
+                                                                          ('1', 'VDD', '+3V3', 'power_in'), ('2', 'VSS', 'GND', 'power_in')]),
+             IC('U2', 'nRF52840', 'Package_DFN_QFN:QFN-73', [('5', 'P0.05', 'LONG_B', 'bidirectional'),
+                                                             ('1', 'VDD', '+3V3', 'power_in'), ('2', 'VSS', 'GND', 'power_in')]),
+             fp('U3', 'ESP32-WROOM-32', 'RF_Module:ESP32-WROOM-32', [('8', 'LONG_C', 'IO32', 'bidirectional'),
+                                                                    ('2', '+3V3', '3V3', 'power_in'), ('1', 'GND', 'GND', 'power_in')]),
+             fp('J1', 'Conn', 'Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical',
+                [('1', 'LONG_A', '', ''), ('2', 'LONG_B', '', ''), ('3', 'LONG_C', '', ''), ('4', 'GND', '', '')]),
+             C('C1', '100nF', '+3V3', 'GND')]
+    b = board(parts)
+    b.outline = [box(0, 0, 300.0, 300.0)]
+    nl = Netlist.from_board(b)
+    r = infer_roles(nl)
+    got = {n: r.nets[n].attrs['edge'] for n in ('LONG_A', 'LONG_B', 'LONG_C')}
+    assert [got[n]['t_r_ns'] for n in ('LONG_A', 'LONG_B', 'LONG_C')] == [100.0, 8.0, 10.0], got
+    assert all('reset-default' in got[n]['slew'] for n in got)
+    assert all(r.nets[n].subrole != 'fast_edge' for n in got)     # slow defaults: no promotion even at 600 mm
+    for f in b.footprints:
+        for p in f.pads:
+            p.layers = ['F.Cu']
+            p.x, p.y = (290.0, 290.0) if f.ref == 'J1' else (5.0, 5.0)
+    hz = [h for h in E.long_net_hazards(build(b), b) if h['objects'][0] == 'LONG_B']
+    assert hz and 'reset-default' in hz[0]['fix'], hz

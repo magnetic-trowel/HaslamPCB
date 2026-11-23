@@ -45,11 +45,24 @@ _TI_HCT = 'TI SN74HCT04 (SCLS042F): t_t typ 8 ns at 5.5 V, CL 50 pF'
 _PCB_TABLE = 'Complete PCB Design (Elsevier), appendix "Rise and fall times for various logic families" [S]'
 _E2E = 'TI E2E logic forum (879178 and an LVC thread): LVC about 1.5-2 ns at 3.3 V into 30 pF; AHC about 0.7 ns/V [S]'
 _SIT = 'SiTime SiT8008B: t_r typ 1 ns (20-80 %) at 15 pF, 3.3 V; x1.33 to 10-90 % for a linear edge'
-_STM32 = ('ST DS8626 (STM32F405/407) "I/O AC characteristics": OSPEEDR=11 t_r/t_f 2.5 ns at 10 pF, 4 ns at 30 pF '
-          '(reset default OSPEEDR=00: 100 ns) [S]')
-_AVR = 'Microchip ATmega328P datasheet Table 28-6: SPI master rise/fall 3.6 ns typ (no GPIO figure is given)'
-_MCU = ('assumed like STM32 at its fastest setting (2.5 ns): the RP2040, ESP32 and nRF datasheets give no GPIO rise '
-        'time and no public IBIS model was found; RP2040 resets to slow slew')
+# MCU pins at their reset default: the netlist cannot say what firmware sets, so an MCU's edge is its power-on drive
+# and slew. A pin firmware switches to a fast slew or a higher drive is faster than this: the hazards say so.
+_STM32 = ('ST DS8626 (STM32F405/407) "I/O AC characteristics": OSPEEDR=00 (the reset value on almost all pins) t_r/t_f '
+          '100 ns max at 50 pF; 2.5-4 ns only once firmware sets OSPEEDR=11 [S]')
+_GD32 = 'assumed like STM32 at reset (100 ns): GD32 and APM32 keep the STM32 GPIO speed register and its low-speed reset'
+_NRF = ('Nordic nRF52 product specification, GPIO: PIN_CNF.DRIVE resets to S0S1 (standard drive), t_RF 8 ns at 15 pF, '
+        '12 ns at 25 pF, 21-25 ns at 50 pF (simulated) [S]')
+_SAM = ('Microchip SAM D/L/C "I/O Pin Characteristics": DRVSTR resets to 0, t_RISE 13-15 ns at 20 pF, 3.3 V '
+        '(6-7 ns with DRVSTR=1) [S]')
+_RP2 = ('assumed slow (10 ns): RP2040/RP2350 pads reset to slow slew and 4 mA (datasheet PADS_BANK0 SLEWFAST=0, '
+        'DRIVE=4mA) but no rise time is published')
+_ESP = ('assumed slow (10 ns): Espressif datasheets give the default drive (FUN_DRV=2, about 20 mA) but no rise time and '
+        'no slew control')
+_PIC = ('assumed slow (10 ns): PIC16/18 SLRCONx resets to 1 (slew-rate limited) on parts that have it; no rise time is '
+        'given for the default')
+_AVR = ('Microchip ATmega328P datasheet Table 28-6: SPI master rise/fall 3.6 ns typ; AVR ports have no slew or drive '
+        'setting, so reset and running edges are the same')
+_MCU = 'assumed slow (10 ns): no reset-default edge is documented for this MCU family'
 _FPGA = ('assumed: FPGA datasheets give no LVCMOS edge ("see the IBIS models"); taken as fast as a CMOS oscillator '
          'output at light load (SiT8008B 0.46 ns 20-80 % at 5 pF)')
 # (family, part-text regex, t_r ns 10-90 %, source): logic first (a '74LVC' must not read as '74HC')
@@ -60,11 +73,24 @@ FAMILY_TR = [
     ('74HCT', re.compile(r'(?<![A-Z0-9])(SN|MC|CD|M|NL|TC)?74HCT\d', re.I), 8.0, _TI_HCT),
     ('74HC', re.compile(r'(?<![A-Z0-9])(SN|MC|CD|M|NL|TC)?74HC\d', re.I), 6.0, _TI_HC),
     ('74LS', re.compile(r'(?<![A-Z0-9])(SN|DM)?74A?LS\d', re.I), 10.0, _PCB_TABLE),
-    ('STM32', re.compile(r'\bSTM32', re.I), 2.5, _STM32),
-    ('AVR', re.compile(r'\bAT(MEGA|TINY|XMEGA)|\bAT90', re.I), 3.6, _AVR),
 ]
+# MCU families at reset: (family, part-text regex, t_r ns, source), for MCUs and MCU modules; the first match wins
+MCU_TR = [
+    ('STM32', re.compile(r'\bSTM32', re.I), 100.0, _STM32),
+    ('GD32', re.compile(r'\bGD32|\bAPM32', re.I), 100.0, _GD32),
+    ('nRF5', re.compile(r'\bnRF5\d', re.I), 8.0, _NRF),
+    ('SAM', re.compile(r'\bATSAM|\bSAM[DLCE]\d', re.I), 13.0, _SAM),
+    ('AVR', re.compile(r'\bAT(MEGA|TINY|XMEGA)|\bAT90', re.I), 3.6, _AVR),
+    ('RP2', re.compile(r'RP2040|RP2350|\bPico\b', re.I), 10.0, _RP2),
+    ('ESP', re.compile(r'ESP32|ESP8266|ESP-\d|WROOM|WROVER', re.I), 10.0, _ESP),
+    ('PIC', re.compile(r'\b(dsPIC|PIC1\d|PIC2\d|PIC_\d)', re.I), 10.0, _PIC),
+]
+MCU_DEFAULT_TR = 10.0
+MCU_FAMILIES = {f for f, _, _, _ in MCU_TR} | {'mcu'}
+MCU_SLEW_NOTE = ("an MCU pin at its reset-default slew and drive: if firmware sets this pin to a fast slew or a higher "
+                 "drive, its edge is faster than assumed and the net needs signal-integrity review")
 MCU_MODULE = re.compile(r'ESP32|ESP8266|ESP-\d|WROOM|WROVER|RP2040|RP2350|\bPico\b|XIAO|nRF5\d|Arduino|STM32|ATmega', re.I)
-SUBTYPE_TR = {'mcu': (2.5, _MCU), 'fpga': (0.5, _FPGA), 'oscillator': (1.3, _SIT)}
+SUBTYPE_TR = {'mcu': (MCU_DEFAULT_TR, _MCU), 'fpga': (0.5, _FPGA), 'oscillator': (1.3, _SIT)}
 
 
 @dataclass
@@ -79,8 +105,11 @@ class Edge:
     assumed: bool = True
 
     def to_json(self) -> dict:
-        return {'t_r_ns': self.t_r_ns, 'family': self.family, 'source': self.source, 'driver': self.driver,
-                'driver_ref': self.refdes, 'driver_pin': self.pin, 'assumed': self.assumed}
+        d = {'t_r_ns': self.t_r_ns, 'family': self.family, 'source': self.source, 'driver': self.driver,
+             'driver_ref': self.refdes, 'driver_pin': self.pin, 'assumed': self.assumed}
+        if self.family in MCU_FAMILIES:
+            d['slew'] = MCU_SLEW_NOTE
+        return d
 
 
 def t_pd_ps_mm(er: float, outer: bool) -> float:
@@ -106,6 +135,11 @@ def part_edge(part, pr) -> tuple[float, str, str] | None:
     key = 'oscillator' if pr.kind == 'oscillator' else pr.subtype
     if pr.kind == 'module' and MCU_MODULE.search(text):
         key = 'mcu'
+    if key == 'mcu' or any(rx_.search(text) for _, rx_, _, _ in MCU_TR[:2]):
+        for fam, rx_, tr, src in MCU_TR:
+            if rx_.search(text):
+                return tr, fam, src
+        return MCU_DEFAULT_TR, 'mcu', _MCU
     if key in SUBTYPE_TR:
         tr, src = SUBTYPE_TR[key]
         return tr, key, src
@@ -288,11 +322,13 @@ def long_net_hazards(brief, board, max_nets=400):
                               f"sensitive inputs.", objects=objs, evidence=ev,
                               fix=f"Shorten it below {t_r_ps / TERMINATE / (ps / mm):.0f} mm, add a series resistor "
                                   f"(about 22-33 ohm) at {e.get('driver_ref')} pin {e.get('driver_pin')}, or lower the "
-                                  f"driver's slew rate; a slower edge from the part's datasheet or IBIS [Ramp] lowers the risk."))
+                                  f"driver's slew rate; a slower edge from the part's datasheet or IBIS [Ramp] lowers the risk."
+                                  + (f" The driver is {e['slew']}." if e.get('slew') else '')))
         else:
             out.append(H.make('edge_si_review', 'info', 'electrical',
                               f"Net {net}: {mm:.0f} mm from {e.get('driver')} to {load} ({how}) is {ps:.0f} ps, over a sixth of "
                               f"the driver's {e['t_r_ns']:g} ns edge: electrically long; review for ringing.",
                               objects=objs, evidence=ev,
-                              fix=f"Keep it under {t_r_ps / REVIEW / (ps / mm):.0f} mm, or plan a series resistor at the driver."))
+                              fix=f"Keep it under {t_r_ps / REVIEW / (ps / mm):.0f} mm, or plan a series resistor at the driver."
+                                  + (f" The driver is {e['slew']}." if e.get('slew') else '')))
     return out
