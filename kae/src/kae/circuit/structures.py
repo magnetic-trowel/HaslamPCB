@@ -749,10 +749,25 @@ def _converter(b: _B, L, lpart, swn, other):
     exc = _excite(b, ctrl, L, V_, kind)
     out_caps = _hf_order(b.nl, b.caps_on(out if kind == 'buck' else other))
     conf_cap = min(b.r.nets[swn].confidence, b.r.parts[L].kind_confidence + 0.2)
-    cid = f"cell:{kind}:{ctrl or L}" + (f":{suffix}" if suffix else '')
+    cls_, top_ = kind, None
+    if kind == 'buck' and ctrl and cells_flag("KAE_CELLS_INVBUCK"):
+        # an inverting buck (TPS6371x): a flying capacitor from the IC's CP pin to the switch node shifts the
+        # switch node below ground, the inductor runs from it to a negative output. Its hot loop is a buck's (the
+        # input capacitor, the IC's input and ground pins: the CP node commutates between them); its output is
+        # -D V_in at I_L = I_out (kae.physics.converter's inverting_buck)
+        cp = [p for p in b.nl.parts[ctrl].active_pins() if re.match(r'^CP\d?$', p.fn or '', re.I)]
+        fly = [r for p in cp for r in {q.ref for q in b.nl.pins(p.net)} if r != ctrl and b.k(r) == 'capacitor'
+               and swn in b.nl.parts[r].nets]
+        vo = b.volts(out)
+        if fly and (vo is None or vo < 0):
+            cls_, top_ = 'inverting', 'inverting_buck'
+            evs.append(ev('topology', f"flying capacitor {fly[0]} from {ctrl}'s CP pin to the switch node: an inverting "
+                                      f"buck to '{b.short(out)}'", STRONG))
+            kind = 'buck'
+    cid = f"cell:{'inverting' if top_ else kind}:{ctrl or L}" + (f":{suffix}" if suffix else '')
     return _struct('commutation_cell', cid, evs, conf_cap=conf_cap, prior=-0.5,
-                   **{'class': kind, 'loop': loop, 'rail': rail, 'sw': swn, 'gnd': gnd, 'excite': exc,
-                      'controller': ctrl, 'inductor': L, 'caps': caps, 'caps_p': cp,
+                   **{'class': cls_, **({'topology': top_} if top_ else {}), 'loop': loop, 'rail': rail, 'sw': swn,
+                      'gnd': gnd, 'excite': exc, 'controller': ctrl, 'inductor': L, 'caps': caps, 'caps_p': cp,
                       # an asynchronous boost's controller is its low-side switch: the loop above runs
                       # through its SW and ground pads (it was None there, unlike a synchronous one)
                       'switches': {'high': hs or (ctrl if kind == 'buck' else None), 'low': ls or d_catch or ctrl,

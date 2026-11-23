@@ -151,3 +151,38 @@ def test_a_dual_rail_ics_negative_half_is_an_inverting_cell(tmp_path, monkeypatc
     assert (s["vin"], s["vout"], s["gnd"], s["ret"]) == ("VIN", "-5V", "GND", "GND")
     assert [(s["members_ref"][u], q) for u, q in s["loop"]] == [("C1", "1"), ("U1", ["3"]), ("U1", ["1"]), ("C2", "1"),
                                                                 ("C2", "2"), ("C1", "2")]
+
+
+INV_BUCK = {("U1", "6"): ("Net-(U1-CP)", "CP", "passive"), ("L1", "2"): ("-5V", "", "passive"),
+            ("C2", "1"): ("-5V", "", "passive"), ("U1", "1"): ("Net-(U1-FB)", "FB", "input")}
+FLY = ("C7", "1uF", "Capacitor_SMD:C_0603_1608Metric", 124.0, 106.0, 0.0,
+       [("1", "Net-(U1-CP)", -0.75, 0.0, 0.8, 0.95, "smd", 0.0, "", "passive"),
+        ("2", "Net-(U1-SW)", 0.75, 0.0, 0.8, 0.95, "smd", 0.0, "", "passive")], (1.5, 0.8))
+
+
+def test_an_inverting_buck_is_an_inverting_cell_with_a_bucks_loop(tmp_path, monkeypatch):
+    """A TPS6371x inverting buck: a flying capacitor from its CP pin to the switch node shifts the node below ground,
+    the inductor runs from it to -5V. It was typed a plain buck (to a negative rail). Behind KAE_CELLS_INVBUCK:
+    class `inverting`, topology `inverting_buck` (D = |V_out| / V_in, I_L = I_out), its loop a buck's."""
+    import critical_fixtures as CF
+    from kae.physics import converter as CV
+    parts = []
+    for ref, val, lib, x, y, rot, pads, cy in CF.PARTS:
+        out = []
+        for n, net, lx, ly, w, h, kind, drill, fn, pt in pads:
+            if (ref, n) in INV_BUCK:
+                net, f2, pt = INV_BUCK[(ref, n)]
+                fn = f2 or fn
+            out.append((n, net, lx, ly, w, h, kind, drill, fn, pt))
+        parts.append((ref, "TPS63710" if ref == "U1" else val, lib, x, y, rot, out, cy))
+    monkeypatch.setattr(CF, "PARTS", parts + [FLY])
+    p = str(CF.write_board(tmp_path))
+    monkeypatch.delenv("KAE_CELLS_INVBUCK", raising=False)
+    assert [s["class"] for s in _cells(build(load(p))).values()] == ["buck"]
+    monkeypatch.setenv("KAE_CELLS_INVBUCK", "1")
+    (s,) = _cells(build(load(p))).values()
+    assert (s["id"], s["class"], s["topology"], s["vout"], s["gnd"], s["ret"]) == \
+        ("cell:inverting:U1", "inverting", "inverting_buck", "-5V", "GND", "GND")
+    assert [s["members_ref"][u] for u, _ in s["loop"]] == ["C1", "U1", "U1", "C1"]
+    op = CV.operating("inverting_buck", 12.0, -5.0, 1.0, 0.9)
+    assert op.D == pytest.approx(5 / 12) and op.I_L == op.I_sw == 1.0 and op.V_bus == 12.0
