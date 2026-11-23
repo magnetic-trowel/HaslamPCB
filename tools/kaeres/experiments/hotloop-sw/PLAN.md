@@ -432,3 +432,11 @@ Board loss terms (per board, the sum of that observable's terms):
 - human on 272 boards now. jetson j2032 has never finished an evaluation, so it is left out of physics in every arm.
 - N and C‴ follow their routing.
 - About 170 CPU-h per arm (submit.py's estimate of 42.5 job-h at 4 CPUs), so about 510 CPU-h for the three.
+
+**Round 3 physics, three big boards (human, first try).** Retried as #122884–122886 (timed class, so not frozen). N and C‴ get the same sizes and settings from the start (`hsw-run3/physics-overrides.json`):
+
+| board | cause | retry |
+|---|---|---|
+| usbarmory | KiCad's zone refill took longer than the 900 s default, while the job was also frozen 14 min. The limit is configurable (`KAE_ZONE_FILL_TIMEOUT`, read by `critical_recheck.fills_of`, whose comment already names this board) | `KAE_ZONE_FILL_TIMEOUT=5400`, 16 CPUs, 16 G, 6 h |
+| polarfire som (14 layers) | After the board solve, a cell window's SuperLU factorization failed ("Not enough memory to perform factorization", MemoryError) at 36.6 G RSS under the 250 GB `ulimit -v` | `KAE_EVAL_VMEM_KB=500000000`, 96 G, 6 h. If it fails again the same way, it is SuperLU's own limit on that window, and the board is left out of physics in all three arms |
+| kestrel esc | Not a fault: 20+ half-bridge cells at about 15–25 min per window; 11 were done when the 4 h limit hit | 16 h, 32 G (peak 22.1 G) |
