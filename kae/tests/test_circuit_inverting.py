@@ -245,3 +245,32 @@ def test_a_tps65131s_inverter_is_read_through_its_pin_names(tmp_path, monkeypatc
     monkeypatch.setattr(CF, "PARTS", parts + [D_OUTN])
     s = _cells(build(load(str(CF.write_board(tmp_path))), inverting=True))[CELL]
     assert (s["vin"], s["vout"], s["gnd"], s["sw"]) == ("VIN", "-5V", "GND", "Net-(U1-OUTN)")
+
+
+def test_an_inverting_bucks_dc_feed_balances(tmp_path, monkeypatch):
+    """The inverting buck feeds -5V in the DC band (dc-signed's convention): its IC takes the output current in at
+    its switch pin (the inductor runs from -5V into it), the input current at its input pins, and returns both
+    through its ground; every piece balances (planned_injections raises otherwise)."""
+    import critical_fixtures as CF
+    from hotloop_fixtures import J2
+    from kae.excite import dc as DC
+    parts = []
+    for ref, val, lib, x, y, rot, pads, cy in CF.PARTS:
+        out = []
+        for n, net, lx, ly, w, h, kind, drill, fn, pt in pads:
+            if (ref, n) in INV_BUCK:
+                net, f2, pt = INV_BUCK[(ref, n)]
+                fn = f2 or fn
+            out.append((n, net, lx, ly, w, h, kind, drill, fn, pt))
+        parts.append((ref, "TPS63710" if ref == "U1" else val, lib, x, y, rot, out, cy))
+    monkeypatch.setattr(CF, "PARTS", parts + [FLY, J2])
+    monkeypatch.setenv("KAE_CELLS_INVBUCK", "1")
+    b = load(str(CF.write_board(tmp_path)))
+    br = build(b, inverting=True)
+    intent = {"nets": {"VIN": {"source": "J1", "V_V": 12.0}, "-5V": {"V_V": -5.0}}}
+    inj = DC.planned_injections(b, intent, brief=br)
+    out = inj["J2.1"]
+    assert out > 0 and inj["J2.2"] == pytest.approx(-out)
+    assert inj["U1.5"] == pytest.approx(-out)            # the inductor's current into the switch pin
+    assert inj["U1.3"] < 0 and inj["U1.4"] > 0           # drawn from VIN, returned to ground
+    assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
