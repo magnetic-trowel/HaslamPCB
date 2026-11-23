@@ -36,6 +36,8 @@ _IPC_RE = re.compile(r'(?:CAP|RES|IND|LED|DIO)[CM]?(\d{4})X', re.I)
 _METRIC_RE = re.compile(r'(\d{4})Metric', re.I)
 
 
+# a number as value fields write it: '10', '4.7', and '.1' (a leading-dot decimal, '.1uF', '.33uH'; the
+# lookbehind (?<![\w.]) each pattern puts before it keeps '1.5' from matching at '.5')
 def _norm(text: str | None) -> str:
     return (text or '').translate(_MICRO).strip()
 
@@ -50,13 +52,13 @@ def capacitance(text: str | None) -> float | None:
     m = re.search(r'(?<![\w.])(\d+)([pnu])(\d+)(?:F)?(?![\w.])', v)            # 4u7, 2n2, 4p7
     if m:
         return float(f"{m.group(1)}.{m.group(3)}") * mult[m.group(2)]
-    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?)\s*([pnuPNU])(?:F|f)?(?![a-zA-Z])', v)
+    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?|\.\d+)\s*([pnuPNU])(?:F|f)?(?![a-zA-Z])', v)
     if m:
         return float(m.group(1)) * mult[m.group(2)]
-    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?)\s*[mM][fF](?![a-zA-Z])', v)          # 1mF
+    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?|\.\d+)\s*[mM][fF](?![a-zA-Z])', v)          # 1mF
     if m:
         return float(m.group(1)) * 1e-3
-    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?)\s*F(?![a-zA-Z])', v)                 # 1F, 0.47F supercaps
+    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?|\.\d+)\s*F(?![a-zA-Z])', v)                 # 1F, 0.47F supercaps
     if m:
         return float(m.group(1))
     m = re.fullmatch(r'\s*(0?\.\d+)\s*', v)                                         # bare 0.1 -> uF
@@ -73,10 +75,10 @@ def resistance(text: str | None) -> float | None:
     v = _PKG_RE.sub(' ', _SEP.sub(' ', v))
     if not v.strip():
         return None
-    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?)\s*m(?:R)?(?![\w])', v)                # 50m, 50mR
+    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?|\.\d+)\s*m(?:R)?(?![\w])', v)                # 50m, 50mR
     if m:
         return float(m.group(1)) * 1e-3
-    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?)\s*[uµμ](?:R)?(?![\w])', v)            # 300µ (a shunt)
+    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?|\.\d+)\s*[uµμ](?:R)?(?![\w])', v)            # 300µ (a shunt)
     if m:
         return float(m.group(1)) * 1e-6
     m = re.search(r'(?<![\w.])(\d+)R(\d+)(?![\w.])', v)                              # 0R05, 2R2
@@ -88,7 +90,7 @@ def resistance(text: str | None) -> float | None:
     m = re.search(r'(?<![\w.])(\d+)([kKM])(\d+)(?![\w.])', v)                        # 4K7, 1M5
     if m:
         return float(f"{m.group(1)}.{m.group(3)}") * {'k': 1e3, 'K': 1e3, 'M': 1e6}[m.group(2)]
-    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?)\s*([kKM])?\s*R?(?![\w.])', v)
+    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?|\.\d+)\s*([kKM])?\s*R?(?![\w.])', v)
     if m:
         return float(m.group(1)) * {None: 1.0, 'k': 1e3, 'K': 1e3, 'M': 1e6}[m.group(2)]
     return None
@@ -103,10 +105,10 @@ def inductance(text: str | None) -> float | None:
     m = re.search(r'(?<![\w.])(\d+)([nu])(\d+)(?:H)?(?![\w.])', v)                  # 2u2, 2u2H
     if m:
         return float(f"{m.group(1)}.{m.group(3)}") * mult[m.group(2)]
-    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?)\s*([pnumPNUM])H(?![a-zA-Z])', v)       # 10uH, 2.2UH, 1mH
+    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?|\.\d+)\s*([pnumPNUM])H(?![a-zA-Z])', v)       # 10uH, 2.2UH, 1mH
     if m:
         return float(m.group(1)) * mult[m.group(2).lower()]
-    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?)\s*([nu])(?![a-zA-Z])', v)              # 10u, 33n
+    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?|\.\d+)\s*([nu])(?![a-zA-Z])', v)              # 10u, 33n
     if m:
         return float(m.group(1)) * mult[m.group(2)]
     return None
@@ -115,13 +117,13 @@ def inductance(text: str | None) -> float | None:
 def frequency(text: str | None) -> float | None:
     """Hertz from a crystal or oscillator value ('8MHz', '32.768kHz', '32768Hz', '32k768', '12M')."""
     v = _SEP.sub(' ', _norm(text))
-    m = re.search(r'(\d+(?:\.\d+)?)\s*([kKmMgG])?[hH][zZ]', v)
+    m = re.search(r'(\d+(?:\.\d+)?|\.\d+)\s*([kKmMgG])?[hH][zZ]', v)
     if m:
         return float(m.group(1)) * {None: 1.0, 'k': 1e3, 'K': 1e3, 'm': 1e6, 'M': 1e6, 'g': 1e9, 'G': 1e9}[m.group(2)]
     m = re.search(r'(?<![\w.])(\d+)k(\d+)(?![\w.])', v)                             # 32k768
     if m:
         return float(f"{m.group(1)}.{m.group(2)}") * 1e3
-    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?)\s*M(?![\w.])', v)                      # 12M
+    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?|\.\d+)\s*M(?![\w.])', v)                      # 12M
     if m:
         return float(m.group(1)) * 1e6
     return None
@@ -130,7 +132,7 @@ def frequency(text: str | None) -> float | None:
 def rated_voltage(text: str | None) -> float | None:
     """A voltage rating from a value or field ('10uF 25V', '100n/50V', '6.3V', '16 V')."""
     v = _SEP.sub(' ', _norm(text))
-    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?)\s*[vV](?![a-zA-Z0-9])', v)
+    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?|\.\d+)\s*[vV](?![a-zA-Z0-9])', v)
     if m:
         return float(m.group(1))
     m = re.search(r'(?<![\w.])(\d+)[vV](\d+)(?![\w.])', v)                            # 6V3
