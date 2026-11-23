@@ -35,7 +35,7 @@ from collections import defaultdict
 from . import values as V
 from .evidence import MODERATE, STRONG, WEAK, confidence, ev
 from .netlist import Netlist, Part
-from .roles import inverting_ic, inverting_rectifier
+from .roles import cells_flag, inverting_ic, inverting_output, inverting_rectifier
 from .roles import (ANALOG_NET, ANALOG_PIN, BOOT_PIN, CP_PIN, EN_PIN, FB_PIN, IN_PIN, OUT_PIN, PWR_PIN, SW_PIN, Roles, belief,
                     cap_class)
 
@@ -780,6 +780,13 @@ def _inverting(b: _B, L, lpart, swn, gnd):
         d_, neg_ = inverting_rectifier(b.nl, b.r, swn, L)
         if d_:
             ctrl, dedicated = sw_pins[0].ref, (d_, neg_)
+        elif cells_flag("HASLAM_CELLS_DUALRAIL"):
+            # a dual +/- rail IC's inverting half: its rectifier is inside, from the switch node to its VNEG pin
+            for p in sw_pins:
+                vn = inverting_output(b.nl, b.r, p.ref, swn)
+                if vn:
+                    ctrl, dedicated = p.ref, (None, vn)
+                    break
     if ctrl is None:
         return None
     neg = dedicated[1] if dedicated else inverting_ic(b.nl, b.r, ctrl)
@@ -792,7 +799,8 @@ def _inverting(b: _B, L, lpart, swn, gnd):
         return None                        # not an input above ground and an output below it
     evs = [ev('topology', f"power inductor {L} ({lpart.value}) from '{b.short(swn)}' to ground '{b.short(gnd)}'", MODERATE),
            ev('pinfunction', f"{ctrl} input {vin_pins[0].label} on '{b.short(rail)}', " +
-              (f"rectifier {dedicated[0]} from the switch node to '{b.short(neg)}'" if dedicated else
+              (f"rectifier {dedicated[0]} from the switch node to '{b.short(neg)}'" if dedicated and dedicated[0] else
+               f"its negative output on '{b.short(neg)}' (a dual +/- rail IC's inverting half)" if dedicated else
                f"its ground pins on '{b.short(neg)}'") + ": an inverting buck-boost", STRONG)]
     evs += [e for e in b.r.switch_nodes[swn]['evidence'] if e.weight > 0][:3]
     gp = sorted({p.number for p in b.nl.parts[ctrl].pins_on(neg)}, key=_natkey)
