@@ -71,6 +71,7 @@ from pathlib import Path
 from haslam.budget import now as clock_now
 
 from . import constraints as CN
+from .critical_modules import cell_return
 
 HL_PREFIX = "haslam-hl:"          # pours this stage writes (kept in the output)
 GUARD_PREFIX = "haslam-crit:"     # keep-outs (critical_write.GUARD_PREFIX; dropped from the output)
@@ -190,7 +191,7 @@ def keepout_plan(s, mods, margin, log=_log):
             continue
         T = m.spec["_T"]
         c = region.centroid
-        h, pl, pn = s.ctx.plane(s.ctx.side_layer(T[0].fp), c.x, c.y, gnd=True)
+        h, pl, pn = s.ctx.plane(s.ctx.side_layer(T[0].fp), c.x, c.y, gnd=True, nets=cell_return(s.ctx, m.spec))
         refs = sorted({getattr(s.ctx.fp.get(t.fp), "ref", "") for t in T} - {""})
         if pl is None:
             hz.append(H.make(
@@ -1009,9 +1010,13 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
             s.modules = mods
         for m in mods:
             ph = dict(m.physics or {})
-            rep["cells"].append(dict(id=m.id, status=m.status, items=len(m.copper),
-                                     L_nH=ph.get("value"), R_mohm=ph.get("R_mohm"), W_loop=ph.get("W_loop"),
-                                     W_loop_ac=ph.get("W_loop_ac"), notes=m.notes[:4]))
+            row = dict(id=m.id, status=m.status, items=len(m.copper),
+                       L_nH=ph.get("value"), R_mohm=ph.get("R_mohm"), W_loop=ph.get("W_loop"),
+                       W_loop_ac=ph.get("W_loop_ac"), notes=m.notes[:4])
+            if m.spec.get("class") == "inverting":     # its return net and where its reference plane came from
+                row.update(ret=ph.get("ret") or m.spec.get("ret"), plane_net=ph.get("plane_net"),
+                           plane_src=ph.get("plane_src"))
+            rep["cells"].append(row)
         zones = []
         if st["keepout"]:
             s.hotloop_pours_on = st["keepout_pours"]
@@ -1164,7 +1169,7 @@ def clear_regions(s, mods, margin):
             continue
         region = unary_union([t.geom for t in T]).convex_hull.buffer(margin)
         c = region.centroid
-        _h, pl, pn = s.ctx.plane(s.ctx.side_layer(T[0].fp), c.x, c.y, gnd=True)
+        _h, pl, pn = s.ctx.plane(s.ctx.side_layer(T[0].fp), c.x, c.y, gnd=True, nets=cell_return(s.ctx, m.spec))
         loop_nets = {t.net for t in T if t.net} | {n for n in (m.spec.get("sw"), m.spec.get("rail")) if n}
         # the cell parts' other pins (the IC's STAT, TS, FB...): their copper on the parts' own layer is their
         # fan-out and stays; on the return layer under the loop it is what cut bq25306's plane (8 tracks of U1's

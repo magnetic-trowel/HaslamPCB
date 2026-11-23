@@ -165,11 +165,12 @@ class Ctx:
         return float(m.group(1)) if m else None
 
     # ---- planes
-    def plane(self, layer, x, y, gnd=True):
+    def plane(self, layer, x, y, gnd=True, nets=None):
         """(h, plane layer, plane net) under copper on `layer` at (x, y): the nearest ground
-        plane (gnd=True; the return path), else the nearest plane of any net."""
+        plane (gnd=True; the return path; `nets` the return nets when not the board's grounds:
+        cell_return), else the nearest plane of any net."""
         if gnd:
-            h, pl, pn = self.sp.plane_below(layer, x, y, nets=self.gnd)
+            h, pl, pn = self.sp.plane_below(layer, x, y, nets=self.gnd if nets is None else nets)
             if pl is not None:
                 return h, pl, pn
         return self.sp.plane_below(layer, x, y)
@@ -442,8 +443,9 @@ def _hop_term(ctx, m, rt, sources, targets):
         return C
     if m.kind in ("cell", "path", "decap", "chain"):
         out = 0.0
+        R = cell_return(ctx, m.spec) if m.kind == "cell" else None
         for l, a, b, w in segs:
-            h, _pl, _pn = ctx.plane(l, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, gnd=True)
+            h, _pl, _pn = ctx.plane(l, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, gnd=True, nets=R)
             out += _strip_l(math.dist(a, b), w, h)
         return out
     return sum(math.dist(a, b) / max(w, 1e-3) for _l, a, b, w in segs)
@@ -633,8 +635,25 @@ def _intent_current(ctx, m):
     return float(cc.I[2])
 
 
+def cell_return(ctx, spec):
+    """The nets a cell's loop returns through (its return plane, its ground hop, its return vias): the board's
+    grounds, except for an inverting cell whose input capacitor returns to its negative rail (`ret`, TI SLVA721's
+    placement): that rail's copper. Every other cell keeps the board's grounds exactly as before."""
+    ret = spec.get("ret")
+    if spec.get("class") == "inverting" and ret and ret not in ctx.gnd:
+        return {ret}
+    return ctx.gnd
+
+
+def plane_src(ctx, spec, pl, pn):
+    """Where a cell's reference plane came from: its return net's copper ('return'), another net's plane (the
+    stand-in a cell without its own plane gets, as a buck without a ground plane does) or none."""
+    return None if pl is None else ("return" if pn in cell_return(ctx, spec) else "other")
+
+
 def route_cell(ctx, m):
     s = m.spec
+    R = cell_return(ctx, s)
     loop = s.get("loop") or []
     T = [ctx.term(mem) for mem in loop]
     if len(T) < 3 or any(t is None for t in T):
@@ -659,7 +678,7 @@ def route_cell(ctx, m):
             continue
         hops.append((k, ta, tb, net))
     # forward hops first, the ground hop last (its return may also go through the plane)
-    hops.sort(key=lambda h: (h[3] in ctx.gnd, h[0]))
+    hops.sort(key=lambda h: (h[3] in R, h[0]))
     ok = 0
     for k, ta, tb, net in hops:
         layers = hop_layers(ctx, ta, tb, prefer=side)
@@ -695,8 +714,8 @@ def route_cell(ctx, m):
         # a ground hop over its own plane has the vias as its return: a detour on the surface
         # buys nothing, so it is routed only when it stays short
         max_len = None
-        if net in ctx.gnd:
-            h_, pl_, pn_ = ctx.plane(L0, (ta.x + tb.x) / 2, (ta.y + tb.y) / 2, gnd=True)
+        if net in R:
+            h_, pl_, pn_ = ctx.plane(L0, (ta.x + tb.x) / 2, (ta.y + tb.y) / 2, gnd=True, nets=R)
             if pl_ is not None and pn_ == net:
                 max_len = 1.5 * d + 1.0
         m.spec.setdefault("_floor", {})[f"hop{k}"] = max(mn, w_cur)    # what the current needs: trim_widths' floor
@@ -752,11 +771,13 @@ def route_cell(ctx, m):
     return m
 
 
-def _ground_hop(ctx, T):
+def _ground_hop(ctx, T, nets=None):
+    """The loop's return hop: two parts' terminals on one return net (`nets`, default the board's grounds)."""
+    nets = ctx.gnd if nets is None else nets
     n = len(T)
     for k in range(n):
         ta, tb = T[k], T[(k + 1) % n]
-        if ta.fp != tb.fp and ta.net == tb.net and ta.net in ctx.gnd:
+        if ta.fp != tb.fp and ta.net == tb.net and ta.net in nets:
             return k
     return None
 
@@ -764,7 +785,8 @@ def _ground_hop(ctx, T):
 def _return_vias(ctx, m, T, side, max_pairs=None):
     """Vias at both ground terminals of the loop into the ground plane, at the sites that
     minimize the routed loop inductance (greedy, pairs first, then single additions)."""
-    k = _ground_hop(ctx, T)
+    R = cell_return(ctx, m.spec)
+    k = _ground_hop(ctx, T, R)
     if k is None:
         return
     ta, tb = T[k], T[(k + 1) % len(T)]
@@ -772,7 +794,7 @@ def _return_vias(ctx, m, T, side, max_pairs=None):
     cx = sum(t.x for t in T) / len(T)
     cy = sum(t.y for t in T) / len(T)
     layer = side if side in ta.layers else ta.layers[0]
-    h, pl, pn = ctx.plane(layer, cx, cy, gnd=True)
+    h, pl, pn = ctx.plane(layer, cx, cy, gnd=True, nets=R)
     if pl is None or pn != net:
         return
     I = _intent_current(ctx, m) or float((m.spec.get("excite") or {}).get("I") or 1.0)
@@ -846,7 +868,8 @@ def _via_array(ctx, m, T, side):
     A terminal left below the count its current needs gets vias_below_current (via_hazard)."""
     from shapely.geometry import Point as _Pt
     from .critical_physics import T_PLATE, vias_needed, via_hazard
-    k = _ground_hop(ctx, T)
+    R = cell_return(ctx, m.spec)
+    k = _ground_hop(ctx, T, R)
     if k is None:
         return 0
     ta, tb = T[k], T[(k + 1) % len(T)]
@@ -854,7 +877,7 @@ def _via_array(ctx, m, T, side):
     cx = sum(t.x for t in T) / len(T)
     cy = sum(t.y for t in T) / len(T)
     layer = side if side in ta.layers else ta.layers[0]
-    h, pl, pn = ctx.plane(layer, cx, cy, gnd=True)
+    h, pl, pn = ctx.plane(layer, cx, cy, gnd=True, nets=R)
     if pl is None or pn != net:
         return 0
     I = _intent_current(ctx, m)
@@ -1109,6 +1132,10 @@ def cell_operating(ctx, m):
         elif cls == "buck" and vout and bus and bus > vout:
             D = vout / bus
             basis.append("D: buck Vout/Vin")
+        elif cls == "inverting" and vin and vout:
+            from haslam.physics import converter as CV
+            D = CV.duty("inverting_buck_boost", vin, vout)
+            basis.append(f"D: inverting |Vout| / (Vin eta + |Vout|) (eta {CV.ETA[1]:g}, TI SLVA721)")
         else:
             D = 0.5
             basis.append("D: 0.5 prior")
@@ -1141,8 +1168,9 @@ def _cell_value(ctx, m):
     cx = sum(t.x for t in T) / len(T)
     cy = sum(t.y for t in T) / len(T)
     side = ctx.side_layer(T[0].fp)
-    h, pl, pn = ctx.plane(side, cx, cy, gnd=True)
-    gk = _ground_hop(ctx, T)
+    R = cell_return(ctx, m.spec)
+    h, pl, pn = ctx.plane(side, cx, cy, gnd=True, nets=R)
+    gk = _ground_hop(ctx, T, R)
     n = len(T)
     vals = []
     pgeom = _plane_geom(ctx, pl, pn)
@@ -1168,7 +1196,11 @@ def _cell_value(ctx, m):
     extra = dict(h_mm=round(h, 3) if h != INF else None, plane=pl, plane_net=pn, variants=len(vals),
                  R_mohm=round(R * 1e3, 4))
     if any(srcs):
-        extra["plane_src"] = srcs[0]         # the strips engine's plane (HASLAM_CELL_QUOTE=strips): fills | bbox | none
+        # the strips engine's plane (HASLAM_CELL_QUOTE=strips): fills | bbox | none; its own key, as an inverting
+        # cell's plane_src says where its reference plane came from
+        extra["strips_plane"] = srcs[0]
+    if m.spec.get("class") == "inverting":
+        extra.update(ret=m.spec.get("ret"), plane_src=plane_src(ctx, m.spec, pl, pn))
     if m.kind == "cell":
         from .critical_physics import ac_loss
         I, f, D, _basis = cell_operating(ctx, m)
@@ -1243,8 +1275,9 @@ def allocation(ctx, m):
     s = m.spec
     if m.kind == "cell":
         ex = s.get("excite") or {}
-        vin, _ = PR.cell_v_in(ex, ctx.volts(s.get("rail")))
-        vin = abs(vin)          # the bus's magnitude (excite V is the rail's signed voltage): a -12 V cell's budget is a +12 V one's
+        # the bus's magnitude (excite V is the rail's signed voltage): a -12 V cell's budget is a +12 V one's; an
+        # inverting cell's is V_in + |V_out| (PR.cell_bus)
+        vin, _ = PR.cell_bus_v_in(s, ctx.volts)
         return PR.hot_loop_budget(s.get("class") or "unknown", vin, t_sw_ns=ex.get("t_sw_ns"), v_abs=PR.budget_v_abs(ex))
     if m.kind == "path":
         ex = s.get("excite") or {}

@@ -248,7 +248,7 @@ def test_the_module_stage_routes_alike_with_the_strips_engine(tmp_path, monkeypa
                 res[(engine, mode)] = {m.id: m.status for m in mods}
                 if engine == "strips":
                     cells = [m for m in mods if m.kind == "cell" and m.physics]
-                    assert cells and all(m.physics.get("plane_src") in ("fills", "bbox") for m in cells), \
+                    assert cells and all(m.physics.get("strips_plane") in ("fills", "bbox") for m in cells), \
                         [m.physics for m in cells]
     assert len({tuple(sorted(v.items())) for v in res.values()}) == 1, res
 
