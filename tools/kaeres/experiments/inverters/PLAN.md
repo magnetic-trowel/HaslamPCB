@@ -58,10 +58,20 @@ Every routed board, both arms, at the run's SHA: `kae.excite.evaluate <board> --
 2. DRC: C's error count (kicad-cli on the re-opened board, per type in drc.json) no worse than N's.
 3. No invalid output in C (the harness's integrity checks).
 4. No cell open in C that N closes (the evaluator's `open_cells`).
-5. Each inverting cell's L_loop and R_loop no worse than N's beyond the window tolerance (kae.excite.cellquote.compare's
-   tol: 10 % relative on each): C fails a board with either above 1.1 x N's.
-6. Reported, not gated: open cells per arm, cp1 and cpk per arm, the stage's row per inverting cell (status, ret,
-   plane_net, plane_src).
+5. Per inverting cell, C's L_loop and R_loop no worse than N's by more than 10 % (one-sided: C fails a board with
+   either above 1.1 x N's; better is never a failure).
+
+**Primary outcome (reported, not gated):** the paired ratio C/N of L_loop and of R_loop per inverting cell, their
+median with a bootstrap CI where n allows, and the counts of cells improved / level / worsened, level meaning within
+the window tolerances (L 0.5 %, R 3 %). Also reported: open cells per arm, cp1 and cpk per arm, the stage's row per
+inverting cell (status, ret, plane_net, plane_src).
+
+Both arms' boards are evaluated with inverting cells recognised (the evaluator's brief runs with the class flags on:
+KAE_CELLS_INVERTING, and with it dual-rail and inverting-buck cells, default on there), so N and C are compared on
+the same cells; the arms differ only in how the router laid them.
+
+(Amended before any data existed: the cell gate was written as "within cellquote's 10 % tolerance of N's", which
+reads two-sided and would fail C exactly when inverter routing works.)
 
 ## Sizing
 
