@@ -11,7 +11,9 @@ import json
 import os
 import sys
 
-PASSIVE = {"resistor", "capacitor", "inductor", "ferrite", "fuse"}
+# passives outside every structure are only counted; inductors and ferrites are always listed: they carry a rail's
+# current (an inverter's output filter, a supply branch) and the operating facts name them
+PASSIVE = {"resistor", "capacitor", "fuse"}
 
 
 def summarize(path, row=None, pintypes=None):
@@ -27,7 +29,8 @@ def summarize(path, row=None, pintypes=None):
                 pin = m.get(str(pad.number))
                 if pin and not pad.pintype and not pad.pinfunction:
                     pad.pintype, pad.pinfunction = pin.get("type") or "", pin.get("name") or ""
-    br = BR.build(b)
+    from kae.circuit.roles import cells_inverting
+    br = BR.build(b, inverting=cells_inverting(True))       # the evaluator's brief (kae.excite.evaluate)
     pads_by_ref = {}
     for fp in b.footprints:
         nets = {}
