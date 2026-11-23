@@ -760,7 +760,7 @@ def _converter(b: _B, L, lpart, swn, other):
     out_caps = _hf_order(b.nl, b.caps_on(out if kind == 'buck' else other))
     conf_cap = min(b.r.nets[swn].confidence, b.r.parts[L].kind_confidence + 0.2)
     cls_, top_ = kind, None
-    if kind == 'buck' and ctrl and cells_flag("KAE_CELLS_INVBUCK"):
+    if kind == 'buck' and ctrl and cells_flag("KAE_CELLS_INVBUCK", getattr(b.r, 'inverting', False)):
         # an inverting buck (TPS6371x): a flying capacitor from the IC's CP pin to the switch node shifts the
         # switch node below ground, the inductor runs from it to a negative output. Its hot loop is a buck's (the
         # input capacitor, the IC's input and ground pins: the CP node commutates between them); its output is
@@ -805,7 +805,7 @@ def _inverting(b: _B, L, lpart, swn, gnd):
         d_, neg_ = inverting_rectifier(b.nl, b.r, swn, L)
         if d_:
             ctrl, dedicated = sw_pins[0].ref, (d_, neg_)
-        elif cells_flag("KAE_CELLS_DUALRAIL"):
+        elif cells_flag("KAE_CELLS_DUALRAIL", getattr(b.r, 'inverting', False)):
             # a dual +/- rail IC's inverting half: its rectifier is inside, from the switch node to its VNEG pin
             for p in sw_pins:
                 vn = inverting_output(b.nl, b.r, p.ref, swn)

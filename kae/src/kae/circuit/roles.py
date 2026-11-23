@@ -866,8 +866,10 @@ def inverting_ic(nl: Netlist, roles: Roles, ref):
 
 
 def cells_flag(name, default=False):
-    """A recogniser class's own flag (env `name` = 1/0; unset: `default`): each new cell class stays behind one until
-    its tests pass (KAE_CELLS_DUALRAIL: the negative half of a dual +/- rail IC)."""
+    """A recogniser class's own flag (env `name` = 1/0; unset: `default`). KAE_CELLS_DUALRAIL (the negative half of a
+    dual +/- rail IC) and KAE_CELLS_INVBUCK (TPS6371x inverting bucks) default to the brief's inverting
+    recognition (cells_inverting: on for the evaluator, off for the placer and the router), their recogniser, DC,
+    evaluator and router paths being tested; set either to 0 to leave its class out."""
     import os
     v = os.environ.get(name)
     return default if v is None or not v.strip() else v.strip().lower() in ("1", "true", "yes", "on")
@@ -932,6 +934,7 @@ def infer_roles(nl: Netlist, inverting: bool = False) -> Roles:
     cells_inverting)."""
     _alias_pins(nl)
     roles = Roles(nl=nl)
+    roles.inverting = inverting          # the inverter classes' flags follow it (cells_flag)
     for ref, part in nl.parts.items():
         kind, sub, p, evs = classify_part(part)
         roles.parts[ref] = PartRole(ref=ref, kind=kind, subtype=sub, role=kind, confidence=p, evidence=evs, kind_confidence=p)
@@ -1191,7 +1194,7 @@ def _switch_nodes(nl: Netlist, roles: Roles, inverting: bool = False):
             ics = {x for x in swics if inverting_ic(nl, roles, x)}
             d_, neg_ = inverting_rectifier(nl, roles, n, ref) if swics and not ics else (None, None)
             dual = None
-            if swics and not ics and not d_ and cells_flag("KAE_CELLS_DUALRAIL"):
+            if swics and not ics and not d_ and cells_flag("KAE_CELLS_DUALRAIL", inverting):
                 dual = next(((x, inverting_output(nl, roles, x, n)) for x in sorted(swics)
                              if inverting_output(nl, roles, x, n)), None)
             s, evs = score_side(n, o, ref)
