@@ -116,7 +116,7 @@ def main():
     ap.add_argument('experiment')
     ap.add_argument('--store', default=os.path.expanduser(os.environ.get('KAE_RESULTS', '~/kae-baselines')))
     ap.add_argument('-o', '--out')
-    ap.add_argument('--mode', default='edges', choices=('edges', 'adc', 'c0805'))
+    ap.add_argument('--mode', default='edges', choices=('edges', 'adc', 'c0805', 'analogw'))
     a = ap.parse_args()
     store = Path(a.store)
     exp = json.load(open(store / 'experiments' / a.experiment / 'experiment.json'))
@@ -136,7 +136,7 @@ def main():
                     m = measure(rd / 'output.kicad_pcb.gz')
                 else:
                     tg = json.load(open(HERE / f'{a.mode}.targets.json')).get(bid) or []
-                    m = (measure_adc if a.mode == 'adc' else measure_c0805)(rd / 'output.kicad_pcb.gz', tg)
+                    m = (measure_c0805 if a.mode == 'c0805' else measure_adc)(rd / 'output.kicad_pcb.gz', tg)
             except Exception as e:      # noqa: BLE001
                 m = dict(error=repr(e)[:200])
             rows.append(dict(board=bid, method=r.get('method_name'), attempt=r.get('attempt'), status=r.get('status'), **m,
