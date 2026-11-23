@@ -843,6 +843,27 @@ def _inverting(b: _B, L, lpart, swn, gnd):
                       'cap_gnd': cap_gnd, 'anchor': ctrl})
 
 
+# 4-switch buck-boost ICs whose input half-bridge is not the first-numbered switch pin: (part regex, the input
+# leg's switch pin function, source). Without a row the input leg is the one named L1 / SW1 / SWA / LX1 (TI's
+# TPS63xxx L1, TPS5528x SW1), else the first switch node found.
+SW_INPUT_LEG = [(r'JW3651', 'SW2', "JoulWatt JW3651 datasheet pin description: SW1 is the output (VO) side's switch node, "
+                                   "SW2 the input side's (as read by the facts compiler)")]
+_LEG1 = re.compile(r'^(L1|SW1|SWA|LX1|SW_?IN|LXI)$', re.I)
+
+
+def _input_leg_first(b: _B, ctrl, swnets):
+    """swnets ordered (input leg, output leg) by the controller's switch pins (SW_INPUT_LEG, else _LEG1)."""
+    fn_of = {p.net: p.fn for p in b.nl.parts[ctrl].active_pins() if p.net in swnets}
+    text = b.nl.parts[ctrl].text()
+    for rx, pin, _src in SW_INPUT_LEG:
+        if re.search(rx, text, re.I):
+            first = [n for n in swnets if (fn_of.get(n) or '').upper() == pin]
+            if first:
+                return first + [n for n in swnets if n not in first]
+    first = [n for n in swnets if _LEG1.match(fn_of.get(n) or '')]
+    return (first + [n for n in swnets if n not in first]) if len(first) == 1 else list(swnets)
+
+
 def _buck_boost(b: _B, L, swnets):
     """A 4-switch buck-boost: one buck cell on the input half-bridge, one boost cell on the output half-bridge."""
     nv = [b.nl.nets[n] for n in swnets]
@@ -850,6 +871,7 @@ def _buck_boost(b: _B, L, swnets):
     if not ics:
         return []
     ctrl = ics[0]
+    swnets = _input_leg_first(b, ctrl, swnets)
     part = b.nl.parts[ctrl]
     vin = _vin_pins(b, ctrl, set(swnets))
     outs = [p for p in part.active_pins() if OUT_PIN.match(p.fn) and p.net not in swnets and p.net not in b.g]
