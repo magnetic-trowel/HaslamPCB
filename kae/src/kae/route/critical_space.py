@@ -304,11 +304,14 @@ class Space:
                 self.notes.append(f"thermal corridors unavailable: {type(e).__name__}: {e}")
                 cors = []
             # pour links (opts pour_links, the hot-loop cells stage): solidly connected pads keep a
-            # strip to their zone's fill free of other nets too (thermal_corridors solid)
+            # strip to their zone's fill free of other nets too (thermal_corridors solid), and pads
+            # near their net's copper a lane to it (escape_lanes)
             if self.opts.get("pour_links"):
                 try:
                     cors = list(cors) + [(g, l, q, "pour link") for g, l, q in
                                          CN.thermal_corridors(self.info, plan, None, self.sev, solid=True)]
+                    # and pads that do not touch their net's copper keep their short way to it
+                    cors += [(g, l, q, "escape") for g, l, q in CN.escape_lanes(self.info, plan)]
                 except Exception as e:   # noqa: BLE001 - as above
                     self.notes.append(f"pour links unavailable: {type(e).__name__}: {e}")
             for geo, layer, pad, *why in cors:
@@ -419,7 +422,11 @@ class Space:
         if it.kind in ("pad", "track", "via", "corridor", "shape") and it.net and it.net == net:
             return None
         if it.kind == "corridor":
-            return 0.0 if kind == "track" else None
+            # a thermal-spoke corridor keeps tracks out; a pour link or escape lane (the cells stage) keeps vias out
+            # too: open-authenticator's buck put its GND via across U4.2's lane to its L1-Pad2 zone
+            if kind == "track" or str(it.owner or "").startswith(("escape", "pour link")):
+                return 0.0
+            return None
         if it.kind == "keepout":
             if (it.vias_only and kind == "track") or (it.tracks_only and kind == "via"):
                 return None
