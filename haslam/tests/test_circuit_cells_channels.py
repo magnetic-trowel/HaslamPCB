@@ -104,3 +104,34 @@ def test_a_dual_rail_ics_boost_half_is_a_boost(tmp_path, monkeypatch):
     br = build(load(str(CF.write_board(tmp_path))))
     cells = [(s["class"], s["rail"], s["vin"], s["vout"]) for s in br["structures"] if s["kind"] == "commutation_cell"]
     assert cells == [("boost", "+5VA", "VIN", "+5VA")]
+
+
+LDO = ("U8", "MIC5365-3.3YC5", "Package_TO_SOT_SMD:SOT-23-5", 112.0, 118.0, 0.0,
+       [("1", "+5V", -1.1, -0.95, 1.06, 0.65, "smd", 0.0, "VIN", "power_in"),
+        ("2", "GND", -1.1, 0.0, 1.06, 0.65, "smd", 0.0, "GND", "power_in"),
+        ("5", "+3V3", 1.1, -0.95, 1.06, 0.65, "smd", 0.0, "VOUT", "power_out")], (2.0, 1.6))
+
+
+def test_a_boost_and_an_ldo_feeding_each_other_break_their_cycle(tmp_path, monkeypatch):
+    """A TPS65133 boosting +3V3 to +5V beside an LDO from +5V back to +3V3 (mcp2518fd): the DC plan's feeds formed
+    a cycle through the cell that the cycle breaker did not follow (it walked only regulators), and the band
+    failed to balance (a feed chain deeper than 8). The cycle is broken at its weakest link, with a note."""
+    from haslam.excite import dc as DC
+    m = dict(BOOST_HALF)
+    m[("U1", "1")] = ("+5V", "VPOS", "power_out")
+    m[("U1", "3")] = ("+3V3", "PVIN", "power_in")
+    m[("L1", "1")] = ("+3V3", "", "passive")
+    m[("C2", "1")] = ("+5V", "", "passive")
+    parts = []
+    for ref, val, lib, x, y, rot, pads, cy in CF.PARTS:
+        out = []
+        for n, net, lx, ly, w, h, kind, drill, fn, pt in pads:
+            if (ref, n) in m:
+                net, f2, pt = m[(ref, n)]
+                fn = f2 or fn
+            out.append((n, net, lx, ly, w, h, kind, drill, fn, pt))
+        parts.append((ref, "TPS65133" if ref == "U1" else val, lib, x, y, rot, out, cy))
+    monkeypatch.setattr(CF, "PARTS", parts + [LDO])
+    b = load(str(CF.write_board(tmp_path)))
+    inj = DC.planned_injections(b, {"parts": {"U2": {"I_A": [0.01, 0.01]}}})       # raises if it does not balance
+    assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
