@@ -610,10 +610,20 @@ def plan(board, brief, bd, P, srcs, intent=None):
                         + ", ".join(f"{ex['ref']}@{ex['rail']} {ex['assumed_A'] * 1e3:.3g} mA"
                                     for ex in pl.exports_assumed[:12])
                         + (f" (+{len(pl.exports_assumed) - 12} more)" if len(pl.exports_assumed) > 12 else ""))
-    loaded = {ld["rail"] for ld in pl.loads}
+    # a cell's rail with no load of its own still carries current when a regulator it feeds (or a split-supply load
+    # returning into it) draws: deliver() walks that current back through the cell. Only a rail that nothing draws
+    # from, directly or through what it feeds, leaves the cell's DC flow out of the model.
+    def drawn(r, seen=()):
+        if r in seen:
+            return False
+        if any(ld["rail"] == r or ld.get("ret") == r for ld in pl.loads):
+            return True
+        return any(drawn(r2, seen + (r,)) for r2, f2 in pl.feeds.items() if r2 != r and
+                   (f2["cell"]["vin"] if f2["kind"] == "cell" else f2.get("rin")) == r and not f2.get("flow_external"))
     for r, f in pl.feeds.items():
-        if f["kind"] == "cell" and not any(r in _chain(pl, r2) for r2 in loaded):
-            pl.notes.append(f"{r}: fed by {f['cell']['id']} but no load with a ground pad found; the cell's DC flow is not modelled")
+        if f["kind"] == "cell" and not drawn(r):
+            pl.notes.append(f"{r}: fed by {f['cell']['id']}, but nothing draws from it (no load with a ground pad, no "
+                            f"regulator fed from it); the cell's DC flow is not modelled")
     pl.dc_pads = {t for ld in pl.loads for t in ld["sup"] + ld["gnd"]} | {t for sl in pl.self_loads for t in sl["pads"]}
     for f in pl.feeds.values():
         for k in ("out", "gnd", "inp"):
