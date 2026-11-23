@@ -43,7 +43,8 @@ SCHEMA = 'haslam.brief/1'
 REF_FIELDS = {'controller', 'inductor', 'ic', 'crystal', 'connector', 'part', 'shunt', 'amp', 'bootstrap_cap', 'series_r',
               'feedback_r', 'caps', 'hf_caps', 'bulk_caps', 'load_caps', 'load_caps_xin', 'load_caps_xout', 'protection', 'series', 'match', 'output_caps',
               'input_caps', 'filter', 'phase_shunts', 'top', 'bottom', 'feedforward_cap', 'high', 'low', 'rectifier', 'bond',
-              'series_shunt', 'bootstrap_r', 'charge_pump_caps', 'caps_in', 'caps_out'}
+              'series_shunt', 'bootstrap_r', 'charge_pump_caps', 'caps_in', 'caps_out', 'in_high', 'in_low', 'out_high',
+              'out_low'}
 PAIR_FIELDS = {'loop', 'chain', 'feed', 'loads', 'ic_pins'}
 GROUP_FIELDS = {'snubbers', 'stages'}   # lists of reference groups: [[r, c], ...], [[q1, q2], [q3, q4]]
 KEYED_FIELDS = {'caps_p', 'caps_p_all'}

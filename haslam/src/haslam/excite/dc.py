@@ -298,6 +298,9 @@ def plan(board, brief, bd, P, srcs, intent=None):
                  parts={ref_of.get(u) for u, _ in st.get("loop") or []} | {ref_of.get(st.get("controller")),
                                                                          ref_of.get(st.get("inductor"))})
         c["parts"] |= {ref_of.get(u) for u in st.get("caps") or []}
+        if sw.get("in_high") and sw.get("out_high"):
+            # a 4-switch buck-boost with external FETs: its DC flow enters and leaves at its high-side FETs' drains
+            c["ext"] = {k: ref_of.get(sw.get(k)) for k in ("in_high", "in_low", "out_high", "out_low", "shunt")}
         c["parts"].discard(None)
         cells[st["id"]] = c
     merge_buckboost(cells)
@@ -635,7 +638,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
             pl.dc_pads |= set(f.get(k) or [])
         if f["kind"] == "cell":
             c = f["cell"]
-            for ref in (c["ctrl"], c["rect"]):
+            for ref in (c["ctrl"], c["rect"], *((c.get("ext") or {}).values())):
                 if ref:
                     pl.dc_pads |= {f"{ref}.{n}" for n, net, _, _ in pads.get(ref, [])
                                    if net in rails or net in grounds or net in (c["sw"], c.get("sw2"))}
@@ -903,6 +906,20 @@ def injections(pl, cv, lost=None):
                 if not c["rect"]:
                     add(on(ctrl, r), s, f"{r}: {c['id']} low side")
                     add(sw, -s, f"{r}: {c['id']} low side")
+            elif c.get("ext"):
+                # a 4-switch buck-boost with external FETs (either region): the input current enters at the input
+                # leg's high-side FET's drain, the output current leaves at the output leg's, and their difference
+                # (the conversion's balance) returns at the sense shunt's ground pad, else the low-side FETs'. P_in =
+                # P_out / eta, at the facts' eta when they state it
+                e = c["ext"]
+                eta = cv.get((f["eta"].subject, "eta"), f["eta"].typ) if f.get("eta") else c.get("eta", 1.0)
+                xin = x * _mag(pl, r) / (eta * _mag(pl, rin))
+                s_in = _sign(pl, rin) * xin
+                ins, boost = on(e["in_high"], rin), False
+                gs = (gnd(e["shunt"]) if e.get("shunt") else []) or gnd(e["in_low"]) or gnd(e["out_low"])
+                add(ins, -s_in, f"{r}: {c['id']} input")
+                add(on(e["out_high"], r), s, f"{r}: {c['id']} output")
+                add(gs, s_in - s, f"{r}: {c['id']} return")
             elif top == "inverting_buck":
                 # an inverting buck (TPS6371x): its inductor runs from the negative rail into the switch node, so the
                 # IC takes the output current s (signed: below ground) in at its switch pin and the input current
