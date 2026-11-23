@@ -53,7 +53,7 @@ def _edge(pad, a, b):
     return (p.x, p.y)
 
 
-def deck(variant, ctx, win, seg_per_mm, nwinc, nhinc, contact_r=0.15, contact_n=12):
+def deck(variant, ctx, win, seg_per_mm, nwinc, nhinc, contact_r=0.15, contact_n=12, f=None):
     from hotloop_fixtures import GND, GND_AXIS, GND_VIAS, VIN, VIN_LONG
     lays = {l.name: l for l in ctx.layers}
     zt = lays["F.Cu"].z + lays["F.Cu"].t / 2
@@ -117,7 +117,8 @@ def deck(variant, ctx, win, seg_per_mm, nwinc, nhinc, contact_r=0.15, contact_n=
     lines += nodes + elems + ring
     lines.append(f".equiv {c11} {ends['C1.2']}")
     lines.append(f".external {ends['U1.4']} {u13}")
-    lines.append(f".freq fmin={F:g} fmax={F:g} ndec=1")
+    f = F if f is None else f
+    lines.append(f".freq fmin={f:g} fmax={f:g} ndec=1")
     lines.append(".end")
     return "\n".join(lines) + "\n"
 
@@ -134,6 +135,30 @@ def run_fh(exe, path):
     return z, r.stdout
 
 
+def strips_port_R(p, ctx, freqs, p0s):
+    """{(P0, graded): {f: (R ohm, L H)}} of the strips network driven as the deck is: the cell's network at its quote's
+    settings (forced P0, graded or uniform), every circuit part removed but C1, which becomes an ideal short; 1 A in
+    at U1.4, out at U1.3; R the copper's dissipation and L its stored energy at each f (the deck's port Z)."""
+    from kae.em import strips as ST
+    out = {}
+    for P in p0s:
+        for graded in (True, False):
+            q = ST.from_board(p, CELL, ctx=ctx, p0=P, grade=graded, keep=True, max_unknowns=10 ** 6)
+            _, _, net, _ = q.systems["fund"]
+            lumps = [ST.Lump(lp.na, lp.nb, ST._const(0.0), "C1", "short") for lp in net.lumps if lp.name == "C1"]
+            lumps += [lp for lp in net.lumps if lp.kind != "part"]
+            n2 = net.with_lumped(lumps)
+            L = ST.mutuals(n2, ctx.tables)
+            port = (n2.pads["U1.4"]["node"], n2.pads["U1.3"]["node"])
+            row = {}
+            for f in freqs:
+                sy = ST.System(n2, L, f).factor()
+                x = sy.solve(port=port)
+                row[f] = (sy.dissipation_R(x), sy.energy_L(x), sy.N)
+            out[(P, graded)] = row
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--fasthenry", default=os.environ.get("FASTHENRY", "fasthenry"))
@@ -147,6 +172,10 @@ def main(argv=None):
     ap.add_argument("--raster-pitch", type=float, default=0.0625, help="0: no raster quote (cellquote's raw window)")
     ap.add_argument("--variants", nargs="+", default=["closed", "long", "axis"])
     ap.add_argument("--out")
+    ap.add_argument("--freqs", type=float, nargs="+", help="Hz: FastHenry's R and L at these frequencies (an R table: "
+                    "FastHenry against the strips network driven as the deck is, at --port-p0 graded and uniform; no "
+                    "raster or quote columns)")
+    ap.add_argument("--port-p0", type=float, nargs="+", default=[0.5, 0.25])
     a = ap.parse_args(argv)
     from hotloop_fixtures import plane_fills, write_hotloop_board
     from kae.em import strips as ST
@@ -155,6 +184,24 @@ def main(argv=None):
     import kae.route.critical_recheck as CRR
     from kae.excite import cellquote as CQ
     CRR.fills_of = lambda p: plane_fills()
+    if a.freqs:
+        print("| variant | f (MHz) | FastHenry R (mOhm) | FastHenry L (nH) | " + " | ".join(
+            f"strips P0 {P:g} {'graded' if g else 'uniform'} R / L (N)" for P in a.port_p0 for g in (True, False)) + " |")
+        print("|---|---|---|---|" + "---|" * 2 * len(a.port_p0))
+        for v in a.variants:
+            p = str(write_hotloop_board(out / v, v))
+            ctx = ST.prepare(p, fills=plane_fills())
+            win, _ = ST.cell_window(ctx, ST._source(ctx, CELL))
+            sr = strips_port_R(p, ctx, a.freqs, a.port_p0)
+            for f in a.freqs:
+                inp = out / f"{v}-{f / 1e6:g}MHz.inp"
+                inp.write_text(deck(v, ctx, win, a.seg, a.nwinc, a.nhinc, a.contact_r, a.contact_n, f=f))
+                z, _ = run_fh(a.fasthenry, inp)
+                cols = " | ".join(f"{sr[(P, g)][f][0] * 1e3:.4f} / {sr[(P, g)][f][1] * 1e9:.4f} ({sr[(P, g)][f][2]})"
+                                  for P in a.port_p0 for g in (True, False))
+                print(f"| {v} | {f / 1e6:g} | {z.real * 1e3:.4f} | {z.imag / (2 * math.pi * f) * 1e9:.4f} | {cols} |",
+                      flush=True)
+        return 0
     print(f"| variant | FastHenry L (nH) | FastHenry R (mOhm) | raster {a.raster_pitch:g} mm L (nH) | raster / FH | "
           f"strips (P0 cap {a.strips_pitch:g}) L (nH) | strips / FH |")
     print("|---|---|---|---|---|---|---|")
