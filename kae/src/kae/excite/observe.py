@@ -59,6 +59,23 @@ class Observer:
     meta: dict = field(default_factory=dict)
 
 
+def rate_overshoot(obs, P):
+    """Each cell's overshoot observer at its parameters' typical bus and its switch's rating (P[source]: the
+    ledger's {name: Param}): the observer's reference was the nominal bus against the prior rating, so a part whose
+    rating the part table or the operating facts state (an LMR51430's 38 V) showed a prior's bound (30 V)."""
+    for o in obs:
+        if o.kind != "overshoot":
+            continue
+        p = P.get(o.meta.get("source")) or {}
+        V, vm = p.get("V"), p.get("V_max")
+        if V is None:
+            continue
+        va = vm.typ if vm is not None else None
+        o.bound = CR.overshoot_limits(V.typ, va)[0]
+        o.basis = CR.overshoot_basis(V.typ, va)
+        o.src_class = vm.source if vm is not None else "prior"
+
+
 def observers(bd, brief, sources):
     out = []
     for s in sources:

@@ -204,6 +204,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     srcs = S.add_all(bd, brief)
     obs = O.observers(bd, brief, srcs)
     P, ledger = ledger_for(bd, brief, srcs, intent)
+    O.rate_overshoot(obs, P)
     dcp = DC.plan(b, brief, bd, P, srcs, intent) if dc else None
     for p in (dcp.params if dcp else []):
         ledger.add(p)

@@ -206,8 +206,13 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
     else:
         why = f"input rail {vin_net} has no voltage" if vin_net else "input rail not identified"
         out["D"] = _p(L, sid, "D", 0.5, 0.1, 0.9, "", "prior", f"duty unknown ({why})")
-    # the switch's voltage rating, for the overshoot requirement
-    if "v_sw_max_V" in tab:
+    # the switch's voltage rating, for the overshoot requirement: the operating facts' (cells.<id>.V_max_V), else
+    # the part table's (the facts were read for the cell's current and timing only; their stated rating never
+    # reached the overshoot bound)
+    iv = intent_value(intent, "cells", sid, "V_max_V")
+    if iv:
+        out["V_max"] = _p(L, sid, "V_max_V", *iv, "V", "intent", "the intent file")
+    elif "v_sw_max_V" in tab:
         t, lo, hi, src = tab["v_sw_max_V"]
         out["V_max"] = _p(L, sid, "V_max_V", t, lo, hi, "V", "part_table", src)
     return out
