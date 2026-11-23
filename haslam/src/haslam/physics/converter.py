@@ -86,6 +86,8 @@ def topology_of(cls, struct=None, v_out=None, v_in=None):
         return top, None
     if cls == "buck" and v_out and ((v_out < 0) != (v_in < 0) if v_in else v_out < 0):
         return "inverting_buck_boost", None
+    if cls == "inverting":
+        return "inverting_buck_boost", None
     if cls in ("buck", "boost", "sepic", "cuk", "inverting_buck_boost", "boost_led"):
         return cls, None
     return None, None

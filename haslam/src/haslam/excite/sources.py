@@ -36,7 +36,7 @@ CLOCK_TR = 1e-9
 CLOCK_F = 25e6                   # a clock whose frequency the board does not state
 CORE_F = 50e6                    # core clock of an IC whose clock is not known
 CLOCK_C = 10e-12                 # load of a short clock net (receiver plus trace)
-HIGH_SIDE = ("buck", "half_bridge", "motor_driver", "sepic", "flyback", "forward")
+HIGH_SIDE = ("buck", "inverting", "half_bridge", "motor_driver", "sepic", "flyback", "forward")
 
 
 def add_all(bd, brief, nl=None):
