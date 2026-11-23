@@ -67,8 +67,14 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
         return float(d["volts"]), float(lo), float(hi)
     vb = volts(s.meta.get("bus"))
     iv = intent_value(intent, "cells", sid, "V_V")
+    vneg = volts(st.get("vout")) if cls == "inverting" and st.get("vout") else None
     if iv:
         out["V"] = _p(L, sid, "V_V", *iv, "V", "intent", "the intent file")
+    elif vb and vneg:
+        # an inverting buck-boost's switch swings from its input to its negative output: V_in + |V_out|
+        vi_m, vo_m = _mag(vb), _mag(vneg)
+        out["V"] = _p(L, sid, "V_V", vi_m[0] + vo_m[0], vi_m[1] + vo_m[1], vi_m[2] + vo_m[2], "V", "board",
+                      f"V_in + |V_out|: rails {s.meta.get('bus')} and {st.get('vout')}")
     elif vb:
         out["V"] = _p(L, sid, "V_V", *vb, "V", "board", f"rail {s.meta.get('bus')}: its name, regulator or divider")
     else:
@@ -181,9 +187,10 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
         clip = " (clipped: Vin >= Vout as the rails read, their voltages are suspect)" if vi[0] >= Vm[0] else ""
         out["D"] = _p(L, sid, "D", D[1], min(D), max(D), "", "physics",
                       f"boost D = 1 - Vin eta/V with Vin from {vin_net}, eta {e[0]:g}-{e[2]:g} typical (TI SLVA372){clip}")
-    elif cls == "buck" and volts(st.get("vout")) and top == "inverting_buck_boost":
-        # its rails have opposite signs (CV.topology_of): D = |Vout| / (|Vin| eta + |Vout|), TI SLVA721
-        e, vo, Vm = CV.ETA, _mag(volts(st.get("vout"))), _mag((V.typ, V.lo, V.hi))
+    elif cls in ("buck", "inverting") and volts(st.get("vout")) and top == "inverting_buck_boost" and vb:
+        # its rails have opposite signs (CV.topology_of): D = |Vout| / (|Vin| eta + |Vout|), TI SLVA721; Vin is the
+        # input rail (an inverting cell's bus V is the switch's swing V_in + |V_out|, not its input)
+        e, vo, Vm = CV.ETA, _mag(volts(st.get("vout"))), _mag(vb)
         D = (vo[1] / (Vm[2] * e[2] + vo[1]), vo[0] / (Vm[0] * e[1] + vo[0]), vo[2] / (Vm[1] * e[0] + vo[2]))
         out["D"] = _p(L, sid, "D", D[1], min(D), max(D), "", "physics",
                       f"inverting buck-boost D = |Vout| / (Vin eta + |Vout|) with Vout from {st.get('vout')}, eta "
