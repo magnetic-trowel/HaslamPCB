@@ -437,7 +437,8 @@ def plan(board, brief, bd, P, srcs, intent=None):
             pl.notes.append(f"{r}: {f['ref']} is linear from {f['rin']}, a rail of the opposite sign, which no linear "
                             f"regulator does; the DC flow enters at {f['ref']}")
     for c in cells.values():
-        if _top(c) != "inverting_buck_boost" and volts(c["vin"]) and volts(c["vout"]) and sgn(c["vin"]) != sgn(c["vout"]):
+        if _top(c) not in ("inverting_buck_boost", "inverting_buck") and volts(c["vin"]) and volts(c["vout"]) \
+                and sgn(c["vin"]) != sgn(c["vout"]):
             pl.notes.append(f"{c['vout']}: {c['id']} runs between rails of opposite signs as a {_top(c)}; its DC flow is "
                             f"taken as its output's mirror image")
     # a regulator whose input net has no feed of its own: the DC flow enters the board at it (its input
@@ -898,6 +899,15 @@ def injections(pl, cv, lost=None):
                 if not c["rect"]:
                     add(on(ctrl, r), s, f"{r}: {c['id']} low side")
                     add(sw, -s, f"{r}: {c['id']} low side")
+            elif top == "inverting_buck":
+                # an inverting buck (TPS6371x): its inductor runs from the negative rail into the switch node, so the
+                # IC takes the output current s (signed: below ground) in at its switch pin and the input current
+                # D |I_out| / eta at its input pins, and returns both through its ground pins (the flying capacitor
+                # carries no DC)
+                s_in = _sign(pl, rin) * xin
+                add(ins, -s_in, f"{r}: {c['id']} input")
+                add(sw, s, f"{r}: {c['id']} switch node (the inductor's current)")
+                add(gs, s_in - s, f"{r}: {c['id']} return")
             else:
                 # a buck, boost or 4-switch buck-boost between rails of one sign: its positive form's currents, all of
                 # them mirrored on rails below ground
