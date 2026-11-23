@@ -909,9 +909,29 @@ def inverting_rectifier(nl: Netlist, roles: Roles, swn, ind_ref=None):
     return None, None
 
 
+# parts whose datasheet names its switch and input pins outside the usual words: (part regex, {pin function: the
+# usual word}, source). TI TPS65130/1/2/3 (datasheet SLVS493, pin functions): INP the boost's switch node (the
+# inductor from the input), OUTN the inverter's switch node, INN the inverter's power input.
+PIN_ALIAS = [(re.compile(r'TPS6513[0-3]', re.I), {'INP': 'SWP', 'OUTN': 'SWN', 'INN': 'PVINN'},
+              "TI TPS6513x datasheet (SLVS493) pin functions")]
+
+
+def _alias_pins(nl: Netlist):
+    """Pin functions read through PIN_ALIAS (the parts' own names kept in Pin.function; Pin.fn reads the alias)."""
+    for part in nl.parts.values():
+        text = part.text()
+        for rx_, alias, _src in PIN_ALIAS:
+            if rx_.search(text):
+                for p in part.pins:
+                    a = alias.get(p.fn)
+                    if a:
+                        p.__dict__['fn'] = a          # Pin.fn is a cached property: the alias is what it reads
+
+
 def infer_roles(nl: Netlist, inverting: bool = False) -> Roles:
     """inverting: recognise inverting buck-boost switch nodes (an inductor from the switch node to ground; see
     cells_inverting)."""
+    _alias_pins(nl)
     roles = Roles(nl=nl)
     for ref, part in nl.parts.items():
         kind, sub, p, evs = classify_part(part)
