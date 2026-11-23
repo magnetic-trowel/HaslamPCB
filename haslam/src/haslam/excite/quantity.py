@@ -171,8 +171,9 @@ KIND_TYPE = {
 
 # what a Clamp kind's clamp throws away (its sign_meaning, unless the observation states one)
 CLAMPED_AWAY = {
-    "drop.rail": "a load whose ground sits below its source's (rail and ground sum below zero) sees more than the "
-                 "source's voltage: no drop, and no credit against one; the signed sum is in `signed`",
+    "drop.rail": "the drop is what the load loses of its rail's magnitude, max(sigma dv, 0) with sigma the rail's "
+                 "sign (a -12 V rail drops toward 0 V as a +12 V one does); the other sign (the load sees more than "
+                 "its source, through shared ground copper) is no drop and no credit; the signed sum is in `signed`",
 }
 
 # an id the registry does not know is typed by its unit
