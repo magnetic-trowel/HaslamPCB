@@ -259,12 +259,32 @@ def extbb_parts(pin_names=True):
     ]
 
 
-def write_extbb_board(d, pin_names=True, layers=4):
-    """The external-FET buck-boost board (extbb_parts), unrouted, on `layers` copper layers (4: GND on In1.Cu)."""
+EFUSE = ("U5", "TPS259472", "Package_SON:WSON-10-1EP_2x3mm_P0.5mm", 131.0, 113.0, 0.0,
+         [("1", "+15V", -1.0, -0.5, 0.6, 0.3, "smd", 0.0, "IN", "power_in"),
+          ("2", "+15V_F", 1.0, -0.5, 0.6, 0.3, "smd", 0.0, "OUT", "power_out"),
+          ("3", "GND", 0.0, 0.8, 0.6, 0.3, "smd", 0.0, "GND", "power_in")], (1.6, 1.4))
+
+
+def extbb_series_parts(series, pin_names=True):
+    """The board with its output capacitor C2 (and J2) behind a series part from the leg's +15V: an eFuse
+    ("efuse", TPS25947-style, closed in operation) or none ("none": C2 gone, the leg with no capacitor at all)."""
+    out = []
+    for ref, val, lib, x, y, rot, pads, cy in extbb_parts(pin_names):
+        if ref == "C2" and series == "none":
+            continue
+        if ref in ("C2", "J2") and series == "efuse":
+            pads = [(n, "+15V_F" if net == "+15V" else net, *rest) for n, net, *rest in pads]
+        out.append((ref, val, lib, x, y, rot, pads, cy))
+    return out + ([EFUSE] if series == "efuse" else [])
+
+
+def write_extbb_board(d, pin_names=True, layers=4, series=None):
+    """The external-FET buck-boost board (extbb_parts), unrouted, on `layers` copper layers (4: GND on In1.Cu);
+    series: its output capacitor behind an eFuse ("efuse") or gone ("none") (extbb_series_parts)."""
     import critical_fixtures as CF
     d = Path(d)
     old = CF.PARTS
-    CF.PARTS = extbb_parts(pin_names)
+    CF.PARTS = extbb_series_parts(series, pin_names) if series else extbb_parts(pin_names)
     try:
         p = write_board(d)
         text = board_text()
