@@ -218,3 +218,30 @@ def test_a_vss_named_net_an_inverter_drives_below_ground_is_its_output(tmp_path,
     assert "VSSA" not in br["summary"]["grounds"]
     s = _cells(br)[CELL]
     assert (s["vout"], s["gnd"]) == ("VSSA", "VSSA")
+
+
+TPS65131 = {("U1", "3"): ("VIN", "INN", "power_in"), ("U1", "5"): ("Net-(U1-OUTN)", "OUTN", "output"),
+            ("U1", "1"): ("-5V", "VNEG", "input"), ("L1", "1"): ("Net-(U1-OUTN)", "", "passive"),
+            ("L1", "2"): ("GND", "", "passive"), ("C2", "1"): ("-5V", "", "passive")}
+D_OUTN = ("D2", "PMEG4010", "Diode_SMD:D_SOD-123", 126.0, 114.5, 0.0,
+          [("1", "Net-(U1-OUTN)", -1.65, 0.0, 0.9, 1.2, "smd", 0.0, "K", "passive"),
+           ("2", "-5V", 1.65, 0.0, 0.9, 1.2, "smd", 0.0, "A", "passive")], (2.4, 1.0))
+
+
+def test_a_tps65131s_inverter_is_read_through_its_pin_names(tmp_path, monkeypatch):
+    """The TPS6513x names its inverter's switch node OUTN and its power input INN (its boost's switch node INP): no
+    switch pin was found, so cameranexus' four TPS65131s had no cell. PIN_ALIAS reads them as SWN and PVINN, and
+    the inverter (its rectifier D6 from OUTN into -8VA) is a dedicated inverting cell."""
+    import critical_fixtures as CF
+    parts = []
+    for ref, val, lib, x, y, rot, pads, cy in CF.PARTS:
+        out = []
+        for n, net, lx, ly, w, h, kind, drill, fn, pt in pads:
+            if (ref, n) in TPS65131:
+                net, f2, pt = TPS65131[(ref, n)]
+                fn = f2 or fn
+            out.append((n, net, lx, ly, w, h, kind, drill, fn, pt))
+        parts.append((ref, "TPS65131RGE" if ref == "U1" else val, lib, x, y, rot, out, cy))
+    monkeypatch.setattr(CF, "PARTS", parts + [D_OUTN])
+    s = _cells(build(load(str(CF.write_board(tmp_path))), inverting=True))[CELL]
+    assert (s["vin"], s["vout"], s["gnd"], s["sw"]) == ("VIN", "-5V", "GND", "Net-(U1-OUTN)")
