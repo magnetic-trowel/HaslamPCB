@@ -174,6 +174,9 @@ _nearest_ground = nearest_ground
 
 def _cell(bd, s, uuid):
     c = bd.circuit
+    if "common_source_inductance" in (s.get("unmodelled") or []):
+        bd.assumptions.append(f"{s['id']}: the FETs' common-source inductance (the gate-drive loop sharing each FET's "
+                              f"source path) is not modelled; its switching edges are the cell's priors")
     sw, gnd, bus = s.get("sw"), s.get("gnd") or bd.ground, s.get("rail")
     ex = s.get("excite") or {}
     I, V = ex.get("I") or 1.0, ex.get("V") or bd.rails.get(bus) or 12.0
