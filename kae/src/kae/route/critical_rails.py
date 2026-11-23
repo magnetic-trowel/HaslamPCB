@@ -152,6 +152,8 @@ def load_current(ctx, u, net, cells, draws=None):
             vo = ctx.volts(c.get("vout"))
             if not vo:
                 return i_out
+            if c.get("topology") == "inverting_buck":       # its excitation I is its output current (I_L = I_out)
+                return CV.input_current("inverting_buck", max(v, 0.5), vo, i_out)
             D = CV.duty("inverting_buck_boost", max(v, 0.5), vo)
             return CV.input_current("inverting_buck_boost", max(v, 0.5), vo, i_out * (1 - D))
         if c.get("rail") == net:

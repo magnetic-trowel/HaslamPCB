@@ -1118,6 +1118,9 @@ def cell_operating(ctx, m):
         elif cls == "buck" and vout and bus and bus > vout:
             D = vout / bus
             basis.append("D: buck Vout/Vin")
+        elif cls == "inverting" and s.get("topology") == "inverting_buck" and vin and vout:
+            D = vout / vin
+            basis.append("D: inverting buck |Vout| / Vin")
         elif cls == "inverting" and vin and vout:
             from kae.physics import converter as CV
             D = CV.duty("inverting_buck_boost", vin, vout)

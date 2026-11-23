@@ -104,3 +104,22 @@ def test_the_four_layer_inverter_at_one_and_a_half_amps(tmp_path, monkeypatch):
     # I_L = I_out / (1 - D) at 12 V -> -5 V: the hops are at least IPC-2221 wide for it (or flagged)
     widths = [t.width for t in b.tracks if t.net in ("+12V", "-5V")]
     assert widths and max(widths) >= P.ipc2221_width(1.5) - 1e-6
+
+
+def test_the_cells_stage_lays_an_inverting_buck(tmp_path, monkeypatch):
+    """A TPS6371x inverting buck (KAE_CELLS_INVBUCK=1 with inverting cells on): laid as a buck's loop through
+    ground, priced, closing no pin's way, adding no DRC error."""
+    from test_circuit_inverting import _inv_buck_parts
+    monkeypatch.setattr(F, "PARTS", _inv_buck_parts())
+    monkeypatch.setenv("KAE_CELLS_INVERTING", "1")
+    monkeypatch.setenv("KAE_CELLS_INVBUCK", "1")
+    src = F.write_board(tmp_path / "in")
+    rep = hotloop.stage(src, F.synth_info(load(src)), tmp_path / "w", ALL, log=lambda *a: None)
+    (c,) = [c for c in rep["cells"] if c["id"] == CELL]
+    assert c["status"] == "routed" and c["L_nH"] > 0 and c["R_mohm"] > 0 and c["ret"] == "GND"
+    assert not [h for h in rep["hazards"] if h["code"] in ("hotloop_cell_blocks_pin", "hotloop_cell_unrouted")]
+    base = drc.errors(drc.run(src, tmp_path / "base.json"))
+    out = tmp_path / "out.kicad_pcb"
+    W.edit(rep["board"], out, drop_guards=True)
+    (tmp_path / "out.kicad_pro").write_text((tmp_path / "in" / "board.kicad_pro").read_text())
+    assert len(drc.errors(drc.run(out, tmp_path / "out.json"))) <= len(base)

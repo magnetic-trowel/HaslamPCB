@@ -2183,7 +2183,7 @@ def _apply_dividers(b: _B, fb, cells):
         ex = c['excite']
         v = b.volts(c['rail'])
         vb = (b.r.nets.get(c['rail']).attrs.get('volts') or {}) if b.r.nets.get(c['rail']) else {}
-        if c['class'] == 'inverting':
+        if c['class'] == 'inverting' and c.get('topology') != 'inverting_buck':
             # the switch swings from the input to the negative output: V_in + |V_out|
             vo = b.volts(c['vout'])
             v = v + abs(vo) if v is not None and vo is not None else None
