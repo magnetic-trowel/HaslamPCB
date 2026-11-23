@@ -74,7 +74,13 @@ D2 = ("D2", "PMEG4010", "Diode_SMD:D_SOD-123", 126.0, 114.5, 0.0,
        ("2", "-5V", 1.65, 0.0, 0.9, 1.2, "smd", 0.0, "A", "passive")], (2.4, 1.0))
 
 
-def inverting_parts(variant="ground"):
+# a -5V load: an export connector from -5V to ground (its current from the operating facts)
+J2 = ("J2", "Conn_01x02", "Connector_JST:JST_PH_B2B-PH-K_1x02_P2.00mm_Vertical", 136.0, 124.0, 0.0,
+      [("1", "-5V", 0.0, -1.0, 1.4, 1.4, "thru_hole", 0.8, "Pin_1", "passive"),
+       ("2", "GND", 0.0, 1.0, 1.4, 1.4, "thru_hole", 0.8, "Pin_2", "passive")], (1.6, 2.4))
+
+
+def inverting_parts(variant="ground", load=False):
     """critical_fixtures' parts with U1 as an inverting buck-boost from +12V to -5V (variant: see above)."""
     import critical_fixtures as CF
     ren = {("U1", "1"): "Net-(U1-FB)", ("L1", "2"): "GND", ("C2", "1"): "-5V"}
@@ -88,6 +94,8 @@ def inverting_parts(variant="ground"):
         out.append((ref, INV_VALUE[variant] if ref == "U1" else val, lib, x, y, rot, pads, cy))
     if variant == "dedicated":
         out.append(D2)
+    if load:
+        out.append(J2)
     return out
 
 
@@ -126,13 +134,13 @@ def _neg_pour():
             f'\t\t(polygon\n\t\t\t(pts\n\t\t\t\t(xy {x0} {y0}) (xy {x1} {y0}) (xy {x1} {y1}) (xy {x0} {y1})\n\t\t\t)\n\t\t)\n\t)\n')
 
 
-def write_inverting_board(d, variant="ground", routed=True, neg_pour=False):
+def write_inverting_board(d, variant="ground", routed=True, neg_pour=False, load=False):
     """The synthetic board with its converter inverting (inverting_parts), its hot loop routed and grounded
     (routed=False: the parts only, for the router; neg_pour: a -5V pour on B.Cu under the cell, NEG_POUR)."""
     import critical_fixtures as CF
     d = Path(d)
     old = CF.PARTS
-    CF.PARTS = inverting_parts(variant)
+    CF.PARTS = inverting_parts(variant, load)
     try:
         p = write_board(d)
         text = board_text()
