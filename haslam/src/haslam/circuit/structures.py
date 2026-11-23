@@ -627,7 +627,16 @@ def _converter(b: _B, L, lpart, swn, other):
             d_boost = (d, o)
     vin_pins = _vin_pins(b, ctrl, {swn, other}, suffix, token) if ctrl else []
     out_pins = [p for p in b.nl.parts[ctrl].active_pins() if OUT_PIN.match(p.fn) and p.net not in (swn,) and p.net not in b.g] if ctrl else []
-    ctrl_in_on_other = ctrl and any(p.net == other and b.r.sem(p) == 'supply' and not SW_PIN.match(p.fn) for p in b.nl.parts[ctrl].active_pins())
+    # a multi-channel IC (a PMIC's SW1/SW2): an output pin of another channel says nothing of this one, and this
+    # channel's own output pin (VOUT1 beside SW1) on the inductor's far end says the far end is its output (a buck):
+    # an I/O supply pin there (VDDIO from +1V8) is then that output's load, not the converter's input
+    if suffix:
+        own_out = [p for p in out_pins if p.fn.endswith(suffix)]
+        out_pins = own_out
+    else:
+        own_out = []
+    ctrl_in_on_other = ctrl and not any(p.net == other for p in own_out) and \
+        any(p.net == other and b.r.sem(p) == 'supply' and not SW_PIN.match(p.fn) for p in b.nl.parts[ctrl].active_pins())
     sb, eb, sbo, ebo = 0.0, [], 0.0, []
     if vin_pins:
         sb += 2.0
@@ -641,6 +650,9 @@ def _converter(b: _B, L, lpart, swn, other):
     if b.r.caps_to.get(other):
         sb += 0.5
         eb.append(ev('topology', f"{len(b.r.caps_to[other])} capacitor(s) on the far end (output)", 0.5))
+    if any(p.net == other for p in own_out):
+        sb += 2.0
+        eb.append(ev('pinfunction', f"{ctrl}'s own channel output {own_out[0].label} on the inductor's far end", 2.0))
     if d_boost:
         sbo += 3.0
         ebo.append(ev('topology', f"rectifier {d_boost[0]}: anode on the switch node, cathode on '{b.short(d_boost[1])}'", 3.0))
