@@ -70,9 +70,9 @@ def test_a_negative_rails_drop_is_what_its_load_loses_toward_ground(tmp_path):
     assert ob["loss"][2] == pytest.approx(DC.LOSS_SHARE * 0.1 * 12.0)
 
 
-def _inverting_plan(tmp_path):
+def _inverting_plan(tmp_path, extra=None, nets=None):
     """critical_fixtures' board with its converter an LMR51430 from +12V to -5V (TI SLVA721: GND pin on -5V, L1 from
-    the switch node to ground), and a -5 V export J2."""
+    the switch node to ground), and a -5 V export J2 (or the parts `extra`, with the operating facts' `nets`)."""
     import critical_fixtures as CF
     import hotloop_fixtures as HF
     from kae.board.kicad_file import load
@@ -83,13 +83,14 @@ def _inverting_plan(tmp_path):
           [("1", "-5V", 0.0, -1.0, 1.4, 1.4, "thru_hole", 0.8, "Pin_1", "passive"),
            ("2", "GND", 0.0, 1.0, 1.4, 1.4, "thru_hole", 0.8, "Pin_2", "passive")], (1.6, 2.4))
     old = CF.PARTS
-    CF.PARTS = HF.inverting_parts() + [j2]
+    CF.PARTS = HF.inverting_parts() + (extra if extra is not None else [j2])
     try:
         p = CF.write_board(pathlib.Path(tmp_path))
     finally:
         CF.PARTS = old
     b = load(p)
-    intent = {"nets": {"+12V": {"source": "J1", "V_V": 12.0}, "-5V": {"V_V": -5.0}}, "parts": {"J2": {"I_A": [0.2, 0.2]}}}
+    intent = {"nets": {"+12V": {"source": "J1", "V_V": 12.0}, "-5V": {"V_V": -5.0}, **(nets or {})},
+              "parts": {"J2": {"I_A": [0.2, 0.2]}, "J3": {"I_A": [0.05, 0.05]}}}
     br = B.build(b, inverting=True)
     bd = M.build(b, br)
     srcs = S.add_all(bd, br)
@@ -236,3 +237,27 @@ def test_planned_injections_refuse_a_plan_that_does_not_balance(monkeypatch, tmp
     monkeypatch.setattr(E, "ledger_for", lambda *a, **k: ({}, None))
     with pytest.raises(ValueError, match="does not balance"):
         DC.planned_injections(SimpleNamespace(footprints=[]), {}, brief={"nets": {}, "parts": {}})
+
+
+def test_a_cell_rail_drawn_through_a_regulator_is_modelled_and_one_drawn_by_nothing_is_said(tmp_path):
+    """The inverter's -5 V feeds only an LM7905-style regulator to -3.3 V and its export: the cell has no load of its
+    own, but deliver() walks the regulator's current back through it, so no note may say its flow is not modelled
+    (one did, on duanestorey's -12 V inverter feeding the LM337). With nothing on -5V at all, the note stands."""
+    def part(ref, val, x, pads):
+        return (ref, val, "Package_TO_SOT_SMD:SOT-223-3_TabPin2", x, 112.0, 0.0,
+                [(n, net, dx, 0.0, 1.0, 1.0, "smd", 0.0, fn, pt) for n, net, dx, fn, pt in pads], (2.0, 2.0))
+    u5 = part("U5", "LM7905", 140.0, [("1", "GND", -2.3, "GND", "power_in"), ("2", "-5V", 0.0, "VI", "power_in"),
+                                      ("3", "-3V3", 2.3, "VO", "power_out")])
+    j3 = ("J3", "Conn_01x02", "Connector_JST:JST_PH_B2B-PH-K_1x02_P2.00mm_Vertical", 150.0, 112.0, 0.0,
+          [("1", "-3V3", 0.0, -1.0, 1.4, 1.4, "thru_hole", 0.8, "Pin_1", "passive"),
+           ("2", "GND", 0.0, 1.0, 1.4, 1.4, "thru_hole", 0.8, "Pin_2", "passive")], (1.6, 2.4))
+    pl, P, srcs = _inverting_plan(tmp_path / "a", extra=[u5, j3],
+                                  nets={"-3V3": {"source": "U5", "from": "-5V", "kind": "linear", "V_V": -3.3}})
+    assert pl.feeds["-5V"]["kind"] == "cell" and not any(ld["rail"] == "-5V" for ld in pl.loads)
+    assert not any("not modelled" in n for n in pl.notes), pl.notes
+    cell = next(s_.name for s_ in srcs if s_.kind == "cell")
+    lost = []
+    inj = DC.injections(pl, _typical(pl, P, [cell]), lost)
+    assert DC.imbalance(pl, inj, lost) == [] and inj["U1.4"] == pytest.approx(-0.05)     # J3's 50 mA, through U5
+    pl, _, _ = _inverting_plan(tmp_path / "b", extra=[])
+    assert any(n.startswith("-5V: fed by cell:inverting:U1, but nothing draws from it") for n in pl.notes), pl.notes
