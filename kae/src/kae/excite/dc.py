@@ -47,7 +47,7 @@ DROP_SHARE = 0.02       # rail + ground drop: 2 % of the rail voltage (as kae.ro
 DT_MAX = 10.0           # K, track temperature rise (the common IPC design point)
 ETA = (0.75, 0.85, 0.95)   # efficiency of a switching regulator without a cell model (lo, typ, hi)
 DC_KINDS = ("R", "L", "FB", "D_on", "short")     # circuit elements that conduct at DC
-LEAK = 1e-3             # a piece's imbalance below this share of the largest injection is no open (kae.em.solve's leak)
+EPS = 1e-9              # float rounding, as a share of the largest injection: a plan's flow balances to this or is wrong
 LINEAR = ("regulator_linear", "charger", "load_switch", "battery_monitor", "usb_pd")
 SWITCHING = ("regulator_switching", "pmic", "regulator_module")
 # parts that consume power as well as supply a rail: a module (an MCU board of its own: Teensy, XIAO, Pico, ESP32
@@ -83,6 +83,7 @@ def draws_from(pp, net, rails):
     return False
 
 
+SIGNAL_PINS = ("input", "output", "bidirectional", "tri_state", "open_collector", "open_emitter")
 OUT_PIN = re.compile(r"^(V?OUT\w*|VO|VREG|LDO\w*|BAT\w*|VSYS|SYS|CHG\w*)$", re.I)
 K_IPC = {True: 0.048, False: 0.024}      # IPC-2221: I = k dT^0.44 A^0.725 (A in mil^2), external / internal
 
@@ -159,17 +160,21 @@ def plan(board, brief, bd, P, srcs, intent=None):
         return s or on(ref, net)
 
     def volts(net):
+        """The rail's voltage with its sign (the operating facts', else the brief's), None unknown."""
         fv = (facts.get(net) or {}).get("V_V")
-        if isinstance(fv, (int, float)) and fv > 0:
+        if isinstance(fv, (int, float)) and fv != 0:
             return float(fv)
         v = (nets.get(net) or {}).get("volts")
-        return abs(float(v)) if v else None
+        return float(v) if v else None
+
+    def sgn(net):
+        return -1.0 if (volts(net) or 0.0) < 0 else 1.0
 
     # commutation cells: their parts, rails and operating points
     cells = {}
     src_of_cell = {s.meta.get("cell"): s.name for s in srcs if s.kind == "cell"}
     for st in brief.get("structures") or []:
-        if st.get("kind") != "commutation_cell" or st.get("class") not in ("boost", "buck"):
+        if st.get("kind") != "commutation_cell" or st.get("class") not in ("boost", "buck", "inverting"):
             continue
         sname = src_of_cell.get(st["id"])
         if sname is None or sname not in P:
@@ -178,6 +183,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
         src_ = next((x for x in srcs if x.name == sname), None)
         eta = (src_.meta.get("eta") if src_ is not None else None) or CV.ETA[1]      # typical (kae.excite.params)
         c = dict(id=st["id"], cls=st["class"], src=sname, vin=st.get("vin"), vout=st.get("vout"), sw=st.get("sw"),
+                 ind=ref_of.get(st.get("inductor")),
                  top=cell_topology(st, nets), eta=float(eta),
                  ctrl=ref_of.get(st.get("controller")), rect=ref_of.get(sw.get("rectifier")),
                  parts={ref_of.get(u) for u, _ in st.get("loop") or []} | {ref_of.get(st.get("controller")),
@@ -277,6 +283,19 @@ def plan(board, brief, bd, P, srcs, intent=None):
         pl.notes.append(f"{r}: feeds {' -> '.join(cyc)} form a cycle with no way in; {f['ref']} as {r}'s source from "
                         f"{f.get('rin')} contradicts its pins most and is dropped"
                         + (f"; {pl.feeds[r]['ref']} (a connector on it) feeds it" if r in pl.feeds else ""))
+    # a linear regulator passes its output current through from its input, so both rails have one sign: one between
+    # rails of opposite signs (a fact or a brief that read an inverter as linear) has no input current it could pass
+    # on. Its flow enters the board at it, as a regulator's whose input has no feed does, and the note says why.
+    for r, f in pl.feeds.items():
+        if f["kind"] == "linear" and volts(r) and volts(f.get("rin")) and sgn(r) != sgn(f["rin"]):
+            f["flow_external"] = True
+            f["gnd"] = f.get("gnd") or gnd_pads(f["ref"])
+            pl.notes.append(f"{r}: {f['ref']} is linear from {f['rin']}, a rail of the opposite sign, which no linear "
+                            f"regulator does; the DC flow enters at {f['ref']}")
+    for c in cells.values():
+        if _top(c) != "inverting_buck_boost" and volts(c["vin"]) and volts(c["vout"]) and sgn(c["vin"]) != sgn(c["vout"]):
+            pl.notes.append(f"{c['vout']}: {c['id']} runs between rails of opposite signs as a {_top(c)}; its DC flow is "
+                            f"taken as its output's mirror image")
     # a regulator whose input net has no feed of its own: the DC flow enters the board at it (its input
     # current has nowhere to come from in the copper); its loss still comes from its input's voltage
     for r, f in pl.feeds.items():
@@ -287,10 +306,25 @@ def plan(board, brief, bd, P, srcs, intent=None):
     # an external feed returns at its own ground pads, else at the connectors' (the board's way out)
     conn_g = [t for ref, pp in pads.items() if (parts.get(uuid_of.get(ref)) or {}).get("kind") == "connector"
               for t in tok(ref, [n for n, net, _, _ in pp if net in grounds])]
+    # a switching regulator's input current differs from its output current: the difference returns through its
+    # ground. One with no ground pad is an inverter whose GND pin is its negative rail (TI SLVA721): the difference
+    # (its input current plus its output's magnitude) leaves its switch pin through the inductor to ground, so it
+    # returns at its pads on a net an inductor or bead joins to a ground; else at the connectors' ground
+    net_at = {f"{ref}.{n}": net for ref, pp in pads.items() for n, net, _, _ in pp}
+    to_gnd = {}
+    for e in bd.circuit.elems:
+        a_, b_ = net_at.get(e.pa), net_at.get(e.pb)
+        if e.kind in ("L", "FB") and a_ and b_ and (a_ in grounds) != (b_ in grounds):
+            to_gnd.setdefault(b_ if a_ in grounds else a_, []).append(e.name)
+    for r, f in pl.feeds.items():
+        if f["kind"] == "switching" and not f["gnd"]:
+            ret = [(n, net) for n, net, _, _ in pads.get(f["ref"], []) if net in to_gnd and net not in (r, f.get("rin"))]
+            if ret:
+                f["gnd"] = tok(f["ref"], [n for n, _ in ret])
+                pl.notes.append(f"{r}: {f['ref']} has no ground pad; its return leaves at {', '.join(f['gnd'])} through "
+                                f"{', '.join(sorted({x for _, net in ret for x in to_gnd[net]}))} to ground")
     for r in list(pl.feeds):
         f = pl.feeds[r]
-        # a switching regulator's input current differs from its output current: the difference returns through its
-        # ground, and one with no ground pad (an inverter whose GND pin is its negative rail) dropped it unbalanced
         if (f["kind"] in ("external", "switching") or f.get("flow_external")) and not f["gnd"]:
             if conn_g:
                 f["gnd"] = conn_g
@@ -309,9 +343,9 @@ def plan(board, brief, bd, P, srcs, intent=None):
         k, sb = p.get("kind"), p.get("subtype")
         return (k == "module" and sb not in LINEAR + SWITCHING + ("charge_pump",)) or (k == "ic" and sb in CONSUMER_SUB)
 
-    def part_share(ref, r):
-        """Rail r's share of part ref's supply pads over the fed rails it draws from (not one it feeds)."""
-        n = {r2: len(supply(ref, r2)) for r2 in pl.feeds if pl.feeds[r2].get("ref") != ref
+    def part_share(ref, r, skip=None):
+        """Rail r's share of part ref's supply pads over the fed rails it draws from (not one it feeds, nor `skip`)."""
+        n = {r2: len(supply(ref, r2)) for r2 in pl.feeds if pl.feeds[r2].get("ref") != ref and r2 != skip
              and any(net == r2 for _, net, _, _ in pads.get(ref, []))}
         return n.get(r, 0) / sum(n.values()) if sum(n.values()) else 1.0
     # loads: parts that draw from a rail and return at their own ground
@@ -336,6 +370,22 @@ def plan(board, brief, bd, P, srcs, intent=None):
                 g = [t for t in conn_g_all if not t.startswith(ref + ".")]
                 if g:
                     pl.notes.append(f"{r}: export {ref} has no ground pad; its return is taken at the other connectors' ground")
+            ret = None
+            split = kind in ("ic", "module") and any(nt in pl.feeds and sgn(nt) < 0 for _, nt, _, _ in pp) and \
+                any(nt in pl.feeds and sgn(nt) > 0 for _, nt, _, _ in pp)
+            if split:
+                # a part across a positive and a negative rail returns at a ground pad only through a ground pin: an
+                # op-amp's non-inverting input tied to ground (a pin typed input) carries no supply current, and read
+                # as its return it sent the op-amp's current into ground instead of into the negative rail
+                g = [t for t, (_, nt, pt, _) in zip(tok(ref, [q[0] for q in pp]), pp) if nt in grounds and pt not in SIGNAL_PINS]
+            if not g and split and sgn(r) > 0:
+                # a split-supply part with no ground pin (an op-amp across +-12 V): its current runs from the positive
+                # rail through it into the negative one, and none of it through ground. Without this it was no load.
+                # Seen from its negative rail it is this same load (no ground pad there either: skipped below)
+                negs = sorted(net for net in {nt for _, nt, _, _ in pp} if net in pl.feeds and sgn(net) < 0)
+                if negs:
+                    ret = max(negs, key=lambda n: (len(supply(ref, n)), n))
+                    g = supply(ref, ret)
             if not g:
                 continue
             if kind in LOAD_PRIOR:
@@ -347,10 +397,13 @@ def plan(board, brief, bd, P, srcs, intent=None):
             if a <= 0:
                 continue
             ld = dict(ref=ref, rail=r, sup=supply(ref, r), gnd=g, prior=a)
+            if ret:
+                ld["ret"] = ret          # its return rail: its current leaves there, into that rail's feed
             iv = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_A")
             # the intent states a part's whole current: on several rails it is split by their share of the part's
-            # supply pads (an MCU's 3V3 pins carry its current, not its VBUS-detect pin as well)
-            ld["part_share"] = share = part_share(ref, r)
+            # supply pads (an MCU's 3V3 pins carry its current, not its VBUS-detect pin as well); a split-supply
+            # part's whole current crosses both its rails
+            ld["part_share"] = share = part_share(ref, r, skip=ret)
             if pl.feeds[r]["kind"] == "cell":
                 shares.setdefault(r, []).append(ld)
             else:
@@ -408,6 +461,8 @@ def plan(board, brief, bd, P, srcs, intent=None):
                 if ref:
                     pl.dc_pads |= {f"{ref}.{n}" for n, net, _, _ in pads.get(ref, [])
                                    if net in rails or net in grounds or net == c["sw"]}
+            if _top(c) == "inverting_buck_boost" and c.get("ind"):
+                pl.dc_pads |= {f"{c['ind']}.{n}" for n, net, _, _ in pads.get(c["ind"], []) if net in grounds}
     pl.pads = pads
     pl.grounds = grounds
     pl.volts = {r: volts(r) for r in rails}
@@ -434,13 +489,15 @@ def _pieces(pads, elems):
 
 
 def _offboard(pl, bd, P, cells, connectors):
-    """Ground pieces the board joins only off it. A board whose grounds are separate nets with no part between them
-    that conducts at DC (GND, AGND and RELAY_GND each on its own connectors, joined by the cables) sends a load's
-    return into a piece where its source's ground is not: in the copper that current has no way out, and the DC band
-    was void on a board KiCad finds fully connected. Where the plan's flow balances over the whole board but not per
-    piece (at every parameter's typical value), and every unbalanced piece holds a ground net with connector pads on
-    it, the current between the pieces is taken through those connector ground pads (pl.offboard; injections() moves
-    each piece's excess there). Anything else that does not balance is left to the field solve to report as open."""
+    """Ground pieces joined outside the board's copper. A board whose grounds are separate nets with no part between
+    them that conducts at DC (GND, AGND and RELAY_GND each on its own connectors, joined by the cables), or a module
+    whose ground pins sit on two ground nets (a Nucleo's GND and its CN10 GND, joined inside it), sends a load's return
+    into a piece where its source's ground is not: in the copper that current has no way out, and the DC band was void
+    on a board KiCad finds fully connected. Where the plan's flow balances over the whole board but not per piece (at
+    every parameter's typical value), and every unbalanced piece has a way out, the current between the pieces is
+    taken through it (pl.offboard; injections() moves each piece's excess there): the ground pads of a part whose
+    ground pads sit in several pieces (joined inside it), else the piece's connector ground pads (joined off the board).
+    Anything else that does not balance is left unbalanced, for imbalance() to report."""
     pl.piece = _pieces(pl.pads, bd.circuit.elems)
     cv0 = {c["src"]: {k: p.typ for k, p in (P.get(c["src"]) or {}).items()} for c in cells.values()}
     cv0.update({(p.subject, p.name): p.typ for p in pl.params})
@@ -451,21 +508,27 @@ def _offboard(pl, bd, P, cells, connectors):
     bal = {}
     for t, a in inj.items():
         bal[pl.piece.get(t)] = bal.get(pl.piece.get(t), 0.0) + a
-    off = sorted(r for r, b in bal.items() if abs(b) > LEAK * big)
-    if not off or abs(sum(bal.values())) > LEAK * big:
+    off = sorted(r for r, b in bal.items() if abs(b) > EPS * big)
+    if not off or abs(sum(bal.values())) > EPS * big:
         return
-    gp = [(f"{ref}.{n}", net) for ref in sorted(connectors) for n, net, _, _ in pl.pads[ref] if net in pl.grounds]
-    pads = {r: sorted({t for t, _ in gp if pl.piece[t] == r}) for r in off}
+    gp = {ref: [(f"{ref}.{n}", net) for n, net, _, _ in pl.pads[ref] if net in pl.grounds] for ref in sorted(pl.pads)}
+    inside = {ref: g for ref, g in gp.items() if ref not in connectors and len({pl.piece[t] for t, _ in g}) > 1}
+    pads, how = {}, {}
+    for r in off:
+        ins = sorted({t for g in inside.values() for t, _ in g if pl.piece[t] == r})
+        con = sorted({t for ref in connectors for t, _ in gp.get(ref, []) if pl.piece[t] == r})
+        pads[r], how[r] = (ins, "inside " + ", ".join(sorted({t.rsplit(".", 1)[0] for t in ins}))) if ins else (con, "off the board")
     if not all(pads.values()):
         return
     pl.offboard = pads
     pl.dc_pads |= {t for ts in pads.values() for t in ts}
-    nets = sorted({net for t, net in gp if pl.piece[t] in pads})
-    where = "; ".join(f"{'/'.join(sorted({n for t, n in gp if pl.piece[t] == r}))} at {', '.join(pads[r][:3])}"
+    net_at = {t: n for g in gp.values() for t, n in g}
+    nets = sorted({net_at[t] for ts in pads.values() for t in ts})
+    where = "; ".join(f"{'/'.join(sorted({net_at[t] for t in pads[r]}))} {how[r]} at {', '.join(pads[r][:3])}"
                       f"{', ...' if len(pads[r]) > 3 else ''}" for r in off)
     pl.notes.append(f"grounds {', '.join(nets)} are separate pieces of copper on the board (no part that conducts at DC "
-                    f"joins them) and are joined off it: the current between them is taken through their connectors' "
-                    f"ground pads ({where})")
+                    f"joins them) and are joined outside it: the current between them is taken through their ground "
+                    f"pads ({where})")
 
 
 def _add(inj, toks, a):
@@ -514,14 +577,15 @@ def load_currents(pl, cv):
     # each rail's total, through the chain's conversion ratios
     tot = {}
     for ld, x in zip(pl.loads, xs):
-        a = x
-        for r in _chain(pl, ld["rail"]):
-            tot[r] = tot.get(r, 0.0) + a
-            a *= _ratio(pl, r, cv)
+        for r0 in [ld["rail"]] + ([ld["ret"]] if ld.get("ret") else []):
+            a = x
+            for r in _chain(pl, r0):
+                tot[r] = tot.get(r, 0.0) + a
+                a *= _ratio(pl, r, cv)
     out = []
     for ld, x in zip(pl.loads, xs):
         k = 1.0
-        for r in _chain(pl, ld["rail"]):
+        for r in _chain(pl, ld["rail"]) + (_chain(pl, ld["ret"]) if ld.get("ret") else []):
             R = pl.feeds[r].get("rating")
             if R and tot.get(r, 0.0) > R:
                 k = min(k, R / tot[r])
@@ -529,11 +593,28 @@ def load_currents(pl, cv):
     return out
 
 
+def load_volts(pl, ld, default=3.3):
+    """The voltage magnitude across a load: its rail's, or a split-supply load's span between its two rails."""
+    return _mag(pl, ld["rail"], default) + (_mag(pl, ld["ret"], 0.0) if ld.get("ret") else 0.0)
+
+
+def _mag(pl, r, default=1.0):
+    """Rail r's voltage magnitude (pl.volts carries the sign), `default` when unknown."""
+    v = pl.volts.get(r)
+    return abs(v) if v else default
+
+
+def _sign(pl, r):
+    """+1 for a rail above ground (or of unknown voltage), -1 for one below it."""
+    v = (getattr(pl, "volts", None) or {}).get(r)
+    return -1.0 if v is not None and v < 0 else 1.0
+
+
 def _ratio(pl, r, cv):
-    """Input current per output current of rail r's feed."""
+    """Input current per output current of rail r's feed (magnitudes)."""
     f = pl.feeds[r]
     if f["kind"] == "switching":
-        return (pl.volts.get(r) or 1.0) / (cv.get((f["eta"].subject, "eta"), ETA[1]) * (pl.volts.get(f["rin"]) or 1.0))
+        return _mag(pl, r) / (cv.get((f["eta"].subject, "eta"), ETA[1]) * _mag(pl, f["rin"]))
     if f["kind"] == "cell":
         _, D = _cell_vals(f["cell"], cv)
         return _cell_in(f["cell"], 1.0, D)
@@ -545,18 +626,28 @@ def _top(c):
 
 
 def _cell_in(c, x, D):
-    """A cell's input current delivering x (kae.physics.converter): a boost's its inductor current x / (1 - D),
-    D = 1 - V_in eta / V_out holding its losses; a buck's from the power balance, D x / eta (D = V_out / V_in)."""
+    """A cell's input current delivering x (magnitudes; kae.physics.converter): a boost's its inductor current
+    x / (1 - D), D = 1 - V_in eta / V_out holding its losses; an inverting stage's D I_L, I_L = x / (1 - D), its
+    D = |V_out| / (V_in eta + |V_out|) holding them too (TI SLVA721); a buck's from the power balance, D x / eta
+    (D = V_out / V_in)."""
     top = _top(c)
     IL = CV.inductor_from_output(top, x, D)
-    if top in ("boost", "boost_led"):
+    if top in ("boost", "boost_led", "inverting_buck_boost"):
         return CV.input_from_inductor(top, IL, D)
     return CV.input_from_inductor(top, IL, D) / c.get("eta", 1.0)
 
 
-def injections(pl, cv):
-    """{pad: A} of the DC power flow at one corner. cv: {source name: {param: value}} for the cells'
-    corners plus {(subject, name): value} for the DC band's own parameters."""
+def injections(pl, cv, lost=None):
+    """{pad: A} of the DC power flow at one corner, positive into the copper. cv: {source name: {param: value}} for
+    the cells' corners plus {(subject, name): value} for the DC band's own parameters.
+
+    Currents carry their rails' signs: a load on a rail below ground (-12 V) takes its current from its ground pad
+    and returns it into the rail (its supply pad injects +I), and every feed of that rail takes it back out. A
+    feed between rails of one sign is the mirror image of its positive form; an inverting one (input above ground,
+    output below) draws its input current at its input pins, takes its output current back at its reference pins
+    on the negative rail, and sends both out of its switch pin through the inductor to ground. Every piece of the
+    DC circuit then balances exactly (imbalance(); nothing absorbs an error). lost: a list that gets
+    (what, amperes) for every current the plan had no pad for (a silent drop before)."""
     inj = {}
     pads = pl.pads
 
@@ -566,55 +657,83 @@ def injections(pl, cv):
     def gnd(ref):
         return [f"{ref}.{n}" for n, nt, _, _ in pads.get(ref, []) if nt in pl.grounds]
 
-    def deliver(r, x, depth=0):
-        """x amperes into rail r from its feed, walked back to the board's input."""
+    def add(toks, a, what):
+        if a and not toks and lost is not None:
+            lost.append((what, a))
+        _add(inj, toks, a)
+
+    def deliver(r, s, depth=0):
+        """s amperes (signed: the rail's own sign for current it delivers) into rail r from its feed, walked back
+        to the board's input."""
         f = pl.feeds.get(r)
-        if f is None or depth > 8 or x == 0:
+        if f is None or depth > 8 or s == 0:
+            if s and lost is not None:
+                lost.append((f"{r}: no feed" if f is None else f"{r}: feed chain deeper than 8", s))
             return
         k = f["kind"]
         if f.get("flow_external"):
-            _add(inj, f["out"], x)
-            _add(inj, f["gnd"], -x)
+            add(f["out"], s, f"{r}: {f['ref']} output")
+            add(f["gnd"], -s, f"{r}: {f['ref']} return")
             return
         if k == "external":
-            _add(inj, f["out"], x)
-            _add(inj, f["gnd"], -x)
+            add(f["out"], s, f"{r}: {f['ref']} output")
+            add(f["gnd"], -s, f"{r}: {f['ref']} return")
         elif k == "linear":
-            _add(inj, f["out"], x)
-            _add(inj, f["inp"], -x)
-            deliver(f["rin"], x, depth + 1)
+            add(f["out"], s, f"{r}: {f['ref']} output")
+            add(f["inp"], -s, f"{r}: {f['ref']} input")
+            deliver(f["rin"], s, depth + 1)
         elif k == "switching":
-            vo, vi = pl.volts.get(r) or 1.0, pl.volts.get(f["rin"]) or 1.0
-            xin = x * vo / (cv.get((f["eta"].subject, "eta"), ETA[1]) * vi)
-            _add(inj, f["out"], x)
-            _add(inj, f["inp"], -xin)
-            _add(inj, f["gnd"], xin - x)
-            deliver(f["rin"], xin, depth + 1)
+            # the power balance in magnitudes: |V_in| x_in eta = |V_out| |s|; the input current carries its rail's sign
+            xin = abs(s) * _mag(pl, r) / (cv.get((f["eta"].subject, "eta"), ETA[1]) * _mag(pl, f["rin"]))
+            s_in = _sign(pl, f["rin"]) * xin
+            add(f["out"], s, f"{r}: {f['ref']} output")
+            add(f["inp"], -s_in, f"{r}: {f['ref']} input")
+            add(f["gnd"], s_in - s, f"{r}: {f['ref']} return")
+            deliver(f["rin"], s_in, depth + 1)
         elif k == "cell":
             c = f["cell"]
             _, D = _cell_vals(c, cv)
             ctrl, sw = c["ctrl"], c["sw"]
-            if _top(c) in ("boost", "boost_led"):
-                IL = CV.inductor_from_output(_top(c), x, D)
-                _add(inj, on(ctrl, sw), -D * IL)                 # the switch: D I_L from the switch node
-                _add(inj, gnd(ctrl), D * IL)                     # to ground
-                if not c["rect"]:                                # synchronous: the rectifier inside too
-                    _add(inj, on(ctrl, sw), -(1 - D) * IL)
-                    _add(inj, on(ctrl, r), x)
-                deliver(c["vin"], IL, depth + 1)                # the input feeds the inductor (lumped)
+            x, top = abs(s), _top(c)
+            if top == "inverting_buck_boost":
+                # TI SLVA721: the high side carries I_in = D I_L from the input pins into the switch node, the low side
+                # (1 - D) I_L = |I_out| from the negative rail (the IC's reference pins, or the rectifier, which conducts
+                # in the copper) into it, and the inductor takes I_L = I_in + |I_out| from the switch node to ground
+                s_in = _sign(pl, c["vin"]) * _cell_in(c, x, D)
+                add(on(ctrl, c["vin"]), -s_in, f"{r}: {c['id']} input")
+                add(on(ctrl, sw), s_in, f"{r}: {c['id']} high side")
+                if not c["rect"]:
+                    add(on(ctrl, r), s, f"{r}: {c['id']} low side")
+                    add(on(ctrl, sw), -s, f"{r}: {c['id']} low side")
+                deliver(c["vin"], s_in, depth + 1)
+                return
+            # a buck or boost between rails of one sign: its positive form's currents, all of them mirrored on rails
+            # below ground
+            m = _sign(pl, r)
+            if top in ("boost", "boost_led"):
+                IL = CV.inductor_from_output(top, x, D)
+                add(on(ctrl, sw), -D * IL * m, f"{r}: {c['id']} switch")          # the switch: D I_L from the switch node
+                add(gnd(ctrl), D * IL * m, f"{r}: {c['id']} switch return")       # to ground
+                if not c["rect"]:                                                   # synchronous: the rectifier inside too
+                    add(on(ctrl, sw), -(1 - D) * IL * m, f"{r}: {c['id']} rectifier")
+                    add(on(ctrl, r), x * m, f"{r}: {c['id']} rectifier")
+                deliver(c["vin"], IL * m, depth + 1)                                # the input feeds the inductor (lumped)
             else:
                 xin = _cell_in(c, x, D)
-                _add(inj, on(ctrl, c["vin"]), -xin)              # the input: D I_out / eta (the power balance)
-                _add(inj, on(ctrl, sw), D * x)                   # the high side: D I_out into the switch node
-                _add(inj, gnd(ctrl), xin - D * x)                # the cell's own losses, back through its ground
+                add(on(ctrl, c["vin"]), -xin * m, f"{r}: {c['id']} input")         # the input: D I_out / eta
+                add(on(ctrl, sw), D * x * m, f"{r}: {c['id']} high side")          # the high side: D I_out into the switch node
+                add(gnd(ctrl), (xin - D * x) * m, f"{r}: {c['id']} losses")        # the cell's losses, back through its ground
                 if not c["rect"]:
-                    _add(inj, gnd(ctrl), -(1 - D) * x)
-                    _add(inj, on(ctrl, sw), (1 - D) * x)
-                deliver(c["vin"], xin, depth + 1)
+                    add(gnd(ctrl), -(1 - D) * x * m, f"{r}: {c['id']} low side")
+                    add(on(ctrl, sw), (1 - D) * x * m, f"{r}: {c['id']} low side")
+                deliver(c["vin"], xin * m, depth + 1)
     for ld, x in zip(pl.loads, load_currents(pl, cv)):
-        _add(inj, ld["sup"], -x)
-        _add(inj, ld["gnd"], x)
-        deliver(ld["rail"], x)
+        s = _sign(pl, ld["rail"]) * x
+        add(ld["sup"], -s, f"{ld['rail']}: load {ld['ref']}")
+        add(ld["gnd"], s, f"{ld['rail']}: load {ld['ref']} return")
+        deliver(ld["rail"], s)
+        if ld.get("ret"):
+            deliver(ld["ret"], -s)          # a split-supply load's current, taken back out by its negative rail's feed
     if pl.offboard:
         # ground pieces joined off the board (_offboard): each one's excess leaves through its connectors' ground
         bal = {}
@@ -624,6 +743,23 @@ def injections(pl, cv):
         for r in sorted(bal):
             _add(inj, pl.offboard[r], -bal[r])
     return inj
+
+
+def imbalance(pl, inj, lost=()):
+    """Why a DC injection set (injections()) is no power flow: the currents the plan had no pad for, and every piece
+    of the DC circuit (pl.piece; the whole board without one) whose injections do not sum to zero beyond float
+    rounding (EPS of the largest). [] when it balances. The field solve would read either as an open in the copper
+    (or absorb a small one as a cut-off pad): this tells a wrong plan from a broken board."""
+    out = [f"{abs(a):.3g} A of {what} has no pad" for what, a in lost]
+    big = max((abs(a) for a in inj.values()), default=0.0)
+    bal = {}
+    for t, a in inj.items():
+        k = pl.piece.get(t, "?") if pl.piece else "board"
+        bal[k] = bal.get(k, 0.0) + a
+    for k in sorted(bal, key=lambda q: (-abs(bal[q]), q)):
+        if abs(bal[k]) > EPS * big:
+            out.append(f"{bal[k]:+.3g} A left on {k}")
+    return out
 
 
 def planned_injections(board, intent, brief=None, heat=None):
@@ -656,11 +792,29 @@ def planned_injections(board, intent, brief=None, heat=None):
                 a *= _ratio(pl, r, cv)
         for r, f in pl.feeds.items():
             if f.get("kind") == "linear" and f.get("out"):
-                vi, vo = pl.volts.get(f.get("rin")), pl.volts.get(r)
+                vi, vo = abs(pl.volts.get(f.get("rin")) or 0.0), abs(pl.volts.get(r) or 0.0)
                 if vi and vo and vi > vo:
                     ref = str(f["out"][0]).rsplit(".", 1)[0]
                     heat[ref] = heat.get(ref, 0.0) + tot.get(r, 0.0) * (vi - vo)
-    return {k: float(v) for k, v in injections(pl, cv).items() if v}
+    lost = []
+    inj = injections(pl, cv, lost)
+    bad = imbalance(pl, inj, lost)
+    if bad:
+        raise ValueError(f"the DC plan's current does not balance: {'; '.join(bad[:4])}")
+    return {k: float(v) for k, v in inj.items() if v}
+
+
+def _feed_pads(pl, rail):
+    """The pads where rail's feed delivers its current: a cell's rectifier's (else its controller's) on the rail, any
+    other feed's output pads."""
+    f = pl.feeds.get(rail)
+    if f is None:
+        return []
+    if f["kind"] != "cell":
+        return list(f["out"])
+    c = f["cell"]
+    ref = c["rect"] or c["ctrl"]
+    return [f"{ref}.{n}" for n, nt, _, _ in pl.pads.get(ref, []) if nt == rail]
 
 
 def _mean(V, toks):
@@ -683,7 +837,7 @@ def observe(pl, cv, V, info, tracks=None):
     xs = load_currents(pl, cv)
     # a rail without a known voltage at the drop check's 3.3 V: at 0 V the budget was 0 and the loss u 0
     # (perfect) whatever the copper lost, or P_cu of every rail was divided by the known rails' budget
-    P_del = sum(xk * (pl.volts.get(ld["rail"]) or 3.3) for ld, xk in zip(pl.loads, xs))
+    P_del = sum(xk * load_volts(pl, ld) for ld, xk in zip(pl.loads, xs))
     budget = pl.loss_share * P_del
     out = dict(loss=(P_cu / budget if budget > 0 else 0.0, P_cu, budget), drops=[], drops_signed=[], heat=[])
     for ld, xk in zip(pl.loads, xs):
@@ -695,8 +849,15 @@ def observe(pl, cv, V, info, tracks=None):
             src_r = [f"{c['rect']}.{n}" for n, nt, _, _ in pl.pads.get(c["rect"], []) if nt == ld["rail"]] if c["rect"] else \
                 [f"{c['ctrl']}.{n}" for n, nt, _, _ in pl.pads.get(c["ctrl"], []) if nt == ld["rail"]]
             src_g = [f"{c['ctrl']}.{n}" for n, nt, _, _ in pl.pads.get(c["ctrl"], []) if nt in pl.grounds]
+            if _top(c) == "inverting_buck_boost" and not src_g and c.get("ind"):
+                # an inverter's IC has no ground pin (its reference is the negative rail): its ground is where its
+                # inductor's current returns
+                src_g = [f"{c['ind']}.{n}" for n, nt, _, _ in pl.pads.get(c["ind"], []) if nt in pl.grounds]
         else:
             src_r, src_g = f["out"], f["gnd"] or []
+        if ld.get("ret"):
+            # a split-supply load's other side is its negative rail, whose source stands in for the ground
+            src_g = _feed_pads(pl, ld["ret"])
         vs, vl = _mean(V, src_r), _mean(V, ld["sup"])
         if vs is None or vl is None:
             continue
@@ -704,7 +865,10 @@ def observe(pl, cv, V, info, tracks=None):
         gs, gl = _mean(V, src_g), _mean(V, ld["gnd"])
         if gs is not None and gl is not None:
             dv += gl - gs
-        b = pl.drop_share * (pl.volts.get(ld["rail"]) or 3.3)
+        # what the load loses of its source's (rail - ground) voltage, toward ground whichever side the rail is on:
+        # a -12 V load sits less negative than its source, so its signed loss is the mirror of a +12 V one's
+        dv *= _sign(pl, ld["rail"])
+        b = pl.drop_share * load_volts(pl, ld)
         # the drop is what the load loses of its source's voltage, so never below 0. The signed sum can be negative
         # by physics, not by a reference choice: another rail's return current through shared ground copper (or a
         # source whose own ground pin carries current) puts the load's ground below the source's, and the load then
