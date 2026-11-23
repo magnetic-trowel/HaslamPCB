@@ -35,7 +35,7 @@ from collections import defaultdict
 from . import values as V
 from .evidence import MODERATE, STRONG, WEAK, confidence, ev
 from .netlist import Netlist, Part
-from .roles import inverting_ic
+from .roles import inverting_ic, inverting_rectifier
 from .roles import (ANALOG_NET, ANALOG_PIN, BOOT_PIN, CP_PIN, EN_PIN, FB_PIN, IN_PIN, OUT_PIN, PWR_PIN, SW_PIN, Roles, belief,
                     cap_class)
 
@@ -761,9 +761,16 @@ def _inverting(b: _B, L, lpart, swn, gnd):
     nv = b.nl.nets[swn]
     sw_pins = [p for p in nv.pins if p.ref != L and SW_PIN.match(p.fn) and b.k(p.ref) in ('ic', 'module')]
     ctrl = next((p.ref for p in sw_pins if inverting_ic(b.nl, b.r, p.ref)), None)
+    dedicated = None
+    if ctrl is None and sw_pins:
+        # a dedicated inverter (TPS63700; an MC34063 in its inverting circuit): the IC on ground, its switch from
+        # the input to the switch node, a rectifier from the switch node to the negative output
+        d_, neg_ = inverting_rectifier(b.nl, b.r, swn, L)
+        if d_:
+            ctrl, dedicated = sw_pins[0].ref, (d_, neg_)
     if ctrl is None:
         return None
-    neg = inverting_ic(b.nl, b.r, ctrl)
+    neg = dedicated[1] if dedicated else inverting_ic(b.nl, b.r, ctrl)
     vin_pins = _vin_pins(b, ctrl, {swn, gnd, neg})
     if not vin_pins:
         return None
@@ -772,13 +779,15 @@ def _inverting(b: _B, L, lpart, swn, gnd):
     if (vo is not None and vo >= 0) or (vi is not None and vi <= 0):
         return None                        # not an input above ground and an output below it
     evs = [ev('topology', f"power inductor {L} ({lpart.value}) from '{b.short(swn)}' to ground '{b.short(gnd)}'", MODERATE),
-           ev('pinfunction', f"{ctrl} input {vin_pins[0].label} on '{b.short(rail)}', its ground pins on '{b.short(neg)}': "
-                             f"an inverting buck-boost", STRONG)]
+           ev('pinfunction', f"{ctrl} input {vin_pins[0].label} on '{b.short(rail)}', " +
+              (f"rectifier {dedicated[0]} from the switch node to '{b.short(neg)}'" if dedicated else
+               f"its ground pins on '{b.short(neg)}'") + ": an inverting buck-boost", STRONG)]
     evs += [e for e in b.r.switch_nodes[swn]['evidence'] if e.weight > 0][:3]
     gp = sorted({p.number for p in b.nl.parts[ctrl].pins_on(neg)}, key=_natkey)
     vin_pads = [p.number for p in vin_pins if p.net == rail] or b.supply_pads(ctrl, rail)
-    rect = next((p.ref for p in nv.pins if b.k(p.ref) == 'diode' and b.sub(p.ref) not in ('tvs', 'esd_array', 'zener')
-                 and b.nl.other_net(b.nl.parts[p.ref], swn) == neg), None)
+    rect = dedicated[0] if dedicated else next(
+        (p.ref for p in nv.pins if b.k(p.ref) == 'diode' and b.sub(p.ref) not in ('tvs', 'esd_array', 'zener')
+         and b.nl.other_net(b.nl.parts[p.ref], swn) == neg), None)
     direct = sorted((c for c, nets in ((r, b.nl.parts[r].nets) for r in b.nl.parts if b.k(r) == 'capacitor')
                      if nets == {rail, neg}), key=_refkey)
     core = [[ctrl, vin_pads]]
@@ -806,13 +815,19 @@ def _inverting(b: _B, L, lpart, swn, gnd):
     exc = _excite(b, ctrl, L, V_, 'buck')
     exc['basis'].append(f"V = V_in + |V_out| (the switch's swing)" if V_ is not None else
                         "V unknown: the input or the negative output has no voltage")
+    exc['basis'].append("I is the switch's (the inductor's) current: I_out / (1 - D) delivered")
     conf_cap = min(b.r.nets[swn].confidence, b.r.parts[L].kind_confidence + 0.2)
+    # the IC's reference: the negative rail for a buck IC used as an inverter, the board's ground for a dedicated one
+    ref_net = _cell_ground(b, ctrl, gnd) if dedicated else neg
     return _struct('commutation_cell', f"cell:inverting:{ctrl}", evs, conf_cap=conf_cap, prior=-0.5,
                    **{'class': 'inverting', 'topology': 'inverting_buck_boost', 'loop': [], 'rail': rail, 'sw': swn,
-                      'gnd': neg, 'excite': exc, 'controller': ctrl, 'inductor': L, 'caps': caps, 'caps_p': cp,
+                      'gnd': ref_net, 'excite': exc, 'controller': ctrl, 'inductor': L, 'caps': caps, 'caps_p': cp,
                       'switches': {'high': ctrl, 'low': rect or ctrl, 'rectifier': rect},
                       'vin': rail, 'vout': neg, 'output_caps': _hf_order(b.nl, b.caps_on(neg, gnd))[:6], 'input_caps': [],
-                      'series_shunt': [], 'integrated_switches': True, 'loop_core': core, 'cap_rail': rail,
+                      # a capacitor from the input to the negative rail is allocated as a split-supply pair's
+                      # (allocate_caps: b.caps_between), one to ground as any rail's
+                      'series_shunt': [], 'integrated_switches': True, 'loop_core': core,
+                      'cap_rail': (rail, neg) if direct else rail,
                       'cap_gnd': cap_gnd, 'anchor': ctrl})
 
 
@@ -1217,9 +1232,16 @@ def _finish_cells(b: _B, cells):
         caps = _hf_order(b.nl, c['caps'])
         c['caps'] = caps
         rail, gnd = c['cap_rail'], c['cap_gnd']
+        if isinstance(rail, tuple):              # an inverting cell's capacitor from its input to its negative rail
+            rail = rail[0]
+        # ret: the net the loop's input capacitor returns to (its terminal that is not the rail), read from the
+        # capacitor: a buck's or a boost's ground; an inverting cell's ground, or its negative rail when the
+        # capacitor sits between the input and the IC's reference (TI SLVA721). Without a capacitor, cap_gnd.
+        c['ret'] = gnd
         if caps:
             hf = caps[0]
-            gpad = b.cap_pad(hf, gnd) if gnd in b.nl.parts[hf].nets else b.cap_pad(hf, min(b.nl.parts[hf].nets - {rail}))
+            c['ret'] = gnd if gnd in b.nl.parts[hf].nets else min(b.nl.parts[hf].nets - {rail})
+            gpad = b.cap_pad(hf, c['ret'])
             c['loop'] = [[hf, b.cap_pad(hf, rail)]] + c['loop_core'] + [[hf, gpad]]
             if c.get('cap_shared'):
                 c['evidence'].append(ev('count', f"no capacitor left for this converter on '{b.short(rail)}'; {hf} is shared", -1.0))

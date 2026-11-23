@@ -38,6 +38,32 @@ def test_an_inverting_converter_is_a_cell_with_its_rails(board):
     assert s["excite"]["V"] == pytest.approx(17.0)               # the switch's swing V_in + |V_out|
 
 
+# variant -> (gnd: the IC's reference, ret: where the input capacitor returns, the loop's parts and pads)
+VARIANTS = {
+    "ground": ("-5V", "GND", [("C1", "1"), ("U1", ["3"]), ("U1", ["4"]), ("C2", "1"), ("C2", "2"), ("C1", "2")]),
+    "direct": ("-5V", "-5V", [("C1", "1"), ("U1", ["3"]), ("U1", ["4"]), ("C1", "2")]),
+    "dedicated": ("GND", "GND", [("C1", "1"), ("U1", ["3"]), ("U1", ["5"]), ("D2", "1"), ("D2", "2"), ("C2", "1"),
+                                 ("C2", "2"), ("C1", "2")]),
+}
+
+
+@pytest.mark.parametrize("variant", sorted(VARIANTS))
+def test_each_inverter_wiring_is_a_cell_with_its_reference_and_return(variant, tmp_path):
+    """A buck IC as an inverter (its GND pin on -5V) with its input capacitor to ground or straight to -5V (TI
+    SLVA721's placement), and a dedicated inverter on ground with its rectifier into -5V: each is one cell whose
+    `gnd` is the IC's reference and whose `ret` is where its input capacitor returns, read from the capacitor."""
+    gnd, ret, loop = VARIANTS[variant]
+    s = _cells(build(load(str(write_inverting_board(tmp_path, variant))), inverting=True))[CELL]
+    assert (s["class"], s["vin"], s["vout"], s["gnd"], s["ret"]) == ("inverting", "+12V", "-5V", gnd, ret)
+    assert [(s["members_ref"][u], p) for u, p in s["loop"]] == loop
+
+
+def test_a_cells_return_is_its_input_capacitors_other_terminal(tmp_path):
+    import critical_fixtures as F
+    s = _cells(build(load(str(F.write_board(tmp_path)))))["cell:buck:U1"]
+    assert s["ret"] == s["gnd"] == "GND"
+
+
 def test_the_placer_and_router_brief_is_unchanged_unless_asked(board, monkeypatch):
     monkeypatch.delenv("HASLAM_CELLS_INVERTING", raising=False)
     assert CELL not in _cells(build(load(board)))

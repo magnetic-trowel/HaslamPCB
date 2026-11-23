@@ -97,39 +97,75 @@ def dc_fills():
     return f
 
 
-def inverting_parts():
-    """critical_fixtures' parts with U1 as an inverting buck-boost (an LMR51430 from +12V to -5V, as TI SLVA721
-    draws it): its ground pin on -5V, L1 from the switch node to ground, C2 from -5V to ground."""
+# inverting buck-boosts (TI SLVA721), critical_fixtures' converter rewired, +12V in, -5V out:
+# - "ground": a buck IC as an inverter (an LMR51430: its GND pin on -5V), L1 from the switch node to ground, C1 from
+#   +12V to ground and C2 from -5V to ground: the input capacitor returns to ground (ret GND)
+# - "direct": the same with C1 from +12V straight to -5V (the IC's reference), TI SLVA721's placement (ret -5V)
+# - "dedicated": a dedicated inverter (a TPS63700) on ground, its switch from +12V to the switch node, D2 from the
+#   switch node (cathode) to -5V (anode), C2 from -5V to ground (ret GND, the IC's reference GND)
+INV_VALUE = {"ground": "LMR51430", "direct": "LMR51430", "dedicated": "TPS63700"}
+D2 = ("D2", "PMEG4010", "Diode_SMD:D_SOD-123", 126.0, 114.5, 0.0,
+      [("1", "Net-(U1-SW)", -1.65, 0.0, 0.9, 1.2, "smd", 0.0, "K", "passive"),
+       ("2", "-5V", 1.65, 0.0, 0.9, 1.2, "smd", 0.0, "A", "passive")], (2.4, 1.0))
+
+
+def inverting_parts(variant="ground"):
+    """critical_fixtures' parts with U1 as an inverting buck-boost from +12V to -5V (variant: see above)."""
     import critical_fixtures as CF
-    ren = {("U1", "1"): "Net-(U1-FB)", ("U1", "4"): "-5V", ("L1", "2"): "GND", ("C2", "1"): "-5V"}
+    ren = {("U1", "1"): "Net-(U1-FB)", ("L1", "2"): "GND", ("C2", "1"): "-5V"}
+    if variant in ("ground", "direct"):
+        ren[("U1", "4")] = "-5V"
+    if variant == "direct":
+        ren[("C1", "2")] = "-5V"
     out = []
     for ref, val, lib, x, y, rot, pads, cy in CF.PARTS:
         pads = [(n, ren.get((ref, n), "+12V" if net == "VIN" else net), *rest) for n, net, *rest in pads]
-        out.append((ref, "LMR51430" if ref == "U1" else val, lib, x, y, rot, pads, cy))
+        out.append((ref, INV_VALUE[variant] if ref == "U1" else val, lib, x, y, rot, pads, cy))
+    if variant == "dedicated":
+        out.append(D2)
     return out
 
 
-# the inverting cell's loop: C1 (+12V, GND) - U1.3 VIN - U1.4 (-5V) - C2 (-5V, GND), ground through vias
-INV_TRACKS = [("+12V", (117.0, 110.95), (119.69, 110.95), 0.5), ("GND", (117.0, 109.05), (117.0, 108.0), 0.5),
-              ("-5V", (122.31, 110.95), (122.31, 112.8), 0.5), ("-5V", (122.31, 112.8), (132.0, 112.8), 0.5),
-              ("-5V", (132.0, 112.8), (132.0, 110.95), 0.5), ("GND", (132.0, 109.05), (132.0, 108.0), 0.5),
-              ("Net-(U1-SW)", (122.31, 110.0), (126.0, 110.0), 0.5), ("GND", (129.0, 110.0), (129.0, 108.5), 0.5)]
-INV_VIAS = [(117.0, 108.0), (132.0, 108.0), (129.0, 108.5)]
+# each variant's hot loop routed: tracks (net, a, b, width) and ground vias
+INV_TRACKS = {
+    "ground": [("+12V", (117.0, 110.95), (119.69, 110.95), 0.5), ("GND", (117.0, 109.05), (117.0, 108.0), 0.5),
+               ("-5V", (122.31, 110.95), (122.31, 112.8), 0.5), ("-5V", (122.31, 112.8), (132.0, 112.8), 0.5),
+               ("-5V", (132.0, 112.8), (132.0, 110.95), 0.5), ("GND", (132.0, 109.05), (132.0, 108.0), 0.5),
+               ("Net-(U1-SW)", (122.31, 110.0), (126.0, 110.0), 0.5), ("GND", (129.0, 110.0), (129.0, 108.5), 0.5)],
+    "direct": [("+12V", (117.0, 110.95), (119.69, 110.95), 0.5),
+               ("-5V", (122.31, 110.95), (122.31, 112.8), 0.5), ("-5V", (122.31, 112.8), (115.5, 112.8), 0.5),
+               ("-5V", (115.5, 112.8), (115.5, 109.05), 0.5), ("-5V", (115.5, 109.05), (117.0, 109.05), 0.5),
+               ("-5V", (122.31, 112.8), (132.0, 112.8), 0.5), ("-5V", (132.0, 112.8), (132.0, 110.95), 0.5),
+               ("GND", (132.0, 109.05), (132.0, 108.0), 0.5),
+               ("Net-(U1-SW)", (122.31, 110.0), (126.0, 110.0), 0.5), ("GND", (129.0, 110.0), (129.0, 108.5), 0.5)],
+    "dedicated": [("+12V", (117.0, 110.95), (119.69, 110.95), 0.5), ("GND", (117.0, 109.05), (117.0, 108.0), 0.5),
+                  ("GND", (122.31, 110.95), (123.3, 111.9), 0.5),
+                  ("Net-(U1-SW)", (122.31, 110.0), (126.0, 110.0), 0.5),
+                  ("Net-(U1-SW)", (124.35, 114.5), (124.35, 112.6), 0.5), ("Net-(U1-SW)", (124.35, 112.6), (126.0, 111.2), 0.5),
+                  ("-5V", (127.65, 114.5), (132.0, 114.5), 0.5), ("-5V", (132.0, 114.5), (132.0, 110.95), 0.5),
+                  ("GND", (132.0, 109.05), (132.0, 108.0), 0.5), ("GND", (129.0, 110.0), (129.0, 108.5), 0.5)],
+}
+INV_VIAS = {"ground": [(117.0, 108.0), (132.0, 108.0), (129.0, 108.5)],
+            "direct": [(132.0, 108.0), (129.0, 108.5)],
+            "dedicated": [(117.0, 108.0), (123.3, 111.9), (132.0, 108.0), (129.0, 108.5)]}
 
 
-def write_inverting_board(d):
-    """The synthetic board with its converter inverting (inverting_parts), its hot loop routed and grounded."""
+def write_inverting_board(d, variant="ground", routed=True):
+    """The synthetic board with its converter inverting (inverting_parts), its hot loop routed and grounded
+    (routed=False: the parts only, for the router)."""
     import critical_fixtures as CF
     d = Path(d)
     old = CF.PARTS
-    CF.PARTS = inverting_parts()
+    CF.PARTS = inverting_parts(variant)
     try:
         p = write_board(d)
         text = board_text()
     finally:
         CF.PARTS = old
-    items = [_seg(a, b, w, net, k=k) for k, (net, a, b, w) in enumerate(INV_TRACKS)]
-    items += [_via(x, y, "GND", k) for k, (x, y) in enumerate(INV_VIAS)]
+    if not routed:
+        return p
+    items = [_seg(a, b, w, net, k=k) for k, (net, a, b, w) in enumerate(INV_TRACKS[variant])]
+    items += [_via(x, y, "GND", k) for k, (x, y) in enumerate(INV_VIAS[variant])]
     tail = "\t(embedded_fonts no)\n)\n"
     p.write_text(text[:-len(tail)] + "".join(items) + tail)
     return p

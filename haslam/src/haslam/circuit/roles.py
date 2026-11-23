@@ -854,6 +854,24 @@ def inverting_ic(nl: Netlist, roles: Roles, ref):
     return n if n and n not in g else None
 
 
+def inverting_rectifier(nl: Netlist, roles: Roles, swn, ind_ref=None):
+    """(diode, negative rail) of a dedicated inverter's switch node (TPS63700, MC34063 in its inverting circuit): a
+    rectifier with its cathode on the switch node and its anode on a net that is not a ground (the negative output,
+    which it charges below ground while the inductor, switch node to ground, discharges), or (None, None)."""
+    g = set(roles.grounds)
+    for p in nl.nets[swn].pins:
+        if p.ref == ind_ref or roles.parts[p.ref].kind != 'diode' or roles.parts[p.ref].subtype in ('tvs', 'esd_array', 'zener'):
+            continue
+        part = nl.parts[p.ref]
+        o = nl.other_net(part, swn)
+        fn = (p.fn or '').upper()
+        k = fn in ('K', 'C', 'CATHODE', 'K1', 'K2', '-') or (not fn and p.number == '1' and len(part.active_pins()) == 2)
+        nv_ = V.net_voltage(o) if o else None
+        if k and o and o not in g and (nv_[0] < 0 if nv_ else bool(roles.caps_to.get(o))):
+            return p.ref, o
+    return None, None
+
+
 def infer_roles(nl: Netlist, inverting: bool = False) -> Roles:
     """inverting: recognise inverting buck-boost switch nodes (an inductor from the switch node to ground; see
     cells_inverting)."""
@@ -1080,14 +1098,17 @@ def _switch_nodes(nl: Netlist, roles: Roles, inverting: bool = False):
             # an inverting buck-boost: the inductor runs from the switch node to ground, and the switch IC's own
             # ground pins sit on the negative rail it makes (LMR51430 as -12 V inverter: GND on -12V, L SW-PGND)
             n, o = (t[1], t[0]) if t[0] in g else (t[0], t[1])
-            ics = {p.ref for p in nl.nets[n].pins if p.ref != ref and SW_PIN.match(p.fn)
-                   and roles.parts[p.ref].kind in ('ic', 'module') and inverting_ic(nl, roles, p.ref)}
+            swics = {p.ref for p in nl.nets[n].pins if p.ref != ref and SW_PIN.match(p.fn)
+                     and roles.parts[p.ref].kind in ('ic', 'module')}
+            ics = {x for x in swics if inverting_ic(nl, roles, x)}
+            d_, neg_ = inverting_rectifier(nl, roles, n, ref) if swics and not ics else (None, None)
             s, evs = score_side(n, o, ref)
-            if ics and s >= 2.0:
-                ic = sorted(ics)[0]
+            if (ics or d_) and s >= 2.0:
+                ic = sorted(ics or swics)[0]
+                why = (f"{ic}'s ground pins on '{nl.nets[inverting_ic(nl, roles, ic)].short}', not a ground" if ics else
+                       f"rectifier {d_} from the switch node (cathode) to '{nl.nets[neg_].short}' (anode)")
                 evs = [ev('topology', f"one end of power inductor {ref} ({part.value}), the other on ground", 1.0),
-                       ev('pinfunction', f"{ic}'s ground pins on '{nl.nets[inverting_ic(nl, roles, ic)].short}', not a "
-                                         f"ground: an inverting buck-boost", MODERATE)] + evs
+                       ev('topology', f"{why}: an inverting buck-boost", MODERATE)] + evs
                 sw.setdefault(n, dict(kind='inductor', inductors=[], evidence=evs, score=s, inverting=True))['inductors'].append(ref)
             continue
         if not t or any(n in g for n in t):
