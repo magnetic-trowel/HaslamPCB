@@ -627,6 +627,16 @@ def _converter(b: _B, L, lpart, swn, other):
             d_boost = (d, o)
     vin_pins = _vin_pins(b, ctrl, {swn, other}, suffix, token) if ctrl else []
     out_pins = [p for p in b.nl.parts[ctrl].active_pins() if OUT_PIN.match(p.fn) and p.net not in (swn,) and p.net not in b.g] if ctrl else []
+    if ctrl and not out_pins:
+        # a dual-rail IC's positive output (TPS6513x VPOS beside its SWP boost)
+        out_pins = [p for p in b.nl.parts[ctrl].active_pins() if re.match(r'^(VPOS|VOUTP|OUTP)$', p.fn or '', re.I)
+                    and p.net not in (swn,) and p.net not in b.g]
+    named_in = re.compile(r'^(P?VIN\w*|AVIN|PVIN\w*|VIN_?\w*)$', re.I)
+    if ctrl and vin_pins and not any(named_in.match(p.fn or '') or IN_PIN.match(p.fn or '') for p in vin_pins) and \
+            any(p.net == other and named_in.match(p.fn or '') for p in b.nl.parts[ctrl].active_pins()):
+        # the IC's named input (PVIN, AVIN) sits on the inductor's far end: a pin standing in for an input elsewhere
+        # (its VPOS output on a decoupled rail) is no input (tangara's TPS65133 boost half read as a buck)
+        vin_pins = []
     # a multi-channel IC (a PMIC's SW1/SW2): an output pin of another channel says nothing of this one, and this
     # channel's own output pin (VOUT1 beside SW1) on the inductor's far end says the far end is its output (a buck):
     # an I/O supply pin there (VDDIO from +1V8) is then that output's load, not the converter's input
