@@ -274,3 +274,57 @@ def test_an_inverting_bucks_dc_feed_balances(tmp_path, monkeypatch):
     assert inj["U1.5"] == pytest.approx(-out)            # the inductor's current into the switch pin
     assert inj["U1.3"] < 0 and inj["U1.4"] > 0           # drawn from VIN, returned to ground
     assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
+
+
+def _inv_buck_parts():
+    import critical_fixtures as CF
+    parts = []
+    for ref, val, lib, x, y, rot, pads, cy in CF.PARTS:
+        out = []
+        for n, net, lx, ly, w, h, kind, drill, fn, pt in pads:
+            if (ref, n) in INV_BUCK:
+                net, f2, pt = INV_BUCK[(ref, n)]
+                fn = f2 or fn
+            out.append((n, net, lx, ly, w, h, kind, drill, fn, pt))
+        parts.append((ref, "TPS63710" if ref == "U1" else val, lib, x, y, rot, out, cy))
+    return parts + [FLY]
+
+
+def test_an_inverting_bucks_bus_and_duty_are_a_bucks(tmp_path, monkeypatch):
+    """Its switch stands off V_in (the flying capacitor holds the swing), not V_in + |V_out|, and its D is
+    |V_out| / V_in, in the evaluator's parameters and the router's operating point alike."""
+    import critical_fixtures as CF
+    from types import SimpleNamespace
+
+    from haslam.excite import params as PA
+    from haslam.excite.beliefs import Ledger
+    from haslam.route.critical_modules import cell_operating
+    monkeypatch.setattr(CF, "PARTS", _inv_buck_parts())
+    monkeypatch.setenv("HASLAM_CELLS_INVBUCK", "1")
+    br = build(load(str(CF.write_board(tmp_path))))
+    br["nets"]["VIN"]["volts"] = 12.0
+    s = _cells(br)[CELL]
+    assert s["excite"]["V"] in (None, 12.0)
+    src = SimpleNamespace(meta={"cell": CELL, "cls": "inverting", "bus": "VIN"}, name=CELL)
+    P = PA.cell(Ledger(), src, br, None, None, "")
+    assert P["V"].typ == pytest.approx(12.0) and P["D"].typ == pytest.approx(5.0 / 12.0)
+    ctx = SimpleNamespace(volts=lambda n: {"VIN": 12.0, "-5V": 5.0}.get(n), terms=None, opts={}, brief=br, parts={},
+                          nets=br["nets"])
+    assert cell_operating(ctx, SimpleNamespace(id=CELL, kind="cell", spec=s))[2] == pytest.approx(5.0 / 12.0)
+
+
+def test_the_evaluator_prices_an_inverting_bucks_hot_loop(tmp_path, monkeypatch):
+    """The inverting buck on the routed hot-loop board (its loop the buck's: C1, U1's input and ground pins): its
+    observations are emitted, the losses positive, the overshoot bound at its V_in bus."""
+    import critical_fixtures as CF
+    from hotloop_fixtures import plane_fills, write_hotloop_board
+    from haslam.excite.evaluate import evaluate
+    from haslam.physics import criteria as CR
+    monkeypatch.setattr(CF, "PARTS", _inv_buck_parts())
+    monkeypatch.setenv("HASLAM_CELLS_INVBUCK", "1")
+    p = write_hotloop_board(tmp_path, "closed")
+    p.write_text(p.read_text().replace('(net "+3V3")', '(net "-5V")').replace('(net "VIN")', '(net "+12V")'))
+    ev = evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.125)
+    obs = {o["id"]: o for o in ev["observations"] if o["scope"].get("source") == f"cell:{CELL}"}
+    assert ev["open_cells"] == [] and min(obs["loss.loop"]["values"]) > 0 and min(obs["loss.loop_ac"]["values"]) > 0
+    assert obs["overshoot.peak"]["reference"]["value"] == pytest.approx(CR.overshoot_limits(12.0)[0])

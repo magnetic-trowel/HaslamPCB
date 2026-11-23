@@ -145,7 +145,7 @@ def cell_bus(spec, volts, default=None):
     if ex.get('V'):
         return abs(float(ex['V']))
     v = volts(spec.get('rail')) if spec.get('rail') else None
-    if spec.get('class') == 'inverting' and v:
+    if spec.get('class') == 'inverting' and spec.get('topology') != 'inverting_buck' and v:
         vo = volts(spec.get('vout')) if spec.get('vout') else None
         return abs(v) + abs(vo) if vo else (default if default is not None else abs(v))
     return abs(v) if v else default

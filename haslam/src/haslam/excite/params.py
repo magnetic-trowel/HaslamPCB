@@ -67,7 +67,9 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
         return float(d["volts"]), float(lo), float(hi)
     vb = volts(s.meta.get("bus"))
     iv = intent_value(intent, "cells", sid, "V_V")
-    vneg = volts(st.get("vout")) if cls == "inverting" and st.get("vout") else None
+    # an inverting buck-boost's switch swings V_in + |V_out|; an inverting buck's (its flying capacitor) V_in
+    vneg = volts(st.get("vout")) if cls == "inverting" and st.get("vout") and st.get("topology") != "inverting_buck" \
+        else None
     if iv:
         out["V"] = _p(L, sid, "V_V", *iv, "V", "intent", "the intent file")
     elif vb and vneg:
@@ -195,9 +197,9 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
         out["D"] = _p(L, sid, "D", D[1], min(D), max(D), "", "physics",
                       f"inverting buck-boost D = |Vout| / (Vin eta + |Vout|) with Vout from {st.get('vout')}, eta "
                       f"{e[0]:g}-{e[2]:g} typical ({CV.SOURCES['inverting_buck_boost']})")
-    elif cls == "buck" and volts(st.get("vout")):
+    elif (cls == "buck" or top == "inverting_buck") and volts(st.get("vout")):
         # a buck's bus (V) is its input; its output is the structure's vout. In the rails' magnitudes: a -12 V ->
-        # -5 V buck is the mirror image of a 12 V -> 5 V one
+        # -5 V buck is the mirror image of a 12 V -> 5 V one, and an inverting buck's D is |V_out| / V_in
         vo, Vm = _mag(volts(st.get("vout"))), _mag((V.typ, V.lo, V.hi))
         D = (max(0.02, vo[1] / Vm[2]), vo[0] / Vm[0], min(0.98, vo[2] / Vm[1]) if Vm[1] > 0 else 0.98)
         clip = " (clipped: Vout >= Vin as the rails read, their voltages are suspect)" if vo[0] >= Vm[0] else ""
