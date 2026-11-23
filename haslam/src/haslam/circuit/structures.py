@@ -35,6 +35,7 @@ from collections import defaultdict
 from . import values as V
 from .evidence import MODERATE, STRONG, WEAK, confidence, ev
 from .netlist import Netlist, Part
+from .roles import inverting_ic
 from .roles import (ANALOG_NET, ANALOG_PIN, BOOT_PIN, CP_PIN, EN_PIN, FB_PIN, IN_PIN, OUT_PIN, PWR_PIN, SW_PIN, Roles, belief,
                     cap_class)
 
@@ -244,7 +245,7 @@ def commutation_cells(b: _B) -> list:
             continue
         swn = swnets[0]
         other = t[0] if t[1] == swn else t[1]
-        c = _converter(b, L, lpart, swn, other)
+        c = _inverting(b, L, lpart, swn, other) if sw[swn].get('inverting') else _converter(b, L, lpart, swn, other)
         if c:
             cells.append(c)
             used_sw.add(swn)
@@ -748,6 +749,71 @@ def _converter(b: _B, L, lpart, swn, other):
                       'input_caps': out_caps[:6] if kind == 'boost' else [], 'series_shunt': series_shunt,
                       'integrated_switches': bool(ctrl and not hs and not ls),
                       'loop_core': core, 'cap_rail': rail, 'cap_gnd': gnd, 'anchor': ctrl or hs or L})
+
+
+def _inverting(b: _B, L, lpart, swn, gnd):
+    """An inverting buck-boost (TI SLVA721): the switch IC between its input rail and the negative rail it makes
+    (its ground pins on that rail), the inductor from the switch node to ground. The high side commutates I_L
+    between the input and the switch node, the low side between the switch node and the negative rail: the hot loop
+    is the input capacitor, the IC's input pins, its reference (ground) pins on the negative rail and the output
+    capacitor back to ground; a capacitor straight from the input to the negative rail closes it alone. The bus is
+    the swing V_in + |V_out| across the switch."""
+    nv = b.nl.nets[swn]
+    sw_pins = [p for p in nv.pins if p.ref != L and SW_PIN.match(p.fn) and b.k(p.ref) in ('ic', 'module')]
+    ctrl = next((p.ref for p in sw_pins if inverting_ic(b.nl, b.r, p.ref)), None)
+    if ctrl is None:
+        return None
+    neg = inverting_ic(b.nl, b.r, ctrl)
+    vin_pins = _vin_pins(b, ctrl, {swn, gnd, neg})
+    if not vin_pins:
+        return None
+    rail = vin_pins[0].net
+    vi, vo = b.volts(rail), b.volts(neg)
+    if (vo is not None and vo >= 0) or (vi is not None and vi <= 0):
+        return None                        # not an input above ground and an output below it
+    evs = [ev('topology', f"power inductor {L} ({lpart.value}) from '{b.short(swn)}' to ground '{b.short(gnd)}'", MODERATE),
+           ev('pinfunction', f"{ctrl} input {vin_pins[0].label} on '{b.short(rail)}', its ground pins on '{b.short(neg)}': "
+                             f"an inverting buck-boost", STRONG)]
+    evs += [e for e in b.r.switch_nodes[swn]['evidence'] if e.weight > 0][:3]
+    gp = sorted({p.number for p in b.nl.parts[ctrl].pins_on(neg)}, key=_natkey)
+    vin_pads = [p.number for p in vin_pins if p.net == rail] or b.supply_pads(ctrl, rail)
+    rect = next((p.ref for p in nv.pins if b.k(p.ref) == 'diode' and b.sub(p.ref) not in ('tvs', 'esd_array', 'zener')
+                 and b.nl.other_net(b.nl.parts[p.ref], swn) == neg), None)
+    direct = sorted((c for c, nets in ((r, b.nl.parts[r].nets) for r in b.nl.parts if b.k(r) == 'capacitor')
+                     if nets == {rail, neg}), key=_refkey)
+    core = [[ctrl, vin_pads]]
+    if rect:
+        core += [[ctrl, b.pads(ctrl, swn)], [rect, b.pad_sel(rect, swn)], [rect, b.pad_sel(rect, neg)]]
+    else:
+        core += [[ctrl, gp]]
+    excl = {ctrl, L}
+    if direct:
+        caps, cp, cap_gnd = _hf_order(b.nl, direct), {c: 1.0 for c in direct}, neg
+    else:
+        # through ground: the input capacitor (rail to ground) and the output capacitor (negative rail to ground)
+        caps, cp = _caps_with_p(b, rail, gnd, ctrl, [x for x in _consumers(b, rail, exclude=excl) if x != ctrl])
+        outs = _hf_order(b.nl, b.caps_on(neg, gnd))
+        cap_gnd = gnd
+        if outs:
+            co = outs[0]
+            g_out = gnd if gnd in b.nl.parts[co].nets else min(b.nl.parts[co].nets - {neg})
+            core += [[co, b.cap_pad(co, neg)], [co, b.cap_pad(co, g_out)]]
+        else:
+            evs.append(ev('topology', f"no capacitor from '{b.short(neg)}' to ground: the output side of the loop is open", -2.0))
+    if not caps:
+        evs.append(ev('topology', f"no input capacitor on '{b.short(rail)}': no commutation capacitor found", -2.0))
+    V_ = vi + abs(vo) if vi is not None and vo is not None else None
+    exc = _excite(b, ctrl, L, V_, 'buck')
+    exc['basis'].append(f"V = V_in + |V_out| (the switch's swing)" if V_ is not None else
+                        "V unknown: the input or the negative output has no voltage")
+    conf_cap = min(b.r.nets[swn].confidence, b.r.parts[L].kind_confidence + 0.2)
+    return _struct('commutation_cell', f"cell:inverting:{ctrl}", evs, conf_cap=conf_cap, prior=-0.5,
+                   **{'class': 'inverting', 'topology': 'inverting_buck_boost', 'loop': [], 'rail': rail, 'sw': swn,
+                      'gnd': neg, 'excite': exc, 'controller': ctrl, 'inductor': L, 'caps': caps, 'caps_p': cp,
+                      'switches': {'high': ctrl, 'low': rect or ctrl, 'rectifier': rect},
+                      'vin': rail, 'vout': neg, 'output_caps': _hf_order(b.nl, b.caps_on(neg, gnd))[:6], 'input_caps': [],
+                      'series_shunt': [], 'integrated_switches': True, 'loop_core': core, 'cap_rail': rail,
+                      'cap_gnd': cap_gnd, 'anchor': ctrl})
 
 
 def _buck_boost(b: _B, L, swnets):
@@ -1941,7 +2007,7 @@ def heat(b: _B, cells, heat_models=None) -> tuple[list, dict]:
                 basis = f"(Vin {vin:g} - Vout {vout:g}) V x {I_:g} A, the load current assumed from the {part.package.text or 'package'} class"
                 # what haslam.intent.facts.apply re-sizes the loss from once the facts state volts or current
                 model = {'law': 'linear', 'vin': vin_net, 'vout': vout_net, 'vout_V': vout, 'I_A': I_}
-        elif ref in cell_by_ctrl and cell_by_ctrl[ref]['class'] in ('buck', 'boost'):
+        elif ref in cell_by_ctrl and cell_by_ctrl[ref]['class'] in ('buck', 'boost', 'inverting'):
             c = cell_by_ctrl[ref]
             ex = c['excite']
             vout = b.volts(c.get('vout') or '') if c.get('vout') else None
@@ -2040,6 +2106,15 @@ def _apply_dividers(b: _B, fb, cells):
         ex = c['excite']
         v = b.volts(c['rail'])
         vb = (b.r.nets.get(c['rail']).attrs.get('volts') or {}) if b.r.nets.get(c['rail']) else {}
+        if c['class'] == 'inverting':
+            # the switch swings from the input to the negative output: V_in + |V_out|
+            vo = b.volts(c['vout'])
+            v = v + abs(vo) if v is not None and vo is not None else None
+            if v is not None and ex.get('V') != v:
+                ex['V'] = v
+                ex['basis'] = [x for x in ex['basis'] if not x.startswith('V ')] + \
+                    [f"V = V_in + |V_out| from '{b.short(c['rail'])}' and '{b.short(c['vout'])}' (the switch's swing)"]
+            continue
         if v is not None and ex.get('V') != v:
             ex['V'] = v
             ex['basis'] = [x for x in ex['basis'] if not x.startswith('V ')] + [f"V from '{b.short(c['rail'])}': {vb.get('relative_to', '')}"]

@@ -831,14 +831,39 @@ class _Ctx:
         return self.nl.two_nets(part)
 
 
-def infer_roles(nl: Netlist) -> Roles:
+def cells_inverting(default=False):
+    """Whether inverting buck-boost cells are recognised (HASLAM_CELLS_INVERTING=1/0; unset: `default`). The evaluator
+    recognises them by default; the placer and the router do not yet (their cell stages assume a ground return)."""
+    import os
+    v = os.environ.get("HASLAM_CELLS_INVERTING")
+    return default if v is None or not v.strip() else v.strip().lower() in ("1", "true", "yes", "on")
+
+
+GND_FN = re.compile(r'^(P?GND|AGND|EP|PAD|EPAD|VSS)\w*$', re.I)
+
+
+def inverting_ic(nl: Netlist, roles: Roles, ref):
+    """The negative rail an IC references (its ground pins all on one non-ground net), or None: an inverting
+    buck-boost's controller sits between its input and the negative output it makes."""
+    g = set(roles.grounds)
+    gp = [p for p in nl.parts[ref].active_pins() if GND_FN.match(p.fn or '')]
+    nets = {p.net for p in gp}
+    if len(nets) != 1:
+        return None
+    n = next(iter(nets))
+    return n if n and n not in g else None
+
+
+def infer_roles(nl: Netlist, inverting: bool = False) -> Roles:
+    """inverting: recognise inverting buck-boost switch nodes (an inductor from the switch node to ground; see
+    cells_inverting)."""
     roles = Roles(nl=nl)
     for ref, part in nl.parts.items():
         kind, sub, p, evs = classify_part(part)
         roles.parts[ref] = PartRole(ref=ref, kind=kind, subtype=sub, role=kind, confidence=p, evidence=evs, kind_confidence=p)
     _grounds(nl, roles)
     _caps_index(nl, roles)
-    _switch_nodes(nl, roles)
+    _switch_nodes(nl, roles, inverting)
     _rails(nl, roles)
     _connector_types(nl, roles)
     _rail_sources(nl, roles)
@@ -1002,7 +1027,7 @@ CLASS_D = rx(r'\bMAX9835\d|\bMAX9836\d|\bMAX9837\d|\bmax98357|\bTPA2\d{3}|\bTPA3
              r'\bSSM2[35]\d{2}|\bNS4168|\bNS4150|\bNS4160|\bTDA8932|\bTDA7491|\bIS31AP|\bclass.?D\b')
 
 
-def _switch_nodes(nl: Netlist, roles: Roles):
+def _switch_nodes(nl: Netlist, roles: Roles, inverting: bool = False):
     g = set(roles.grounds)
     sw = {}
 
@@ -1051,6 +1076,20 @@ def _switch_nodes(nl: Netlist, roles: Roles):
         if not ok or part.dnp:
             continue
         t = nl.two_nets(part)
+        if t and inverting and (t[0] in g) != (t[1] in g):
+            # an inverting buck-boost: the inductor runs from the switch node to ground, and the switch IC's own
+            # ground pins sit on the negative rail it makes (LMR51430 as -12 V inverter: GND on -12V, L SW-PGND)
+            n, o = (t[1], t[0]) if t[0] in g else (t[0], t[1])
+            ics = {p.ref for p in nl.nets[n].pins if p.ref != ref and SW_PIN.match(p.fn)
+                   and roles.parts[p.ref].kind in ('ic', 'module') and inverting_ic(nl, roles, p.ref)}
+            s, evs = score_side(n, o, ref)
+            if ics and s >= 2.0:
+                ic = sorted(ics)[0]
+                evs = [ev('topology', f"one end of power inductor {ref} ({part.value}), the other on ground", 1.0),
+                       ev('pinfunction', f"{ic}'s ground pins on '{nl.nets[inverting_ic(nl, roles, ic)].short}', not a "
+                                         f"ground: an inverting buck-boost", MODERATE)] + evs
+                sw.setdefault(n, dict(kind='inductor', inductors=[], evidence=evs, score=s, inverting=True))['inductors'].append(ref)
+            continue
         if not t or any(n in g for n in t):
             continue
         sa, ea = score_side(t[0], t[1], ref)
