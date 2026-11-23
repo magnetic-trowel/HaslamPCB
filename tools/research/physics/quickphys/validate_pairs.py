@@ -115,6 +115,7 @@ def main(argv=None):
                    strips=dict(a=[sa.get("L_nH"), sa.get("R_mohm")], b=[sb.get("L_nH"), sb.get("R_mohm")]),
                    state=dict(a=sa.get("state"), b=sb.get("state")),
                    pitch_near=dict(a=sa.get("pitch_near"), b=sb.get("pitch_near")),
+                   h_near=dict(a=sa.get("h_near"), b=sb.get("h_near")),
                    unknowns=dict(a=sa.get("unknowns"), b=sb.get("unknowns")))
         pn = [v for v in row["pitch_near"].values() if v is not None]
         st = strata.setdefault(f"{max(pn):g}" if pn else "none", dict(agree=0, total=0, ties=0, unknowns=[]))

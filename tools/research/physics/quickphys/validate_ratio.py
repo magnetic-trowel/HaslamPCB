@@ -64,7 +64,8 @@ def main(argv=None):
             s = q.get(c, {})
             r = dict(board_id=e["board_id"], cell=c, state=s.get("state"), window=[L, R], window_box=box,
                      strips=[s.get("L_nH"), s.get("R_mohm")], strips_box=s.get("window"), pitch=s.get("pitch"),
-                     pitch_near=s.get("pitch_near"), pitch_far=s.get("pitch_far"), unknowns=s.get("unknowns"),
+                     pitch_near=s.get("pitch_near"), h_near=s.get("h_near"), pitch_far=s.get("pitch_far"),
+                     unknowns=s.get("unknowns"),
                      seconds=s.get("seconds"), why=s.get("why"))
             if s.get("state") == "ok":
                 r["ratio_L"] = round(s["L_nH"] / L, 4)
@@ -88,7 +89,8 @@ def main(argv=None):
         Path(a.out).write_text(json.dumps(res, indent=1))
     print(json.dumps(summ, indent=1))
     for r in rows:
-        print(f"{r['board_id'][:48]:48s} {r['cell']:28s} {r['state']!s:12s} P0 {r.get('pitch_near')} far "
+        print(f"{r['board_id'][:48]:48s} {r['cell']:28s} {r['state']!s:12s} P0 {r.get('pitch_near')} h "
+              f"{r.get('h_near')} far "
               f"{r.get('pitch_far')} N {r.get('unknowns')} L {r.get('ratio_L')} R {r.get('ratio_R')}")
     return 0
 
