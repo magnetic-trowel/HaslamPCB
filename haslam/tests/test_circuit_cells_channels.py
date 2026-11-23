@@ -3,6 +3,8 @@
 """A multi-channel PMIC's buck channel is a buck (an nPM1300: SW1 -> L -> +1V8 with VOUT1 sensing +1V8 and its
 VDDIO pin powered from +1V8, VOUT2 on +3V3). Its I/O supply pin on the inductor's far end and the other
 channel's output pin on another net read as a boost's evidence, so the channel was typed a boost from +3V3."""
+import pytest
+
 import critical_fixtures as CF
 from haslam.board.kicad_file import load
 from haslam.circuit.brief import build
@@ -47,3 +49,29 @@ def test_a_buck_without_pin_names_is_a_cell_beside_its_bootstrap_capacitor(tmp_p
     br = build(load(str(CF.write_board(tmp_path))))
     cells = [(s["id"], s["class"], s["rail"], s["vout"], s["sw"]) for s in br["structures"] if s["kind"] == "commutation_cell"]
     assert cells == [("cell:buck:U1", "buck", "VIN", "+3V3", "Net-(U1-SW)")]
+
+
+FOUR_SW = {("U1", "1"): ("+3V3", "VO", "power_out"), ("U1", "5"): ("Net-(U1-SW1)", "SW1", "output"),
+           ("U1", "6"): ("Net-(U1-SW2)", "SW2", "output"), ("L1", "1"): ("Net-(U1-SW1)", "", "passive"),
+           ("L1", "2"): ("Net-(U1-SW2)", "", "passive")}
+
+
+@pytest.mark.parametrize("value,leg_in", [("BB4SW0", "Net-(U1-SW1)"), ("JW3651QFNE", "Net-(U1-SW2)")])
+def test_a_four_switch_buck_boosts_input_leg(value, leg_in, tmp_path, monkeypatch):
+    """The 4-switch buck-boost's buck cell is its input half-bridge: the SW1 / L1 pin's by default, SW2 for a part
+    whose datasheet puts SW1 on the output side (JW3651; modos glider's U13 had its legs swapped)."""
+    parts = []
+    for ref, val, lib, x, y, rot, pads, cy in CF.PARTS:
+        out = []
+        for n, net, lx, ly, w, h, kind, drill, fn, pt in pads:
+            if (ref, n) in FOUR_SW:
+                net, f2, pt = FOUR_SW[(ref, n)]
+                fn = f2 or fn
+            out.append((n, net, lx, ly, w, h, kind, drill, fn, pt))
+        parts.append((ref, value if ref == "U1" else val, lib, x, y, rot, out, cy))
+    monkeypatch.setattr(CF, "PARTS", parts)
+    br = build(load(str(CF.write_board(tmp_path))))
+    cells = {s["class"]: s for s in br["structures"] if s["kind"] == "commutation_cell"}
+    assert cells["buck"]["sw"] == leg_in and cells["buck"]["rail"] == "VIN"
+    assert cells["boost"]["sw"] != leg_in and cells["boost"]["rail"] == "+3V3"
+    assert cells["buck"]["topology"] == cells["boost"]["topology"] == "buck_boost_4switch"
