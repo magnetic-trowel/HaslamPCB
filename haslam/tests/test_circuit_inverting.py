@@ -186,3 +186,16 @@ def test_an_inverting_buck_is_an_inverting_cell_with_a_bucks_loop(tmp_path, monk
     assert [s["members_ref"][u] for u, _ in s["loop"]] == ["C1", "U1", "U1", "C1"]
     op = CV.operating("inverting_buck", 12.0, -5.0, 1.0, 0.9)
     assert op.D == pytest.approx(5 / 12) and op.I_L == op.I_sw == 1.0 and op.V_bus == 12.0
+
+
+def test_the_recheck_measures_an_inverter_over_its_return_plane(tmp_path):
+    """critical_recheck measured a cell's loop against the nearest ground layer: an inverter whose input capacitor
+    returns to -5V (4 layers: GND on In1.Cu, a -5V pour on B.Cu under the cell) was rechecked over the GND plane.
+    Its reference plane is its return net's: B.Cu; a buck's stays the ground's."""
+    from haslam.route.critical_recheck import RoutedBoard, cell_value
+    p = write_inverting_board(tmp_path, "direct", routed=True, neg_pour=True, layers=4)
+    b = load(str(p))
+    br = build(b, inverting=True)
+    s = _cells(br)[CELL]
+    v, extra = cell_value(RoutedBoard(b, fills=None, brief=br), s)
+    assert v is not None and v > 0 and extra["gnd_layer"] == "B.Cu"
