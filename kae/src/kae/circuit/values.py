@@ -44,7 +44,7 @@ def _norm(text: str | None) -> str:
 
 # ------------------------------------------------------------------ component values
 def capacitance(text: str | None) -> float | None:
-    """Farads from a capacitor value ('100nF', '0.1uF/16V', '4u7', '22p', '1µF', '0.1')."""
+    """Farads from a capacitor value ('100nF', '0.1uF/16V', '.1uF', '4u7', '22p', '1µF', '0.1')."""
     v = _SEP.sub(' ', _norm(text))
     if not v:
         return None
