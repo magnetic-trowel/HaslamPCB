@@ -980,6 +980,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             kw.setdefault("w_zone", 1.0)
             kw["zones"] = zone_tab
             rep["zone_term"] = dict(zone_tab.info, w_zone=kw["w_zone"])
+        kw.setdefault("hard_fixed", float(setting_env("place_anneal_hard_fixed", board_path, opts)) > 0)
         ann = make_annealer(P, st.copy(), terms=terms, macros=[m for m in macros if not m.anchored], seed=seed,
                             log=log, **kw)
         if anneal_args:
@@ -989,6 +990,14 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         cpu = max(1.0, 0.6 * (deadline - clock_now() - 3.0))
         # wall clock too: on a loaded host CPU seconds lag behind the caller's timeout
         arep = ann.run(cpu_s=cpu, deadline=deadline - 0.1 * budget)
+        q = float(setting_env("place_anneal_quench", board_path, opts))
+        if q > 0 and ann.leg_total > 0:
+            # the anneal ended with overlaps: raise the legality weight on its own cost before the
+            # physics-blind grid legalizer takes over (kae.place.engine.FastAnnealer.quench)
+            arep["quench"] = ann.quench(int(q * (arep.get("planned_moves") or 0)))
+            if log:
+                log(f"anneal quench: legality {arep['quench'].get('leg_start')} -> {arep['quench'].get('leg_end')} "
+                    f"in {arep['quench'].get('moves')} moves")
         ann.write_back()
         rep["anneal"] = arep
         stage("anneal", t)
