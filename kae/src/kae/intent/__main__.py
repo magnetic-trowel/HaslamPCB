@@ -23,7 +23,8 @@ def _brief(ev):
     from kae.circuit import brief as B
     b = load(ev["board"])
     PF.apply(b, ev.get("pins"))         # the pin facts the evaluator used (operating facts `pins`)
-    return B.build(b)
+    from kae.circuit.roles import cells_inverting
+    return B.build(b, inverting=cells_inverting(True))      # the evaluator's brief (kae.excite.evaluate)
 
 
 def catalog(ev, brief):

@@ -196,7 +196,9 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     # the schematic's pin facts the intent was compiled with (operating facts `pins`): the same circuit
     n_pins = PF.apply(b, (intent or {}).get("pins"))
     b.stackup, stack_hz, stack_text = assume_stackup(b)
-    brief = brief or B.build(b)
+    # inverting buck-boost cells: recognised for the evaluator unless KAE_CELLS_INVERTING=0 (kae.circuit.roles)
+    from kae.circuit.roles import cells_inverting
+    brief = brief or B.build(b, inverting=cells_inverting(True))
     bd = M.build(b, brief)
     bd.radios = dict((intent or {}).get("radios") or {})        # the operating facts' radios
     srcs = S.add_all(bd, brief)

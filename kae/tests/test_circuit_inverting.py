@@ -43,3 +43,36 @@ def test_the_placer_and_router_brief_is_unchanged_unless_asked(board, monkeypatc
     assert CELL not in _cells(build(load(board)))
     monkeypatch.setenv("KAE_CELLS_INVERTING", "1")
     assert CELL in _cells(build(load(board)))
+
+
+@lru_cache(maxsize=None)
+def _ev(board):
+    from kae.excite.evaluate import evaluate
+    return evaluate(board, pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.125)
+
+
+def test_the_evaluator_prices_an_inverting_cells_hot_loop(board, monkeypatch):
+    from kae.physics import criteria as CR
+    monkeypatch.delenv("KAE_CELLS_INVERTING", raising=False)
+    ev = _ev(board)
+    obs = {o["id"]: o for o in ev["observations"] if o["scope"].get("source") == f"cell:{CELL}"}
+    assert ev["open_cells"] == [] and {"overshoot.peak", "loss.loop", "loss.loop_ac"} <= set(obs)
+    assert min(obs["loss.loop"]["values"]) > 0 and min(obs["loss.loop_ac"]["values"]) > 0
+    # the switch stands off V_in + |V_out| = 17 V: its overshoot bound is that bus's
+    assert obs["overshoot.peak"]["reference"]["value"] == pytest.approx(CR.overshoot_limits(17.0)[0])
+
+
+def test_an_inverting_cells_bus_and_duty():
+    from types import SimpleNamespace
+
+    from kae.excite import params as PA
+    from kae.excite.beliefs import Ledger
+    from kae.physics import converter as CV
+    brief = {"structures": [{"id": "c1", "class": "inverting", "topology": "inverting_buck_boost", "rail": "IN",
+                             "vin": "IN", "vout": "NEG"}],
+             "nets": {"IN": {"volts": 12.0}, "NEG": {"volts": -5.0}}}
+    s = SimpleNamespace(meta={"cell": "c1", "cls": "inverting", "bus": "IN"}, name="c1")
+    P = PA.cell(Ledger(), s, brief, None, None, "")
+    assert P["V"].typ == pytest.approx(17.0)
+    assert P["D"].typ == pytest.approx(5.0 / (12.0 * CV.ETA[1] + 5.0))
+    assert CV.topology_of("inverting", {})[0] == "inverting_buck_boost"
