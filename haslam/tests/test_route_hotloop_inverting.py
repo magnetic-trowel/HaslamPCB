@@ -82,3 +82,25 @@ def test_the_flag_off_stage_is_the_stage_as_it_was(variant, tmp_path, monkeypatc
     monkeypatch.setenv("HASLAM_CELLS_INVERTING", "1")
     _, on = _stage(tmp_path / "on", variant)
     assert off["cells"] == on["cells"] and _canon(Path(off["board"])) == _canon(Path(on["board"]))
+
+
+def test_the_four_layer_inverter_at_one_and_a_half_amps(tmp_path, monkeypatch):
+    """The saved route-CLI input (tools/haslamres/experiments/inverters/make_boards.py): a buck IC as an inverter on
+    four layers (a GND plane on In1.Cu), its input capacitor straight to -5V, 1.5 A out by its operating facts. Laid
+    over the In1.Cu plane (no -5V copper: the stand-in plane, said so), its hops sized for the switch's current."""
+    from haslam.route import critical_physics as P
+    monkeypatch.setenv("HASLAM_CELLS_INVERTING", "1")
+    data = Path(__file__).parent / "data" / "inverters"
+    p = tmp_path / "in" / "board.kicad_pcb"
+    p.parent.mkdir()
+    for ext in (".kicad_pcb", ".kicad_pro"):
+        (p.parent / f"board{ext}").write_text((data / "inv-direct-4l" / f"board{ext}").read_text())
+    rep = hotloop.stage(p, F.synth_info(load(p)), tmp_path / "w",
+                        dict(ALL, operating=str(data / "inv-direct-4l.operating.json")), log=lambda *a: None)
+    (c,) = [c for c in rep["cells"] if c["id"] == CELL]
+    assert c["status"] == "routed" and (c["ret"], c["plane_src"]) == ("-5V", "other")
+    assert c["plane_net"] == "GND"
+    b = load(Path(rep["board"]))
+    # I_L = I_out / (1 - D) at 12 V -> -5 V: the hops are at least IPC-2221 wide for it (or flagged)
+    widths = [t.width for t in b.tracks if t.net in ("+12V", "-5V")]
+    assert widths and max(widths) >= P.ipc2221_width(1.5) - 1e-6

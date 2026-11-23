@@ -169,9 +169,25 @@ def _neg_pour():
             f'\t\t(polygon\n\t\t\t(pts\n\t\t\t\t(xy {x0} {y0}) (xy {x1} {y0}) (xy {x1} {y1}) (xy {x0} {y1})\n\t\t\t)\n\t\t)\n\t)\n')
 
 
-def write_inverting_board(d, variant="ground", routed=True, neg_pour=False, load=False):
+def _four_layers(text):
+    """The board on four copper layers: In1.Cu a ground plane (a GND pour over the board), In2.Cu free."""
+    x0, y0 = ORIGIN
+    x1, y1 = x0 + SIZE[0], y0 + SIZE[1]
+    text = text.replace('\t\t(0 "F.Cu" signal)\n', '\t\t(0 "F.Cu" signal)\n\t\t(4 "In1.Cu" signal "GND")\n'
+                        '\t\t(6 "In2.Cu" power)\n', 1)
+    zone = (f'\t(zone\n\t\t(net "GND")\n\t\t(layer "In1.Cu")\n\t\t(uuid "00000000-0000-4000-a000-000000000002")\n'
+            f'\t\t(name "gnd_plane")\n\t\t(hatch edge 0.5)\n\t\t(connect_pads\n\t\t\t(clearance 0.3)\n\t\t)\n'
+            f'\t\t(min_thickness 0.25)\n\t\t(fill\n\t\t\t(thermal_gap 0.5)\n\t\t\t(thermal_bridge_width 0.5)\n\t\t)\n'
+            f'\t\t(polygon\n\t\t\t(pts\n\t\t\t\t(xy {x0 + 0.5} {y0 + 0.5}) (xy {x1 - 0.5} {y0 + 0.5}) '
+            f'(xy {x1 - 0.5} {y1 - 0.5}) (xy {x0 + 0.5} {y1 - 0.5})\n\t\t\t)\n\t\t)\n\t)\n')
+    tail = "\t(embedded_fonts no)\n)\n"
+    return text[:-len(tail)] + zone + tail
+
+
+def write_inverting_board(d, variant="ground", routed=True, neg_pour=False, load=False, layers=2):
     """The synthetic board with its converter inverting (inverting_parts), its hot loop routed and grounded
-    (routed=False: the parts only, for the router; neg_pour: a -5V pour on B.Cu under the cell, NEG_POUR)."""
+    (routed=False: the parts only, for the router; neg_pour: a -5V pour on B.Cu under the cell, NEG_POUR;
+    layers=4: a GND plane on In1.Cu as well)."""
     import critical_fixtures as CF
     d = Path(d)
     old = CF.PARTS
@@ -182,6 +198,9 @@ def write_inverting_board(d, variant="ground", routed=True, neg_pour=False, load
     finally:
         CF.PARTS = old
     tail = "\t(embedded_fonts no)\n)\n"
+    if layers == 4:
+        text = _four_layers(text)
+        p.write_text(text)
     if neg_pour:
         text = text[:-len(tail)] + _neg_pour() + tail
         p.write_text(text)
