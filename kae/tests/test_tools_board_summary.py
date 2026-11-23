@@ -33,3 +33,17 @@ def test_an_inductor_outside_every_structure_is_listed(tmp_path):
            ("2", "+3V3_F", 0.95, 0.0, 1.0, 1.45, "smd", 0.0, "", "passive")], (1.7, 1.0))
     out = _summary()(str(CF.write_board(tmp_path, extra=[l9])))
     assert "L9" in {p["ref"] for p in out["parts"]}
+
+
+def test_a_sections_parts_are_all_listed(tmp_path, monkeypatch):
+    """An inverter cell with eleven parts (mecsem's hvdc board) lost its controller U21: the list was cut at ten
+    and U21 sorts after C1xx."""
+    from types import SimpleNamespace
+
+    import critical_fixtures as CF
+    from kae.intent import sections as SE
+    parts = {f"C{100 + k}" for k in range(10)} | {"U21"}
+    monkeypatch.setattr(SE, "from_brief", lambda br: {"s": SimpleNamespace(id="cell:inverting:U21",
+                                                                            kind="commutation_cell", parts=parts, nets=set())})
+    out = _summary()(str(CF.write_board(tmp_path)))
+    assert set(out["sections"][0]["parts"]) == parts
