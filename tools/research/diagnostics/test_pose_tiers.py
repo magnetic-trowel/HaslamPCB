@@ -176,4 +176,4 @@ def test_oracle_verdict():
     assert PO.tier_verdict({}, 0, ["U1"]) == (True, None)
     legal, why = PO.tier_verdict({"courtyards_overlap": 1}, 1, ["U1"])
     assert not legal and "courtyards_overlap 1" in why and "1 held parts" in why
-    assert PO.tier_verdict({}, 0, [])[0] is False
+    assert PO.tier_verdict({}, 0, []) == (True, None)          # holds nothing extra: the control, not excluded

@@ -48,8 +48,7 @@ def tier_verdict(excess, outside, held_refs):
                    + ", ".join(f"{k} {v}" for k, v in excess.items()))
     if outside:
         why.append(f"{outside} held parts have more pads outside the outline than in the human layout")
-    if not held_refs:
-        why.append("the tier holds no part beyond the task's fixed ones")
+    # a tier that holds nothing beyond the task's fixed parts is legal: that arm is the control there
     return (not why), "; ".join(why) or None
 
 
