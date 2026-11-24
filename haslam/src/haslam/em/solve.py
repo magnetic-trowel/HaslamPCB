@@ -205,14 +205,18 @@ class Operator:
             if not n:
                 continue
             seg = I2[a0:a0 + n]                                       # (n, P)
-            G = np.zeros((P, 2, S, self.Ny, self.Nx))
+            # the currents fill only the ny x nx corner of the (Ny, Nx) circulant grid, and only that corner of the
+            # product is read: rfft2 as its two passes, the first over the ny filled rows only, irfft2 likewise with
+            # its last pass over the ny rows read (irfft2_rows; the same transforms, a quarter less FFT work)
+            ny, nx = self.ny, self.nx
+            G = np.zeros((P, 2, S, ny, nx))
             G[:, 0, slot, f["j"], f["i"]] = seg.real.T
             G[:, 1, slot, f["j"], f["i"]] = seg.imag.T
-            G = G.reshape(2 * P, S, self.Ny, self.Nx)
-            X = sfft.rfft2(G, workers=WORKERS)                       # (2P, S, Ny, Nx/2+1)
-            sh = X.shape
+            G = G.reshape(2 * P, S, ny, nx)
+            X = sfft.fft(sfft.rfft(G, n=self.Nx, axis=-1, workers=WORKERS), n=self.Ny, axis=-2, workers=WORKERS)
+            sh = X.shape                                              # (2P, S, Ny, Nx/2+1)
             Y = _kmul(Kh, np.ascontiguousarray(X.reshape(2 * P, S, -1))).reshape(sh)
-            Y = irfft2_rows(Y, self.Ny, self.Nx, self.ny).reshape(P, 2, S, self.ny, self.Nx)
+            Y = irfft2_rows(Y, self.Ny, self.Nx, ny)[..., :nx].reshape(P, 2, S, ny, nx)
             out[a0:a0 + n] = (Y[:, 0, slot, f["j"], f["i"]] + 1j * Y[:, 1, slot, f["j"], f["i"]]).T
         nv = len(net.vseg)
         if nv:

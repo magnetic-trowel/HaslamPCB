@@ -81,3 +81,36 @@ def test_a_quote_warm_started_from_the_cell_before_its_change_agrees_and_iterate
     for k in ("L_nH", "R_mohm"):
         assert abs(hot[k] / cold[k] - 1) < 1e-3, (k, hot[k], cold[k])
     assert it_hot < it_cold, (it_hot, it_cold)
+
+
+def test_the_pruned_fft_matvec_equals_the_full_circulant_one(tmp_path, monkeypatch):
+    """Operator.L_apply transforms only the filled ny x nx corner of its (Ny, Nx) circulant grid: the product equals
+    the full rfft2 / irfft2 one to rounding."""
+    import numpy as np
+    import scipy.fft as sfft
+    from haslam.board.kicad_file import load
+    from haslam.em import solve as ES
+    from haslam.em.kicad import BoardMesh
+    p = str(write_hotloop_board(tmp_path / "c", "closed"))
+    bm = BoardMesh(p, (111.745, 104.02, 127.37, 115.98), 0.125, nsub=2, b=load(p), fills=plane_fills())
+    net = ES.Network(bm.m)
+    op = ES.Operator(net)
+    rng = np.random.default_rng(1)
+    I = rng.standard_normal((net.n_br, 2)) + 1j * rng.standard_normal((net.n_br, 2))
+    got = op.L_apply(I)
+    ref = np.zeros_like(I)
+    for o, (S, slot, Kh) in op._index().items():
+        f, a0 = net.fil[o], net.off[o]
+        n = len(f["a"])
+        seg = I[a0:a0 + n]
+        G = np.zeros((2, 2, S, op.Ny, op.Nx))
+        G[:, 0, slot, f["j"], f["i"]] = seg.real.T
+        G[:, 1, slot, f["j"], f["i"]] = seg.imag.T
+        X = sfft.rfft2(G.reshape(4, S, op.Ny, op.Nx))
+        Y = np.einsum("rsm,csm->crm", Kh, X.reshape(4, S, -1)).reshape(X.shape)
+        Y = sfft.irfft2(Y, s=(op.Ny, op.Nx)).reshape(2, 2, S, op.Ny, op.Nx)
+        ref[a0:a0 + n] = (Y[:, 0, slot, f["j"], f["i"]] + 1j * Y[:, 1, slot, f["j"], f["i"]]).T
+    nv = len(net.vseg)
+    if nv:
+        ref[net.off["v"]:net.off["v"] + nv] = op.Lv @ I[net.off["v"]:net.off["v"] + nv]
+    assert np.abs(got - ref).max() <= 1e-12 * np.abs(ref).max()
