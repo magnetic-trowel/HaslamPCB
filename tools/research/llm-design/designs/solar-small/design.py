@@ -146,7 +146,7 @@ def charger(d):
             nets=[("SW1", (-0.7, 25.5), "switching", {"i_max": 1.2, "i_peak": 1.7}),
                   ("SW2", (-0.7, 15.7), "switching", {"i_max": 1.2, "i_peak": 1.7}),
                   ("VCC_CHG", (0, 4.2), "power"), ("RUN", (0, 5.5), "analog"), ("FB", (0, 2.6), "analog"),
-                  ("ILIM", (0, 4.2), "signal")])
+                  ("FF", (0, 16), "analog"), ("ILIM", (0, 4.2), "signal")])
     d.domain("BST1", ref="CHG/SW1", kind="elv", description="LTC3130 BST1 rides on SW1")
     d.domain("BST2", ref="CHG/SW2", kind="elv", description="LTC3130 BST2 rides on SW2")
     b.b.net("BST1", v=(0, 4.2), kind="signal", domain="BST1")
@@ -175,7 +175,12 @@ def charger(d):
     b.R("R115", 4.99e6, "SYS", "FB", note="R1")
     b.R("R116", 392e3, "FB", "GND", note="R2")
     b.R("R117", 4.02e6, "DAC_FB", "FB", note="R3: DAC channel 0 injection")
-    b.C("C117", "22pF", 50, "SYS", "FB", note="feed-forward across R1 (DS p.11 FB note)")
+    # feed-forward across R1 as DS p.17 Fig. 2 draws it: CFF = 40 pF / R1 (MOhm) = 8.0 pF -> 8.2 pF (zero at 3.9 kHz),
+    # with RFF ~ R1/20 = 249 k in series to limit the high-frequency gain (pole at 78 kHz). Without RFF, the 22 pF
+    # CFF coupled the boost cell's SYS-side copper noise into FB: kae.excite 398.6 mV on FB (limit 5 mV), 2.9 mV with
+    # RFF (solar-small-fb RESULTS.md)
+    b.R("R120", 249e3, "SYS", "FF", note="RFF: series R of the feed-forward branch, ~R1/20 (DS p.17)")
+    b.C("C117", "8.2pF", 50, "FF", "FB", diel="C0G", note="CFF = 40/R1(MOhm) pF (DS p.17)")
     # ILIM: 660 mA default, ESP32 can select 250 mA
     b.R("R118", 1e6, "VCC_CHG", "ILIM", note="default high: 660 mA")
     b.R("R119", 10e3, "ILIM_SEL", "ILIM", note="ESP32 low -> 0.04 V: 250 mA")
@@ -205,7 +210,8 @@ def supply(d):
             "SYS is live whenever the battery or the charger is, so a dead battery still powers the ESP32 once the "
             "panel runs the LTC3130. FB: 0.8 x (1 + 1 M / 316 k) = 3.33 V, 2.5 uA divider.",
             nets=[("SW3", (-0.7, 16), "switching", {"i_max": 1.0}), ("SS3", (0, 1.5), "analog"),
-                  ("FB3", (0, 1.0), "analog")])
+                  ("FB3", (0, 1.0), "analog"),
+                  ("FF3", (0, 3.4), "analog")])
     d.domain("BST3", ref="PWR/SW3", kind="elv", description="TPS62933 BST rides on SW3")
     b.b.net("BST3", v=(0, 5.5), kind="signal", domain="BST3")
     b.add(P.TPS62933, "U301", {"VIN": "SYS", "GND": "GND", "SW": "SW3", "BST": "BST3", "SS": "SS3", "FB": "FB3"},
@@ -219,7 +225,11 @@ def supply(d):
     b.C("C306", "22uF", 10, "+3V3", "GND", pkg="0805", diel="X5R")
     b.R("R301", 1e6, "+3V3", "FB3", note="FB top")
     b.R("R302", 316e3, "FB3", "GND", note="FB bottom: 3.33 V")
-    b.C("C307", "22pF", 50, "+3V3", "FB3", note="feed-forward across R301")
+    # feed-forward across R301 (DS 10.2.2.10: CFF helps when RFBT > 100 k), with a series R as the LTC3130 DS p.17
+    # gives for its own CFF (no TPS62933 guidance): the lead stays below ~72 kHz, and +3V3's copper noise no longer
+    # reaches FB3 through 22 pF (kae.excite 396 mV on FB3, limit 16 mV; 6.0 mV with R320, solar-small-fb RESULTS.md)
+    b.R("R320", 100e3, "+3V3", "FF3", note="series R of the feed-forward branch, R301/10")
+    b.C("C307", "22pF", 50, "FF3", "FB3", note="feed-forward across R301")
 
 
 def control(d):

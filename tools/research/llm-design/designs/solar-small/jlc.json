@@ -169,6 +169,16 @@
   "spec": "0603",
   "stock": 1153903
  },
+ "C|8.2pF|0603|50V|C0G": {
+  "at": "2026-11-24",
+  "basic": false,
+  "describe": "50V 8.2pF C0G 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C1685",
+  "model": "0603CG8R2C500NT",
+  "query": "8.2pF 0603",
+  "spec": "0603",
+  "stock": 57917
+ },
  "R|100k|0603|1%": {
   "at": "2026-11-20",
   "basic": true,
@@ -218,6 +228,16 @@
   "query": "2.49M\u03a9 0603 1%",
   "spec": "0603",
   "stock": 26559
+ },
+ "R|249k|0603|1%": {
+  "at": "2026-11-24",
+  "basic": false,
+  "describe": "-55\u2103~+155\u2103 100mW 249k\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C2933177",
+  "model": "FRC0603F2493TS",
+  "query": "249k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 535564
  },
  "R|316k|0603|1%": {
   "at": "2026-11-20",
