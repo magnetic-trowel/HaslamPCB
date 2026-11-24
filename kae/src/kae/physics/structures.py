@@ -244,7 +244,7 @@ class NearestLoopComp:
 class PlanePairLoop:
     """Decap loop over a rail/ground plane pair: cap mounting + spreading + IC mounting."""
 
-    def __init__(self, bv, t_pwr, cap_terms, d_pair, mount_cap, mount_ic, r_eff=0.3):
+    def __init__(self, bv, t_pwr, cap_terms, d_pair, mount_cap, mount_ic, r_eff=0.15):
         self.bv = bv
         self.tp = t_pwr          # IC power terminal
         self.tc = cap_terms      # (rail pad terminal, gnd pad terminal)
@@ -274,7 +274,7 @@ class DecapLoop:
     IC pin to capacitor distance (r = 0.3 mm). Otherwise it is the straight-hop loop
     (LoopComp, with its expected detours)."""
 
-    def __init__(self, bv, loop, pairs, rail, gnd_nets, mount_cap, mount_ic, r_eff=0.3):
+    def __init__(self, bv, loop, pairs, rail, gnd_nets, mount_cap, mount_ic, r_eff=0.15):
         self.bv = bv
         self.loop = loop
         self.T = loop.T

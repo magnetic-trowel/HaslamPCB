@@ -63,10 +63,10 @@ class Knobs:
     #                               a dict: per-kind overrides of HOP_DETOUR
     pair_cos_min: float = 0.3     # loop pairs with |cos| below this are dropped in the fast path
     pour_decaps: bool = True      # decap loops through rail and ground pours when both join the ends
-    pour_r_eff: float = 0.3       # mm: entry radius of a pour-mode decap's spreading term, (mu0 d / pi) ln(D / r).
-    #                               A sheet solve matches it to ~1 % when r is the real entry's radius (a 0.3 mm
-    #                               via: 0.15, as the mountings); 0.3 reads 17-27 % low at 2-10 mm. Its reason is
-    #                               not recorded; A/B with 0.15 pending (decide note PP7)
+    pour_r_eff: float = 0.15      # mm: entry radius of a pour-mode decap's spreading term, (mu0 d / pi) ln(D / r):
+    #                               the via radius (0.3 mm drill), as the mountings use. A sheet solve matches it to
+    #                               ~1 %; the old 0.3 read 17-27 % low at 2-10 mm, and on 58 routed pour-mode decaps
+    #                               (50 boards) 0.15 fits better (42 of 58 closer; PP7, place-terms.md)
     jit: str = 'auto'             # 'auto' (numba when installed), 'on', 'off' (pure Python)
 
     def detour(self, kind):
@@ -185,6 +185,24 @@ def power_path_budget(v=5.0, i=1.0):
 # 90 % of the 51 named converter inputs of the 112-board corpus (median 12 V, p80 15 V), and a
 # higher V_in both tightens the overshoot budget and raises the excitation (E5).
 V_IN_UNKNOWN = Belief(24.0, 'V', 'unnamed converter input: high prior, above 90 % of named inputs in the corpus')
+
+
+def cell_v_in(excite, named_v=None):
+    """Input voltage a commutation cell is priced at: the brief's (excite V), else the rail's named
+    voltage, else V_IN_UNKNOWN. When only the switch's rating is known (excite V_abs, parts.json), the
+    prior is capped at V_abs / RATING_MARGIN: a part is not run above its rating, and E5 rates parts one
+    step above 1.25 x their bus. Without the cap a 20 V converter on an unnamed rail was priced at 24 V,
+    past its own rating, so its loop budget hit the floor and the place report called any loop over
+    0.45 nH a block hazard. Returns (V, whether V is a prior)."""
+    ex = excite or {}
+    v = ex.get('V') or named_v
+    if v:
+        return v, False
+    v = V_IN_UNKNOWN.value
+    va = ex.get('V_abs')
+    if va:
+        v = min(v, va / CR.RATING_MARGIN)
+    return v, True
 
 
 def hot_loop_excite(cell_class='buck', v_in=12.0, i_out=None, t_sw_ns=None):
@@ -372,12 +390,14 @@ THERMAL = dict(k_cu=MAT.K_CU, k_fr4=MAT.K_FR4_IN, h_top=MAT.H_AIR, h_bot=MAT.H_A
 def converter_loss_split(p_total, v_in=None, v_out=None, i_out=None, boost=False, has_diode=False,
                          external_switches=False):
     """Split a converter's total loss (W) between its parts (E5): a Schottky rectifier
-    conducts I_out for the off fraction, P_D = V_F I_out (1 - D) with V_F = 0.5 V and
-    D = V_out / V_in (boost: 1 - V_in / V_out; 0.3 when unknown); the inductor (DCR + core)
-    takes 15 %; the switches the rest (at least 20 %), split 60/40 high/low when they are
-    discrete. Returns {'ic' | 'diode' | 'inductor' | 'high' | 'low': W}."""
+    conducts the inductor current i_out (the cell's excitation current, its commutated current) for the off
+    fraction, P_D = V_F i_out (1 - D) with V_F = 0.5 V (a boost's: its output current) and
+    D = V_out / V_in (boost: 1 - V_in eta / V_out, kae.physics.converter.duty; 0.3 when unknown); the
+    inductor (DCR + core) takes 15 %; the switches the rest (at least 20 %), split 60/40 high/low when they
+    are discrete. Returns {'ic' | 'diode' | 'inductor' | 'high' | 'low': W}."""
     if v_in and v_out and v_in > 0 and v_out > 0:
-        d = (1.0 - v_in / v_out) if boost else (v_out / v_in)
+        from kae.physics.converter import duty
+        d = duty("boost" if boost else "buck", v_in, v_out)
         d = min(max(d, 0.05), 0.95)
     else:
         d = 0.3
