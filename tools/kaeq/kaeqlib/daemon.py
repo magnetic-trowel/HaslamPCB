@@ -54,6 +54,7 @@ class Daemon:
         self.c = db()
         self.popen = {}          # id -> Popen (to reap zombies)
         self.dying = {}          # id -> thread stopping a killed job (stop_job): SIGTERM, grace, SIGKILL, salvage
+        self.staging = {}        # id -> {key, done, err}: a snapshot being checked out in the background
         self.others_ema = 0.0
         self.runq_ema = 0.0
         self.runq_hist, self.runq_q, self.runq_q_ts, self.runq_stats = [], None, time.time(), (0.0, 0.0)
@@ -972,7 +973,32 @@ class Daemon:
                 out.add(owner)
         return out
 
+    def snapshot_ready(self, j, cfg):
+        """Whether job j's snapshot worktree is checked out. If not, check it out on a background thread (a whole
+        tree onto the network home took ~15 s, and the tick waited: 20-40 s ticks, and starts only that often) and
+        say no; the job starts on a later tick, other jobs meanwhile. At most snapshot_staging at once. A failed
+        checkout fails the job."""
+        key = (j["id"], j["attempt"], j["preempts"])
+        st = self.staging.get(j["id"])
+        if st is not None and st["key"] != key:          # an older attempt's staging: start over
+            st = None
+        if st is None:
+            if sum(1 for v in self.staging.values() if not v["done"].is_set()) >= cfg["snapshot_staging"]:
+                return False
+            st = self.staging[j["id"]] = {"key": key, "done": threading.Event(), "err": None}
+            threading.Thread(target=stage_snapshot, args=(dict(j), st), name=f"stage-{j['id']}", daemon=True).start()
+            st["done"].wait(cfg["snapshot_wait_s"])      # a quick checkout (local disk, small tree) starts now
+        if not st["done"].is_set():
+            return False
+        del self.staging[j["id"]]
+        if st["err"]:
+            self.finish_fail(j, "failed", f"snapshot checkout failed: {st['err']}")
+            return False
+        return True
+
     def start(self, j, cfg):
+        if j["sha"] and not self.snapshot_ready(j, cfg):
+            return False
         t = self.dying.pop(j["id"], None)
         if t is not None:      # a requeued job's last attempt is still being stopped: its scratch is in use
             t.join()
@@ -1038,20 +1064,8 @@ class Daemon:
                 pass
 
         cwd = j["cwd"]
-        if j["sha"]:  # run a frozen copy of the submitter's tree, not whatever is checked out now
-            src = os.path.join(d, "src")
-            drop_worktree(j)
-            try:
-                git(j["root"], "worktree", "add", "--detach", "--force", src, j["sha"])
-                for p in json.loads(j["links"] or "[]"):  # git-ignored inputs (data, venvs) shared by symlink
-                    t = os.path.join(j["root"], p)
-                    if os.path.exists(t) and not os.path.lexists(os.path.join(src, p)):
-                        os.makedirs(os.path.dirname(os.path.join(src, p)), exist_ok=True)
-                        os.symlink(t, os.path.join(src, p))
-            except (RuntimeError, OSError) as e:
-                self.finish_fail(j, "failed", f"snapshot checkout failed: {e}")
-                return False
-            cwd = os.path.normpath(os.path.join(src, j["rel"] or "."))
+        if j["sha"]:  # run a frozen copy of the submitter's tree (checked out by stage_snapshot)
+            cwd = os.path.normpath(os.path.join(d, "src", j["rel"] or "."))
         if not os.path.isdir(cwd or ""):
             self.finish_fail(j, "failed", f"cwd missing on daemon host: {j['cwd']}")
             return False
@@ -1265,6 +1279,24 @@ class Daemon:
             if self.tick_s > 10:
                 dlog(f"slow tick: {self.tick_s:.0f}s")
             time.sleep(TICK)
+
+
+def stage_snapshot(j, st):
+    """Check out job j's snapshot into jobs/<id>/src (a background thread of the daemon; see snapshot_ready)."""
+    src = os.path.join(jobdir(j["id"]), "src")
+    try:
+        os.makedirs(jobdir(j["id"]), exist_ok=True)
+        drop_worktree(j)          # a leftover from an earlier attempt (waits for a queued removal of it)
+        git(j["root"], "worktree", "add", "--detach", "--force", src, j["sha"])
+        for p in json.loads(j["links"] or "[]"):  # git-ignored inputs (data, venvs) shared by symlink
+            t = os.path.join(j["root"], p)
+            if os.path.exists(t) and not os.path.lexists(os.path.join(src, p)):
+                os.makedirs(os.path.dirname(os.path.join(src, p)), exist_ok=True)
+                os.symlink(t, os.path.join(src, p))
+    except (RuntimeError, OSError) as e:
+        st["err"] = str(e)
+    finally:
+        st["done"].set()
 
 
 def take_lock():

@@ -24,8 +24,8 @@ def kq(tmp_path, monkeypatch):
     import kaeq
     importlib.reload(kaeq)
     with open(kaeq.CONF, "w") as f:
-        f.write('{"threads": 4, "reserve_cpu": 1, "reserve_mem_gb": 0, "cgroup": "off", "scratch_dir": "%s"}'
-                % (tmp_path / "scratch"))
+        f.write('{"threads": 4, "reserve_cpu": 1, "reserve_mem_gb": 0, "cgroup": "off", "scratch_dir": "%s", '
+                '"snapshot_wait_s": 60}' % (tmp_path / "scratch"))    # tests start snapshot jobs within one admit
     yield kaeq
     sys.path.remove(HERE)
 
@@ -150,10 +150,10 @@ def test_scratch_dir_per_job_is_removed(kq, tmp_path):
 
 def test_disk_budget_gates_admission(kq):
     with open(kq.CONF, "w") as f:
-        f.write('{"threads": 4, "reserve_cpu": 1, "reserve_mem_gb": 0, "cgroup": "off", "scratch_gb": 1, "scratch_dir": "%s"}'
-                % os.path.join(kq.HOME, "scratch"))
+        f.write('{"threads": 4, "reserve_cpu": 1, "reserve_mem_gb": 0, "cgroup": "off", "scratch_gb": 1, "scratch_dir": "%s", '
+                '"snapshot_wait_s": 60}' % os.path.join(kq.HOME, "scratch"))
     d = kq.Daemon()
-    submit(kq, "sleep 3", name="a", disk="700M")
+    submit(kq, "sleep 8", name="a", disk="700M")      # long enough to still run at the check on a loaded host
     submit(kq, "sleep 1", name="b", disk="700M")
     drive(kq, d, lambda: states(d)["a"] == "running")
     d.tick()
@@ -1482,3 +1482,26 @@ def test_a_finished_jobs_worktree_is_removed_in_the_background_and_a_reuse_waits
     release.set()
     reuse.join(5)
     assert done and len(calls) == 2
+
+
+def test_a_snapshot_checkout_runs_in_the_background_and_the_job_starts_once_it_is_ready(kq, monkeypatch):
+    import threading
+    from kaeqlib import daemon as D
+    release = threading.Event()
+
+    def slow_stage(j, st):                 # a checkout onto the network home: slow
+        release.wait(5)
+        st["done"].set()
+    monkeypatch.setattr(D, "stage_snapshot", slow_stage)
+    d = kq.Daemon(host=kq.Host())
+    cfg = dict(kq.config(), snapshot_wait_s=0.1)
+    j = dict(id=1, attempt=1, preempts=0, sha="abc", root="/x", links="[]")
+    t0 = time.time()
+    assert not d.snapshot_ready(j, cfg) and time.time() - t0 < 0.5    # the tick goes on
+    assert not d.snapshot_ready(j, cfg)                               # still checking out
+    for i in range(2, 2 + cfg["snapshot_staging"]):
+        d.snapshot_ready(dict(j, id=i), cfg)
+    assert len(d.staging) == cfg["snapshot_staging"]                  # at most this many at once
+    release.set()
+    d.staging[1]["done"].wait(5)
+    assert d.snapshot_ready(j, cfg) and 1 not in d.staging            # ready: it starts
