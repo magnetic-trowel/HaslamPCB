@@ -242,9 +242,11 @@ def finished(A, B):
     return [b for b in sorted(set(A) & set(B)) if closed(A[b]) and closed(B[b])]
 
 
-def quality(A, B, modules=None, types=ERROR_TYPES, min_n=MIN_N, n_boot=N_BOOT):
+def quality(A, B, modules=None, types=ERROR_TYPES, min_n=MIN_N, n_boot=N_BOOT, return_path_of=None):
     """Quality rows on the boards both arms finish (0 opens). `modules(row)` gives a run's physics modules
     ({id: {kind, value, open_hops}}) or None; modules pair by id, and only when one physics evaluator scored both runs.
+    `return_path_of(row)` gives a run's stored board file; with it, the return-path rows of `return_board.py` are added
+    (report-only, mean B - A per board).
     The physics rows come twice: on the finished boards, and on every board both arms scored (the module itself still
     closed in both), because the hot loops and crystals sit mostly on boards that one arm leaves open."""
     fin = finished(A, B)
@@ -258,6 +260,12 @@ def quality(A, B, modules=None, types=ERROR_TYPES, min_n=MIN_N, n_boot=N_BOOT):
     for t in types:
         d = [(A[b]["owner"], b, B[b]["errors_by_type"].get(t, 0) - A[b]["errors_by_type"].get(t, 0)) for b in fin]
         rows.append(dict(diff_row(d, min_n), key=f"errors added: {t}", unit="mean B − A per board"))
+    if return_path_of is not None:
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))
+        import return_board  # noqa: E402  (needs shapely; only loaded when the rows are asked for)
+        rows += [dict(diff_row(d, min_n, lower_better=k == "unc_mm"), key=f"return: {k}", unit="mean B − A per board")
+                 for k, d in return_board.paired(A, B, fin, return_path_of, measure_fn=return_board.measure_cached).items()]
     foreign = 0
     if modules is not None:
         fin_set, per, anyb = set(fin), defaultdict(list), defaultdict(list)
@@ -335,7 +343,7 @@ def _verdict_rows(qs, mark=""):
 
 
 def report(rows, control, names, modules=None, title="", source="", human=HUMAN, types=ERROR_TYPES, min_n=MIN_N, near=NEAR_OPENS,
-           big=BIG_PADS, n_boot=N_BOOT):
+           big=BIG_PADS, n_boot=N_BOOT, return_path_of=None):
     """The Markdown report: each method of `names` against `control`, then each of them against `human` when it has rows."""
     by = by_method(rows)
     A = by[control]
@@ -351,7 +359,7 @@ def report(rows, control, names, modules=None, title="", source="", human=HUMAN,
     for n in names:
         B = by[n]
         res[n] = dict(near=near_miss(A, B, near, min_n), big=big_opens(A, B, big, min_n), xc=xc_pair(A, B, min_n),
-                      q=quality(A, B, modules, types, min_n, n_boot), reach=reach(A, B),
+                      q=quality(A, B, modules, types, min_n, n_boot, return_path_of), reach=reach(A, B),
                       lost=len(set(A) ^ set(B)))
     out += ["## 1. Completion endpoints", "",
             f"### 1a. Near-miss closure (1-{near} opens from closed)", "",
@@ -384,7 +392,8 @@ def report(rows, control, names, modules=None, title="", source="", human=HUMAN,
         out.append(f"| {n} | {r['n']} ({r['owners']}) | {_f(r['share_a'])} → {_f(r['share_b'])}{d} | +{r['higher']} / −{r['lower']} | {_f(r['p'], 4)} | "
                    f"{_ci(r)} | {r['verdict']}{d} |")
     out += ["", "## 2. Quality on boards both methods finish (0 opens)", "",
-            "Paired per board; lower is better in every row. Track length and vias: median of the per-board ratio. Errors added: mean of the "
+            "Paired per board; lower is better in every row except the return rows (`return: cov_*`, share of signal track "
+            "length over ground copper, higher is better; `return_board.py`). Track length and vias: median of the per-board ratio. Errors added: mean of the "
             "per-board count difference (most boards have none, so a ratio does not exist). Physics: ratio of the same module's value in the two "
             "layouts, both without open hops, by module kind, never the summed score; modules of one owner are resampled together. "
             "\"unfinished boards too\" repeats the physics rows on every board both scored, the module still closed in both.", ""]
@@ -409,7 +418,7 @@ def report(rows, control, names, modules=None, title="", source="", human=HUMAN,
                 "Same quality rows, B = the method, A = the human layout, on the boards both finish."]
         hres = {}
         for n in [control] + list(names):
-            q = hres[n] = quality(H, by[n], modules, types, min_n, n_boot)
+            q = hres[n] = quality(H, by[n], modules, types, min_n, n_boot, return_path_of)
             notes = []
             if q["foreign_drc"]:
                 notes.append(f"‡ on {q['foreign_drc']} of them the human row was scored by another DRC evaluator than the method's: "
@@ -439,6 +448,11 @@ def store_modules(store):
     return modules
 
 
+def return_paths(store):
+    """return_path_of(row): the stored output board of a results.csv row."""
+    return lambda r: Path(store) / "boards" / r["board"] / "runs" / r["run"] / "output.kicad_pcb.gz"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="haslamres quality", description=__doc__.split("\n\n")[0])
     ap.add_argument("name", help="experiment (its results.csv is read)")
@@ -447,6 +461,8 @@ def main(argv=None):
     ap.add_argument("--no-human", action="store_true", help="leave out the section against the human layout")
     ap.add_argument("--csv", help="read this results.csv instead of the experiment's")
     ap.add_argument("--out", help="write the report here instead of printing it")
+    ap.add_argument("--return-rows", action="store_true",
+                    help="add the return-path rows (return_board.py; needs shapely; about 3 s per stored board)")
     a = ap.parse_args(argv)
     store = Path(os.path.expanduser(os.environ.get("HASLAM_RESULTS", "~/haslam-baselines")))
     src = Path(a.csv) if a.csv else store / "experiments" / a.name / "results.csv"
@@ -458,7 +474,7 @@ def main(argv=None):
     others = [pick(m, names) for m in a.method] if a.method else [n for n in names if n not in (control, HUMAN)]
     when = datetime.fromtimestamp(src.stat().st_mtime, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     text = report(rows, control, others, store_modules(store), title=a.name, source=f"`{src.name}` written {when}, {len(rows)} rows",
-                  human=None if a.no_human else HUMAN)
+                  human=None if a.no_human else HUMAN, return_path_of=return_paths(store) if a.return_rows else None)
     if a.out:
         Path(a.out).write_text(text + "\n")
         print(f"wrote {a.out}")
