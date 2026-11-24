@@ -286,3 +286,31 @@ def test_sprint_smoke_submits_two_cheap_boards_one_of_them_a_control_fill(monkey
     s = _sprint(monkeypatch, store, suite="sprint-quality", runs=runs, smoke=2)["submit"]
     assert s.only == f"{boards[0]},{boards[1]}" and s.prio == 5
     assert f"the rest: kaeres exp submit x --prio 5" in capsys.readouterr().out
+
+
+def test_sprint_fills_another_base_control_where_it_is_not_stored(monkeypatch, store, capsys):
+    """--fill-control bridge: a staged sprint also stores the bridge control on the boards that lack it."""
+    boards = K.suite_boards(K.SUITES_DIR / "sprint-quality.txt")
+    runs = {b: [(m, k, 360) for m in ("st", "br") for k in (0, 1)] for b in boards}
+    for b in boards[:3]:
+        runs[b] = [("st", 0, 360), ("st", 1, 360)]                          # no bridge run
+    c = _sprint(monkeypatch, store, suite="sprint-quality", runs=runs, base="staged", fill_control=["bridge", "staged"])
+    e = c["create"]
+    assert e.method == ["st", "br", "new"] and e.cost_from == "st" and e.arms == 1
+    assert e.record["control_fill"] == [] and e.record["extra_control_fill"] == {"br": boards[:3]}
+    assert "3 of 80 boards have no stored run of 'control bridge'" in capsys.readouterr().out
+    fill = [json.loads(ln) for ln in (store / "experiments" / "control-w47" / "control-fill.jsonl").read_text().splitlines()]
+    assert fill[-1] == dict(fill[-1], method="br", boards=boards[:3], experiment="x")
+    assert _sprint(monkeypatch, store, base="staged")["create"].method == ["st", "new"]   # without it: unchanged
+
+
+def test_sprint_excludes_boards_with_a_stated_reason(monkeypatch, store, tmp_path, capsys):
+    boards = K.suite_boards(K.SUITES_DIR / "sprint-quality.txt")
+    f = tmp_path / "excl.json"
+    f.write_text(json.dumps({boards[0]: "tier mid: courtyards_overlap 2", "not-in-suite": "x"}))
+    e = _sprint(monkeypatch, store, suite="sprint-quality", exclude=str(f))["create"]
+    assert e.boards.split(",") == boards[1:] and e.record["excluded"] == {boards[0]: "tier mid: courtyards_overlap 2"}
+    assert "left out 1 boards with a stated reason" in capsys.readouterr().out
+    f.write_text(json.dumps({boards[0]: ""}))
+    with pytest.raises(SystemExit, match="every reason stated"):
+        _sprint(monkeypatch, store, suite="sprint-quality", exclude=str(f))

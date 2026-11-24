@@ -15,6 +15,9 @@ Every experiment starts here. Tiers and rules: [experiment tiers](../../docs/top
    (40 CPU-h per arm) and says what to do: `--skip-over-cap` drops the boards over the limit, `--allow-over-cap "REASON"`
    keeps them when the question needs them (the plan says so). Two settings: `--arm A:K=V --arm B:K=V`, one campaign.
    `--smoke 2` queues two boards first; then `kaeres exp submit NAME --prio 5`.
+   `--fill-control bridge` (on a staged sprint, or `staged` on a bridge one) adds the other stored control: it runs on
+   the boards that lack it and is stored, for analyses that need both (e.g. a gap to the human placement).
+   `--exclude FILE` (JSON `{board: reason}`) leaves boards out before anything runs; the reasons are recorded.
 4. Stop. When the queue reports the end: `kaeres exp report NAME && kaeres quality NAME --control '<control name>'`
    (step 3 prints it). `kaeres quality` is on branch `quality-report`, not merged yet: run it from a checkout of that branch.
 5. Verdict: better, worse or undecided, paired per board and seed; write it into the experiment folder. Only a change that

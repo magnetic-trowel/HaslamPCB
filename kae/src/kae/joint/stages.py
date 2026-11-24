@@ -80,7 +80,8 @@ STAGE_KEYS = frozenset({
     "portfolio_routers", "portfolio_first_s", "portfolio_growth",
     # evaluation
     "drc_timeout",
-    "pose_tier", "pose_big_pads",   # diagnostic only: parts held at their input pose (kae.place.pose_tiers)
+    # diagnostic only: parts held at the human pose of a pose oracle (pose_source) or their input pose
+    "pose_tier", "pose_big_pads", "pose_source",
 })
 
 
@@ -142,12 +143,24 @@ class KaeStages:
     # ------------------------------------------------------------------ place
     def place(self, seed, time_s):
         from kae.place.pipeline import place
-        from kae.place.pose_tiers import held as pose_held
+        from kae.place.pose_tiers import held_poses
         t0 = clock_now()
         board = self._load(self.input)
+        # diagnostic pose_tier (empty by default): the held parts go to their oracle poses first, and
+        # that board is the input from here on (so the output keeps them); raises when they cannot
+        poses = held_poses(board, self.opts)
+        cur = {fp.uuid: (fp.x, fp.y, fp.rot, fp.side) for fp in board.footprints}
+        move = {u: p for u, p in poses.items() if cur.get(u) != p}
+        if move:
+            src = self.wd / "pose-input.kicad_pcb"
+            self._write_poses(self.input, src, move)
+            self.log(f"pose_tier={self.opts.get('pose_tier')}: {len(move)} of {len(poses)} held parts moved to "
+                     f"their oracle poses ({src.name})")
+            self.input = src
+            board = self._load(self.input)
+        held = set(poses)
         self.locked = {fp.uuid for fp in board.footprints if fp.locked}
         self.edge_parts = {fp.uuid for fp in board.footprints if fp.edge_cuts}
-        held = pose_held(board, self.opts)          # diagnostic pose_tier; empty by default
         self.locked |= held
         res = place(board, seed=seed, time_s=time_s, physics=not self.opts.get("no_physics"), workers=1,
                     log=lambda m: self.log(f"place: {m}"), edge_mate=bool(self.opts.get("edge_mate")),

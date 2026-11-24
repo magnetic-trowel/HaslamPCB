@@ -928,6 +928,12 @@ def suite_boards(p):
     return out
 
 
+def stored_on(b, method_id, attempts):
+    """Whether board b stores runs of the method on seeds 0..attempts-1 (not repro runs)."""
+    return board_dir(b).exists() and {r["attempt"] for _, r in board_runs(b) if r["method_id"] == method_id
+                                      and not r.get("repro_of")} >= set(range(attempts))
+
+
 def parse_arm(spec):
     """'name:k=v,k=v' (or 'name:' for the commit alone) -> (name, ['k=v', ...])."""
     name, _, kvs = spec.partition(":")
@@ -950,6 +956,9 @@ def cmd_sprint(a):
                          "Do this: write it, then run the same command again.")
     c = load_exp(a.control)
     ctl = next(m for m in (find_method(m["id"]) for m in c["methods"]) if m["recipe"]["kind"] == SPRINT_BASES[a.base])
+    # other bases' stored controls the analysis needs (e.g. the bridge on the human placement): filled like ctl
+    extra = [next(m for m in (find_method(m["id"]) for m in c["methods"]) if m["recipe"]["kind"] == SPRINT_BASES[b])
+             for b in dict.fromkeys(getattr(a, "fill_control", None) or []) if b != a.base]
     tag, repo = c["harness"]["commit"], main_repo()
     commit = git(repo, "rev-parse", f"{a.commit}^{{commit}}")
     common = list(a.set or [])
@@ -979,8 +988,15 @@ def cmd_sprint(a):
         files = [SUITES_DIR / f for f in SPRINT_SUITES]
     boards = list(dict.fromkeys(b for f in files for b in suite_boards(f)))
     suite = a.suite or "+".join(Path(f).stem for f in SPRINT_SUITES)
-    cost = control_costs(ctl["id"], boards)
     record = dict(control=dict(experiment=a.control, method=ctl["id"], name=ctl["name"]))
+    if getattr(a, "exclude", None):
+        reasons = json.loads(Path(a.exclude).read_text())
+        if not isinstance(reasons, dict) or not all(isinstance(v, str) and v.strip() for v in reasons.values()):
+            raise SystemExit(f"--exclude {a.exclude}: a JSON object {{board: reason}}, every reason stated")
+        record["excluded"] = {b: reasons[b] for b in boards if b in reasons}
+        boards = [b for b in boards if b not in reasons]
+        print(f"{a.name}: left out {len(record['excluded'])} boards with a stated reason (--exclude)")
+    cost = control_costs(ctl["id"], boards)
     if a.skip_over_cap:
         cap = TIERS["sprint"]["board_cpu_h"]
         known = (board_prices(boards, cost) or ({},))[0]   # the guard's prices: the control's runs, else history
@@ -990,28 +1006,35 @@ def cmd_sprint(a):
         print(f"{a.name}: left out {len(skipped)} boards whose control runs (else history) cost over {cap:g} CPU-h: "
               + (", ".join(f"{b} {v}" for b, v in skipped.items()) or "none"))
     # boards of the suite the control has not run on, at the seeds used: the control runs there in this campaign
-    stored = {b for b in boards if board_dir(b).exists()
-              and {k for _, r in board_runs(b) if r["method_id"] == ctl["id"] and not r.get("repro_of")
-                   for k in [r["attempt"]]} >= set(range(attempts))}
+    stored = {b for b in boards if stored_on(b, ctl["id"], attempts)}
     fill = [b for b in boards if b not in stored]
     record["control_fill"] = fill
     if fill:
         print(f"{a.name}: {len(fill)} of {len(boards)} boards have no stored run of {ctl['name']!r} on seeds 0-{attempts - 1}: "
               "the control runs on them in this campaign, stored for reuse by later sprints")
+    fills = {ctl["id"]: fill}
+    for m in extra:
+        f = [b for b in boards if not stored_on(b, m["id"], attempts)]
+        fills[m["id"]] = f
+        record.setdefault("extra_control_fill", {})[m["id"]] = f
+        print(f"{a.name}: {len(f)} of {len(boards)} boards have no stored run of {m['name']!r} on seeds 0-{attempts - 1}: "
+              "it runs on them in this campaign (--fill-control), stored for reuse by later sprints")
     if a.allow_over_cap is not None and not a.allow_over_cap.strip():
         raise SystemExit("--allow-over-cap needs the reason (why the question needs the boards over the limit)")
     cmd_exp_create(argparse.Namespace(
         name=a.name, description=f"sprint on {suite}: {ctl['name']!r} against itself at {commit[:7]} ("
                                  + "; ".join(f"{n or 'arm'}:{','.join(common + s)}" for n, s in arms)
                                  + f"); control runs of {a.control} reused",
-        method=[ctl["id"], *mids], boards=",".join(boards), attempts=attempts, harness=tag, kae=tag, env=None,
+        method=[ctl["id"], *(m["id"] for m in extra), *mids], boards=",".join(boards), attempts=attempts, harness=tag, kae=tag, env=None,
         reuse_runs=True, tier="sprint", suite=suite, cost_from=ctl["id"], allow_over_cap=a.allow_over_cap,
         arms=len(mids), record=dict(record, arm_methods={(n or "arm"): mid for (n, _), mid in zip(arms, mids)})))
-    if fill and not a.dry_run:
+    if any(fills.values()) and not a.dry_run:
         f = exp_dir(a.control) / "control-fill.jsonl"   # who added runs to the stored control, where
         f.parent.mkdir(parents=True, exist_ok=True)
         with open(f, "a") as fh:
-            fh.write(json.dumps(dict(experiment=a.name, method=ctl["id"], attempts=attempts, boards=fill, when=now())) + "\n")
+            for mid, fl in fills.items():
+                if fl:
+                    fh.write(json.dumps(dict(experiment=a.name, method=mid, attempts=attempts, boards=fl, when=now())) + "\n")
     only = None
     if a.smoke:
         # the cheapest boards first, one of them needing the control's run if any does, so both paths are tried
@@ -2967,6 +2990,11 @@ def main():
     s.add_argument("--allow-over-cap", metavar="REASON",
                    help="keep boards over the per-board limit because the question needs them; the reason is recorded")
     s.add_argument("--smoke", type=int, metavar="N", help="submit only N cheap boards now; the rest with exp submit later")
+    s.add_argument("--exclude", metavar="FILE",
+                   help="JSON {board: reason}: boards of the suite to leave out, each with its stated reason (recorded)")
+    s.add_argument("--fill-control", metavar="BASE", action="append", choices=sorted(SPRINT_BASES),
+                   help="also the stored control of this other base (bridge | staged): it runs on the boards that lack it "
+                        "and is stored for later sprints (repeatable)")
     s.add_argument("--control", default="control-w47", help="the tag's stored control experiment")
     s.add_argument("--dry-run", action="store_true", help="register and create, write the job file, submit nothing")
     s.set_defaults(f=cmd_sprint)
