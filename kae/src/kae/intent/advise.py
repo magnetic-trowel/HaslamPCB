@@ -39,6 +39,7 @@ from . import units as U
 
 # capacitor values tried at a node (E3 series, 10 pF .. 100 nF)
 C_SERIES = [k * 10.0 ** e for e in range(-11, -7) for k in (1.0, 2.2, 4.7)] + [100e-9]
+C_SERIES_SUPPLY = [k * 10.0 ** e for e in range(-9, -5) for k in (1.0, 2.2, 4.7)] + [10e-6]   # 1 nF .. 10 uF
 R_SERIES = [k * 10.0 ** e for e in range(4, 6) for k in (1.0, 2.2, 4.7)] + [1e6]    # series R, 10 k .. 1 M
 E6 = (1.0, 1.5, 2.2, 3.3, 4.7, 6.8)
 DIVIDER_SCALES = (0.3, 0.1)       # divider resistances times these
@@ -324,6 +325,7 @@ class _WhatIf:
         for i in ok:
             self.by_observer.setdefault(obs[i]["scope"]["observer"], []).append(i)
         self._carry = {}
+        self.last = {}
 
     def run(self, specs, observers):
         """(status, key, coverage, carried) of the edit on the named observers' observations; status None
@@ -440,7 +442,8 @@ def advise(ev, intent, brief, board=None, limit=12, edits=(), solve_budget=0, so
         idx = by_obs[name]
         o = cir.obs.get(name) if cir else None
         if o is not None and o.kind in ("victim", "supply"):
-            out += _node_advice(pr, cir, o, [(i, obs[i]) for i in idx], corners, ev, intent, wi=wi, related=related)
+            out += _node_advice(pr, cir, o, [(i, obs[i]) for i in idx], corners, ev, intent, wi=wi, related=related,
+                                own_first=name in flagged)
         if name in top:
             out += _coupling_advice(pr, [(i, obs[i]) for i in idx], corners, cir, o)
     if cir is not None:
@@ -574,7 +577,7 @@ def _options(e):
             dict(form="decline")]
 
 
-def _node_advice(pr, cir, o, items, corners, ev, intent, wi=None, related=None):
+def _node_advice(pr, cir, o, items, corners, ev, intent, wi=None, related=None, own_first=False):
     """At a victim or supply node: a shunt capacitor at the pin (returned to the quietest ground pad), the
     divider scaled, and for each capacitor that ties the node to another net: a series resistor, a smaller
     value, or none."""
@@ -594,26 +597,36 @@ def _node_advice(pr, cir, o, items, corners, ev, intent, wi=None, related=None):
     stored = set(items[0][1]["transfer"]["edge"].get("dv") or {})
     # 1. a capacitor from the pin to a ground pad: every candidate return pad, the smallest value that meets
     # the terms it moves, else the best of the series; the quietest pad wins
+    # own_first (an unpriced, flagged observer): the observer's own worst value ranks, not the total
+    own0 = max(max(ob["values"]) for _, ob in items)
+
+    def own():
+        return max(max(wi.last[i]) for i, _ in items if i in wi.last) if wi.last else own0
+
+    def score(key, ow):
+        return (ow, key[0], key[1]) if own_first else (key[0], key[1], ow)
     per_pad = []
     for g in cir.return_pads(pin, stored) or [gnd0]:
         best, curve = None, []
-        for C in C_SERIES:
-            specs = [f"add:C:{pin}:{g}:{_fmt_c(C)}"]
+        for C in (C_SERIES_SUPPLY if o.kind == "supply" else C_SERIES):
+            specs = [f"add:C:{pin}:{g}:{_fmt_c(C)}" + (":0603:X5R" if C >= 1e-6 else "")]
             st, key, cov, car = run(specs)
             if st is None:
                 break
+            ow = own()
             curve.append((C, key[1], cov))
             d = pr.delta(st)
-            met = d and all(t.get("met_after") is not False for t in d)
-            if best is None or key[1] < best[1][1] - 1e-9 or met:
-                best = (C, key, st, cov, car, specs)
+            met = not own_first and d and all(t.get("met_after") is not False for t in d)
+            if best is None or score(key, ow) < score(best[1], best[6]) or met:
+                best = (C, key, st, cov, car, specs, ow)
             if met:
                 break
         if best:
-            per_pad.append((g, best, curve))
+            per_pad.append((g, best[:6], curve, best[6]))
     if per_pad:
-        g, (C, key, st, cov, car, specs), curve = min(per_pad, key=lambda r: (r[1][1][0], r[1][1][1]))
-        if key[1] < pr.key0[1] - 1e-9 or car > CARRY_MAX:
+        g, (C, key, st, cov, car, specs), curve, ow = min(per_pad, key=lambda r: score(r[1][1], r[3]))
+        per_pad = [r[:3] for r in per_pad]
+        if key[1] < pr.key0[1] - 1e-9 or car > CARRY_MAX or (own_first and ow < 0.9 * own0):
             floor = ""
             if not all(t.get("met_after") is not False for t in pr.delta(st)):
                 floor = (f"; no value meets it: above {_fmt_c(C)} the pickup stays at its floor, the copper between "

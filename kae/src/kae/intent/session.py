@@ -185,7 +185,10 @@ def cmd_show(a):
     if a.id:
         print(json.dumps(s.entry(a.id), indent=1, default=str))
         return
-    adv = s.advice()
+    adv = _advise(s, solves=0) if a.refresh else s.advice()
+    if a.refresh:
+        s.save()
+        s.log("refresh", entries=len(adv))
     print(text(adv, 99 if a.all else s.state["budget"]["show"], s.intent().get("currency", "mW_eq")))
 
 
@@ -425,6 +428,7 @@ def main(argv=None):
     sh.add_argument("session")
     sh.add_argument("--id")
     sh.add_argument("--all", action="store_true")
+    sh.add_argument("--refresh", action="store_true", help="re-run the advice on the round's evaluation (no solves)")
     so = sub.add_parser("solve")
     so.add_argument("session")
     so.add_argument("--id", required=True)
