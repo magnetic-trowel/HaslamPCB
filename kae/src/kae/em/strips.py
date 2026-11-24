@@ -1785,8 +1785,21 @@ def build_cell(ctx, s, win, pitch=None, nw=1, seg=SEG_MM, all_nets=False, beta=N
         for p0, p1 in segs:
             if math.dist(p0, p1) > 1e-6:
                 pieces.append(dict(layer=pc["layer"], net=pc["net"], a=p0, b=p1, w=pc["w"]))
-    # T-junctions: an end whose copper meets another piece's (not at its ends) splits that piece there
-    snap, made = {}, set()
+    # joins: an end whose copper meets another piece's joins it (beside its centre line: an interior point, which
+    # splits that piece; past its end: within its own half width). Joins merge junction keys (union-find), so no end
+    # moves and a chain of short pieces cannot collapse onto one point and lose its onward link
+    jpar = {}
+
+    def jroot(k_):
+        while jpar.get(k_, k_) != k_:
+            jpar[k_] = jpar.get(jpar[k_], jpar[k_])
+            k_ = jpar[k_]
+        return k_
+
+    def jjoin(k1_, k2_):
+        r1, r2 = jroot(k1_), jroot(k2_)
+        if r1 != r2:
+            jpar[max(r1, r2)] = min(r1, r2)
     by = {}
     for k, pc in enumerate(pieces):
         by.setdefault((pc["layer"], pc["net"]), []).append(k)
@@ -1797,30 +1810,26 @@ def build_cell(ctx, s, win, pitch=None, nw=1, seg=SEG_MM, all_nets=False, beta=N
             for k in list(ks):
                 for e in ("a", "b"):
                     p = pieces[k][e]
-                    if (k, e) in snap or _jkey(grp_[0], grp_[1], p) in made:
-                        continue                 # already a junction (both sides of a join meet at one point)
                     for m in list(ks):
                         if m == k:
                             continue
                         q = pieces[m]
                         L_ = LineString([q["a"], q["b"]])
-                        # copper overlap, as KiCad joins them: the end's round cap reaches the other's copper
-                        if L_.distance(Point(p)) > (q["w"] + pieces[k]["w"]) / 2 + 1e-6:
+                        dd = L_.distance(Point(p))
+                        if dd > (q["w"] + pieces[k]["w"]) / 2 + 1e-6:
                             continue
                         tt = L_.project(Point(p))
-                        if tt < 1e-3:
-                            snap[(k, e)] = q["a"]
-                        elif tt > L_.length - 1e-3:
-                            snap[(k, e)] = q["b"]
-                        else:
-                            sp = L_.interpolate(tt)
-                            sp = (sp.x, sp.y)
-                            pieces.append(dict(q, a=sp))
-                            q["b"] = sp
-                            ks.append(len(pieces) - 1)
-                            snap[(k, e)] = sp
-                            changed = True
-                        made.add(_jkey(grp_[0], grp_[1], snap[(k, e)]))
+                        if tt < 1e-3 or tt > L_.length - 1e-3:
+                            if dd <= q["w"] / 2 + 1e-6:
+                                jjoin(_jkey(*grp_, p), _jkey(*grp_, q["a"] if tt < 1e-3 else q["b"]))
+                            continue
+                        sp = L_.interpolate(tt)
+                        sp = (sp.x, sp.y)
+                        pieces.append(dict(q, a=sp))
+                        q["b"] = sp
+                        ks.append(len(pieces) - 1)
+                        jjoin(_jkey(*grp_, p), _jkey(*grp_, sp))
+                        changed = True
                         break
                     if changed:
                         break
@@ -1829,13 +1838,13 @@ def build_cell(ctx, s, win, pitch=None, nw=1, seg=SEG_MM, all_nets=False, beta=N
     ends = {}
     for k, pc in enumerate(pieces):
         for e in ("a", "b"):
-            p = snap.get((k, e), pc[e])
-            ends.setdefault(_jkey(pc["layer"], pc["net"], p), []).append((k, e, p))
-    # junction nodes (a pad holding the point: the pad); jw: the widest track there
+            ends.setdefault(jroot(_jkey(pc["layer"], pc["net"], pc[e])), []).append((k, e, pc[e]))
+    # junction nodes (a pad holding one of its points: the pad); jw: the widest track there
     jnode, jw = {}, {}
     for jk, lst in ends.items():
         _, layer, nname, x, y = jk
-        n = net.pad_at(x, y, layer, nname)
+        n = next((m for m in (net.pad_at(pt[0], pt[1], layer, nname) for _, _, pt in [(0, 0, (x, y))] + lst)
+                  if m is not None), None)
         jnode[jk] = n if n is not None else net.node(jk)
         jw[jk] = max(pieces[k]["w"] for k, _, _ in lst)
     # corner rule: two axis-aligned pieces meeting at a right angle, the first stops w/2 short
@@ -1843,8 +1852,8 @@ def build_cell(ctx, s, win, pitch=None, nw=1, seg=SEG_MM, all_nets=False, beta=N
     for jk, lst in ends.items():
         if len(lst) != 2 or jk[0] != "j":
             continue
-        (k1, e1, p), (k2, e2, _) = sorted(lst)
-        if net.pad_at(jk[3], jk[4], jk[1], jk[2]) is not None:
+        (k1, e1, p), (k2, e2, p2) = sorted(lst)
+        if math.dist(p, p2) > 1e-6 or net.pad_at(p[0], p[1], jk[1], jk[2]) is not None:
             continue
         o1 = pieces[k1]["b" if e1 == "a" else "a"]
         o2 = pieces[k2]["b" if e2 == "a" else "a"]
@@ -1856,8 +1865,8 @@ def build_cell(ctx, s, win, pitch=None, nw=1, seg=SEG_MM, all_nets=False, beta=N
             pa = _shorten(pb, pa, short[(k, "a")])
         if (k, "b") in short:
             pb = _shorten(pa, pb, short[(k, "b")])
-        na = jnode[_jkey(pc["layer"], pc["net"], snap.get((k, "a"), pc["a"]))]
-        nb = jnode[_jkey(pc["layer"], pc["net"], snap.get((k, "b"), pc["b"]))]
+        na = jnode[jroot(_jkey(pc["layer"], pc["net"], pc["a"]))]
+        nb = jnode[jroot(_jkey(pc["layer"], pc["net"], pc["b"]))]
         gk = ("tr", pc["layer"], pc["net"], round(pc["a"][0], 4), round(pc["a"][1], 4), round(pc["b"][0], 4),
               round(pc["b"][1], 4), round(pc["w"], 4))
         net.strip(pa, pb, pc["w"], pc["layer"], na, nb, nw=nw, seg=seg, key=gk,
@@ -2001,7 +2010,8 @@ def copper_islands(net, geo):
 
 
 def check_joins(net, info, nodes):
-    """Does the network connect the pad nodes `nodes` (the injected pads) exactly as the copper does
+    """Does the network connect the pad nodes `nodes` (or, given the injections {node: A}, the pads injected with at
+    least LEAK of the largest: smaller ones are balance's to absorb) exactly as the copper does
     (copper_islands)? Returns None when it does, else (why, repair regions [(layer, geometry, size)]): around each
     place a piece of copper holds tile, junction or pad nodes of two network components (the closest two), and every
     piece of the disagreeing islands that holds no node at all, at half the leaf size found there."""
@@ -2009,6 +2019,9 @@ def check_joins(net, info, nodes):
     from shapely.geometry import LineString
     pieces, plab, padlab = copper_islands(net, info["geo"])
     nlab = net.components()
+    if isinstance(nodes, dict):             # injections: pads below LEAK of the largest are balance's to absorb
+        big = max((abs(v) for v in nodes.values()), default=0.0)
+        nodes = [n for n, v in nodes.items() if abs(v) >= LEAK * big]
     nodes = sorted(n for n in nodes if n in padlab)
     bad = [(a, b) for i, a in enumerate(nodes) for b in nodes[i + 1:]
            if (padlab[a] == padlab[b]) != (nlab[a] == nlab[b])]
@@ -2104,7 +2117,7 @@ def from_board(path, cell, window=None, pitch=STRIP_PITCH, b=None, fills=None, n
         while True:
             net_f, net_e, inj_f, inj_e, info = build_cell(ctx, s, window, pitch, nw=nw, all_nets=all_nets, beta=beta,
                                                           box=box, repair=repair, grade=grade, p0=p0)
-            bad = check_joins(net_f, info, set(inj_f)) or check_joins(net_e, info, set(inj_e))
+            bad = check_joins(net_f, info, inj_f) or check_joins(net_e, info, inj_e)
             if bad is None or tries >= JOIN_TRIES:
                 break
             repair = repair + bad[1]

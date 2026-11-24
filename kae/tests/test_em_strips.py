@@ -392,3 +392,32 @@ def test_the_near_pitch_follows_the_planes_height_not_the_narrowest_track(tmp_pa
     plan = ST.plan_cell(net, {("In1.Cu", "GND")}, {"VIN", "GND"}, raw, [], (0, 0, 10, 10), (0, 0, 10, 10), 0.5)
     assert abs(plan.h["In1.Cu"] - 0.235) < 1e-9 and plan.P0["In1.Cu"] == 0.125
     assert LineString([(1, 5), (9, 5)]).buffer(1.0).within(plan.near["In1.Cu"]) and box(0, 0, 10, 10).area > 0
+
+
+def _vin_chain(tmp_path, chain, name):
+    """The closed fixture with its VIN track C1.1 -> U1.3 replaced by `chain` [(a, b, w)]."""
+    from hotloop_fixtures import _seg
+    p = write_hotloop_board(tmp_path / name, "closed")
+    old = _seg((117.0, 110.95), (119.69, 110.95), 0.5, "VIN", k=0)
+    txt = p.read_text()
+    assert old in txt
+    p.write_text(txt.replace(old, "".join(_seg(a, b, w, "VIN", k=700 + k) for k, (a, b, w) in enumerate(chain))))
+    ctx = ST.prepare(str(p), fills=plane_fills())
+    s = ST._source(ctx, CELL)
+    win, box_ = ST.cell_window(ctx, s)
+    nf, *_ = ST.build_cell(ctx, s, win, box=box_)
+    return nf
+
+
+def test_a_chain_of_short_wide_track_pieces_stays_joined(tmp_path):
+    """Real routes end in short pieces inside or near a pad (seniordesign's U10.1: 0.762 mm pieces of 0.3 and 0.14 mm;
+    buildacubesat's U1.10: a 0.09 mm piece after a 0.6 mm one). Joining an end to another piece must not move it onto
+    that piece's far end (the chain collapses to one point and loses its onward link): joins merge junctions."""
+    for name, chain in (("wide", [((117.0, 110.95), (117.512, 110.444), 0.762),
+                                  ((117.512, 110.444), (119.074, 110.444), 0.762),
+                                  ((119.074, 110.444), (119.3727, 110.7425), 0.762),
+                                  ((119.3727, 110.7425), (119.51, 110.7425), 0.762)]),     # seniordesign's, at U1.3
+                        ("stub", [((117.0, 110.95), (118.5, 110.95), 0.6), ((118.5, 110.95), (118.45, 111.0), 0.3),
+                                  ((118.45, 111.0), (119.69, 111.0), 0.3)])):
+        nf = _vin_chain(tmp_path, chain, name)
+        assert nf.connected(nf.pads["C1.1"]["node"], nf.pads["U1.3"]["node"]), name
