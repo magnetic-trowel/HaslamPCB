@@ -294,3 +294,46 @@ def test_a_source_with_no_pad_on_its_rail_is_no_feed_and_a_cell_behind_it_takes_
     lost = []
     inj = DC.injections(pl, _typical(pl, P, [cell]), lost)
     assert lost == [] and DC.imbalance(pl, inj, lost) == []
+
+
+def test_a_boost_with_an_external_switch_fet_switches_at_the_fets_drain_and_source(tmp_path):
+    """A MAX1771 (pieroginixie's nixie supply; qualia's LT3754 and operationurd's alike) drives an external FET: the
+    controller has no pad on the switch node, so D I_L was injected at no pad and the plan did not balance. The
+    switch current now enters at the FET's drain on the switch node and leaves at its source, here into the
+    current-sense net, which the sense resistor (lumped) joins to ground."""
+    nets = ["VIN", "GND", "SW", "HV", "/EXT", "/CS", "/FB"]
+    n = {k: i for i, k in enumerate(nets, 1)}
+
+    def P(num, x, net, fn="", pt=""):
+        return _pad(num, x, n[net], net, fn, pt)
+    fps = [_fp("J1", "Conn_01x02", "Connector:Header_1x02", 5, [P("1", 0, "VIN"), P("2", 1, "GND")], 1),
+           _fp("U1", "MAX1771", "Package_SO:SOIC-8", 12,
+               [P("1", 0, "/EXT", "EXT", "output"), P("2", 1, "VIN", "V+", "power_in"), P("3", 2, "/FB", "FB", "input"),
+                P("6", 3, "GND", "AGND", "power_in"), P("7", 4, "GND", "GND", "power_in"), P("8", 5, "/CS", "CS", "input")], 2),
+           _fp("Q1", "IRF640", "Package_TO_SOT_THT:TO-220-3_Vertical", 20,
+               [P("1", 0, "/EXT", "G", "input"), P("2", 1, "SW", "D", "passive"), P("3", 2, "/CS", "S", "passive")], 3),
+           _fp("R1", "0.1", "Resistor_SMD:R_1206_3216Metric", 25, [P("1", 0, "/CS"), P("2", 1, "GND")], 4),
+           _fp("L1", "100uH", "Inductor_SMD:L_12x12mm_H8mm", 30, [P("1", 0, "VIN"), P("2", 1, "SW")], 5),
+           _fp("D1", "UF4004", "Diode_THT:D_DO-41_SOD81_P10.16mm_Horizontal", 35, [P("1", 0, "HV", "K"), P("2", 1, "SW", "A")], 6),
+           _fp("C1", "100uF", "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm", 40, [P("1", 0, "VIN"), P("2", 1, "GND")], 7),
+           _fp("C2", "4.7uF", "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm", 45, [P("1", 0, "HV"), P("2", 1, "GND")], 8),
+           _fp("R2", "1M", "Resistor_SMD:R_0805_2012Metric", 50, [P("1", 0, "HV"), P("2", 1, "/FB")], 9),
+           _fp("R3", "7k", "Resistor_SMD:R_0805_2012Metric", 52, [P("1", 0, "/FB"), P("2", 1, "GND")], 10),
+           _fp("J2", "Conn_01x02", "Connector:Header_1x02", 55, [P("1", 0, "HV"), P("2", 1, "GND")], 11)]
+    intent = {"nets": {"VIN": {"source": "J1", "V_V": 12.0}, "HV": {"source": "U1", "V_V": 170.0}},
+              "parts": {"J2": {"I_A": [0.01, 0.01]}}}
+    pl, bd, br, srcs = _plan(_board(tmp_path, nets, fps), intent)
+    from haslam.excite.evaluate import ledger_for
+    P_, _ = ledger_for(bd, br, srcs, intent)
+    cell = next(s.name for s in srcs if s.kind == "cell")
+    assert pl.feeds["HV"]["kind"] == "cell" and pl.feeds["HV"]["cell"]["low"] == "Q1"
+    assert {"Q1.2", "Q1.3"} <= pl.dc_pads
+    cv = _typical(pl, P_, [cell])
+    cv[cell].update(I_A=1.0, D=0.5)
+    lost = []
+    inj = DC.injections(pl, cv, lost)
+    assert lost == [] and DC.imbalance(pl, inj, lost) == []
+    # the cell delivers what its load takes (J2's 0.01 A): I_L = I_out / (1 - D), D I_L drain to source
+    sw_A = 0.5 * 0.01 / (1 - 0.5)
+    assert inj["Q1.2"] == pytest.approx(-sw_A) and inj["Q1.3"] == pytest.approx(sw_A)
+    assert "U1.7" not in inj                                                            # none of it in the controller
