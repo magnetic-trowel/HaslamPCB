@@ -19,6 +19,7 @@ this projection pass the cap from the 15th of 60 finished jobs on (177 CPU-h pro
 import argparse
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import time
@@ -75,8 +76,22 @@ def project(jobs, min_finished=MIN_FINISHED):
 def kaeq_cancel(ids):
     """Cancel these kaeq jobs. --force: the jobs are the campaign's own and its owner set the cap at submit,
     so the watchdog acts for it even from a timer or another kaeq job's session."""
-    r = subprocess.run(["kaeq", "cancel", "--force", *map(str, ids)], capture_output=True, text=True)
+    exe = kaeq_bin()
+    if not exe:
+        return 127, "no kaeq on PATH, in $KAEQ_BIN or ~/.local/bin"
+    try:
+        r = subprocess.run([exe, "cancel", "--force", *map(str, ids)], capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as ex:
+        return 126, f"kaeq cancel: {ex}"
     return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def kaeq_bin():
+    """The kaeq command: $KAEQ_BIN, else on PATH, else ~/.local/bin/kaeq (a systemd timer's PATH lacks it)."""
+    for c in (os.environ.get("KAEQ_BIN"), shutil.which("kaeq"), str(Path.home() / ".local" / "bin" / "kaeq")):
+        if c and os.access(c, os.X_OK):
+            return c
+    return None
 
 
 def check(name, store=None, dbp=None, dry_run=False, cancel=kaeq_cancel, out=print):

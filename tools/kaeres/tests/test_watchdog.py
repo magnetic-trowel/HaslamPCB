@@ -108,3 +108,15 @@ def test_cap_at_submit_explicit_recorded_or_the_tier_limit_per_arm():
     assert K.cpu_cap_of(ns(cpu_cap=None), {"cpu_cap": {"cpu_h": 90}}, "sprint") == 90
     assert K.cpu_cap_of(ns(cpu_cap=None), {"arms": 2}, "sprint") == 80
     assert K.cpu_cap_of(ns(cpu_cap=None), {}, "ladder") is None
+
+
+def test_kaeq_found_off_path_and_cancel_reports_a_missing_one(tmp_path, monkeypatch):
+    exe = tmp_path / "kaeq"
+    exe.write_text("#!/bin/sh\necho cancelled $#\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", "/nonexistent")
+    monkeypatch.setenv("KAEQ_BIN", str(exe))
+    assert W.kaeq_cancel([1, 2]) == (0, "cancelled 4")          # cancel --force 1 2
+    monkeypatch.delenv("KAEQ_BIN")
+    monkeypatch.setenv("HOME", str(tmp_path / "nohome"))
+    assert W.kaeq_cancel([1])[0] == 127
