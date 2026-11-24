@@ -10,6 +10,8 @@
 #     WORKDIR           scratch dir (source, header-only dependencies, build tree)
 #     TOOLCHAIN_PREFIX  a conda-forge prefix with gcc/g++ 15, cmake >= 3.28, ninja, boost >= 1.81, zstd, sqlite
 #     REF               git ref (default v0.12.1)
+#   PATCH=NAME (environment): apply patches/NAME.patch (beside this script) to the source first and install
+#   as $KAE_HOME/tracemaker-<sha8>-NAME, e.g. PATCH=thread-cpu-clock (per-variant CPU-time clock, tm_clock "cpu").
 #
 # TraceMaker needs C++20 and is tested with GCC 15 only; Ubuntu 22.04's GCC 11 does not build it.
 # nlohmann_json, CLI11 and Eigen are fetched as header-only installs; Clipper2 is fetched by its own CMake.
@@ -23,8 +25,14 @@ J=${KAEQ_CPUS:-$(nproc)}
 mkdir -p "$W"
 [ -d "$W/src/.git" ] || git clone -q https://github.com/DingoOz/TraceMaker "$W/src"
 git -C "$W/src" fetch -q --tags origin
-git -C "$W/src" checkout -q "$REF"
+git -C "$W/src" checkout -q -f "$REF"
 SHA=$(git -C "$W/src" rev-parse HEAD)
+PATCH=${PATCH:-}
+SUFFIX=; BUILD="$W/build"
+if [ -n "$PATCH" ]; then
+  git -C "$W/src" apply "$(dirname "$(realpath "$0")")/patches/$PATCH.patch"
+  SUFFIX="-$PATCH"; BUILD="$W/build-$PATCH"
+fi
 dep() { [ -d "$W/deps-src/$1" ] || git clone -q --depth 1 -b "$3" "$2" "$W/deps-src/$1"; }
 dep nlohmann_json https://github.com/nlohmann/json.git v3.11.3
 dep CLI11 https://github.com/CLIUtils/CLI11.git v2.4.2
@@ -35,21 +43,22 @@ for d in nlohmann_json CLI11 eigen; do
     -DBUILD_TESTING=OFF -DEIGEN_BUILD_DOC=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5 >/dev/null
   cmake --build "$W/deps-build/$d" --target install -j "$J" >/dev/null
 done
-cmake -S "$W/src" -B "$W/build" -G Ninja \
+cmake -S "$W/src" -B "$BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTM_ENABLE_CUDA=OFF -DTM_BUILD_TESTS=OFF -DTM_BUILD_PYTHON=OFF \
   -DTM_WERROR=OFF -DTM_STATIC_RELEASE=ON \
   -DCMAKE_CXX_COMPILER="$ENV/bin/x86_64-conda-linux-gnu-g++" \
   -DCMAKE_PREFIX_PATH="$W/deps;$ENV" \
   -DSQLite3_LIBRARY="$ENV/lib/libsqlite3.so" -DSQLite3_INCLUDE_DIR="$ENV/include" \
   -DCMAKE_INSTALL_RPATH='$ORIGIN/../lib' -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON
-cmake --build "$W/build" -j "$J" --target tracemaker
-BIN=$(find "$W/build" -type f -executable -name tracemaker | head -1)
-DEST="$KAE_HOME/tracemaker-${SHA:0:8}"
+cmake --build "$BUILD" -j "$J" --target tracemaker
+[ -z "$PATCH" ] || git -C "$W/src" checkout -q -f "$REF"   # the source as fetched again (the next build is unpatched)
+BIN=$(find "$BUILD" -type f -executable -name tracemaker | head -1)
+DEST="$KAE_HOME/tracemaker-${SHA:0:8}$SUFFIX"
 rm -rf "$DEST"; mkdir -p "$DEST/bin" "$DEST/lib"
 cp "$BIN" "$DEST/bin/"
 # shared libraries from the toolchain prefix (system libraries stay with the system)
 LD_LIBRARY_PATH=$ENV/lib ldd "$DEST/bin/tracemaker" | awk -v e="$ENV/" 'index($3, e) == 1 {print $3}' |
   while read -r so; do cp -L "$so" "$DEST/lib/"; done
-echo "$SHA $REF" > "$DEST/SOURCE"
+echo "$SHA $REF${PATCH:+ patch $PATCH $(sha256sum "$(dirname "$(realpath "$0")")/patches/$PATCH.patch" | cut -c1-16)}" > "$DEST/SOURCE"
 "$DEST/bin/tracemaker" version
 echo "installed $DEST (TraceMaker $REF = $SHA)"
