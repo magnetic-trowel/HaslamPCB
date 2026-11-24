@@ -155,6 +155,33 @@ Lessons from the decide-ab campaign (2026-11, 17 experiments; plan and analysis 
 - **kaeq's CPU column counts the job's own process.** A restart-wrapped job can show hours of wall
   time and seconds of CPU while its children work; check `ps` of the children before calling it hung.
 
+## Screening a mechanism before choosing a suite
+
+A suite picked by a broad tag can barely contain the situation a change acts on: gfix-thermal-ring ran on
+`mech/pours.txt` and 113 of 116 board-seed pairs came out identical (undecided, CPU spent for nothing).
+`mechscreen.py` counts, per board, how often a candidate change's situation occurs, statically, from the
+prepared route input (no routing; about a second per board), so the suite is chosen by measurement:
+
+```bash
+PY=<the tag's kae venv python>; export PYTHONPATH=kae/src; source ~/.cache/kaebench/env.sh
+$PY tools/kaeres/mechscreen.py --list
+$PY tools/kaeres/mechscreen.py --screen thermal-ring --screen netrules --boards @ids.txt \
+    --out screen.jsonl --info-cache DIR            # resumable; DIR keeps KiCad's export for later screens
+$PY tools/kaeres/mechscreen.py --top screen.jsonl --screen thermal-ring -n 40   # boards by count
+```
+
+- Input: the route task's input from the local task cache (`$KAERES_TASK_CACHE`), else a copy of the corpus
+  board. One line per board and screen: `{board, screen, count, examples, source, s, ...}`; `count` 0 means
+  the change cannot act there.
+- A screen is a function of the board (`ctx.info`: KiCad's export without probes; `ctx.dru`: the custom rules)
+  registered with `@screen(name, doc)`. To compare the tag's code with a candidate commit, load the
+  candidate's module with `variant_module(commit, path, name)`: it is read from git, never put on the path.
+- Screens: `thermal-ring` (other nets' pads that the tag's thermal-spoke corridors cover by 10 % or more and
+  gfix-thermal-ring 3eb6a72f's do not), `netrules` (pad pairs near enough that a net-conditioned `.kicad_dru`
+  clearance rule, evaluated with gfix-place-netrules' `kae.board.dru_cond`, is stricter than their net classes).
+- Pick the suite from the boards with the highest counts that fit the tier, and say in the plan how many
+  boards of the pool have the mechanism at all.
+
 ## Profiling a smoke
 
 Profile one smoke board per arm before a full run: the queue is shared, and an hour saved per job is
