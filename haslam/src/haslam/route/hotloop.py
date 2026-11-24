@@ -1098,12 +1098,13 @@ def _reroute_s(items):
     return 60.0 + 1.5 * items
 
 
-def _cell_estimate(t_drc, t_q, items):
+def _cell_estimate(t_drc, t_q, items, t_qa=None):
     """Budget seconds one cell of `clear` is expected to take: two DRCs (rip, after), two quotes (before, after),
-    the re-route (_reroute_s). t_drc and t_q are what one DRC and one quote cost in this run so far (_Mean); they
+    the re-route (_reroute_s). t_drc and t_q are what one DRC and one (before) quote cost in this run so far, t_qa
+    an after quote (warm-started from the before's solve: cheaper), t_q until one is measured (_Mean); they
     are read off the process clock (haslam.budget.now), so in work mode they are the DRC's and the quote's charged
     work (haslam.em's kinds for the quote), not wall time."""
-    return 2 * t_drc + 2 * t_q + _reroute_s(items)
+    return 2 * t_drc + t_q + (t_q if t_qa is None else t_qa) + _reroute_s(items)
 
 
 class _Mean:
@@ -1189,7 +1190,7 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
         def quotes(board, drc_json, only=None):
             rows = quote_cells(str(board), intent=intent, drc=str(drc_json), log=lambda *a: None, only=only, warm=warm)
             return {r.get("cell"): r for r in rows}
-        m_drc, m_q = _Mean(), _Mean()       # what a DRC and a cell quote cost in this run
+        m_drc, m_q, m_qa = _Mean(), _Mean(), _Mean()   # what a DRC, a before and an after (warm) quote cost
         rep0 = _timed_into(m_drc, check, board_path, wd / "drc0")
         base = drc.summary(rep0)
         q0 = {}           # quoted per cell, just before it is cleared (a big board's all-cell quote: minutes)
@@ -1212,7 +1213,7 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
 
         def estimate(items, t_q=None):
             t_q = m_q.value if t_q is None else t_q
-            return _cell_estimate(m_drc.value, t_q, items) + (m_drc.value if input_drc else 0.0)
+            return _cell_estimate(m_drc.value, t_q, items, m_qa.value) + (m_drc.value if input_drc else 0.0)
 
         def input_errors(cd):
             nonlocal input_drc
@@ -1305,8 +1306,8 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             # before it cost (a quote dearer than the estimate's left the last mile no time at all: forestierr's
             # cell, 153 s against 30)
             cdl = min(deadline, max(clock_now() + _reroute_s(len(fr)),
-                                    t_cell + estimate(len(fr)) - m_drc.value
-                                    - m_q.value * (1 if cr["cell"] in q0 else 2)))   # the before quote waits too
+                                    t_cell + estimate(len(fr)) - m_drc.value - (m_qa.value or m_q.value)
+                                    - (0 if cr["cell"] in q0 else m_q.value)))   # the before quote waits too
             rounds = []
             # haslam's grid router (the last mile), one Freerouting repair round, the last mile again
             cur = repair._last_mile(input_path, board_path, cd, p2, info, o2, cdl, rounds, drc.summary(cur), cur,
@@ -1330,7 +1331,7 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             if not why:                  # the quotes decide only a cell the DRC keeps
                 if cr["cell"] not in q0:
                     q0.update(_timed_into(m_q, quotes, snap, src_k, only=[cr["cell"]]))
-                qa = _timed_into(m_q, quotes, board_path, cd / "after" / "drc.json", only=[cr["cell"]])
+                qa = _timed_into(m_qa, quotes, board_path, cd / "after" / "drc.json", only=[cr["cell"]])
             w0 = _cell_watts(q0.get(cr["cell"]), s, cr["module"])
             w1 = _cell_watts(qa.get(cr["cell"]), s, cr["module"])
             row.update(ripped=len(fr), nets=ripped_nets, rerouted=len(ripped_nets) - len(still),
