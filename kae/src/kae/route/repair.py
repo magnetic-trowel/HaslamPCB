@@ -832,8 +832,8 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
         if len(rounds) > 1 and not rounds[-1].get("stopped"):
             rounds[-1]["stopped"] = "round cap"
     # fill pieces of a net KiCad sees apart get stitching vias (stitch_pours) before the last mile,
-    # whose model of a fill's connectivity can differ from KiCad's, and again after it, whose joins
-    # of other nets can cut a pour
+    # which joins parts only by routing tracks, and again after it, whose joins of other nets can
+    # cut a pour
     got = stitch_pours(input_path, output_path, wd / "stitch0", info, plan, opts, deadline, best, best_rep, rounds,
                        "stitch0", base=lambda: input_errors(input_path, wd, deadline), log=log)
     if got is not None:

@@ -10,14 +10,14 @@ outside the default route recipe. What is left is a missing connection KiCad rep
 the zones themselves ("Zone [GND] on F.Cu" <-> "Zone [GND] on B.Cu", or a zone's own islands):
 a fill island around an exposed pad whose spokes do not reach the main pour, a piece a routed
 track cut off, a piece only a dangling track or via keeps from island removal. The last mile
-joins parts by its own model of connectivity (kae.route.lastmile.parts), which can disagree
-with KiCad's (a track crossing a fill joins it there in kae's model, only at its ends in
-KiCad's), and then joins the wrong parts.
+joins parts by the same rule (kae.route.lastmile.parts: copper of the net touching on a shared
+layer, as KiCad 10 joins it) but only by routing tracks, never through a via between two fills
+that lie over each other.
 
 This pass reads KiCad's own clusters (pcbnew_io.copper_items(clusters=True): pads, tracks and
 vias, with the connectivity KiCad's DRC uses) and KiCad's fills (pcbnew_io.zone_fills), gives
-each fill piece to the cluster whose copper touches it as KiCad joins copper to a zone (a pad's
-shape, a track's end, a via), and for every cluster other than the main one (most pads) that
+each fill piece to the cluster whose copper touches it as KiCad 10 joins copper to a zone (a
+pad's shape, a track anywhere along its body, a via), and for every cluster other than the main one (most pads) that
 owns fill, places through vias where its fill and the fill of another cluster lie over each
 other on two layers: a few (WANT), spread out (at least PITCH apart, farthest first), each one
 legal by the bridge's rules (kae.route.critical_space.Space.via_violations: clearance to other
@@ -36,7 +36,6 @@ import math
 
 import numpy as np
 import shapely
-from shapely.geometry import Point
 from shapely.ops import unary_union
 
 from kae.budget import charge
@@ -90,10 +89,11 @@ def _pieces(fills, net):
 def owners(net, items, fills, info, sp):
     """The KiCad cluster that owns each fill piece of `net`: {piece index: cluster} and the
     pieces [(zone uuid, layer, index, Polygon)]. A piece is touched by a pad whose copper on
-    its layer meets it, a track of its layer with an end in it, a via through its layer whose
-    disc meets it (KiCad's zone connectivity). A piece touched by copper of several clusters
+    its layer meets it, a track of its layer whose copper meets it anywhere along its body
+    (KiCad 10 joins a track crossing a fill with both ends outside it: kae.route.lastmile.parts),
+    a via through its layer whose disc meets it. A piece touched by copper of several clusters
     (KiCad joins clusters through a piece, so only kae's geometry can disagree, at a pad's
-    thermal gap) goes to the cluster of its track ends and vias, else to the one with the most
+    thermal gap) goes to the cluster of its tracks and vias, else to the one with the most
     items there. A piece nothing touches has no owner (KiCad removes such islands or counts no
     connection to them)."""
     from .constraints import _pad_shapes
@@ -107,13 +107,11 @@ def owners(net, items, fills, info, sp):
     trees = {l: shapely.STRtree([pieces[k][3] for k in ks]) for l, ks in by_layer.items()}
     votes = {}      # piece -> {cluster: [strong, weak]}
 
-    def vote(l, geom, c, strong, ends=None):
+    def vote(l, geom, c, strong):
         if l not in trees or c is None:
             return
         for j in trees[l].query(geom, predicate="intersects"):
             k = by_layer[l][int(j)]
-            if ends is not None and not any(pieces[k][3].distance(e) <= EPS for e in ends):
-                continue
             v = votes.setdefault(k, {}).setdefault(c, [0, 0])
             v[0 if strong else 1] += 1
 
@@ -127,10 +125,9 @@ def owners(net, items, fills, info, sp):
         if it.net != net or it.uuid not in cl:
             continue
         if it.kind == "track":
-            c = list(it.geom.coords)
-            ends = (Point(c[0]), Point(c[-1]))
+            body = it.geom.buffer(it.r)
             for l in it.layers:
-                vote(l, unary_union(ends), cl[it.uuid], True, ends=ends)
+                vote(l, body, cl[it.uuid], True)
         elif it.kind == "via":
             disc = it.geom.buffer(it.r, 16)
             for l in it.layers:

@@ -75,6 +75,18 @@ def test_a_piece_goes_to_the_cluster_whose_copper_touches_it(tmp_path):
     assert by == {"F.Cu": 1, "B.Cu": 0}
 
 
+def test_a_track_crossing_a_piece_with_both_ends_outside_it_owns_it(tmp_path):
+    """KiCad 10 joins a track to a fill of its net anywhere along its body (kae.route.lastmile.parts):
+    a B.Cu GND piece that only a cluster-2 track crosses, both its ends outside, is that cluster's."""
+    t = W.new_uuid()
+    p, info, items = _board(tmp_path, extra_tracks=[("GND", "B.Cu", 0.3, (128.0, 120.0), (141.0, 120.0), t, False)])
+    items.append(dict(uuid=t, kind="track", net="GND", cluster=2))
+    strip = box(134.0, 119.0, 138.0, 121.0)      # the piece: between the track's ends, under its body
+    fills = [dict(uuid="zs", net="GND", layers={"B.Cu": [_rings(strip)]}, teardrop=False)]
+    own, pieces = PS.owners("GND", items, fills, info, _space(p, info))
+    assert [own.get(k) for k in range(len(pieces))] == [2]
+
+
 def test_two_pours_nothing_joins_get_spread_legal_vias_inside_both_fills(tmp_path):
     """A GND piece on F.Cu tied to nothing but a track, over the main GND pour on B.Cu: through
     vias where both fills lie, at least PITCH apart, each legal by the bridge's rules, and the
