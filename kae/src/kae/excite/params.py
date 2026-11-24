@@ -124,13 +124,14 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
                     "t_v = C_sw V / I: the switch node charged by the commutated current")
     # duty
     if vi and cls == "boost":
-        D = (max(0.05, 1 - vi[2] / V.lo), 1 - vi[0] / V.typ, min(0.95, 1 - vi[1] / V.hi))
+        # a bus range reaching 0 V (a source that can go dark) bounds D by its clip, not by a division by zero
+        D = (max(0.05, 1 - vi[2] / V.lo) if V.lo > 0 else 0.05, 1 - vi[0] / V.typ, min(0.95, 1 - vi[1] / V.hi))
         clip = " (clipped: Vin >= Vout as the rails read, their voltages are suspect)" if vi[0] >= V.typ else ""
         out["D"] = _p(L, sid, "D", D[1], min(D), max(D), "", "physics", f"boost D = 1 - Vin/V with Vin from {vin_net}{clip}")
     elif cls == "buck" and volts(st.get("vout")):
         # a buck's bus (V) is its input; its output is the structure's vout
         vo = volts(st.get("vout"))
-        D = (max(0.02, vo[1] / V.hi), vo[0] / V.typ, min(0.98, vo[2] / V.lo))
+        D = (max(0.02, vo[1] / V.hi), vo[0] / V.typ, min(0.98, vo[2] / V.lo) if V.lo > 0 else 0.98)
         clip = " (clipped: Vout >= Vin as the rails read, their voltages are suspect)" if vo[0] >= V.typ else ""
         out["D"] = _p(L, sid, "D", D[1], min(D), max(D), "", "physics",
                       f"buck D = Vout/Vin with Vout from {st.get('vout')}{clip}")
