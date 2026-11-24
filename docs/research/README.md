@@ -11,7 +11,7 @@ Purposes: (1) spare others dead ends: failures are written up as carefully as su
 |---|---|
 | **worked** | Beat its control on the benchmark, scored by `kicad-cli` DRC on the re-opened board |
 | **partial** | Won on one axis or one split and lost on another, or won by less than seed noise |
-| **did not work** | Built and run; no gain over its control, or worse |
+| **did not work** | Built and run, no gain over its control or worse; or killed by a pre-registered test on stored data (the page says which) |
 | **not finished** | Built; the deciding run is missing or still running |
 | **undecided** | Run as planned; the effect's interval includes both a gain and none, so nothing is adopted or dropped. A valid final verdict: the page gives the estimate, its interval and the run that would decide it ([audit-2611b](audit-2611b.md#six-conclusions)) |
 | **untested idea** | Mechanism written down; nothing built or run |
@@ -41,6 +41,6 @@ Purposes: (1) spare others dead ends: failures are written up as carefully as su
 | [data](data/README.md) | The open-board corpus: licence audit, near-duplicate removal, import fixes, DRC statistics | 14,318 licence-audited open boards; 1,637 near-duplicates removed by content fingerprint; about 17% DRC-clean, as committed, under their own rules. |
 | [ideas](ideas.md) | Untested ideas with mechanisms: original ideas, cross-domain transplants, joint place-and-route ideas, problem transformations | — |
 
-Cross-cutting: [gap audit (2026-11-20)](audit-2611b.md): six conclusions, the beliefs the stored data corrects (pour-cut share, 10× budget, staged as best method, split-C figures, underpowered nulls), one-way stage boundaries. [Whole-codebase bug audit (2026-11)](audit-2611.md): about 50 bugs fixed across routers, placer, loader, physics inputs and scoring (score v8, v9; task spec 9). [Host-load drift (2026-11)](benchmark-drift-2611.md): the same run, days apart, left 13.9 % more open connections; compare only arms run side by side.
+Cross-cutting: [gap audit (2026-11-20)](audit-2611b.md): six conclusions, the beliefs the stored data corrects (pour-cut share, 10× budget, staged as best method, split-C figures, underpowered nulls), one-way stage boundaries. [Ideas dropped 2026-11-20..22](dead-ends-2611.md): fifteen dead ends of the design sessions, each with its evidence and what would reopen it. [Whole-codebase bug audit (2026-11)](audit-2611.md): about 50 bugs fixed across routers, placer, loader, physics inputs and scoring (score v8, v9; task spec 9). [Host-load drift (2026-11)](benchmark-drift-2611.md): the same run, days apart, left 13.9 % more open connections; compare only arms run side by side.
 
 Pending: the 500-board comparison of every merit method (experiments `merit-500r3`, `merit-500r3k`) is still running; those method pages say "pending" until it finishes.
