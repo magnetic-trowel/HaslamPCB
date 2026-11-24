@@ -295,6 +295,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
                  ind=ref_of.get(st.get("inductor")),
                  top=cell_topology(st, nets), eta=float(eta),
                  ctrl=ref_of.get(st.get("controller")), rect=ref_of.get(sw.get("rectifier")),
+                 high=ref_of.get(sw.get("high")), low=ref_of.get(sw.get("low")),
                  parts={ref_of.get(u) for u, _ in st.get("loop") or []} | {ref_of.get(st.get("controller")),
                                                                          ref_of.get(st.get("inductor"))})
         c["parts"] |= {ref_of.get(u) for u in st.get("caps") or []}
@@ -668,6 +669,14 @@ def plan(board, brief, bd, P, srcs, intent=None):
                 if ref:
                     pl.dc_pads |= {f"{ref}.{n}" for n, net, _, _ in pads.get(ref, [])
                                    if net in rails or net in grounds or net in (c["sw"], c.get("sw2"))}
+            if not any(nt == c["sw"] for _, nt, _, _ in pads.get(c["ctrl"], [])):
+                # an external switch FET carries the switch current (injections()): its drain, source and input pads
+                if _top(c) in ("boost", "boost_led") and c.get("low"):
+                    pl.dc_pads |= set(tok(c["low"], [n for n, nt, _, _ in pads.get(c["low"], []) if nt == c["sw"]]))
+                    pl.dc_pads |= set(_fet_source(pads, c["low"], c["sw"]))
+                elif c.get("high"):
+                    pl.dc_pads |= set(tok(c["high"], [n for n, nt, _, _ in pads.get(c["high"], [])
+                                                      if nt in (c["sw"], c["vin"])]))
             if _top(c) == "inverting_buck_boost" and c.get("ind"):
                 pl.dc_pads |= {f"{c['ind']}.{n}" for n, net, _, _ in pads.get(c["ind"], []) if net in grounds}
     pl.pads = pads
@@ -978,15 +987,24 @@ def injections(pl, cv, lost=None):
                     add(gs, (xin - x) * m, f"{r}: {c['id']} losses")
                 elif boost:
                     IL = xin                                        # the input current flows in the inductor
-                    add(sw, -(IL - x) * m, f"{r}: {c['id']} switch")            # the switch: D I_L from the switch node
-                    add(gs, (IL - x) * m, f"{r}: {c['id']} switch return")      # to ground
+                    sw_p, ret = sw, gs
+                    if not sw_p and c.get("low") and c["low"] != ctrl:
+                        # an external switch FET (an LT3754's, a MAX1771's): D I_L enters at its drain on the switch
+                        # node and leaves at its source, to ground or through the current-sense resistor (lumped) to it
+                        sw_p, ret = on(c["low"], c["sw"]), _fet_source(pl.pads, c["low"], c["sw"])
+                    add(sw_p, -(IL - x) * m, f"{r}: {c['id']} switch")          # the switch: D I_L from the switch node
+                    add(ret, (IL - x) * m, f"{r}: {c['id']} switch return")     # to ground
                     if not c["rect"]:                               # synchronous: the rectifier inside too
                         add(sw, -x * m, f"{r}: {c['id']} rectifier")
                         add(on(ctrl, r), x * m, f"{r}: {c['id']} rectifier")
                     ins = []                                        # the input feeds the inductor (lumped)
                 else:
+                    hs_sw = sw
+                    if not hs_sw and c.get("high") and c["high"] != ctrl:
+                        # an external high-side FET: the input current enters it at its drain, D I_out leaves its source
+                        ins, hs_sw = on(c["high"], rin), on(c["high"], c["sw"])
                     add(ins, -s_in, f"{r}: {c['id']} input")                    # the input: D I_out / eta (the power balance)
-                    add(sw, D * x * m, f"{r}: {c['id']} high side")             # the high side: D I_out into the switch node
+                    add(hs_sw, D * x * m, f"{r}: {c['id']} high side")          # the high side: D I_out into the switch node
                     add(gs, (xin - D * x) * m, f"{r}: {c['id']} losses")        # the cell's own losses, back through its ground
                     if not c["rect"]:
                         add(gs, -(1 - D) * x * m, f"{r}: {c['id']} low side")   # the low side: the rest of I_out from ground
@@ -1080,6 +1098,24 @@ def planned_injections(board, intent, brief=None, heat=None):
     if bad:
         raise ValueError(f"the DC plan's current does not balance: {'; '.join(bad[:4])}")
     return {k: float(v) for k, v in inj.items() if v}
+
+
+def _fet_source(pads, ref, drain_net):
+    """The pads of switch FET ref its current leaves by: those named S (source), else its pads off the drain net
+    other than the gate, the FET's net with the fewest pads on the board (the gate drive is one trace; the source
+    goes to ground or a sense resistor)."""
+    pp = pads.get(ref, [])
+    src = [f"{ref}.{n}" for n, nt, _, fn in pp if nt != drain_net and re.match(r"^S(OURCE)?\d*$", fn or "", re.I)]
+    if src:
+        return src
+    count = {}
+    for p2 in pads.values():
+        for _, nt, _, _ in p2:
+            count[nt] = count.get(nt, 0) + 1
+    others = sorted({nt for _, nt, _, _ in pp if nt != drain_net})
+    named_g = {nt for _, nt, _, fn in pp if re.match(r"^G(ATE)?\d*$", fn or "", re.I)}
+    gate = named_g or ({min(others, key=lambda q: (count.get(q, 0), q))} if len(others) > 1 else set())
+    return [f"{ref}.{n}" for n, nt, _, _ in pp if nt != drain_net and nt not in gate]
 
 
 def _feed_pads(pl, rail):
