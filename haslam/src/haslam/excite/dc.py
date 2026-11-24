@@ -660,8 +660,12 @@ def plan(board, brief, bd, P, srcs, intent=None):
             pl.notes.append(f"{r}: fed by {f['cell']['id']}, but nothing draws from it (no load with a ground pad, no "
                             f"regulator fed from it); the cell's DC flow is not modelled")
     pl.dc_pads = {t for ld in pl.loads for t in ld["sup"] + ld["gnd"]} | {t for sl in pl.self_loads for t in sl["pads"]}
-    for f in pl.feeds.values():
-        for k in ("out", "gnd", "inp", "entry"):
+    for r, f in pl.feeds.items():
+        # a cell carries current only when something draws from its rail; the pads only its current uses (an
+        # external FET's, an unfed input's entry and return) join the DC terminals only then: a terminal no current
+        # uses still changes the copper model (its pad made one equipotential)
+        live = f["kind"] != "cell" or drawn(r)
+        for k in ("out", "gnd", "inp", "entry") if live else ("out", "inp"):
             pl.dc_pads |= set(f.get(k) or [])
         if f["kind"] == "cell":
             c = f["cell"]
@@ -669,7 +673,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
                 if ref:
                     pl.dc_pads |= {f"{ref}.{n}" for n, net, _, _ in pads.get(ref, [])
                                    if net in rails or net in grounds or net in (c["sw"], c.get("sw2"))}
-            if not any(nt == c["sw"] for _, nt, _, _ in pads.get(c["ctrl"], [])):
+            if live and not any(nt == c["sw"] for _, nt, _, _ in pads.get(c["ctrl"], [])):
                 # an external switch FET carries the switch current (injections()): its drain, source and input pads
                 if _top(c) in ("boost", "boost_led") and c.get("low"):
                     pl.dc_pads |= set(tok(c["low"], [n for n, nt, _, _ in pads.get(c["low"], []) if nt == c["sw"]]))
