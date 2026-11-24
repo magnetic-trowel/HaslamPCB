@@ -297,6 +297,7 @@ Report-only (no score, selection or objective uses them until they pass a mutati
 - **Quality on boards both finish (0 opens).** Median ratio B / A of track length and of 1 + vias; mean per-board difference in `solder_mask_bridge` and silk error counts; median ratio of the same physics module's value by kind (hot-loop cell, decap, crystal, chain), never the summed score. The physics rows repeat over unfinished boards where the module itself is closed in both.
 - **Reach.** Share of boards with identical opens and errors in both arms: the boards the change did not touch.
 - **Verdicts.** Intervals are 95 % bootstraps that resample repository owners. better or worse: the interval excludes no change. undecided: it includes it. unknown: under 10 paired boards or owners; no estimate is printed.
+- **Return rows** (`--return-rows`; needs shapely): the `return_board.py` rows (`cov_opp`, `cov_any`, fast-net rows, `unc_mm`) as mean B − A on boards both finish; higher `cov_*` is better. Cross-checked against KiCad's own fill by `return_check.py`.
 - **Human layout.** Where the experiment has a human row, the quality rows repeat with the human as A. Rows scored by another DRC evaluator are marked ‡. Physics of two evaluators is never paired; `rephysics submit` gives the human runs the experiment's evaluator.
 
 ## Manufacturability columns
