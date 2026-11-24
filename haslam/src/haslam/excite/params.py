@@ -165,14 +165,15 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
                       f"({CV.SOURCES.get(top, '')}; eta {cc.eta[1]:g}-{cc.eta[2]:g})")
     elif vi and cls == "boost":
         e = CV.ETA
-        D = (max(0.05, 1 - vi[2] * e[2] / V.lo), 1 - vi[0] * e[1] / V.typ, min(0.95, 1 - vi[1] * e[0] / V.hi))
+        # a bus range reaching 0 V (a source that can go dark) bounds D by its clip, not by a division by zero
+        D = (max(0.05, 1 - vi[2] * e[2] / V.lo) if V.lo > 0 else 0.05, 1 - vi[0] * e[1] / V.typ, min(0.95, 1 - vi[1] * e[0] / V.hi))
         clip = " (clipped: Vin >= Vout as the rails read, their voltages are suspect)" if vi[0] >= V.typ else ""
         out["D"] = _p(L, sid, "D", D[1], min(D), max(D), "", "physics",
                       f"boost D = 1 - Vin eta/V with Vin from {vin_net}, eta {e[0]:g}-{e[2]:g} typical (TI SLVA372){clip}")
     elif cls == "buck" and volts(st.get("vout")):
         # a buck's bus (V) is its input; its output is the structure's vout
         vo = volts(st.get("vout"))
-        D = (max(0.02, vo[1] / V.hi), vo[0] / V.typ, min(0.98, vo[2] / V.lo))
+        D = (max(0.02, vo[1] / V.hi), vo[0] / V.typ, min(0.98, vo[2] / V.lo) if V.lo > 0 else 0.98)
         clip = " (clipped: Vout >= Vin as the rails read, their voltages are suspect)" if vo[0] >= V.typ else ""
         out["D"] = _p(L, sid, "D", D[1], min(D), max(D), "", "physics",
                       f"buck D = Vout/Vin with Vout from {st.get('vout')}{clip}")
