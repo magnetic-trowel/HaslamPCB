@@ -81,6 +81,7 @@ AXIAL = (20e-9, 0.3)
 REG_R = 0.05
 REG_L = 0.2e-6
 PKG_L = 1.0e-9                  # IC pin: bond wire plus lead
+FUSE_R = 0.1                    # ohm, a fuse's or resettable PTC's cold resistance (class prior)
 PKG_R = 5e-3
 DIE_C = {"logic": 1e-9, "memory": 5e-9, "mcu": 5e-9, "fpga": 50e-9, "opamp": 20e-12, "regulator_linear": 1e-9,
          "regulator_switching": 1e-9, "adc_dac": 1e-9, "reference": 50e-12, "motor_driver": 2e-9, "": 1e-9}
@@ -103,7 +104,12 @@ def _rl(R, L):
 
 
 def _rlc(R, L, C):
-    return lambda w: R + 1j * w * L + (1 / (1j * w * C) if C else 0)
+    def z(w):
+        return R + 1j * w * L + (1 / (1j * w * C) if C else 0)
+    # above its self-resonance a capacitor part is its ESR and ESL: the edge band's model (Circuit.edge_model, which
+    # uses it for kind "C" only)
+    z.hf = lambda w: R + 1j * w * L
+    return z
 
 
 def _par(z1, z2):
@@ -122,7 +128,10 @@ class Board:
     part_kind: dict               # ref -> (kind, subtype, role)
     assumptions: list = field(default_factory=list)
     ic_nodes: dict = field(default_factory=dict)   # ref -> {"g": node, rail: node}
+    module_nodes: dict = field(default_factory=dict)  # ref -> {"g": node, rail: node}: a clocked module's inside
+    radios: dict = field(default_factory=dict)     # ref -> kind: radios the operating facts name (kae.excite.observe)
     pin_type: dict = field(default_factory=dict)   # pad -> the schematic's pin type ('' when absent)
+    pin_fn: dict = field(default_factory=dict)     # pad -> the schematic's pin name ('' when absent)
     pad_xy: dict = field(default_factory=dict)     # pad -> (x, y) mm on the board
     port: dict = field(default_factory=dict)       # ref -> "connector" | "module": where the copper meets
     #                                                circuitry off this board's model
@@ -149,7 +158,9 @@ def build(board, brief=None):
     nets = brief["nets"]
     grounds = {n for n, d in nets.items() if d.get("role") == "ground"}
     rails = {n: d.get("volts") for n, d in nets.items() if d.get("role") == "rail"}
-    ground = max(grounds, key=lambda g: len(nl.nets[g].pins) if g in nl.nets else 0) if grounds else "GND"
+    # the reference ground: the ground net with the most pins, the first by name among equals (grounds is a set: its
+    # order is the hash seed's)
+    ground = max(sorted(grounds), key=lambda g: len(nl.nets[g].pins) if g in nl.nets else 0) if grounds else "GND"
     c = Circuit(ground)
     bd = Board(c, ground, grounds, rails, {}, {}, {})
     cell_parts = {}
@@ -172,6 +183,7 @@ def build(board, brief=None):
             tok = f"{ref}.{p.number}"
             bd.net_of[tok] = p.net
             bd.pin_type[tok] = p.ptype
+            bd.pin_fn[tok] = p.fn or ""
             bd.pads_of.setdefault(p.net, []).append(tok)
         in_cell = uuid_of.get(ref) in cell_parts
         pk = port_kind(kind, part, len(pins))
@@ -190,9 +202,11 @@ def build(board, brief=None):
 
 
 def nearest_ground(bd, ref, pad):
-    """The part's ground pin nearest to its pad (the return path of a signal it drives or receives)."""
+    """The part's ground pin nearest to its pad (the return path of a signal it drives or receives); among pins at
+    the same distance, the first in ground-net name order, then the net's pad order (never bd.grounds' set order,
+    which is the hash seed's)."""
     import math
-    gs = [t for nt in bd.grounds for t in bd.pads_of.get(nt, []) if t.rsplit(".", 1)[0] == ref]
+    gs = [t for nt in sorted(bd.grounds) for t in bd.pads_of.get(nt, []) if t.rsplit(".", 1)[0] == ref]
     if not gs:
         return None
     x, y = bd.pad_xy.get(pad, (0.0, 0.0))
@@ -359,6 +373,12 @@ def _part(bd, ref, part, pins, kind, sub, role, rec, in_cell):
             bd.assumptions.append(f"{ref}: value '{part.value}' unread; 1 kOhm assumed")
         a, b = tw
         c.z(ref, a.net, b.net, _rl(max(R, 1e-4), 0.5e-9), tok(a), tok(b), "R")
+    elif kind == "fuse" and len(tw) == 2:
+        # a fuse or resettable PTC conducts: its cold resistance (class prior: tens of mOhm for a cartridge, 0.1-1 Ohm
+        # for a small polyfuse); left out, it opened every rail fed through it
+        a, b = tw
+        c.z(ref, a.net, b.net, _rl(FUSE_R, 2e-9), tok(a), tok(b), "R")
+        bd.assumptions.append(f"{ref}: fuse at {FUSE_R * 1e3:g} mOhm cold resistance (class prior)")
     elif kind == "inductor" and len(tw) == 2:
         L = V.inductance(part.value) or 10e-6
         a, b = tw
@@ -390,7 +410,8 @@ def _part(bd, ref, part, pins, kind, sub, role, rec, in_cell):
         for i in range(len(tw)):
             for j in range(i + 1, len(tw)):
                 c.z(f"{ref}:{i}{j}", tw[i].net, tw[j].net, _rlc(1.0, 1e-9, 10e-12), tok(tw[i]), tok(tw[j]), kind)
-    elif kind in ("jumper", "switch") and len(tw) == 2 or (kind == "resistor" and len(tw) != 2):
+    elif kind in ("jumper", "switch", "net_tie") and len(tw) == 2 or (kind == "resistor" and len(tw) != 2):
+        # a net tie is copper that joins two nets by design (an analog ground to the power ground at one point)
         if len(tw) == 2:
             c.z(ref, tw[0].net, tw[1].net, _rl(0.01, 1e-9), tok(tw[0]), tok(tw[1]), "short")
     elif kind == "battery" and len(tw) == 2:

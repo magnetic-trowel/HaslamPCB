@@ -152,6 +152,16 @@ class Mesh:
         inside = shapely.contains_xy(geom, X, Y)
         cov = inside.astype(float)
         edge = ndimage.binary_dilation(inside) & ~ndimage.binary_erosion(inside)
+        # and every cell the outline itself crosses: copper that holds no cell centre (a 0.25 mm pad whose long edges
+        # run through a row of centres at 0.25 mm pitch, or a sliver between centres) had no inside cell to find its
+        # edge from and read empty, so a track ending on such a pad off its centre cell was cut off from it while
+        # KiCad connected it (a buck-boost's VOUT, GND and L1 pads, routed into at their ends)
+        bxy = shapely.get_coordinates(shapely.segmentize(geom, self.pitch / self.SUB))     # every ring, densified
+        if len(bxy):
+            bj = np.floor((bxy[:, 1] - self.y0) / self.pitch).astype(np.int64)
+            bi = np.floor((bxy[:, 0] - self.x0) / self.pitch).astype(np.int64)
+            ok = (bj >= 0) & (bj < self.ny) & (bi >= 0) & (bi < self.nx)
+            edge[bj[ok], bi[ok]] = True
         edge |= ndimage.binary_dilation(edge)
         jj, ii = np.nonzero(edge)
         if len(jj):
@@ -207,7 +217,10 @@ class Mesh:
     def paint_line(self, layer, net, pts, width):
         """A track narrower than a few cells: a 4-connected chain of cells along its centre line, so it
         conducts at any pitch. Its bars carry the track's true width and length (Network applies them to
-        R and to the self inductance), unless the cells were copper of the net already (a pour)."""
+        R and to the self inductance), unless the cells were copper of the net already (a pour).
+        A track of zero width is no copper (nothing is etched), so it paints nothing."""
+        if not width or width <= 0:
+            return
         k = self.net_id(net)
         lab = self.lab[layer]
         p = self.pitch
@@ -288,6 +301,8 @@ class Mesh:
         return self.paint(layer, net, cov=self.coverage(rect=(x0, y0, x1, y1)))
 
     def via(self, x, y, layers, net, drill=0.3, plating=PLATING):
+        if not drill > 0:       # a barrel of no radius: its self inductance is NaN, and every solve with it
+            raise ValueError(f"via at ({x}, {y}) on {net}: drill {drill} mm; a barrel needs a positive drill")
         self.vias.append(Via(x, y, list(layers), self.net_id(net), drill, plating))
 
     def cell(self, x, y):
@@ -305,6 +320,8 @@ class Mesh:
                     m[j, i] = True
             else:
                 m = self.cells_in(geom) if mask is None else mask
+                if mask is None and not m.any():
+                    m = self.coverage(geom) >= self.MIN_COV     # copper that holds no cell centre: the cells it paints
             lab = self.lab[l]
             m = m & ((lab >= 0) if net is None else (lab == self.net_id(net)))
             cells += [(l, int(j), int(i)) for j, i in zip(*np.nonzero(m))]

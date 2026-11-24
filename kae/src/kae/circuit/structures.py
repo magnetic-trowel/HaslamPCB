@@ -729,7 +729,7 @@ def _converter(b: _B, L, lpart, swn, other):
             loop.append([ctrl, b.supply_pads(ctrl, rail)])
             loop.append([ctrl, sorted({p.number for p in _gnd_pins(b, ctrl, suffix)}, key=_natkey)])
     if hf:
-        loop.append([hf, b.cap_pad(hf, gnd if gnd in b.nl.parts[hf].nets else next(iter(b.nl.parts[hf].nets - {rail})))])
+        loop.append([hf, b.cap_pad(hf, gnd if gnd in b.nl.parts[hf].nets else min(b.nl.parts[hf].nets - {rail}))])
     core = loop[1:-1] if hf else loop
     vin_net = rail if kind == 'buck' else other
     V_ = b.volts(rail)
@@ -1153,7 +1153,7 @@ def _finish_cells(b: _B, cells):
         rail, gnd = c['cap_rail'], c['cap_gnd']
         if caps:
             hf = caps[0]
-            gpad = b.cap_pad(hf, gnd) if gnd in b.nl.parts[hf].nets else b.cap_pad(hf, next(iter(b.nl.parts[hf].nets - {rail})))
+            gpad = b.cap_pad(hf, gnd) if gnd in b.nl.parts[hf].nets else b.cap_pad(hf, min(b.nl.parts[hf].nets - {rail}))
             c['loop'] = [[hf, b.cap_pad(hf, rail)]] + c['loop_core'] + [[hf, gpad]]
             if c.get('cap_shared'):
                 c['evidence'].append(ev('count', f"no capacitor left for this converter on '{b.short(rail)}'; {hf} is shared", -1.0))
@@ -2537,7 +2537,7 @@ def power_paths(b: _B, cells, groups=None) -> tuple[list, list]:
         caps_out = _path_caps(b, rout, p['ic'], owned) if rout not in b.g else []
         if rout not in b.g and (caps_in or caps_out):   # the ground the path's capacitors return to (a BMS's BAT-)
             c0, n0 = (caps_in[0], rin) if caps_in else (caps_out[0], rout)
-            gnd = next(iter(b.nl.parts[c0].nets - {n0}), gnd)
+            gnd = min(b.nl.parts[c0].nets - {n0}, default=gnd)
         sw0 = p['switches'][0]
         last = p['stages'][-1][0]
         loop, top, load_terms = [], rin, []
@@ -2549,15 +2549,15 @@ def power_paths(b: _B, cells, groups=None) -> tuple[list, list]:
                 top, load_terms = ld
                 caps_in = _supply_caps(b, top, owned)
         if caps_in:
-            cnet = top if top in b.nl.parts[caps_in[0]].nets else next(iter(b.nl.parts[caps_in[0]].nets - b.g), top)
+            cnet = top if top in b.nl.parts[caps_in[0]].nets else min(b.nl.parts[caps_in[0]].nets - b.g, default=top)
             loop.append([caps_in[0], b.cap_pad(caps_in[0], cnet)])
         loop += load_terms
         loop += [[sw0, _sw_pads(b, sw0, rin, IN_SW_PIN if p['ic'] else None)],
                  [last, _sw_pads(b, last, rout, OUT_SW_PIN if p['ic'] else None)]]
         if caps_out:
-            loop += [[caps_out[0], b.cap_pad(caps_out[0], rout)], [caps_out[0], b.cap_pad(caps_out[0], next(iter(b.nl.parts[caps_out[0]].nets - {rout})))]]
+            loop += [[caps_out[0], b.cap_pad(caps_out[0], rout)], [caps_out[0], b.cap_pad(caps_out[0], min(b.nl.parts[caps_out[0]].nets - {rout}))]]
         if caps_in:
-            loop.append([caps_in[0], b.cap_pad(caps_in[0], next(iter(b.nl.parts[caps_in[0]].nets - {cnet})))])
+            loop.append([caps_in[0], b.cap_pad(caps_in[0], min(b.nl.parts[caps_in[0]].nets - {cnet}))])
         I_, ibasis = _path_current(b, p['switches'], rin, rout, series, p['ic'], p['stages'])
         cap = _dissipation_cap(b, p)
         if cap is not None and cap < I_:
