@@ -118,3 +118,21 @@ def test_zone_cutout_is_a_hole(tmp_path):
     slot = R.measure(board(tmp_path, [cut, ANCHOR, seg(5, 5, 35, 5, 'F.Cu', 2)], name='b.kicad_pcb'))
     assert whole['cov_opp'] == pytest.approx(1.0, abs=0.02)
     assert slot['cov_opp'] == pytest.approx(10 / 30, abs=0.03)
+
+
+def test_outline_of_lines_and_arcs_closes(tmp_path):
+    """A rounded-rectangle outline (lines and arcs whose computed ends are float-off) is the board, not nothing."""
+    r, c = 2.0, 2.0 - 2.0 ** 0.5
+    edge = ' '.join([
+        f'(gr_line (start {r} 0) (end {40 - r} 0) (layer "Edge.Cuts") (width 0.1))',
+        f'(gr_arc (start {40 - r} 0) (mid {40 - c} {c}) (end 40 {r}) (layer "Edge.Cuts") (width 0.1))',
+        f'(gr_line (start 40 {r}) (end 40 {20 - r}) (layer "Edge.Cuts") (width 0.1))',
+        f'(gr_arc (start 40 {20 - r}) (mid {40 - c} {20 - c}) (end {40 - r} 20) (layer "Edge.Cuts") (width 0.1))',
+        f'(gr_line (start {40 - r} 20) (end {r} 20) (layer "Edge.Cuts") (width 0.1))',
+        f'(gr_arc (start {r} 20) (mid {c} {20 - c}) (end 0 {20 - r}) (layer "Edge.Cuts") (width 0.1))',
+        f'(gr_line (start 0 {20 - r}) (end 0 {r}) (layer "Edge.Cuts") (width 0.1))',
+        f'(gr_arc (start 0 {r}) (mid {c} {c}) (end {r} 0) (layer "Edge.Cuts") (width 0.1))'])
+    p = board(tmp_path, [zone('B.Cu', 0, 0, 40, 20), ANCHOR, seg(5, 5, 35, 5, 'F.Cu', 2)])
+    p.write_text(p.read_text().replace('(gr_rect (start 0 0) (end 40 20) (layer "Edge.Cuts") (width 0.1))', edge))
+    r = R.measure(p)
+    assert r['area'] > 790 and r['cov_opp'] == pytest.approx(1.0, abs=0.02)
