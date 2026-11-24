@@ -219,6 +219,8 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
         # keep-outs and hot-loop pours, written into a work board that is routed in the input's place
         from . import hotloop
         hl = hotloop.stage(input_path, info, wd / "hotloop", opts, log=log, time_s=time_s)
+        if hl is None:
+            report.setdefault("hazards", []).extend(hotloop.cells_hint(input_path, opts))
         if hl is not None:
             report["hotloop"] = {k: v for k, v in hl.items() if k not in ("hazards", "guards", "_ko")}
             report.setdefault("hazards", []).extend(hl.get("hazards") or [])
