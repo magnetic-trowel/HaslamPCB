@@ -978,6 +978,21 @@ def parse_arm(spec):
     return name, sets
 
 
+def sprint_control(c, base, method=None):
+    """The stored control's method in control experiment `c`: `method` (an id or id prefix of one of its methods, e.g.
+    the stored TraceMaker hybrid of hybrid-bga-w47, the BGA baseline), else its first method of the base's kind."""
+    ms = [find_method(m["id"]) for m in c["methods"]]
+    if method:
+        hit = [m for m in ms if m["id"].startswith(method)]
+        if len(hit) != 1:
+            raise SystemExit(f"--control-method {method}: {len(hit)} of {c['name']}'s methods match "
+                             f"({', '.join(m['id'] + ' ' + m['name'] for m in ms)})")
+        if hit[0]["recipe"]["kind"] != SPRINT_BASES[base]:
+            raise SystemExit(f"--control-method {method}: a {hit[0]['recipe']['kind']} method, not --base {base}'s {SPRINT_BASES[base]}")
+        return hit[0]
+    return next(m for m in ms if m["recipe"]["kind"] == SPRINT_BASES[base])
+
+
 def cmd_sprint(a):
     """A sprint experiment in one command (bench/suites/README.md): each arm is the stored control's recipe
     of `--base` at `--commit` with its settings; they run on one suite (--suite; default the two sprint
@@ -990,7 +1005,7 @@ def cmd_sprint(a):
         raise SystemExit(f"refused: no {d / 'PLAN.md'} (the question, the one change, what will decide it).\n"
                          "Do this: write it, then run the same command again.")
     c = load_exp(a.control)
-    ctl = next(m for m in (find_method(m["id"]) for m in c["methods"]) if m["recipe"]["kind"] == SPRINT_BASES[a.base])
+    ctl = sprint_control(c, a.base, getattr(a, "control_method", None))
     tag, repo = c["harness"]["commit"], main_repo()
     commit = git(repo, "rev-parse", f"{a.commit}^{{commit}}")
     common = list(a.set or [])
@@ -1015,7 +1030,8 @@ def cmd_sprint(a):
                              "Do this: give --commit (the tag plus one change, pushed) or --set KEY=VALUE.")
         label = f"{a.name}{'-' + arm if arm else ''}"
         # the control's recipe, with a numba cache of its own checkout (a cache serves only the code that made it)
-        template = ctl["recipe"]["runner"]["template"].replace(f"numba-default-{tag[:7]}", f"numba-default-{commit[:7]}") + sets
+        own = ((ctl.get("code") or {}).get("haslam") or {}).get("commit") or tag   # the control's haslam (a stored arm's: not the tag)
+        template = ctl["recipe"]["runner"]["template"].replace(f"numba-default-{own[:7]}", f"numba-default-{commit[:7]}") + sets
         # --param: method parameters over the control's (e.g. parallel=8 for an arm whose router runs 8 threads,
         # so the queue reserves them); they are part of the arm's identity, not haslam settings
         params = dict(ctl["recipe"]["params"], **dict(kv.split("=", 1) for kv in extra))
@@ -3205,6 +3221,9 @@ def main():
                    "(default: 40 per treatment arm, the sprint limit)")
     s.add_argument("--note", help="appended to every arm's method description (e.g. a stage that runs on wall clock)")
     s.add_argument("--control", default="control-w47", help="the tag's stored control experiment")
+    s.add_argument("--control-method", metavar="ID", help="which of the control experiment's methods is the control (default: "
+                   "its first of the base's kind); the BGA baseline: --control hybrid-bga-w47 --control-method <hybrid id> "
+                   "(bench/suites/README.md)")
     s.add_argument("--dry-run", action="store_true", help="register and create, write the job file, submit nothing")
     s.set_defaults(f=cmd_sprint)
     s = sub.add_parser("job", help="one board (what each queued job runs)")
