@@ -21,14 +21,14 @@ def test_example_builds_clean(tmp_path):
     assert kicad["netlist_problems"] == []
     assert kicad["erc_summary"].startswith("0 errors")
     assert status["error"] == 0
-    assert (tmp_path / "usb-led.kicad_sch").exists() and (tmp_path / "intent.yaml").exists()
+    assert (tmp_path / "usb-led.kicad_sch").exists() and not (tmp_path / "intent.yaml").exists()   # retired (G14)
 
 
 @pytest.mark.kicad
 def test_deterministic_output(tmp_path):
     build(EXAMPLE, tmp_path / "a", date="2026-01-01")
     build(EXAMPLE, tmp_path / "b", date="2026-01-01")
-    for name in ("usb-led.kicad_sch", "power.kicad_sch", "led.kicad_sch", "intent.yaml", "netlist.json"):
+    for name in ("usb-led.kicad_sch", "power.kicad_sch", "led.kicad_sch", "netlist.json"):
         assert (tmp_path / "a" / name).read_text() == (tmp_path / "b" / name).read_text(), name
 
 
@@ -106,7 +106,6 @@ def test_multi_board_projects(tmp_path):
     assert not errs, errs
     assert kicad["boards"] == {"main": [], "remote": []}
     assert (tmp_path / "board-main" / "twob-main.kicad_sch").exists()
-    main_intent = (tmp_path / "board-main" / "intent.yaml").read_text()
-    assert "J1" in main_intent and "J2" not in main_intent
+    assert not (tmp_path / "board-main" / "intent.yaml").exists()
     bom = (tmp_path / "bom.csv").read_text()
     assert "off,F" in bom.replace('"', "") and "harness" in bom
