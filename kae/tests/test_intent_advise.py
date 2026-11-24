@@ -134,7 +134,7 @@ def test_node_advice_finds_the_smallest_capacitor_that_meets_the_limit():
     # the curve stops at the first value that meets it: the one before does not
     assert len(sh["curve"]) >= 2
     assert sh["curve"][-1]["total"] == pytest.approx(0.0, abs=1e-9) and sh["curve"][-2]["total"] > 0
-    assert sh["verify"].split()[5] == f"C:U7.3:U7.4:{sh['curve'][-1]['C']}"
+    assert sh["edit"] == [f"add:C:U7.3:U7.4:{sh['curve'][-1]['C']}"] and "--edit add:C:U7.3:U7.4:" in sh["verify"]
     assert not any(a["kind"] == "node.divider_scale" for a in out)     # no divider in this brief
 
 

@@ -60,7 +60,7 @@ def ledger_for(bd, brief, srcs, intent=None):
 
 def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=None, log=print, lumped=True,
              intent=None, n_corners=16, seed=0, dc=True, add_parts=(),
-             remove_parts=()):
+             remove_parts=(), edits=(), sources=None):
     """Every harm of a laid-out board, across the parameters' intervals.
 
     Each aggressor's pattern is solved in two bands: its switching fundamental (current split by the
@@ -70,7 +70,10 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     corners of the intervals (kae.excite.beliefs). lumped: two-pad parts are branches of the copper
     model and only the other parts' pads are injected. add_parts: hypothetical parts (add_part specs,
     "C:PAD_A:PAD_B:VALUE") placed between two existing pads with no copper of their own: the exact check of
-    a kae.intent.advise what-if. remove_parts: refs taken out of the circuit (their pads and copper stay)."""
+    a kae.intent.advise what-if. remove_parts: refs taken out of the circuit (their pads and copper stay).
+    edits: any circuit edit spec of apply_edit (add, remove, series, value, move). sources: solve only these
+    aggressors (a targeted re-solve: no DC, heat or switch-node capacitance; the result is `partial` and
+    kae.intent.advise splices it into the full evaluation it came from)."""
     from kae.board.kicad_file import load
     from kae.circuit import brief as B
     from kae.em import solve as ES
@@ -80,16 +83,18 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     b = b or load(path)
     brief = brief or B.build(b)
     bd = M.build(b, brief)
-    added = [add_part(bd, spec) for spec in add_parts]
-    for ref in remove_parts:
-        n0 = len(bd.circuit.elems)
-        bd.circuit.elems = [e for e in bd.circuit.elems if not (e.name == ref or e.name.startswith(ref + ":"))]
-        if len(bd.circuit.elems) == n0:
-            raise ValueError(f"remove_part {ref}: no such part in the circuit")
-        added.append(dict(removed=ref))
+    added = [apply_edit(bd, b, e) for e in [f"add:{a}" for a in add_parts] + [f"remove:{r}" for r in remove_parts]
+             + list(edits)]
     srcs = S.add_all(bd, brief)
     obs = O.observers(bd, brief, srcs)
     P, ledger = ledger_for(bd, brief, srcs, intent)
+    if sources is not None:
+        unknown = set(sources) - {s.name for s in srcs}
+        if unknown:
+            raise ValueError(f"sources {sorted(unknown)} unknown; sources: {[s.name for s in srcs]}")
+        srcs = [s for s in srcs if s.name in set(sources)]
+        obs = [o for o in obs if o.kind != "overshoot" or o.meta.get("source") in set(sources)]
+        dc = False
     dcp = DC.plan(b, brief, bd, P, srcs, intent) if dc else None
     for p in (dcp.params if dcp else []):
         ledger.add(p)
@@ -297,7 +302,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     # each switch node's capacitance in the layout (its copper to every other net and the world, in the
     # board's own stackup: kae.excite.capacitive), charged and discharged through the switch every cycle:
     # 1/2 C V^2 f_sw lost at each hard turn-on
-    cells = {pr["s"].name: pr["s"] for pr in pairs if pr["o"].kind == "overshoot" and pr["s"].meta.get("sw")}
+    cells = {pr["s"].name: pr["s"] for pr in pairs if pr["o"].kind == "overshoot" and pr["s"].meta.get("sw")
+             and sources is None}
     capacitive = None
     if cells:
         from . import capacitive as CAP
@@ -366,6 +372,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 harms=harms, observations=observations, hazards=hazards, mesh=mesh_rep,
                 corners={s.name: [{k[1]: v for k, v in cp.items()} for cp in cps[s.name]] for s in srcs},
                 capacitive=capacitive, added_parts=added,
+                partial=dict(sources=sorted(sources)) if sources is not None else None,
                 part_power_W={k: round(v, 6) for k, v in sorted(part_power.items())},
                 solver_stats=solver_stats,
                 notes=notes + [f"pad {p}: not in the copper model" for p in missing][:20],
@@ -414,6 +421,79 @@ def add_part(bd, spec):
         bd.circuit.z(name, na, nb, M._rl(max(R, 1e-4), 0.5e-9), pa, pb, "R")
         return dict(kind="R", pads=[pa, pb], nets=[na, nb], ohm=R, spec=spec)
     raise ValueError(f"add_part {spec}: kind '{kind}' is C or R")
+
+
+def _two_pad(bd, ref):
+    """The circuit element of a two-pad part (named by its ref), or a ValueError naming the parts."""
+    es = [e for e in bd.circuit.elems if e.name == ref and e.pa and e.pb]
+    if not es:
+        raise ValueError(f"{ref}: no two-pad part of that name in the circuit")
+    return es[0]
+
+
+def _part_text(b, ref):
+    """(package size, part text) of a footprint, for a re-valued capacitor's ESL and dielectric."""
+    from kae.circuit import values as V
+    fp = next((f for f in b.footprints if f.ref == ref), None) if b is not None else None
+    if fp is None:
+        return None, ""
+    text = " ".join(str(v) for v in (fp.fields or {}).values()) + f" {fp.value} {fp.lib_id}"
+    return V.package(fp.lib_id).size, text
+
+
+def apply_edit(bd, b, spec):
+    """One circuit edit (the what-ifs kae.intent.advise estimates, checked by a full solve), in bd.circuit:
+
+        add:C:PAD_A:PAD_B:VALUE    a part between two existing pads, no copper of its own (add_part)
+        remove:REF                 the part out of the circuit; its pads and copper stay
+        series:REF:R               a resistor in series with a two-pad part, in the part's place (an RC
+                                   branch on the same pads: RFF in series with a feed-forward capacitor)
+        value:REF:VALUE            a two-pad capacitor or resistor re-valued (its package's ESL, MLCC ESR,
+                                   DC-bias loss as kae.excite.models builds it)
+        move:REF:PAD_A:PAD_B       the part re-attached at two other pads of the same nets, no copper of
+                                   its own (a part placed at those pins)
+    Returns the edit as a dict for the evaluation's record."""
+    from kae.circuit import values as V
+    op, _, rest = spec.partition(":")
+    if op == "add":
+        return dict(add_part(bd, rest), edit=spec)
+    if op == "remove":
+        n0 = len(bd.circuit.elems)
+        bd.circuit.elems = [e for e in bd.circuit.elems if not (e.name == rest or e.name.startswith(rest + ":"))]
+        if len(bd.circuit.elems) == n0:
+            raise ValueError(f"remove {rest}: no such part in the circuit")
+        return dict(removed=rest, edit=spec)
+    f = rest.split(":")
+    e = _two_pad(bd, f[0])
+    if op == "series":
+        R = V.resistance(f[1])
+        if R is None:
+            raise ValueError(f"series {spec}: resistance '{f[1]}' unread")
+        z0 = e.z
+        e.z = (lambda z0, R: (lambda w: z0(w) + R + 1j * w * 0.5e-9))(z0, R)
+        return dict(series=f[0], ohm=R, edit=spec)
+    if op == "value":
+        if e.kind == "C":
+            C = V.capacitance(f[1])
+            if not C:
+                raise ValueError(f"value {spec}: capacitance '{f[1]}' unread")
+            size, text = _part_text(b, f[0])
+            k, _ = M.mlcc_bias_factor(C, M._bias(bd, e.a, e.b), size, M.dielectric(text))
+            e.z = M._rlc(M.mlcc_esr(C), M.ESL.get(size or "", M.ESL_DEFAULT), C * k)
+            return dict(value=f[0], F=C, bias_factor=round(k, 4), edit=spec)
+        R = V.resistance(f[1])
+        if R is None:
+            raise ValueError(f"value {spec}: '{f[1]}' unread for {e.kind or 'part'} {f[0]}")
+        e.z = M._rl(max(R, 1e-4), 0.5e-9)
+        return dict(value=f[0], ohm=R, edit=spec)
+    if op == "move":
+        pa, pb = f[1], f[2]
+        na, nb = bd.net_of.get(pa), bd.net_of.get(pb)
+        if {na, nb} != {e.a, e.b}:
+            raise ValueError(f"move {spec}: {pa} ({na}) and {pb} ({nb}) are not on {f[0]}'s nets {e.a}, {e.b}")
+        e.pa, e.pb = (pa, pb) if na == e.a else (pb, pa)
+        return dict(moved=f[0], pads=[e.pa, e.pb], edit=spec)
+    raise ValueError(f"edit '{spec}': use add, remove, series, value or move (kae.excite.evaluate.apply_edit)")
 
 
 def _dc_system(holder, op):
@@ -725,11 +805,16 @@ def main(argv=None):
                          "check of a kae.intent advice")
     ap.add_argument("--remove-part", action="append", default=[], metavar="REF",
                     help="take a part out of the circuit, its pads and copper kept: the exact check of a node.remove_c advice")
+    ap.add_argument("--edit", action="append", default=[], metavar="SPEC",
+                    help="a circuit edit (add:C:PA:PB:1n, remove:REF, series:REF:249k, value:REF:8.2p, move:REF:PA:PB): "
+                         "the exact check of a kae.intent.advise entry (apply_edit)")
+    ap.add_argument("--sources", nargs="+", help="solve only these aggressors (a targeted re-solve: no DC, heat, "
+                    "switch-node capacitance)")
     a = ap.parse_args(argv)
     from .beliefs import load_intent
     r = evaluate(a.board, a.pitch, tuple(a.window) if a.window else None, nsub=a.nsub, log=lambda m: print(m, file=sys.stderr),
                  lumped=not a.no_lumped, intent=load_intent(a.intent), seed=a.seed, add_parts=a.add_part,
-                 remove_parts=a.remove_part)
+                 remove_parts=a.remove_part, edits=a.edit, sources=a.sources)
     print_total(r["total"])
     print("assumptions:")
     for p in r["ledger"]:
