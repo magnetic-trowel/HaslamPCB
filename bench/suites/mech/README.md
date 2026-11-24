@@ -33,6 +33,7 @@ Not from `mechsuites.py`; each was chosen for one experiment's plan.
 |---|---|---|
 | `place-fixable-le400` | 35 | design 2 stage 0 (`tools/research/joint/place_fixable.py`): placement-fixable boards up to 400 footprints |
 | `ground-pour-2layer` | 65 | ground-side-ab: the 2-layer boards of both sprint suites on which `kae.route.ground_side` names a pour side |
+| `ground-pour-2layer-ladder` | 95 | ground-side-ladder: the 146 2-layer boards of `ladder.txt` on which `kae.route.ground_side` names a pour side (67 B.Cu, 28 F.Cu; none in a sprint suite) |
 | `layer-oracle-multilayer` | 70 | layer-oracle: the first 70 of its candidates (4+ layers, DRC-clean human layout, opens under the fork alone) |
 
 ## How a suite is built
