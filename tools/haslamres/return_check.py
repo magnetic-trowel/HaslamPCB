@@ -141,7 +141,9 @@ def kicad_mutate(board_path, target_path, out_path):
 # ------------------------------------------------------------------ driver (shapely side)
 def add_ground(src, t, out):
     """The added-ground mutant, written as text: pcbnew gives a new track the net of a via or pad its end touches
-    on save, so a ground track drawn under a signal came back on the signal's net. Ends pulled in by INSET."""
+    on save, so a ground track drawn under a signal came back on the signal's net; KiCad also gives a track that
+    crosses another net's copper that net on load, so targets are chosen where it crosses none (rb_cover's clear).
+    Ends pulled in by INSET."""
     (x0, y0), (x1, y1) = t['start'], t['end']
     L = math.hypot(x1 - x0, y1 - y0)
     f = INSET / L
@@ -197,11 +199,21 @@ def rb_cover(b):
     gnd_nets = {n for l in layers for n in cu[l] if b.role(n) == 'gnd'}
     gnd = {l: R.union(fill[l] + [g for n in gnd_nets for g in cu[l].get(n, [])]) for l in layers}
 
+    other = {l: R.union([g for n, gs in cu[l].items() if n not in gnd_nets for g in gs]) for l in layers}
+
     def cover(seg):
         under = R.union([gnd[l] for l in seg['under'] if l in gnd and not gnd[l].is_empty])
         ln = LineString([seg['start'], seg['end']])
         return ln.intersection(under).length if not under.is_empty else 0.0
-    return cover
+
+    def clear(seg):
+        """The added ground track under seg touches no other net's copper (KiCad would put it on that net)."""
+        (x0, y0), (x1, y1) = seg['start'], seg['end']
+        f = INSET / seg['len']
+        ln = LineString([(x0 + f * (x1 - x0), y0 + f * (y1 - y0)), (x1 - f * (x1 - x0), y1 - f * (y1 - y0))])
+        g = ln.buffer((seg['width'] + ADD_W) / 2 + 0.05)
+        return all(other[l].is_empty or not g.intersects(other[l]) for l in seg['under'] if l in other)
+    return cover, clear
 
 
 def check(paths, kicad, mutate=False):
@@ -214,11 +226,11 @@ def check(paths, kicad, mutate=False):
                 # targets the two measures agree on (straight tracks): a mutation tests whether each measure responds
                 # where it sees the change, not where the two already differ (pseudo-fill edge pull-back, for one)
                 import return_board as R
-                rbc = rb_cover(R.load(plain))
+                rbc, clear = rb_cover(R.load(plain))
                 segs = [s for s in k['segments'] if s['len'] >= MIN_LEN]
                 slot = max((s for s in segs if s['cov'] >= 0.99 * s['len'] and s['cov_items'] <= 0.01 * s['len']
                             and rbc(s) >= 0.99 * s['len']), key=lambda s: s['len'], default=None)
-                add = max((s for s in segs if s['cov'] <= 0.01 * s['len'] and rbc(s) <= 0.01 * s['len']),
+                add = max((s for s in segs if s['cov'] <= 0.01 * s['len'] and rbc(s) <= 0.01 * s['len'] and clear(s)),
                           key=lambda s: s['len'], default=None)
                 gnd_net = 'GND' if 'GND' in nets['gnd'] else nets['gnd'][0]
                 for kind, s in (('null', segs[0] if segs else None), ('slot', slot), ('add', add)):
@@ -242,7 +254,7 @@ def check(paths, kicad, mutate=False):
                     else:
                         sign = -1 if kind == 'slot' else 1
                         out.update(ok_return_board=sign * (m['return_board'] - row['return_board']) > 0,
-                                   ok_kicad=sign * (m['kicad'] - row['kicad']) > 0)
+                                   ok_kicad=sign * (m['kicad'] - row['kicad']) > 0 and out['same_signal_mm'])
                     row[kind] = out
         res[str(p)] = row
         print(f'[{i + 1}/{len(paths)}] {p}: {json.dumps(row)}', file=sys.stderr)
