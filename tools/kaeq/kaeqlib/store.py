@@ -71,7 +71,8 @@ ACTIVE = ("queued", "running")
 PROBLEM = ("failed", "timeout", "oom", "lost")
 
 
-ENV_KEEP = ("PATH", "VIRTUAL_ENV", "PYTHONPATH", "LD_LIBRARY_PATH", "HOME", "LANG")
+ENV_KEEP = ("PATH", "VIRTUAL_ENV", "PYTHONPATH", "LD_LIBRARY_PATH", "HOME", "LANG",
+            "KAE_KICAD_WRAP", "KAE_HOME")   # a shell that loaded the KiCad environment passes it on
 
 
 DEFAULTS = {
@@ -252,6 +253,7 @@ DEFAULTS = {
     "backfill_short_s": 1800,  # an owner whose recent jobs (p90) end within this may still backfill; 0 = never
     "cgroup": "auto",        # auto|on|off: wrap jobs in `systemd-run --user --scope`
     "slice": "kaeq.slice",   # systemd user slice for job scopes (install-service caps its memory); "" = none
+    "kicad_env": "~/.cache/kaebench/env.sh",  # `submit --kicad` sources this in the job (sets KAE_KICAD_WRAP)
     "scratch_dir": "",       # per-job scratch dirs ($KAEQ_SCRATCH), deleted when the job ends; "" = /var/tmp/$USER/kaeq-scratch
     "scratch_gb": 100,       # scratch disk budget over all jobs
     "disk_overrun": 3.0,     # kill a job whose scratch exceeds declared * this (+5 GB)

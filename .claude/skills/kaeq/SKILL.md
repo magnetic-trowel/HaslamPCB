@@ -18,7 +18,7 @@ kaeq submit --batch cmds.txt --cpus 2 --mem 6G --owner sweep                    
 kaeq wait                      # Bash run_in_background: true, timeout 7200000. Returns when your jobs need you
 kaeq status                    # a few lines: resources, counts, running + problems
 kaeq result 42                 # error lines + log tail of one job
-kaeq retry 42 [--mem 20G]      # after fixing the code (same cmd/cwd); bare `kaeq retry` = all your session's failures
+kaeq retry 42 [--mem 20G]      # after fixing the code (same cmd/cwd); or --owner X. Bare `kaeq retry`: only one owner's <12 h old failures
 kaeq set --owner sweep --timeout 2x [--running]   # change limits of your queued (or running) jobs
 kaeq cancel --owner sweep
 kaeq note <session|owner> "..."   # tell another session something about its jobs (see below)
@@ -69,8 +69,9 @@ your whole context; `kaeq wait` tells you when there is something to see.
 
 Code is frozen at submit time: inside a git repo the job runs a snapshot (HEAD + uncommitted + untracked, ignored files excluded) in a private worktree,
 so switching branches or editing afterwards does not affect queued jobs. Needs git-ignored inputs (data, venv)? `--link kae-work --link .venv`.
-`--live` runs in the directory as-is. `kaeq retry` re-snapshots from the original directory, so fixes are picked up.
+`--live` runs in the directory as-is (submit prints why whenever a job runs live). `kaeq retry` re-snapshots from the original directory, so fixes are picked up.
 Default owner is `repo@branch`; failures print `repo@branch:sha`.
+Jobs that need KiCad (pcbnew, kicad-cli, kaebench, kae tests): `kaeq submit --kicad ...` sources `~/.cache/kaebench/env.sh` in the job.
 
 Estimate `--cpus`/`--mem` honestly:
 `--mem` is a job's starting memory grant. A job that needs more is not killed: a timed job gets it first (a batch job makes room); a batch job pauses at its
