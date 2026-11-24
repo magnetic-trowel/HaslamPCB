@@ -16,6 +16,8 @@ FAKE = """#!/bin/sh
 board=$2; out=$4; json=
 while [ $# -gt 0 ]; do [ "$1" = --json ] && json=$2; shift; done
 echo "$@" > /dev/null
+[ -n "$FAKE_TM_ENV" ] && echo "TM_CLOCK=$TM_CLOCK" > "$FAKE_TM_ENV"
+[ -n "$FAKE_TM_SPIN" ] && while :; do :; done
 cp "$board" "$out"
 printf '{"connections": 10, "routed": 9, "open": 1, "rules": {"custom_rule_count": 2, "not_read": ["x"]}}' > "$json"
 exit ${FAKE_TM_RC:-3}
@@ -110,3 +112,60 @@ def test_unknown_first_router(tmp_path):
 def test_default_is_freerouting():
     assert bridge.DEFAULT_OPTS["first_router"] == "freerouting"
     assert os.path.basename(tracemaker.__file__) == "tracemaker.py"
+
+
+@pytest.fixture
+def fake_cpu_tm(fake_tm):
+    """The stand-in as a build with the thread-cpu-clock patch."""
+    d = fake_tm.parent.parent.with_name("tracemaker-abcd1234-thread-cpu-clock")
+    (d / "bin").mkdir(parents=True)
+    (d / "bin" / "tracemaker").write_bytes(fake_tm.read_bytes())
+    (d / "bin" / "tracemaker").chmod(0o755)
+    (d / "SOURCE").write_text("abcd1234ef v0.12.1 patch thread-cpu-clock 0123456789abcdef\n")
+    return d / "bin" / "tracemaker"
+
+
+def test_cpu_clock_sets_tm_clock_and_fixes_the_variants(fake_cpu_tm, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_TM_ENV", str(tmp_path / "env.txt"))
+    monkeypatch.setenv("TM_CLOCK", "from-outside")
+    board = tmp_path / "in.kicad_pcb"
+    board.write_text("(kicad_pcb)")
+    res = tracemaker.route(board, tmp_path / "wd" / "o.kicad_pcb", tmp_path / "wd", seconds=500, threads=8,
+                           bin_spec="abcd1234-thread-cpu-clock", clock="cpu", log=lambda m: None)
+    assert res["ok"] and res["clock"] == "cpu" and (tmp_path / "env.txt").read_text().strip() == "TM_CLOCK=thread-cpu"
+    a = res["args"]
+    assert a[a.index("--variants") + 1] == "8" and a[a.index("--threads") + 1] == "8" and a[a.index("--time") + 1] == "500"
+    assert res["kill_limits"] == dict(wall_s=6 * 500 + tracemaker.GRACE_S, cpu_s=(500 + tracemaker.GRACE_S) * 8)
+    # the wall clock passes no TM_CLOCK on (a stray one from outside would switch a patched build's clock)
+    tracemaker.route(board, tmp_path / "wd2" / "o.kicad_pcb", tmp_path / "wd2", seconds=5,
+                     bin_spec="abcd1234-thread-cpu-clock", log=lambda m: None)
+    assert (tmp_path / "env.txt").read_text().strip() == "TM_CLOCK="
+
+
+def test_cpu_clock_refuses_an_unpatched_build(fake_tm, tmp_path):
+    board = tmp_path / "in.kicad_pcb"
+    board.write_text("(kicad_pcb)")
+    with pytest.raises(tracemaker.TraceMakerError, match="thread-cpu-clock"):
+        tracemaker.route(board, tmp_path / "o.kicad_pcb", tmp_path / "wd", bin_spec="abcd1234", clock="cpu", log=lambda m: None)
+    with pytest.raises(ValueError):
+        tracemaker.route(board, tmp_path / "o.kicad_pcb", tmp_path / "wd", bin_spec="abcd1234", clock="steps", log=lambda m: None)
+
+
+def test_cpu_clock_kills_a_process_past_its_cpu_limit(fake_cpu_tm, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_TM_SPIN", "1")
+    monkeypatch.setattr(tracemaker, "GRACE_S", 0.0)
+    board = tmp_path / "in.kicad_pcb"
+    board.write_text("(kicad_pcb)")
+    res = tracemaker.route(board, tmp_path / "o.kicad_pcb", tmp_path / "wd", seconds=1, threads=1,
+                           bin_spec="abcd1234-thread-cpu-clock", clock="cpu", log=lambda m: None)
+    assert res["killed"] == "cpu" and not res["ok"] and res["cpu_s"] >= 1
+
+
+def test_bridge_passes_tm_clock(fake_cpu_tm, tmp_path):
+    board = tmp_path / "task" / "board.kicad_pcb"
+    board.parent.mkdir()
+    board.write_text("(kicad_pcb (version 1))")
+    rep = bridge.route(board, tmp_path / "out.kicad_pcb", seed=1, time_s=100, workdir=tmp_path / "wd",
+                       opts=dict(first_router="tracemaker-only", tracemaker="abcd1234-thread-cpu-clock", tm_seconds=5,
+                                 tm_threads=2, tm_clock="cpu"), log=lambda m: None)
+    assert rep["router"]["clock"] == "cpu" and bridge.DEFAULT_OPTS["tm_clock"] == "wall"

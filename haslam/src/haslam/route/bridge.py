@@ -161,7 +161,10 @@ DEFAULT_OPTS = dict(
                              # Freerouting, the repair rounds re-routing with Freerouting); "tracemaker-only"
                              # (TraceMaker on the input and nothing else: no escapes, no repair, no DRC)
     tracemaker=None,         # with TraceMaker: the build (HASLAM_HOME/tracemaker-<sha8>, e.g. "db5950f4") or a path
-    tm_seconds=600.0,        # with TraceMaker: its --time, each variant's WALL-clock limit (not counted work)
+    tm_seconds=600.0,        # with TraceMaker: its --time, each variant's limit on the tm_clock (not counted work)
+    tm_clock="wall",         # with TraceMaker: "wall" (--time in wall seconds, as first run) or "cpu" (in each
+                             # variant's own thread CPU seconds, so a busy host does not change it; needs the
+                             # thread-cpu-clock build, tracemaker="db5950f4-thread-cpu-clock"; haslam.route.tracemaker)
     tm_threads=8,            # with TraceMaker: its --threads (= its portfolio of variants; keep it fixed)
     tm_planes="haslam",         # with "tracemaker": the plane policy as its layer options ("haslam": plane layers cost
                              # plane_cost x, strict planes get no tracks) or "none" (TraceMaker's own)
@@ -230,7 +233,7 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
             out = wd / "tracemaker" / "out.kicad_pcb"
             report["router"] = tm = tracemaker.route(
                 input_path, out, wd / "tracemaker", seconds=opts["tm_seconds"], threads=opts["tm_threads"],
-                seed=seed, bin_spec=opts.get("tracemaker"), log=log)
+                seed=seed, bin_spec=opts.get("tracemaker"), log=log, clock=opts.get("tm_clock") or "wall")
             if not tm["ok"]:
                 raise RuntimeError(f"TraceMaker wrote no board (rc {tm['rc']}{', killed' if tm['killed'] else ''})")
             shutil.copy2(out, output_path)
@@ -328,7 +331,8 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
             out = wd / "tracemaker" / "out.kicad_pcb"
             report["router"] = tm = tracemaker.route(
                 input_path, out, wd / "tracemaker", seconds=opts["tm_seconds"], threads=opts["tm_threads"],
-                seed=seed, extra=tm_layer_args(p, info, opts), bin_spec=opts.get("tracemaker"), log=log)
+                seed=seed, extra=tm_layer_args(p, info, opts), bin_spec=opts.get("tracemaker"), log=log,
+                clock=opts.get("tm_clock") or "wall")
             t0 += (clock_now() - tb) - budget
             tm["router_share_s"] = round(budget, 1)
             from .critical_write import routing
