@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
+from kae.circuit.values import NUM
 from kae.circuit.names import GND_RE, PWR_RE
 
 from . import priors as PR
@@ -40,7 +41,7 @@ def _pfx(ref):
 def _val(text, unit):
     from re import search
     s = (text or '').replace('µ', 'u').replace('μ', 'u')
-    m = search(r'(\d+(?:\.\d+)?)\s*([pnumkKM]?)' + unit, s) or search(r'(\d+)([pnumkKM])(\d+)', s)
+    m = search(r'(?<![\d.])' + NUM + r'\s*([pnumkKM]?)' + unit, s) or search(r'(\d+)([pnumkKM])(\d+)', s)
     if not m:
         return None
     mult = {'p': 1e-12, 'n': 1e-9, 'u': 1e-6, 'm': 1e-3, '': 1.0, 'k': 1e3, 'K': 1e3, 'M': 1e6}
