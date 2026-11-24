@@ -1182,8 +1182,12 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             return drc.run(drc.stage_board(board, input_path, d), Path(d) / "drc.json",
                            timeout=max(30, left() - 5))
 
+        # each quote's window solves start from the last solve of that window (the cell before its copper changed):
+        # the after quote costs a few COCG iterations instead of a cold solve; values within the solver's tolerance
+        warm = {}
+
         def quotes(board, drc_json, only=None):
-            rows = quote_cells(str(board), intent=intent, drc=str(drc_json), log=lambda *a: None, only=only)
+            rows = quote_cells(str(board), intent=intent, drc=str(drc_json), log=lambda *a: None, only=only, warm=warm)
             return {r.get("cell"): r for r in rows}
         m_drc, m_q = _Mean(), _Mean()       # what a DRC and a cell quote cost in this run
         rep0 = _timed_into(m_drc, check, board_path, wd / "drc0")
@@ -1256,8 +1260,9 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
                 continue
             cd = wd / f"cell{k}"
             cd.mkdir(exist_ok=True)
-            if cr["cell"] not in q0:
-                q0.update(_timed_into(m_q, quotes, board_path, quote_src(k), only=[cr["cell"]]))
+            # the before quote waits for the after DRC: a cell the DRC reverts needs neither quote (the snapshot
+            # below is this board, quoted then)
+            src_k = quote_src(k)
             rep["estimate_s_per_cell"] = round(estimate(0), 1)
             snap = cd / "before.kicad_pcb"
             shutil.copy2(board_path, snap)
@@ -1300,7 +1305,8 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             # before it cost (a quote dearer than the estimate's left the last mile no time at all: forestierr's
             # cell, 153 s against 30)
             cdl = min(deadline, max(clock_now() + _reroute_s(len(fr)),
-                                    t_cell + estimate(len(fr)) - m_drc.value - m_q.value))
+                                    t_cell + estimate(len(fr)) - m_drc.value
+                                    - m_q.value * (1 if cr["cell"] in q0 else 2)))   # the before quote waits too
             rounds = []
             # kae's grid router (the last mile), one Freerouting repair round, the last mile again
             cur = repair._last_mile(input_path, board_path, cd, p2, info, o2, cdl, rounds, drc.summary(cur), cur,
@@ -1313,7 +1319,18 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
             after = _timed_into(m_drc, check, board_path, cd / "after")
             sa = drc.summary(after)
             still = sorted({net_ for net_, _seg in _open_pairs(after)} & set(ripped_nets))
-            qa = _timed_into(m_q, quotes, board_path, cd / "after" / "drc.json", only=[cr["cell"]])
+            why = []
+            if still and not st.get("clear_force"):
+                why.append(f"ripped net(s) left open: {', '.join(still[:4])}")
+            if sa["unconnected"] > base["unconnected"] and not (st.get("clear_force") and set(still)):
+                why.append(f"unconnected {base['unconnected']} -> {sa['unconnected']}")
+            if sa["errors"] > base["errors"] and not repair.errors_no_worse(sa, base, b_in or input_errors(cd)):
+                why.append(f"DRC errors {base['errors']} -> {sa['errors']}")
+            qa = {}
+            if not why:                  # the quotes decide only a cell the DRC keeps
+                if cr["cell"] not in q0:
+                    q0.update(_timed_into(m_q, quotes, snap, src_k, only=[cr["cell"]]))
+                qa = _timed_into(m_q, quotes, board_path, cd / "after" / "drc.json", only=[cr["cell"]])
             w0 = _cell_watts(q0.get(cr["cell"]), s, cr["module"])
             w1 = _cell_watts(qa.get(cr["cell"]), s, cr["module"])
             row.update(ripped=len(fr), nets=ripped_nets, rerouted=len(ripped_nets) - len(still),
@@ -1322,14 +1339,7 @@ def clear(input_path, board_path, wd, opts=None, deadline=None, log=_log, info=N
                        after=dict(unconnected=sa["unconnected"], errors=sa["errors"],
                                   L_nH=(qa.get(cr["cell"]) or {}).get("L_nH"), R_mohm=(qa.get(cr["cell"]) or {}).get("R_mohm")),
                        W_before=w0, W_after=w1)
-            why = []
-            if still and not st.get("clear_force"):
-                why.append(f"ripped net(s) left open: {', '.join(still[:4])}")
-            if sa["unconnected"] > base["unconnected"] and not (st.get("clear_force") and set(still)):
-                why.append(f"unconnected {base['unconnected']} -> {sa['unconnected']}")
-            if sa["errors"] > base["errors"] and not repair.errors_no_worse(sa, base, b_in or input_errors(cd)):
-                why.append(f"DRC errors {base['errors']} -> {sa['errors']}")
-            if w1 is None or (w0 is not None and w1 > w0 * (1 - CLEAR_GAIN)):
+            if not why and (w1 is None or (w0 is not None and w1 > w0 * (1 - CLEAR_GAIN))):
                 why.append(f"quote {w0 and round(w0 * 1e3, 4)} -> {w1 and round(w1 * 1e3, 4)} mW, not "
                            f"{CLEAR_GAIN:.0%} better")
             if why:
