@@ -49,6 +49,7 @@ MIN_SHARE = 0.01                  # observers and questions below this share of 
 RET_R_MM = 6.0                    # ground pads this close to the pin (and the IC's own) are return-pad candidates
 NEAR_MM = 5.0                     # a decoupling capacitor farther from its IC's supply pin is a move candidate
 F_E_CAP = 1e7                     # the charge-share estimate's band (the edge band)
+NO_EFFECT = 0.005                 # a what-if buying less than this share of the total is listed as "no effect"
 
 
 class _Pricer:
@@ -76,7 +77,8 @@ class _Pricer:
         for r in st.get("terms") or []:
             r0 = self.rows0.get(r["id"]) or {}
             c0, c1 = r0.get("contribution", 0.0), r.get("contribution", 0.0)
-            if abs(c1 - c0) > 1e-6 or r0.get("value") != r.get("value") or r0.get("hard") != r.get("hard"):
+            if abs(c1 - c0) > 1e-3 * max(1.0, abs(c0)) or r0.get("value") != r.get("value") \
+                    or r0.get("hard") != r.get("hard"):
                 out.append(dict(term=r["id"], before=r0.get("value"), after=r.get("value"), cost_before=c0,
                                 cost_after=c1, met_after=r.get("met"), hard_after=r.get("hard")))
         return out
@@ -441,9 +443,24 @@ def advise(ev, intent, brief, board=None, limit=12, edits=(), solve_budget=0, so
             solve(e)
     out = _apply_decisions(out, decisions or [])
     out.sort(key=_rank)
-    priced = [e for e in out if e.get("estimate") and not e.get("declined")][:limit]
-    rest = [e for e in out if e not in priced and not e.get("declined") and e.get("kind") != "none"]
-    out = priced + rest + [e for e in out if e.get("declined")] + [e for e in out if e.get("kind") == "none"]
+    # what-ifs that buy (almost) nothing are one line: a negative finding the commander should still see
+    weak = [e for e in out if e.get("estimate") and e.get("kind") != "facts.question" and not e.get("decided")
+            and e["estimate"]["delta"] > -NO_EFFECT * total0 and e["estimate"]["hard_after"] >= pr.key0[0]]
+    out = [e for e in out if e not in weak]
+    priced = [e for e in out if e.get("estimate") and not e.get("decided")]
+    more = priced[limit:]
+    priced = priced[:limit]
+    rest = [e for e in out if not e.get("estimate") and not e.get("decided") and e.get("kind") != "none"]
+    notes = [e for e in out if e.get("kind") == "none"]
+    if weak:
+        notes.append(dict(kind="none", key="report.no_effect", remedy="no effect (|delta| < "
+                          f"{NO_EFFECT:.1%} of the total): " + "; ".join(
+                              f"{e['remedy']} ({e['estimate']['delta']:+.3g})" for e in weak)))
+    if more:
+        notes.append(dict(kind="none", key="report.more", remedy=f"{len(more)} smaller priced entries not shown: "
+                          + "; ".join(f"{e['kind']} {e.get('remedy', '')[:60]} ({e['estimate']['delta']:+.3g})"
+                                      for e in more)))
+    out = priced + rest + [e for e in out if e.get("decided")] + notes
     for k, e in enumerate(out, 1):
         e["id"] = f"A{k}"
         e.setdefault("options", _options(e))
@@ -474,22 +491,22 @@ def _dedupe(out):
 
 
 def _apply_decisions(out, decisions):
-    """Mark entries the commander declined (same key) unless their estimated gain has doubled since, and the
-    ones already adopted (they are in the evaluation's edits or the board)."""
+    """Mark (`decided`) the entries the commander declined (same key) unless their estimated gain has doubled
+    since, and the ones already adopted (they are in the evaluation's edits or the board)."""
     dec = {d.get("key"): d for d in decisions if d.get("key")}
     for e in out:
         d = dec.get(e.get("key"))
         if not d:
             continue
         if d.get("choice") != "decline":
-            e["declined"] = f"adopted in {d.get('id')}"
+            e["decided"] = f"adopted in {d.get('id')}"
             continue
         gain = -(e.get("estimate") or {}).get("delta", 0.0)
         was = -((d.get("predicted") or {}).get("delta") or 0.0)
         if was > 0 and gain > 2 * was:
             e["reraised"] = f"declined in {d.get('id')} ({d.get('reason', '')[:80]}), but its gain has doubled"
         else:
-            e["declined"] = f"{d.get('id')}: {d.get('reason', '')[:120]}"
+            e["decided"] = f"declined in {d.get('id')}: {d.get('reason', '')[:120]}"
     return out
 
 
@@ -560,7 +577,8 @@ def _node_advice(pr, cir, o, items, corners, ev, intent, wi=None, related=None):
                 question=f"is there room for {_fmt_c(C)} at {pin}/{g}, and is its rail's start-up and inrush "
                          f"unaffected?", by="llm")
             rows = sorted(per_pad, key=lambda r: r[1][1][1])
-            pads_txt = "; ".join(f"{p} ({cir.dist(pin, p):.1f} mm): {_term_after(pr, b[2])}" for p, b, _ in rows[:4])
+            pads_txt = "; ".join(f"{p} ({cir.dist(pin, p):.1f} mm): {_term_after(pr, b[2])} at {_fmt_c(b[0])}"
+                                 for p, b, _ in rows[:4])
             e = _entry(pr, st, key, kind="node.shunt_c", key=f"node.shunt_c:{pin}", observer=o.name,
                        mechanism=f"{o.name}: the node's impedance at the edge band is {abs(z0):.3g} Ohm "
                                  f"({f_e / 1e6:g} MHz); copper noise divides into it{floor}",
@@ -778,6 +796,12 @@ def _shunt_tradeoff(cir, o, net, C, intent):
                 needs=[_need(f"facts.parts.{ref}.f_c_Hz", f"{ref}'s loop crossover frequency", "Hz", fc)])
 
 
+def _nominal(cir, e):
+    """A part's value as the board states it (the circuit's carries its DC-bias loss)."""
+    fp = next((x for x in cir.b.footprints if x.ref == e.name), None) if getattr(cir, "b", None) is not None else None
+    return fp.value if fp is not None else _fmt_c(_cap_of(e))
+
+
 def _decaps(cir, ref, rail):
     """(capacitor element, its rail pad, the IC's nearest rail pad, distance mm) of every capacitor between
     `rail` and a ground net, nearest to the IC first."""
@@ -835,7 +859,7 @@ def _move_advice(pr, cir, obs, by_obs, related):
                         mechanism=f"{ref}'s nearest capacitor on {rail} is {dc[0][0].name}, {dc[0][3]:.0f} mm from its "
                                   f"pin: {ref}'s fast supply current returns through that much {rail} and ground "
                                   f"copper, which other observers share",
-                        remedy=f"place {e.name} ({_fmt_c(_cap_of(e))}) at {ref}: its {rail} pad at {ic_pad}, its ground "
+                        remedy=f"place {e.name} ({_nominal(cir, e)}) at {ref}: its {rail} pad at {ic_pad}, its ground "
                                f"pad at {gnd} (now {d:.0f} mm away)",
                         edit=specs,
                         relation=dict(id=f"adv-{e.name}-{ref}", kind="near", a=e.name, b=ic_pad, mag="tight",
