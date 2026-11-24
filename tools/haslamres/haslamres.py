@@ -2647,7 +2647,9 @@ def cmd_exp_timer(a):
     # Reports and the index come from a frozen copy of the commit that installs the timer, not the
     # experiment's own (older) code: report fixes reach running experiments, and no result changes.
     # Not a shared installed copy: another checkout installing its timers would swap it under ours.
-    head = git(main_repo(), "rev-parse", "HEAD")
+    # this checkout's commit (the one whose code runs `install-timer`), not the main repo's: from a worktree
+    # the main repo's HEAD is another branch, and its older report had no cost watchdog
+    head = git(HERE, "rev-parse", "HEAD")
     if not on_remote(main_repo(), head):
         raise SystemExit(f"HEAD {head[:7]} is on no remote branch: push it first")
     tool = ensure_harness(head, venv=False)[0] / "tools" / "haslamres" / "haslamres.py"
