@@ -18,7 +18,7 @@
 # Everything else as route-finish-ab: restart.py --parallel 4 --first-s 60 --scale-first --slack 1.15 --resume 0.5,
 # 900 s x sqrt(footprints/40) (at most 4 h), Freerouting fork FORK, operating facts by content hash, step cache.
 #
-#   SHA=<pushed commit> [STAGE=full|fix|c2|nid|n2|c3|r3|r3smoke|smoke] [BOARD=...|BOARDS=...] tools/kaeres/experiments/hotloop-sw.sh
+#   SHA=<pushed commit> [STAGE=full|fix|c2|nid|n2|c3|r3|r3smoke|r4|r4c|smoke] [BOARD=...|BOARDS=...] tools/kaeres/experiments/hotloop-sw.sh
 # Registers only; submission, physics and analysis: hotloop-sw/PLAN.md section "Running order".
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -49,6 +49,11 @@ add() {  # NAME DESCRIPTION ENV ROUTE_FLAGS FINISH(0/1) [EXTRA --param K=V]
   local CL="$CP $E -m kae.route.cli clear @IN@ @BEST@ @OUT@ --time @TIME@ $OP" clr=""
   # design D: restart.py clears the kept board once, after the final pass, with CLEAR_S of its own (not from routing)
   case "$env" in *KAE_HOTLOOP_CLEAR=1*) clr="--clear '$CL' --clear-s $CLEAR_S" ;; esac
+  # the choose-better portfolio (arm P): attempts alternate the method as given (cells off) and KAE_HOTLOOP_CELLS=1;
+  # among clean boards of both arms the hot loops' quote decides (restart.py --alt-env / --tiebreak)
+  if [ "${PORT:-}" = 1 ]; then
+    clr="$clr --alt-env 'KAE_HOTLOOP_CELLS=1' --tiebreak '$CP $E -m kae.excite.cellquote @BOARD@ --score-out @OUT@ --intent \$RFAB_OP'"
+  fi
   local wrap
   if [ "$fin" = 1 ]; then wrap=$(rs --final "'$LM'" $clr --finish "'$FN'"); else wrap=$(rs --final "'$LM'" $clr); fi
   local inner="$CP if [ \"\$KAE_RESUME\" = 1 ]; then $E -m kae.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@ $OP $rflags; else $E -m kae.route.cli route @IN@ @OUT@ --seed @SEED@ --time @TIME@ $OP $rflags; fi"
@@ -80,12 +85,17 @@ case "$STAGE" in
           --env KAE_STEP_CACHE=$STEP_CACHE --description "N re-routed at $S7 on all 60 boards: the identity run differed from 908e21ff on 3 of 5 boards (PLAN.md, round 2). $desc" >/dev/null ;;
   c3) $K exp create hotloop-sw-c3-$S7 --method "$C" --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "C2: cells first at $S7 (escape lanes and the reachability backstop) on all 60 boards, against N at 908e21ff (PLAN.md, round 2). $desc" >/dev/null ;;
+  r4) PORT=1 add "hsw portfolio $S7 (restarts)" "as '$N' with restart.py's choose-better portfolio: attempts alternate cells off and KAE_HOTLOOP_CELLS=1, the cells' quote breaks ties among clean boards" "$Z KAE_HOTLOOP_CLEAR=0" "" 1
+      $K exp create hotloop-sw-r4-$S7 --method "$N" --method "hsw portfolio $S7 (restarts)" --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
+          --env KAE_STEP_CACHE=$STEP_CACHE --description "round 4: N and the N+C portfolio at $S7 on the dense subset and the 60 regulator boards (PLAN.md, round 4). $desc" >/dev/null ;;
+  r4c) $K exp create hotloop-sw-r4c-$S7 --method "$C" --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
+          --env KAE_STEP_CACHE=$STEP_CACHE --description "round 4: C (fixed) at $S7 on the dense subset, against round 4's N (PLAN.md, round 4). $desc" >/dev/null ;;
   r3) $K exp create hotloop-sw-r3-$S7 --method "$N" --method "$C" --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "round 3, the confirming run: N and C3 at $S7 on the 60 regulator boards and the 213-board physics set (PLAN.md, round 3). $desc" >/dev/null ;;
   r3smoke) $K exp create hotloop-sw-r3smoke-$S7 --method "$N" --method "$C" --boards @${BOARDS:?BOARDS file} --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "round 3 smoke on dense boards, for sizing (PLAN.md, round 3). $desc" >/dev/null ;;
   smoke) $K exp create hotloop-sw-smoke-$S7 "${M[@]}" --boards "${BOARD:?BOARD}" --harness $SHA --kae $SHA \
           --env KAE_STEP_CACHE=$STEP_CACHE --description "smoke (${BOARD}) of the $desc" >/dev/null ;;
-  *) echo "STAGE: full, fix, c2, nid, n2, c3, r3, r3smoke or smoke" >&2; exit 2 ;;
+  *) echo "STAGE: full, fix, c2, nid, n2, c3, r3, r3smoke, r4, r4c or smoke" >&2; exit 2 ;;
 esac
 echo "experiment created (STAGE=$STAGE); nothing submitted"

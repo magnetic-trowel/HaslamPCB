@@ -447,3 +447,49 @@ Board loss terms (per board, the sum of that observable's terms):
 - *Retry #122884:* failed again with the same SuperLU error ("Not enough memory to perform factorization") at 31.4 G of 96 G. So polarfire som is **excluded from physics in all three arms**: one of its cell windows is beyond what SuperLU can factor.
 - *usbarmory:* the human retry #122886 timed out in KiCad's zone refill at 5400 s as well. Its fills take more than 90 min, so it is **excluded from physics in all three arms**.
 - *N and C‴ physics:* #122927–123196 (N) and #123197–123466 (C‴), 270 boards each: the 273 less polarfire, usbarmory and jetson (no evaluation of jetson has ever finished). Overrides as for human; timed class.
+
+## Round 4: the fixed C on dense boards, and the choose-better portfolio (pre-registered 2026-11-24)
+
+**Code: d78e3291** (`hotloop-cells2`), if its suites pass; otherwise the commit that fixes them, named here before submission. It is round 3's bfc65839 plus:
+- *The reachability check* follows each pin over each cell's copper grown by 5 mm, not 2.5 mm round the pin.
+- *`hotloop_cell_kinds`, default `buck,boost`:* half bridges are no longer laid (kestrel esc). It is a setting, so a half-bridge board can still opt in.
+- *A failed cell's partial copper is ripped.*
+- *The `hotloop_cells_available` decision entry* for the LLM, with the same text in docs.
+- *Not fixed:* open-authenticator U4.4. After the cells stage, Freerouting put a neighbour net's via in the pin's lane. Lane guard zones for the general router were tried and dropped, because the lane zones read as unconnected islands in DRC.
+
+**Arms, all at the round-4 SHA, Freerouting fork 9a5512d, counted work, `PYTHONHASHSEED=0`:**
+- *N:* the default.
+- *C:* cells first, fixed.
+- *P:* the choose-better portfolio (`restart.py --alt-env KAE_HOTLOOP_CELLS=1 --tiebreak 'python -m kae.excite.cellquote @BOARD@ --score-out @OUT@'`).
+  - Attempts alternate N and C within N's budget.
+  - Among clean boards of both arms, the hot loops' quote decides (margin as restart.py's default); otherwise the KiCad rank decides, and ties keep N.
+
+**Boards:**
+- *Dense subset (80; `intent-r3/r4-dense.txt`):* the 18 boards where C‴ and N differed in connections in round 3, the largest third of the 213 set by footprint count, and its boards with 6 or more layers.
+- *Plus the 60 regulator boards:* 136 boards in all (`r4-boards.txt`).
+- *Experiments:*
+  - `hotloop-sw-r4-<sha>`: N and P on all 136 (`STAGE=r4`);
+  - `hotloop-sw-r4c-<sha>`: C on the dense 80 (`STAGE=r4c`).
+
+**Physics:**
+- N, P (on 134 boards) and C (on the dense boards), `--scope losses`. polarfire, usbarmory and jetson are left out as in round 3.
+- Human: round 3's evaluations are reused. The evaluator code (kae.excite, kae.em, kae.intent) is unchanged from bfc65839 to d78e3291.
+
+**Comparison 1: the fixed C against N on the dense 80** (round 3's gates and floors):
+- cp1 and clean_strict: non-inferiority, CI lower bound above −0.04.
+- Completion: CI lower bound above −0.005.
+- DRC errors, new error types, invalid outputs: as before.
+- **Added for this subset:** unconnected per board, sign-flip p ≥ 0.05 or lower, and every board that loses a connection with its cause.
+- Reported: cells against N and human, the four loss terms, open cells.
+
+**Comparison 2: P against N on all 136** (the same gates as comparison 1), plus:
+- cells and loss terms against N, on the 60 and on the dense subset separately;
+- how often P kept a C board, and why (KiCad rank or the quote).
+- *P becomes the default* when it passes every gate, its L_loop and R_loop medians against N are below 1 on the 60 regulator boards, and no lost connection is a cells-stage defect.
+
+**Floors:** as rounds 1–3.
+
+**Cost estimate:**
+- Routing: N about 160, P about 170, C on the dense 80 about 150 CPU-h (round 3's usage on the same boards).
+- Physics: about 110 for each of N and P, and about 90 for C.
+- Total about 790 CPU-h.
