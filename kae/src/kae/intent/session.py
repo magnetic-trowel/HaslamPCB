@@ -364,9 +364,16 @@ def cmd_verify(a):
         if x0.get("value") != x.get("value") or abs(x0.get("contribution", 0) - x.get("contribution", 0)) > 1e-6:
             diff.append(dict(term=x["id"], before=x0.get("value"), after=x.get("value"), met=x.get("met"),
                              cost_before=x0.get("contribution"), cost_after=x.get("contribution")))
-    imp0 = {x.get("label"): x.get("worst") for x in st0.get("implausible") or []}
-    imp1 = {x.get("label"): x.get("worst") for x in st1.get("implausible") or []}
-    flags = [dict(label=k, before=imp0.get(k), after=imp1.get(k)) for k in sorted(set(imp0) | set(imp1))]
+    # unpriced flags (supply pins, implausible observations) before and after, matched by observation
+    from . import advise as AD
+    k1map = {(o.get("id"), (o.get("scope") or {}).get("observer"), (o.get("scope") or {}).get("source")): o
+             for o in ev1.get("observations") or []}
+    nv = {}
+    for i, o in enumerate(ev0.get("observations") or []):
+        m = k1map.get((o.get("id"), (o.get("scope") or {}).get("observer"), (o.get("scope") or {}).get("source")))
+        if m is not None:
+            nv[i] = m["values"]
+    flags = AD.unpriced_moves(ev0["observations"], nv)
     # each decision of this round: predicted against verified (the combined edit: a decision's own share is
     # only separable when it is the round's one edit)
     dec_rows = []
@@ -394,7 +401,7 @@ def cmd_verify(a):
     adv = _advise(s, solves=0)
     out = [f"verified round {s.round - 1}: total {k0[1]:.4g} -> {k1[1]:.4g}, hard {k0[0]} -> {k1[0]}"]
     out += [f"  {x['term']}: {x['before']} -> {x['after']}" + (" (met)" if x.get("met") else "") for x in diff]
-    out += [f"  flag {x['label'][:50]}: {x['before']} -> {x['after']}" for x in flags]
+    out += [f"  unpriced {x['label'][:50]}: {x['before']:.4g} -> {x['after']:.4g}" for x in flags]
     for r_ in dec_rows:
         p = r_["predicted"] or {}
         out.append(f"  {r_['id']} {r_['key']}: predicted total {p.get('total_after')} ({p.get('confidence')}), "

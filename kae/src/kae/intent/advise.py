@@ -1200,11 +1200,28 @@ def solve_entry(entry, ev, intent, brief, intent_path=None, base_edits=(), log=N
     vals, missing = splice(ev, part)
     st, key = pr.price(vals)
     entry["estimate"] = _entry(pr, st, key)["estimate"]
-    entry["estimate"]["unpriced"] = [dict(label=ev["observations"][i].get("label"),
-                                          before=max(ev["observations"][i]["values"]), after=max(v))
-                                     for i, v in vals.items() if ev["observations"][i].get("implausible")]
+    entry["estimate"]["unpriced"] = unpriced_moves(ev["observations"], vals)
     entry["confidence"] = dict(level="solved", basis=f"kae.excite.evaluate re-solved {', '.join(srcs)} with "
                                f"{', '.join(sol['edits'])} ({time.time() - t0:.0f} s); the part at the pins, no copper "
                                f"of its own" + (f"; {len(missing)} observation(s) had no counterpart" if missing else ""))
     entry.pop("bound", None)
     return entry
+
+
+def unpriced_moves(obs, vals, min_change=0.05):
+    """[{label, before, after}] per supply observer (worst over its aggressors) and per implausible
+    observation that new values move by more than min_change: what an edit does to the flags no term prices."""
+    by = {}
+    for i, ob in enumerate(obs):
+        sc = ob.get("scope") or {}
+        if sc.get("kind") == "supply" or ob.get("implausible"):
+            by.setdefault(sc.get("observer") or ob.get("label"), []).append(i)
+    out = []
+    for name, idx in by.items():
+        if not any(i in vals for i in idx):
+            continue
+        b = max(max(obs[i]["values"]) for i in idx)
+        a = max(max(vals[i]) if i in vals else max(obs[i]["values"]) for i in idx)
+        if abs(a - b) > min_change * max(abs(b), 1e-12):
+            out.append(dict(label=name, before=b, after=a))
+    return sorted(out, key=lambda u: -u["before"])

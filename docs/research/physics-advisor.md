@@ -5,8 +5,8 @@
 2026-11-24, branch `physics-advisor` off `gfix-dc-model` 2a9c3fe6 (it needs that branch's DC converter model:
 without it solar-small's DC band is void and nothing is priced). v1 a5276292..c68a6c6a; **v2** (this page): series-R
 and re-valued coupling capacitors, return-pad choice, part moves with solved what-ifs, output-capacitance check,
-unpriced risks, and the session loop ([protocol](physics-advisor-protocol.md)). Status: **prototype; 22 of 24
-measured design variants predicted within 4 %** (one board, [validation](#validation-against-measured-design-variants)).
+unpriced risks, and the session loop ([protocol](physics-advisor-protocol.md)). Status: **prototype; 23 of 24
+measured design variants predicted within 4 %, one miss (−23 %)** (one board, [validation](#validation-against-measured-design-variants)).
 
 Scope: after an evaluation, kae lists the changes (design, part values, placement, facts) that would most reduce the
 status total under the commander's intent, each with an estimated new value and cost delta, its confidence, what the
@@ -143,9 +143,9 @@ screens on branch `solar-small-fb`, `RESULTS-fb.md` §1, plus v1's checks). Pred
 | T3, T7 | divider 3 × 0.1; and C307 removed | = | 396.5 / 396.5, 23.95 / 23.96 | 0 |
 | T6 | `move:C307:C305.1:U301.8` | = | 141.6 / 141.5 | 0.1 % |
 | T4 | `move:C312:U302.15:U302.17`, first order | 398.6 / 398.1 | 223.3 / 58.8 | flagged `needs-solve` (correctly) |
-| T4 | same, **solved** (`--sources core:U302:+3V3`) | TBD | TBD | TBD |
+| T4 | same, **solved** (every aggressor re-solved, 6 min at 4 threads) | 398.2 / 398.1 | 58.77 / 58.8 | 0.05 % |
 
-"=" unchanged within 0.1 mV. Totals agree within 0.6 % except T2 and T4-first-order.
+"=" unchanged within 0.1 mV. Totals agree within 0.6 % except T2 and T4-first-order (T4 solved: 5334.5 / 5334.0).
 
 Readings:
 1. Every remedy the screens found is now an advice kind, and the winning one (series R on the feed-forward
@@ -154,9 +154,15 @@ Readings:
 2. **Return pad.** The quietest pad is a result, not a default: the same 1 nF gives 11.2 mV to the MODE pin and
    21.7 mV to the exposed pad (S6), both predicted; v2 tries every candidate and names the spread.
 3. **T2 outlier.** At 100 pF the `core:U302:+3V3` pair is 84 vs 109 mV; the four other pairs of the same edit agree
-   within 0.6 %, and 1 nF on the same pads within 0.4 % on its worst pair. TBD(T2 full solve with this grammar).
-4. **Decoupling moves need a solve.** T4's first-order estimate is 4× off; the carried-share check flags it and the
-   targeted re-solve gives TBD.
+   within 0.6 %, and 1 nF on the same pads within 0.4 % on its worst pair. A full solve of the same edit in this
+   branch's grammar gives 109.2 mV, so the miss is the first-order assumption, not a model difference: in U302's
+   100 MHz edge band the 100 pF and C307 (22 pF to +3V3) form a path from +3V3's noisy copper to ground that
+   shifts the copper's potentials, and the ideal-copper carried-share check (< 5 %) does not see it.
+4. **Decoupling moves need a solve, of every aggressor.** T4's first-order estimate is 4× off; the carried-share
+   check flags it. Re-solving only U302's core current (the aggressor the capacitor decouples) gives T-FB3
+   167.5 mV: the moved capacitor is a branch of the copper every aggressor shares, and U101's buck pair falls from
+   167 mV too. Re-solving all aggressors: 58.77 vs 58.8 mV. A targeted re-solve of U302 alone with no edit
+   reproduces the base exactly (396.4 mV), so the splice is sound.
 
 ## Limits and open questions
 
