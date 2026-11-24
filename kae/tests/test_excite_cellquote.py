@@ -57,3 +57,27 @@ def test_the_quote_takes_the_evaluators_l_and_r_through_a_cap_resonance(tmp_path
     assert q["L_nH"] > 0
     assert math.isclose(q["L_nH"], c["window"]["L_raw_nH"], rel_tol=0.02, abs_tol=0.005)
     assert math.isclose(q["R_mohm"], c["window"]["R_raw_mohm"], rel_tol=0.02, abs_tol=0.01)
+
+
+def test_a_quote_warm_started_from_the_cell_before_its_change_agrees_and_iterates_less(tmp_path, monkeypatch):
+    """kae.route.hotloop.clear quotes a cell before and after its copper changes; the after quote's window solves start
+    from the before quote's (warm): the same values within the COCG tolerance, fewer iterations (em_iter charged;
+    a modest gain: COCG's rate, not its start, sets most of the count)."""
+    import kae.route.critical_recheck as CRR
+    from kae import budget as BU
+    monkeypatch.setattr(CRR, "fills_of", lambda p: plane_fills())
+    a = str(write_hotloop_board(tmp_path / "closed", "closed"))
+    b = str(write_hotloop_board(tmp_path / "axis", "axis"))       # the ground hop re-drawn: the same window
+
+    def q(p, warm):
+        BU.set_mode("time")
+        (r,) = [r for r in CQ.quote_cells(p, pitch=0.125, log=lambda *a: None, warm=warm) if r["source"] == CELL]
+        return r, BU.clock().units.get("em_iter", 0)
+    cold, it_cold = q(b, None)
+    warm = {}
+    q(a, warm)
+    assert warm                                                     # the before quote left its states
+    hot, it_hot = q(b, warm)
+    for k in ("L_nH", "R_mohm"):
+        assert abs(hot[k] / cold[k] - 1) < 1e-3, (k, hot[k], cold[k])
+    assert it_hot < it_cold, (it_hot, it_cold)

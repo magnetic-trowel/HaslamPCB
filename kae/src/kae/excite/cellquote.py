@@ -51,10 +51,13 @@ def _physical(L, R):
 
 
 def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max_cells=MAX_CELLS, log=print, only=None,
-                engine=None, strip_pitch=STRIP_PITCH):
+                engine=None, strip_pitch=STRIP_PITCH, warm=None):
     """One row per switching cell of the board at `path` (see the module doc); `only`: the cell ids (brief
     structure ids) to quote, the others left out (kae.route.hotloop.clear quotes one cell at a time). engine: raster
-    or strips (default KAE_CELL_QUOTE, else raster)."""
+    or strips (default KAE_CELL_QUOTE, else raster). warm (raster): a dict kept by the caller across quotes of one
+    placement, {(source, window, pitch): {f: solution state}}: each window solve starts from the last solve of that
+    window (a changed board's copper mapped by position, kae.em.solve.System.warm) and leaves its own there; the values
+    then differ from a cold start only within the COCG tolerance (kae.em.solve.TOL)."""
     engine = engine or os.environ.get("KAE_CELL_QUOTE") or "raster"
     if engine not in ENGINES:
         raise ValueError(f"cell quote engine {engine!r}: one of {', '.join(ENGINES)}")
@@ -114,8 +117,11 @@ def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max
             win = (max(bw[0], box[0] - margin), max(bw[1], box[1] - margin),
                    min(bw[2], box[2] + margin), min(bw[3], box[3] + margin))
             pc, _ = coarsen_pitch(win, pitch, n_cu, max_cells)
+            wk = (s.name, tuple(round(x, 6) for x in win), pc)
             z, info, _ = HL._solve_window(path, b, bd, s, o, win, pc, nsub, fills, [f_fund, f_edge], skin, lambda *a: None,
-                                          edge=f_edge)
+                                          edge=f_edge, warm=None if warm is None else warm.get(wk, {}))
+            if warm is not None and info and info.get("states"):
+                warm[wk] = info.pop("states")
             # a window that leaves the loop open, or reads a non-physical share (the return it cut off carried
             # part of the pattern: esp32's U6 read R = -61 mOhm in a 29 x 20 mm window), grows like the evaluator's
             if (z is not None and _physical(*_LR(info, f_fund, f_edge))) or win == tuple(bw) or grown >= HL.MAX_GROW:

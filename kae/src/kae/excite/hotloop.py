@@ -112,11 +112,14 @@ def _edge_bd(bd):
     return out
 
 
-def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log, edge=None):
+def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log, edge=None, warm=None):
     """{f: z} (the layout's share at the overshoot observer) for the cell's pattern in window `win`, or
     (None, why) when the window's copper leaves the pattern open; the info's rcu and lcu: {f: the copper's
     dissipation (ohm) and stored-energy inductance (H) of the pattern}. At f == edge the circuit is at its edge model
-    (capacitors at ESR + ESL, kae.excite.evaluate._edge_loops): lcu[edge] is the window's L_loop. Also the mesh."""
+    (capacitors at ESR + ESL, kae.excite.evaluate._edge_loops): lcu[edge] is the window's L_loop. Also the mesh.
+    warm: {f: position-keyed solution state} of an earlier solve of this window at this pitch (the same cell before
+    its copper changed: kae.route.hotloop.clear's before quote): the first band's COCG starts there instead of at
+    zero; the result differs from a cold start only within the solver's tolerance (TOL). With warm given (even {}), info["states"] returns this solve's."""
     from kae.em import solve as ES
     from kae.em.kicad import BoardMesh
     from .circuit import lump_into
@@ -147,7 +150,7 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log, 
         n_ = ES.Network(bm.m)
         nets[id(c)] = (n_, ES.Operator(n_))
     from .evaluate import _band_start
-    out, dropped, prev, rcu, lcu = {}, 0.0, None, {}, {}
+    out, dropped, prev, rcu, lcu, states = {}, 0.0, None, {}, {}, {}
     for f in freqs:                      # ascending: each starts from the last one's solution (_band_start)
         net, op = nets[id(bdf[f].circuit)]
         R0 = net.R
@@ -157,14 +160,20 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log, 
         dropped = max(dropped, sum(abs(j) for p, j in Ja.items() if p not in bm.m.terminals) / tot)
         if skin:
             net.R = _skin_R(net, f, nsub)
+        # the first band starts from the earlier solve; later ones from this solve's previous band (measured on the
+        # fixture: 29 -> 25 iterations warm at f_fund, but 36 -> 39 at f_edge against the band start)
+        st0 = (warm or {}).get(f) if prev is None else None
         try:
             # a pad the window left out carries less than SHARE of the peak (window_pads): its current may leak
             (v, info), = ES.potentials_many(bm.m, [inj], f, net=net, op=op, light=True, leak=SHARE,
-                                            x0=[_band_start(prev, inj, f, net.n_br)])
+                                            x0=[_band_start(prev, inj, f, net.n_br)],
+                                            warm=[st0] if st0 is not None else None, keep_state=warm is not None)
         finally:
             net.R = R0
         if info["unbalanced"]:
             return None, info, bm.m
+        if warm is not None:
+            states[f] = info.pop("state")
         prev = (f, inj, info.pop("x"))
         # the copper's own dissipation of the pattern (the R it was solved with): R_loop, never negative
         R_used = _skin_R(net, f, nsub) if skin else net.R
@@ -176,7 +185,10 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log, 
         Jk = pats[f]
         vid = O.ideal(bdf[f], sols[f])
         out[f] = O.bilinear(Jk, v) - O.bilinear(Jk, vid)
-    return out, dict(dropped=dropped, rcu=rcu, lcu=lcu), bm.m
+    info = dict(dropped=dropped, rcu=rcu, lcu=lcu)
+    if warm is not None:
+        info["states"] = states
+    return out, info, bm.m
 
 
 def _truncation_too_large(g, zc, Lc, f_fund):
