@@ -789,12 +789,26 @@ def _physics_guard(brief_terms, slack):
         ph = board_physics(board, brief=brief, terms=terms)
         c = Scorecard(unconnected=summary["unconnected"], errors=summary["errors"])
         c.modules = {k: v.get("u") for k, v in ph.items() if not k.startswith("_") and isinstance(v, dict)}
+        c.open_hops = {k: v.get("open_hops") for k, v in ph.items() if not k.startswith("_") and isinstance(v, dict)}
         return c
 
     def guard(before, before_summary, after, after_summary):
         from kae.joint.scorecard import physics_guard
-        return physics_guard(card(before, before_summary), card(after, after_summary), phys_slack=slack)
+        c0, c1 = card(before, before_summary), card(after, after_summary)
+        opened = loops_opened(c0.open_hops, c1.open_hops)
+        if opened:
+            # a module with a hop open is priced on the copper it has, so it reads cheaper than the
+            # closed loop it was: never a gain (ut8ifg ptt-usb-cable: the soft round cut the +5V decap
+            # loop open, u 2.79 -> 2.69 "better"; the next round closed it at u 5.39)
+            return False, f"priced loops opened ({', '.join(opened)})"
+        return physics_guard(c0, c1, phys_slack=slack)
     return guard
+
+
+def loops_opened(before, after):
+    """Modules (ids) measured on both boards whose open hops rose (critical_recheck.board_physics'
+    `open_hops`; None counts as 0)."""
+    return sorted(k for k in set(before) & set(after) if (after[k] or 0) > (before[k] or 0))
 
 
 def write_joint(src, dst, poses, copper, hazards=None):

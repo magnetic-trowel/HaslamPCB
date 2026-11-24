@@ -85,3 +85,44 @@ def test_a_soft_marked_wall_is_ripped_only_as_the_last_tier(tmp_path):
                    soft=opts["soft_fixed"])
     assert rep["ripped_soft"] and set(rep["ripped_soft"]) == set(rep["ripped"]) <= {w[5] for w in wall}
     assert len(LM.parts(Space(load(tmp_path / "b.kicad_pcb"), info, plan=plan), {}, NET)) == 1
+
+
+def test_a_priced_loop_the_soft_round_opens_is_never_a_gain():
+    from kae.route.critical import loops_opened
+    assert loops_opened({"a": 0, "b": None, "c": 1}, {"a": 3, "b": None, "c": 1, "d": 2}) == ["a"]
+    assert loops_opened({"a": 2}, {"a": 1}) == [] and loops_opened({}, {"a": 4}) == []
+
+
+def test_the_soft_guard_rejects_an_opened_loop_even_when_it_prices_lower(monkeypatch):
+    """ut8ifg ptt-usb-cable: the soft round cut the +5V decap loop open; priced on the copper left,
+    its u fell (2.79 -> 2.69) and the round read as better."""
+    from kae.route import critical as CR
+    from kae.route import critical_recheck as RC
+    phys = {"before": {"decap:U1:+5V": dict(u=2.79, open_hops=0), "chain:J1:1": dict(u=2.42, open_hops=None)},
+            "after": {"decap:U1:+5V": dict(u=2.69, open_hops=3), "chain:J1:1": dict(u=2.42, open_hops=None)},
+            "closed": {"decap:U1:+5V": dict(u=2.80, open_hops=0), "chain:J1:1": dict(u=2.42, open_hops=None)}}
+    monkeypatch.setattr(RC, "board_physics", lambda board, brief=None, terms=None: phys[board])
+    guard = CR._physics_guard(lambda: (None, None), 0.10)
+    ok, why = guard("before", dict(unconnected=4, errors=0), "after", dict(unconnected=3, errors=0))
+    assert not ok and "decap:U1:+5V" in why
+    ok, why = guard("before", dict(unconnected=4, errors=0), "closed", dict(unconnected=3, errors=0))
+    assert ok, why
+
+
+def test_the_final_board_is_judged_against_the_board_before_the_soft_tier(tmp_path, monkeypatch):
+    from kae.route import drc as D
+    from kae.route import repair as RP
+    monkeypatch.setattr(D, "stage_board", lambda board, inp, d: f"staged:{board}")
+    seen = []
+
+    def guard(b0, s0, b1, s1):
+        seen.append((b0, s0, b1, s1))
+        return s1["unconnected"] < s0["unconnected"], "verdict"
+    pre, fin = dict(unconnected=4, errors=0), dict(unconnected=0, errors=0)
+    assert RP.soft_final_ok(guard, "in", "pre.kicad_pcb", pre, "out.kicad_pcb", fin, tmp_path / "d") == (True, "verdict")
+    assert seen == [("staged:pre.kicad_pcb", pre, "staged:out.kicad_pcb", fin)]
+
+    def broken(*a):
+        raise RuntimeError("no fills")
+    ok, why = RP.soft_final_ok(broken, "in", "pre", pre, "out", fin, tmp_path / "d")
+    assert not ok and "no fills" in why
