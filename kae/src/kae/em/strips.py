@@ -3,7 +3,9 @@
 """A geometry-exact strip-and-tile PEEC of one hot-loop cell: the router's cell quote
 (docs/research/physics/quick-physics-design.md, sections 3-5; prototype tools/research/physics/quickphys/strip_peec.py).
 
-Model. Copper is a set of branches between nodes, solved by modified nodal analysis (dense complex LU):
+Model. Copper is a set of branches between nodes, solved in a loop basis (LoopSystem: the fundamental loops of a
+spanning tree, about one unknown per tile against modified nodal analysis's three; dense complex LU; the MNA System is
+kept for bordered updates and the cells stage's loops, and agrees with it to 1e-15):
 - tracks: rectangular bars of the true width along the centre line (`nw` filaments across, sharing the stations'
   nodes), at most `seg` mm long; an oblique track is a staircase of x and y bars at step w/2 (at least pitch/4) with
   its DC resistance scaled to the true length (as kae.em.mesh.paint_line); an end inside a pad polygon is clipped to
@@ -15,7 +17,7 @@ Model. Copper is a set of branches between nodes, solved by modified nodal analy
   point is on tiled copper (land, below), else the pad, track junction or track bar whose copper holds it;
 - planes and pours: graded tiles (plan_cell, quadtree): the leaves of a 2:1-balanced quadtree per fill polygon, P0
   in the near region (the loop's pads, strips and vias that meet the cell's pad box, buffered by max(NEAR_H h,
-  NEAR_MIN); P0 the lattice pitch LEVEL0 x 2^k at most min(STRIP_PITCH, h), h the
+  NEAR_MIN); P0 = min(STRIP_PITCH, h), each plane's tiles P0 x 2^k, h the
   plane's distance to the nearest layer holding loop copper), doubling outward (a leaf of size s at distance d from
   the near region needs s <= beta d, beta from GRADES) up to the far cap max(P_FAR_MIN, window / P_FAR_DIV), finer
   (P_via, at most 2 r_barrel) within VIA_ZONE barrel radii of a loop via. A node per leaf centre; x and y bars
@@ -82,7 +84,7 @@ from . import kernels as KN
 
 MM = 1e-3
 SIGMA = MAT.SIGMA_CU            # S/m
-MAX_UNKNOWNS = 4000             # MNA size of one quote: the far ring coarsens to meet it, else not_computed
+MAX_UNKNOWNS = 4000             # loop unknowns of one quote: the far ring coarsens to meet it, else not_computed
 LEVEL0 = 0.5                    # mm: the tile lattice's anchor: every tile is LEVEL0 x 2^k (snap_pitch)
 P_FAR_MIN = 2.0                 # mm: the far ring's cap is the lattice pitch at most max(P_FAR_MIN, window / P_FAR_DIV)
 P_FAR_DIV = 16
@@ -1004,6 +1006,7 @@ class Network:
         out.ports = [(int(new[a_]), int(new[b_])) for a_, b_ in self.ports if keep[a_] and keep[b_]]
         out._arr = None
         out._L = None
+        out._loops = out._loopL = None
         return out
 
     def with_lumped(self, lumped):
@@ -1026,6 +1029,10 @@ class Network:
 
     def unknowns(self):
         return self.n_bars + len(self.lumps) + len(self.keys) - len(set(self.components().tolist()))
+
+    def loops(self):
+        """The loop basis's size (LoopSystem's N): branches - nodes + components."""
+        return self.n_bars + len(self.lumps) - len(self.keys) + len(set(self.components().tolist()))
 
 
 def _const(v):
@@ -1202,6 +1209,168 @@ class System:
         """{group: dict(L_nH, R_mohm)}: the energy and dissipation by branch group (cross terms by row: they sum)."""
         I0 = self.I0 if I0 is None else I0
         return _breakdown(self.net, self.L, x[:self.nb], x[self.nb:self.nb + self.nl], self.w, I0)
+
+
+def loop_basis(net):
+    """(M, tree) of the network's branches (bars, then lumped), cached on it: M (branches x loops, scipy CSR, +-1) the
+    fundamental loops of a breadth-first spanning tree per component (one loop per branch off the tree: the branch,
+    then the tree path from its far end back to its near end), and tree = (order, parent node, parent branch, its
+    sign) for the particular current. Loops = branches - nodes + components: about one per tile against MNA's three."""
+    sig = (net.n_bars, tuple((q.na, q.nb) for q in net.lumps))
+    if getattr(net, "_loops", None) is not None and net._loops[0] == sig:
+        return net._loops[1], net._loops[2]
+    from scipy.sparse import csr_matrix
+    a = net.arrays()
+    ea = np.concatenate([a.na, np.array([q.na for q in net.lumps], np.int64)])
+    eb = np.concatenate([a.nb_, np.array([q.nb for q in net.lumps], np.int64)])
+    nn, nbr = len(net.keys), ea.size
+    adj = [[] for _ in range(nn)]
+    for e in range(nbr):
+        u, v = int(ea[e]), int(eb[e])
+        if u == v:
+            continue
+        adj[u].append((v, e))
+        adj[v].append((u, e))
+    parent = -np.ones(nn, np.int64)
+    pedge = -np.ones(nn, np.int64)
+    depth = -np.ones(nn, np.int64)
+    order = []
+    intree = np.zeros(nbr, bool)
+    for r in range(nn):
+        if depth[r] >= 0:
+            continue
+        depth[r] = 0
+        q = [r]
+        head = 0
+        while head < len(q):
+            u = q[head]
+            head += 1
+            order.append(u)
+            for v, e in adj[u]:
+                if depth[v] < 0:
+                    depth[v], parent[v], pedge[v] = depth[u] + 1, u, e
+                    intree[e] = True
+                    q.append(v)
+    rows, cols, vals = [], [], []
+    c = 0
+    for e in range(nbr):
+        u, v = int(ea[e]), int(eb[e])
+        if intree[e] or u == v:
+            continue
+        rows.append(e), cols.append(c), vals.append(1.0)
+        # back from v to u along the tree: climb the deeper end until they meet
+        x, y = v, u
+        up, down = [], []
+        while x != y:
+            if depth[x] >= depth[y]:
+                up.append(x)
+                x = int(parent[x])
+            else:
+                down.append(y)
+                y = int(parent[y])
+        for n in up:                     # v -> ... -> lca: traversing child n towards its parent
+            t = int(pedge[n])
+            rows.append(t), cols.append(c), vals.append(1.0 if ea[t] == n else -1.0)
+        for n in down:                   # lca -> ... -> u: traversing from parent to child n
+            t = int(pedge[n])
+            rows.append(t), cols.append(c), vals.append(1.0 if eb[t] == n else -1.0)
+        c += 1
+    M = csr_matrix((vals, (rows, cols)), shape=(nbr, c))
+    tree = (np.array(order, np.int64), parent, pedge, ea, eb)
+    net._loops = (sig, M, tree)
+    return M, tree
+
+
+def tree_current(tree, inj, nbr):
+    """A branch current (complex, branches) meeting the injections {node: A into the copper} by KCL on the tree
+    alone: each tree branch carries its subtree's net injection towards the root."""
+    order, parent, pedge, ea, eb = tree
+    S = np.zeros(parent.size, complex)
+    for n, v in inj.items():
+        S[n] += v
+    I = np.zeros(nbr, complex)
+    for n in order[::-1]:
+        p = parent[n]
+        if p < 0:
+            continue
+        e = pedge[n]
+        I[e] = S[n] if ea[e] == n else -S[n]
+        S[p] += S[n]
+    return I
+
+
+class LoopSystem:
+    """The network at frequency f solved in its loop basis (loop_basis): (M^T Z M) x = -M^T Z I_p, I = I_p + M x, with
+    Z = R + jw L_p over bars and the lumped impedances; the same currents as System's MNA (KCL by construction, KVL
+    round every loop) from a dense LU of about a third of its size. Methods as System's (solve returns
+    [I_bars, I_lumped])."""
+
+    def __init__(self, net, L, f):
+        self.net, self.L, self.f = net, L, f
+        a = net.arrays()
+        self.nb, self.nl = a.nb, len(net.lumps)
+        self.M, self.tree = loop_basis(net)
+        self.N = self.M.shape[1]
+        self.w = 2 * math.pi * f
+        self.lu = None
+
+    def _blocks(self):
+        net = self.net
+        if getattr(net, "_loopL", None) is not None and net._loopL[0] is self.L:
+            return net._loopL[1], net._loopL[2]
+        Mb = self.M[:self.nb]
+        LM = (Mb.T @ self.L).T if self.nb else np.zeros((0, self.N))          # L Mb (dense nb x N)
+        P = Mb.T @ LM if self.nb else np.zeros((self.N, self.N))              # Mb^T L Mb
+        P = np.asarray(P)
+        BU.charge("em_dense", float(self.nb) * self.M.nnz)
+        net._loopL = (self.L, np.asarray(0.5 * (P + P.T)), np.asarray(LM))
+        return net._loopL[1], net._loopL[2]
+
+    def _zbranch(self):
+        a = self.net.arrays()
+        zl = np.array([q.z(self.w) for q in self.net.lumps], complex)
+        return a.R.astype(complex), zl
+
+    def factor(self):
+        from . import blas as BL
+        P, _ = self._blocks()
+        R, zl = self._zbranch()
+        from scipy.sparse import diags
+        D = diags(np.concatenate([R, zl]))
+        A = (self.M.T @ D @ self.M).toarray().astype(complex)
+        if self.w > 0:
+            A += (1j * self.w) * P
+        BL.set_threads(THREADS)
+        try:
+            self.lu = sla.lu_factor(A, overwrite_a=True, check_finite=False)
+        finally:
+            BL.set_threads(BLAS_AFTER)
+        BU.charge("em_dense", float(self.N) ** 3)
+        return self
+
+    def solve(self, port=None, I0=1.0, inj=None):
+        if self.lu is None:
+            self.factor()
+        if inj is None:
+            inj = {port[0]: I0, port[1]: -I0}
+        self.I0 = I0
+        Ip = tree_current(self.tree, inj, self.nb + self.nl)
+        _, LM = self._blocks()
+        R, zl = self._zbranch()
+        ZIp = np.concatenate([R, zl]) * Ip
+        rhs = self.M.T @ ZIp
+        if self.w > 0 and self.nb:
+            rhs = rhs + (1j * self.w) * (LM.T @ Ip[:self.nb])
+        x = sla.lu_solve(self.lu, -rhs, check_finite=False)
+        BU.charge("em_dense", float(self.N) ** 2)
+        return Ip + self.M @ x
+
+    energy_L = System.energy_L
+    dissipation_R = System.dissipation_R
+    breakdown = System.breakdown
+
+    def currents(self, x):
+        return x[:self.nb], x[self.nb:self.nb + self.nl]
 
 
 def _dissipation(net, I, Il, w):
@@ -1386,6 +1555,7 @@ def refine(net):
     out.planes = {k: dict(pl, P=pl["P"] / 2) for k, pl in net.planes.items()}
     out.pitch = net.pitch / 2 if net.pitch else None
     out._arr = out._L = None
+    out._loops = out._loopL = None
     a = net.arrays()
     for i in range(a.nb):
         ax, bx, na, nb, R, g, tq = int(a.ax[i]), a.box[i], int(a.na[i]), int(a.nb_[i]), a.R[i], a.grp[i], a.tq[i]
@@ -1589,7 +1759,7 @@ def _loop_nets(s, sols, net_of, share=None):
 def plan_cell(net, pour_keys, loop_nets, raw, vias, box, win, pitch, repair=(), p0=None):
     """The tiling plan of a cell (Plan). Loop copper: the loop nets' pads, track pieces and vias that meet `box` (the
     cell's pad box). Per plane layer L: h_L, the centre distance to the nearest layer holding loop pads or strips;
-    P0 = the lattice pitch at most min(pitch, h_L): the tiles need to resolve the return current's lateral spread,
+    P0 = min(pitch, h_L) (each plane on its own lattice P0 x 2^k): the tiles need to resolve the return current's lateral spread,
     about h (a track is a bar of its true width whatever the tile pitch, so the narrowest loop strip w_min, recorded,
     does not set P0: min(h / 2, w_min) refused real 2-layer cells for 8,700 unknowns); the near region, every loop
     element buffered by max(NEAR_H x its distance to L, NEAR_MIN); fine regions:
@@ -1631,14 +1801,16 @@ def plan_cell(net, pour_keys, loop_nets, raw, vias, box, win, pitch, repair=(), 
         if not others:
             others = [abs(zc[L] - zc[l]) for l in net.order if l != L] or [1.0]
         h[L] = min(others)
-        P0[L] = snap_pitch(p0) if p0 else snap_pitch(min(pitch, h[L]))
+        # P0 is min(pitch, h) itself (rounded to 0.1 um), the plane's own lattice P0 x 2^k: snapping it down to the
+        # 0.5 x 2^k lattice cost up to 2x in pitch and 4x in tiles (h 0.235 mm gave 0.125)
+        P0[L] = snap_pitch(p0) if p0 else round(min(pitch, h[L]), 4)
         near[L] = unary_union([g.buffer(max(NEAR_H * (abs(zc[L] - zc[l]) if l else 0.0), NEAR_MIN))
                                for l, g in els]) if els else None
         fl = []
         for v in vels:
             if L in v["span"]:
                 rb = v["drill"] / 2 + MAT.VIA_PLATING_MM
-                fl.append((Point(v["x"], v["y"]).buffer(VIA_ZONE * rb), snap_pitch(min(P0[L], 2 * rb))))
+                fl.append((Point(v["x"], v["y"]).buffer(VIA_ZONE * rb), snap_pitch(min(P0[L], 2 * rb), P0[L])))
         for d in net.pads.values():
             g = d["geoms"].get(L)
             if g is not None and (L, d["net"]) in pour_keys and near[L] is not None and g.intersects(near[L]):
@@ -2085,7 +2257,7 @@ def _units():
 
 
 def from_board(path, cell, window=None, pitch=STRIP_PITCH, b=None, fills=None, nw=1, intent=None, ctx=None,
-               max_unknowns=None, keep=False, floating=False, all_nets=False, grade=True, p0=None):
+               max_unknowns=None, keep=False, floating=False, all_nets=False, grade=True, p0=None, solver="loop"):
     """The strips quote of one cell of the board at `path` (cell: its source name or brief structure id) in `window`
     (default: the raster quote's, hotloop.window_pads grown by MARGIN_MM / MARGIN_H x h): the cell's nets' tracks and
     vias in the window as strips and vias, their pads as pad nodes, their KiCad fills as graded plane tiles
@@ -2144,7 +2316,7 @@ def from_board(path, cell, window=None, pitch=STRIP_PITCH, b=None, fills=None, n
         newi[np.nonzero(keepm)[0]] = np.arange(int(keepm.sum()))
         bal_f = {int(newi[n]): v for n, v in bal_f.items() if keepm[n]}
         bal_e = {int(newi[n]): v for n, v in bal_e.items() if keepm[n]}
-        nunk = sub_f.unknowns()
+        nunk = sub_f.loops() if solver == "loop" else sub_f.unknowns()
         q.unknowns = nunk
         if nunk > max_unknowns:
             if gi + 1 < len(grades):
@@ -2157,9 +2329,11 @@ def from_board(path, cell, window=None, pitch=STRIP_PITCH, b=None, fills=None, n
             break
         L = mutuals(sub_f, ctx.tables)
         sub_e._L = L
-        se = System(sub_e, L, info["f_edge"]).factor()
+        S_ = LoopSystem if solver == "loop" else System
+        se = S_(sub_e, L, info["f_edge"]).factor()
         xe = se.solve(inj=bal_e)
-        sf = System(sub_f, L, info["f_fund"]).factor()
+        sub_f._loops, sub_f._loopL = getattr(sub_e, "_loops", None), getattr(sub_e, "_loopL", None)
+        sf = S_(sub_f, L, info["f_fund"]).factor()
         xf = sf.solve(inj=bal_f)
         q.L_loop = se.energy_L(xe)
         q.R_loop = sf.dissipation_R(xf)

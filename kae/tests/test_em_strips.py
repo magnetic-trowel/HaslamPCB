@@ -99,8 +99,8 @@ def test_closed_is_below_long_and_near_the_fine_raster_window(boards):
 
 def test_a_bordered_update_equals_an_independent_build(boards):
     # uniform tiles: the two layouts share every tile (a graded plan follows each layout's near region)
-    c = _q(boards, "closed", keep=True, grade=False)
-    l_ = _q(boards, "long", keep=True, grade=False)
+    c = _q(boards, "closed", keep=True, grade=False, solver="mna")
+    l_ = _q(boards, "long", keep=True, grade=False, solver="mna")
     se, _, _, _ = c.systems["edge"]
     _, _, n1, inj1 = l_.systems["edge"]
     BU.set_mode("time")
@@ -324,7 +324,7 @@ def test_a_quote_coarsened_by_its_budget_reports_it(boards):
 
 
 def test_a_quote_past_the_refusal_line_is_not_computed(boards, tmp_path):
-    q = _q(boards, "closed", max_unknowns=500)
+    q = _q(boards, "closed", max_unknowns=200)
     assert q.state == "not_computed" and q.L_loop is None and q.R_loop is None
     assert q.why.startswith("pitch too coarse for the loop: needs P0 <= 0.5 mm, budget allows about")
     # a huge window (500 mm, poured): even at its far cap (16 mm tiles) and the 2:1 rule alone it needs more
@@ -332,10 +332,10 @@ def test_a_quote_past_the_refusal_line_is_not_computed(boards, tmp_path):
     p = write_hotloop_board(tmp_path / "huge", "closed")
     win = (-100, -100, 400, 400)
     ctx = ST.prepare(str(p), fills={"GND": {"B.Cu": [box(*win)]}})
-    q = ST.from_board(str(p), CELL, window=win, ctx=ctx)
+    q = ST.from_board(str(p), CELL, window=win, ctx=ctx, max_unknowns=1000)
     assert q.state == "not_computed" and q.grade is None and q.pitch_far == 16 and q.L_loop is None
-    assert q.why.startswith("pitch too coarse for the loop") and q.unknowns > ST.MAX_UNKNOWNS
-    assert ST.from_board(str(p), CELL, window=win, ctx=ctx, max_unknowns=8000).state == "ok"
+    assert q.why.startswith("pitch too coarse for the loop") and q.unknowns > 1000
+    assert ST.from_board(str(p), CELL, window=win, ctx=ctx).state == "ok"
 
 
 def test_a_copper_join_the_tiles_lose_is_repaired_or_not_computed(tmp_path, monkeypatch):
@@ -379,7 +379,7 @@ def test_a_track_end_whose_copper_meets_another_track_joins_it(boards):
 def test_the_near_pitch_follows_the_planes_height_not_the_narrowest_track(tmp_path):
     """P0 = the lattice pitch at most min(STRIP_PITCH, h): the tiles resolve the return's lateral spread (about h);
     a track is a bar of its true width whatever the tile pitch. The fixture with its VIN track 0.2 mm wide keeps
-    P0 0.5 (h 1.545 mm) and quotes; a plane 0.2 mm under the loop gets P0 0.125 (not 0.0625 from h / 2)."""
+    P0 0.5 (h 1.545 mm) and quotes; a plane 0.235 mm under the loop gets P0 0.235 (not 0.0625 from h / 2)."""
     p = write_hotloop_board(tmp_path / "thin", "closed")
     txt = p.read_text()
     p.write_text(txt.replace("(width 0.5)", "(width 0.2)", 1))
@@ -390,7 +390,7 @@ def test_the_near_pitch_follows_the_planes_height_not_the_narrowest_track(tmp_pa
     net = ST.Network({"F.Cu": (0.235e-3, 0.27e-3), "In1.Cu": (0.0, 0.035e-3)}, origin=(0, 0))
     raw = [dict(layer="F.Cu", net="VIN", a=(1.0, 5.0), b=(9.0, 5.0), w=0.15, pour=None)]
     plan = ST.plan_cell(net, {("In1.Cu", "GND")}, {"VIN", "GND"}, raw, [], (0, 0, 10, 10), (0, 0, 10, 10), 0.5)
-    assert abs(plan.h["In1.Cu"] - 0.235) < 1e-9 and plan.P0["In1.Cu"] == 0.125
+    assert abs(plan.h["In1.Cu"] - 0.235) < 1e-9 and plan.P0["In1.Cu"] == 0.235
     assert LineString([(1, 5), (9, 5)]).buffer(1.0).within(plan.near["In1.Cu"]) and box(0, 0, 10, 10).area > 0
 
 
@@ -421,3 +421,11 @@ def test_a_chain_of_short_wide_track_pieces_stays_joined(tmp_path):
                                   ((118.45, 111.0), (119.69, 111.0), 0.3)])):
         nf = _vin_chain(tmp_path, chain, name)
         assert nf.connected(nf.pads["C1.1"]["node"], nf.pads["U1.3"]["node"]), name
+
+
+def test_the_loop_basis_solves_as_the_nodal_one_from_a_third_of_the_unknowns(boards):
+    """LoopSystem (fundamental loops of a spanning tree) gives the MNA's currents: L and R to 1e-12."""
+    for v in ("closed", "long"):
+        m, l_ = _q(boards, v, solver="mna"), _q(boards, v)
+        assert abs(l_.L_loop / m.L_loop - 1) < 1e-12 and abs(l_.R_loop / m.R_loop - 1) < 1e-12
+        assert l_.unknowns < m.unknowns / 3
