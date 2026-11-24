@@ -11,7 +11,8 @@ Heat, per corner of the ledger (the DC band's operating point, kae.excite.dc):
     cell         switch conduction I_L^2 R_on D, switching (V I_L t_i + C_sw V^2) f_sw at the controller's
                  pads; the rectifier's V_f I_out at its pads, or, synchronous (no rectifier part), its
                  conduction I_L^2 R_on (1 - D) at the controller's pads too (one R_on for both switches);
-                 a 4-switch buck-boost: 2 I_L^2 R_on, and the switching of the leg that switches
+                 a 4-switch buck-boost: 2 I_L^2 R_on, and the switching of the leg that switches;
+                 with the facts' efficiency (nets.<rail>.eta): (1/eta - 1) P_out instead
     load         V I of every load at its pads (an export through a connector leaves the board)
     ac           each part's loss from the switching harmonics (kae.excite.spectrum), when given
 
@@ -182,6 +183,21 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             # the switch conducts I_L for D; with no rectifier part the synchronous one inside the
             # controller conducts it for the rest (1 - D), as the DC flow injects it (kae.excite.dc)
             cond = IL ** 2 * ron * (D if c["rect"] else 1.0)
+            vo = dcp.volts.get(r)
+            if f.get("eta") and vo:
+                # the facts state the converter's efficiency: its loss is (1/eta - 1) P_out (the DC flow's input
+                # current is P_out / eta, kae.excite.dc), the rectifier's V_f I share of it at the rectifier;
+                # the class priors (R_on, C_sw up to 1.3 nF) read a 1 W loss in a 1.4 W converter of 80-93 %
+                eta = cv.get((f["eta"].subject, "eta"), f["eta"].typ)
+                if c["cls"] == "buckboost":
+                    I_out = IL / max(1.0, DC._ratio(dcp, r, cv))
+                loss = max(1 / eta - 1, 0.0) * vo * I_out
+                rw = 0.0
+                if c["rect"]:
+                    rw = min(loss, val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * (I_out if c["cls"] == "boost" else IL * (1 - D)))
+                    add(c["rect"], rw)
+                add(c["ctrl"], loss - rw)
+                continue
             if c["cls"] == "buckboost":
                 # a 4-switch buck-boost: one switch of each leg is on at any time (two R_on in the inductor's path);
                 # the leg that switches is the input one bucking, the output one boosting (its own cell's values)

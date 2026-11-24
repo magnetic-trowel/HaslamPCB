@@ -389,3 +389,17 @@ def test_a_buck_boost_heats_its_controller_with_two_switches_in_the_inductors_pa
     cv = {"cell:b": {"I_A": 0.6, "D": 0.75, "V_V": 18.0, "t_i_s": 0.0, "C_sw_F": 0.0}}
     heat = H.part_heat(bd, pl, cv, {("heat:U1", "R_on_ohm"): 0.1}, {})
     assert heat["U1"] == pytest.approx(2 * 0.6 ** 2 * 0.1)
+
+
+def test_a_cell_with_the_facts_efficiency_loses_what_it_states():
+    """With the facts' eta the converter's loss is (1/eta - 1) P_out (as its input current is P_out / eta), not
+    the class priors' R_on and C_sw (which read 1 W in a 1.4 W buck-boost of 80-93 %)."""
+    from types import SimpleNamespace
+
+    from kae.excite import heat as H
+    pl, _ = _buckboost_plan(eta=(0.8, 0.9))
+    bd = SimpleNamespace(part_kind={"U2": ("ic", "mcu", "mcu")})
+    cv = {("dc:U1", "eta"): 0.85, "cell:b": {"I_A": 0.1, "D": 0.75, "V_V": 25.0, "t_i_s": 1e-8, "C_sw_F": 1.3e-9,
+                                             "f_sw_Hz": 1.2e6}}
+    heat = H.part_heat(bd, pl, cv, {("heat:U1", "R_on_ohm"): 0.3}, {})
+    assert heat["U1"] == pytest.approx((1 / 0.85 - 1) * 13.5 * 0.1)
