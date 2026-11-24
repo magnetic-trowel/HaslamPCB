@@ -1,0 +1,8 @@
+azonenberg-dumptruck-emmc-interposer
+mackieks-aveflex-aveflex
+sierra-lobo-backplane-backplane
+gsteiert-b4thin-b4thin
+dcmini-org-dcmini-hw-4head
+oro-os-link-sd-ribbon
+librem5-ext-con-breakout-board-ext-con-breakout-board
+valdikss1-patchouli-prj-2
