@@ -200,6 +200,11 @@ def test_sprint_params_and_note_go_on_every_arm(monkeypatch, store):
         _sprint(monkeypatch, store, set=["k=v"], param=["parallel"])
 
 
+def test_sprint_tier_ladder_runs_the_same_arms_as_a_ladder_experiment(monkeypatch, store):
+    e = _sprint(monkeypatch, store, set=["k=4"], tier="ladder")["create"]
+    assert e.tier == "ladder" and e.description.startswith("ladder on ") and e.reuse_runs
+
+
 def test_sprint_staged_takes_the_placing_control_and_refuses_the_control_itself(monkeypatch, store):
     c = _sprint(monkeypatch, store, base="staged", dry_run=True)
     assert c["method"].kind == "joint-fixed" and c["create"].method == ["st", "new"] and c["submit"].dry_run
