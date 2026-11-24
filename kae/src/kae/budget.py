@@ -94,8 +94,9 @@ RATES = {
     "em_precond": 8.8e-9,       # one (block size)^3 of the preconditioner's dense PATCH block inverses; 8.7e-9-1.7e-8
     "em_factor": 1.56e-7,       # one nonzero of an LU factor (the node Schur complement, the thermal network);
                                 # 1.3-1.7e-7
-    "em_iter": 3.8e-7,          # one unknown-iteration of the preconditioned COCG (with the solves' read-out);
-                                # 3.6-4.4e-7, 60-80 % of an evaluation's wall
+    "em_iter": 4.5e-7,          # one unknown-iteration of the preconditioned COCG (with the solves' read-out);
+                                # 3.6-4.4e-7 on the evaluation boards, but 4.7e-7 (and 5.9e-7 on a busier host) on
+                                # forestierr's clear-step quote (265.6 M units in 125 s), less the pruned FFT's ~5 %
     "em_static_iter": 1.1e-7,   # one copper-cell iteration of the electrostatic CG; 9.9e-8-1.4e-7
     "em_thermal_solve": 2.2e-9, # one LU nonzero applied in a thermal solve (per column and CG iteration); 2.0-2.4e-9,
                                 # two boards (the third had no dissipating part)
