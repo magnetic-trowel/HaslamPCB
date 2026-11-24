@@ -49,10 +49,25 @@ TOP_NETS = 5
 EMPTY = Polygon()
 
 
+def _arc_points(s, m, e, n=8):
+    """pc_refplane.arc_points with the given ends exactly: its computed ends are off by ~1e-12, which leaves an
+    outline of lines and arcs open, so polygonize kept only a mounting hole (found by return_check.py: one board
+    measured 0.01 against KiCad's 0.55). Kept here so the shared research module's other users do not change."""
+    pts = P_arc_points(s, m, e, n)
+    return [tuple(s)] + pts[1:-1] + [tuple(e)] if len(pts) > 2 else [tuple(s), tuple(e)]
+
+
+P_arc_points = P.arc_points
+
+
 class Board(P.Board):
     def _outline(self, tree):
         self.tree = tree
-        return super()._outline(tree)
+        P.arc_points = _arc_points
+        try:
+            return super()._outline(tree)
+        finally:
+            P.arc_points = P_arc_points
 
 
 def geoms(g):
