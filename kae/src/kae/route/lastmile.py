@@ -14,8 +14,8 @@ What is left is of two kinds:
   sees these as open).
 
 `close` reads the board as KiCad sees it (the routed board's tracks and vias, every zone's
-refilled copper), finds each open net's connected parts (copper touching on a layer, a
-track joined only at its ends, as KiCad joins them) and joins each smaller part to the
+refilled copper), finds each open net's connected parts (copper of the net touching on a
+shared layer, as KiCad 10's connectivity joins it: see parts) and joins each smaller part to the
 rest: a grid route (GridRouter.connect, every segment and via checked exactly against the
 bridge's rules) from the part's copper to the other parts' copper within a growing window,
 first around everything, then with the window's unlocked tracks and vias of other nets
@@ -39,7 +39,7 @@ from kae.budget import charge
 from kae.budget import now as clock_now
 import numpy as np
 from shapely import STRtree
-from shapely.geometry import Point, Polygon, box
+from shapely.geometry import Polygon, box
 from shapely.ops import unary_union
 
 from kae.board.kicad_file import load
@@ -83,16 +83,23 @@ def _fill_polys(fills):
 
 
 class _Node:
-    __slots__ = ("kind", "item", "layers", "copper", "ends", "layer")
+    __slots__ = ("kind", "item", "layers", "copper", "layer")
 
-    def __init__(self, kind, item, layers, copper, ends=(), layer=None):
-        self.kind, self.item, self.layers, self.copper, self.ends, self.layer = kind, item, set(layers), copper, ends, layer
+    def __init__(self, kind, item, layers, copper, layer=None):
+        self.kind, self.item, self.layers, self.copper, self.layer = kind, item, set(layers), copper, layer
 
 
 def parts(space, fills, net):
     """The connected parts of `net` as KiCad joins its copper: [[_Node]], largest first
-    (by pads, then fill area). A track joins other copper only where one of its ends lies
-    on it; pads, vias and fills join what they overlap on a shared layer."""
+    (by pads, then fill area). Pads, tracks, vias and fill pieces of the net join wherever
+    their copper touches on a layer they share. KiCad 10.0.7 joins a track to a fill, a pad
+    or another track anywhere along its body, not only at its ends: a track crossing a fill
+    of its net with both ends outside it, two tracks crossing in an X, a track passing over
+    a pad are all one cluster in pcbnew's connectivity (copper_items --clusters on a
+    synthetic board, kae/tests/test_route_lastmile.py). The old ends-only rule split parts
+    KiCad sees joined (solar-small: GND's U101.1, its track ending 0.05 mm short of the pad,
+    a part of its own), and the last mile spent its joins on those while KiCad's one gap,
+    an exposed pad's fill island, stayed open. repair.net_clusters joins by the same rule."""
     nodes = []
     for it in space.pads:
         if it.net == net and it.kind == "pad":
@@ -101,9 +108,7 @@ def parts(space, fills, net):
         if it.net != net:
             continue
         if it.kind == "track":
-            c = list(it.geom.coords)
-            nodes.append(_Node("track", it, it.layers, it.geom.buffer(it.r), ends=(Point(c[0]), Point(c[-1])),
-                               layer=next(iter(it.layers))))
+            nodes.append(_Node("track", it, it.layers, it.geom.buffer(it.r), layer=next(iter(it.layers))))
         elif it.kind == "via":
             nodes.append(_Node("via", it, it.layers, it.geom.buffer(it.r)))
     for layer, polys in (fills.get(net) or {}).items():
@@ -130,19 +135,7 @@ def parts(space, fills, net):
             if j <= i:
                 continue
             b = nodes[j]
-            shared = a.layers & b.layers
-            if not shared:
-                continue
-            if a.kind == "track" or b.kind == "track":
-                t, o = (a, b) if a.kind == "track" else (b, a)
-                if o.kind == "track":
-                    hit = any(o.copper.distance(e) <= eps for e in t.ends) or any(
-                        t.copper.distance(e) <= eps for e in o.ends)
-                else:
-                    hit = any(o.copper.distance(e) <= eps for e in t.ends)
-            else:
-                hit = a.copper.distance(b.copper) <= eps
-            if hit:
+            if a.layers & b.layers and a.copper.distance(b.copper) <= eps:
                 join(i, j)
     # the connectivity pass is work a budget must see: a net whose joins kept adding copper made
     # each later pass dearer (atrivatech ch32v003: D+ re-joined 205 times, 50 s a turn uncharged)
