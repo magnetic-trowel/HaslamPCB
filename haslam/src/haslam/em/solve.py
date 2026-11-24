@@ -588,7 +588,7 @@ def open_islands(net, injections, open_):
 
 
 def potentials_many(mesh, inj_list, f, read=None, tol=TOL, net=None, op=None, warm=None, light=False, system=None,
-                    x0=None, leak=1e-3):
+                    x0=None, leak=1e-3, keep_state=False):
     """potentials() for several injection sets at once (one batched COCG). Returns a list of
     ({terminal: V}, info) in the order given; an unbalanced set returns (None, info). light: the infos keep
     only the system's diagonal (info["sys"].zdiag), not the system with its factorization, and no warm-start
@@ -598,7 +598,8 @@ def potentials_many(mesh, inj_list, f, read=None, tol=TOL, net=None, op=None, wa
     a starting solution on this same network (or None), e.g. the same source solved at another frequency.
     Each info's `converged` is False where the solve stopped at its iteration limit above tol. leak: an island whose
     injections do not balance by more than this share of the largest injection is open; a smaller imbalance is taken
-    from the island's largest injection (a window that cut off a pad carrying less). One value, or one per injection set."""
+    from the island's largest injection (a window that cut off a pad carrying less). One value, or one per injection set.
+    keep_state: light infos keep the solution's position-keyed state too (info["state"], for `warm`)."""
     net = net or Network(mesh)
     op = op or Operator(net)
     sysm = system if system is not None else System(op, f)
@@ -647,6 +648,8 @@ def potentials_many(mesh, inj_list, f, read=None, tol=TOL, net=None, op=None, wa
         info["converged"] = bool(conv[q])
         if light:
             info.update(iters=int(its[q]), net=net, op=op, sys=SimpleNamespace(zdiag=sysm.zdiag), x=x, I=x[:net.n_br])
+            if keep_state:                   # position-keyed (System.warm): a later solve of a changed copy starts here
+                info["state"] = sysm.state_of(x)
         else:
             info.update(iters=int(its[q]), net=net, op=op, sys=sysm, x=x, I=x[:net.n_br], state=sysm.state_of(x))
         if info["unbalanced"]:
