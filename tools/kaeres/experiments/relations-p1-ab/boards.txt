@@ -1,0 +1,6 @@
+barsy-barsevich-ah3-hardware-ah3
+bluesatunsw-owr-502-can-converter
+jin-neuron-turtle-pico-turtlepico
+machdyne-blaustahl-blaustahl
+pcbcorpus-angelnu-esphome-siedle-bus
+pcbcorpus-tcsullivan-noisecard-noisecard
