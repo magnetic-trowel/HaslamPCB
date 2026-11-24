@@ -302,6 +302,12 @@ DEFAULTS = dict(
                                    # (human): polarfire 139-151 / 268-283 / 265-361 of 465 (387), nekoink
                                    # 52-56 / 108-114 / 115-117 of 226 (196), gecko5 1-2 / 46-52 / 52-55 of 73
                                    # (61); HPWL no worse (polarfire 12.7k at 3 vs 15.8k off, same seed)
+    fast_edge_weight=1.5,          # placement: weight multiplier of nets kae.circuit.edges makes high_speed/fast_edge
+                                   # (driver t_r/2 shorter than the board's w + h); 1: treat them as plain signals.
+                                   # A trade-off, reported in the place report's 'fast_edge' decision: on 12 boards x
+                                   # 2 seeds (intent-fast-nets-edges) 1.5 left 2.3 fewer nets per board over t_r/2
+                                   # [-4.0, -1.0] and the fast nets 128 mm shorter [-267, -9], for 116 mm more total
+                                   # HPWL [-13, +249] (median +1.2 %); legality, probe opens and physics unchanged
     tht_neck="on",                 # power copper (kae.route.power_copper, finish's "power" part): "on" necks grown
                                    # copper within neck_len of plated through-hole pads of power and ground nets to
                                    # the width their current needs (neck_rule tht; the routed track's width is kept),

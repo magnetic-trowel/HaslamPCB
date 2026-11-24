@@ -19,6 +19,29 @@ Rules [I]:
 - Resolve MCU pin-mux from vendor pin-config exports or an explicit schematic table, not by LLM inference (LLMs fail on multiplexed and redundant pins -> [Pin semantics](#pin-semantics)).
 - Show defaults (Quilter-style 200/500 mA) as needing confirmation; state undetected nets as "generic low-speed".
 
+## Fast nets (built)
+
+`kae.circuit.edges` answers "is this net fast?" with the computation above, not with names.
+
+- **t_r** is the fastest driver on the net: an IC, module or oscillator pin typed output, bidirectional, tri-state or open-drain (untyped pins count). Each family row names its source and is marked `assumed`: it is a family default, not this part's datasheet or IBIS `[Ramp]`. Values are 10–90 %. Logic and FPGA rows are the family's fastest edge; MCU rows are the pin's reset default, since the netlist cannot show what slew firmware sets (user decision, 2026-11): the brief's `edge.slew` and every edge hazard's fix say that a pin set to a fast slew or higher drive needs review.
+
+  | Family | t_r | Source |
+  |---|---|---|
+  | 74LVC/ALVC/AVC/LVT, NC7SZ; 74AC/ACT/F | 1.5 ns | TI E2E [S]; *Complete PCB Design* family table [S] |
+  | 74AHC; 74HC; 74HCT; 74LS | 2.3; 6; 8; 10 ns | TI E2E (0.7 ns/V) [S]; [SN74HC04](https://www.ti.com/lit/ds/symlink/sn74hc04.pdf) t_t typ at 6 V [P]; SN74HCT04 [P]; family table [S] |
+  | STM32; GD32/APM32 | 100 ns | DS8626 I/O AC table, OSPEEDR=00 (reset) at 50 pF; 2.5 ns only at OSPEEDR=11 [S]; GD32 assumed alike [I] |
+  | nRF52 | 8 ns | PS GPIO: DRIVE resets to S0S1, 8 ns at 15 pF (simulated) [S] |
+  | SAM D/L/C | 13 ns | I/O pin characteristics: DRVSTR=0 at reset, 13–15 ns at 20 pF [S] |
+  | AVR | 3.6 ns | ATmega328P Table 28-6, SPI master; no slew setting [P] |
+  | RP2040/RP2350, ESP32, PIC, other MCUs and MCU modules | 10 ns | assumed slow: reset is slow slew (RP2040 `SLEWFAST=0`, PIC `SLRCON=1`) or undocumented, and no rise time is published [I] |
+  | FPGA | 0.5 ns | assumed: vendors defer to IBIS; as fast as a CMOS oscillator at 5 pF [I] |
+  | oscillator | 1.3 ns | [SiT8008B](https://www.sitime.com/sites/default/files/gated/SiT8008B-datasheet.pdf) 1 ns 20–80 % at 15 pF, ×1.33 [P] |
+
+  Other parts have no row and their nets are not judged (`edge.t_r_ns: null`). Interfaces whose standards set edge and termination (USB, PCIe, SATA, HDMI, DP, MIPI, LVDS, SerDes, Ethernet MDI, DDR, CAN, RS-485) are left to their rule packs.
+- **t_pd**: microstrip √(0.475 εr + 0.67)/c (IPC-2141 fit), stripline √εr/c, εr from the stackup or 4.5. At εr 4.6, TI [SCAA082A](https://www.ti.com/lit/an/scaa082a/scaa082a.pdf) Table 2 gives 5.8–5.9 ps/mm microstrip and 7.15 ps/mm stripline [P]; the fit gives 5.65 and 7.15.
+- **Brief** (`nets[n].edge`): t_r, source, the review (t_r/6) and terminate (t_r/2) lengths. A plain `signal` net whose terminate length is shorter than the outline's w + h becomes `high_speed`/`fast_edge` (confidence 0.73): power copper keeps its victim gap from it, and placement weights it `fast_edge_weight` (1.5; `KAE_FAST_EDGE_WEIGHT`, 1 = off), a trade-off the place report records under `fast_edge`. Sprint A/B (12 boards × 2 seeds): 2.3 fewer nets per board over t_r/2 [−4.0, −1.0], fast nets 128 mm shorter [−267, −9], total HPWL +116 mm [−13, +249] (median +1.2 %), legality, probe opens and physics unchanged. An analog victim structure still outranks it.
+- **Hazards** on every board kae writes (`board_hazards.finish`): driver-to-farthest-load delay over t_r/2 is `edge_ringing_risk` (warn), over t_r/6 `edge_si_review` (info); routed copper where it reaches the load (Dijkstra on delay per layer), else a Manhattan estimate. The fix names a series resistor at the driver pin, a shorter route or a lower slew, per rule 5 of [si-fundamentals](../rules/si-fundamentals.md): never auto-insert terminations.
+
 ## KiCad naming and class rules
 
 - Diff pairs are strictly name-based: "nets with a common base name and a positive and negative suffix… + and -, or P and N… cannot be mixed: USB+ and USB_N do not form a differential pair". Gap comes from the net class ([KiCad 9 PCB manual](https://docs.kicad.org/9.0/en/pcbnew/pcbnew.html)) [P].

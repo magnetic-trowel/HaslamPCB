@@ -1,0 +1,70 @@
+{
+ "atx-silence-silence": [
+  "/SENS"
+ ],
+ "bitwiseajeet-esp32-based-pcb-kicad-esp32-pcb": [
+  "/ESP32-C3-02/MIC_OUT",
+  "/ESP32-C3-02/Photo C"
+ ],
+ "dchwebb-spectralist-spectralist-components": [
+  "/Filter_A_CV",
+  "/Filter_A_Pot",
+  "/Filter_B_CV",
+  "/Filter_B_Pot",
+  "/Filter_Slope_CV",
+  "/Filter_Slope_Pot",
+  "/Harm_Stretch_CV",
+  "/Harm_Stretch_Pot",
+  "/Harm_Warp_CV",
+  "/Harm_Warp_Pot",
+  "/Pan_CV",
+  "/Pitch_CV_Scaled"
+ ],
+ "def12345678-m-fc-g474-rev-a-m-fc": [
+  "/Connectors/ADC_CURR",
+  "/Connectors/ADC_VBAT"
+ ],
+ "dmcke5-zendeck-lhs-controller-pcb": [
+  "/VOL_DN",
+  "/VOL_UP"
+ ],
+ "ghous-ali-custom-esp32-dev-board-twlog-v1": [
+  "/SENSOR_VP"
+ ],
+ "hussamkoman-devotchi-devotchi": [
+  "BAT_ADC"
+ ],
+ "jordanaceto-rust-ribbon-controller-ribbon-controller": [
+  "/microcontroller/GLIDE_CV"
+ ],
+ "martinberlin-h-cinread-it8951-it8951-hat": [
+  "/ADC1_CH3"
+ ],
+ "pcbcorpus-sufst-pcb-8ch-sensor-hub": [
+  "/ADC_R_1",
+  "/ADC_R_2",
+  "/ADC_R_3",
+  "/ADC_R_4",
+  "/ADC_R_5",
+  "/ADC_R_6",
+  "/ADC_R_7",
+  "/ADC_R_8"
+ ],
+ "mohamedyanis-stm32l0-esp32-breakout-board-stm32l0-esp32-breakout-board": [
+  "ADC"
+ ],
+ "kaitallaoua-capstone-pcb-mcu-integration": [
+  "ADC1_IN10_OPTO_F_NOSHD",
+  "ADC1_IN11_OPTO_E_NOSHD",
+  "ADC1_IN12_OPTO_F_MEL",
+  "ADC1_IN13_OPTO_E_MEL",
+  "ADC1_IN14_OPTO_F_AL",
+  "ADC1_IN15_OPTO_E_AL",
+  "ADC1_IN1_OPAMP_NOSHD",
+  "ADC1_IN2_OPAMP_MEL",
+  "ADC1_IN3_OPAMP_AL",
+  "ADC1_IN4_VREF_NOSHD",
+  "ADC1_IN5_VREF_MEL",
+  "ADC1_IN6_VREF_AL"
+ ]
+}
