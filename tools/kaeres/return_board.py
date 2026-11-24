@@ -88,12 +88,20 @@ def zone_layers(z, layers):
 
 
 def zone_shape(z):
+    """A zone's outline. KiCad reads a zone's first `polygon` as the outline and every later one as a hole in it
+    (ZONE::AddPolygon), which is how a cutout is saved; a later polygon that is not inside the outline is added,
+    so an odd file loses no area."""
     polys = []
     for pg in P.kids(z, 'polygon'):
         pts = [P.xy(q) for q in (P.first(pg, 'pts') or []) if isinstance(q, list) and q[0] == 'xy']
         if len(pts) >= 3:
             polys.append(Polygon(pts).buffer(0))
-    return union(polys)
+    if not polys:
+        return EMPTY
+    out = polys[0]
+    for p in polys[1:]:
+        out = out.difference(p) if polys[0].buffer(1e-6).contains(p) else out.union(p)
+    return out
 
 
 def no_pour(z):
@@ -214,6 +222,17 @@ def measure_board(b):
 def measure(path):
     """Return rows of one board file (.kicad_pcb or .kicad_pcb.gz)."""
     return measure_board(load(path))
+
+
+_CACHE = {}
+
+
+def measure_cached(path):
+    """measure() once per path and process: the quality report pairs the control with every arm and the human."""
+    key = str(path)
+    if key not in _CACHE:
+        _CACHE[key] = measure(path)
+    return _CACHE[key]
 
 
 PAIRED_KEYS = ('cov_opp', 'cov_any', 'fast_cov_opp', 'fast_cov_any', 'unc_mm')
