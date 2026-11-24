@@ -113,7 +113,7 @@ def expected_durations(c, jobs, now=None, model=None):
     return out
 
 
-def forecast_queue(running, queued, dur, mem, cpus, mem_cap, cpu_cap, now, horizon=14 * 86400, ends=None):
+def forecast_queue(running, queued, dur, mem, cpus, mem_cap, cpu_cap, now, horizon=14 * 86400, ends=None, boost=()):
     """Replay the queue forward: when does each owner start and finish? running/queued: job rows; dur: {id:
     expected active s}; mem/cpus: {id: footprint}; mem_cap/cpu_cap: what jobs may hold. Running jobs end after
     their expected time left (at least a tenth of it, or a minute, once overdue). Starts follow the daemon's order
@@ -134,7 +134,9 @@ def forecast_queue(running, queued, dur, mem, cpus, mem_cap, cpu_cap, now, horiz
         res[j["owner"]] = [now, max(res.get(j["owner"], [now, now])[1], end)]
     mem_cap, cpu_cap = max(mem_cap, used_m), max(cpu_cap, used_c)
     per = {}
-    for j in sorted(queued, key=lambda j: (-j["prio"], j["submitted"])):
+    top = max((j["prio"] for j in queued), default=0)
+    prio = lambda j: top if j["owner"] in boost else j["prio"]     # last-mile owners go first (last_mile)
+    for j in sorted(queued, key=lambda j: (-prio(j), j["submitted"])):
         per.setdefault(j["owner"], []).append(j)
     for q in per.values():
         q.reverse()                                   # pop() takes the next
@@ -143,7 +145,7 @@ def forecast_queue(running, queued, dur, mem, cpus, mem_cap, cpu_cap, now, horiz
         started = True
         while started:
             started = False
-            heads = sorted(per, key=lambda o: (-per[o][-1]["prio"], cnt.get(o, 0), per[o][-1]["submitted"]))
+            heads = sorted(per, key=lambda o: (-prio(per[o][-1]), o not in boost, cnt.get(o, 0), per[o][-1]["submitted"]))
             for o in heads:
                 j = per[o][-1]
                 if mem[j["id"]] <= mem_cap - used_m and (cpus[j["id"]] <= cpu_cap - used_c or not ev):
@@ -170,3 +172,18 @@ def forecast_queue(running, queued, dur, mem, cpus, mem_cap, cpu_cap, now, horiz
         for v in ends.values():
             v.sort()
     return {o: (r[0] if r[0] > now else None, r[1]) for o, r in res.items()}
+
+
+def last_mile(counts, cfg):
+    """Owners whose campaign is nearly done: at most last_mile_jobs (3) of its jobs still queued, and at most
+    last_mile_frac (10%) of its jobs, out of at least last_mile_min_jobs (10). Their jobs go ahead of higher
+    priorities, so a campaign is not left waiting hours on its last job or two: its results only count once it
+    is complete. counts: {owner: {state: n}}."""
+    out = set()
+    for o, st in counts.items():
+        q, run = st.get("queued", 0), st.get("running", 0)
+        total = sum(n for k, n in st.items() if k != "cancelled")
+        if (q or run) and total >= cfg["last_mile_min_jobs"] and q <= cfg["last_mile_jobs"] \
+                and q <= cfg["last_mile_frac"] * total:
+            out.add(o)
+    return out

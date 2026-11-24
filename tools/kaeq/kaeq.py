@@ -27,7 +27,7 @@ from kaeqlib.consts import CANCELLING, GB, MEM_BINS, TICK  # noqa: E402
 from kaeqlib.units import parse_cpus, parse_size, parse_dur, fgb, fdur, frozen_for, active_for, times  # noqa: E402
 from kaeqlib.leases import timed_share, expected_size, keep_flags, mem_hist, pooled_headroom, max_rise, pearson, owner_correlation, warm_headroom, lease_plan, adapt_z, adapt_hold  # noqa: E402
 from kaeqlib.cpu import quantile, adapt_runq_q, burst_fits  # noqa: E402
-from kaeqlib.forecast import size_model, given_so_far, board_of, runtime_model, expected_durations, forecast_queue  # noqa: E402
+from kaeqlib.forecast import size_model, given_so_far, board_of, runtime_model, expected_durations, forecast_queue, last_mile  # noqa: E402
 from kaeqlib.host import Host, TICK_HZ, at_high, cg_anon_refaults, cg_freeze, cg_frozen, cg_high_mb, cg_mem, cg_mem_pressure, cg_pressure, cg_set_high, cg_swap_mb, compress, compress_room_mb, cpu_ticks, job_cgroup, job_cpus, job_usage, kill_tree, meminfo, pid_alive, proc_by_session, runnable_threads, set_unit_prop, shutil_which, uncompress, user_pressure  # noqa: E402,F401
 from kaeqlib.store import ACTIVE, AUTO_DB, BEAT, CONF, DB, DB_BACKUP, DEFAULTS, DEPLOYED, ENV_KEEP, ERR_RE, HOME, HOST, LOCK, OVERCOMMIT, PROBLEM, RISE_HIST, SCHEMA, TRACES, USER, _on_nfs, _pinned_db, backup_db, close_trace, config, db, deployed, digest, dlog, drop_scratch, du_mb, event, jobdir, load_overcommit, load_rise_hist, pinned_host, rc_path, scratchdir, trace_path, write_trace  # noqa: E402,F401
 from kaeqlib.gitsnap import drop_worktree, git, git_snapshot, ref  # noqa: E402,F401
@@ -312,7 +312,8 @@ def job_end_times(c, now):
     room = bsys.get("avail", 0.0) - bsys.get("unrealized", 0.0) - bsys.get("reserve_mem", 0.0)
     ends = {}
     forecast_queue(running, queued, {k: v[0] for k, v in edur.items()}, mem, cpus,
-                   sum(mem[j["id"]] for j in running) + max(0.0, room), pool, now, ends=ends)
+                   sum(mem[j["id"]] for j in running) + max(0.0, room), pool, now, ends=ends,
+                   boost=set(bsys.get("last_mile") or ()))
     return ends
 
 

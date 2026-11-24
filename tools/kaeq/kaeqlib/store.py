@@ -234,6 +234,9 @@ DEFAULTS = {
     "lease_buffer_ticks": 3.0,  # this many times the fleet's largest growth within one tick over the last 10 minutes    # lease: a job stalled this long for memory that nothing frees requeues the newest other job
     "mem_budget_gb": 0,      # cap on what all jobs together may use and hold (0: none beyond the reserve)
     "starts_per_tick": 1,
+    "last_mile_jobs": 3,         # a campaign with at most this many jobs queued ...
+    "last_mile_frac": 0.10,      # ... and at most this share of its jobs (of at least last_mile_min_jobs) goes first
+    "last_mile_min_jobs": 10,
     "snapshot_staging": 4,       # snapshot checkouts running in the background at once (daemon.snapshot_ready)
     "snapshot_wait_s": 2.0,      # how long a tick waits for a checkout before leaving it to the background
     # CPU admission of batch jobs: not the run queue of the moment but its runq_q quantile over the last

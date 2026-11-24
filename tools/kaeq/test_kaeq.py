@@ -1505,3 +1505,20 @@ def test_a_snapshot_checkout_runs_in_the_background_and_the_job_starts_once_it_i
     release.set()
     d.staging[1]["done"].wait(5)
     assert d.snapshot_ready(j, cfg) and 1 not in d.staging            # ready: it starts
+
+
+def test_a_nearly_finished_campaign_finishes_ahead_of_higher_priorities(kq):
+    cfg = kq.config()
+    counts = {"almost": {"ok": 19, "queued": 1}, "early": {"ok": 2, "queued": 18},
+              "tiny": {"ok": 1, "queued": 1}, "finishing": {"ok": 18, "running": 2}}
+    assert kq.last_mile(counts, cfg) == {"almost", "finishing"}     # "tiny": too few jobs to call it a campaign
+    d = kq.Daemon(host=kq.Host())
+    now = time.time()
+    for i in range(19):
+        d.c.execute("INSERT INTO jobs(owner,cmd,cpus,mem_mb,timeout_s,state,submitted,started,finished,prio,qos) "
+                    "VALUES('almost','x',1,100,60,'ok',?,?,?,0,'batch')", (now - 100, now - 90, now - 80))
+    submit(kq, "sleep 20", name="last", owner="almost", qos="batch", prio=0, live=True)
+    submit(kq, "sleep 20", name="urgent", owner="other", qos="batch", prio=5, live=True)
+    d.tick()                                  # one start per tick: the last job of "almost" goes first
+    assert states(d)["last"] == "running" and states(d)["urgent"] == "queued"
+    assert "almost" in d.sys["last_mile"]
