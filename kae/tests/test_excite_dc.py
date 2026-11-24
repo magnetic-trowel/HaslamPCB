@@ -287,3 +287,105 @@ def test_track_heating_in_a_pour_is_steady_under_sub_cell_shifts(angle):
     for off in OFFSETS:
         I, weff, _ = _track_reading(angle, off, w=1.0)
         assert I == pytest.approx(1.0, abs=1e-6) and weff == pytest.approx(1.0)
+
+
+def _buckboost_plan(eta=None, fed=True):
+    """PV (J1) -> PV_IN; a 4-switch buck-boost (controller U1, inductor L1 between SW1 and SW2) PV_IN -> SYS
+    with load U2 (the LTC3130 of solar-small)."""
+    from kae.excite.beliefs import Param
+    pl = DC.Plan()
+    pl.grounds = {"GND"}
+    pl.pads = {
+        "J1": [("1", "PV_IN", "", ""), ("2", "GND", "", "")],
+        "U1": [("3", "SW1", "passive", "SW1"), ("4", "PV_IN", "power_in", "PVIN"), ("14", "SYS", "power_out", "VOUT"),
+               ("16", "SW2", "passive", "SW2"), ("17", "GND", "power_in", "GND")],
+        "U2": [("1", "SYS", "power_in", "VDD"), ("2", "GND", "", "GND")],
+    }
+    pl.volts = {"PV_IN": 18.0, "SYS": 13.5}
+    cells = {"b": dict(id="b", cls="buck", src="cell:b", vin="PV_IN", vout="SYS", sw="SW1", ctrl="U1", rect=None,
+                       ind="L1", parts={"U1", "L1"}),
+             "o": dict(id="o", cls="boost", src="cell:o", vin="PV_IN", vout="SYS", sw="SW2", ctrl="U1", rect=None,
+                       ind="L1", parts={"U1", "L1"})}
+    DC.merge_buckboost(cells)
+    cell = cells["b"]
+    pl.feeds = {"SYS": dict(kind="cell", cell=cell, ref="U1")}
+    if fed:
+        pl.feeds["PV_IN"] = dict(kind="external", ref="J1", out=["J1.1"], gnd=["J1.2"], rating=3.0)
+    if eta:
+        pl.feeds["SYS"]["eta"] = Param("dc:U1", "eta", sum(eta) / 2, eta[0], eta[1], "", "intent", "test")
+    pl.loads = [dict(ref="U2", rail="SYS", sup=["U2.1"], gnd=["U2.2"], share=1.0, cell=cell)]
+    return pl, cells
+
+
+@pytest.mark.parametrize("fed", [True, False])
+def test_a_4_switch_buck_boost_is_one_converter_whose_flow_closes(fed):
+    """The buck and boost cells of one controller and one inductor (SW1 - L1 - SW2) are one converter: I_L leaves
+    at SW1, comes back at SW2 and the output current leaves at the controller's VOUT. As two cells, the buck's
+    current entered SW1 with no way out and solar-small's DC band was not computed. With no feed on its input
+    the flow enters at the controller (its ground), as for a regulator."""
+    pl, cells = _buckboost_plan(eta=(0.8, 0.9), fed=fed)
+    assert list(cells) == ["b"] and cells["b"]["cls"] == "buckboost" and cells["b"]["sw2"] == "SW2"
+    cv = {("dc:U1", "eta"): 0.85, "cell:b": {"I_A": 0.6, "D": 0.75}}
+    inj = DC.injections(pl, cv)
+    sums = _net_sums(pl, inj, [{"SW1", "SW2"}])            # the inductor joins the two switch nodes
+    assert all(abs(v) < 1e-12 for v in sums.values()), sums
+    x = 0.6                                                # bucking: I_L is the output current
+    assert inj["U2.1"] == pytest.approx(-x)
+    assert inj["U1.3"] == pytest.approx(x) and inj["U1.16"] == pytest.approx(-x) and inj["U1.14"] == pytest.approx(x)
+    xin = x * 13.5 / (0.85 * 18.0)                         # P_in = P_out / eta
+    if fed:
+        assert inj["J1.1"] == pytest.approx(xin)
+    else:
+        assert "J1.1" not in inj and abs(inj.get("U1.4", 0.0)) < 1e-12
+
+
+def test_a_cells_input_current_follows_the_facts_efficiency():
+    """With the facts' eta the boost takes P_out / (eta V_in) from its input; without it the lossless duty."""
+    from kae.excite.beliefs import Param
+    pl = _plan(rect=None)
+    cv = {("dc:U2", "I_A"): 0.2, "cell:c": {"I_A": 1.0, "D": 0.6}}
+    x = DC.load_currents(pl, cv)[1]
+    assert DC.injections(pl, cv)["J1.1"] == pytest.approx(x / (1 - 0.6) + 0.2)
+    pl.feeds["5V"]["eta"] = Param("dc:U3", "eta", 0.9, 0.9, 0.9, "", "intent", "test")
+    cv[("dc:U3", "eta")] = 0.9
+    inj = DC.injections(pl, cv)
+    assert inj["J1.1"] == pytest.approx(x * 12.0 / (0.9 * 5.0) + 0.2)
+    assert all(abs(v) < 1e-12 for v in _net_sums(pl, inj, [{"VBUS", "SW"}]).values())
+
+
+def test_a_buck_whose_input_has_no_feed_enters_at_its_controller():
+    """A buck cell whose input rail has no feed: its input current came from nowhere (an open island, or a path
+    through the input's resistor dividers to ground); the flow now enters at the controller's ground."""
+    pl = DC.Plan()
+    pl.grounds = {"GND"}
+    pl.pads = {"U1": [("1", "VIN", "power_in", "VIN"), ("2", "SW", "", "SW"), ("3", "GND", "", "GND")],
+               "U2": [("1", "3V3", "power_in", "VDD"), ("2", "GND", "", "GND")]}
+    pl.volts = {"VIN": 12.0, "3V3": 3.3}
+    cell = dict(id="c", cls="buck", src="cell:c", vin="VIN", vout="3V3", sw="SW", ctrl="U1", rect=None, parts=set())
+    pl.feeds = {"3V3": dict(kind="cell", cell=cell, ref="U1")}
+    pl.loads = [dict(ref="U2", rail="3V3", sup=["U2.1"], gnd=["U2.2"], share=1.0, cell=cell)]
+    inj = DC.injections(pl, {"cell:c": {"I_A": 0.5, "D": 0.275}})
+    assert abs(inj.get("U1.1", 0.0)) < 1e-12
+    assert all(abs(v) < 1e-12 for v in _net_sums(pl, inj, [{"SW", "3V3"}]).values())
+
+
+def test_switching_loss_charges_the_switch_node_at_the_current_the_cell_carries():
+    """The t_v interval spans C_sw V / I over the whole current range; a corner's light-load t_v (microseconds)
+    times a rail's sustained current read watts in a small buck (1573 C). The switch node's charge is C_sw V^2 f
+    whatever the current; the commutation V I_L t_i f."""
+    from kae.excite import heat as H
+    v = {"f_sw_Hz": 5e5, "t_i_s": 3e-9, "t_v_s": 9.75e-6, "C_sw_F": 1.3e-9}
+    assert H.switching_loss(15.0, 0.36, v) == pytest.approx(15 * 0.36 * 3e-9 * 5e5 + 1.3e-9 * 15 ** 2 * 5e5)
+    v.pop("C_sw_F")
+    assert H.switching_loss(15.0, 0.36, v) == pytest.approx(15 * 0.36 * (3e-9 + 9.75e-6) * 5e5)
+
+
+def test_a_buck_boost_heats_its_controller_with_two_switches_in_the_inductors_path():
+    from types import SimpleNamespace
+
+    from kae.excite import heat as H
+    pl, cells = _buckboost_plan()
+    bd = SimpleNamespace(part_kind={"U2": ("ic", "mcu", "mcu")})
+    cv = {"cell:b": {"I_A": 0.6, "D": 0.75, "V_V": 18.0, "t_i_s": 0.0, "C_sw_F": 0.0}}
+    heat = H.part_heat(bd, pl, cv, {("heat:U1", "R_on_ohm"): 0.1}, {})
+    assert heat["U1"] == pytest.approx(2 * 0.6 ** 2 * 0.1)

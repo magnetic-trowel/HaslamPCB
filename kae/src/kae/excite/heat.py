@@ -8,9 +8,10 @@ Heat, per corner of the ledger (the DC band's operating point, kae.excite.dc):
                  DC loss (an inductor's winding) at its pads
     linear feed  (V_in - V_out) I at the regulator's pads (LDO, charger, load switch, series diode)
     switching    (1/eta - 1) P_out at the regulator's pads (no cell model)
-    cell         switch conduction I_L^2 R_on D, switching V I_L (t_i + t_v) f_sw at the controller's
+    cell         switch conduction I_L^2 R_on D, switching (V I_L t_i + C_sw V^2) f_sw at the controller's
                  pads; the rectifier's V_f I_out at its pads, or, synchronous (no rectifier part), its
-                 conduction I_L^2 R_on (1 - D) at the controller's pads too (one R_on for both switches)
+                 conduction I_L^2 R_on (1 - D) at the controller's pads too (one R_on for both switches);
+                 a 4-switch buck-boost: 2 I_L^2 R_on, and the switching of the leg that switches
     load         V I of every load at its pads (an export through a connector leaves the board)
     ac           each part's loss from the switching harmonics (kae.excite.spectrum), when given
 
@@ -142,6 +143,18 @@ def params(bd, dcp, P, intent=None):
     return out
 
 
+def switching_loss(V, IL, v):
+    """A hard-switched cell's switching loss (W): V I_L t_i f_sw for the current's commutation, plus the switch
+    node's charge, V I_L t_v f_sw with t_v = C_sw V / I_L (kae.excite.params' law), i.e. C_sw V^2 f_sw, at the
+    current the cell carries here. The ledger's t_v interval spans C_sw V / I over the whole current interval,
+    sampled apart from I; the heat band then sets I_L to the rail's sustained demand, so a corner's light-load
+    t_v (microseconds) times that current read watts in a small buck (solar-small's TPS62933: 1573 C)."""
+    f = v.get("f_sw_Hz", 1e6)
+    C = v.get("C_sw_F")
+    edge = C * V * V if C is not None else V * IL * v.get("t_v_s", 1e-9)
+    return V * IL * v.get("t_i_s", 3e-9) * f + edge * f
+
+
 def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
     """{part ref: W} at one corner. cv: the DC band's corner (kae.excite.dc); val: {(subject, name): value}
     of the heat parameters; inj: the DC flow's injections at this corner. losses: a dict that gets each
@@ -169,7 +182,15 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             # the switch conducts I_L for D; with no rectifier part the synchronous one inside the
             # controller conducts it for the rest (1 - D), as the DC flow injects it (kae.excite.dc)
             cond = IL ** 2 * ron * (D if c["rect"] else 1.0)
-            add(c["ctrl"], cond + V * IL * (v.get("t_i_s", 3e-9) + v.get("t_v_s", 1e-9)) * v.get("f_sw_Hz", 1e6))
+            if c["cls"] == "buckboost":
+                # a 4-switch buck-boost: one switch of each leg is on at any time (two R_on in the inductor's path);
+                # the leg that switches is the input one bucking, the output one boosting (its own cell's values)
+                vo, vi = dcp.volts.get(r), dcp.volts.get(c["vin"])
+                cond = 2 * IL ** 2 * ron
+                if vo and vi and vi < vo and c.get("src2"):
+                    v = dict(cv.get(c["src2"]) or {}, I_A=IL)
+                    V = v.get("V_V", vo)
+            add(c["ctrl"], cond + switching_loss(V, IL, v))
             if c["rect"]:
                 add(c["rect"], val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * (I_out if c["cls"] == "boost" else IL * (1 - D)))
             continue
@@ -341,6 +362,8 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
     for f in dcp.feeds.values():
         if f["kind"] == "cell":
             cell_out[f["cell"]["src"]] = (f["cell"], rail_demand(dcp, f["cell"]["vout"], load_amps))
+            if f["cell"].get("src2"):          # a buck-boost's output leg carries the same inductor current
+                cell_out[f["cell"]["src2"]] = cell_out[f["cell"]["src"]]
     cvs, ac_scale = [], {}
     for c in range(ncp):
         cv = dict(own[c])
@@ -353,7 +376,10 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
                     continue
                 if demand > 0:
                     D = min(max(cv[s.name].get("D", 0.5), 0.02), 0.98)
-                    il = demand / (1 - D) if cell["cls"] == "boost" else demand
+                    if cell["cls"] == "buckboost":
+                        il = demand * max(1.0, DC._ratio(dcp, cell["vout"], cv)) if cell["vout"] in dcp.feeds else demand
+                    else:
+                        il = demand / (1 - D) if cell["cls"] == "boost" else demand
                 else:
                     pi = next((p for p in (P.get(s.name) or {}).values() if getattr(p, "name", "") == "I_A"), None)
                     il = pi.lo if pi is not None else il0
