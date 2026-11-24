@@ -109,6 +109,9 @@ def run(a):
                    output_exists=written)
     finally:
         rep["physics_fidelity"] = dict(mode=a.physics_fidelity, k=a.physics_k)
+        if hasattr(stages, "place_hazards"):
+            # errors of locked parts only, left out of legality (kae.place.pipeline.locked_input_errors)
+            rep.setdefault("hazards", []).extend(stages.place_hazards())
         if hasattr(stages, "writer_hazards"):
             # KiCad's writer checks of every pose write (kae.board.pcbnew_io.write_hazards)
             rep.setdefault("hazards", []).extend(stages.writer_hazards())

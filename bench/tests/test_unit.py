@@ -354,7 +354,8 @@ def test_drc_by_scope_splits_errors_and_keeps_summarize_drc_unchanged():
                            _v("clearance", "Pad 1 of R1 on F.Cu", "Pad 1 of R2 on F.Cu", sev="warning"),
                            _v("lib_footprint_issues", "Footprint U2")],
                unconnected_items=[{}])
-    assert tools.drc_by_scope(rep) == dict(between={"clearance": 1, "courtyards_overlap": 1}, within={"clearance": 1})
+    assert tools.drc_by_scope(rep) == dict(between={"clearance": 1, "courtyards_overlap": 1}, within={"clearance": 1},
+                                           locked={})
     assert tools.summarize_drc(rep) == dict(unconnected=1, errors=3, warnings=1,
                                             errors_by_type={"clearance": 2, "courtyards_overlap": 1})
     d = score._summarize(rep)
@@ -363,6 +364,41 @@ def test_drc_by_scope_splits_errors_and_keeps_summarize_drc_unchanged():
     assert score.library_errors(d) == {"clearance": 1}
     # a summary without the split (score 12 and earlier) is judged whole
     assert score.placement_errors(tools.summarize_drc(rep)) == {"clearance": 2, "courtyards_overlap": 1}
+
+
+def test_locked_only_errors_are_input_errors():
+    locked = {"J4", "J5", "U5"}
+    edge = _v("copper_edge_clearance", "Segment on Edge.Cuts", "Pad S+2 [VBAT] of J4 on F.Cu")
+    assert tools.locked_only(edge, locked)                     # a locked part against the board edge
+    assert tools.locked_only(_v("courtyards_overlap", "Footprint J4", "Footprint J5"), locked)
+    assert tools.locked_only(_v("clearance", "Pad 1 [GND] of U5 on F.Cu", "Zone [GND] on F.Cu, priority 0"), locked)
+    assert not tools.locked_only(_v("clearance", "Pad 1 [GND] of U5 on F.Cu", "Pad 2 [VCC] of R1 on F.Cu"), locked)
+    assert not tools.locked_only(_v("npth_inside_courtyard", "NPTH pad of ", "Footprint J4"), locked)   # unknown ref
+    assert not tools.locked_only(_v("copper_edge_clearance", "Segment on Edge.Cuts", "PCB text 'X' on B.Cu"), locked)
+    assert not tools.locked_only(edge, None) and not tools.locked_only(edge, set())
+
+
+def test_locked_only_errors_leave_legality_and_nothing_else_moves():
+    rep = dict(violations=[_v("copper_edge_clearance", "Segment on Edge.Cuts", "Pad S+2 [VBAT] of J4 on F.Cu"),
+                           _v("courtyards_overlap", "Footprint R1", "Footprint J4"),
+                           _v("clearance", "NPTH pad of J4", "PTH pad S2 [GND] of J4")],
+               unconnected_items=[])
+    plain = score._summarize(rep)
+    d = score._summarize(rep, {"J4"})
+    assert {k: d[k] for k in ("unconnected", "errors", "warnings", "errors_by_type", "errors_by_type_within")} == \
+           {k: plain[k] for k in ("unconnected", "errors", "warnings", "errors_by_type", "errors_by_type_within")}
+    assert score.placement_errors(plain) == {"copper_edge_clearance": 1, "courtyards_overlap": 1}
+    assert score.placement_errors(d) == {"courtyards_overlap": 1}
+    assert score.locked_errors(d) == {"copper_edge_clearance": 1}
+    assert score.library_errors(d) == {"clearance": 1}
+
+
+def test_locked_refs_from_the_stats_placement_rows():
+    st = dict(placement=[dict(ref="J4", locked=True, anchored=True), dict(ref="SW1", locked=False, anchored=True),
+                         dict(ref="R1", locked=False, anchored=False), dict(ref="J9", locked=True, anchored=True),
+                         dict(ref="J9", locked=False, anchored=False)])
+    assert score.locked_refs(st) == {"J4", "SW1"}      # a ref shared with a movable footprint is left out
+    assert score.locked_refs({}) == set()
 
 
 def test_potential_orders_clean_first():

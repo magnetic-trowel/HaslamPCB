@@ -1193,6 +1193,12 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         stage("silk_fix", t)
     rep.update(grid_verdict(P, st, rep["exact"]))
     body_hazards(rep, P, st)
+    try:
+        rep["input_locked_errors"] = locked_input_errors(P, st, exclude=set(pinned) | set(mated))
+        if rep["input_locked_errors"]["count"]:
+            rep.setdefault("hazards", []).append(input_locked_hazard(rep["input_locked_errors"]))
+    except Exception as e:      # noqa: BLE001 - a report field; never lose the placement
+        rep["input_locked_errors"] = dict(error=f"{type(e).__name__}: {e}")
     if zone_rep is not None:
         rep["zones"] = zonesmod.report(P, st, zone_rep)
     rep["barrier_crossings"] = barriersmod.crossings(P, st)
@@ -1399,6 +1405,45 @@ def _pin_edge_headers(board, brief, held, fixed, angle_step, rep, log, headers=T
                                fit_nowhere=sorted(P0.parts[i].ref for i in hdr), pinned=sorted(by[u] for u in poses),
                                failed=failed, uuids=sorted(poses))
     return (edge_check.with_poses(board, poses) if poses else board), poses
+
+
+def locked_input_errors(P, st, exclude=(), max_items=200):
+    """The exact check's findings that involve only parts the input fixes (locked, or carrying Edge.Cuts) with
+    each other or with the board (its edge, keepouts): errors of the input that no placement can change, which
+    the score leaves out of legality (score 14, user decision 2026-11-22). Parts kae itself pinned (`exclude`,
+    uuids: connectors pinned to the edge, mated outline parts) are not the input's. Returns {count, items:
+    [{type, parts, at, detail}]}, `at` the first part's position in mm."""
+    from .exact import ExactModel
+    excl = set(exclude or ())
+    fixed = [p.i for p in P.parts if not p.movable and p.uuid not in excl]
+    if not fixed:
+        return dict(count=0, items=[])
+    found = ExactModel(P, st).check(parts=fixed, max_items=max_items)
+    items = []
+    for f in found:
+        idx = f.get("parts") or []
+        if not idx or any(P.parts[q].movable or P.parts[q].uuid in excl for q in idx):
+            continue
+        p0 = P.parts[idx[0]]
+        items.append(dict(type=f["type"], parts=list(f["refs"]), at=[round(float(p0.x0), 2), round(float(p0.y0), 2)],
+                          detail=f.get("detail") or ""))
+    return dict(count=len(items), items=items)
+
+
+def input_locked_hazard(info, shown=12):
+    """The hazard (shared schema) that tells the caller which errors were left out of legality because they
+    involve only locked parts: kind, parts and place of each, and that the method cannot fix them."""
+    items = info.get("items") or []
+    lines = [f"{it['type']} {'/'.join(it['parts'])} at ({it['at'][0]}, {it['at'][1]})" for it in items[:shown]]
+    more = f" and {len(items) - shown} more" if len(items) > shown else ""
+    return dict(code="input_locked_errors", severity="info", category="data",
+                message=(f"{info['count']} error(s) left out of legality: they involve only locked parts (with each other, "
+                         f"the board edge or a keepout), so they are input errors no placement can fix: "
+                         + "; ".join(lines) + more + "."),
+                objects=sorted({r for it in items for r in it["parts"]}),
+                evidence=dict(count=info["count"], items=items[:50],
+                              source="kae.place.pipeline.locked_input_errors; score 14 placement_errors_locked"),
+                fix="None in the placement: move or unlock the part in the design, or accept it as the design's own.")
 
 
 def edge_hazards(rep, board, poses):
