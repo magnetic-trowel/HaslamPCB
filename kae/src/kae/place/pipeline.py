@@ -406,9 +406,54 @@ def place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, l
     The work clock counts from zero inside (kae.budget.frame): the result does not depend on what the
     process did before the call."""
     with budget_frame():
-        return _place(board, seed=seed, time_s=time_s, physics=physics, brief=brief, workers=workers, log=log,
-                      anneal=anneal, edge_mate=edge_mate, anneal_args=anneal_args, angle_step=angle_step,
-                      fixed=fixed, board_path=board_path, opts=opts, verify=verify)
+        res = _place(board, seed=seed, time_s=time_s, physics=physics, brief=brief, workers=workers, log=log,
+                     anneal=anneal, edge_mate=edge_mate, anneal_args=anneal_args, angle_step=angle_step,
+                     fixed=fixed, board_path=board_path, opts=opts, verify=verify)
+        repack_after(res, time_s=time_s, seed=seed, board_path=board_path, opts=opts, log=log)
+        return res
+
+
+REPACK_MAX_S = 30.0     # exact_repack: at most this long, after the placement's own time
+REPACK_FRAC = 0.1       # and at most this share of the next stage's time (opts next_stage_s, else time_s)
+
+
+def repack_after(res, time_s, seed=0, board_path=None, opts=None, log=None):
+    """With setting exact_repack: when the placement ends with exact findings, kae.place.repack on
+    min(REPACK_MAX_S, REPACK_FRAC x the next stage's time), time beyond the placement's own that the
+    caller takes from the next stage (the joint loop's routing: it routes in what is left; kae place:
+    its KiCad loop). The repack keeps a packing only if the findings fall; then the report's exact
+    check, grid verdict, HPWL and physics are redone and the poses updated, and a caller's KiCad
+    verdict (res.verified) is dropped, as it judged the board before. A placement that ends legal,
+    and every one the repack cannot improve, is left as it is."""
+    from kae.route.constraints import setting
+    rep = res.report
+    if not int(setting("exact_repack", board_path, opts)) or not rep.get("exact"):
+        return
+    P, st = res.problem, res.state
+    if P is None or st is None:
+        return
+    nxt = float((opts or {}).get("next_stage_s") or time_s)
+    share = min(REPACK_MAX_S, REPACK_FRAC * nxt)
+    from .repack import repack
+    try:
+        rr = repack(P, st, time_s=share, seed=seed, log=log)
+    except Exception as e:      # noqa: BLE001 - a repair pass; never lose the placement
+        rep["exact_repack"] = dict(error=f"{type(e).__name__}: {e}", time_s=round(share, 1))
+        return
+    rr["time_s"] = round(share, 1)
+    rep["exact_repack"] = rr
+    if not rr.get("kept"):
+        return
+    rep["exact"] = exact_check(P, st)
+    rep.update(grid_verdict(P, st, rep["exact"]))
+    rep["hpwl"] = round(st.hpwl(), 2)
+    rep["hpwl_signal"] = round(st.hpwl(signal_only=True), 2)
+    res.poses.update(st.poses())
+    res.verified = None
+    try:
+        final_physics(res)
+    except Exception as e:      # noqa: BLE001 - a report field; never lose the placement
+        rep["physics_error"] = f"{type(e).__name__}: {e}"
 
 
 def _place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, log=None, anneal=True,

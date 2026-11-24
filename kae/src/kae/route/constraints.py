@@ -250,6 +250,11 @@ DEFAULTS = dict(
     place_margin_regions=1,        # placement: 1 caps each movable part's margin at its region's own auto margin
                                    # (sub-boards between cutouts and narrow necks, rule-area walls;
                                    # kae.place.margin_gate.caps); 0 off
+    exact_repack=0,                # placement: 1 repacks what the closed loop leaves illegal with CP-SAT on exact
+                                   # geometry (kae.place.repack: the flagged parts and their neighbours jointly,
+                                   # kept only if the exact findings fall) when the placement ends with
+                                   # findings, on time beyond the placement's own (pipeline.repack_after:
+                                   # min(30 s, 10 % of the next stage)). Off until its A/B says otherwise
     anchor_tight=1,                # placement: a big part with no spot free of the fixed geometry is fixed first (place.pipeline)
     place_edge_headers=0,          # placement: 1 pins header rows spanning a board side (Feather, ItsyBitsy, QT Py)
                                    # to a parallel edge before the seed (kae.place.crowded); off until its test
