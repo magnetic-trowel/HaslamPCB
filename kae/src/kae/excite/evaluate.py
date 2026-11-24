@@ -212,12 +212,16 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         f_fund = P[s.name]["f_sw"].typ
         f_edge = O.gentle_f(s)
         bands[s.name] = {"fund": f_fund, "edge": max(f_edge, 2 * f_fund) if f_fund >= f_edge else f_edge}
+    from .circuit import copper_scale, external_share
     pats, vid, pads = {}, {}, set()
+    share = {}           # (source, band) -> (alpha, Z_in): its split between its die and its pins (circuit.external_share)
     for s in srcs:
         for band, f in bands[s.name].items():
             sol = bd.circuit.solve(f, [s])[s.name]
             pats[(s.name, band)] = (f, sol[key])
             vid[(s.name, band)] = O.ideal(bd, sol)
+            if lumped:
+                share[(s.name, band)] = external_share(bd.circuit, sol, s)
             pads |= {p for p, j in sol[key].items() if abs(j) > 1e-9}
     freqs = sorted({f for (_, _), (f, _) in pats.items()})
     opats = {}
@@ -365,6 +369,16 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         if any(v is None for _, v in res.values()):
             notes.append(f"{s.name}: none of its current reaches the copper (it closes inside its part): its layout "
                          f"harms are zero")
+        # the source's split between its die and its pins, taken with ideal copper, re-taken with the copper's own
+        # share in the pins' path (circuit.copper_scale): copper that cannot carry a core current leaves it in the die
+        kcu = {}
+        for band, (f, v) in res.items():
+            if v is None or (s.name, band) not in share:
+                kcu[band] = 1.0
+                continue
+            Ja = pats[(s.name, band)][1]
+            z_cu = O.bilinear(Ja, v) - O.bilinear(Ja, vid[(s.name, band)])
+            kcu[band] = copper_scale(*share[(s.name, band)], z_cu)
         for o in obs:
             if o.kind == "overshoot" and o.meta.get("source") != s.name:
                 continue
@@ -376,8 +390,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                     z[band] = 0j
                     continue
                 Jk = opats[(o.name, f)]
-                # the layout's share: the copper solve minus the same parts with ideal copper
-                z[band] = O.bilinear(Jk, v) - (O.bilinear(Jk, vid[(s.name, band)]) if lumped else 0.0)
+                # the layout's share: the copper solve (its currents re-split, kcu) minus the same parts with ideal copper
+                z[band] = kcu[band] * O.bilinear(Jk, v) - (O.bilinear(Jk, vid[(s.name, band)]) if lumped else 0.0)
             w_e = 2 * math.pi * res["edge"][0]
             # Lz: the layout's share at the edge band (the open check below); Le: a cell's own loop at its copper's
             # stored energy with the capacitors at their edge model (lcu, _edge_loops); other pairs (a mutual) at the

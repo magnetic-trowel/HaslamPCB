@@ -196,6 +196,41 @@ class Circuit:
         return out
 
 
+def external_share(circuit, sol, s):
+    """(alpha, Z_in) of a source in an ideal-copper solve `sol` (Circuit.solve's entry for s): alpha the share of
+    its current that leaves its part through pads (into the copper), Z_in the impedance it drives (V per A). A
+    source at pads (s.pa set) puts all of it into the copper: alpha 1. A source between a part's internal nodes (an
+    IC's core between its die nodes) splits it between the die (its capacitance) and the pins."""
+    V = sol["V"]
+    Z_in = V[s.b] - V[s.a]
+    if s.pa or s.pb:
+        return 1.0, Z_in
+    alpha = 0j
+    for e in circuit.elems:
+        if not (e.pa or e.pb):
+            continue
+        i = sol["I"].get(e.name, 0.0)            # a -> b through e
+        if e.a == s.a:
+            alpha += i                           # out of the source's node a into the pins (the source takes 1 A from a)
+        elif e.b == s.a:
+            alpha -= i
+    return -alpha, Z_in
+
+
+def copper_scale(alpha, Z_in, z_cu):
+    """The factor on a source's copper currents once the copper's own impedance is in its split: the circuit's
+    split (alpha of the current through the pins, the rest through the part's die) is taken with ideal copper; the
+    copper's layout share z_cu (J_a^T Z J_a - the same with ideal copper, per A of the source) is a series
+    impedance z_cu / alpha^2 in the pins' path. That path's current becomes Z_d / (Z_d + Z_ext + z_cu / alpha^2) with
+    Z_d = Z_in / (1 - alpha) and Z_ext = Z_in / alpha, i.e. alpha / (1 + z_cu (1 - alpha) / (alpha Z_in)) (exact
+    for one path through the pins). Without it a core current solved against ideal copper is forced, unchanged,
+    through copper that cannot carry it: gos2022's CH340s, 45 mm from their only decoupling capacitor, drove
+    their 10 mA core at 100 MHz through kilohms of trace and read volts of cable common mode."""
+    if alpha == 0 or Z_in == 0 or abs(1 - alpha) < 1e-12:
+        return 1.0
+    return 1.0 / (1.0 + z_cu * (1 - alpha) / (alpha * Z_in))
+
+
 def max_abs(z, floor=1e-6):
     """An impedance kept away from zero (an ideal short becomes 1 micro-ohm)."""
     return z if abs(z) > floor else floor
