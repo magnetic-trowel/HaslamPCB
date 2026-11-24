@@ -59,7 +59,8 @@ def ledger_for(bd, brief, srcs, intent=None):
 
 
 def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=None, log=print, lumped=True,
-             intent=None, n_corners=16, seed=0, dc=True, add_parts=()):
+             intent=None, n_corners=16, seed=0, dc=True, add_parts=(),
+             remove_parts=()):
     """Every harm of a laid-out board, across the parameters' intervals.
 
     Each aggressor's pattern is solved in two bands: its switching fundamental (current split by the
@@ -69,7 +70,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     corners of the intervals (kae.excite.beliefs). lumped: two-pad parts are branches of the copper
     model and only the other parts' pads are injected. add_parts: hypothetical parts (add_part specs,
     "C:PAD_A:PAD_B:VALUE") placed between two existing pads with no copper of their own: the exact check of
-    a kae.intent.advise what-if."""
+    a kae.intent.advise what-if. remove_parts: refs taken out of the circuit (their pads and copper stay)."""
     from kae.board.kicad_file import load
     from kae.circuit import brief as B
     from kae.em import solve as ES
@@ -80,6 +81,12 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     brief = brief or B.build(b)
     bd = M.build(b, brief)
     added = [add_part(bd, spec) for spec in add_parts]
+    for ref in remove_parts:
+        n0 = len(bd.circuit.elems)
+        bd.circuit.elems = [e for e in bd.circuit.elems if not (e.name == ref or e.name.startswith(ref + ":"))]
+        if len(bd.circuit.elems) == n0:
+            raise ValueError(f"remove_part {ref}: no such part in the circuit")
+        added.append(dict(removed=ref))
     srcs = S.add_all(bd, brief)
     obs = O.observers(bd, brief, srcs)
     P, ledger = ledger_for(bd, brief, srcs, intent)
@@ -716,10 +723,13 @@ def main(argv=None):
     ap.add_argument("--add-part", action="append", default=[], metavar="KIND:PAD_A:PAD_B:VALUE",
                     help="a hypothetical part between two pads, no copper of its own (C:U101.9:U101.17:2.2n): the exact "
                          "check of a kae.intent advice")
+    ap.add_argument("--remove-part", action="append", default=[], metavar="REF",
+                    help="take a part out of the circuit, its pads and copper kept: the exact check of a node.remove_c advice")
     a = ap.parse_args(argv)
     from .beliefs import load_intent
     r = evaluate(a.board, a.pitch, tuple(a.window) if a.window else None, nsub=a.nsub, log=lambda m: print(m, file=sys.stderr),
-                 lumped=not a.no_lumped, intent=load_intent(a.intent), seed=a.seed, add_parts=a.add_part)
+                 lumped=not a.no_lumped, intent=load_intent(a.intent), seed=a.seed, add_parts=a.add_part,
+                 remove_parts=a.remove_part)
     print_total(r["total"])
     print("assumptions:")
     for p in r["ledger"]:

@@ -32,7 +32,7 @@ from . import objective as OB
 from . import units as U
 
 # capacitor values tried at a node (E3 series, 10 pF .. 100 nF)
-C_SERIES = [k * 10.0 ** e for e in range(-11, -6) for k in (1.0, 2.2, 4.7)] + [100e-9]
+C_SERIES = [k * 10.0 ** e for e in range(-11, -7) for k in (1.0, 2.2, 4.7)] + [100e-9]
 DIVIDER_SCALES = (0.3, 0.1)       # divider resistances times these
 COVER_MIN = 0.98                  # share of the new pattern's current on pads with a stored dv, for "first-order"
 PEAK_KINDS = ("victim", "supply", "overshoot")
@@ -263,9 +263,11 @@ def advise(ev, intent, brief, board=None, limit=12):
         out += _capacitive(ev, cir, [cir.obs[n] for n in top if n in cir.obs], obs)
     out.sort(key=lambda e: (e.get("estimate", {}).get("hard_after", 0) - e.get("estimate", {}).get("hard_before", 0),
                             e.get("estimate", {}).get("delta", 0.0)))
+    priced = [e for e in out if e.get("estimate")][:limit]
+    out = priced + [e for e in out if not e.get("estimate")]       # unpriced reports and notes after the priced
     for k, e in enumerate(out, 1):
         e["id"] = f"A{k}"
-    return out[:limit]
+    return out
 
 
 def _node_advice(pr, cir, o, items, corners, ev, intent):
@@ -308,13 +310,17 @@ def _node_advice(pr, cir, o, items, corners, ev, intent):
             break
     if best and best[1][1] < pr.key0[1]:
         C, key, st, cov = best
+        floor = ""
+        if not all(t.get("met_after") is not False for t in pr.delta(st)):
+            floor = (f"; no value meets it: above {_fmt_c(C)} the pickup stays at its floor, the copper between "
+                     f"{gnd} and {ref}'s other ground pins (and its path to the node's other parts)")
         noun = "decoupling capacitor" if o.kind == "supply" else "filter capacitor"
         dec = _shunt_tradeoff(cir, o, net, C, f_e, z0) if o.kind == "victim" else dict(
             question=f"is there room for {_fmt_c(C)} at {pin}/{gnd}, and is its rail's start-up and inrush "
                      f"unaffected?", by="llm")
         out.append(_entry(pr, st, key, kind="node.shunt_c", observer=o.name,
                           mechanism=f"{o.name}: the node's impedance at the edge band is {abs(z0):.3g} Ohm "
-                                    f"({f_e / 1e6:g} MHz); copper noise divides into it",
+                                    f"({f_e / 1e6:g} MHz); copper noise divides into it{floor}",
                           remedy=f"add a {_fmt_c(C)} {noun} from {pin} to {gnd} ({ref}'s nearest ground pin), "
                                  f"pads at the pins (no copper between them and the IC)",
                           curve=[dict(C=_fmt_c(c), total=round(t, 4)) for c, t, _ in curve],
@@ -363,7 +369,8 @@ def _node_advice(pr, cir, o, items, corners, ev, intent):
                           confidence=_conf(cov, "first-order circuit edit"),
                           decide=dict(by="llm", question=f"is {e.name} a loop-compensation (feed-forward) part the "
                                                          f"regulator needs? Its zero is part of the loop's phase margin"),
-                          applies="llm (schematic: a part removed)"))
+                          applies="llm (schematic: a part removed)",
+                          verify=f"python -m kae.excite.evaluate BOARD --remove-part {e.name} --intent INTENT"))
     return out
 
 
@@ -380,7 +387,8 @@ def _shunt_tradeoff(cir, o, net, C, f_e, z0):
         Cff = 1 / abs(2 * math.pi * 1e3 * ff[0].z(2 * math.pi * 1e3).imag)
         q += (f"; with {ff[0].name} ({_fmt_c(Cff)}) the feed-forward ratio at high frequency falls to "
               f"{Cff / (Cff + C):.2g}")
-    return dict(by="llm", question=q, tradeoff=dict(pole_Hz=round(fp, 1) if fp else None, node_R_ohm=round(zdc)))
+    return dict(by="llm", question=q, tradeoff=dict(pole_Hz=round(float(fp), 1) if fp else None,
+                                                    node_R_ohm=int(round(float(zdc)))))
 
 
 def _conf(cov, basis):
