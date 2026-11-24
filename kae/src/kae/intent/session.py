@@ -71,7 +71,9 @@ class Session:
 
     def log(self, cmd, **kw):
         with open(self.dir / "log.jsonl", "a") as f:
-            f.write(json.dumps(dict(at=_now(), round=self.round, cmd=cmd, **kw), default=str) + "\n")
+            rec = dict(at=_now(), round=self.round, cmd=cmd)
+            rec.update(kw)
+            f.write(json.dumps(rec, default=str) + "\n")
 
     def entry(self, aid):
         e = next((a for a in self.advice() if a.get("id") == aid), None)
@@ -272,6 +274,11 @@ def cmd_decide(a):
         d["status"] = "adopted"
     decs.append(d)
     s.write_intent(it)
+    adv = s.advice()
+    for x in adv:
+        if x.get("id") == a.id:
+            x["decided"] = ("adopted" if d["choice"] == "adopt" else "declined") + f" in {d['id']}"
+    s.write_advice(adv)
     s.save()
     s.log("decide", **d)
     print(json.dumps(d, indent=1, default=str))
