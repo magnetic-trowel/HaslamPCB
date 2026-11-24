@@ -43,7 +43,7 @@ facts question, datasheet check, effective output capacitance, DC bias, unpriced
 | `coupling_c.revalue` | same | same | a smaller value (E6, down to C/10) | first order | the zero's new frequency; the datasheet's formula (needs `cff_F`) |
 | `node.remove_c` | same | same | the capacitor removed | first order | is it the loop's compensation? (needs `cff_required`, `f_c`) |
 | `node.divider_scale` | feedback divider | conductive/inductive (kae prices no capacitive pickup) | R × 0.3, × 0.1 | first order | extra quiescent µA and mW against `facts.requirements.quiescent_max_A` |
-| `move.part` | any observer behind a core-current aggressor (`core:REF:RAIL`), a flagged supply pin | the IC's supply current returning through far copper | its smallest decoupling capacitor at the IC's rail pin and nearest ground pin; also an intent relation `near … tight` | **solved** (targeted re-solve; budgeted), until then `bound` | adopt as a placement relation? |
+| `move.part` | any observer behind a core-current aggressor (`core:REF:RAIL`), a flagged supply pin (implausible, or noise > 10 % of its rail: advised on even unpriced, ranked by its own value) | the IC's supply current returning through far copper | its smallest decoupling capacitor at the IC's rail pin and nearest ground pin; also an intent relation `near … tight` | **solved** (targeted re-solve; budgeted), until then `bound` | adopt as a placement relation? |
 | `layout.coupling` | any | shared copper, named by net (Σ J·dv) | halve the pair's coupling | scaled | — |
 | `facts.question` | any priced peak | a ledger prior (`I_A`, `t_i_s`, `D`) | the datasheet value | exact re-pricing at the prior's ends | the total at each end; the field to fill |
 | `datasheet.check` | a switching regulator's output | — | output capacitance at its operating voltage (kae's MLCC DC-bias model) against `facts.parts.REF.cout_min_eff_F` | estimate | the shortfall; which parts close it |
@@ -98,7 +98,7 @@ one "no effect" line; 12 priced entries at most. Field contract ->
 ## Solar-small A0 (v2 advice)
 
 Board `solar-small2/A0/s1` (120 × 90 mm, 2 layers), its `eval-intent.json`, the facts/mesh/DC evaluator plus this
-branch. Total 5969 mW_eq; T-FB 398.6 mV (limit 5), T-FB3 396.4 mV (limit 16), `supply:U302:+3V3` 1.67 V flagged
+branch (the [trial](physics-advisor-trial-solar-small.md) runs it on the fixed L3b layout). Total 5969 mW_eq; T-FB 398.6 mV (limit 5), T-FB3 396.4 mV (limit 16), `supply:U302:+3V3` 1.67 V flagged
 implausible. Advice in 9 s (first order only):
 
 | Id | Kind | Remedy | Estimate | Decide |
