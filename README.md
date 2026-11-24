@@ -49,24 +49,40 @@ A design lives in `tools/research/llm-design/designs/<slug>/` (example: `solar-s
 | 8 | Compare seeds or variants | `python synth/scripts/compare_ab.py <rundir> --md table.md` (layout `<rundir>/<arm>/s<seed>/{out,eval}`) | choose by hard violations, then limits, then cost |
 | 9 | Fabrication | `python synth/scripts/fab_outputs.py <routed board> <fabdir>` (`sch_to_board.py --update` first if parts changed) | DRC gate passes; `fab-report.json` lists extended parts (each a JLC setup fee) |
 
-**What the stages rely on**
+**How each stage works**
 
-- **Rules.** kaesynth writes clearance rules per net pair from each net's voltage (IPC-2221B) and board minimums from
-  the finest pad pitch, and checks at build time that every pin can still escape under them.
-- **Operating intent** (`<board>.kae_intent.json`, schema kae.intent/1). It sits beside the board like `.kicad_pro`, and
-  every kae stage reads it. Facts: rail voltages, converter cells (V, I, switching frequency), cables. Requirements:
-  terms with tiers (`hard` limits, `limit` budgets, `cost`). A value is a number, `[lo, hi]` or `[lo, typ, hi]`; state
-  the typical point. Written from `design.py`: net `v_typ=`, part-card `kae=`, `d.kae.net/part/cell/cable/term(...)`.
-  `python -m kae.cli brief <board>` shows how kae reads it.
-- **Stackup.** `sch_to_board.py` writes the fab's stackup into the board (JLC 2-layer 1.6 mm FR-4 unless `board.json`
-  `stackup` says otherwise); the physics uses it.
-- **Layout recipe.** `layout.sh` runs kae's default: `tools/kaeres/restart.py` completion-first over `kae.joint.cli`
-  (place, route with the Freerouting fork, repair, last mile) on counted-work budgets (`KAE_BUDGET=work`; `KAE_TIME=S`
-  overrides the budget), then KiCad DRC, `kae.excite.evaluate` and `kae.intent status` under the board's intent.
-- **Physics.** `kae.excite.evaluate` solves the routed copper (layered, 3D partial inductance, stackup capacitance) with
-  every converter cell as an aggressor, and reports pickup, overshoot, emissions, losses and temperatures against the
-  intent's terms. An incomplete evaluation (`why_incomplete`) prices nothing it could not compute.
-- **Only the re-opened board counts.** Judge by `kicad-cli` DRC and the evaluator, never by a router's log.
+1. **Requirements and parts.** The designer (often an LLM) turns the product brief into numbers (voltages, currents,
+   switching frequencies, limits) and picks parts that JLCPCB can assemble, preferring basic parts, which have no
+   per-order setup fee.
+2. **Circuit as code.** The circuit is Python: part cards carry each part's pins, footprint, ratings and datasheet facts;
+   `design.py` connects them into blocks and nets and states what the board must achieve; `board.json` gives the
+   outline and anything mechanical that cannot move (connectors, holes, the module socket).
+3. **LCSC numbers.** Generic resistors and capacitors are matched to in-stock JLC parts by value, package, voltage and
+   dielectric, so the BOM can be assembled without hand lookups.
+4. **Schematic and checks.** kaesynth checks the circuit (ratings against operating stress, ERC, netlist round trip)
+   and writes the KiCad project. It derives clearance rules per net pair from each net's voltage (IPC-2221B) and track
+   minimums from the finest pad pitch, and proves every pin can still escape under them. It also writes the **operating
+   intent** (`<slug>.kae_intent.json`, beside the board like `.kicad_pro`): the facts kae cannot read from copper (rail
+   voltages; each converter's input, output, current and switching frequency; cables) and the requirements, as terms
+   with tiers (`hard` limits, `limit` budgets, `cost`). `python -m kae.cli brief <board>` shows how kae reads them.
+5. **Unplaced board.** The netlist becomes a `.kicad_pcb` with every footprint, the fixed parts in place, pours,
+   keepouts and the fab's stackup (JLC 2-layer 1.6 mm FR-4 unless `board.json` `stackup` says otherwise).
+6. **Pre-flight.** A few minutes of checks catch what would waste a long run: KiCad and Freerouting reachable, rules
+   accepted by KiCad, schematic parity, fixed parts legal, intent complete, and a short place-and-route probe that
+   lists any connection the rules block.
+7. **Layout and scoring.** kae places the parts (an annealer with legality checks, priced by wire length, physics terms
+   and routability), routes them (Freerouting plus kae's repair and last-mile router, which respect pad-entry,
+   thermal-spoke and clearance rules), and restarts with new seeds while connections stay open, on a budget of counted
+   work rather than wall time. The routed board is then checked by KiCad's DRC and scored by kae's physics
+   evaluator, which solves the copper (layered, with 3D inductance and the stackup's capacitance) with every converter
+   as a noise source and reports pickup, overshoot, emissions, losses and temperatures against the intent's terms.
+   An incomplete evaluation (`why_incomplete`) prices nothing it could not compute.
+8. **Compare.** Seeds and design variants differ; the table puts DRC, open connections and every physics term side by
+   side, so the choice is by the intent's tiers, not by eye.
+9. **Fabrication.** Zones are refilled, DRC must pass, and the Gerbers, drill files, pick-and-place file and BOM with
+   LCSC numbers are written in JLCPCB's formats.
+
+Judge every result by KiCad's DRC and the evaluator on the re-opened board, never by a tool's own log.
 
 The worked example, with its rules and known limits: [`docs/topics/workflow/brief-to-board.md`](docs/topics/workflow/brief-to-board.md).
 
