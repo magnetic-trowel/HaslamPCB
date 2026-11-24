@@ -25,3 +25,29 @@ Stored control `control-w47` (at the tag; one attempt per seed, no restart wrapp
 budget 900 s × sqrt(footprints/40)): `--base bridge` = `71e60a91475d` (bridge on the human placement), `--base staged` =
 `716e9b11e0f4` (place, then bridge). By hand: `kaeres exp create NAME --method 71e60a91475d --method NEW --boards @FILE
 --attempts 2 --reuse-runs --harness baseline/2026-w47 --kae baseline/2026-w47`.
+
+## BGA and fine-pitch baseline: the CPU-limited TraceMaker hybrid
+
+Experiments on ball grids or fine-pitch escape (`mech/bga*.txt`, `mech/fine-pitch.txt`) compare against the
+TraceMaker hybrid, not the bridge: on `mech/bga-pitch-0.4` it left 15.2 fewer opens per pair than the bridge
+[-29.7, -3.2] (experiment `tm-hybrid`). Its stored runs are in experiment `hybrid-bga-w47` (method `76e995d20a60`):
+
+- Recipe: the bridge control at the tag plus `first_router=tracemaker, tracemaker=db5950f4-thread-cpu-clock,
+  ball_escapes=false, tm_clock=cpu, tm_seconds=500`, `--param parallel=8`. Code: branch `hybrid-baseline-w47`.
+- Clock: each of TraceMaker's 8 variants stops after 500 CPU-seconds of its own thread, not wall time
+  (`kae.route.tracemaker`, tm_clock "cpu"). The build comes from
+  `PATCH=thread-cpu-clock tools/research/routing/tracemaker/install_tracemaker.sh`.
+- Repeatability: not exact. Two runs of TraceMaker alone at 500 CPU-s per variant gave identical boards where the
+  search had converged (solokeys). Where it was still improving they differed by 1 open of 86, with the same vias
+  (logicbone). On the old wall clock, how much search a variant gets depends on host load.
+  Details: `$KAE_RESULTS/experiments/hybrid-bga-w47/REPEAT.md`. Exact repeats need TraceMaker's `--work` budget.
+- An arm on top of it: `kaeres sprint NAME --base bridge --control hybrid-bga-w47 --control-method `76e995d20a60`
+  --commit SHA --set ... --suite mech/bga-pitch-0.4 --param parallel=8 --allow-over-cap "BGA boards are the mechanism"`.
+  The arm is the hybrid's recipe with your settings, paired against the stored hybrid runs. The hybrid costs about
+  1 CPU-h per run, so the per-board limit needs `--allow-over-cap`.
+- The stored runs exist for `mech/bga-pitch-0.4` only. On another BGA suite the hybrid runs in your campaign as the
+  control fill and is stored for the next experiment.
+
+Every campaign records a CPU-h cap at submit (`--cpu-cap`, default 40 per arm). `kaeres exp report` and
+`kaeres exp watchdog NAME` project the total from finished jobs and cancel the queued jobs past the cap. The
+reason goes to `WATCHDOG.md` in the experiment folder.
