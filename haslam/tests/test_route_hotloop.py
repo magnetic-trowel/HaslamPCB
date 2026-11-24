@@ -497,7 +497,7 @@ def test_reach_check_needs_the_zone_to_pour_not_just_its_outline(tmp_path):
     from haslam.route import constraints as CN
     cop = CN._pad_shapes(pad)[1]["F.Cu"]
     x0, y0, x1, y1 = cop.bounds
-    win = (x0 - hotloop.REACH_WINDOW, y0 - hotloop.REACH_WINDOW, x1 + hotloop.REACH_WINDOW, y1 + hotloop.REACH_WINDOW)
+    win = (x0 - 2.5, y0 - 2.5, x1 + 2.5, y1 + 2.5)
     assert hotloop._reach(pad, cop, "F.Cu", s.space.items["F.Cu"], s.info, win)
     s.space.add_track("VIN", "F.Cu", 0.2, (123.5, 108.0), (123.5, 109.8), owner=("hop", "x"))
     assert not hotloop._reach(pad, cop, "F.Cu", s.space.items["F.Cu"], s.info, win)
@@ -521,3 +521,29 @@ def test_escape_lanes_aim_at_where_the_zone_can_pour_and_keep_vias_out(tmp_path)
     spokes = Item("corridor", pad["net"], ["F.Cu"], lane, 0.0, None, owner="spokes U1.6")
     assert s.space.need(esc, "GND", "via", "F.Cu") == 0.0 and s.space.need(esc, "GND", "track", "F.Cu") == 0.0
     assert s.space.need(spokes, "GND", "via", "F.Cu") is None
+
+
+def test_cells_outside_the_kinds_and_failed_cells_leave_no_copper(tmp_path):
+    """hotloop_cell_kinds (default buck, boost) and failed cells: kestrel esc, round 3, where failed and partial
+    half-bridge cells' locked hops walled in the motor gate nets."""
+    s = F.session(tmp_path, kinds=("cell",), rails="none")
+    mk = lambda i, st: CM.Module(id=i, kind="cell", spec={}, parts=[], status=st)
+    hb, fb, ok = mk("cell:half_bridge:Q1+Q2", "partial"), mk("cell:buck:U9", "failed"), mk("cell:buck:U1", "routed")
+    for k, m in enumerate((hb, fb, ok)):
+        m.copper = [s.space.add_track("VIN", "F.Cu", 0.2, (130.0 + k, 120.0), (130.0 + k, 121.0), owner=("hop", k))]
+    hotloop.drop_cells(s, [hb, fb, ok], ("buck", "boost"), log=lambda *a: None)
+    assert hb.status == "skipped" and not hb.copper and fb.status == "failed" and not fb.copper
+    assert ok.status == "routed" and ok.copper and len(s.space.routed) == 1
+    assert hotloop.settings()["cell_kinds"] == ("buck", "boost")
+
+
+def test_a_board_with_a_buck_routed_without_cells_gets_the_decision_entry(tmp_path, monkeypatch):
+    """hotloop_cells_available: the trade-off and the setting, for the LLM driving haslam; none with the stage on."""
+    p = F.write_board(tmp_path)
+    for k in ("HASLAM_HOTLOOP_CELLS", "HASLAM_HOTLOOP_VIAS", "HASLAM_HOTLOOP_POURS"):
+        monkeypatch.delenv(k, raising=False)
+    (h,) = hotloop.cells_hint(p)
+    assert h["code"] == "hotloop_cells_available" and h["severity"] == "info"
+    assert h["decision"]["setting"] == "hotloop_cells" and "HASLAM_HOTLOOP_CELLS=1" in h["message"]
+    assert any("buck" in c for c in h["evidence"]["cells"])
+    assert hotloop.cells_hint(p, dict(hotloop_cells=1)) == []
