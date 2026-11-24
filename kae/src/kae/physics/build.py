@@ -53,6 +53,7 @@ from .structures import (
     ThermalField,
     _Coupled,
 )
+from kae.circuit.values import NUM
 from kae.circuit.names import GND_RE
 
 
@@ -61,7 +62,7 @@ def _volts(name):
     m = re.search(r'(\d+)V(\d+)', s)
     if m:
         return float(f'{m.group(1)}.{m.group(2)}')
-    m = re.search(r'(\d+(?:\.\d+)?)V', s)
+    m = re.search(r'(?<![\d.])' + NUM + 'V', s)
     if m:
         return float(m.group(1))
     if re.search(r'VBUS|USB', s):
