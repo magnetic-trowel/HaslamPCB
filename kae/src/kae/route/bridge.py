@@ -115,6 +115,9 @@ DEFAULT_OPTS = dict(
                              # A+B k=3 suite at 57487e6: cp1 0.727 -> 0.909, cpk 0.818 -> 0.970, 0 errors
     last_mile_reserve_s=90.0,  # with last_mile: the repair rounds stop this much before the deadline
     last_mile_free_first=True,  # one last-mile round before those that joins without ripping anything
+    stitch_pours=True,       # before and after the last mile: through vias where the fill of a net's part KiCad
+                             # sees apart lies over another part's fill (kae.route.pour_stitch; repair.stitch_pours),
+                             # DRC-judged like a round; only for missing connections on nets with a zone
     planes="cost",           # inner plane layers (translate.plane_layers): "cost" (traces there cost
                              # plane_cost x, so they go there only when nothing shorter exists), "keep"
                              # (Freerouting power layers, no traces; a repair round with open connections
@@ -552,10 +555,22 @@ def last_mile_only(input_path, board_path, output_path, time_s=120.0, seed=0, wo
         report["start"] = best
         log(f"last mile only: {best['errors']} errors {best['by_type']}, {best['unconnected']} unconnected")
         rounds = []
+        # stitching vias for fill pieces KiCad sees apart, before the last mile and after it (repair.loop's order)
+        got = repair.stitch_pours(input_path, output_path, wd / "stitch0", info, p, opts, deadline, best, rep, rounds,
+                                  "stitch0", base=lambda: repair.input_errors(input_path, wd, deadline), log=log)
+        if got is not None:
+            best, rep, _d, uuids = got
+            fixed |= set(uuids)
         if best["unconnected"] or best["errors"]:
             base = repair.input_errors(input_path, wd, deadline) if best["errors"] else {}
-            repair._last_mile(input_path, output_path, wd, p, info, opts, deadline, rounds, best, rep, fixed, log,
-                              base=base)
+            before = rep
+            rep = repair._last_mile(input_path, output_path, wd, p, info, opts, deadline, rounds, best, rep, fixed,
+                                    log, base=base) or rep
+            if rep is not before:       # the last mile kept a board: it may have cut a pour
+                best = next((r for r in reversed(rounds) if r.get("final")), {}).get("final") or best
+                repair.stitch_pours(input_path, output_path, wd / "stitch1", info, p, opts, deadline, best, rep,
+                                    rounds, "stitch1", base=lambda: repair.input_errors(input_path, wd, deadline),
+                                    log=log)
         final = next((r for r in reversed(rounds) if r.get("final")), {}).get("final") or best
         report.update(rounds=rounds, final=final, status="repaired")
         # the portfolio's final pass: the cells' returns cleared after the last mile, before finish
