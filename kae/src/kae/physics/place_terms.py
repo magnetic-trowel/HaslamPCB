@@ -80,6 +80,7 @@ def _red(kind, vals, weights=None):
 class Terms:
     def __init__(self, board, brief=None, knobs=None):
         self.bv = board if isinstance(board, BoardView) else BoardView.from_board(board)
+        self.board = None if isinstance(board, BoardView) else board    # the circuit's source (kae.excite.pdn)
         self.knobs = knobs or PR.Knobs()
         if brief is None:
             from .provisional_brief import provisional_brief

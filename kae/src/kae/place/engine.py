@@ -48,7 +48,8 @@ def _jit(f):
 
 # iparams indices
 I_NCX, I_NCY, I_HX, I_HY, I_HB, I_CAP, I_HOFF, I_CX, I_CY, I_STAMP, I_NSTAMP, I_OVERFLOW, I_CONG, \
-    I_WIN, I_WX0, I_WX1, I_WY0, I_WY1, I_ZC, I_ZK, I_ZD, I_XON, I_XN, I_XROW = range(24)
+    I_WIN, I_WX0, I_WX1, I_WY0, I_WY1, I_ZC, I_ZK, I_ZD, I_XON, I_XN, I_XROW, I_HARDFIX = range(25)
+HARD = 1e18           # delta of a move that adds overlap with fixed geometry when I_HARDFIX is set
 # fparams indices
 F_G, F_OX, F_OY, F_CB, F_CX0, F_CY0, F_SUP, F_TGT, F_NORM, F_A0, F_S0, F_W0, F_SLACK, F_BAR, F_WWL, F_WDISP, \
     F_WCONG, F_WORD, F_OMARGIN, F_NMOV, F_WLAB, F_WSILK, F_WZONE, F_WXING = range(24)
@@ -208,6 +209,39 @@ def _overlap_part(E, i, stamp_s):
                     if dy > 0:
                         tot += dx * dy
     return tot
+
+
+@_jit
+def _fixed_part(E, i):
+    """Overlap area (cells^2) of part i's rectangles with fixed obstacles (owner -1), plus its
+    board rectangles' cells outside the outline: what only part i itself can repair."""
+    tot = 0
+    r0 = E.part_r0[i]
+    for m in range(E.part_rn[i]):
+        rid = r0 + m
+        E.ip[I_STAMP] += 1
+        st = E.ip[I_STAMP]
+        s = E.r_side[rid]
+        i0 = E.r_box[rid, 0]
+        i1 = E.r_box[rid, 1]
+        j0 = E.r_box[rid, 2]
+        j1 = E.r_box[rid, 3]
+        for bi in range(E.r_span[rid, 0], E.r_span[rid, 1] + 1):
+            for bj in range(E.r_span[rid, 2], E.r_span[rid, 3] + 1):
+                for q in range(E.hcnt[s, bi, bj]):
+                    o = E.hids[s, bi, bj, q]
+                    if E.r_seen[o] == st:
+                        continue
+                    E.r_seen[o] = st
+                    if E.r_owner[o] >= 0:
+                        continue
+                    dx = min(i1, E.r_box[o, 1]) - max(i0, E.r_box[o, 0])
+                    if dx <= 0:
+                        continue
+                    dy = min(j1, E.r_box[o, 3]) - max(j0, E.r_box[o, 2])
+                    if dy > 0:
+                        tot += dx * dy
+    return tot + _outside(E, i)
 
 
 @_jit
@@ -673,6 +707,11 @@ def try_move(E, S, nX, nY, nK, ns, T, lam, extra, u, commit_always):
         E.in_s[S[a]] = ss
     # ---- before
     leg_old = _leg(E, S, ns, ss)
+    hard = E.ip[I_HARDFIX] == 1
+    fix_old = 0
+    if hard:
+        for a in range(ns):
+            fix_old += _fixed_part(E, S[a])
     # the label and soft-overlap terms cost nothing when off (no call: each passes E by value)
     use_silk = E.fp[F_WSILK] != 0.0
     use_lab = E.fp[F_WLAB] != 0.0
@@ -751,6 +790,10 @@ def try_move(E, S, nX, nY, nK, ns, T, lam, extra, u, commit_always):
         _place_rects(E, i)
         _update_pins(E, i)
     leg_new = _leg(E, S, ns, ss)
+    fix_new = 0
+    if hard:
+        for a in range(ns):
+            fix_new += _fixed_part(E, S[a])
     silk_new = _silk(E, S, ns, ss) if use_silk else 0.0
     disp_new = 0
     lab_new = 0.0
@@ -871,6 +914,8 @@ def try_move(E, S, nX, nY, nK, ns, T, lam, extra, u, commit_always):
              + E.fp[F_WORD] * (ord_new - ord_old)
              + E.fp[F_WXING] * d_xing
              + extra)
+    if fix_new > fix_old:
+        delta += HARD               # never onto fixed geometry: only the part itself could undo it
     if commit_always or delta <= 0 or (T > 0 and u < math.exp(-delta / T)):
         if E.ip[I_XON] == 1:
             E.tot[T_XING] += d_xing
@@ -1229,7 +1274,8 @@ def build(ann, hash_cap=None):
         part_rules += lst
     maxpins = max(1, int(np.max(np.diff(part_pin_ptr))) if n else 1) * 2 + 2
     maxnets = max(1, len(nets)) + 2
-    ip = np.zeros(24, np.int64)
+    ip = np.zeros(25, np.int64)
+    ip[I_HARDFIX] = 1 if getattr(ann, "hard_fixed", False) else 0
     if getattr(ann, "window", None) is not None:
         ip[I_WIN] = 1
         ip[I_WX0], ip[I_WX1], ip[I_WY0], ip[I_WY1] = ann.window
@@ -1395,13 +1441,14 @@ def sample_uphill(E, parts, swap_ptr, swap_ids, n, lam, r, out):
         nY[0] = Y
         nK[0] = E.K[i]
         acc, d = try_move(E, S, nX, nY, nK, 1, 1e-12, lam, 0.0, 1.0, False)
-        if d > 0 and m < out.shape[0]:
+        if d > 0 and d < HARD and m < out.shape[0]:
             out[m] = d
             m += 1
     _ = stats
     return m
 
 
+QUENCH_FACTORS = (10, 100, 1000)   # legality weight steps of the quench, x lam1
 DELTA_BUDGET = 2e-4     # seconds of Terms.delta a physics part may cost per pick at the uniform rate
 
 
@@ -1689,7 +1736,7 @@ class FastAnnealer:
                 if mv is None:
                     continue
                 acc, d = self._try_python(mv[0], mv[1], 1e-12, self.lam0, mv[2])
-                if d > 0:
+                if 0 < d < HARD:
                     ups.append(d)
             ups.sort()
         T0 = ups[len(ups) // 2] / math.log(1 / 0.3) if ups else 1e-3
@@ -1798,6 +1845,47 @@ class FastAnnealer:
         # dropped (and priced the moves since on that), so count it again on the new hash
         mv = np.array(a.mov, np.int64)
         self.E.tot[T_LEG] = _total_leg(self.E, mv, len(mv))
+
+    def quench(self, moves, factors=QUENCH_FACTORS, r_mm=1.0):
+        """Legality quench (place_anneal_quench): when the anneal ends with overlaps, go on at its
+        final temperature with the legality weight raised step by step (lam1 x each factor), moving
+        only the parts in violation (<= r_mm a shift), until legal or `moves` are spent. The same
+        cost, physics included, decides which way each part leaves: the penalty method taken to
+        its limit (weight -> infinity) instead of a physics-blind legalizer."""
+        from .state import State, grid_violations
+        rep = dict(leg_start=self.leg_total, moves=0)
+        if self.leg_total == 0 or moves <= 0:
+            return rep
+        T = float(getattr(self, "T_last", 1e-6))
+        r = max(1, int(round(r_mm / self.P.g)))
+        fset = set(self.fast.tolist())
+        fstats = np.zeros(6, np.int64)
+        per = max(1, int(moves) // len(factors))
+        batch = 200
+        for f in factors:
+            lam = self.lam1 * f
+            k = 0
+            while k < per and self.leg_total > 0:
+                viol = sorted(grid_violations(State(self.P, self.E.X, self.E.Y, self.E.K), parts=self.mov))
+                fv = np.array([i for i in viol if i in fset], np.int64)
+                sv = [i for i in viol if i not in fset]
+                if len(fv):
+                    run_batch(self.E, fv, self.swap_ptr, self.swap_ids, batch, T, lam, r, fstats)
+                    charge("anneal_move", batch)
+                    if self.E.ip[I_OVERFLOW]:
+                        self._rebuild()
+                for i in sv:
+                    mv = self._propose_slow(r, i=i)
+                    if mv is not None:
+                        self._try_python(mv[0], mv[1], T, lam, mv[2])
+                charge("anneal_move_py", len(sv))
+                k += batch
+                rep["moves"] += batch + len(sv)
+            rep[f"leg_after_x{f}"] = self.leg_total
+            if self.leg_total == 0:
+                break
+        rep["leg_end"] = self.leg_total
+        return rep
 
     def report(self, cpu, planned=0, done=0):
         return dict(cpu_s=round(cpu, 2), planned_moves=planned, moves=done,

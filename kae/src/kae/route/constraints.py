@@ -231,6 +231,15 @@ DEFAULTS = dict(
                                    # (kae.place.crossings). On: xing-ext-m6 cut crossings to 0.62x with opens,
                                    # DRC and legality unharmed (user decision 2026-11-21: adopted on crossings); 0 off
     place_xing_from=0.25,          # placement: fraction of the anneal schedule after which the crossing term prices
+    place_anneal_hard_fixed=1,     # placement: 1 the annealer rejects a move that adds overlap with fixed obstacles or
+                                   # cells outside the outline (only the part itself could undo it); 0 a penalty only
+    place_anneal_quench=0.1,       # placement: when the anneal ends with overlaps, a legality quench of up to this
+                                   # fraction of its planned moves (legality weight lam1 x 10, 100, 1000 at the final
+                                   # temperature, violators only), before grid legalization; 0 off
+    place_legalize_structures=1,   # placement: 1 legalization windows keep the physics structures: each physics macro (an
+                                   # IC with its decaps, crystal, switching cell) moves as one block at its annealed
+                                   # offsets (single parts when that window fails), and equal-displacement optima are
+                                   # told apart by placement physics (kae.place.legalize); 0 displacement only
     place_untangle_x_mm=2.0,       # placement: mm of weighted HPWL one removed crossing may cost in untangle
     place_margin=-1.0,             # placement: routing room between movable parts, mm (Problem.set_margin);
                                    # negative = auto (Problem.auto_margin: 2 x (0.7 - utilization), 0..1 mm).
@@ -241,7 +250,21 @@ DEFAULTS = dict(
     place_margin_regions=1,        # placement: 1 caps each movable part's margin at its region's own auto margin
                                    # (sub-boards between cutouts and narrow necks, rule-area walls;
                                    # kae.place.margin_gate.caps); 0 off
+    exact_repack=0,                # placement: 1 repacks what the closed loop leaves illegal with CP-SAT on exact
+                                   # geometry (kae.place.repack: the flagged parts and their neighbours jointly,
+                                   # kept only if the exact findings fall) when the placement ends with
+                                   # findings, on time beyond the placement's own (pipeline.repack_after:
+                                   # min(30 s, 10 % of the next stage)). Off until its A/B says otherwise
     anchor_tight=1,                # placement: a big part with no spot free of the fixed geometry is fixed first (place.pipeline)
+    place_edge_headers=0,          # placement: 1 pins header rows spanning a board side (Feather, ItsyBitsy, QT Py)
+                                   # to a parallel edge before the seed (kae.place.crowded); off until its test
+    place_edge_pose_clear=0,       # placement: 1 makes an edge pin (place_edge_headers / place_edge_slot) keep
+                                   # clear of the fixed parts' pads and courtyards, sliding along the edge
+    place_edge_header_pairs=0,     # placement: with place_edge_headers, a board whose header fits nowhere
+                                   # gets every detected header row pinned, not only that one
+    place_edge_slot=0,             # placement: 1 pins every movable part whose courtyard cannot fit the board
+                                   # flush along a board side before the seed (kae.place.crowded.edge_pose)
+    place_fine_grid_util=0.0,      # placement: u > 0 places on the next finer grid when utilization exceeds u
     connector_edge=2,              # placement: user-facing connectors kae places (kae.place.edge_check:
                                    # USB, barrel, audio, RJ/modular, video/D-sub; at or near 100 % on an
                                    # edge on human boards) 2: pinned to the edge facing out after the seed,
@@ -285,9 +308,44 @@ DEFAULTS = dict(
                                    # 2 seeds (intent-fast-nets-edges) 1.5 left 2.3 fewer nets per board over t_r/2
                                    # [-4.0, -1.0] and the fast nets 128 mm shorter [-267, -9], for 116 mm more total
                                    # HPWL [-13, +249] (median +1.2 %); legality, probe opens and physics unchanged
+    tht_neck="on",                 # power copper (kae.route.power_copper, finish's "power" part): "on" necks grown
+                                   # copper within neck_len of plated through-hole pads of power and ground nets to
+                                   # the width their current needs (neck_rule tht; the routed track's width is kept),
+                                   # so wave, selective and iron soldering are not starved of heat; "off": none.
+                                   # Env KAE_THT_NECK when neither the project nor opts set it
+    tht_wide="",                   # refs and ref.pad names (comma-separated, or a list in opts) whose THT pads keep
+                                   # wide copper anyway: a heat path, a selectively soldered part (each necked pad
+                                   # is a tht_pad_necked hazard naming this setting); env KAE_THT_WIDE
+    tht_narrow="",                 # refs and ref.pad names whose THT connector pins power copper necks even without a
+                                   # DC plan (each one left wide is a tht_pad_kept_wide hazard naming this setting);
+                                   # env KAE_THT_NARROW
     zone_keepout=1.0,              # placement: weight of pads whose mask opening would bridge another net's
                                    # fixed outer-layer zone or sit in a board-level mask aperture with another
                                    # net (each 0.1 x this; gecko5: all staged DRC errors, 14 -> 0); 0: off
+    # the bridge's hot-loop stage (kae.route.hotloop; docs/research/routing/kae-hot-loops.md), each off
+    # until the hotloop A/B; env KAE_HOTLOOP_* where neither the project nor opts set them
+    hotloop_keepout=0,             # R5: 1 keeps other nets' tracks and vias off the return-plane layer under each
+                                   # commutation cell (its hull + hotloop_keepout_mm) in Freerouting, the repair
+                                   # rounds and the last mile (a kae-crit: guard; never in the output)
+    hotloop_keepout_mm=1.0,        # mm around the cell's hull the keep-out reaches (kae.route.hotloop.MARGIN_WHY)
+    hotloop_cells=0,               # R1+R2: 1 routes the commutation cells (critical_modules, cells only, priced in
+                                   # watts: loss.loop + loss.loop_ac) before Freerouting and locks their copper
+    hotloop_vias=0,                # R4: 1 adds return-via arrays at the cells' ground terminals inside that stage
+                                   # (turns the cell stage on)
+    hotloop_pours=0,               # R3: 1 writes the cells' VIN and PGND hops as zones of their nets (kae-hl:,
+                                   # kept in the output; turns the cell stage on)
+    hotloop_keepout_pours=1,       # with hotloop_keepout: 1 also keeps other nets off the loop nets' pours (rail,
+                                   # ground, switch node; the return plane always); 0: the return plane only
+    hotloop_keepout_loopvias=0,    # with hotloop_keepout: 1 leaves room in each keep-out for the loop's own vias of
+                                   # its other nets beside their terminals (a ground keep-out bans rail vias otherwise)
+    hotloop_lift="plane",          # how far the escape round may lift a keep-out for a net left open (in order
+                                   # corridors, pours, crossing, plane): the last level allowed; "corridors" never
+                                   # lets a foreign net through the return plane (it stays open, a decision hazard)
+    hotloop_clear=0,               # D: 1 clears each cell's return after routing (kae.route.hotloop.clear): foreign
+                                   # copper on its return and loop-net pour layers under the hull ripped and routed
+                                   # elsewhere, kept per cell only when no worse and its quote 5 % better
+    hotloop_clear_force=0,         # 1 keeps a cleared cell even when a ripped net finds no other way (left open)
+    hotloop_budget_s=120.0,        # s: the cell stage stops starting cells after this (and after 15 % of the budget)
 )
 
 
@@ -1045,7 +1103,7 @@ def _hole_free(g):
     return out
 
 
-def thermal_corridors(info, p, pad_uuids=None, sev=None):
+def thermal_corridors(info, p, pad_uuids=None, sev=None, solid=False):
     """[(geometry, layer, pad)]: strips to keep foreign copper out of so that KiCad's zone
     filler can draw enough thermal spokes for a pad that connects to a zone of its net with
     thermal relief (starved_thermal; a pad whose spokes are all cut is also left unconnected).
@@ -1064,11 +1122,17 @@ def thermal_corridors(info, p, pad_uuids=None, sev=None):
     spoke that a track joins to its net (checked with kicad-cli on a pad with every spoke cut),
     and a lone spoke would be one (actual 1 < 2). bancouver40 dogema48: with a 0.508 mm zone
     clearance, the strips of a 0.5 mm-pitch QFN's GND pins closed their neighbours' only
-    escapes, every seed; the human's GND pins there have no spokes and no error."""
-    if sev and _severity_ignored(sev, "starved_thermal"):
+    escapes, every seed; the human's GND pins there have no spokes and no error.
+
+    `solid`: the pads that connect to their zone solidly instead (pour_links): the zone's fill
+    must still touch them, so one strip as wide as the pad, from the pad's edge to the zone's
+    minimum width of fill past the clearance, along the axis with the most fill (giacobot: a
+    cell's +BATT, +3V3 and GND copper beside U2's LX pins cut the small solid LX pours off
+    both pins, so the switch node lost its pour and LX was left unconnected)."""
+    if not solid and sev and _severity_ignored(sev, "starved_thermal"):
         return []
     s = info["settings"]
-    need = int(s.get("min_resolved_spokes") or 2)
+    need = 1 if solid else int(s.get("min_resolved_spokes") or 2)
     zones = [z for z in info.get("zones") or [] if not z.get("rule_area") and z.get("net") and not z.get("teardrop")]
     out = []
     if not zones or need <= 0:
@@ -1188,7 +1252,7 @@ def thermal_corridors(info, p, pad_uuids=None, sev=None):
                 conn = z.get("pad_connection") or "thermal"
             if conn == "thru_hole_only":
                 conn = "thermal" if pad.get("attr") == "pth" else "full"
-            if conn != "thermal":
+            if conn != ("full" if solid else "thermal"):
                 continue
             zk = id(z)
             if zk not in zone_geo:
@@ -1200,7 +1264,7 @@ def thermal_corridors(info, p, pad_uuids=None, sev=None):
                 cop = real.get(l)
                 if cop is None or cop.is_empty or not zg.intersects(cop):
                     continue
-                gap = pad.get("thermal_gap") or z.get("thermal_gap") or 0.5
+                gap = 0.0 if solid else (pad.get("thermal_gap") or z.get("thermal_gap") or 0.5)
                 mt = z.get("min_thickness") or 0.0
                 # KiCad draws no spoke wider than the pad (kata0510 rp2040: the human's GND pin
                 # U2.19, 0.2 mm wide between 0.4 mm-pitch neighbours that both escape straight
@@ -1210,6 +1274,8 @@ def thermal_corridors(info, p, pad_uuids=None, sev=None):
                 rc = list(rr.exterior.coords) if rr.geom_type == "Polygon" else []
                 pmin = min(math.dist(rc[0], rc[1]), math.dist(rc[1], rc[2])) if len(rc) >= 3 else None
                 sw = pad.get("spoke_width") or z.get("spoke_width") or 0.5
+                if solid and pmin:
+                    sw = pmin       # solid fill meets the pad across its whole width
                 if pmin:
                     sw = min(sw, pmin)
                 sw = max(sw, mt)

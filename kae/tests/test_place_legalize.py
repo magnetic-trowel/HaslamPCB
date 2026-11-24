@@ -962,3 +962,88 @@ def test_ripup_scan_counts_every_fit_test_of_a_full_board():
     assert c < 0 and n == len(ks) * (2 * D * (D + 1) + 1)
     S = sat(np.zeros((5, 5), dtype=np.int32))
     assert FL.sat_add_rect(S, 1, 3, 2, 4, 1) == 4 * 3 and S[-1, -1] == 4    # the cells after the corner
+
+
+def _alone(P, st, keep):
+    """Only the parts in `keep` are movable; the rest leave the board model (not obstacles)."""
+    P.mov = [i for i in P.mov if i in keep]
+    for i in keep:
+        st.X[i], st.Y[i], st.K[i] = P.ncx // 2, P.ncy // 2, 0
+
+
+def test_window_reaches_the_nearest_pose_clear_of_fixed_geometry():
+    """A part dropped in the middle of a keepout wider than itself must travel further than the
+    window's margin around it (pi-w-controller: a 28 mm module on a locked 40-pin header, 30 mm
+    from the nearest clear pose). The window used to stay around the part, fail every round
+    and leave it to the greedy fallback; it now covers the escape pose and solves it."""
+    from kae.place.problem import Obstacle
+    P, st = _pile()
+    i = P.mov[0]
+    _alone(P, st, {i})
+    cx, cy = P.ncx // 2, P.ncy // 2
+    g = (cx - 120, cx + 120, cy - 100, cy + 100)        # 24 x 20 mm, part ~4 x 3.4 mm
+    for side in (0, 1):
+        P.obstacles.append(Obstacle(side=side, rect=None, g=g, why="test keepout"))
+    assert ("obstacle", "test keepout") in grid_violations(st)[i]
+    rep = legalize(P, st, time_s=20.0, workers=1, seed=0)
+    assert rep["end_violators"] == 0 and not grid_violations(st)
+    assert rep["solved"] >= 1 and "greedy" not in rep, rep
+
+
+def test_rigid_group_keeps_its_offsets_where_single_parts_split():
+    """A decap whose courtyard meets a fixed obstacle: alone, the displacement minimum moves only
+    the cap, off its IC; as a rigid group the IC and cap move together and keep their offsets."""
+    from kae.place.problem import Obstacle
+    out = {}
+    for rigid in (False, True):
+        P, st = _pile()
+        a, b = P.mov[0], P.mov[1]                     # "IC" and "cap", both front
+        _alone(P, st, {a, b})
+        ra = [r for _, r, _ in st.grid_rects(a)]
+        rb = [r for _, r, _ in st.grid_rects(b)]
+        st.X[b] += max(r[1] for r in ra) - min(r[0] for r in rb) + 2      # cap just right of the IC
+        rb = [r for _, r, _ in st.grid_rects(b)]
+        top = min(r[2] for r in rb)
+        g = (min(r[0] for r in rb), max(r[1] for r in rb), top - 60, top + 5)   # 0.5 mm into the cap
+        P.obstacles.append(Obstacle(side=0, rect=None, g=g, why="test wall"))
+        v = grid_violations(st)
+        assert b in v and a not in v
+        off0 = (st.X[b] - st.X[a], st.Y[b] - st.Y[a], st.K[a], st.K[b])
+        rep = legalize(P, st, time_s=20.0, workers=1, seed=0, rigid=[[a, b]] if rigid else ())
+        assert rep["end_violators"] == 0 and not grid_violations(st)
+        out[rigid] = (st.X[b] - st.X[a], st.Y[b] - st.Y[a], st.K[a], st.K[b]) == off0
+        if rigid:
+            assert rep.get("rigid_solved", 0) >= 1, rep
+    assert out == {False: False, True: True}
+
+
+def test_rigid_group_that_overlaps_itself_moves_as_single_parts():
+    """A group whose own members overlap cannot be repaired as a block: its parts go single."""
+    P, st = _pile()
+    a, b = P.mov[0], P.mov[1]
+    _alone(P, st, {a, b})
+    rep = legalize(P, st, time_s=20.0, workers=1, seed=0, rigid=[[a, b]])
+    assert rep["end_violators"] == 0 and not grid_violations(st)
+    assert not rep.get("rigid_solved")
+
+
+def test_physics_breaks_ties_between_equal_displacement_repairs():
+    """A part centred on a wall it must leave can go left or right at the same displacement;
+    the solver used to pick one arbitrarily (tinkerforge temperature: decap Σu 1.46 or 2.40 by
+    seed). With `phys`, the window compares its optima and keeps the lowest; displacement stays
+    the objective."""
+    from kae.place.problem import Obstacle
+    side = {}
+    for sign in (1, -1):
+        P, st = _pile()
+        i = P.mov[0]
+        _alone(P, st, {i})
+        (a, b, c, d) = [r for _, r, _ in st.grid_rects(i)][0]
+        x0 = (a + b) // 2 - (1 - (a + b) % 2)      # a thin wall through the middle: x0 + x1 = a + b
+        P.obstacles.append(Obstacle(side=0, rect=None, g=(x0, a + b - x0, 0, P.ncy), why="test wall"))
+        X0 = int(st.X[i])
+        rep = legalize(P, st, time_s=20.0, workers=1, seed=0, phys=lambda s, i=i, sign=sign: sign * float(s.X[i]))
+        assert rep["end_violators"] == 0 and not grid_violations(st)
+        assert abs(int(st.Y[i]) - P.ncy // 2) == 0 and int(st.K[i]) == 0
+        side[sign] = int(np.sign(int(st.X[i]) - X0))
+    assert side == {1: -1, -1: 1}
