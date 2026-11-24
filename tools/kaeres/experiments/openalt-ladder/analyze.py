@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "kae" / "src"))
 from kae.rank import board_rank
 B = Path.home() / "kae-baselines"
+SCORE = int(os.environ.get("SCORE_VERSION", "14"))   # the DRC scorer the verdict uses (#144: score 14)
 E = B / "experiments" / "openalt-ladder"
 e = json.loads((E / "experiment.json").read_text())
 ids = {m["id"][:8]: m["name"].split()[2] for m in e["methods"]}
@@ -20,7 +21,7 @@ for b in (E / "boards.txt").read_text().split():
         s = None
         for f in glob.glob(rd + "/evals/*.json"):
             sc = json.load(open(f)).get("score") or {}
-            if "errors" in sc and sc.get("valid") is not None: s = sc
+            if "errors" in sc and sc.get("valid") is not None and sc.get("score_version") == SCORE: s = sc
         if not s: continue
         w = {}
         try: w = json.load(open(rd + "/restarts.json"))
@@ -56,12 +57,21 @@ def contrast(a, kind):
     lo, hi = boot(L); sd = st.pstdev(L)
     return dict(gm=math.exp(sum(L) / len(L)), lo=math.exp(lo), hi=math.exp(hi), b=sum(l < 0 for l in L), w=sum(l > 0 for l in L),
                 p=sf(L), mde=math.exp(2.8 * sd / math.sqrt(len(L))) - 1, ta=ta, tb=tb, L=dict(zip(OPEN, L)))
+def clean_diff(a):
+    """per board: mean over seeds of clean_a - clean_D (on OPEN boards); bootstrap CI, sign-flip p"""
+    L = [sum(int(bool(D[(b, s)][a]["s"].get("clean"))) - int(bool(D[(b, s)]["D"]["s"].get("clean"))) for s in (0, 1)) / 2 for b in OPEN]
+    lo, hi = boot(L)
+    return sum(L) / len(L), lo, hi, sf(L), sum(int(bool(D[(b, s)][a]["s"].get("clean"))) for b in OPEN for s in (0, 1))
 R = {}
 print("\n| vs D | per-attempt gm [95 %] | b / w | p | MDE | opens | delivered gm [95 %] | b / w | p | delivered opens |\n|---|---|---|---|---|---|---|---|---|---|")
 for a in ("Dbridge", "Dwx"):
     c1, c2 = contrast(a, "attempt"), contrast(a, "delivered"); R[a] = (c1, c2)
     print(f"| {a} | {c1['gm']:.3f} [{c1['lo']:.3f}, {c1['hi']:.3f}] | {c1['b']} / {c1['w']} | {c1['p']:.3f} | {100*c1['mde']:.1f} % | "
           f"{c1['tb']} -> {c1['ta']} | {c2['gm']:.3f} [{c2['lo']:.3f}, {c2['hi']:.3f}] | {c2['b']} / {c2['w']} | {c2['p']:.3f} | {c2['tb']} -> {c2['ta']} |")
+print("\nClean board-seeds on the open boards (arm vs D, mean per-board difference [95 %], p):")
+for a in ("Dbridge", "Dwx"):
+    m, lo, hi, p, n = clean_diff(a)
+    print(f"- {a}: {n} vs D {sum(int(bool(D[(b, s)]['D']['s'].get('clean'))) for b in OPEN for s in (0, 1))}; diff {m:+.3f} [{lo:+.3f}, {hi:+.3f}], p {p:.3f}")
 print("\n| arm | runs | opens | DRC errors | placement errors | legal | clean | CPU h |\n|---|---|---|---|---|---|---|---|")
 T = {}
 for a in ARMS:
