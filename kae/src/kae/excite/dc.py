@@ -304,13 +304,33 @@ def plan(board, brief, bd, P, srcs, intent=None):
                 and sgn(c["vin"]) != sgn(c["vout"]):
             pl.notes.append(f"{c['vout']}: {c['id']} runs between rails of opposite signs as a {_top(c)}; its DC flow is "
                             f"taken as its output's mirror image")
-    # a regulator whose input net has no feed of its own: the DC flow enters the board at it (its input
-    # current has nowhere to come from in the copper); its loss still comes from its input's voltage
-    for r, f in pl.feeds.items():
-        if f["kind"] in ("linear", "switching") and f.get("rin") not in pl.feeds:
-            f["flow_external"] = True
-            f["gnd"] = f.get("gnd") or gnd_pads(f["ref"])
-            pl.notes.append(f"{r}: {f['ref']}'s input {f.get('rin')} has no feed; the DC flow enters at {f['ref']}")
+    # a feed with no pad on its rail delivers nowhere (a fact naming a source part with no pad there): it is no feed,
+    # and its rail's loads are not in the band (before, its loads' current was dropped and the plan did not balance)
+    for r in [r for r, f in pl.feeds.items() if f["kind"] != "cell" and not f.get("out")]:
+        f = pl.feeds.pop(r)
+        pl.notes.append(f"{r}: source {f['ref']} has no pad on it; its loads are not in the DC band")
+    # a regulator or cell whose input net has no feed of its own: the DC flow enters the board at it (its input
+    # current has nowhere to come from in the copper); its loss still comes from its input's voltage. A feed left
+    # out further down (no ground anywhere) can leave another's input without a feed, so this runs again then (a
+    # cell whose input lost its feed that way walked its current into a rail with no feed, unbalanced)
+    def rin_of(f):
+        return f["cell"]["vin"] if f["kind"] == "cell" else f.get("rin")
+
+    def mark_unfed():
+        for r, f in pl.feeds.items():
+            if f["kind"] in ("linear", "switching", "cell") and not f.get("flow_external") and rin_of(f) not in pl.feeds:
+                f["flow_external"] = True
+                if f["kind"] == "cell":
+                    c = f["cell"]
+                    # the input current enters at the cell's input: a boost's inductor (its input is the inductor's
+                    # current), else the controller's input pins (or an external-FET leg's high side)
+                    ent = (c.get("ext") or {}).get("in_high") or (c["ind"] if _top(c) in ("boost", "boost_led") else None)
+                    f["entry"] = on(ent, c["vin"]) if ent and on(ent, c["vin"]) else on(c["ctrl"], c["vin"])
+                    f["gnd"] = gnd_pads(c["ctrl"])
+                else:
+                    f["gnd"] = f.get("gnd") or gnd_pads(f["ref"])
+                pl.notes.append(f"{r}: {f['ref']}'s input {rin_of(f)} has no feed; the DC flow enters at {f['ref']}")
+    mark_unfed()
     # an external feed returns at its own ground pads, else at the connectors' (the board's way out)
     conn_g = [t for ref, pp in pads.items() if (parts.get(uuid_of.get(ref)) or {}).get("kind") == "connector"
               for t in tok(ref, [n for n, net, _, _ in pp if net in grounds])]
@@ -331,15 +351,21 @@ def plan(board, brief, bd, P, srcs, intent=None):
                 f["gnd"] = tok(f["ref"], [n for n, _ in ret])
                 pl.notes.append(f"{r}: {f['ref']} has no ground pad; its return leaves at {', '.join(f['gnd'])} through "
                                 f"{', '.join(sorted({x for _, net in ret for x in to_gnd[net]}))} to ground")
-    for r in list(pl.feeds):
-        f = pl.feeds[r]
-        if (f["kind"] in ("external", "switching") or f.get("flow_external")) and not f["gnd"]:
-            if conn_g:
-                f["gnd"] = conn_g
-                pl.notes.append(f"{r}: source {f['ref']} has no ground pad; its return is taken at the connectors' ground")
-            else:
-                del pl.feeds[r]
-                pl.notes.append(f"{r}: source {f['ref']} has no ground pad and the board no connector ground; left out")
+    changed = True
+    while changed:
+        changed = False
+        for r in list(pl.feeds):
+            f = pl.feeds[r]
+            if (f["kind"] in ("external", "switching") or f.get("flow_external")) and not f["gnd"]:
+                if conn_g:
+                    f["gnd"] = conn_g
+                    pl.notes.append(f"{r}: source {f['ref']} has no ground pad; its return is taken at the connectors' ground")
+                else:
+                    del pl.feeds[r]
+                    changed = True
+                    pl.notes.append(f"{r}: source {f['ref']} has no ground pad and the board no connector ground; left out")
+        if changed:
+            mark_unfed()
     # what each feed can deliver (its class rating, E5): a source current-limits, so no corner draws more
     for r, f in pl.feeds.items():
         if f["kind"] != "cell":
@@ -472,7 +498,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
                             f"regulator fed from it); the cell's DC flow is not modelled")
     pl.dc_pads = {t for ld in pl.loads for t in ld["sup"] + ld["gnd"]} | {t for sl in pl.self_loads for t in sl["pads"]}
     for f in pl.feeds.values():
-        for k in ("out", "gnd", "inp"):
+        for k in ("out", "gnd", "inp", "entry"):
             pl.dc_pads |= set(f.get(k) or [])
         if f["kind"] == "cell":
             c = f["cell"]
@@ -681,6 +707,15 @@ def injections(pl, cv, lost=None):
             lost.append((what, a))
         _add(inj, toks, a)
 
+    def take_in(f, c, s_in, depth):
+        """A cell's input current s_in (signed), from its input rail's feed, or, where that rail has no feed
+        (flow_external), entering at the cell itself and returning at its ground."""
+        if f.get("flow_external"):
+            add(f["entry"], s_in, f"{c['vout']}: {c['id']} input (enters at it)")
+            add(f["gnd"], -s_in, f"{c['vout']}: {c['id']} input's return")
+        else:
+            deliver(c["vin"], s_in, depth + 1)
+
     def deliver(r, s, depth=0):
         """s amperes (signed: the rail's own sign for current it delivers) into rail r from its feed, walked back
         to the board's input."""
@@ -690,7 +725,7 @@ def injections(pl, cv, lost=None):
                 lost.append((f"{r}: no feed" if f is None else f"{r}: feed chain deeper than 8", s))
             return
         k = f["kind"]
-        if f.get("flow_external"):
+        if f.get("flow_external") and k != "cell":
             add(f["out"], s, f"{r}: {f['ref']} output")
             add(f["gnd"], -s, f"{r}: {f['ref']} return")
             return
@@ -724,7 +759,7 @@ def injections(pl, cv, lost=None):
                 if not c["rect"]:
                     add(on(ctrl, r), s, f"{r}: {c['id']} low side")
                     add(on(ctrl, sw), -s, f"{r}: {c['id']} low side")
-                deliver(c["vin"], s_in, depth + 1)
+                take_in(f, c, s_in, depth)
                 return
             if c.get("ext"):
                 # a 4-switch buck-boost with external FETs (either region): the input current enters at the input
@@ -737,7 +772,7 @@ def injections(pl, cv, lost=None):
                 add(on(e["out_high"], r), s, f"{r}: {c['id']} output")
                 ret = (gnd(e["shunt"]) if e.get("shunt") else []) or gnd(e["in_low"]) or gnd(e["out_low"])
                 add(ret, s_in - s, f"{r}: {c['id']} return")
-                deliver(c["vin"], s_in, depth + 1)
+                take_in(f, c, s_in, depth)
                 return
             if top == "inverting_buck":
                 # an inverting buck (TPS6371x): its inductor runs from the negative rail into the switch node, so the
@@ -748,7 +783,7 @@ def injections(pl, cv, lost=None):
                 add(on(ctrl, c["vin"]), -s_in, f"{r}: {c['id']} input")
                 add(on(ctrl, sw), s, f"{r}: {c['id']} switch node (the inductor's current)")
                 add(gnd(ctrl), s_in - s, f"{r}: {c['id']} return")
-                deliver(c["vin"], s_in, depth + 1)
+                take_in(f, c, s_in, depth)
                 return
             # a buck or boost between rails of one sign: its positive form's currents, all of them mirrored on rails
             # below ground
@@ -760,7 +795,7 @@ def injections(pl, cv, lost=None):
                 if not c["rect"]:                                                   # synchronous: the rectifier inside too
                     add(on(ctrl, sw), -(1 - D) * IL * m, f"{r}: {c['id']} rectifier")
                     add(on(ctrl, r), x * m, f"{r}: {c['id']} rectifier")
-                deliver(c["vin"], IL * m, depth + 1)                                # the input feeds the inductor (lumped)
+                take_in(f, c, IL * m, depth)                                # the input feeds the inductor (lumped)
             else:
                 xin = _cell_in(c, x, D)
                 add(on(ctrl, c["vin"]), -xin * m, f"{r}: {c['id']} input")         # the input: D I_out / eta
@@ -769,7 +804,7 @@ def injections(pl, cv, lost=None):
                 if not c["rect"]:
                     add(gnd(ctrl), -(1 - D) * x * m, f"{r}: {c['id']} low side")
                     add(on(ctrl, sw), (1 - D) * x * m, f"{r}: {c['id']} low side")
-                deliver(c["vin"], xin * m, depth + 1)
+                take_in(f, c, xin * m, depth)
     for ld, x in zip(pl.loads, load_currents(pl, cv)):
         s = _sign(pl, ld["rail"]) * x
         add(ld["sup"], -s, f"{ld['rail']}: load {ld['ref']}")

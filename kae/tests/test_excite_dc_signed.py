@@ -261,3 +261,34 @@ def test_a_cell_rail_drawn_through_a_regulator_is_modelled_and_one_drawn_by_noth
     assert DC.imbalance(pl, inj, lost) == [] and inj["U1.4"] == pytest.approx(-0.05)     # J3's 50 mA, through U5
     pl, _, _ = _inverting_plan(tmp_path / "b", extra=[])
     assert any(n.startswith("-5V: fed by cell:inverting:U1, but nothing draws from it") for n in pl.notes), pl.notes
+
+
+def _buck_fixture_plan(tmp_path, nets):
+    """critical_fixtures' board (J1 into VIN, an AP63203 buck to +3V3, an ATtiny on +3V3) under the facts' nets."""
+    import critical_fixtures as CF
+    from kae.board.kicad_file import load
+    from kae.circuit import brief as B
+    from kae.excite import models as M, sources as S
+    from kae.excite.evaluate import ledger_for
+    b = load(CF.write_board(pathlib.Path(tmp_path)))
+    intent = {"nets": nets, "parts": {"U2": {"I_A": [0.02, 0.02]}}}
+    br = B.build(b)
+    bd = M.build(b, br)
+    srcs = S.add_all(bd, br)
+    P, _ = ledger_for(bd, br, srcs, intent)
+    return DC.plan(b, br, bd, P, srcs, intent), P, srcs
+
+
+def test_a_source_with_no_pad_on_its_rail_is_no_feed_and_a_cell_behind_it_takes_its_input_in_itself(tmp_path):
+    """complubot's facts name U12 as +5V's source, a part with no pad on +5V: the feed delivered at no pad and its
+    loads' current was lost. It is no feed now, and a cell whose input rail is left without a feed (forestierr's,
+    librewave's, rrcircuits' bucks) takes its input current in at its input pins and returns it at its ground, as a
+    regulator whose input has no feed does, instead of walking it into a rail nobody feeds."""
+    pl, P, srcs = _buck_fixture_plan(tmp_path, {"VIN": {"source": "C3", "V_V": 12.0}})
+    assert "VIN" not in pl.feeds and any(n.startswith("VIN: source C3 has no pad on it") for n in pl.notes), pl.notes
+    f = pl.feeds["+3V3"]
+    assert f["kind"] == "cell" and f.get("flow_external") and f["entry"] and f["gnd"]
+    cell = next(s.name for s in srcs if s.kind == "cell")
+    lost = []
+    inj = DC.injections(pl, _typical(pl, P, [cell]), lost)
+    assert lost == [] and DC.imbalance(pl, inj, lost) == []
