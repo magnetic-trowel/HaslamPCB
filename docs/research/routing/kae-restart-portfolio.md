@@ -7,7 +7,7 @@ Keys: restart portfolio, portfolio.run, _rank, waves, parallel, first_s, growth,
 **First published:** 2026-10-24, commit [17f2185](https://github.com/magnetic-trowel/kicad-auto-everything/commit/17f218519310a0cb5330365065241d0b7a70c8bf) on branch `claude/vigilant-mayer-i91rrr` (stop-reason parsing [0865c48](https://github.com/magnetic-trowel/kicad-auto-everything/commit/0865c488a3e90241fb1f2268c56edcf953bda657)).
 **Merit method:** none of its own: the merit script notes "kae portfolio is left out: it is kae bridge in this same wrapper", because main's restart wrapper (`tools/kaeres/restart.py`) plays the portfolio's role for every merit method. 500-board comparison (kae methods under that wrapper, merit-500r3 / merit-500r3k): pending.
 
-Freerouting is deterministic in DSN item order, and its failures on our boards are not clock-bound (at 10× budgets the same attempts fail; every stop is COMPLETED or STAGNATION). So `kae.route.portfolio` runs waves of differently seeded attempts in parallel with a doubling wave budget and keeps the first clean board. A+B: clean on 99/99 attempts (single attempt 91/99), worst wall time 224 s instead of 1,626 s; C6: 12/12.
+Freerouting is deterministic in DSN item order, and its failures on A+B are not clock-bound (at 10× budgets the same attempts fail; every stop is COMPLETED or STAGNATION; on big boards opens do fall along resumed runs, and seeds 0/2 and 1/3 give identical results there: [audit-2611b](../audit-2611b.md#corrected-beliefs)). So `kae.route.portfolio` runs waves of differently seeded attempts in parallel with a doubling wave budget and keeps the first clean board. A+B: clean on 99/99 attempts (single attempt 91/99), worst wall time 224 s instead of 1,626 s; C6: 12/12.
 
 ## Idea and how it works
 

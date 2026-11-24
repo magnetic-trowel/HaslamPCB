@@ -37,7 +37,10 @@ _METRIC_RE = re.compile(r'(\d{4})Metric', re.I)
 
 
 # a number as value fields write it: '10', '4.7', and '.1' (a leading-dot decimal, '.1uF', '.33uH'; the
-# lookbehind (?<![\w.]) each pattern puts before it keeps '1.5' from matching at '.5')
+# lookbehind (?<![\w.]) each pattern puts before it keeps '1.5' from matching at '.5'). NUM is that number
+# group for parsers elsewhere (current ratings, net voltages); put a lookbehind excluding '.' before it.
+NUM = r'(\d+(?:\.\d+)?|\.\d+)'
+
 def _norm(text: str | None) -> str:
     return (text or '').translate(_MICRO).strip()
 

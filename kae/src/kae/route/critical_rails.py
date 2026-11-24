@@ -51,6 +51,7 @@ import math
 import re
 
 from kae.budget import now as clock_now
+from kae.circuit.values import NUM
 from kae.circuit.names import SUPPLY_PIN
 
 from .critical_grid import Anchor
@@ -207,7 +208,7 @@ def source_rating(ctx, u, net, cells):
     if kind == "module":
         return 0.3
     if kind == "inductor":
-        a = re.search(r"(\d+(?:\.\d+)?)\s*A\b", p.get("value") or "")
+        a = re.search(r"(?<![\d.])" + NUM + r"\s*A\b", p.get("value") or "")
         return 0.6 * float(a.group(1)) if a else 1.0
     return None
 

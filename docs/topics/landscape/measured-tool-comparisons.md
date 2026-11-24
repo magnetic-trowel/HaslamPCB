@@ -4,7 +4,7 @@ Scope: published numbers comparing routers, LLM agents and AI layout tools; benc
 Keys: PCBWorld-Bench, D3-A, D3-B, D3-C, clean pass, CP@5, @1, routability, engine engagement, Freerouting 2.1.0, 2.5.0, PCBench, EEBench, EDA-bench, PCBGolf, tscircuit datasets, Z01, SRJ33, TraceMaker, fastroute, devbisme, placement benchmark, 0 DRC
 
 ## Headline facts
-1. PCBWorld-Bench is the only neutral multi-tool routing comparison [P].
+1. PCBWorld-Bench is the only academic multi-tool routing benchmark with a public chain [P]; no longer the only comparison (2026-11-20): two open harnesses publish per-board data, both vendor-run (Koppar [autorouter-bench](https://github.com/Koppar-AI/autorouter-bench), Zap! [compare](https://zap.mutual.solutions/compare)) [V], and an academic D3-C table exists ([arXiv 2611.08175](https://arxiv.org/html/2611.08175v2)) [P].
 2. No placement benchmark exists; no independent benchmark of Quilter, DeepPCB or Flux; vendor numbers are not comparable [P].
 3. "0 DRC" is a weak metric: a no-tools Claude Code board passed DRC while routing signals through the GND plane (devbisme test) [P].
 4. PCBWorld's Freerouting baseline (2.1.0) is stale (2.5.0 numbers below) [P].
@@ -15,7 +15,7 @@ Paper, datasets, CP@5 definition (best-Φ rollout of 5, not "any of 5 clean"), @
 ## Other router and tool measurements
 | Item | Numbers | Tag |
 |---|---|---|
-| Freerouting self-reported suites | v2.5.0 release notes: 30.9% → 75.0% clean on 1,157 boards; nightly (1,142 fixtures): 2.6.0-RC3 87.7%, RC4 92.4% on tiers A+B only; "clean" = Freerouting's own check → [../routing/freerouting.md](../routing/freerouting.md#nightly-benchmark) | [P] self-reported |
+| Freerouting self-reported suites | v2.5.0 release notes: 30.9% → 75.0% clean on 1,157 boards; nightly (1,142 fixtures without zones): 2.6.0-RC3 87.7%, RC4 92.4% on tiers A+B only; with zones restored 2.5.0 63.5%, RC16 58.8% ([PR 1184](https://github.com/freerouting/freerouting/pull/1184)); "clean" = Freerouting's own check → [../routing/freerouting.md](../routing/freerouting.md#nightly-benchmark) | [P] self-reported |
 | fastroute vs Freerouting (20 boards) | 510 s (420 s with PGO) vs 2,102 s; 20–300 MB vs 1–2 GB | [P] self-reported |
 | kicad-tools TraceMaker | ≈0.99 / 1.00 / 0.90 vs Freerouting 2.2.4 ≈0.7 / 0.7 / 0.2 (single 60 s runs) | [P] self-reported (corrected baseline, VK) |
 | KRT | 47/47 FTDI nets in 8.6 s; 28/28 LVDS pairs in 29.7 s; ongoing A/B on open-source boards | [P] self-reported |

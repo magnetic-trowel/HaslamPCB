@@ -322,6 +322,26 @@ DEFAULTS = dict(
     zone_keepout=1.0,              # placement: weight of pads whose mask opening would bridge another net's
                                    # fixed outer-layer zone or sit in a board-level mask aperture with another
                                    # net (each 0.1 x this; gecko5: all staged DRC errors, 14 -> 0); 0: off
+    # placement relations from the intent (kae.place.relations; llm-relations-input.md). The three switches
+    # carry the design's open questions 1 (proposed answer), 2 and 5 (answered by the user)
+    relations_mm="sourced",        # Q1: a length ('2 mm') in a relation: 'sourced' takes it (marked assumed without
+                                   # a 'source'); 'forbid' allows only tight/close/loose
+    relations_vs_physics="physics",  # Q2 (answered 2026-11-22): physics wins: a relation on parts the place terms
+                                   # price weighs as weak there, and unmet it is a relation_conflict naming the
+                                   # physics; 'tie': relations keep their strength (still a conflict when unmet)
+    relations_block="safety",      # Q5 (answered 2026-11-22): an unmet relation blocks only with category 'safety'; 'required' also blocks
+                                   # unmet required ones; 'never'
+    rel_tight_decap=2.5,           # mm centre to centre, a 0402 decap near its pin: corpus median, p90, loose
+    rel_close_decap=4.9,           # (measured-priors.md, decoupling distance priors)
+    rel_loose_decap=15.0,
+    rel_gap_min=0.5,               # mm: the tightest gap 'tight' asks of other parts
+    rel_tight_scale=0.5,           # other parts: gap = scale x sqrt(courtyard area of the smaller member)
+    rel_close_scale=2.0,
+    rel_loose_scale=6.0,
+    rel_w_weak=0.3,                # annealer weight of a soft relation per strength (the label term's; its default
+    rel_w_medium=1.0,              # for numbered rows is 1.0); required relations not yet built hard weigh most
+    rel_w_strong=3.0,
+    rel_w_required=10.0,
     # the bridge's hot-loop stage (kae.route.hotloop; docs/research/routing/kae-hot-loops.md), each off
     # until the hotloop A/B; env KAE_HOTLOOP_* where neither the project nor opts set them
     hotloop_keepout=0,             # R5: 1 keeps other nets' tracks and vias off the return-plane layer under each

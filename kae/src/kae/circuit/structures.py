@@ -208,7 +208,7 @@ def fet_terminals(b: _B, ref: str, mid: str):
 
 
 def _inductor_current(part: Part) -> float | None:
-    m = re.search(r'(?<![\w.])(\d+(?:\.\d+)?)\s*A(?![a-zA-Z])', part.value + ' ' + ' '.join(str(v) for v in part.fields.values()))
+    m = re.search(r'(?<![\w.])' + V.NUM + r'\s*A(?![a-zA-Z])', part.value + ' ' + ' '.join(str(v) for v in part.fields.values()))
     if m:
         v = float(m.group(1))
         return v if 0.05 <= v <= 100 else None
@@ -1319,7 +1319,7 @@ XIN_FN = re.compile(r'(XIN|X_?IN|^XI$|^X1$|OSC_?IN|OSC\d?_?IN|OSCI$|XTAL_?IN|XTA
 XOUT_FN = re.compile(r'(XOUT|X_?OUT|^XO$|^X2$|OSC_?OUT|OSC\d?_?OUT|OSCO$|XTAL_?OUT|XTAL2|XTALO|XTAL_?N|HSE_?OUT|LSE_?OUT|OSC32_?OUT|XTAL$|XC2|XT2|XB|PH1|PC15)')
 
 
-CL_STATED = re.compile(r'(?:C_?L|load)\s*[=:]?\s*(\d+(?:\.\d+)?)\s*p', re.I)
+CL_STATED = re.compile(r'(?:C_?L|load)\s*[=:]?\s*' + V.NUM + r'\s*p', re.I)
 CL_ANY = re.compile(r'(?<![\d.])(\d{1,2}(?:\.\d)?)\s*pF', re.I)
 
 
@@ -2193,7 +2193,7 @@ def _path_current(b: _B, sws, rail_in, rail_out, series, ic=None, stages=None):
     """(I, basis) for a power path: fuse rating > load-switch table > shunt full scale > connector or FET class."""
     for f in series + [p.ref for n in (rail_in, rail_out) for p in b.nl.pins(n) if b.k(p.ref) == 'fuse']:
         v = b.nl.parts[f].value
-        m = re.search(r'(?<![\d.])(\d+(?:\.\d+)?)\s*(m?)A(?![a-z])', v)
+        m = re.search(r'(?<![\d.])' + V.NUM + r'\s*(m?)A(?![a-z])', v)
         if m:
             amps = float(m.group(1)) * (1e-3 if m.group(2) else 1.0)
             return amps, f"fuse {f} rated {amps:g} A ('{v}')"

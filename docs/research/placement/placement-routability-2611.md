@@ -5,7 +5,7 @@
 Scope: the mechanism and A/Bs of four placer changes aimed at placements that fail to route: the untangle pass (ledger J70), a crossing term in the annealer, routing history fed to the global placer across restart attempts (J6), the routing-channel term (J46). Not here: legality failures of the placer (J19) -> [kae-exact-legality](kae-exact-legality.md).
 Keys: untangle, ratsnest crossings, place_untangle, place_w_xing, kae.place.crossings, place_w_chan, channel_grid, place_history, cong_history, placement-routability
 
-**Status:** did not work: crossing term and untangle not adopted, routing history not adopted (2026-11-13/15); channel term undecided (its per-board mechanism check never ran). All stay off by default.
+**Status:** crossing term and routing history undecided (underpowered: −4.4 % and −4.5 % at p 0.14 and 0.17; not adopted), untangle did not work (2026-11-13/15); channel term undecided (its per-board mechanism check never ran). All stay off by default.
 **First published:** 2026-11-08, commit [16cd6f0](https://github.com/magnetic-trowel/kicad-auto-everything/commit/16cd6f0d) on branch `place-routab-exp`; arms at [d21a9ac](https://github.com/magnetic-trowel/kicad-auto-everything/commit/d21a9acc); last commit [f6214ea](https://github.com/magnetic-trowel/kicad-auto-everything/commit/f6214ea1efd0d3537fbf51b7fdf6fa592c314097) (2026-11-13). Code never on main: [`kae/src/kae/place/crossings.py` at f6214ea](https://github.com/magnetic-trowel/kicad-auto-everything/blob/f6214ea1efd0d3537fbf51b7fdf6fa592c314097/kae/src/kae/place/crossings.py).
 
 ## Why crossings
@@ -69,8 +69,8 @@ weight (2 mm) goes into the routing test.
 - cong30 vs control +2.4 % (p 0.65). Half the kept attempts (23/45) are first-wave attempts that cannot carry history; k = 1 detects about 20 %.
 
 ## Verdicts
-- **Crossing term: did not work** for routing. It cuts crossings about 1.8× with no DRC type worse, but opens −4.4 % (p 0.14) stays under the 10 % bar. Fewer ratsnest crossings do not give proportionally fewer opens on these boards [C].
+- **Crossing term: undecided** for routing (re-labelled 2026-11-20, [audit-2611b](../audit-2611b.md#corrected-beliefs)). It cuts crossings about 1.8× with no DRC type worse, but opens −4.4 % (p 0.14) stays under the 10 % bar. Fewer ratsnest crossings do not give proportionally fewer opens on these boards [C].
 - **Untangle: did not work** (+5.4 %, p 0.98, shorting guard fails). An earlier 10-board, 2-seed run (rules-placement 6e42c04: opens 203 → 162) did not reproduce.
-- **Routing history: did not work** at this power (−4.5 %, p 0.17; the extension needed ≥ 10 %). A powered test would score only post-wave-1 attempts, k = 3.
+- **Routing history: undecided** at this power (−4.5 %, p 0.17; the extension needed ≥ 10 %). A powered test would score only post-wave-1 attempts, k = 3.
 - **Channel term: undecided.** Diluted all-board results are flat; the pre-registered per-board overlap check (placement-only reruns, about 3 CPU-h) was not run. One hand-checked board (kata0510) had 0 movable-pair channel overlaps in control.
 - Sources: kaeres experiments `placement-routability`, `place-history` (`kaeres exp report`).

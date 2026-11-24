@@ -184,6 +184,12 @@ def load(path_or_dict):
             raise IntentError(f"term {tid}: a cost term needs a 'rate', e.g. '1 mW_eq/mW'")
         if not (t.get("why") or t.get("source")):
             raise IntentError(f"term {tid}: say why (a 'why' or a 'source'): every priced quantity is traceable")
+    # placement relations (kae.intent.relations: shape here; names against the board in kae.place.relations)
+    from . import relations as REL
+    clash = sorted(seen & {r.get("id") for r in it.get("relations") or [] if isinstance(r, dict)})
+    if clash:
+        raise IntentError(f"ids {clash} name both a term and a relation; ids are unique across both")
+    it["relations"] = REL.check(it.get("relations"), defaults_off=it.get("defaults_off"))
     return it
 
 

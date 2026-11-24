@@ -23,6 +23,8 @@ Method: for each of the 30 boards, KiCad's connectivity after a refill of the ro
 | Pads the bare fill connects and the routing separates (cut by routing) | 124 (88 %) |
 | Pads already separate in the bare fill | 17 (12 %) |
 
+Scope of the 88 %: the fork alone on R5's 30 selected boards. It is not kae's residue: under the kae bridge 2-10 % of opens involve a zone ([audit-2611b](../audit-2611b.md#corrected-beliefs)).
+
 Which KiCad fill rule makes the separation (the routed board, refilled under changed zone rules):
 
 | Variant of the routed board | Opens left |

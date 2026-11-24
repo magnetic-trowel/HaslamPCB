@@ -387,7 +387,7 @@ def _part(bd, ref, part, pins, kind, sub, role, rec, in_cell):
     elif kind == "ferrite" and len(tw) == 2:
         a, b = tw
         R100 = 600.0
-        m = re.search(r"(\d+(?:\.\d+)?)\s*(R|ohm|Ω)", part.value or "", re.I)
+        m = re.search(r"(?<![\d.])" + V.NUM + r"\s*(R|ohm|Ω)", part.value or "", re.I)
         if m:
             R100 = float(m.group(1))
         Lb = R100 / (2 * 3.14159 * 50e6)

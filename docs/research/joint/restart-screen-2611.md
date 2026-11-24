@@ -5,7 +5,7 @@
 Scope: whether the restart wrapper's `--screen` changes the kae joint method's routing or physics on 80 merit boards. Not here: the 8-board study that introduced `--screen` -> [closing open connections](../routing/kae-closing-open-connections.md#what-worked); the joint chassis question (J1) -> [window-budget-2611](window-budget-2611.md).
 Keys: --screen, --screen-s, successive halving, ASHA, rung_plan, Halving, restart.py, j1-screen, j1-chassis, twin, J1, Stage 2 Q4
 
-**Status:** did not work (no effect beyond replicate noise); undecided under its pre-registered sequential tests and not extended. Stage 2 runs without `--screen` (user, 2026-11-11).
+**Status:** undecided (no effect beyond replicate noise; confidence sequence [−0.062, +0.087] under its pre-registered sequential tests); not extended. Stage 2 runs without `--screen` (user, 2026-11-11).
 **First published:** this page, 2026-11-15. Plan: `tools/kaeres/experiments/j1-chassis/PLAN.md`, Addendum 2 §4 (with Addenda 1 and 3), on branch `kaeres-loop-reports` at [b8fd7f6](https://github.com/magnetic-trowel/kicad-auto-everything/blob/b8fd7f6c/tools/kaeres/experiments/j1-chassis/PLAN.md), pre-registered. Code: `tools/kaeres/restart.py` (`--screen`, `rung_plan`, `Halving`) on main.
 
 ## Mechanism

@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from shapely.geometry import Point
 
+from kae.circuit.values import NUM
 from kae.circuit.names import GND_RE
 from kae.physics import exact as EX
 from kae.physics import priors as PR
@@ -153,7 +154,7 @@ class Ctx:
         m = re.search(r"(\d+)V(\d+)", s)
         if m:
             return float(f"{m.group(1)}.{m.group(2)}")
-        m = re.search(r"(\d+(?:\.\d+)?)V", s)
+        m = re.search(r"(?<![\d.])" + NUM + "V", s)
         return float(m.group(1)) if m else None
 
     # ---- planes
