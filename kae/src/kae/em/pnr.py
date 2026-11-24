@@ -87,7 +87,7 @@ class PhysRouter:
         from kae.route import critical_write as W
         self.log, self.pitch, self.lam, self.nsub, self.plain, self.refresh = log, pitch, lam, nsub, plain, refresh
         self.verify = verify
-        self.lock = lock                     # write its copper locked: a completion router routes around it
+        self.lock = lock                     # write its copper locked and soft (_written)
         self.explain_hops = True
         self.src_path, self.out = Path(path), Path(out)
         self.work = Path(work or tempfile.mkdtemp(prefix="kae-pnr-"))
@@ -214,14 +214,9 @@ class PhysRouter:
                 shutil.copy2(s_, p.with_suffix(ext))
         return p
 
-    def solve_fields(self):
-        """Mesh the copper as it stands, short what is not yet connected, solve every pattern. Copper that has
-        not changed since the last solve keeps its fields (the solve is deterministic)."""
-        t0 = time.time()
-        sig = hash(repr((self.tracks, self.vias)))
-        if sig == getattr(self, "_sig", None) and getattr(self, "prices", None) is not None:
-            self.log("pnr: copper unchanged since the last solve; fields kept")
-            return
+    def _mesh(self):
+        """The copper as it stands, meshed for the field solve: (board, BoardMesh, the pads the mesh
+        holds). Sets the pours' fills (KiCad's refill of that copper) for the exact islands."""
         p = self._state_board()
         from kae.board.kicad_file import load
         b = load(p)
@@ -246,6 +241,22 @@ class PhysRouter:
                 ok.add(q)
             except (KeyError, ValueError):
                 pass
+        return b, bm, ok
+
+    def _priced_islands(self, ok):
+        """The exact islands of the priced nets with pads in `ok`, as solve_fields sets them."""
+        return {n: self._exact_islands(n, ok) for n in set(self.bd.net_of[q] for q in ok if q in self.bd.net_of)
+                if n in self.nets}
+
+    def solve_fields(self):
+        """Mesh the copper as it stands, short what is not yet connected, solve every pattern. Copper that has
+        not changed since the last solve keeps its fields (the solve is deterministic)."""
+        t0 = time.time()
+        sig = hash(repr((self.tracks, self.vias)))
+        if sig == getattr(self, "_sig", None) and getattr(self, "prices", None) is not None:
+            self.log("pnr: copper unchanged since the last solve; fields kept")
+            return
+        b, bm, ok = self._mesh()
         net = ES.Network(bm.m)
         # islands of each net's pads; unrouted connections become field-free shorts
         self.islands = {}
@@ -784,7 +795,7 @@ class PhysRouter:
         self._check_connectivity()
         self.hazards = self._hazards(fields)
         from kae.route import critical_write as W
-        W.append_items(self.base, self.out, tracks=self.tracks, vias=self.vias)
+        W.append_items(self.base, self.out, *self._written())
         for ext in (".kicad_pro", ".kicad_dru"):
             s_ = self.base.with_suffix(ext)
             if s_.exists():
@@ -793,6 +804,17 @@ class PhysRouter:
         self.log(f"pnr: {len(self.tracks)} tracks, {len(self.vias)} vias, {len(self.failed)} failed hops, "
                  f"{time.time() - t0:.1f}s" + (f"; chose {self.choices}" if self.choices else ""))
         return self
+
+    def _written(self):
+        """(tracks, vias) as written to the output. With lock: locked, and marked soft copper
+        (critical_write.soft_uuid): the completion router routes around it, and only its last
+        mile's last tier may rip it, under the physics guard (kae.route.bridge._add_soft), so the
+        physics wins stay where they block nothing and a connection they block can still close."""
+        if not self.lock:
+            return self.tracks, self.vias
+        from kae.route import critical_write as W
+        return ([t[:5] + (t[5] or W.soft_uuid(),) + t[6:] for t in self.tracks],
+                [v[:5] + (v[5] or W.soft_uuid(),) + v[6:] for v in self.vias])
 
     def _hazards(self, fields):
         """The intent's hazards on the routed copper (kae.intent.route.Policy.hazards): hard terms judged by a
@@ -878,7 +900,14 @@ class PhysRouter:
         if self.plain or not getattr(self, "_fields", True):
             self._islands_only()
         else:
-            self.solve_fields()
+            # the islands first, from the same mesh and refill; the fields only when a net must be routed
+            # again (routing reads them; nothing after the repair does): a whole solve saved otherwise
+            _, _, ok = self._mesh()
+            isl = self._priced_islands(ok)
+            if any(len([g for g in isl.get(n, []) if g]) > 1 for n in self.nets):
+                self.solve_fields()
+            else:
+                self.islands.update(isl)
         torn = [n for n in self.nets if len([g for g in self.islands.get(n, []) if g]) > 1]
         for n in torn:
             self.log(f"pnr: repair: {n} has {len(self.islands[n])} islands on the refilled copper; routing them")
@@ -1375,7 +1404,9 @@ def main(argv=None):
                     help="prices weighted over the whole spectrum from a reduced model per refresh (kae.em.spectral)")
     ap.add_argument("--workers", type=int, default=1, help="--spectral: snapshot frequencies solved at once")
     ap.add_argument("--work", help="work directory (default: a new temporary one)")
-    ap.add_argument("--lock", action="store_true", help="write the routed copper locked (for a completion router)")
+    ap.add_argument("--lock", action="store_true",
+                    help="write the routed copper locked (for a completion router), marked soft: the completion's "
+                         "last mile may rip it as its last tier, under the physics guard")
     ap.add_argument("--passes", type=int, default=3,
                     help="routing passes: a net a pass leaves in pieces is kept as the input has it in the next")
     a = ap.parse_args(argv)
