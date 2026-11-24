@@ -98,22 +98,44 @@ def advice_lines(a, cur, detailed=False):
     """One advice entry as text: what, by how much, how sure, what the commander decides."""
     est = a.get("estimate") or {}
     head = f"  {a['id']:3s} {a.get('kind', '')}: {a.get('remedy', '')}"
+    if a.get("decided"):
+        return [head + f" [{a['decided']}]"]
     if not est:
-        return [head]
+        b = a.get("bound") or {}
+        out = [head] + ([f"        not estimated ({(a.get('confidence') or {}).get('level')}): at most "
+                         f"{b['max_gain']:.4g} {cur} ({b.get('basis', '')})"] if b else [])
+        if a.get("mechanism") and a.get("kind") != "none":
+            out.append(f"        why: {a['mechanism']}")
+        dec = a.get("decide") or {}
+        if dec.get("question"):
+            out.append(f"        decide ({dec.get('by', 'llm')}): {dec['question']}")
+        for n in dec.get("needs") or []:
+            out.append(f"        needs {n['field']}" + (f" = {n['known']} (facts)" if "known" in n else f": {n['ask']}"))
+        for r in (a.get("risks") or []) if detailed else []:
+            out.append(f"        unpriced: {r}")
+        return out
     terms = ", ".join(f"{t['term']} {t['before']} -> {t['after']}" + (" (met)" if t.get("met_after") else "")
                       for t in est.get("terms") or [])
     out = [head, f"        total {est['total_before']:.4g} -> {est['total_after']:.4g} {cur} "
                  f"(delta {est['delta']:+.4g}{'; ' + est['note'] if est.get('note') else ''})"
                  + (f"; {terms}" if terms else "")]
+    for u in est.get("unpriced") or []:
+        out.append(f"        unpriced flag {u['label'][:60]}: {u['before']:.4g} -> {u['after']:.4g}")
     if a.get("mechanism"):
         out.append(f"        why: {a['mechanism']}")
+    if a.get("return_note"):
+        out.append(f"        {a['return_note']}")
     dec = a.get("decide") or {}
     if dec.get("question"):
         tr = dec.get("tradeoff")
         out.append(f"        decide ({dec.get('by', 'llm')}): {dec['question']}" + (f" {tr}" if tr and detailed else ""))
+    for n in dec.get("needs") or []:
+        out.append(f"        needs {n['field']}" + (f" = {n['known']} (facts)" if "known" in n else f": {n['ask']}"))
     conf = a.get("confidence") or {}
     if detailed and conf:
         out.append(f"        confidence {conf.get('level')}: {conf.get('basis')}")
+    for r in (a.get("risks") or []) if detailed else []:
+        out.append(f"        unpriced: {r}")
     if detailed and a.get("verify"):
         out.append(f"        verify: {a['verify']}")
     return out
