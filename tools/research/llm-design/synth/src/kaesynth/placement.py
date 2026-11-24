@@ -3,9 +3,15 @@
 """Placement intent: board/mechanical spec and relations over named objects.
 
 Relations follow docs/topics/llm/interfaces-relations-vs-coordinates.md: the design names
-objects and ordinal magnitudes (tight/close/loose); metric values live on the solver side
-(MAGNITUDES_MM is only the default the emitter writes next to them).
+objects and ordinal magnitudes (tight/close/loose); kae resolves them to mm (kae.intent.relations.MAG_MM).
+A datasheet distance may be given as near(..., within_mm=, note="DS p.N ...").
+
+kaesynth writes the relations kae's placer uses into `<slug>.kae_intent.json` (kae_intent.KaeIntent.relations):
+near, far (keep_away), group, edge (north/south/east/west), plus the decoupling nears `infer_decaps` finds.
+The others are not written: each reason is in kae_intent.UNUSED and comes back as a build finding.
 """
+import re
+
 from dataclasses import dataclass, field
 
 from .ir import Block, DesignError, Domain, Net, Part, PinRef
@@ -14,7 +20,7 @@ STRENGTHS = ("tight", "close", "loose")
 EDGES = ("north", "south", "east", "west", "any")
 MAGNITUDES_MM = {"tight": 3.0, "close": 8.0, "loose": 20.0}
 # relation fields that hold free text, never object references
-TEXT_KEYS = {"kind", "note", "text", "what", "where", "why", "source", "source_doc", "layers", "side", "axis", "facing",
+TEXT_KEYS = {"within_mm", "kind", "note", "text", "what", "where", "why", "source", "source_doc", "layers", "side", "axis", "facing",
              "strength", "sink", "pitch", "relative", "covers", "walls", "region", "basis", "label"}
 
 
@@ -81,8 +87,10 @@ class Placement:
     def group(self, block, strength="close", note=""):
         return self._rel("group", block=block, strength=self._strength(strength), note=note)
 
-    def near(self, a, b, strength="close", note=""):
-        return self._rel("near", a=a, b=b, strength=self._strength(strength), note=note)
+    def near(self, a, b, strength="close", note="", within_mm=None):
+        """a within `strength` (or within_mm, a datasheet distance: say its source in note) of b; a pin
+        (PinRef, 'U1.7') measures from that pin."""
+        return self._rel("near", a=a, b=b, strength=self._strength(strength), note=note, within_mm=within_mm)
 
     def hot_loop(self, pins, note=""):
         if len(pins) < 2:
@@ -212,3 +220,29 @@ class Placement:
         if unknown is not None and v[0].isupper() and any(c.isdigit() for c in v) and v.upper() == v:
             unknown.append(v)
         return v
+
+
+_GND = re.compile(r"^(GND|VSS|AGND|PGND|SGND|DGND|EP|PAD|VEE|0V|COM)", re.I)
+
+
+def infer_decaps(design):
+    """Decoupling relations the circuit implies: a two-terminal capacitor between ground and a rail that feeds
+    exactly one IC power pin in its block is `near` (tight) that pin. [{kind, a, b, strength, source, note}]."""
+    out = []
+    for b in design.blocks:
+        for c in b.parts:
+            if not c.defn.category.startswith("capacitor") or len(c.conn) != 2 or not c.on_board:
+                continue
+            nets = list(c.conn.values())
+            gnd = [n for n in nets if n.kind == "ground" or _GND.match(n.name)]
+            if len(gnd) != 1:
+                continue
+            rail = nets[0] if nets[1] is gnd[0] else nets[1]
+            ics = [r for r in rail.pins if r.part.defn.category in ("ic", "module", "opto")
+                   and r.pin.type in ("power_in", "power_out") and r.part.block is c.block]
+            if len(ics) == 1:
+                r = ics[0]
+                out.append({"kind": "near", "a": c.ref, "b": f"{r.part.ref}.{r.pin.number}", "strength": "tight",
+                            "source": "auto", "note": f"decoupling {rail.name} (kaesynth: the only IC power pin "
+                                                      f"on the rail in block {b.name})"})
+    return out

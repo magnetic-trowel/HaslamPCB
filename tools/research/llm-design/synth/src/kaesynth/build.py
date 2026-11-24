@@ -13,7 +13,6 @@ from pathlib import Path
 from . import dru
 from .checks import Checker, Finding, summarize
 from .emit import netlist as nl
-from .emit.intent import intent_yaml
 from .emit.kicad_sch import SchematicWriter
 from .emit.project import NetClasses, dru_text, write_project
 from .emit.report import bom_csv, report_md
@@ -217,7 +216,6 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
                 write_project(sub, d, w.st, netclasses, slug=slug, parts=[p for b in blocks for p in b.parts],
                               fplibs=fplibs)
                 (sub / f"{slug}.kicad_dru").write_text(dru_text(d, netclasses))
-                (sub / "intent.yaml").write_text(intent_yaml(d, netclasses, board=name))
                 if use_kicad and kicad.get("ran"):
                     probs = parity(kicad_cli(), sub / f"{slug}.kicad_sch", d, netclasses, blocks)
                     kicad["boards"][name] = probs
@@ -236,6 +234,14 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
         (outdir / f"{d.slug}.kae_intent.json").write_text(json.dumps(doc, indent=1) + "\n")
         for prob in problems:
             findings.append(Finding("kae_intent.invalid", "error", prob))
+        unused = {}
+        for r, why in d.kae.relations()[1]:
+            unused.setdefault((r["kind"], why), []).append(r)
+        for (kind, why), rs in sorted(unused.items()):
+            findings.append(Finding("kae_intent.relation_unused", "warning",
+                                    f"{len(rs)} d.place.{kind} relation(s) not written for kae: {why}",
+                                    [str(r.get("a") or r.get("obj") or r.get("block") or r.get("members") or "")
+                                     for r in rs][:8]))
         if not kae_available():
             findings.append(Finding("kae_intent.unchecked", "warning", "kae is not importable (put kae/src on "
                                     "PYTHONPATH): the intent file was checked by kaesynth only"))
@@ -243,7 +249,9 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
     checker.apply_waivers(final=True)
     findings = checker.findings
     (outdir / "netlist.json").write_text(json.dumps(nl.ir_netlist(d), indent=1) + "\n")
-    (outdir / "intent.yaml").write_text(intent_yaml(d, netclasses))
+    stale = outdir / "intent.yaml"          # retired (pcb-intent/0.2, read by nothing): relations are in the kae intent
+    if stale.exists():
+        stale.unlink()
     (outdir / "bom.csv").write_text(bom_csv(d))
     s = summarize(findings)
     status = {"ok": s["error"] == 0, **s,

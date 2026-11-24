@@ -12,6 +12,10 @@ kae reads it beside the board (kae.intent.facts): its facts set the operating po
     d.kae.cable("J101", 3.0, why="panel lead <= 3 m (A-2)")
     d.kae.term("T1", "limit", "pickup.peak", where={"net": "CHG/FB"}, max="5 mV", rate="2 mW_eq/mV", why="...")
 
+Placement relations come from `d.place` (kaesynth.placement) and the decoupling nears the circuit implies
+(placement.infer_decaps); `relations()` writes the kinds kae's placer prices (kae.intent.relations: near,
+keep_away, group, edge) and lists every other relation with the reason it is not written (UNUSED).
+
 Nets are named as in design.py ("SYS", "CHG/FB") and written with KiCad's names ("/CHG/FB"); a net's range_V
 defaults to its declared v= interval. Every fact and term says why. The file is checked here (names exist,
 values are numbers or [lo, hi]) and by kae's own loader when kae is importable (kae.intent.objective.load,
@@ -24,6 +28,24 @@ import json
 from .emit.project import kicad_net_name
 
 CELL_CLASSES = ("buck", "boost", "half_bridge")
+# design relations kae does not read, and why they are not written to the intent file
+UNUSED = {
+    "hot_loop": "a physical want: kae.circuit finds the commutation cell and the placer's terms price its loop "
+                "inductance (state its operating point with d.kae.cell)",
+    "separate": "domain spacing is in the .kicad_dru barrier rules kaesynth writes, which the router and DRC enforce",
+    "keepout": "a keep-out is a board rule area (board.json keepouts), which kae treats as an obstacle",
+    "keepout_around": "a keep-out is a board rule area (board.json keepouts), which kae treats as an obstacle",
+    "fixed": "positions come from board.json `fixed` (sch_to_board locks those parts)",
+    "side": "kae never flips a part; its side is set where the board is made (board.json `fixed` side)",
+    "thermal": "dissipation is a fact (d.kae.part), not a relation; the placer's heat terms read the brief",
+    "region": "no placer term yet (docs/topics/placement/llm-relations-input.md R7 phase 1)",
+    "orient": "no placer term yet (orientation, llm-relations-input.md R7)",
+    "pins_toward": "no placer term yet (llm-relations-input.md R7 phase 3)",
+    "array": "no placer term yet (row, llm-relations-input.md R7 phase 2)",
+    "align": "no placer term yet (row, llm-relations-input.md R7 phase 2)",
+    "symmetric": "no placer term yet (llm-relations-input.md R7 phase 3)",
+}
+KAE_EDGES = ("north", "south", "east", "west")
 
 
 def _iv(v):
@@ -41,13 +63,11 @@ class KaeIntent:
     def __init__(self, design):
         self.d = design
         self.nets, self.parts, self.cells, self.cables, self.terms = {}, {}, {}, [], []
-        self.enclosure_ = None
         self.knobs = {}
 
     # -- facts ------------------------------------------------------------------------------
-    def net(self, net, V_V, range_V=None, source=None, from_=None, kind=None, eta=None, I_A=None, why=""):
-        self.nets[net] = dict(V_V=V_V, range_V=range_V, source=source, from_=from_, kind=kind, eta=eta,
-                              I_A=I_A, why=why)
+    def net(self, net, V_V, range_V=None, source=None, from_=None, kind=None, eta=None, why=""):
+        self.nets[net] = dict(V_V=V_V, range_V=range_V, source=source, from_=from_, kind=kind, eta=eta, why=why)
 
     def part(self, ref, why="", **params):
         self.parts.setdefault(ref, {}).update(params, why=why)
@@ -58,11 +78,12 @@ class KaeIntent:
         self.cells[f"cell:{cls}:{controller}"] = dict(params, vin=vin, vout=vout, why=why)
 
     # -- environment, terms, knobs ------------------------------------------------------------
-    def cable(self, connector, length_m, shield="none", why=""):
-        self.cables.append(dict(connector=connector, length_m=length_m, shield=shield, why=why))
-
-    def enclosure(self, kind, why=""):
-        self.enclosure_ = dict(kind=kind, why=why)
+    def cable(self, connector, length_m, why=""):
+        """A cable on a connector: kae prices its common-mode emission (kae.intent.objective). Only connector
+        and length are written (kae reads nothing else of a cable); `why` stays in design.py."""
+        if not why:
+            raise ValueError(f"kae.cable {connector}: say why (the source of the length)")
+        self.cables.append(dict(connector=connector, length_m=length_m))
 
     def term(self, id, tier, obs, where=None, why="", source="", **kw):
         self.terms.append(dict(id=id, tier=tier, obs=obs, where=dict(where or {}), why=why, source=source, **kw))
@@ -85,7 +106,8 @@ class KaeIntent:
 
     def empty(self):
         dn, dp = self.defaults()
-        return not (self.nets or self.parts or self.cells or self.cables or self.terms or self.enclosure_ or dn or dp)
+        return not (self.nets or self.parts or self.cells or self.cables or self.terms or dn or dp
+                    or self.d.place.relations or self.relations()[0])
 
     def defaults(self):
         """Facts the design already states: nets declared with v_typ (V_V, range_V from v=) and part cards with
@@ -99,13 +121,70 @@ class KaeIntent:
                 lo_typ_hi = isinstance(n.v_typ, (tuple, list))
                 nets[key] = dict(V_V=n.v_typ[1] if lo_typ_hi else n.v_typ,
                                  range_V=(n.v_typ[0], n.v_typ[2]) if lo_typ_hi else None, source=None, from_=None,
-                                 kind=None, eta=None, I_A=None, why=f"net declaration (v_typ {n.v_typ}, v={n.v})")
+                                 kind=None, eta=None, why=f"net declaration (v_typ {n.v_typ}, v={n.v})")
         for p in self.d.all_parts():
             if p.on_board and p.defn.kae and p.ref:
                 f = dict(p.defn.kae)
                 f.setdefault("why", f"part card {p.defn.mpn or p.defn.value}")
                 parts[p.ref] = f
         return nets, parts
+
+    def relations(self):
+        """(kae.intent/1 relations, [(relation, why it is not written)]): the design's d.place relations and
+        the decoupling nears the circuit implies (an explicit relation on the same pair wins)."""
+        from .placement import infer_decaps
+        d = self.d
+        parts = {p.ref: p for p in d.all_parts() if p.ref}
+        explicit = [dict(r, source="design") for r in d.place.resolve()]
+        pairs = {(r.get("a"), r.get("b")) for r in explicit}
+        rows, skipped, ids = [], [], set()
+
+        def ref_ok(x):
+            return isinstance(x, str) and x.split(".", 1)[0] in parts and parts[x.split(".", 1)[0]].on_board
+
+        def rid(r):
+            base = "-".join(str(r.get(k)).replace("block:", "") for k in ("kind", "a", "b", "block", "obj")
+                            if r.get(k) is not None)
+            i, out = 1, base
+            while out in ids:
+                i += 1
+                out = f"{base}#{i}"
+            ids.add(out)
+            return out
+
+        for r in explicit + [a for a in infer_decaps(d) if (a["a"], a["b"]) not in pairs]:
+            k = r["kind"]
+            why = r.get("note") or f"design.py d.place.{k}"
+            row = None
+            if k in ("near", "far"):
+                if not (ref_ok(r["a"]) and ref_ok(r["b"])):
+                    skipped.append((r, "kae relates parts and pins on the board, not blocks, domains or nets"))
+                    continue
+                row = {"kind": "near" if k == "near" else "keep_away", "a": r["a"], "b": r["b"]}
+                if k == "near" and r.get("within_mm") is not None:
+                    row["within_mm"] = float(r["within_mm"])
+                else:
+                    row["mag"] = r["strength"]
+            elif k == "group":
+                blk = str(r["block"]).removeprefix("block:")
+                members = [p.ref for b in d.blocks if b.name == blk for p in b.parts if p.ref and p.on_board]
+                if len(members) < 2:
+                    skipped.append((r, "a group needs two parts on the board"))
+                    continue
+                row = {"kind": "group", "members": members, "mag": r["strength"]}
+            elif k == "edge":
+                if r.get("side") not in KAE_EDGES or not ref_ok(r.get("obj")):
+                    skipped.append((r, "kae's edge relation names one part and one of north/south/east/west; "
+                                       "user-facing connectors go to the nearest edge by themselves "
+                                       "(kae.place connector_edge)"))
+                    continue
+                row = {"kind": "edge", "part": r["obj"], "edge": r["side"]}
+            else:
+                skipped.append((r, UNUSED.get(k, "a custom relation: no placer term reads it")))
+                continue
+            row = {"id": rid(r), **row, "why": why, "source": r.get("source", "design")}
+            rows.append(row)
+        return rows, skipped
 
     def document(self):
         """(kae.intent/1 dict, [problems])."""
@@ -134,7 +213,7 @@ class KaeIntent:
                 row["source"] = self._ref(f["source"], problems, f"kae.net {name}.source")
             if f["from_"]:
                 row["from"] = self._net(f["from_"], problems, f"kae.net {name}.from")
-            for k in ("kind", "eta", "I_A"):
+            for k in ("kind", "eta"):
                 if f[k] is not None:
                     row[k] = _iv(f[k]) if k != "kind" else f[k]
             row["why"] = f["why"]
@@ -157,15 +236,13 @@ class KaeIntent:
                     row[k] = self._net(f[k], problems, f"kae.cell {cid}.{k}")
             row["why"] = f["why"]
             cells[cid] = row
-        lo, hi = d.ambient_c
-        env = {"ambient_C": [lo, hi]}
-        if self.enclosure_:
-            env["enclosure"] = self.enclosure_
+        lo, hi = d.ambient_c            # kae reads it as facts.requirements.thermal.T_amb_C (kae.excite.heat)
+        env = {}
         if self.cables:
             env["cables"] = []
             for c in self.cables:
                 self._ref(c["connector"], problems, f"kae.cable {c['connector']}")
-                env["cables"].append({k: v for k, v in c.items() if v != ""})
+                env["cables"].append(dict(c))
         terms = []
         for t in self.terms:
             row = {k: v for k, v in t.items() if v not in ("", None, {})}
@@ -179,11 +256,16 @@ class KaeIntent:
             if w:
                 row["where"] = w
             terms.append(row)
+        # every field below has a reader in kae (docs/topics/workflow/intent-file-fields.md); knobs and the
+        # environment only when the design sets them
         doc = {"schema": "kae.intent/1", "generation": 1, "currency": "mW_eq", "defaults": "neutral/1",
-               "producer": {"tool": "kaesynth", "design": d.slug, "revision": d.revision},
-               "environment": env, "terms": terms, "knobs": dict(self.knobs),
+               "terms": terms, "relations": self.relations()[0],
                "facts": {"nets": nets, "parts": parts, "cells": cells,
                          "requirements": {"thermal": {"T_amb_C": [lo, hi]}}}}
+        if env:
+            doc["environment"] = env
+        if self.knobs:
+            doc["knobs"] = dict(self.knobs)
         problems += kae_check(doc)
         return doc, problems
 
