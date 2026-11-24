@@ -48,7 +48,7 @@ add() {  # NAME DESCRIPTION ENV
   local inner="$CP if [ \"\$KAE_RESUME\" = 1 ]; then $E -m kae.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@ $OP; else $E -m kae.route.cli route @IN@ @OUT@ --seed @SEED@ --time @TIME@ $OP; fi"
   $K method add "$name" --kind route --description "$desc; restart portfolio (tools/kaeres/restart.py) as hotloop-sw round 3; operating facts rf-ab-operating-$OPH" \
     --command "$PRE $wrap '$inner'$POST" --param timeout_s=3600 --param timeout_scale=sqrt-fp40 --param timeout_cap_s=57600 --param parallel=4 \
-    --code kae=.@$SHA --harness $SHA >/dev/null
+    --code kae=.@$SHA --harness $SHA ${ALLOW_DIRTY:+--allow-dirty} >/dev/null
   echo "method: $name"
 }
 S7=${SHA:0:7}
