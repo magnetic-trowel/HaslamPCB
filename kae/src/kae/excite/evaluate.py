@@ -165,7 +165,7 @@ def coarsen_pitch(window, pitch, n_layers, max_cells):
 
 def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=None, log=print, lumped=True,
              intent=None, n_corners=16, seed=0, dc=True, max_cells=None, cells=True, cell_pitch=None, cell_skin=True,
-             drc=None, scope=None):
+             drc=None, scope=None, add_parts=(), remove_parts=()):
     """Every harm of a laid-out board, across the parameters' intervals.
 
     Each aggressor's pattern is solved in two bands: its switching fundamental (current split by the
@@ -180,7 +180,9 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     loss terms need (the cells' own bands, their overshoot observers, the switch-node capacitance, the DC and heat
     bands, the windows); every other source and observer is set up as in the full evaluation (the same mesh and network,
     so the values computed are the full evaluation's) but not solved, and only the SCOPE_KINDS observations are
-    reported (ev["scope"]; kae.intent marks terms on other kinds incomplete)."""
+    reported (ev["scope"]; kae.intent marks terms on other kinds incomplete). add_parts: hypothetical parts (add_part
+    specs, "C:PAD_A:PAD_B:VALUE") placed between two existing pads with no copper of their own: the exact check of a
+    kae.intent.advise what-if. remove_parts: refs taken out of the circuit (their pads and copper stay)."""
     if scope not in (None, "losses"):
         raise ValueError(f"scope {scope!r}: None or 'losses'")
     loops = scope == "losses"
@@ -199,6 +201,13 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     brief = brief or B.build(b)
     bd = M.build(b, brief)
     bd.radios = dict((intent or {}).get("radios") or {})        # the operating facts' radios
+    added = [add_part(bd, spec) for spec in add_parts]
+    for ref in remove_parts:
+        n0 = len(bd.circuit.elems)
+        bd.circuit.elems = [e for e in bd.circuit.elems if not (e.name == ref or e.name.startswith(ref + ":"))]
+        if len(bd.circuit.elems) == n0:
+            raise ValueError(f"remove_part {ref}: no such part in the circuit")
+        added.append(dict(removed=ref))
     srcs = S.add_all(bd, brief)
     obs = O.observers(bd, brief, srcs)
     P, ledger = ledger_for(bd, brief, srcs, intent)
@@ -220,11 +229,15 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             vid[(s.name, band)] = O.ideal(bd, sol)
             pads |= {p for p, j in sol[key].items() if abs(j) > 1e-9}
     freqs = sorted({f for (_, _), (f, _) in pats.items()})
-    opats = {}
+    opats, jfull = {}, {}
     for o in obs:
         for f in freqs:
             opats[(o.name, f)] = O.pattern(bd, o, f, active=lumped)
             pads |= {p for p, j in opats[(o.name, f)].items() if abs(j) > 1e-9}
+            if o.kind in WHATIF_KINDS and not loops:
+                # the full ideal-copper pattern (every pad): with the layout's share of each pad's potential it
+                # gives the pickup by pads (kae.intent.advise re-weights it for a changed circuit at the node)
+                jfull[(o.name, f)] = O.pattern(bd, o, f, active=False)
     if lumped or dcp:
         pads |= {p for e in bd.circuit.elems if e.pa and e.pb for p in (e.pa, e.pb)}
     if dcp:
@@ -375,7 +388,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 continue
             if loops and o.kind != "overshoot":
                 continue
-            z = {}
+            z, tr = {}, {}
             for band, (f, v) in res.items():
                 if v is None:
                     z[band] = 0j
@@ -383,13 +396,15 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 Jk = opats[(o.name, f)]
                 # the layout's share: the copper solve minus the same parts with ideal copper
                 z[band] = O.bilinear(Jk, v) - (O.bilinear(Jk, vid[(s.name, band)]) if lumped else 0.0)
+                tr[band] = transfer(jfull.get((o.name, f)), v, vid[(s.name, band)], f, z[band])
             w_e = 2 * math.pi * res["edge"][0]
             # Lz: the layout's share at the edge band (the open check below); Le: a cell's own loop at its copper's
             # stored energy with the capacitors at their edge model (lcu, _edge_loops); other pairs (a mutual) at the
             # share
             Lz = z["edge"].imag / w_e
             own = o.kind == "overshoot" and s.name in lcu
-            pairs.append(dict(o=o, s=s, Zf=z["fund"], Le=lcu[s.name] if own else Lz, Lz=Lz, Rcu=rcu.get(s.name)))
+            pairs.append(dict(o=o, s=s, Zf=z["fund"], Le=lcu[s.name] if own else Lz, Lz=Lz, Rcu=rcu.get(s.name),
+                              transfer=tr))
     # a cell whose loop closes only through impedance a working loop never has (its copper share's resistance at f_sw
     # above LOOP_LOSS_FRAC V / I, or its reactance at the edge band above V / I) carries no commutated current: its copper is effectively open (it
     # closes through a resistor, a small capacitor, a part's leak). Its values would be no layout's (gecko5 U14 under a
@@ -437,6 +452,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             us.append(u)
             tot[c] += HA.phi(u)
         observations.append(O.observation(bd, o, s, vals, us, fs))
+        if pr.get("transfer"):
+            observations[-1]["transfer"] = pr["transfer"]
         if o.kind == "overshoot":
             h = HA.overshoot_hazard(s.name, sorted({r for r in (O._ref(s.pa), O._ref(s.pb)) if r}) + [s.meta.get("sw") or s.a],
                                     [{k[1]: v for k, v in cps[s.name][c].items()} for c in range(ncp)], vals,
@@ -494,6 +511,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     # (an open cell too: its switch node's capacitance is electrostatic and needs no closed loop)
     sw_cells = {pr["s"].name: pr["s"] for pr in pairs if pr["o"].kind == "overshoot" and pr["s"].meta.get("sw")}
     sw_cells.update({s.name: s for s in srcs if s.name in open_cells and s.meta.get("sw")})
+    capacitive = None
     if sw_cells:
         from . import capacitive as CAP
         try:
@@ -501,6 +519,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         except Exception as e:                                   # the electrostatic solve is optional here
             cpl, cworld = [], {}
             notes.append(f"switch-node capacitance not computed ({type(e).__name__}: {e})")
+        capacitive = dict(couplings=[[a, n, c] for a, n, c in cpl], world={k: v for k, v in cworld.items()})
         for name, s in sw_cells.items():
             sw = s.meta["sw"]
             # the node's whole capacitance: to the world (the Maxwell row sum) plus to every other net
@@ -649,10 +668,56 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 scope=scope,
                 observers=[dict(name=o.name, kind=o.kind, bound=o.bound, basis=o.basis) for o in obs],
                 harms=harms, observations=observations, hazards=hazards, mesh=mesh_rep,
+                corners={s.name: [{k[1]: v for k, v in cp.items()} for cp in cps[s.name]] for s in srcs},
+                capacitive=capacitive, added_parts=added,
                 part_power_W={k: round(v, 6) for k, v in sorted(part_power.items())},
                 solver_stats=solver_stats,
                 notes=notes + [f"pad {p}: not in the copper model" for p in missing][:20],
                 assumptions=bd.assumptions, stackup=dict(source=b.stackup.source, gaps_mm=list(b.stackup.gaps)), pins=(intent or {}).get("pins") or None)
+
+
+# observer kinds whose pairs keep their pickup by pads (`transfer` with dv): kae.intent.advise's circuit what-ifs
+WHATIF_KINDS = ("victim", "supply")
+DV_MIN = 1e-6            # A per A of port current: pads below it in the full pattern carry none of the pickup
+
+
+def transfer(J, v, v_ideal, f, z):
+    """One (observer, aggressor) pair's band as kae.intent.advise reads it: f, the pair's transfer z (V per A,
+    the layout's share), and each pad's layout share of the potential dv = v - v_ideal where the observer's full
+    ideal-copper pattern J carries current. sum(J dv) (zj) is the same transfer in the circuit's pad form: the
+    advisor scales z by the ratio of that sum with a changed circuit to it with this one."""
+    out = dict(f_Hz=f, z=[float(z.real), float(z.imag)])
+    if J is None:                    # an observer the advisor edits no circuit for (overshoot): z alone
+        return out
+    dv = {p: v[p] - v_ideal.get(p, 0.0) for p, j in J.items() if abs(j) > DV_MIN and p in v}
+    zj = sum(J[p] * d for p, d in dv.items())
+    out.update(zj=[float(zj.real), float(zj.imag)], dv={p: [float(d.real), float(d.imag)] for p, d in dv.items()})
+    return out
+
+
+def add_part(bd, spec):
+    """A hypothetical part between two existing pads ("C:U101.9:U101.17:2.2n", "R:...:10k"): a capacitor
+    with its size's ESL and an MLCC's ESR (0402), or a resistor, in bd.circuit with no copper of its own (its
+    pads are the named pads). Returns the part as a dict for the evaluation's record."""
+    from kae.circuit import values as V
+    kind, pa, pb, val = spec.split(":")
+    na, nb = bd.net_of.get(pa), bd.net_of.get(pb)
+    if na is None or nb is None:
+        raise ValueError(f"add_part {spec}: pad {pa if na is None else pb} is not on the board")
+    name = f"whatif:{kind}:{pa}-{pb}"
+    if kind.upper() == "C":
+        C = V.capacitance(val)
+        if not C:
+            raise ValueError(f"add_part {spec}: capacitance '{val}' unread")
+        bd.circuit.z(name, na, nb, M._rlc(M.mlcc_esr(C), M.ESL["0402"], C), pa, pb, "C")
+        return dict(kind="C", pads=[pa, pb], nets=[na, nb], F=C, esl_H=M.ESL["0402"], spec=spec)
+    if kind.upper() == "R":
+        R = V.resistance(val)
+        if R is None:
+            raise ValueError(f"add_part {spec}: resistance '{val}' unread")
+        bd.circuit.z(name, na, nb, M._rl(max(R, 1e-4), 0.5e-9), pa, pb, "R")
+        return dict(kind="R", pads=[pa, pb], nets=[na, nb], ohm=R, spec=spec)
+    raise ValueError(f"add_part {spec}: kind '{kind}' is C or R")
 
 
 def _dc_system(holder, op):
@@ -1209,12 +1274,18 @@ def main(argv=None):
     ap.add_argument("--no-cell-skin", action="store_true", help="the window solves without the skin correction")
     ap.add_argument("--max-cells", type=float, default=None,
                     help="raster budget (cells x copper layers): the pitch doubles until the board's window fits it")
+    ap.add_argument("--add-part", action="append", default=[], metavar="KIND:PAD_A:PAD_B:VALUE",
+                    help="a hypothetical part between two pads, no copper of its own (C:U101.9:U101.17:2.2n): the exact "
+                         "check of a kae.intent advice")
+    ap.add_argument("--remove-part", action="append", default=[], metavar="REF",
+                    help="take a part out of the circuit, its pads and copper kept: the exact check of a node.remove_c advice")
     a = ap.parse_args(argv)
     from .beliefs import load_intent
     r = evaluate(a.board, a.pitch, tuple(a.window) if a.window else None, nsub=a.nsub, log=lambda m: print(m, file=sys.stderr),
                  lumped=not a.no_lumped, intent=load_intent(a.intent), seed=a.seed,
                  max_cells=int(a.max_cells) if a.max_cells else None, cells=not a.no_cells, cell_pitch=a.cell_pitch,
-                 cell_skin=not a.no_cell_skin, drc=False if a.no_drc else a.drc, scope=a.scope)
+                 cell_skin=not a.no_cell_skin, drc=False if a.no_drc else a.drc, scope=a.scope,
+                 add_parts=a.add_part, remove_parts=a.remove_part)
     print_total(r["total"])
     print("assumptions:")
     for p in r["ledger"]:
