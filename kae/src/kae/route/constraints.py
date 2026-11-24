@@ -250,11 +250,12 @@ DEFAULTS = dict(
                                    # (human): polarfire 139-151 / 268-283 / 265-361 of 465 (387), nekoink
                                    # 52-56 / 108-114 / 115-117 of 226 (196), gecko5 1-2 / 46-52 / 52-55 of 73
                                    # (61); HPWL no worse (polarfire 12.7k at 3 vs 15.8k off, same seed)
-    ground_side_cost=None,         # routing (kae.route.ground_side): on a two-layer board, the outer layer one
+    ground_side_cost=4.0,          # routing (kae.route.ground_side): on a two-layer board, the outer layer one
                                    # ground net's zones cover (>= PLANE_SHARE; both: the side with less SMD pad
                                    # area) costs this many times a signal layer per trace length (against the
                                    # preferred direction twice that), as an inner plane under planes "cost";
-                                   # None or <= 1: off (a design trade-off: whole return pour vs shorter routes)
+                                   # None or <= 1: off (a design trade-off: whole return pour vs shorter routes;
+                                   # on by default once ground-side-ladder confirms it, at the price it chooses)
     zone_keepout=1.0,              # placement: weight of pads whose mask opening would bridge another net's
                                    # fixed outer-layer zone or sit in a board-level mask aperture with another
                                    # net (each 0.1 x this; gecko5: all staged DRC errors, 14 -> 0); 0: off
