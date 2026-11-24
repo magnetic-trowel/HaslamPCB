@@ -1457,3 +1457,95 @@ def test_salvage_keeps_logs_first_within_the_cap(kq, tmp_path):
     import gzip
     assert gzip.open(os.path.join(dst, "a", "log.gz")).read().endswith(b"THE END\n")
     assert salvage_scratch(str(tmp_path / "empty"), str(tmp_path / "d2"), 1) is None
+
+
+def test_a_bare_retry_refuses_failures_of_several_owners_or_long_ago(kq, monkeypatch):
+    import argparse
+    kq.ensure_daemon = lambda: None
+    monkeypatch.setenv("KAEQ_SESSION", "aaaaaaaa-1111")
+    for o in ("exp-new", "exp-new", "exp-old"):
+        submit(kq, "exit 1", owner=o, live=True)
+    c = kq.db()
+    now = time.time()
+    c.execute("UPDATE jobs SET state='failed',finished=?", (now - 60,))
+    c.execute("UPDATE jobs SET finished=? WHERE owner='exp-old'", (now - 3 * 86400,))
+    c.commit()
+    ns = dict(ids=[], owner=None, tag=None, mem=None, cpus=None, timeout=None, disk=None, retries=0, force=False)
+    with pytest.raises(SystemExit) as e:
+        kq.cmd_retry(argparse.Namespace(**ns))
+    msg = str(e.value)
+    assert "2 owners" in msg and "kaeq retry --owner exp-new" in msg and "kaeq retry --owner exp-old" in msg
+    assert "kaeq retry 1 2" in msg
+    assert {r[0] for r in c.execute("SELECT state FROM jobs")} == {"failed"}       # nothing requeued
+    kq.cmd_retry(argparse.Namespace(**dict(ns, owner="exp-new")))                  # explicit owner: as before
+    assert [r[0] for r in c.execute("SELECT state FROM jobs ORDER BY id")] == ["queued", "queued", "failed"]
+    kq.cmd_retry(argparse.Namespace(**dict(ns, ids=["3"])))                        # explicit ids: as before
+    c.execute("UPDATE jobs SET state='failed',finished=? WHERE owner='exp-new'", (now - 60,))
+    c.execute("UPDATE jobs SET state='cancelled' WHERE owner='exp-old'")
+    c.commit()
+    kq.cmd_retry(argparse.Namespace(**ns))                                         # one owner, recent: bare is fine
+    assert [r[0] for r in c.execute("SELECT state FROM jobs ORDER BY id")] == ["queued", "queued", "cancelled"]
+    c.execute("UPDATE jobs SET state='failed',finished=? WHERE owner='exp-new'", (now - 13 * 3600,))
+    c.commit()
+    with pytest.raises(SystemExit) as e:                                           # one owner, but long ago
+        kq.cmd_retry(argparse.Namespace(**ns))
+    assert "2 failed over 12 h ago" in str(e.value)
+    with pytest.raises(SystemExit):                                                # a bare cancel never ran
+        kq.cmd_cancel(argparse.Namespace(ids=[], owner=None, tag=None, force=False))
+
+
+def test_a_worktree_snapshots_without_a_git_identity_and_live_jobs_say_why(kq, tmp_path, monkeypatch, capsys):
+    gcfg = tmp_path / "gitconfig"
+    gcfg.write_text("[user]\n\tuseConfigOnly = true\n")     # no identity, and git may not guess one
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gcfg))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for k in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"):
+        monkeypatch.delenv(k, raising=False)
+    repo, wt = tmp_path / "repo", tmp_path / "wt"
+    repo.mkdir()
+    ident = ["-c", "user.name=t", "-c", "user.email=t@t"]
+    run = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True)
+    run("init", "-q"), (repo / "f.txt").write_text("v1"), run("add", "-A"), run(*ident, "commit", "-qm", "c")
+    run("worktree", "add", "-q", "-b", "side", str(wt))
+    (wt / "f.txt").write_text("v1-in-worktree")
+    d = kq.Daemon()
+    submit(kq, "cat f.txt", name="wt", cwd=str(wt))
+    out = capsys.readouterr().out
+    assert "code=wt@side:" in out and "(frozen now)" in out
+    (wt / "f.txt").write_text("v2-after-submit")
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    submit(kq, "true", name="plain", cwd=str(plain))
+    assert "code=live dir (not in a git repository" in capsys.readouterr().out
+    submit(kq, "true", name="live", cwd=str(wt), live=True)
+    assert "code=live dir (--live" in capsys.readouterr().out
+    drive(kq, d, lambda: all(s not in kq.ACTIVE for s in states(d).values()))
+    assert joblog(tmp_path / "jobs" / "1" / "log").split() == ["v1-in-worktree"]
+
+
+def test_kicad_flag_sources_the_environment_and_submit_hints_when_it_is_missing(kq, tmp_path, monkeypatch, capsys):
+    import argparse
+    monkeypatch.delenv("KAE_KICAD_WRAP", raising=False)
+    script = tmp_path / "env.sh"
+    script.write_text("export KAE_KICAD_WRAP=wrapped\n")
+    kq.cmd_config(argparse.Namespace(set=[f"kicad_env={script}"]))
+    capsys.readouterr()
+    d = kq.Daemon()
+    submit(kq, 'echo "w=$KAE_KICAD_WRAP"', name="k", live=True, kicad=True, cwd=str(tmp_path))
+    assert "hint" not in capsys.readouterr().err
+    drive(kq, d, lambda: all(s not in kq.ACTIVE for s in states(d).values()))
+    assert joblog(tmp_path / "jobs" / "1" / "log").split() == ["w=wrapped"]
+    submit(kq, "python -m kae.route.cli route a b", name="h", live=True, cwd=str(tmp_path))
+    assert "--kicad" in capsys.readouterr().err                                     # needs KiCad, loads nothing
+    submit(kq, f"source {script}; kicad-cli pcb drc x", name="s", live=True, cwd=str(tmp_path))
+    submit(kq, "echo hi", name="e", live=True, cwd=str(tmp_path))
+    assert "hint" not in capsys.readouterr().err
+    monkeypatch.setenv("KAE_KICAD_WRAP", "from-shell")                              # passed on like PATH: no hint
+    submit(kq, "kicad-cli version", name="p", live=True, cwd=str(tmp_path))
+    assert "hint" not in capsys.readouterr().err
+    assert json.loads(d.c.execute("SELECT env FROM jobs WHERE name='p'").fetchone()[0])["KAE_KICAD_WRAP"] == "from-shell"
+    kq.cmd_config(argparse.Namespace(set=[f"kicad_env={tmp_path / 'missing.sh'}"]))
+    with pytest.raises(SystemExit) as e:
+        submit(kq, "true", live=True, kicad=True, cwd=str(tmp_path))
+    assert "missing.sh" in str(e.value)
+    d.c.execute("UPDATE jobs SET state='cancelled' WHERE state='queued'")

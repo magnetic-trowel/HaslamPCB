@@ -30,7 +30,7 @@ from kaeqlib.cpu import quantile, adapt_runq_q, burst_fits  # noqa: E402
 from kaeqlib.forecast import size_model, given_so_far, board_of, runtime_model, expected_durations, forecast_queue  # noqa: E402
 from kaeqlib.host import Host, TICK_HZ, at_high, cg_anon_refaults, cg_freeze, cg_frozen, cg_high_mb, cg_mem, cg_mem_pressure, cg_pressure, cg_set_high, cg_swap_mb, compress, compress_room_mb, cpu_ticks, job_cgroup, job_cpus, job_usage, kill_tree, meminfo, pid_alive, proc_by_session, runnable_threads, set_unit_prop, shutil_which, uncompress, user_pressure  # noqa: E402,F401
 from kaeqlib.store import ACTIVE, AUTO_DB, BEAT, CONF, DB, DB_BACKUP, DEFAULTS, DEPLOYED, ENV_KEEP, ERR_RE, HOME, HOST, LOCK, OVERCOMMIT, PROBLEM, RISE_HIST, SCHEMA, TRACES, USER, _on_nfs, _pinned_db, backup_db, close_trace, config, db, deployed, digest, dlog, drop_scratch, du_mb, event, jobdir, load_overcommit, load_rise_hist, pinned_host, rc_path, scratchdir, trace_path, write_trace  # noqa: E402,F401
-from kaeqlib.gitsnap import drop_worktree, git, git_snapshot, ref  # noqa: E402,F401
+from kaeqlib.gitsnap import drop_worktree, git, git_snapshot, ref, snapshot_or_why  # noqa: E402,F401
 from kaeqlib.daemon import Daemon, daemon_status, run_daemon, take_lock  # noqa: E402,F401
 from kaeqlib import sessions as S  # noqa: E402
 from kaeqlib.sessions import current_session  # noqa: E402
@@ -77,6 +77,13 @@ def qos(name):
     return name
 
 
+# A job that runs KiCad (pcbnew, kicad-cli, kaebench, kae) needs KAE_KICAD_WRAP; without it it fails at once with
+# PcbnewError. submit hints at --kicad when a command looks like that and nothing loads the environment.
+KICAD_ENV_VARS = ("KAE_KICAD_WRAP",)
+NEEDS_KICAD = re.compile(r"pcbnew|kicad-cli|\bkaebench\b|-m kae\b|\b(kae|bench)/tests\b")
+LOADS_KICAD = re.compile(r"env\.sh|KAE_KICAD_WRAP")
+
+
 def cmd_submit(a):
     cmds = []
     if a.jobs:  # JSONL, one job per line: {"cmd": ..., optional "name","cpus","mem","disk","timeout","prio"}
@@ -94,7 +101,19 @@ def cmd_submit(a):
         k, _, v = kv.partition("=")
         env[k] = v
     owner = a.owner or default_owner()
-    snap = None if a.live else git_snapshot(a.cwd or os.getcwd())
+    kicad_env = None
+    if getattr(a, "kicad", False):
+        kicad_env = os.path.expanduser(config()["kicad_env"])
+        if not os.path.isfile(kicad_env):
+            sys.exit(f"kaeq: --kicad: no KiCad environment script at {kicad_env} (bench/scripts/setup.sh writes it; "
+                     "or `kaeq config --set kicad_env=PATH`)")
+    elif not any(k in env for k in KICAD_ENV_VARS):
+        needy = [o["cmd"] if isinstance(o, dict) else o for o in cmds]
+        if any(NEEDS_KICAD.search(x) and not LOADS_KICAD.search(x) for x in needy):
+            print(f"kaeq: hint: this looks like it needs KiCad, but neither the command nor this shell loads its environment "
+                  f"(KAE_KICAD_WRAP unset): it would fail at once with PcbnewError. Add --kicad to source "
+                  f"{config()['kicad_env']} inside the job.", file=sys.stderr)
+    snap, why = (None, "--live") if a.live else snapshot_or_why(a.cwd or os.getcwd())
     if snap is None:
         snap = dict(root=None, branch=None, sha=None, rel=None)
     ensure_daemon()
@@ -105,7 +124,9 @@ def cmd_submit(a):
     S.register(c, me)
     c.execute("BEGIN")
     for i, cmd in enumerate(cmds):
-        o = cmd if isinstance(cmd, dict) else {"cmd": cmd}
+        o = dict(cmd) if isinstance(cmd, dict) else {"cmd": cmd}
+        if kicad_env:
+            o["cmd"] = f". {shlex.quote(kicad_env)} && {o['cmd']}"
         cur = c.execute(
             "INSERT INTO jobs(owner,name,tag,cmd,cwd,env,cpus,mem_mb,timeout_s,prio,state,retries_left,submitted,root,branch,sha,rel,links,disk_mb,qos,session)"
             " VALUES(?,?,?,?,?,?,?,?,?,?,'queued',?,?,?,?,?,?,?,?,?,?)",
@@ -119,7 +140,8 @@ def cmd_submit(a):
     c.commit()
     ahead = c.execute("SELECT COUNT(*) FROM jobs WHERE state='queued' AND id<?", (ids[0],)).fetchone()[0]
     rng = f"#{ids[0]}" if len(ids) == 1 else f"#{ids[0]}..#{ids[-1]} ({len(ids)} jobs)"
-    where = f"code={snap['root'] and os.path.basename(snap['root'])}@{snap['branch']}:{snap['sha'][:7]} (frozen now)" if snap["sha"] else "code=live dir"
+    where = (f"code={snap['root'] and os.path.basename(snap['root'])}@{snap['branch']}:{snap['sha'][:7]} (frozen now)"
+             if snap["sha"] else f"code=live dir ({why}: edits there reach jobs that have not started)")
     print(f"queued {rng} owner={owner} {where} ({ahead} ahead)" + (
         (f", session {S.label(c, me)}. The kaeq dispatcher will message this session at a campaign's first "
          "failure, its 25% mark and its end: no need to wait or poll" if dispatcher_running() else
@@ -565,8 +587,35 @@ def cmd_usage(a):
               f"{100 * cpu / max(1.0, decl):>7.0f}% {h(lr):>6} {h(lc):>10} {h(cw):>10} {h(cs):>11} {sq / 1024:>11.1f}")
 
 
+BARE_RETRY_MAX_AGE_S = 12 * 3600
+
+
+def bare_retry_guard(rows, now):
+    """A bare `kaeq retry` requeues every failure of the session. That is right for one campaign just fixed; across
+    several owners, or with failures from long ago, it revives obsolete jobs (which overwrite newer results). Refuse
+    then, and print the commands that name what to retry."""
+    if not rows:
+        return
+    owners = {}
+    for j in rows:
+        owners.setdefault(j["owner"], []).append(j)
+    old = [j for j in rows if now - (j["finished"] or j["submitted"] or now) > BARE_RETRY_MAX_AGE_S]
+    if len(owners) < 2 and not old:
+        return
+    why = (f"they span {len(owners)} owners" if len(owners) > 1 else "") + (" and " if len(owners) > 1 and old else "") + (
+        f"{len(old)} failed over {BARE_RETRY_MAX_AGE_S // 3600} h ago" if old else "")
+    lines = [f"kaeq: a bare retry would requeue {len(rows)} failed job(s) of this session, but {why}. Name them:"]
+    for o, js in sorted(owners.items(), key=lambda kv: -max(j["finished"] or j["submitted"] or 0 for j in kv[1])):
+        last = max(j["finished"] or j["submitted"] or 0 for j in js)
+        ids = " ".join(f"{j['id']}" for j in js[:8]) + (" ..." if len(js) > 8 else "")
+        lines.append(f"  {o}: {len(js)} failed, last {fdur(now - last)} ago   kaeq retry --owner {shlex.quote(o)}"
+                     f"   |   kaeq retry {ids}")
+    sys.exit("\n".join(lines))
+
+
 def cmd_retry(a):
     c = db()
+    bare = not (a.ids or a.owner or a.tag)
     if not a.ids:   # never retry other sessions' failures by default
         if current_session() and not (a.owner or a.tag):
             a.session = current_session()
@@ -574,6 +623,8 @@ def cmd_retry(a):
             a.owner = a.owner or default_owner()
     rows = sel_jobs(c, a, None if a.ids else PROBLEM)
     leave_to_owner(c, rows, a, "retry")
+    if bare:
+        bare_retry_guard(rows, time.time())
     for o in {j["owner"] for j in rows}:      # the next failure there wakes the session again
         c.execute("UPDATE progress SET failed=0 WHERE owner=?", (o,))
     for j in rows:
@@ -855,6 +906,8 @@ def main(argv=None):
     s.add_argument("--jobs", metavar="FILE", help="JSONL, one job per line: {cmd, name, cpus, mem, disk, timeout, prio, class}; '-' for stdin")
     s.add_argument("--live", action="store_true", help="run in the directory as-is when the job starts (default: frozen git snapshot taken now)")
     s.add_argument("--link", action="append", metavar="PATH", help="git-ignored repo path to symlink into the snapshot (e.g. kae-work); repeatable")
+    s.add_argument("--kicad", action="store_true", help="source the KiCad environment (config kicad_env, default "
+                   "~/.cache/kaebench/env.sh: sets KAE_KICAD_WRAP) in the job before its command")
     s.add_argument("command", nargs=argparse.REMAINDER)
     s.set_defaults(f=cmd_submit)
 
