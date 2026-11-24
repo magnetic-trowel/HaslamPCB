@@ -231,6 +231,15 @@ DEFAULTS = dict(
                                    # (kae.place.crossings). On: xing-ext-m6 cut crossings to 0.62x with opens,
                                    # DRC and legality unharmed (user decision 2026-11-21: adopted on crossings); 0 off
     place_xing_from=0.25,          # placement: fraction of the anneal schedule after which the crossing term prices
+    place_anneal_hard_fixed=1,     # placement: 1 the annealer rejects a move that adds overlap with fixed obstacles or
+                                   # cells outside the outline (only the part itself could undo it); 0 a penalty only
+    place_anneal_quench=0.1,       # placement: when the anneal ends with overlaps, a legality quench of up to this
+                                   # fraction of its planned moves (legality weight lam1 x 10, 100, 1000 at the final
+                                   # temperature, violators only), before grid legalization; 0 off
+    place_legalize_structures=1,   # placement: 1 legalization windows keep the physics structures: each physics macro (an
+                                   # IC with its decaps, crystal, switching cell) moves as one block at its annealed
+                                   # offsets (single parts when that window fails), and equal-displacement optima are
+                                   # told apart by placement physics (kae.place.legalize); 0 displacement only
     place_untangle_x_mm=2.0,       # placement: mm of weighted HPWL one removed crossing may cost in untangle
     place_margin=-1.0,             # placement: routing room between movable parts, mm (Problem.set_margin);
                                    # negative = auto (Problem.auto_margin: 2 x (0.7 - utilization), 0..1 mm).

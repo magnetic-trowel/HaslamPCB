@@ -164,7 +164,7 @@ def main(argv=None):
         brief = json.load(open(a.brief)) if a.brief else None
         from kae.board_hazards import static_hazards
         from kae.hazards import finalize, physics_hazards
-        ph = board_physics(a.board, brief=brief)
+        ph = board_physics(a.board, brief=brief, pdn=True)
         finalize(ph, extra=physics_hazards(ph) + static_hazards(a.board, brief=brief))
         print(json.dumps(ph, default=str), flush=True)
         return 0

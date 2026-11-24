@@ -124,11 +124,12 @@ def body_hazards(rep, P, st):
     return rep["hazards"]
 
 
-def _escalate(P, st, workers, seed, log, time_s, relax_ok=False, hard_end=None):
+def _escalate(P, st, workers, seed, log, time_s, relax_ok=False, hard_end=None, rigid=(), phys=None):
     """Legality before wishes: drop the routing margin, then (relax_ok: relax_bodies 'escalate'
     or 'auto') let bodies without courtyards overlap (KiCad does not check them), legalizing
     again after each step. Returns the steps taken with what each left illegal. `hard_end`
-    (monotonic seconds; the severity ladder's rungs): no step starts after it, and none runs past it."""
+    (monotonic seconds; the severity ladder's rungs): no step starts after it, and none runs past it.
+    `rigid`, `phys`: legalize's physics structures (blocks, tie-break)."""
     steps = []
     for step in ("escape bands off", "margin 0") + (("bodies relaxed",) if relax_ok else ()):
         if not grid_violations(st):
@@ -151,7 +152,7 @@ def _escalate(P, st, workers, seed, log, time_s, relax_ok=False, hard_end=None):
             if ts < 1.0:
                 steps.append(dict(step=step, skipped="time"))
                 break
-        r = legalize(P, st, time_s=ts, workers=workers, seed=seed, log=log, window_share=0.5)
+        r = legalize(P, st, time_s=ts, workers=workers, seed=seed, log=log, window_share=0.5, rigid=rigid, phys=phys)
         steps.append(dict(step=step, end_violators=r.get("end_violators"), violations=r.get("violations")))
         if step == "bodies relaxed":
             steps[-1]["relaxed"] = relaxed          # data; hazards: Problem.relaxed_body_hazards
@@ -228,16 +229,23 @@ def hot_loop_hazards(rows):
         if L <= la:
             continue
         known = bool(info.get("V_abs_known"))
-        out.append(dict(code="hot_loop_over_abs_max", severity="block" if known else "warn", category="electrical",
+        # block only when both ends are the board's: the part's rating and a named input voltage. On an
+        # unnamed rail V_in is a prior (priors.cell_v_in), so the ring past V_abs is an estimate: warn.
+        sure = known and not info.get("V_in_prior")
+        out.append(dict(code="hot_loop_over_abs_max", severity="block" if sure else "warn", category="electrical",
                         message=(f"{r.get('id')}: the hot loop's estimated {L:.2g} nH lets the switch node ring past "
                                  f"its {info.get('V_abs'):g} V absolute maximum (at most {la:.2g} nH)"
-                                 + ("" if known else "; the rating is a prior, the part may be rated higher")),
+                                 + ("" if known else "; the rating is a prior, the part may be rated higher")
+                                 + (f"; the input voltage {info.get('V_in'):g} V is a prior (the rail has no named "
+                                    f"voltage)" if info.get("V_in_prior") else "")),
                         objects=list(r.get("members") or [])[:8],
                         evidence=dict(L_nH=round(L, 3), L_abs_nH=round(la, 3), V_in=info.get("V_in"),
                                       V_abs=info.get("V_abs"), V_abs_source="part" if known else "prior",
+                                      V_in_source="prior" if info.get("V_in_prior") else "board",
                                       limit_source="kae.physics.criteria: peak <= V_abs (derate 1)"),
                         fix="place the input capacitor beside the switch and its ground pin, same side, with the "
-                            "return on the adjacent plane" + ("" if known else "; or state the switch's V_max")))
+                            "return on the adjacent plane" + ("" if known else "; or state the switch's V_max")
+                            + ("; or name the input rail's voltage" if info.get("V_in_prior") else "")))
     return out
 
 
@@ -831,6 +839,12 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     # ---- seed: quadratic + spread, then CP-SAT floorplan
     t = clock_now()
     free_macros = [m for m in macros if not m.anchored]
+    # legalization after the anneal keeps the physics structures (kae.place.legalize): macros
+    # move whole, and physics breaks ties between equal-displacement repairs
+    from kae.route.constraints import setting_env
+    keep = float(setting_env("place_legalize_structures", board_path, opts)) > 0
+    rigid = [list(m.members) for m in free_macros] if keep else []
+    lphys = _phys_total(terms, P) if keep and terms is not None else None
     n_items = len(free_macros) + len(P.mov) - sum(len([i for i in m.members if P.parts[i].movable])
                                                    for m in free_macros)
     big = n_items > FLOORPLAN_MAX_ITEMS
@@ -993,6 +1007,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             kw.setdefault("w_zone", 1.0)
             kw["zones"] = zone_tab
             rep["zone_term"] = dict(zone_tab.info, w_zone=kw["w_zone"])
+        kw.setdefault("hard_fixed", float(setting_env("place_anneal_hard_fixed", board_path, opts)) > 0)
         ann = make_annealer(P, st.copy(), terms=terms, macros=[m for m in macros if not m.anchored], seed=seed,
                             log=log, **kw)
         if anneal_args:
@@ -1002,6 +1017,14 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         cpu = max(1.0, 0.6 * (deadline - clock_now() - 3.0))
         # wall clock too: on a loaded host CPU seconds lag behind the caller's timeout
         arep = ann.run(cpu_s=cpu, deadline=deadline - 0.1 * budget)
+        q = float(setting_env("place_anneal_quench", board_path, opts))
+        if q > 0 and ann.leg_total > 0:
+            # the anneal ended with overlaps: raise the legality weight on its own cost before the
+            # physics-blind grid legalizer takes over (kae.place.engine.FastAnnealer.quench)
+            arep["quench"] = ann.quench(int(q * (arep.get("planned_moves") or 0)))
+            if log:
+                log(f"anneal quench: legality {arep['quench'].get('leg_start')} -> {arep['quench'].get('leg_end')} "
+                    f"in {arep['quench'].get('moves')} moves")
         ann.write_back()
         rep["anneal"] = arep
         stage("anneal", t)
@@ -1011,7 +1034,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         trace("anneal", cand)
         if grid_violations(cand):
             rep["legalize"] = legalize(P, cand, time_s=max(3.0, deadline - clock_now()), workers=workers,
-                                       seed=seed, log=log)
+                                       seed=seed, log=log, rigid=rigid, phys=lphys)
             trace("legalize", cand)
         stage("legalize", t)
         if not grid_violations(cand):
@@ -1029,7 +1052,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     viol = grid_violations(st)
     if viol:
         rep["legalize_escalation"] = _escalate(P, st, workers, seed, log, max(3.0, 0.1 * budget), relax_ok,
-                                               hard_end=hard_end)
+                                               hard_end=hard_end, rigid=rigid, phys=lphys)
         viol = grid_violations(st)
     if viol and (P.margin > 0 or getattr(P, "escape_on", False)):
         # the routing margin and the escape bands are wishes, legality is not: judge (and repair)
@@ -1042,7 +1065,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         viol = grid_violations(st)
     if viol and clock_now() < deadline + 0.1 * budget and not late():
         rep["legalize_final"] = legalize(P, st, time_s=cap(max(3.0, 0.1 * budget)), workers=workers, seed=seed,
-                                         log=log)
+                                         log=log, rigid=rigid, phys=lphys)
         viol = grid_violations(st)
     if rep.get("legalize_escalation") or rep.get("legalize_final"):
         trace("legalize_escalation", st)
@@ -1349,6 +1372,15 @@ def edge_hazards(rep, board, poses):
         rep["hazards"] = hz
 
 
+def _phys_total(terms, P):
+    """state -> the placement physics (linear utilization summed over structures, as
+    physics_trace reports it): legalize's tie-break between equal-displacement repairs."""
+    def f(state):
+        rows = terms.breakdown({p.uuid: state.pose(p.i) for p in P.parts})
+        return sum(float(r.get("confidence", 1.0)) * float(r.get("util", r.get("utilization", 0.0))) for r in rows)
+    return f
+
+
 def physics_trace(rep, name, terms, poses):
     """Append the physics after stage `name` to rep['physics_trace']: the linear total and the
     utilization summed per structure kind (decap loops, crystals, ...). Never raises: a
@@ -1382,6 +1414,30 @@ def final_physics(res):
             rep["hazards"] = [h for h in rep.get("hazards", []) if h.get("source") != "scorecard"] + sc_hz
         except Exception as e:
             rep["physics_error"] = f"{type(e).__name__}: {e}"
+        try:
+            pd = pdn_report(res.terms, {p.uuid: st.pose(p.i) for p in P.parts})
+            if pd is not None:
+                # like the scorecard's: a second call (after the KiCad rounds) replaces the first's findings
+                pd_hz = [dict(h, source="pdn") for h in pd.pop("hazards", None) or []]
+                rep["pdn"] = pd
+                rep["hazards"] = [h for h in rep.get("hazards", []) if h.get("source") != "pdn"] + pd_hz
+        except Exception as e:      # noqa: BLE001 - a report-only screen; never lose the placement
+            rep["pdn"] = dict(error=f"{type(e).__name__}: {e}")
+
+
+def pdn_report(terms, poses):
+    """kae.excite.pdn's screen of the placement: each rail's Z(f) with the capacitors' loops at these poses
+    (the place terms' decap loops), or None when the terms were built without a board. Report-only: it
+    changes no placement."""
+    board = getattr(terms, "board", None)
+    if board is None:
+        return None
+    from kae.excite import pdn
+    t0 = time.perf_counter()
+    loops = pdn.loops_from_breakdown(terms.breakdown(poses))
+    out = pdn.compact(pdn.screen(board, terms.brief, loops=loops, stage="placement"))
+    out["seconds"] = round(time.perf_counter() - t0, 2)
+    return out
 
 
 def grid_verdict(P, st, exact):

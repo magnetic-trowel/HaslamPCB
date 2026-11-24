@@ -28,6 +28,8 @@ class Elem:
     pa: str | None = None   # pad at a (None: internal node)
     pb: str | None = None
     kind: str = ""
+    par: dict = field(default_factory=dict)   # the model's values where a screen reads them (a capacitor:
+    #                                           C, C_nominal, ESR, ESL; kae.excite.pdn)
 
 
 @dataclass
@@ -121,11 +123,11 @@ class Circuit:
             self.nodes[n] = len(self.nodes)
         return self.nodes[n]
 
-    def z(self, name, a, b, z, pa=None, pb=None, kind=""):
+    def z(self, name, a, b, z, pa=None, pb=None, kind="", par=None):
         if a == b:
             return None
         self.node(a), self.node(b)
-        e = Elem(name, a, b, z, pa, pb, kind)
+        e = Elem(name, a, b, z, pa, pb, kind, dict(par or {}))
         self.elems.append(e)
         return e
 
