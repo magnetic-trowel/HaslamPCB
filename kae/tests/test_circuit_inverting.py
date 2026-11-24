@@ -84,8 +84,9 @@ def test_the_evaluator_prices_an_inverting_cells_hot_loop(board, monkeypatch):
     obs = {o["id"]: o for o in ev["observations"] if o["scope"].get("source") == f"cell:{CELL}"}
     assert ev["open_cells"] == [] and {"overshoot.peak", "loss.loop", "loss.loop_ac"} <= set(obs)
     assert min(obs["loss.loop"]["values"]) > 0 and min(obs["loss.loop_ac"]["values"]) > 0
-    # the switch stands off V_in + |V_out| = 17 V: its overshoot bound is that bus's
-    assert obs["overshoot.peak"]["reference"]["value"] == pytest.approx(CR.overshoot_limits(17.0)[0])
+    # the switch stands off V_in + |V_out| = 17 V against its LMR51430's 38 V rating (the part table; ec386372)
+    ref = obs["overshoot.peak"]["reference"]
+    assert ref["value"] == pytest.approx(CR.overshoot_limits(17.0, 38.0)[0]) and ref["src_class"] == "part_table"
 
 
 def test_an_inverting_cells_bus_and_duty():
