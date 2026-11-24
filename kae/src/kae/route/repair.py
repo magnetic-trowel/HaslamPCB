@@ -1140,6 +1140,17 @@ def errors_no_worse(s_, ref, base):
     return bool(base) and drc.excess(s_, base) <= drc.excess(ref, base)
 
 
+def soft_final_ok(guard, input_path, pre_board, pre_sum, final_board, final_sum, d):
+    """(keep, why): the physics guard on the last mile's final board against the board before its
+    first kept soft round, both staged with the input's rules; no verdict keeps nothing."""
+    try:
+        Path(d).mkdir(parents=True, exist_ok=True)
+        return guard(drc.stage_board(pre_board, input_path, Path(d) / "pre"), pre_sum,
+                     drc.stage_board(final_board, input_path, Path(d) / "final"), final_sum)
+    except Exception as e:  # noqa: BLE001 - no verdict: the soft tier's copper does not stay
+        return False, f"physics guard failed: {type(e).__name__}: {e}"
+
+
 def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, best, best_rep, fixed, log,
                base=None, spokes=None):
     """Last-mile rounds (kae.route.lastmile) after the repair rounds: join what is still
@@ -1165,6 +1176,7 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
     # a physics guard; without a guard it stays fixed)
     guard = opts.get("physics_guard")
     soft = set(opts.get("soft_fixed") or ()) if guard is not None else set()
+    pre_soft = None
     cur, cur_rep, cur_sum = output_path, best_rep, best
     # starved thermals with spoke tracks pending are the spokes' to fix, not lm0's to rip for
     rip_rep, rip_sum = cur_rep, cur_sum
@@ -1298,6 +1310,11 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
             f"{', spokes ' + str(rec['spokes']) if rec.get('spokes') else ''}: {s_['errors']} errors {s_['by_type']}, "
             f"{s_['unconnected']} unconnected ({'kept' if rec['kept'] else 'not better'})")
         if rec["kept"]:
+            if r.get("ripped_soft") and guard is not None and pre_soft is None:
+                # the board before the first kept soft round: the final board is judged against it
+                pre_soft = dict(board=wd / "pre_soft.kicad_pcb", best=best, best_rep=best_rep,
+                                fixed=set(fixed) - set(r["added"]))
+                shutil.copy2(output_path, pre_soft["board"])
             shutil.copy2(cand, output_path)
             best, best_rep = s_, rep
             rec["final"] = s_
@@ -1305,4 +1322,24 @@ def _last_mile(input_path, output_path, wd, plan, info, opts, deadline, rounds, 
         if not errors_no_worse(s_, best, base):
             break
         cur, cur_rep, cur_sum = cand, rep, s_
+    if pre_soft is not None:
+        # rounds after a soft one rip and re-lay copper unguarded (the copper a soft round laid is
+        # no longer soft): the board that ends the last mile must hold against the one before the
+        # soft tier, by the same guard (ut8ifg ptt-usb-cable: the soft round 6.73 -> 7.17, the last
+        # board 9.87 after a later round closed the +5V decap loop the soft round had cut open)
+        ok, why = soft_final_ok(guard, input_path, pre_soft["board"], pre_soft["best"], output_path, best,
+                                wd / "soft_final")
+        rounds.append(dict(round="soft_final", level="physics guard", kept=ok, physics=why))
+        log(f"last mile: the final board against the one before the soft tier: {why}"
+            f"{'' if ok else '; back to that board, then the last mile without the soft tier'}")
+        if not ok:
+            shutil.copy2(pre_soft["board"], output_path)
+            best, best_rep = pre_soft["best"], pre_soft["best_rep"]
+            rounds[-1]["final"] = best          # the caller reads the board kept from the rounds
+            if best["unconnected"] and left() > LAST_MILE_MIN_S:
+                nsd = wd / "nosoft"
+                nsd.mkdir(exist_ok=True)
+                best_rep = _last_mile(input_path, output_path, nsd, plan, info,
+                                      {k: v for k, v in opts.items() if k not in ("physics_guard", "soft_fixed")},
+                                      deadline, rounds, best, best_rep, pre_soft["fixed"], log, base=base, spokes=None)
     return best_rep

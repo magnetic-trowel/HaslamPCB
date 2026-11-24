@@ -62,9 +62,46 @@ try:
                         for m in range(m0, m1):
                             Y[c, r, m] += Kh[r, q, m] * X[c, q, m]
         return Y
+
+    @numba.njit(parallel=True, cache=True)
+    def _csr_mm(indptr, indices, data, X):
+        """A CSR matrix times the columns of X, complex: scipy's csr_matvecs (each row's terms in
+        stored order, every column alike), so the result is the same to the bit, on WORKERS threads
+        (scipy's runs on one)."""
+        n, P = indptr.size - 1, X.shape[1]
+        Y = np.zeros((n, P), np.complex128)
+        for i in numba.prange(n):
+            for jj in range(indptr[i], indptr[i + 1]):
+                a = data[jj]
+                c = indices[jj]
+                for k in range(P):
+                    Y[i, k] += a * X[c, k]
+        return Y
 except ImportError:                                   # pragma: no cover
+    _csr_mm = None
+
     def _kmul(Kh, X):
         return np.einsum("rsm,csm->crm", Kh, X)
+
+
+def irfft2_rows(Y, Ny, Nx, rows):
+    """sfft.irfft2(Y, s=(Ny, Nx))[..., :rows, :], to the bit, at about half the cost: the inverse runs
+    along the rows' axis first, so only the first `rows` rows need the second, real pass (the
+    circulant embedding's other rows are wrap-around that L_apply never reads). The scaling is
+    applied last, as irfft2 applies it. Y is overwritten."""
+    Z = sfft.ifft(Y, axis=-2, norm="forward", workers=WORKERS, overwrite_x=True)[..., :rows, :]
+    Z = sfft.irfft(Z, n=Nx, axis=-1, norm="forward", workers=WORKERS)
+    Z *= 1.0 / (Ny * Nx)
+    return Z
+
+
+def spmm(M, X):
+    """M @ X for a CSR matrix M with complex entries: _csr_mm for complex column blocks X (n, P),
+    scipy otherwise. Same result to the bit."""
+    if (_csr_mm is not None and X.ndim == 2 and X.dtype == np.complex128 and M.dtype == np.complex128
+            and M.format == "csr"):
+        return _csr_mm(M.indptr, M.indices, M.data, np.ascontiguousarray(X))
+    return M @ X
 
 # relative residual of the iterative solves: port quantities are variational (their error is second
 # order), so 1e-5 gives them to ~3e-7 in about two thirds of the iterations 1e-8 takes
@@ -172,7 +209,7 @@ class Operator:
             X = sfft.rfft2(G, workers=WORKERS)                       # (2P, S, Ny, Nx/2+1)
             sh = X.shape
             Y = _kmul(Kh, np.ascontiguousarray(X.reshape(2 * P, S, -1))).reshape(sh)
-            Y = sfft.irfft2(Y, s=(self.Ny, self.Nx), workers=WORKERS).reshape(P, 2, S, self.Ny, self.Nx)
+            Y = irfft2_rows(Y, self.Ny, self.Nx, self.ny).reshape(P, 2, S, self.ny, self.Nx)
             out[a0:a0 + n] = (Y[:, 0, slot, f["j"], f["i"]] + 1j * Y[:, 1, slot, f["j"], f["i"]]).T
         nv = len(net.vseg)
         if nv:
@@ -291,16 +328,25 @@ class System:
         LI = self.op.L_apply(I)
         if self.net.Lc_off is not None:
             LI = LI + self.net.Lc_off @ I
-        top = self.kap * (zd * I + 1j * self.w * LI) - self.D @ phi
-        bot = -(self.DT @ I)
+        D, DT = self._incidence()
+        top = self.kap * (zd * I + 1j * self.w * LI) - spmm(D, phi)
+        bot = -spmm(DT, I)
         return np.concatenate([top, bot])
 
     def psolve(self, r):
         nb = self.net.n_br
         r1, r2 = r[:nb], r[nb:]
-        b = self.lu.solve(np.ascontiguousarray(-r2 - self.DT @ (self.Zn_inv @ r1)))
-        a = self.Zn_inv @ (r1 + self.D @ b)
+        D, DT = self._incidence()
+        b = self.lu.solve(np.ascontiguousarray(-r2 - spmm(DT, spmm(self.Zn_inv, r1))))
+        a = spmm(self.Zn_inv, r1 + spmm(D, b))
         return np.concatenate([a, b])
+
+    def _incidence(self):
+        """D and D^T with complex entries, for spmm: scipy casts them so for every product with a
+        complex vector, so the products are the same to the bit (made once, on first use)."""
+        if getattr(self, "_Dc", None) is None:
+            self._Dc = (self.D.astype(np.complex128), self.DT.astype(np.complex128))
+        return self._Dc
 
     def warm(self, prev):
         """An initial guess (n, P) from earlier solutions `prev` = list of (state) from `state_of`, mapped
