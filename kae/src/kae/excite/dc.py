@@ -7,10 +7,14 @@ current from it (an IC only through its supply pins) and return it at their own 
 with class-prior currents (kae.route.critical_rails.load_current, E5) as intervals x/3 .. x3, or
 the intent file's. Each load's current is walked back to the board's input through the chain of
 parts that feed its rail, so every copper island balances (KCL) and the ground copper carries
-each return to where it really goes:
+each return to where it really goes (a do-not-populate part takes no part in it):
 
-    external source (connector, battery)  delivers I at its rail pads, takes it back at its ground pads
-    linear (LDO, charger, load switch)     takes I from its input rail, delivers it to its output
+    external source (connector, battery)  delivers I at its rail pads, takes it back at its ground pads; a
+                                           rail with no source part whose voltage the facts state is fed
+                                           at the connector on it
+    linear (LDO, charger, load switch)     takes I from its input rail, delivers it to its output; also any
+                                           part the facts give as the rail's source from another rail
+                                           (nets.<rail>.from, a load switch transistor)
     switching regulator (no cell found)    takes I Vout / (eta Vin) from its input, the rest to ground
     commutation cell (kae.circuit)         its inductor and rectifier conduct (lumped into the copper);
                                            the switches are injected: boost: the switch takes I_L - I_out
@@ -47,6 +51,7 @@ DROP_SHARE = 0.02       # rail + ground drop: 2 % of the rail voltage (as kae.ro
 DT_MAX = 10.0           # K, track temperature rise (the common IPC design point)
 ETA = (0.75, 0.85, 0.95)   # efficiency of a switching regulator without a cell model (lo, typ, hi)
 DC_KINDS = ("R", "L", "FB", "D_on", "short")     # circuit elements that conduct at DC
+SERIES = ("transistor", "diode", "fuse", "ferrite", "resistor", "jumper", "inductor")   # a part in a rail's path
 LINEAR = ("regulator_linear", "charger", "load_switch", "battery_monitor", "usb_pd")
 SWITCHING = ("regulator_switching", "pmic", "regulator_module")
 SUPPLY_PIN = re.compile(r"^(V(CC|DD|IN|BAT|BUS|S|M|PP|IO|CORE|DDA|DDIO|USB|SYS|P|\+)\w*|AVDD|DVDD|IOVDD|PVDD|PVIN|"
@@ -131,6 +136,13 @@ def plan(board, brief, bd, P, srcs, intent=None):
     ref_of = {u: p["ref"] for u, p in parts.items()}
     uuid_of = {p["ref"]: u for u, p in parts.items()}
     pads = _pads(board)
+    # a part marked do-not-populate (the footprint's dnp attribute, as kae.circuit reads it) is not on the
+    # assembled board: it neither loads, feeds nor returns current (solar-small's J301 'DNP' header was a
+    # 0.3 A connector export, heated as a load to 213 C)
+    dnp = {p["ref"] for p in parts.values() if p.get("dnp")} | {f.ref for f in board.footprints if "dnp" in (f.attrs or [])}
+    for ref in sorted(dnp & set(pads)):
+        del pads[ref]
+        pl.notes.append(f"{ref}: do not populate; not in the DC band")
     grounds = bd.grounds
     rails = {n for n, d in nets.items() if (d or {}).get("role") == "rail"}
     # the intent's operating facts may name rails the brief did not classify, with their voltage and
@@ -163,6 +175,36 @@ def plan(board, brief, bd, P, srcs, intent=None):
             return float(fv)
         v = (nets.get(net) or {}).get("volts")
         return abs(float(v)) if v else None
+
+    def input_connector(r):
+        """Where a rail without a source part is fed: the facts state its voltage (V_V or range_V, an input the
+        design expects) and a populated connector with a ground pad has a pad on it (the one with the most
+        pads on the rail, then by reference), or on the far side of a series part on it (a reverse-polarity
+        transistor or diode, a fuse: solar-small's panel J101 -> PV_RAW -> Q101 -> PV_IN). Returns (connector,
+        None) or (connector, (series part, its far net)), else None."""
+        fd = facts.get(r) or {}
+        if not (isinstance(fd.get("V_V"), (int, float)) or isinstance(fd.get("range_V"), list)):
+            return None
+
+        def conn_on(net):
+            c = [(-sum(1 for _, nt, _, _ in pp if nt == net), ref) for ref, pp in pads.items()
+                 if (parts.get(uuid_of.get(ref)) or {}).get("kind") == "connector"
+                 and any(nt == net for _, nt, _, _ in pp) and gnd_pads(ref)]
+            return min(c)[1] if c else None
+        if conn_on(r):
+            return conn_on(r), None
+        for ref, pp in sorted(pads.items()):
+            if (parts.get(uuid_of.get(ref)) or {}).get("kind") not in SERIES or not any(nt == r for _, nt, _, _ in pp):
+                continue
+            for n2 in sorted({nt for _, nt, _, _ in pp} - {r} - set(grounds) - rails):
+                if conn_on(n2):
+                    return conn_on(n2), (ref, n2)
+        return None
+
+    # parts the copper model conducts through at DC (kae.excite.circuit elements of DC_KINDS)
+    conducting = {e.name.split(":")[0] for e in (getattr(getattr(bd, "circuit", None), "elems", None) or [])
+                  if e.kind in DC_KINDS}
+    extra_v = {}                    # a connector's net behind a series part: {net: the rail whose voltage it has}
 
     # commutation cells: their parts, rails and operating points
     cells = {}
@@ -200,12 +242,30 @@ def plan(board, brief, bd, P, srcs, intent=None):
                 pl.params.append(pl.feeds[r]["eta"])
             continue
         if src_ref is None or src_ref not in pads:
-            pl.notes.append(f"{r}: no source part; its loads are not in the DC band")
+            fed = input_connector(r)
+            if fed is None:
+                pl.notes.append(f"{r}: no source part; its loads are not in the DC band")
+                continue
+            # a rail the facts give a voltage (V_V or range_V) and no source part: the power arrives on the
+            # board through a connector on it, or behind a series part (solar-small's panel on J101, through
+            # Q101 to PV_IN, whose copper carried no DC while its converter's input current entered at the
+            # controller)
+            conn, via = fed
+            if via is None or via[0] in conducting:
+                # on the rail, or behind a part the copper model conducts through (a fuse, a ferrite)
+                pl.feeds[r] = dict(kind="external", ref=conn, out=on(conn, via[1] if via else r), gnd=gnd_pads(conn))
+            else:
+                ser, n2 = via
+                pl.feeds[n2] = dict(kind="external", ref=conn, out=on(conn, n2), gnd=gnd_pads(conn))
+                pl.feeds[r] = dict(kind="linear", ref=ser, rin=n2, out=on(ser, r), inp=on(ser, n2), gnd=[])
+                extra_v[n2] = r
+            pl.notes.append(f"{r}: no source part; the facts give its voltage, so it is fed at connector {conn}"
+                            + (f" through {via[0]} ({via[1]})" if via else ""))
             continue
         kind, sub = (parts.get(uuid_of.get(src_ref)) or {}).get("kind"), (parts.get(uuid_of.get(src_ref)) or {}).get("subtype")
+        fr, fk = (facts.get(r) or {}).get("from"), (facts.get(r) or {}).get("kind")
         ins = [(n, net) for n, net, pt, fn in pads[src_ref] if net in rails and net != r and
                (pt == "power_in" or SUPPLY_PIN.match(fn))] if kind in ("ic", "module") else []
-        fr = (facts.get(r) or {}).get("from")
         if kind in ("ic", "module") and fr and fr != r and any(net == fr for _, net, _, _ in pads[src_ref]):
             ins = [(n, net) for n, net, _, _ in pads[src_ref] if net == fr]      # the facts' input net
         if kind in ("ic", "module") and ins:
@@ -226,6 +286,11 @@ def plan(board, brief, bd, P, srcs, intent=None):
                                      "efficiency of a switching regulator without a cell model (class range)")
                 pl.params.append(f["eta"])
             pl.feeds[r] = f
+        elif kind not in ("ic", "module") and fr and fr != r and fk in (None, "linear") and on(src_ref, fr) and on(src_ref, r):
+            # the facts give the rail as fed from another one through this part (a load switch, a series pass
+            # transistor): its current comes from that rail through the part's channel. Taken as external, a
+            # switched rail's loads never reached the rail and regulator upstream (solar-small's +3V3_SW via Q301)
+            pl.feeds[r] = dict(kind="linear", ref=src_ref, rin=fr, out=on(src_ref, r), inp=on(src_ref, fr), gnd=[])
         elif kind in ("diode", "inductor", "ferrite", "resistor", "jumper"):
             other = next((net for _, net, _, _ in pads[src_ref] if net != r and net in rails), None)
             if other is None:
@@ -329,6 +394,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
     pl.pads = pads
     pl.grounds = grounds
     pl.volts = {r: volts(r) for r in rails}
+    pl.volts.update({n: volts(n) or pl.volts.get(r) for n, r in extra_v.items()})
     return pl
 
 

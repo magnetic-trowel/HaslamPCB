@@ -6,7 +6,8 @@ Heat, per corner of the ledger (the DC band's operating point, kae.excite.dc):
 
     copper       I^2 R of every bar of the DC flow, half to each of its two cells; a lumped part's own
                  DC loss (an inductor's winding) at its pads
-    linear feed  (V_in - V_out) I at the regulator's pads (LDO, charger, load switch, series diode)
+    linear feed  (V_in - V_out) I at the regulator's pads (LDO, charger, load switch IC, series diode);
+                 a transistor the facts give as a rail's switch: I^2 R_on
     switching    (1/eta - 1) P_out at the regulator's pads (no cell model)
     cell         switch conduction I_L^2 R_on D, switching (V I_L t_i + C_sw V^2) f_sw at the controller's
                  pads; the rectifier's V_f I_out at its pads, or, synchronous (no rectifier part), its
@@ -132,6 +133,11 @@ def params(bd, dcp, P, intent=None):
         out.append(Param(f"heat:{ref}", "theta_jb", typ, lo, hi, "K/W", "prior",
                          f"junction to board by package size ({npins} pins; class range), no datasheet value"))
     for f in dcp.feeds.values():
+        if f["kind"] == "linear" and bd.part_kind.get(f["ref"], ("",))[0] == "transistor":
+            iv = intent_value(intent, "parts", f["ref"], "R_on_ohm")
+            out.append(Param(f"heat:{f['ref']}", "R_on_ohm", *iv, "ohm", "intent", "the intent file") if iv else
+                       Param(f"heat:{f['ref']}", "R_on_ohm", R_ON[1], R_ON[0], R_ON[2], "ohm", "prior",
+                             "load switch on-resistance (switch class range); no datasheet value"))
         if f["kind"] != "cell":
             continue
         c = f["cell"]
@@ -227,6 +233,9 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             vi, vo = dcp.volts.get(f["rin"]) or 0.0, dcp.volts.get(r) or 0.0
             kind = bd.part_kind.get(f["ref"], ("",))[0]
             drop = val.get((f"heat:{f['ref']}", "V_f_V"), V_F[1]) if kind == "diode" else max(vi - vo, 0.0)
+            if kind == "transistor":
+                # a load switch's channel: I^2 R_on (the facts' rail voltages are rounded, not its drop)
+                drop = I_out * val.get((f"heat:{f['ref']}", "R_on_ohm"), R_ON[1])
             if kind not in ("inductor", "ferrite", "resistor"):       # those dissipate in the DC copper model
                 add(f["ref"], drop * I_out)
         elif f["kind"] == "switching":

@@ -420,3 +420,99 @@ def test_a_cells_prior_loss_stays_within_a_working_converters():
     cv = {"cell:c": {"I_A": 0.35, "D": 0.25, "V_V": 48.0, "t_i_s": 1e-8, "C_sw_F": 1.3e-9, "f_sw_Hz": 2e6}}
     heat = H.part_heat(SimpleNamespace(part_kind={}), pl, cv, {("heat:U1", "R_on_ohm"): 0.3}, {})
     assert heat["U1"] == pytest.approx((1 / DC.ETA[0] - 1) * 3.3 * 0.35)
+
+
+def _board_plan(intent, dnp=False, rev=False):
+    """A board fed by connector J1 on VIN (no source part; with `rev`, through a reverse-polarity P-FET Q2 from
+    VRAW), LDO U1 VIN -> 3V3, P-FET Q1 3V3 -> 3V3_SW, an MCU U2 on 3V3 and a sensor header J2 on 3V3_SW
+    (do-not-populate when `dnp`), through kae.excite.dc.plan."""
+    from types import SimpleNamespace as NS
+    pads = {"J1": [("1", "VIN", "passive", ""), ("2", "GND", "passive", "")],
+            "U1": [("1", "VIN", "power_in", "VIN"), ("2", "3V3", "power_out", "VOUT"), ("3", "GND", "power_in", "GND")],
+            "Q1": [("1", "EN", "", "G"), ("2", "3V3", "", "S"), ("3", "3V3_SW", "", "D")],
+            "U2": [("1", "3V3", "power_in", "VDD"), ("2", "GND", "power_in", "GND"), ("3", "EN", "", "PA0")],
+            "J2": [("1", "3V3_SW", "passive", ""), ("2", "GND", "passive", "")]}
+    kind = {"J1": ("connector", "power"), "U1": ("ic", "regulator_linear"), "Q1": ("transistor", "pmos"),
+            "U2": ("ic", "mcu"), "J2": ("connector", "header")}
+    if rev:
+        pads["J1"] = [("1", "VRAW", "passive", ""), ("2", "GND", "passive", "")]
+        pads["Q2"] = [("1", "GATE", "", "G"), ("2", "VIN", "", "D"), ("3", "VRAW", "", "S")]
+        kind["Q2"] = ("transistor", "pmos")
+    fps = [NS(ref=r, uuid=f"u{r}", attrs=["dnp"] if dnp and r == "J2" else [], value="X", lib_id="", fields={},
+              pads=[NS(number=n, net=net, pintype=pt, pinfunction=fn, drill=0.0) for n, net, pt, fn in pp]) for r, pp in pads.items()]
+    board = NS(footprints=fps)
+    parts = {f"u{r}": dict(ref=r, kind=k, subtype=s, **({"dnp": True} if dnp and r == "J2" else {})) for r, (k, s) in kind.items()}
+    brief = dict(parts=parts, nets={"VIN": dict(role="rail", volts=5.0), "3V3": dict(role="rail", volts=3.3,
+                                                                                   source=dict(part="uU1")),
+                                    "3V3_SW": dict(role="rail", volts=3.3), "GND": dict(role="ground"), "EN": {}},
+                 structures=[])
+    return DC.plan(board, brief, NS(grounds={"GND"}, circuit=NS(elems=[])), {}, [], intent)
+
+
+def test_facts_route_a_switched_rail_through_its_switch_and_feed_a_voltage_rail_at_its_connector():
+    """solar-small: +3V3_SW through Q301 (facts: linear from +3V3) was taken as an external source, so its loads
+    never loaded +3V3; PV_IN (facts: a voltage, no source part) carried no DC, the panel arriving on J101."""
+    facts = {"nets": {"VIN": {"V_V": 5.0}, "3V3_SW": {"source": "Q1", "from": "3V3", "kind": "linear"}}}
+    pl = _board_plan(facts)
+    assert pl.feeds["3V3_SW"]["kind"] == "linear" and pl.feeds["3V3_SW"]["rin"] == "3V3"
+    assert pl.feeds["3V3_SW"]["out"] == ["Q1.3"] and pl.feeds["3V3_SW"]["inp"] == ["Q1.2"]
+    assert pl.feeds["VIN"] == dict(pl.feeds["VIN"], kind="external", ref="J1", out=["J1.1"], gnd=["J1.2"])
+    assert not pl.feeds["3V3"].get("flow_external")              # the LDO's input now has a feed
+    j2 = next(ld for ld in pl.loads if ld["ref"] == "J2")
+    cv = {(p.subject, p.name): p.typ for p in pl.params}
+    inj = DC.injections(pl, cv)
+    x = cv[j2["key"]]
+    assert inj["Q1.3"] == pytest.approx(x) and inj["Q1.2"] == pytest.approx(-x)
+    # the switched rail's export reaches the connector through the LDO: J1 delivers every load's current
+    u2 = next(ld for ld in pl.loads if ld["ref"] == "U2")
+    assert inj["J1.1"] == pytest.approx(x + cv[u2["key"]])
+    assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
+    # without `from` and VIN's voltage in the facts: the switch is an external source, VIN has no feed (as before)
+    pl0 = _board_plan({"nets": {"3V3_SW": {"source": "Q1"}}})
+    assert "VIN" not in pl0.feeds and pl0.feeds["3V3_SW"]["kind"] == "external"
+
+
+def test_a_voltage_rail_behind_a_reverse_polarity_switch_is_fed_through_it():
+    """solar-small's panel: J101 -> PV_RAW -> Q101 (P-FET) -> PV_IN."""
+    pl = _board_plan({"nets": {"VIN": {"range_V": [0, 25]}}}, rev=True)
+    assert pl.feeds["VRAW"] == dict(pl.feeds["VRAW"], kind="external", ref="J1", out=["J1.1"], gnd=["J1.2"])
+    assert pl.feeds["VIN"] == dict(pl.feeds["VIN"], kind="linear", ref="Q2", rin="VRAW", out=["Q2.2"], inp=["Q2.3"])
+    assert pl.volts["VRAW"] == pl.volts["VIN"] == 5.0
+    cv = {(p.subject, p.name): p.typ for p in pl.params}
+    inj = DC.injections(pl, cv)
+    assert inj["J1.1"] == pytest.approx(-inj["Q2.3"]) and inj["J1.1"] == pytest.approx(inj["Q2.2"]) and inj["J1.1"] > 0
+    assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_a_do_not_populate_part_neither_loads_nor_heats():
+    """solar-small's J301 (dnp, value 'DNP') was loaded as a 0.3 A connector export and heated as a load to 213 C."""
+    from types import SimpleNamespace as NS
+
+    from kae.excite import heat as H
+    facts = {"nets": {"VIN": {"V_V": 5.0}, "3V3_SW": {"source": "Q1", "from": "3V3", "kind": "linear"}}}
+    pl = _board_plan(facts, dnp=True)
+    assert "J2" not in {ld["ref"] for ld in pl.loads} and "J2" not in pl.pads
+    assert all(not t.startswith("J2.") for f in pl.feeds.values() for k in ("out", "gnd", "inp") for t in f.get(k) or [])
+    cv = {(p.subject, p.name): p.typ for p in pl.params}
+    inj = DC.injections(pl, cv)
+    bd = NS(part_kind={"Q1": ("transistor", "pmos"), "U1": ("ic", "regulator_linear"), "U2": ("ic", "mcu")})
+    heat = H.part_heat(bd, pl, cv, {}, inj)
+    assert "J2" not in heat and "Q1" not in heat                # nothing flows through the switch
+
+
+def test_a_load_switch_transistor_heats_by_its_on_resistance():
+    """A switch's drop is I R_on, not the difference of the facts' rounded rail voltages."""
+    from types import SimpleNamespace as NS
+
+    from kae.excite import heat as H
+    facts = {"nets": {"VIN": {"V_V": 5.0}, "3V3_SW": {"source": "Q1", "from": "3V3", "kind": "linear"}}}
+    pl = _board_plan(facts)
+    cv = {(p.subject, p.name): p.typ for p in pl.params}
+    j2 = next(ld for ld in pl.loads if ld["ref"] == "J2")
+    cv[j2["key"]] = 0.5
+    bd = NS(part_kind={"Q1": ("transistor", "pmos"), "U1": ("ic", "regulator_linear"), "U2": ("ic", "mcu"),
+                       "J1": ("connector", "power"), "J2": ("connector", "header")})
+    inj = DC.injections(pl, cv)
+    heat = H.part_heat(bd, pl, cv, {("heat:Q1", "R_on_ohm"): 0.06}, inj)
+    I = inj["Q1.3"]                                     # the export, held to what the feeds can deliver
+    assert I > 0.1 and heat["Q1"] == pytest.approx(I ** 2 * 0.06)    # not (3.3 - 3.3) V I
