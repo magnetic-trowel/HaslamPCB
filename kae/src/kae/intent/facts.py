@@ -139,7 +139,7 @@ def apply(brief, facts, origin="intent"):
         if "V_V" in d:
             v = float(d["V_V"])
             lo, hi = _interval(d.get("range_V", v), name)[1:]
-            rec["applied"].append(dict(what=f"nets.{name}.volts", value=v, was=n.get("volts")))
+            rec["applied"].append(dict(what=f"nets.{name}.volts", value=v, was=n.get("volts"), why=d.get("why")))
             n["volts"] = v
             n["volts_belief"] = {"value": v, "unit": "V", "exactness": "E4", "relative_to": f"{origin}: nets.{name}",
                                  "interval": [lo, hi], "lineage": [d.get("why") or "the commander's intent"]}
@@ -162,7 +162,9 @@ def apply(brief, facts, origin="intent"):
             rec["unmatched"].append(f"cells.{cid}: no such commutation cell; this board's cells are {sorted(known)}")
     for s in cells:
         ctrl = ref_of.get(s.get("controller"))
-        merged = {k: v for k, v in ((facts.get("parts") or {}).get(ctrl) or {}).items() if k in PART_CELL_KEYS}
+        pf = (facts.get("parts") or {}).get(ctrl) or {}
+        cf = (facts.get("cells") or {}).get(s["id"]) or {}
+        merged = {k: v for k, v in pf.items() if k in PART_CELL_KEYS}
         merged.update({k: v for k, v in ((facts.get("cells") or {}).get(s["id"]) or {}).items() if k != "why"})
         if not merged:
             continue
@@ -171,7 +173,7 @@ def apply(brief, facts, origin="intent"):
                 if merged[k] not in nets:
                     rec["unmatched"].append(f"cells.{s['id']}.{k}: no net {merged[k]} on the board")
                     continue
-                rec["applied"].append(dict(what=f"{s['id']}.{k}", value=merged[k], was=s.get(k)))
+                rec["applied"].append(dict(what=f"{s['id']}.{k}", value=merged[k], was=s.get(k), why=cf.get("why")))
                 s[k] = merged.pop(k)
         merged.pop("vin", None)
         merged.pop("vout", None)
@@ -184,7 +186,10 @@ def apply(brief, facts, origin="intent"):
             typ, lo, hi = _interval(merged[key], f"{s['id']}.{key}")
             if key == "v_sw_max_V":
                 typ = lo                     # a rating: the lowest stated value
+            # the reason the commander gave, from the cell's facts when they set it, else the part's
+            src = cf if key in cf else pf
             rec["applied"].append(dict(what=f"{s['id']}.excite.{field}", value=typ * scale, was=ex.get(field),
+                                       why=src.get("why"),
                                        interval=[lo * scale, hi * scale]))
             ex[field] = typ * scale
             ex.setdefault("interval", {})[field] = [lo * scale, hi * scale]

@@ -49,9 +49,13 @@ I_NCX, I_NCY, I_HX, I_HY, I_HB, I_CAP, I_HOFF, I_CX, I_CY, I_STAMP, I_NSTAMP, I_
     I_WIN, I_WX0, I_WX1, I_WY0, I_WY1, I_ZC, I_ZK, I_ZD = range(21)
 # fparams indices
 F_G, F_OX, F_OY, F_CB, F_CX0, F_CY0, F_SUP, F_TGT, F_NORM, F_A0, F_S0, F_W0, F_SLACK, F_BAR, F_WWL, F_WDISP, \
-    F_WCONG, F_WORD, F_OMARGIN, F_NMOV, F_WLAB, F_WSILK, F_WZONE = range(23)
+    F_WCONG, F_WORD, F_OMARGIN, F_NMOV, F_WLAB, F_WSILK, F_WZONE, F_WREL = range(24)
 # totals
-T_WL, T_LEG, T_CONG, T_ORDER, T_DISP, T_LAB, T_SILK, T_ZONE = range(8)
+T_WL, T_LEG, T_CONG, T_ORDER, T_DISP, T_LAB, T_SILK, T_ZONE, T_REL = range(9)
+# rule_rp (rules, 9) int64: pin pointers of roles 0-2 and the end (0-3); the rule's kind (4: 0 a protection-
+# order rule, else kae.place.relations.KIND); for a relation its distance in um (5), weight x 1e6 (6), edge
+# code (7) and the edge's coordinate in um (8). Relations sit after the order rules and total in T_REL.
+RULE_COLS = 9
 
 Eng = namedtuple("Eng", [
     "ip", "fp", "tot",
@@ -383,8 +387,51 @@ def _pin_bin(E, p):
 
 
 @_jit
+def _rel_pen(E, j):
+    """Penalty of relation rule j (kae.place.relations.excess): weight x excess mm / S0."""
+    kind = E.rule_rp[j, 4]
+    d = E.rule_rp[j, 5] * 1e-3
+    if kind == 3:
+        e = E.rule_rp[j, 7]
+        at = E.rule_rp[j, 8] * 1e-3
+        lo = 1e300
+        hi = -1e300
+        n = 0
+        for q in range(E.rule_rp[j, 0], E.rule_rp[j, 1]):
+            p = E.rule_pins[q]
+            v = E.px[p] if e < 2 else E.py[p]
+            lo = min(lo, v)
+            hi = max(hi, v)
+            n += 1
+        if n == 0:
+            return 0.0
+        if e == 0 or e == 2:
+            m = lo - at
+        else:
+            m = at - hi
+        over = m - d
+    else:
+        # the shortest distance between a pad of side 0 and a pad of side 1
+        dist = 1e300
+        for q in range(E.rule_rp[j, 0], E.rule_rp[j, 1]):
+            p = E.rule_pins[q]
+            for q2 in range(E.rule_rp[j, 1], E.rule_rp[j, 2]):
+                p2 = E.rule_pins[q2]
+                dist = min(dist, math.hypot(E.px[p] - E.px[p2], E.py[p] - E.py[p2]))
+        if dist == 1e300:
+            return 0.0
+        over = dist - d if kind == 1 else d - dist
+    if over <= 0:
+        return 0.0
+    return E.rule_rp[j, 6] * 1e-6 * over / E.fp[F_S0]
+
+
+@_jit
 def _order_pen(E, j):
-    """Penalty of order rule j: (d(conn, prot) + margin - min(d(conn, tgt), d(prot, tgt)))+ / S0."""
+    """Penalty of order rule j: (d(conn, prot) + margin - min(d(conn, tgt), d(prot, tgt)))+ / S0; a relation
+    rule's own penalty (_rel_pen) when the rule is one."""
+    if E.rule_rp[j, 4] != 0:
+        return _rel_pen(E, j)
     cx = cy = tx = ty = ix = iy = 0.0
     for role in range(3):
         sx = 0.0
@@ -588,9 +635,13 @@ def try_move(E, S, nX, nY, nK, ns, T, lam, extra, u, commit_always):
         E.sc_box[t, 3] = E.net_box[j, 3]
         E.sc_dens[t] = E.net_dens[j]
     ord_old = 0.0
+    rel_old = 0.0
     for t in range(nr):
         E.sc_open[t] = E.open[E.sc_rules[t]]
-        ord_old += E.sc_open[t]
+        if E.rule_rp[E.sc_rules[t], 4] == 0:
+            ord_old += E.sc_open[t]
+        else:
+            rel_old += E.sc_open[t]
     # save poses and pins
     np_ = 0
     for a in range(ns):
@@ -641,10 +692,14 @@ def try_move(E, S, nX, nY, nK, ns, T, lam, extra, u, commit_always):
         E.nc[j] = c
         wl_new_nets += c
     ord_new = 0.0
+    rel_new = 0.0
     for t in range(nr):
         v = _order_pen(E, E.sc_rules[t])
         E.open[E.sc_rules[t]] = v
-        ord_new += v
+        if E.rule_rp[E.sc_rules[t], 4] == 0:
+            ord_new += v
+        else:
+            rel_new += v
     # ---- RUDY
     d_cong = 0.0
     if E.ip[I_CONG] == 1:
@@ -732,12 +787,14 @@ def try_move(E, S, nX, nY, nK, ns, T, lam, extra, u, commit_always):
              + E.fp[F_WZONE] * (zone_new - zone_old)
              + E.fp[F_WCONG] * d_cong
              + E.fp[F_WORD] * (ord_new - ord_old)
+             + E.fp[F_WREL] * (rel_new - rel_old)
              + extra)
     if commit_always or delta <= 0 or (T > 0 and u < math.exp(-delta / T)):
         E.tot[T_WL] += d_wl
         E.tot[T_LEG] += leg_new - leg_old
         E.tot[T_CONG] += d_cong
         E.tot[T_ORDER] += ord_new - ord_old
+        E.tot[T_REL] += rel_new - rel_old
         E.tot[T_DISP] += disp_new - disp_old
         E.tot[T_LAB] += lab_new - lab_old
         E.tot[T_SILK] += silk_new - silk_old
@@ -1065,16 +1122,24 @@ def build(ann, hash_cap=None):
         for p in P.parts:
             a0 = part_pin_ptr[p.i]
             pin_esc[a0:a0 + len(p.fp.pads)] = cong.pad_esc[p.i]
-    rules = getattr(ann, "order", [])
-    rule_rp = np.zeros((max(1, len(rules)), 4), np.int64)
+    order = list(getattr(ann, "order", []))
+    rels = list(getattr(ann, "rel", []))
+    rules = order + rels
+    rule_rp = np.zeros((max(1, len(rules)), RULE_COLS), np.int64)
     rule_pins = []
     part_rule = {}
     for j, rule in enumerate(rules):
-        for role, (i, pads) in enumerate(rule):
+        sides = rule if j < len(order) else rule.sides
+        for role in range(3):
             rule_rp[j, role] = len(rule_pins)
-            rule_pins += [int(part_pin_ptr[i] + k) for k in pads]
-            part_rule.setdefault(i, []).append(j)
+            if role < len(sides):
+                i, pads = sides[role]
+                rule_pins += [int(part_pin_ptr[i] + k) for k in pads]
+                part_rule.setdefault(i, []).append(j)
         rule_rp[j, 3] = len(rule_pins)
+        if j >= len(order):
+            rule_rp[j, 4], rule_rp[j, 5] = rule.kind, int(round(rule.d * 1e3))
+            rule_rp[j, 6], rule_rp[j, 7], rule_rp[j, 8] = int(round(rule.w * 1e6)), rule.edge, int(round(rule.at * 1e3))
     part_rule_ptr = np.zeros(n + 1, np.int64)
     part_rules = []
     for i in range(n):
@@ -1089,7 +1154,7 @@ def build(ann, hash_cap=None):
         ip[I_WX0], ip[I_WX1], ip[I_WY0], ip[I_WY1] = ann.window
     ip[I_NCX], ip[I_NCY], ip[I_HX], ip[I_HY], ip[I_HB], ip[I_CAP], ip[I_HOFF] = P.ncx, P.ncy, HX, HY, HB, hash_cap, hoff
     ip[I_CX], ip[I_CY], ip[I_CONG] = cx, cy, 1 if use_cong else 0
-    fp = np.zeros(23)
+    fp = np.zeros(24)
     fp[F_G], fp[F_OX], fp[F_OY] = g, P.ox, P.oy
     fp[F_CB], fp[F_CX0], fp[F_CY0], fp[F_SUP], fp[F_TGT], fp[F_NORM] = cb, cx0, cy0, sup, tgt, norm
     fp[F_A0], fp[F_S0], fp[F_W0] = ann.A0, ann.S0, ann.W0
@@ -1097,6 +1162,7 @@ def build(ann, hash_cap=None):
     fp[F_WWL], fp[F_WDISP], fp[F_WCONG], fp[F_WORD] = (ann.w["wl"], ann.w["disp"], ann.w["cong"] if use_cong else 0.0,
                                                        ann.w["order"])
     fp[F_OMARGIN], fp[F_NMOV] = ann.order_margin, max(1, len(ann.mov))
+    fp[F_WREL] = ann.w.get("rel", 0.0) if rels else 0.0
     fp[F_WLAB] = ann.w.get("label", 0.0) if getattr(ann, "labels", None) else 0.0
     kmax = max([1] + [len(p.rots) for p in P.parts])
     Lab = np.zeros((n, kmax + 2, 2))
@@ -1134,7 +1200,7 @@ def build(ann, hash_cap=None):
         ip[I_ZC], ip[I_ZK], ip[I_ZD] = 1, 1, 1
         Zmap, Zent = np.zeros((1, 1, 1), np.uint16), np.zeros((max(1, n), 4))
     E = Eng(
-        ip=ip, fp=fp, tot=np.zeros(8),
+        ip=ip, fp=fp, tot=np.zeros(9),
         X=np.array(ann.X, np.int64), Y=np.array(ann.Y, np.int64), K=np.array(ann.K, np.int64),
         Xs=np.array(ann.Xs, np.int64), Ys=np.array(ann.Ys, np.int64), movable=movable, side=side, nrot=nrot,
         own=own, gbrd=gbrd, opp_ptr=opp_ptr, opp_r=opp_r, brd_ptr=brd_ptr, brd_r=brd_r,
@@ -1192,7 +1258,8 @@ def build(ann, hash_cap=None):
     E.tot[T_WL] = ann.wl
     E.tot[T_LEG] = ann.total_leg()
     E.tot[T_CONG] = cong.total() if use_cong else 0.0
-    E.tot[T_ORDER] = float(E.open[:len(rules)].sum()) if rules else 0.0
+    E.tot[T_ORDER] = float(E.open[:len(order)].sum()) if order else 0.0
+    E.tot[T_REL] = float(E.open[len(order):len(rules)].sum()) if rels else 0.0
     E.tot[T_DISP] = float(sum(abs(ann.X[i] - ann.Xs[i]) + abs(ann.Y[i] - ann.Ys[i]) for i in ann.mov))
     E.tot[T_LAB] = float(sum(_lab_part(E, i) for i in ann.mov))
     E.tot[T_SILK] = float(ann.silk_total()) if silk and fp[F_WSILK] > 0 else 0.0
@@ -1339,7 +1406,7 @@ class FastAnnealer:
         return (w["wl"] * float(_wl_cost(E, E.tot[T_WL])) + lam * E.tot[T_LEG] / self.A0 + w["disp"] * disp
                 + w["phys"] * self.phys / self.nstruct + E.fp[F_WCONG] * E.tot[T_CONG] + w["order"] * E.tot[T_ORDER]
                 + w.get("label", 0.0) * lab + w.get("silk", 0.0) * E.tot[T_SILK] / self.A0
-                + w.get("zone", 0.0) * E.tot[T_ZONE])
+                + w.get("zone", 0.0) * E.tot[T_ZONE] + w.get("rel", 0.0) * E.tot[T_REL])
 
     def terms_report(self):
         E = self.E
@@ -1358,6 +1425,10 @@ class FastAnnealer:
             out.update(silk=round(float(E.tot[T_SILK]) / self.A0, 5))
         if self.ann.zones is not None:
             out.update(zone=round(float(E.tot[T_ZONE]), 5))
+        if self.ann.rel:
+            n0 = len(self.ann.order)
+            out.update(rel=round(float(E.tot[T_REL]), 5), rel_rules=len(self.ann.rel),
+                       rel_unmet=int(sum(1 for j in range(len(self.ann.rel)) if E.open[n0 + j] > 1e-9)))
         return out
 
     def order_violations(self):

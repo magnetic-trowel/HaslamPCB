@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # LLM relations as placer input: design proposal
 
-Scope: how the commanding LLM tells `kae place` and `kae.joint` what it wants as typed relations: vocabulary, format, compiler onto placer hooks, conflict feedback, evaluation, build plan. Status: proposal [I]. Not here: why relations beat coordinates -> [interfaces-relations-vs-coordinates](../llm/interfaces-relations-vs-coordinates.md); physics objectives -> [intent-driven-objectives](../architecture/intent-driven-objectives.md); hazard contract -> [hazards](../architecture/hazards.md).
+Scope: how the commanding LLM tells `kae place` and `kae.joint` what it wants as typed relations: vocabulary, format, compiler onto placer hooks, conflict feedback, evaluation, build plan. Status: proposal [I]; a first subset is built: [intent-relations](intent-relations.md). Not here: why relations beat coordinates -> [interfaces-relations-vs-coordinates](../llm/interfaces-relations-vs-coordinates.md); physics objectives -> [intent-driven-objectives](../architecture/intent-driven-objectives.md); hazard contract -> [hazards](../architecture/hazards.md).
 Keys: relations, relation bundle, kae.intent/1 relations, near, group, region, room, on_edge, keep_away, row, order, orient, side, hold, symmetric, copy_layout, magnitude, tight/close/loose, strength, required/strong/medium/weak, relation_unmet, relation_conflict, admissible relaxation, RelationGuard, unsat core, synthetic asks
 
 Tags: [P] primary source read, [S] secondary or search summary, [M] measured here, [I] inference.

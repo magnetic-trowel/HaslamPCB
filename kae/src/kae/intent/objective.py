@@ -173,6 +173,12 @@ def load(path_or_dict):
             raise IntentError(f"term {tid}: a cost term needs a 'rate', e.g. '1 mW_eq/mW'")
         if not (t.get("why") or t.get("source")):
             raise IntentError(f"term {tid}: say why (a 'why' or a 'source'): every priced quantity is traceable")
+    if "relations" in it:       # placement relations (kae.intent.relations): the placer's terms
+        from .relations import RelationError, check
+        try:
+            check(it["relations"])
+        except RelationError as e:
+            raise IntentError(str(e)) from None
     return it
 
 

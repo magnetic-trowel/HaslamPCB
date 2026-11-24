@@ -6,6 +6,7 @@ observations (python -m kae.excite.evaluate BOARD -o EVAL.json) are re-scored in
     python -m kae.intent catalog EVAL.json                 what kae measures on this board, and its sections
     python -m kae.intent status EVAL.json [--intent I.json] [--detailed] [-o STATUS.json]
     python -m kae.intent compare EVAL_A.json EVAL_B.json ... [--intent I.json]
+    python -m kae.intent relations BOARD [--intent I.json] [-o REL.json]   the placement relations, measured
 """
 from __future__ import annotations
 
@@ -94,9 +95,29 @@ def main(argv=None):
     m = sub.add_parser("compare")
     m.add_argument("evals", nargs="+")
     m.add_argument("--intent")
+    r = sub.add_parser("relations")
+    r.add_argument("board")
+    r.add_argument("--intent", help="kae.intent/1 file (default: the board's own <stem>.kae_intent.json)")
+    r.add_argument("-o")
     a = ap.parse_args(argv)
     try:
-        if a.cmd == "catalog":
+        if a.cmd == "relations":
+            from kae.board.kicad_file import load
+            from . import facts as F
+            from . import relations as R
+            doc = OB.load(a.intent) if a.intent else F.for_board(a.board)[0] or {}
+            b = load(a.board)
+            res = R.resolve(doc.get("relations") or [], b)
+            rows = R.measure(b, res)
+            out = dict(schema="kae.relations/1", board=a.board, met=sum(1 for x in rows if x["met"]),
+                       rules=len(rows), unmatched=res["unmatched"], rows=rows)
+            for x in rows:
+                print(f"  {x['id']:24s} {x['kind']:9s} {' '.join(x.get('refs') or []):14s} "
+                      f"{x['measured_mm']} mm vs {x.get('target_mm')}  {'met' if x['met'] else 'NOT MET'}")
+            print(f"{out['met']}/{out['rules']} met" + (f"; unmatched: {res['unmatched']}" if res["unmatched"] else ""))
+            if a.o:
+                json.dump(out, open(a.o, "w"), indent=1)
+        elif a.cmd == "catalog":
             ev = json.load(open(a.eval))
             print(json.dumps(catalog(ev, _brief(ev)), indent=1))
         elif a.cmd == "status":

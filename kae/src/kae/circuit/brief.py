@@ -207,7 +207,9 @@ def build(board, *, use_sheets: bool = True, facts=None) -> dict:
     """The brief for a kae.board Board (or any object with Contract 1 field names).
 
     facts: the commander's operating facts (kae.intent.facts), applied before priorities are set. None reads
-    the board's own intent file (`<board>.kae_intent.json` beside it) when there is one; False ignores it."""
+    the board's own intent file (`<board>.kae_intent.json` beside it) when there is one; False ignores it.
+    That file's placement `relations` (kae.intent.relations) are resolved on the board into
+    brief['relations'] (the placer prices them); a brief without them has no such key."""
     b = _build(board, use_sheets=use_sheets)
     if facts is False:
         return b
@@ -216,6 +218,11 @@ def build(board, *, use_sheets: bool = True, facts=None) -> dict:
     if facts is None:
         doc, path = F.for_board(getattr(board, 'path', None))
         facts, origin = F.facts_of(doc), (f"intent file {Path(path).name}" if path else "intent")
+        if (doc or {}).get("relations"):
+            # the placer's relations (kae.intent.relations), resolved on this board: only boards whose intent
+            # file states some carry the key
+            from kae.intent import relations as R
+            b['relations'] = dict(R.resolve(doc["relations"], board), origin=origin)
     if not facts:
         return b
     F.apply(b, F.facts_of(facts), origin=origin)

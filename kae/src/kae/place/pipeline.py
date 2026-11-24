@@ -895,6 +895,14 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             kw.setdefault("w_zone", 1.0)
             kw["zones"] = zone_tab
             rep["zone_term"] = dict(zone_tab.info, w_zone=kw["w_zone"])
+        # the intent's placement relations (kae.place.relations): only boards whose intent file states some
+        from . import relations as relmod
+        rel_rules = relmod.rules(P, brief)
+        if rel_rules:
+            kw["relations"] = rel_rules
+            kw.setdefault("w_rel", relmod.W_REL)
+            rep["relations"] = dict(rules=len(rel_rules), w_rel=kw["w_rel"],
+                                    unmatched=((brief or {}).get("relations") or {}).get("unmatched") or [])
         ann = make_annealer(P, st.copy(), terms=terms, macros=[m for m in macros if not m.anchored], seed=seed,
                             log=log, **kw)
         if anneal_args:
@@ -1013,6 +1021,9 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         rep["zones"] = zonesmod.report(P, st, zone_rep)
     rep["hpwl"] = round(st.hpwl(), 2)
     rep["hpwl_signal"] = round(st.hpwl(signal_only=True), 2)
+    if rep.get("relations"):
+        from . import relations as relmod
+        rep["relations"].update(relmod.report(P, st, relmod.rules(P, brief)))
     res = Result(poses={}, report=rep, state=st, problem=P, terms=report_terms, order=order, brief=brief)
     final_physics(res)
     if report_terms is not None and "physics_error" not in rep:

@@ -149,11 +149,15 @@ def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, term
             log(f"place terms failed ({type(e).__name__}: {e})")
             terms = None
     order = clusters.protection_order(P, brief) if physics else []
+    # the intent's placement relations (kae.place.relations) hold in the windows as in the placer
+    from kae.place import relations as relmod
+    rel_rules = relmod.rules(P, brief)
+    rel_kw = dict(relations=rel_rules, w_rel=relmod.W_REL) if rel_rules else {}
     hist_rep = dict(applied=False)
     hook = history_hook(P, history, scale=history_scale, window=window.rect, report=hist_rep)
     ann = make_annealer(P, st.copy(), terms=terms, seed=seed, w_phys=float(phys_mult) if terms is not None else 0.0,
                         w_cong=30.0 * cong_mult, order=order, subset=sub, window=gwin, log=None, cong_history=hook,
-                        **zones_args(P, board_path=board_path, opts=opts))
+                        **zones_args(P, board_path=board_path, opts=opts), **rel_kw)
     rep["history"] = hist_rep
     rep["cost_before"] = round(float(ann.cost(ann.lam1)), 5)
     # a fixed move count (not the engine's adaptive one): the same seed gives the same window
