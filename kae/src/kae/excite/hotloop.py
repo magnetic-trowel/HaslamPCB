@@ -148,7 +148,7 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log, 
         bm.m.lumped = list(base)
         lump_into(c, tpad, lambda a, c_, zf, nm: bm.m.part(a, c_, name=nm, zf=zf))
         n_ = ES.Network(bm.m)
-        nets[id(c)] = (n_, ES.Operator(n_))
+        nets[id(c)] = [n_, None]          # its Operator (kernel tables) only once a solve needs it
     from .evaluate import _band_start
     out, dropped, prev, rcu, lcu, states = {}, 0.0, None, {}, {}, {}
     for f in freqs:                      # ascending: each starts from the last one's solution (_band_start)
@@ -167,11 +167,13 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log, 
             # a pad the window left out carries less than SHARE of the peak (window_pads): its current may leak
             (v, info), = ES.potentials_many(bm.m, [inj], f, net=net, op=op, light=True, leak=SHARE,
                                             x0=[_band_start(prev, inj, f, net.n_br)],
-                                            warm=[st0] if st0 is not None else None, keep_state=warm is not None)
+                                            warm=[st0] if st0 is not None else None, keep_state=warm is not None,
+                                            skip_open=True)
         finally:
             net.R = R0
         if info["unbalanced"]:
             return None, info, bm.m
+        op = nets[id(bdf[f].circuit)][1] = info["op"]
         if warm is not None:
             states[f] = info.pop("state")
         prev = (f, inj, info.pop("x"))

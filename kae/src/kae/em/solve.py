@@ -547,7 +547,7 @@ def open_islands(net, injections, open_):
 
 
 def potentials_many(mesh, inj_list, f, read=None, tol=TOL, net=None, op=None, warm=None, light=False, system=None,
-                    x0=None, leak=1e-3, keep_state=False):
+                    x0=None, leak=1e-3, keep_state=False, skip_open=False):
     """potentials() for several injection sets at once (one batched COCG). Returns a list of
     ({terminal: V}, info) in the order given; an unbalanced set returns (None, info). light: the infos keep
     only the system's diagonal (info["sys"].zdiag), not the system with its factorization, and no warm-start
@@ -558,12 +558,28 @@ def potentials_many(mesh, inj_list, f, read=None, tol=TOL, net=None, op=None, wa
     Each info's `converged` is False where the solve stopped at its iteration limit above tol. leak: an island whose
     injections do not balance by more than this share of the largest injection is open; a smaller imbalance is taken
     from the island's largest injection (a window that cut off a pad carrying less). One value, or one per injection set.
-    keep_state: light infos keep the solution's position-keyed state too (info["state"], for `warm`)."""
+    keep_state: light infos keep the solution's position-keyed state too (info["state"], for `warm`). skip_open:
+    when every set is open, return their verdicts without building the system or solving (the infos then carry
+    only unbalanced, open_terms, open_islands)."""
     net = net or Network(mesh)
+    leaks = list(leak) if isinstance(leak, (list, tuple)) else [leak] * len(inj_list)
+    if skip_open:
+        # every set open (a window whose copper leaves the loop open): no system, no solve, the same verdicts
+        res = []
+        for injections, leak_ in zip(inj_list, leaks):
+            bal = {}
+            for t, cur in injections.items():
+                c = net.comp[net.term_node[t]]
+                bal[c] = bal.get(c, 0) + cur
+            big = max((abs(c) for c in injections.values()), default=1.0) or 1.0
+            open_ = [c for c, b in bal.items() if abs(b) > leak_ * big]
+            res.append(dict(unbalanced=len(open_), open_terms=[t for t in injections if net.comp[net.term_node[t]] in open_],
+                            open_islands=open_islands(net, injections, open_)))
+        if all(r["unbalanced"] for r in res):
+            return [(None, r) for r in res]
     op = op or Operator(net)
     sysm = system if system is not None else System(op, f)
     cols, infos = [], []
-    leaks = list(leak) if isinstance(leak, (list, tuple)) else [leak] * len(inj_list)
     for injections, leak_ in zip(inj_list, leaks):
         bal = {}
         for t, cur in injections.items():
