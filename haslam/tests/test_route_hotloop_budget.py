@@ -101,12 +101,15 @@ class Rig:
     def _book(self, key, s):
         self.cost[key] = self.cost.get(key, 0.0) + s
 
+    worse = ()                                    # cells whose after DRC reads one more unconnected item
+
     def _drc(self, d, out_json, timeout=None):
         budget.charge("drc_run")
         self._book(d.parent.name, T_DRC)          # wd/cellK/rip, wd/cellK/after; wd/drc0 books to wd
-        return dict(violations=[], unconnected_items=[], unconnected_count=0)
+        n = 1 if d.name == "after" and d.parent.name in self.worse else 0
+        return dict(violations=[], unconnected_items=[], unconnected_count=n)
 
-    def _quote(self, path, intent=None, drc=None, log=None, only=None):
+    def _quote(self, path, intent=None, drc=None, log=None, only=None, **k):
         s = self.quote_s(self.n_q)
         self.n_q += 1
         budget.charge("seconds", s)
@@ -194,3 +197,15 @@ def test_the_first_cell_waits_for_a_measured_quote(work, monkeypatch, tmp_path):
     assert rig.n_q == 1                                       # the one quote that measured it
     assert used <= 1.1 * 360.0
     assert any(h["code"] == "hotloop_clear_skipped" for h in rep["hazards"])
+
+
+def test_a_cell_its_after_drc_reverts_is_not_quoted(work, monkeypatch, tmp_path):
+    """The quotes decide only a cell the DRC keeps: cell1's re-route leaves one more item unconnected, so it is
+    reverted on its DRC alone, without its before and after quotes (153 s each on forestierr)."""
+    cells = [_region(f"cell:buck:U{i}", 10.0 * i, 2) for i in range(2)]
+    rig = Rig(monkeypatch, tmp_path, cells, lambda n: 20.0)
+    rig.worse = ("cell1",)
+    rep, _used = rig.run(3600.0)
+    r0, r1 = rep["cells"]
+    assert r0["kept"] and not r1["kept"] and r1["why"] == "unconnected 0 -> 1"
+    assert rig.n_q == 2                                       # cell0's before and after only
