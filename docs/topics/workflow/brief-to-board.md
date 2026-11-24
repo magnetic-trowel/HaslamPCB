@@ -33,6 +33,7 @@ Environment for every stage: `source ~/.cache/haslambench/env.sh` (sets `HASLAM_
 - Readers without `--intent` fall back to it: `haslam.excite.evaluate`, `haslam.excite.wideband`, `haslam.em.pnr`, `haslam.route.critical_cli`.
 - Values: number, `[lo, hi]` (typical = geometric mean) or `[lo, typ, hi]`. State the typical operating point with the 3-element form: the brief's priorities and the placer's terms use it [M: 0.09 A from [0.01, 0.85] vs the intended 0.6 A].
 - A cell's switched bus must not reach 0 V: give the cell `V_V` its operating range (solar-small: `(4.5, 18, 25)` V), not the net's dark-panel 0 V floor.
+- Placement relations: `relations` (near, keep_away, group, edge) from `d.place`, priced by the placer ([intent-relations](../placement/intent-relations.md)); haslamsynth reports each relation it cannot write (`haslam_intent.relation_unused`). Every field and its haslam reader: [intent-file-fields](intent-file-fields.md).
 - Benchmarks: corpus boards carry no intent file, so tasks and baselines are unchanged; a method under test that reads it must be given the same file as its baseline.
 
 ## R. Rules and board size
@@ -92,7 +93,7 @@ Exact commands: `tools/research/llm-design/designs/solar-small/run_ab.sh`. `rest
 | G11 | Closed: at `baseline/2026-w47` the last mile charges its searches, rasters and connectivity passes (`crit_search`, `lastmile_cells`, `lastmile_part_nodes`); the stuck solar-small board charged 43 s for 58.6 s of wall time (1.36x on a busy host), within the rates' calibration spread. The 5.6x was measured on an older base. The loop itself is bounded on main (`RETRY_NO_PROGRESS`, PR #112) | the work clock let a loop run for hours | — |
 | G12 | Done (`fab_outputs.py`, `haslamsynth jlc`). Fabrication outputs: gerbers, drill, pos, BOM with LCSC numbers and basic/extended flags | S10 missing | new stage |
 | G13 | Done (`compare_ab.py`). One comparison script: arms × seeds → unconnected, errors by type, intent tiers, top terms | hand reading of logs | beside `eval_ab.sh` |
-| G14 | Retire `intent.yaml` (pcb-intent/0.2, read by nothing) once haslam.intent `relations` exist | two intent files confuse a reader | haslamsynth, haslam.place |
+| G14 | Done (branches `intent-relations`, `haslamsynth-relations`). `intent.yaml` retired; relations in haslam.intent/1, priced by the placer; fields no haslam code reads removed ([intent-file-fields](intent-file-fields.md)) | the FB dividers and C312 placed 14-86 mm from their pins on every seed | haslamsynth, haslam.place |
 | G15 | Datasheet fetch helper: vendor site, then the LCSC copy (`lcsc.com/product-detail/...` lists the PDF) | the maker's site timed out from the host; LCSC worked | haslamsynth |
 | G17 | Prefer JLC basic values when choosing passives: solar-small's dividers (4.7, 8.2, 2.49, 4.99, 4.02 MΩ, 590, 392, 316 kΩ) are extended parts, 25 of 42 unique BOM parts extended (≈ 25 setup fees per order) | `fab-report.json` | haslamsynth: suggest the nearest basic E-series value where a calc allows |
 | G16 | haslamq: snapshot the code even with `--link` (jobs ran `code=live`, so editing `haslam/src` mid-run changes them) | had to freeze edits for hours | haslamq |

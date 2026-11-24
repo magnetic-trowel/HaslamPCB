@@ -426,6 +426,18 @@ def placement(d):
     pl.near(d.find_part("L101"), u, "tight")
     pl.near(d.find_part("R201"), d.find_part("U201"), "close")
     pl.near(d.find_part("U302"), u, "close")
+    # feedback nodes are MOhm nodes: their copper short, every divider part at its FB pin (5 mm is our
+    # assumption, not a datasheet figure). Without these haslam put the LTC3130 divider 20-31 mm and the TPS62933
+    # divider 14-22 mm from their pins on every seed (RESULTS-fb.md)
+    for r in ("R115", "R116", "R117", "C117"):
+        pl.near(d.find_part(r), "U101.9", within_mm=5.0, note="LTC3130 FB (U101.9): short MOhm node (assumed 5 mm)")
+    for r in ("R301", "R302", "C307"):
+        pl.near(d.find_part(r), "U301.8", within_mm=5.0, note="TPS62933 FB (U301.8): short node (assumed 5 mm)")
+    pl.near(d.find_part("R120"), d.find_part("C117"), "tight", note="RFF at its CFF: the FF node stays short")
+    pl.near(d.find_part("R320"), d.find_part("C307"), "tight", note="RFF at its CFF: the FF3 node stays short")
+    # U302's only VDD capacitor at the pin: 27-86 mm away it left +3V3 noise at U302 as FB3's aggressor
+    # (moving it alone: T-FB3 396 -> 59 mV, RESULTS-fb.md T4); 3 mm is our assumption
+    pl.near(d.find_part("C312"), "U302.15", within_mm=3.0, note="DAC63002 VDD (U302.15) decoupling (assumed 3 mm)")
 
 
 def build():
