@@ -107,3 +107,14 @@ def test_paired_hook(tmp_path):
     assert [b for _, b, _ in d['cov_opp']] == ['x'] and d['cov_opp'][0][2] == pytest.approx(1.0, abs=0.02)
     assert d['fast_cov_opp'] == []
     assert R.stored_path('S', {'board': 'b', 'run': 'r'}) == Path('S/boards/b/runs/r/output.kicad_pcb.gz')
+
+
+def test_zone_cutout_is_a_hole(tmp_path):
+    """KiCad saves a zone cutout as a second `polygon` of the zone: a hole, not more pour."""
+    cut = ('(zone (net 1) (net_name "GND") (layer "B.Cu") (connect_pads (clearance 0.2)) '
+           '(polygon (pts (xy 0 0) (xy 40 0) (xy 40 20) (xy 0 20))) '
+           '(polygon (pts (xy 10 3) (xy 30 3) (xy 30 7) (xy 10 7))))')
+    whole = R.measure(board(tmp_path, [zone('B.Cu', 0, 0, 40, 20), ANCHOR, seg(5, 5, 35, 5, 'F.Cu', 2)], name='a.kicad_pcb'))
+    slot = R.measure(board(tmp_path, [cut, ANCHOR, seg(5, 5, 35, 5, 'F.Cu', 2)], name='b.kicad_pcb'))
+    assert whole['cov_opp'] == pytest.approx(1.0, abs=0.02)
+    assert slot['cov_opp'] == pytest.approx(10 / 30, abs=0.03)
