@@ -327,13 +327,13 @@ def test_crystal_without_d_min_has_no_clearance_term():
 
 def test_pour_decap_spreading_radius_is_a_knob():
     """PP7: the pour-mode decap's spreading term (mu0 d / pi) ln(D / r) takes its r from
-    Knobs.pour_r_eff (0.3 by default; 0.15 is the via radius the sheet solve validates)."""
+    Knobs.pour_r_eff (0.15 by default: the via radius the sheet solve validates; 0.3 before PP7)."""
     import math
     from types import SimpleNamespace as NS
 
     from kae.physics.priors import Knobs
     from kae.physics.structures import DecapLoop
-    assert Knobs().pour_r_eff == 0.3
+    assert Knobs().pour_r_eff == 0.15
     T = [NS(i=k, lx=0.0, ly=0.0) for k in range(4)]
     loop = NS(T=T, parts=[0, 1], kern=None, value=lambda st: -1.0)
     bv = NS(zcu={"F": 0.0, "In1": 0.1, "In2": 0.2, "B": 1.6}, copper=["F", "In1", "In2", "B"],

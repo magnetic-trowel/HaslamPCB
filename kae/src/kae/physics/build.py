@@ -353,7 +353,7 @@ def _commutation(ctx, s, Struct):
     labels = [lab for _, _, lab in variants]
     cls = s.get('class') or 'unknown'
     ex = s.get('excite') or {}
-    vin = ex.get('V') or ctx.net_volts(s.get('rail')) or PR.V_IN_UNKNOWN.value
+    vin, vin_prior = PR.cell_v_in(ex, ctx.net_volts(s.get('rail')))
     alloc = ctx.budget(s, 'L_nH') or PR.hot_loop_budget(cls, vin, t_sw_ns=ex.get('t_sw_ns'), v_abs=PR.budget_v_abs(ex))
     # the loop inductance at which the ring reaches the switch's absolute maximum itself (derate 1): beyond
     # it the part is outside its rating (kae.physics.criteria; a hazard in the place report)
@@ -362,7 +362,7 @@ def _commutation(ctx, s, Struct):
     return Struct(id=s.get('id') or f'cell:{bv.parts[T[1].i].ref}', kind='commutation', conf=ctx.conf(s) * pmax,
                   alloc=alloc, comps=comps, reduce='parallel', labels=labels,
                   info=dict(cls=cls, V_in=vin, excite=excite, ownership=pmax, sw=s.get('sw'), L_abs_nH=l_abs,
-                            V_abs=ex.get('V_abs') or PR.v_abs_rating(vin), V_abs_known=bool(ex.get('V_abs')),
+                            V_abs=ex.get('V_abs') or PR.v_abs_rating(vin), V_abs_known=bool(ex.get('V_abs')), V_in_prior=vin_prior,
                             sw_nets=s.get('sw_nets') or ([s.get('sw')] if s.get('sw') else [])))
 
 

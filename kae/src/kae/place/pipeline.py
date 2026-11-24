@@ -33,7 +33,8 @@ from __future__ import annotations
 
 import collections
 
-from kae.budget import now as clock_now
+from kae.budget import frame as budget_frame
+from kae.budget import lap, now as clock_now
 import os
 import time
 from dataclasses import dataclass, field
@@ -123,11 +124,12 @@ def body_hazards(rep, P, st):
     return rep["hazards"]
 
 
-def _escalate(P, st, workers, seed, log, time_s, relax_ok=False, hard_end=None):
+def _escalate(P, st, workers, seed, log, time_s, relax_ok=False, hard_end=None, rigid=(), phys=None):
     """Legality before wishes: drop the routing margin, then (relax_ok: relax_bodies 'escalate'
     or 'auto') let bodies without courtyards overlap (KiCad does not check them), legalizing
     again after each step. Returns the steps taken with what each left illegal. `hard_end`
-    (monotonic seconds; the severity ladder's rungs): no step starts after it, and none runs past it."""
+    (monotonic seconds; the severity ladder's rungs): no step starts after it, and none runs past it.
+    `rigid`, `phys`: legalize's physics structures (blocks, tie-break)."""
     steps = []
     for step in ("escape bands off", "margin 0") + (("bodies relaxed",) if relax_ok else ()):
         if not grid_violations(st):
@@ -150,7 +152,7 @@ def _escalate(P, st, workers, seed, log, time_s, relax_ok=False, hard_end=None):
             if ts < 1.0:
                 steps.append(dict(step=step, skipped="time"))
                 break
-        r = legalize(P, st, time_s=ts, workers=workers, seed=seed, log=log, window_share=0.5)
+        r = legalize(P, st, time_s=ts, workers=workers, seed=seed, log=log, window_share=0.5, rigid=rigid, phys=phys)
         steps.append(dict(step=step, end_violators=r.get("end_violators"), violations=r.get("violations")))
         if step == "bodies relaxed":
             steps[-1]["relaxed"] = relaxed          # data; hazards: Problem.relaxed_body_hazards
@@ -227,16 +229,23 @@ def hot_loop_hazards(rows):
         if L <= la:
             continue
         known = bool(info.get("V_abs_known"))
-        out.append(dict(code="hot_loop_over_abs_max", severity="block" if known else "warn", category="electrical",
+        # block only when both ends are the board's: the part's rating and a named input voltage. On an
+        # unnamed rail V_in is a prior (priors.cell_v_in), so the ring past V_abs is an estimate: warn.
+        sure = known and not info.get("V_in_prior")
+        out.append(dict(code="hot_loop_over_abs_max", severity="block" if sure else "warn", category="electrical",
                         message=(f"{r.get('id')}: the hot loop's estimated {L:.2g} nH lets the switch node ring past "
                                  f"its {info.get('V_abs'):g} V absolute maximum (at most {la:.2g} nH)"
-                                 + ("" if known else "; the rating is a prior, the part may be rated higher")),
+                                 + ("" if known else "; the rating is a prior, the part may be rated higher")
+                                 + (f"; the input voltage {info.get('V_in'):g} V is a prior (the rail has no named "
+                                    f"voltage)" if info.get("V_in_prior") else "")),
                         objects=list(r.get("members") or [])[:8],
                         evidence=dict(L_nH=round(L, 3), L_abs_nH=round(la, 3), V_in=info.get("V_in"),
                                       V_abs=info.get("V_abs"), V_abs_source="part" if known else "prior",
+                                      V_in_source="prior" if info.get("V_in_prior") else "board",
                                       limit_source="kae.physics.criteria: peak <= V_abs (derate 1)"),
                         fix="place the input capacitor beside the switch and its ground pin, same side, with the "
-                            "return on the adjacent plane" + ("" if known else "; or state the switch's V_max")))
+                            "return on the adjacent plane" + ("" if known else "; or state the switch's V_max")
+                            + ("; or name the input rail's voltage" if info.get("V_in_prior") else "")))
     return out
 
 
@@ -392,10 +401,111 @@ def place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, l
     relax_bodies as set. `verify(res, end)`: the caller's check of a rung (kae.cli: write the
     board and run KiCad's DRC loop until `end`, monotonic seconds), called on each rung of a
     two-rung ladder; its return value is kept as res.verified. Report: severity_used,
-    severity_ladder, and a severity_fallback hazard when the fallback ran."""
+    severity_ladder, and a severity_fallback hazard when the fallback ran.
+
+    The work clock counts from zero inside (kae.budget.frame): the result does not depend on what the
+    process did before the call."""
+    with budget_frame():
+        res = _place(board, seed=seed, time_s=time_s, physics=physics, brief=brief, workers=workers, log=log,
+                     anneal=anneal, edge_mate=edge_mate, anneal_args=anneal_args, angle_step=angle_step,
+                     fixed=fixed, board_path=board_path, opts=opts, verify=verify)
+        repack_after(res, time_s=time_s, seed=seed, board_path=board_path, opts=opts, log=log)
+        return res
+
+
+REPACK_MAX_S = 30.0     # exact_repack: at most this long, after the placement's own time
+REPACK_FRAC = 0.1       # and at most this share of the next stage's time (opts next_stage_s, else time_s)
+
+
+def repack_after(res, time_s, seed=0, board_path=None, opts=None, log=None):
+    """With setting exact_repack: when the placement ends with exact findings, kae.place.repack on
+    min(REPACK_MAX_S, REPACK_FRAC x the next stage's time), time beyond the placement's own that the
+    caller takes from the next stage (the joint loop's routing: it routes in what is left; kae place:
+    its KiCad loop). The repack keeps a packing only if the findings fall; then the report's exact
+    check, grid verdict, HPWL and physics are redone and the poses updated, and a caller's KiCad
+    verdict (res.verified) is dropped, as it judged the board before. A placement that ends legal,
+    and every one the repack cannot improve, is left as it is."""
+    from kae.route.constraints import setting
+    rep = res.report
+    if not int(setting("exact_repack", board_path, opts)) or not rep.get("exact"):
+        return
+    P, st = res.problem, res.state
+    if P is None or st is None:
+        return
+    nxt = float((opts or {}).get("next_stage_s") or time_s)
+    share = min(REPACK_MAX_S, REPACK_FRAC * nxt)
+    from .repack import repack
+    try:
+        rr = repack(P, st, time_s=share, seed=seed, log=log)
+    except Exception as e:      # noqa: BLE001 - a repair pass; never lose the placement
+        rep["exact_repack"] = dict(error=f"{type(e).__name__}: {e}", time_s=round(share, 1))
+        return
+    rr["time_s"] = round(share, 1)
+    rep["exact_repack"] = rr
+    if not rr.get("kept"):
+        return
+    rep["exact"] = exact_check(P, st)
+    rep.update(grid_verdict(P, st, rep["exact"]))
+    rep["hpwl"] = round(st.hpwl(), 2)
+    rep["hpwl_signal"] = round(st.hpwl(signal_only=True), 2)
+    res.poses.update(st.poses())
+    res.verified = None
+    try:
+        final_physics(res)
+    except Exception as e:      # noqa: BLE001 - a report field; never lose the placement
+        rep["physics_error"] = f"{type(e).__name__}: {e}"
+
+
+def _place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, log=None, anneal=True,
+           edge_mate=False, anneal_args=None, angle_step=None, fixed=(), board_path=None, opts=None,
+           verify=None):
     log = log or (lambda *a, **k: None)
     kw = dict(seed=seed, physics=physics, workers=workers, log=log, anneal=anneal, edge_mate=edge_mate,
               anneal_args=anneal_args, angle_step=angle_step, fixed=fixed, board_path=board_path, opts=opts)
+    from kae.route.constraints import setting
+    split_mode = int(setting("barrier_split", board_path, opts))
+    if split_mode >= 1:
+        # a board split by voids or all-layer keepouts: each region placed on its own (kae.place.barriers);
+        # 2 also probes that each region can legalize its parts first, moving those it cannot (fit_split)
+        from . import barriers
+        t_split = clock_now()
+        split = barriers.true_split(board)
+        skipped, fit = None, None
+        kw2 = {k: v for k, v in kw.items() if k not in ("seed", "log")}
+        if split is not None and split.over_capacity:
+            log(f"barrier split skipped: regions {split.over_capacity} cannot hold their parts")
+            skipped = dict(skipped="over_capacity", regions=len(split.regions), over_capacity=split.over_capacity)
+        elif split is not None and split_mode >= 2:
+            fitted, fit = barriers.fit_split(place, board, split, seed=seed, time_s=barriers.PROBE_FRAC * float(time_s),
+                                             log=log, **kw2)
+            if fitted is None:
+                skipped = dict(skipped="unfit", regions=len(split.regions), fit=fit)
+            split = fitted
+        # mode 1 keeps its whole budget as before; mode 2 gives the regions what the probes left
+        left = time_s if fit is None else max(float(time_s) - (clock_now() - t_split), 0.5 * float(time_s))
+        if split is not None and skipped is None:
+            res = barriers.place_split(place, board, split, seed=seed, time_s=left, log=log, verify=verify, **kw2)
+            if fit is not None:
+                res.report["barrier_split"]["fit"] = fit
+            # guard: no part may collide with a part of another region on the merged board (each region sees only
+            # itself and the fixed parts that reach it); otherwise the board is placed whole instead, as for an
+            # unfit split
+            bad = barriers.merge_findings(board, res.poses, split.regions)
+            if not bad:
+                return res
+            log(f"barrier split dropped: {len(bad)} collisions across regions on the merged board, "
+                f"e.g. {bad[0].get('type')} {bad[0].get('refs')}")
+            skipped = dict(skipped="illegal_merge", regions=len(split.regions), findings=len(bad),
+                           examples=[dict(type=f.get("type"), refs=f.get("refs")) for f in bad[:10]])
+            if fit is not None:
+                skipped["fit"] = fit
+        if skipped is not None:
+            opts = dict(opts or {}, barrier_split=0)
+            res = place(board, seed=seed, time_s=left, physics=physics, brief=brief, workers=workers, log=log,
+                        anneal=anneal, edge_mate=edge_mate, anneal_args=anneal_args, angle_step=angle_step,
+                        fixed=fixed, board_path=board_path, opts=opts, verify=verify)
+            res.report["barrier_split"] = skipped
+            return res
     mode = resolve_severity(board, board_path, opts)
     if mode != LADDER:
         return _place_rung(board, time_s=time_s, brief=brief, severity=mode, **kw)
@@ -534,6 +644,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
 
     def stage(name, t):
         rep["stages"][name] = round(clock_now() - t, 3)
+        lap(name)           # the ledger's side row for this step (kae.budget.lap)
 
     def trace(name, state):
         # physics after each stage that can move parts (anneal, legalize, the exact repairs),
@@ -591,11 +702,31 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     if edge_mode >= 2:
         board, pinned = _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log)
         fixed = fixed | set(pinned)
+    # header rows spanning a board side (Feather, ItsyBitsy, QT Py): pinned to a parallel edge,
+    # then held like fixed parts (kae.place.crowded; off by default)
+    # and (place_edge_slot) every movable part whose courtyard cannot fit the board
+    hdr_on = bool(int(setting("place_edge_headers", board_path, opts)))
+    slot_on = bool(int(setting("place_edge_slot", board_path, opts)))
+    if hdr_on or slot_on:
+        board, hdr = _pin_edge_headers(board, brief, held, fixed, angle_step, rep, log, headers=hdr_on,
+                                       unfit=slot_on, board_path=board_path, opts=opts)
+        fixed = fixed | set(hdr)
+        pinned = {**pinned, **hdr}
+    grid_step = None
+
     def build(b, frozen):
-        return Problem.build(b, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | frozen,
+        return Problem.build(b, grid=grid_step, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | frozen,
                              angle_step=angle_step, severity=severity or _severity_mode(board, board_path, opts))
 
     P = build(board, fixed)
+    # near capacity the grid's outward rounding costs the room that is missing: one step finer
+    from . import crowded as crowdedmod
+    fine_u = float(setting("place_fine_grid_util", board_path, opts) or 0.0)
+    g_fine = crowdedmod.finer_grid(P, fine_u) if fine_u > 0 else None
+    if g_fine is not None:
+        rep["fine_grid"] = dict(util=round(max(P.utilization()), 4), from_mm=P.g, to_mm=g_fine)
+        grid_step = g_fine
+        P = build(board, fixed)
     if int(setting("anchor_tight", board_path, opts)):
         anchored, hung = _anchor_tight_parts(P, rep, log, board_path=board_path)
         if anchored:
@@ -632,6 +763,18 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         margin = P.auto_margin()
     else:
         rep["margin_set"] = margin
+    # kae.place.margin_gate: the margin only on boards dense per copper layer, and within each
+    # region's own room (sub-boards between cutouts, rule-area walls)
+    from . import margin_gate as MG
+    gate_t = float(setting("place_margin_gate", board_path, opts))
+    if margin > 0 and gate_t > 0:
+        keep, why = MG.gate(board, gate_t)
+        rep["margin_gate"] = dict(keep=keep, why=why, margin_mm=round(margin, 3))
+        if not keep:
+            margin = 0.0
+    if margin > 0 and int(setting("place_margin_regions", board_path, opts)):
+        from .problem import margin_for_util
+        P.margin_cap, rep["margin_regions"] = MG.caps(P, margin_for_util)
     P.set_margin(margin)
     # escape bands (kae.place.escape_band): 1 a soft annealer term against parts unrelated to the
     # package, 2 hard occupancy against every part, 0 off
@@ -741,6 +884,12 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     # ---- seed: quadratic + spread, then CP-SAT floorplan
     t = clock_now()
     free_macros = [m for m in macros if not m.anchored]
+    # legalization after the anneal keeps the physics structures (kae.place.legalize): macros
+    # move whole, and physics breaks ties between equal-displacement repairs
+    from kae.route.constraints import setting_env
+    keep = float(setting_env("place_legalize_structures", board_path, opts)) > 0
+    rigid = [list(m.members) for m in free_macros] if keep else []
+    lphys = _phys_total(terms, P) if keep and terms is not None else None
     n_items = len(free_macros) + len(P.mov) - sum(len([i for i in m.members if P.parts[i].movable])
                                                    for m in free_macros)
     big = n_items > FLOORPLAN_MAX_ITEMS
@@ -836,16 +985,24 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
 
     if zone_rep is not None:
         rep["zones_seed"] = _zone_summary(zonesmod.report(P, seed_state, zone_rep))
+    # nets the seed left across a void or an all-layer keepout pull harder in the annealer (kae.place.barriers)
+    from . import barriers as barriersmod
+    w_bar = float(setting("barrier_net_weight", board_path, opts))
+    if w_bar > 1.0:
+        rep["barrier_reweight"] = barriersmod.reweight_crossing(P, seed_state, w_bar)
     # ---- anneal
     final = seed_state
     if anneal:
         t = clock_now()
         kw = dict(w_phys=1.0 if terms is not None else 0.0, order=order,
-                  w_cong=float(setting("place_w_cong", board_path, opts)))
+                  w_cong=float(setting("place_w_cong", board_path, opts)),
+                  w_xing=float(setting("place_w_xing", board_path, opts)),
+                  xing_from=float(setting("place_xing_from", board_path, opts)))
         kw.update(anneal_args or {})
         if terms is None:
             kw["w_phys"] = 0.0
         rep["w_cong"] = float(kw.get("w_cong", 0.0) or 0.0)
+        rep["w_xing"] = float(kw.get("w_xing", 0.0) or 0.0)
         # parts named by board silk labels beside their label: by default the kinds validated on
         # the human placements (numbered rows) at a modest weight; anneal_args w_label and
         # label_kinds widen or switch it off (w_label 0)
@@ -895,6 +1052,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             kw.setdefault("w_zone", 1.0)
             kw["zones"] = zone_tab
             rep["zone_term"] = dict(zone_tab.info, w_zone=kw["w_zone"])
+        kw.setdefault("hard_fixed", float(setting_env("place_anneal_hard_fixed", board_path, opts)) > 0)
         ann = make_annealer(P, st.copy(), terms=terms, macros=[m for m in macros if not m.anchored], seed=seed,
                             log=log, **kw)
         if anneal_args:
@@ -904,6 +1062,14 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         cpu = max(1.0, 0.6 * (deadline - clock_now() - 3.0))
         # wall clock too: on a loaded host CPU seconds lag behind the caller's timeout
         arep = ann.run(cpu_s=cpu, deadline=deadline - 0.1 * budget)
+        q = float(setting_env("place_anneal_quench", board_path, opts))
+        if q > 0 and ann.leg_total > 0:
+            # the anneal ended with overlaps: raise the legality weight on its own cost before the
+            # physics-blind grid legalizer takes over (kae.place.engine.FastAnnealer.quench)
+            arep["quench"] = ann.quench(int(q * (arep.get("planned_moves") or 0)))
+            if log:
+                log(f"anneal quench: legality {arep['quench'].get('leg_start')} -> {arep['quench'].get('leg_end')} "
+                    f"in {arep['quench'].get('moves')} moves")
         ann.write_back()
         rep["anneal"] = arep
         stage("anneal", t)
@@ -913,7 +1079,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         trace("anneal", cand)
         if grid_violations(cand):
             rep["legalize"] = legalize(P, cand, time_s=max(3.0, deadline - clock_now()), workers=workers,
-                                       seed=seed, log=log)
+                                       seed=seed, log=log, rigid=rigid, phys=lphys)
             trace("legalize", cand)
         stage("legalize", t)
         if not grid_violations(cand):
@@ -931,7 +1097,7 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     viol = grid_violations(st)
     if viol:
         rep["legalize_escalation"] = _escalate(P, st, workers, seed, log, max(3.0, 0.1 * budget), relax_ok,
-                                               hard_end=hard_end)
+                                               hard_end=hard_end, rigid=rigid, phys=lphys)
         viol = grid_violations(st)
     if viol and (P.margin > 0 or getattr(P, "escape_on", False)):
         # the routing margin and the escape bands are wishes, legality is not: judge (and repair)
@@ -944,10 +1110,28 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         viol = grid_violations(st)
     if viol and clock_now() < deadline + 0.1 * budget and not late():
         rep["legalize_final"] = legalize(P, st, time_s=cap(max(3.0, 0.1 * budget)), workers=workers, seed=seed,
-                                         log=log)
+                                         log=log, rigid=rigid, phys=lphys)
         viol = grid_violations(st)
     if rep.get("legalize_escalation") or rep.get("legalize_final"):
         trace("legalize_escalation", st)
+    if float(setting("place_untangle", board_path, opts)) > 0:
+        # ratsnest crossings HPWL does not see (kae.place.crossings): swaps of interchangeable
+        # parts and half turns that add no grid violator; physics is never worsened. Grid
+        # violators need not stop it (the grid is conservative: bodies, rounding)
+        t = time.monotonic()
+        from .crossings import untangle
+        hold = {i for rule in (order or ()) for (i, _) in rule}
+        hold |= set(kw.get("labels") or {}) if anneal else set()
+        hold |= set(getattr(P, "zone_pinned", ()) or ())
+        try:
+            rep["untangle"] = untangle(P, st, terms=report_terms, zones=zone_tab, hold=hold,
+                                       x_mm=float(setting("place_untangle_x_mm", board_path, opts)),
+                                       time_s=cap(min(20.0, max(2.0, 0.1 * budget))), log=log)
+        except Exception as e:      # noqa: BLE001 - a polish pass; never lose the placement
+            rep["untangle"] = dict(error=f"{type(e).__name__}: {e}")
+        viol = grid_violations(st)
+        trace("untangle", st)
+        stage("untangle", t)
     rep["legal_grid"] = not viol
     rep["margin_mm"] = P.margin
     t = clock_now()
@@ -1009,10 +1193,22 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         stage("silk_fix", t)
     rep.update(grid_verdict(P, st, rep["exact"]))
     body_hazards(rep, P, st)
+    try:
+        rep["input_locked_errors"] = locked_input_errors(P, st, exclude=set(pinned) | set(mated))
+        if rep["input_locked_errors"]["count"]:
+            rep.setdefault("hazards", []).append(input_locked_hazard(rep["input_locked_errors"]))
+    except Exception as e:      # noqa: BLE001 - a report field; never lose the placement
+        rep["input_locked_errors"] = dict(error=f"{type(e).__name__}: {e}")
     if zone_rep is not None:
         rep["zones"] = zonesmod.report(P, st, zone_rep)
+    rep["barrier_crossings"] = barriersmod.crossings(P, st)
     rep["hpwl"] = round(st.hpwl(), 2)
     rep["hpwl_signal"] = round(st.hpwl(signal_only=True), 2)
+    try:
+        from .crossings import count as crossing_count
+        rep["crossings"] = crossing_count(P, st)       # ratsnest crossings of the placement, HPWL's blind spot
+    except Exception as e:      # noqa: BLE001 - a report field; never lose the placement
+        rep["crossings"] = f"error: {type(e).__name__}: {e}"
     res = Result(poses={}, report=rep, state=st, problem=P, terms=report_terms, order=order, brief=brief)
     final_physics(res)
     if report_terms is not None and "physics_error" not in rep:
@@ -1142,7 +1338,7 @@ def _kicad_agrees(P, st, i, spot, board_path):
         write(board_path, d / "moved.kicad_pcb", {P.parts[i].uuid: st.pose(i)})
         staged = kdrc.stage_board(d / "moved.kicad_pcb", board_path, d / "drc")
         kdrc.promote_severities(staged, list(FIXED_ERROR_CHECKS))
-        bad = collections.Counter(v["type"] for v in kicad_violations(kdrc.run(staged, staged.parent / "drc.json", timeout=300))
+        bad = collections.Counter(v["type"] for v in kicad_violations(kdrc.run(staged, staged.parent / "drc.json"))
                                   if i in violation_parts(P, st, v))
         return (not bad), (", ".join(f"{k} {n}" for k, n in sorted(bad.items())) or "clean")
     except Exception as e:      # noqa: BLE001 - no verdict: the part keeps the overhang only
@@ -1176,6 +1372,80 @@ def _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log):
     return (edge_check.with_poses(board, poses) if poses else board), poses
 
 
+def _pin_edge_headers(board, brief, held, fixed, angle_step, rep, log, headers=True, unfit=False, board_path=None,
+                      opts=None):
+    """Edge headers (kae.place.crowded.edge_headers) and/or the movable parts whose courtyard
+    cannot fit (unfit) pinned flush along a board side, on a throwaway Problem; returns (board
+    with them moved there, {uuid: pose})."""
+    from . import crowded, edge_check
+    from .state import State
+    from kae.route.constraints import setting
+    try:
+        P0 = Problem.build(board, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | set(fixed),
+                           angle_step=angle_step)
+        st0 = State(P0)
+        found = crowded.edge_headers(P0) if headers else {}
+        hdr = {i: v for i, v in found.items() if crowded.fits_nowhere(P0, st0, i)}
+        # the other header rows of a board whose header fits nowhere go to the edges with it (a
+        # Feather's two rows: pinning one left the other free, and parts stacked against it)
+        if hdr and int(setting("place_edge_header_pairs", board_path, opts)):
+            hdr = dict(found)
+        if unfit:
+            for i, v in crowded.not_fitting(P0).items():
+                hdr.setdefault(i, v)
+        if not hdr:
+            return board, {}
+        poses, failed = crowded.pin_headers(P0, st0, hdr, log=log,
+                                            clear=bool(int(setting("place_edge_pose_clear", board_path, opts))))
+    except Exception as e:      # noqa: BLE001 - placing without the pin beats not placing
+        rep["edge_headers"] = dict(error=f"{type(e).__name__}: {e}")
+        return board, {}
+    by = {fp.uuid: fp.ref for fp in board.footprints}
+    rep["edge_headers"] = dict(found=sorted(P0.parts[i].ref for i in found),
+                               fit_nowhere=sorted(P0.parts[i].ref for i in hdr), pinned=sorted(by[u] for u in poses),
+                               failed=failed, uuids=sorted(poses))
+    return (edge_check.with_poses(board, poses) if poses else board), poses
+
+
+def locked_input_errors(P, st, exclude=(), max_items=200):
+    """The exact check's findings that involve only parts the input fixes (locked, or carrying Edge.Cuts) with
+    each other or with the board (its edge, keepouts): errors of the input that no placement can change, which
+    the score leaves out of legality (score 14, user decision 2026-11-22). Parts kae itself pinned (`exclude`,
+    uuids: connectors pinned to the edge, mated outline parts) are not the input's. Returns {count, items:
+    [{type, parts, at, detail}]}, `at` the first part's position in mm."""
+    from .exact import ExactModel
+    excl = set(exclude or ())
+    fixed = [p.i for p in P.parts if not p.movable and p.uuid not in excl]
+    if not fixed:
+        return dict(count=0, items=[])
+    found = ExactModel(P, st).check(parts=fixed, max_items=max_items)
+    items = []
+    for f in found:
+        idx = f.get("parts") or []
+        if not idx or any(P.parts[q].movable or P.parts[q].uuid in excl for q in idx):
+            continue
+        p0 = P.parts[idx[0]]
+        items.append(dict(type=f["type"], parts=list(f["refs"]), at=[round(float(p0.x0), 2), round(float(p0.y0), 2)],
+                          detail=f.get("detail") or ""))
+    return dict(count=len(items), items=items)
+
+
+def input_locked_hazard(info, shown=12):
+    """The hazard (shared schema) that tells the caller which errors were left out of legality because they
+    involve only locked parts: kind, parts and place of each, and that the method cannot fix them."""
+    items = info.get("items") or []
+    lines = [f"{it['type']} {'/'.join(it['parts'])} at ({it['at'][0]}, {it['at'][1]})" for it in items[:shown]]
+    more = f" and {len(items) - shown} more" if len(items) > shown else ""
+    return dict(code="input_locked_errors", severity="info", category="data",
+                message=(f"{info['count']} error(s) left out of legality: they involve only locked parts (with each other, "
+                         f"the board edge or a keepout), so they are input errors no placement can fix: "
+                         + "; ".join(lines) + more + "."),
+                objects=sorted({r for it in items for r in it["parts"]}),
+                evidence=dict(count=info["count"], items=items[:50],
+                              source="kae.place.pipeline.locked_input_errors; score 14 placement_errors_locked"),
+                fix="None in the placement: move or unlock the part in the design, or accept it as the design's own.")
+
+
 def edge_hazards(rep, board, poses):
     """rep['hazards'] gets a connector_off_edge entry for each user-facing connector kae placed
     (`poses`: {uuid: pose} of the parts kae moved) away from the board edge
@@ -1190,6 +1460,15 @@ def edge_hazards(rep, board, poses):
                        message=f"the connector edge check failed ({type(e).__name__}: {e})", objects=[]))
     if hz:
         rep["hazards"] = hz
+
+
+def _phys_total(terms, P):
+    """state -> the placement physics (linear utilization summed over structures, as
+    physics_trace reports it): legalize's tie-break between equal-displacement repairs."""
+    def f(state):
+        rows = terms.breakdown({p.uuid: state.pose(p.i) for p in P.parts})
+        return sum(float(r.get("confidence", 1.0)) * float(r.get("util", r.get("utilization", 0.0))) for r in rows)
+    return f
 
 
 def physics_trace(rep, name, terms, poses):
@@ -1225,6 +1504,30 @@ def final_physics(res):
             rep["hazards"] = [h for h in rep.get("hazards", []) if h.get("source") != "scorecard"] + sc_hz
         except Exception as e:
             rep["physics_error"] = f"{type(e).__name__}: {e}"
+        try:
+            pd = pdn_report(res.terms, {p.uuid: st.pose(p.i) for p in P.parts})
+            if pd is not None:
+                # like the scorecard's: a second call (after the KiCad rounds) replaces the first's findings
+                pd_hz = [dict(h, source="pdn") for h in pd.pop("hazards", None) or []]
+                rep["pdn"] = pd
+                rep["hazards"] = [h for h in rep.get("hazards", []) if h.get("source") != "pdn"] + pd_hz
+        except Exception as e:      # noqa: BLE001 - a report-only screen; never lose the placement
+            rep["pdn"] = dict(error=f"{type(e).__name__}: {e}")
+
+
+def pdn_report(terms, poses):
+    """kae.excite.pdn's screen of the placement: each rail's Z(f) with the capacitors' loops at these poses
+    (the place terms' decap loops), or None when the terms were built without a board. Report-only: it
+    changes no placement."""
+    board = getattr(terms, "board", None)
+    if board is None:
+        return None
+    from kae.excite import pdn
+    t0 = time.perf_counter()
+    loops = pdn.loops_from_breakdown(terms.breakdown(poses))
+    out = pdn.compact(pdn.screen(board, terms.brief, loops=loops, stage="placement"))
+    out["seconds"] = round(time.perf_counter() - t0, 2)
+    return out
 
 
 def grid_verdict(P, st, exact):

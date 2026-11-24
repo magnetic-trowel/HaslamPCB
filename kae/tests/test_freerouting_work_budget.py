@@ -198,3 +198,36 @@ def test_autorouter_stop_reads_the_work_budget_stop():
     assert F._autorouter_stop("Stopping the auto-router in pass #1: its work budget is spent (5 of 4 "
                               "work units).", "COMPLETED") == "WORK_BUDGET"
     assert F._autorouter_stop("", "COMPLETED") == "COMPLETED"
+
+
+@pytest.mark.parametrize("mode,expect", [("work", 54.0), ("time", 14.0)])
+def test_a_slot_wait_shortens_freerouting_only_in_time_mode(monkeypatch, tmp_path, mode, expect):
+    """A wait for a host-wide Freerouting slot is wall time: in work mode it must not shorten Freerouting's run
+    (a loaded host otherwise gave one of two identical counted-work runs a 5 s router), in time mode it is part
+    of the caller's budget."""
+    class Slot:
+        def __init__(self, timeout=None):
+            self.waited, self.gave_up, self.f = 40.0, False, None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+    seen = {}
+
+    def argv(dsn, ses, user, result, job_s, passes, settings):
+        seen["job_s"] = job_s
+        raise RuntimeError("stop here")
+    monkeypatch.setattr(F, "_Slot", Slot)
+    monkeypatch.setattr(F, "_argv", argv)
+    monkeypatch.setattr(F, "fork_settings", lambda dsn, s: dict(s or {}))
+    budget.set_mode(mode, rates={"poll": 0.0})
+    try:
+        d = tmp_path / "board.dsn"
+        d.write_text(DSN)
+        with pytest.raises(RuntimeError):
+            F._route(d, tmp_path / "board.ses", tmp_path, budget_s=60.0, margin_s=6.0)
+    finally:
+        budget.set_mode("time")
+    assert seen["job_s"] == expect

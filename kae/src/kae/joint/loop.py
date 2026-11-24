@@ -114,7 +114,8 @@ def _packages(rows):
 
 class JointLoop:
     def __init__(self, stages, opts=None, log=None):
-        self.stages = stages
+        from kae.budget import Spanned
+        self.stages = Spanned(stages)     # each stage call is a span of the ledger (kae.budget.span)
         self.opts = {**DEFAULTS, **(opts or {})}
         self.log = log or (lambda *a: None)
 

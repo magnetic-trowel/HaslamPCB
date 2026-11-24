@@ -22,7 +22,7 @@ from kae.budget import now as clock_now
 from shapely.geometry import box
 
 from . import critical_write as W
-from .lastmile import _anchors, _conflicts, _relevant, _restore, _try, _window, parts
+from .lastmile import _anchors, _conflicts, _relevant, _restore, _try, _window, parts, widths_of
 
 REGION_MARGINS = (1.0, 3.0)     # mm around a part and the nearest other part: regions re-routed whole
 REGION_ITERS = 20               # negotiation rounds per region at most
@@ -86,8 +86,7 @@ def _region(gr, sp, fp, net, src, others, margin, rippable, deadline=None, log=N
     hist = {}
     widths = {}
     for n in nets:
-        mn, opt, _mx = sp.width_limits(n, sp.cu[0])
-        widths[n] = sorted({round(w, 4) for w in (opt, mn) if w and w > 0}, reverse=True) or [0.2]
+        widths[n] = widths_of(sp, n, sp.cu[:1])
 
     def undo():
         for n in nets:

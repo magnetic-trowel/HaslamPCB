@@ -57,6 +57,13 @@ DEFAULTS = dict(
     chain_tail=False,      # also route (and lock) a chain's hops after the protector (no surge physics)
     rail_light=False,      # also route rail branches that only need the class width (no drop physics)
     trim_tol=0.05,         # loop hops narrowed to the narrowest width within this of the wide loop (0: off)
+    cell_price="L",        # what a commutation cell's copper is priced by: "L" (loop nH) or "W" (loss.loop +
+                           # loss.loop_ac at the cell's I, f_sw, D: critical_modules.cell_operating; trim_tol,
+                           # return vias and pad entries then judge watts, so R counts; kae-hot-loops R2)
+    cell_via_array=False,  # return-via arrays at the cell's ground terminals (critical_modules._via_array, R4)
+    via_array_max=8,       # with cell_via_array: vias per ground terminal at most
+    cell_widest_fit=False, # a cell hop with no room at its IPC / intent width: the widest that fits, down to the
+                           # class minimum, instead of leaving it to the bridge at the class width (kae.route.hotloop)
     complete_mm=8.0,       # join a critical net's pads within this distance of its critical copper (benchmark
                            # run crit-v3: A+B cp1 0.636 with joins vs 0.515 without; oasis 9 -> 1 unconnected)
     island_mm=20.0,        # and its islands of critical copper to each other within this distance
@@ -212,7 +219,7 @@ class Session:
         from .critical_modules import Module
         with tempfile.TemporaryDirectory(prefix="kae-spokes-") as d:
             staged = drc.stage_board(self.path, self.path, Path(d))
-            rep = drc.run(staged, Path(d) / "drc.json", timeout=600)
+            rep = drc.run(staged, Path(d) / "drc.json")
             starved = [v for v in drc.errors(rep) if v.get("type") == "starved_thermal"]
             if not starved:
                 return []
@@ -396,7 +403,7 @@ class Session:
         self.tightened = tighten(self, fills=fills, opts=opts, log=self.log)
         return self.tightened
 
-    def tighten_gate(self, workdir, rounds=3, timeout=900):
+    def tighten_gate(self, workdir, rounds=3, timeout=None):
         """KiCad's DRC on the tightened copper (the stage boundary's gate, routing-stages.md
         P5): every error that names tightened copper restores that copper's groups
         (critical_taut's refuse, which settles the physics guard again); repeated while

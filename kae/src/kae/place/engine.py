@@ -30,6 +30,8 @@ import random
 import time
 from collections import namedtuple
 
+from .crossings import MAX_PINS as XMAX_PINS
+
 import numpy as np
 
 try:
@@ -46,12 +48,13 @@ def _jit(f):
 
 # iparams indices
 I_NCX, I_NCY, I_HX, I_HY, I_HB, I_CAP, I_HOFF, I_CX, I_CY, I_STAMP, I_NSTAMP, I_OVERFLOW, I_CONG, \
-    I_WIN, I_WX0, I_WX1, I_WY0, I_WY1, I_ZC, I_ZK, I_ZD = range(21)
+    I_WIN, I_WX0, I_WX1, I_WY0, I_WY1, I_ZC, I_ZK, I_ZD, I_XON, I_XN, I_XROW, I_HARDFIX = range(25)
+HARD = 1e18           # delta of a move that adds overlap with fixed geometry when I_HARDFIX is set
 # fparams indices
 F_G, F_OX, F_OY, F_CB, F_CX0, F_CY0, F_SUP, F_TGT, F_NORM, F_A0, F_S0, F_W0, F_SLACK, F_BAR, F_WWL, F_WDISP, \
-    F_WCONG, F_WORD, F_OMARGIN, F_NMOV, F_WLAB, F_WSILK, F_WZONE = range(23)
+    F_WCONG, F_WORD, F_OMARGIN, F_NMOV, F_WLAB, F_WSILK, F_WZONE, F_WXING = range(24)
 # totals
-T_WL, T_LEG, T_CONG, T_ORDER, T_DISP, T_LAB, T_SILK, T_ZONE = range(8)
+T_WL, T_LEG, T_CONG, T_ORDER, T_DISP, T_LAB, T_SILK, T_ZONE, T_XING = range(9)
 
 Eng = namedtuple("Eng", [
     "ip", "fp", "tot",
@@ -65,7 +68,7 @@ Eng = namedtuple("Eng", [
     "in_s", "sc_pins_x", "sc_pins_y", "sc_nets", "sc_nb", "sc_nc", "sc_box", "sc_has", "sc_dens",
     "sc_rules", "sc_open", "sc_pbx", "sc_pby", "sc_oX", "sc_oY", "sc_oK",
     "turn", "ring", "snap", "n_ortho", "ownp_ptr", "ownp_r", "n_ownp",
-    "Lab", "Soft", "Zmap", "Zent",
+    "Lab", "Soft", "Zmap", "Zent", "Xseg", "Xinf", "Xlist",
 ])
 # Lab (n, kmax + 2, 2) float: per rotation the label target origin, then (rx, ry), (weight, 0).
 # Soft (n, kmax, MS + 1, 11) int: row p < MS: source rect a, b, c, d, its class, its weight x
@@ -76,6 +79,14 @@ SOFT_W = 1000.0
 # Zmap (maps, nzx, nzy) uint16 and Zent (rows, 4) float: kae.place.zones.ZoneTerm's maps and
 # entries (ip I_ZC: zone cell in grid steps, I_ZK: rotations per part in the headers, I_ZD:
 # the distance in zone cells where the pull's slope saturates).
+
+
+# Xseg (rows, X_BOX + 1, 4) float: the ratsnest segments of the counted nets (kae.place.crossings:
+# signal nets of 2..MAX_PINS pins, not frozen); rows 0..nets-1 are the nets' current trees, then
+# one pending row per touched net (a move builds the new trees there and copies them on accept);
+# row entry X_BOX holds the tree's bounding box. Xinf (rows, 2) int: segments, counted flag. Xlist:
+# the counted nets. Priced only while ip I_XON is on (kae.place.anneal: the cold part of the run).
+X_BOX = 11
 
 
 # ============================================================================ kernels
@@ -198,6 +209,39 @@ def _overlap_part(E, i, stamp_s):
                     if dy > 0:
                         tot += dx * dy
     return tot
+
+
+@_jit
+def _fixed_part(E, i):
+    """Overlap area (cells^2) of part i's rectangles with fixed obstacles (owner -1), plus its
+    board rectangles' cells outside the outline: what only part i itself can repair."""
+    tot = 0
+    r0 = E.part_r0[i]
+    for m in range(E.part_rn[i]):
+        rid = r0 + m
+        E.ip[I_STAMP] += 1
+        st = E.ip[I_STAMP]
+        s = E.r_side[rid]
+        i0 = E.r_box[rid, 0]
+        i1 = E.r_box[rid, 1]
+        j0 = E.r_box[rid, 2]
+        j1 = E.r_box[rid, 3]
+        for bi in range(E.r_span[rid, 0], E.r_span[rid, 1] + 1):
+            for bj in range(E.r_span[rid, 2], E.r_span[rid, 3] + 1):
+                for q in range(E.hcnt[s, bi, bj]):
+                    o = E.hids[s, bi, bj, q]
+                    if E.r_seen[o] == st:
+                        continue
+                    E.r_seen[o] = st
+                    if E.r_owner[o] >= 0:
+                        continue
+                    dx = min(i1, E.r_box[o, 1]) - max(i0, E.r_box[o, 0])
+                    if dx <= 0:
+                        continue
+                    dy = min(j1, E.r_box[o, 3]) - max(j0, E.r_box[o, 2])
+                    if dy > 0:
+                        tot += dx * dy
+    return tot + _outside(E, i)
 
 
 @_jit
@@ -530,6 +574,129 @@ def _silk(E, S, ns, stamp_s):
 
 
 @_jit
+def _x_mst_row(E, j, row):
+    """Minimum spanning tree of net j's pins into Xs[row] (Prim on at most MAX_PINS pins)."""
+    p0 = E.net_ptr[j]
+    n = E.net_ptr[j + 1] - p0
+    x = np.zeros(n)
+    y = np.zeros(n)
+    for a in range(n):
+        p = E.net_pins[p0 + a]
+        x[a] = E.px[p]
+        y[a] = E.py[p]
+    in_t = np.zeros(n, np.bool_)
+    par = np.zeros(n, np.int64)
+    d = np.zeros(n)
+    in_t[0] = True
+    for a in range(1, n):
+        d[a] = (x[a] - x[0]) ** 2 + (y[a] - y[0]) ** 2
+    xmin = xmax = x[0]
+    ymin = ymax = y[0]
+    for e in range(n - 1):
+        b = -1
+        best = 1e300
+        for a in range(n):
+            if not in_t[a] and d[a] < best:
+                best = d[a]
+                b = a
+        in_t[b] = True
+        q = par[b]
+        E.Xseg[row, e, 0] = x[q]
+        E.Xseg[row, e, 1] = y[q]
+        E.Xseg[row, e, 2] = x[b]
+        E.Xseg[row, e, 3] = y[b]
+        if x[b] < xmin:
+            xmin = x[b]
+        if x[b] > xmax:
+            xmax = x[b]
+        if y[b] < ymin:
+            ymin = y[b]
+        if y[b] > ymax:
+            ymax = y[b]
+        for a in range(n):
+            if not in_t[a]:
+                dd = (x[a] - x[b]) ** 2 + (y[a] - y[b]) ** 2
+                if dd < d[a]:
+                    d[a] = dd
+                    par[a] = b
+    E.Xseg[row, X_BOX, 0] = xmin
+    E.Xseg[row, X_BOX, 1] = xmax
+    E.Xseg[row, X_BOX, 2] = ymin
+    E.Xseg[row, X_BOX, 3] = ymax
+    E.Xinf[row, 0] = n - 1
+
+
+@_jit
+def _x_pair(E, ra, rb):
+    """Proper crossings between the trees of rows ra and rb (boxes first)."""
+    if (E.Xseg[ra, X_BOX, 1] < E.Xseg[rb, X_BOX, 0] or E.Xseg[rb, X_BOX, 1] < E.Xseg[ra, X_BOX, 0]
+            or E.Xseg[ra, X_BOX, 3] < E.Xseg[rb, X_BOX, 2] or E.Xseg[rb, X_BOX, 3] < E.Xseg[ra, X_BOX, 2]):
+        return 0
+    n = 0
+    for a in range(E.Xinf[ra, 0]):
+        ax = E.Xseg[ra, a, 0]
+        ay = E.Xseg[ra, a, 1]
+        bx = E.Xseg[ra, a, 2]
+        by = E.Xseg[ra, a, 3]
+        for b in range(E.Xinf[rb, 0]):
+            cx = E.Xseg[rb, b, 0]
+            cy = E.Xseg[rb, b, 1]
+            dx = E.Xseg[rb, b, 2]
+            dy = E.Xseg[rb, b, 3]
+            d1 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+            d2 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax)
+            if d1 * d2 >= 0:
+                continue
+            d3 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx)
+            d4 = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx)
+            if d3 * d4 < 0:
+                n += 1
+    return n
+
+
+@_jit
+def _x_rebuild(E):
+    """Every counted net's tree from the current pins; returns the total crossings."""
+    L = E.ip[I_XN]
+    for q in range(L):
+        j = E.Xlist[q]
+        _x_mst_row(E, j, j)
+    tot = 0
+    for q in range(L):
+        for r in range(q + 1, L):
+            tot += _x_pair(E, E.Xlist[q], E.Xlist[r])
+    return tot
+
+
+@_jit
+def _x_delta(E, ss, nn):
+    """Change in crossings if the nets touched by this move (sc_nets[:nn], net_seen stamped ss)
+    take their current pins. Builds the new trees in the pending rows."""
+    N = E.ip[I_XROW]
+    L = E.ip[I_XN]
+    d = 0
+    for t in range(nn):
+        j = E.sc_nets[t]
+        counted = E.Xinf[j, 1]
+        E.Xinf[N + t, 1] = counted
+        if counted:
+            _x_mst_row(E, j, N + t)
+    for t in range(nn):
+        if not E.Xinf[N + t, 1]:
+            continue
+        j = E.sc_nets[t]
+        for q in range(L):
+            k = E.Xlist[q]
+            if E.net_seen[k] == ss:
+                continue
+            d += _x_pair(E, N + t, k) - _x_pair(E, j, k)
+        for u in range(t + 1, nn):
+            if E.Xinf[N + u, 1]:
+                d += _x_pair(E, N + t, N + u) - _x_pair(E, j, E.sc_nets[u])
+    return d
+
+
+@_jit
 def try_move(E, S, nX, nY, nK, ns, T, lam, extra, u, commit_always):
     """Evaluate moving parts S[:ns] to (nX, nY, nK); accept (Metropolis with uniform u, or
     always when commit_always) or revert. `extra` is a cost change priced elsewhere (physics).
@@ -540,6 +707,11 @@ def try_move(E, S, nX, nY, nK, ns, T, lam, extra, u, commit_always):
         E.in_s[S[a]] = ss
     # ---- before
     leg_old = _leg(E, S, ns, ss)
+    hard = E.ip[I_HARDFIX] == 1
+    fix_old = 0
+    if hard:
+        for a in range(ns):
+            fix_old += _fixed_part(E, S[a])
     # the label and soft-overlap terms cost nothing when off (no call: each passes E by value)
     use_silk = E.fp[F_WSILK] != 0.0
     use_lab = E.fp[F_WLAB] != 0.0
@@ -618,6 +790,10 @@ def try_move(E, S, nX, nY, nK, ns, T, lam, extra, u, commit_always):
         _place_rects(E, i)
         _update_pins(E, i)
     leg_new = _leg(E, S, ns, ss)
+    fix_new = 0
+    if hard:
+        for a in range(ns):
+            fix_new += _fixed_part(E, S[a])
     silk_new = _silk(E, S, ns, ss) if use_silk else 0.0
     disp_new = 0
     lab_new = 0.0
@@ -721,6 +897,10 @@ def try_move(E, S, nX, nY, nK, ns, T, lam, extra, u, commit_always):
                     q += 1
             after = _cong_region_cost(E, rx0, rx1, ry0, ry1)
             d_cong = (after - before) * E.fp[F_NORM]
+    # ---- ratsnest crossings (kae.place.crossings; only in the cold part of the run)
+    d_xing = 0
+    if E.ip[I_XON] == 1:
+        d_xing = _x_delta(E, ss, nn)
     # ---- price
     wl = E.tot[T_WL]
     d_wl = wl_new_nets - wl_old_nets
@@ -732,8 +912,19 @@ def try_move(E, S, nX, nY, nK, ns, T, lam, extra, u, commit_always):
              + E.fp[F_WZONE] * (zone_new - zone_old)
              + E.fp[F_WCONG] * d_cong
              + E.fp[F_WORD] * (ord_new - ord_old)
+             + E.fp[F_WXING] * d_xing
              + extra)
+    if fix_new > fix_old:
+        delta += HARD               # never onto fixed geometry: only the part itself could undo it
     if commit_always or delta <= 0 or (T > 0 and u < math.exp(-delta / T)):
+        if E.ip[I_XON] == 1:
+            E.tot[T_XING] += d_xing
+            for t in range(nn):
+                row = E.ip[I_XROW] + t
+                if E.Xinf[row, 1]:
+                    j = E.sc_nets[t]
+                    E.Xseg[j] = E.Xseg[row]
+                    E.Xinf[j, 0] = E.Xinf[row, 0]
         E.tot[T_WL] += d_wl
         E.tot[T_LEG] += leg_new - leg_old
         E.tot[T_CONG] += d_cong
@@ -1083,13 +1274,14 @@ def build(ann, hash_cap=None):
         part_rules += lst
     maxpins = max(1, int(np.max(np.diff(part_pin_ptr))) if n else 1) * 2 + 2
     maxnets = max(1, len(nets)) + 2
-    ip = np.zeros(21, np.int64)
+    ip = np.zeros(25, np.int64)
+    ip[I_HARDFIX] = 1 if getattr(ann, "hard_fixed", False) else 0
     if getattr(ann, "window", None) is not None:
         ip[I_WIN] = 1
         ip[I_WX0], ip[I_WX1], ip[I_WY0], ip[I_WY1] = ann.window
     ip[I_NCX], ip[I_NCY], ip[I_HX], ip[I_HY], ip[I_HB], ip[I_CAP], ip[I_HOFF] = P.ncx, P.ncy, HX, HY, HB, hash_cap, hoff
     ip[I_CX], ip[I_CY], ip[I_CONG] = cx, cy, 1 if use_cong else 0
-    fp = np.zeros(23)
+    fp = np.zeros(24)
     fp[F_G], fp[F_OX], fp[F_OY] = g, P.ox, P.oy
     fp[F_CB], fp[F_CX0], fp[F_CY0], fp[F_SUP], fp[F_TGT], fp[F_NORM] = cb, cx0, cy0, sup, tgt, norm
     fp[F_A0], fp[F_S0], fp[F_W0] = ann.A0, ann.S0, ann.W0
@@ -1133,8 +1325,20 @@ def build(ann, hash_cap=None):
     else:
         ip[I_ZC], ip[I_ZK], ip[I_ZD] = 1, 1, 1
         Zmap, Zent = np.zeros((1, 1, 1), np.uint16), np.zeros((max(1, n), 4))
+    # ratsnest crossings (kae.place.crossings): trees of the counted nets and the pending rows
+    wx = float(ann.w.get("xing", 0.0) or 0.0)
+    xc_nets = [net.i for net in nets if net.kind == "signal" and 2 <= len(net.pins) <= XMAX_PINS
+               and net.i not in ann.frozen] if wx > 0 else []
+    N_rows = max(1, len(nets))
+    Xseg = np.zeros((N_rows + maxnets, X_BOX + 1, 4))
+    Xinf = np.zeros((N_rows + maxnets, 2), np.int64)
+    for j in xc_nets:
+        Xinf[j, 1] = 1
+    Xlist = np.array(xc_nets or [0], np.int64)
+    ip[I_XON], ip[I_XN], ip[I_XROW] = 0, len(xc_nets), N_rows
+    fp[F_WXING] = ann.w["wl"] * wx / ann.W0 if wx > 0 else 0.0
     E = Eng(
-        ip=ip, fp=fp, tot=np.zeros(8),
+        ip=ip, fp=fp, tot=np.zeros(9),
         X=np.array(ann.X, np.int64), Y=np.array(ann.Y, np.int64), K=np.array(ann.K, np.int64),
         Xs=np.array(ann.Xs, np.int64), Ys=np.array(ann.Ys, np.int64), movable=movable, side=side, nrot=nrot,
         own=own, gbrd=gbrd, opp_ptr=opp_ptr, opp_r=opp_r, brd_ptr=brd_ptr, brd_r=brd_r,
@@ -1159,7 +1363,7 @@ def build(ann, hash_cap=None):
         sc_pbx=np.zeros(NP + 2, np.int64), sc_pby=np.zeros(NP + 2, np.int64),
         sc_oX=np.zeros(n + 2, np.int64), sc_oY=np.zeros(n + 2, np.int64), sc_oK=np.zeros(n + 2, np.int64),
         turn=turn, ring=ring, snap=snap, n_ortho=n_ortho, ownp_ptr=ownp_ptr, ownp_r=ownp_r, n_ownp=n_ownp,
-        Lab=Lab, Soft=Soft, Zmap=Zmap, Zent=Zent,
+        Lab=Lab, Soft=Soft, Zmap=Zmap, Zent=Zent, Xseg=Xseg, Xinf=Xinf, Xlist=Xlist,
     )
     # initial state: rects, pins, nets, RUDY boxes, rules, totals
     for i in P.mov:
@@ -1197,6 +1401,8 @@ def build(ann, hash_cap=None):
     E.tot[T_LAB] = float(sum(_lab_part(E, i) for i in ann.mov))
     E.tot[T_SILK] = float(ann.silk_total()) if silk and fp[F_WSILK] > 0 else 0.0
     E.tot[T_ZONE] = float(sum(_zone_part(E, i) for i in ann.mov)) if Z is not None else 0.0
+    if len(xc_nets):
+        E.tot[T_XING] = float(_x_rebuild(E))
     return E
 
 
@@ -1235,13 +1441,14 @@ def sample_uphill(E, parts, swap_ptr, swap_ids, n, lam, r, out):
         nY[0] = Y
         nK[0] = E.K[i]
         acc, d = try_move(E, S, nX, nY, nK, 1, 1e-12, lam, 0.0, 1.0, False)
-        if d > 0 and m < out.shape[0]:
+        if d > 0 and d < HARD and m < out.shape[0]:
             out[m] = d
             m += 1
     _ = stats
     return m
 
 
+QUENCH_FACTORS = (10, 100, 1000)   # legality weight steps of the quench, x lam1
 DELTA_BUDGET = 2e-4     # seconds of Terms.delta a physics part may cost per pick at the uniform rate
 
 
@@ -1339,7 +1546,7 @@ class FastAnnealer:
         return (w["wl"] * float(_wl_cost(E, E.tot[T_WL])) + lam * E.tot[T_LEG] / self.A0 + w["disp"] * disp
                 + w["phys"] * self.phys / self.nstruct + E.fp[F_WCONG] * E.tot[T_CONG] + w["order"] * E.tot[T_ORDER]
                 + w.get("label", 0.0) * lab + w.get("silk", 0.0) * E.tot[T_SILK] / self.A0
-                + w.get("zone", 0.0) * E.tot[T_ZONE])
+                + w.get("zone", 0.0) * E.tot[T_ZONE] + E.fp[F_WXING] * E.tot[T_XING])
 
     def terms_report(self):
         E = self.E
@@ -1358,6 +1565,8 @@ class FastAnnealer:
             out.update(silk=round(float(E.tot[T_SILK]) / self.A0, 5))
         if self.ann.zones is not None:
             out.update(zone=round(float(E.tot[T_ZONE]), 5))
+        if E.fp[F_WXING] > 0:
+            out.update(xing=int(E.tot[T_XING]))
         return out
 
     def order_violations(self):
@@ -1527,7 +1736,7 @@ class FastAnnealer:
                 if mv is None:
                     continue
                 acc, d = self._try_python(mv[0], mv[1], 1e-12, self.lam0, mv[2])
-                if d > 0:
+                if 0 < d < HARD:
                     ups.append(d)
             ups.sort()
         T0 = ups[len(ups) // 2] / math.log(1 / 0.3) if ups else 1e-3
@@ -1561,6 +1770,12 @@ class FastAnnealer:
             self.T_last = T
             lam = self.lam0 * (self.lam1 / self.lam0) ** frac
             r = max(1, int(r0 * (T / T0) ** 0.5))
+            if self.E.fp[F_WXING] > 0 and not self.E.ip[I_XON] and frac >= self.ann.xing_from:
+                # the crossing term joins for the cold part of the run: its trees are refreshed here
+                self.E.tot[T_XING] = float(_x_rebuild(self.E))
+                self.E.ip[I_XON] = 1
+                self.ann.stats.setdefault("xing_from_frac", round(frac, 4))
+                self.xing_on_at = (done, int(self.E.tot[T_XING]))
             nf = int(round(batch * share_fast))
             if nf and len(self.fast):
                 run_batch(self.E, self.fast, self.swap_ptr, self.swap_ids, nf, T, lam, r, fstats)
@@ -1624,12 +1839,53 @@ class FastAnnealer:
         # build() takes the congestion demand, the nets' RUDY boxes and the wirelength total
         # from the Python annealer, which still holds the state the run started from; the old
         # engine's running state is the current one: carry it over (only the hash is new)
-        for name in ("Xs", "Ys", "tot", "Dn", "Dp", "net_box", "net_dens", "has_box", "nb", "nc", "open"):
+        for name in ("Xs", "Ys", "tot", "Dn", "Dp", "net_box", "net_dens", "has_box", "nb", "nc", "open", "Xseg", "Xinf"):
             getattr(self.E, name)[...] = getattr(old, name)
         # except legality: the old total missed the overlaps of every rectangle the full bucket
         # dropped (and priced the moves since on that), so count it again on the new hash
         mv = np.array(a.mov, np.int64)
         self.E.tot[T_LEG] = _total_leg(self.E, mv, len(mv))
+
+    def quench(self, moves, factors=QUENCH_FACTORS, r_mm=1.0):
+        """Legality quench (place_anneal_quench): when the anneal ends with overlaps, go on at its
+        final temperature with the legality weight raised step by step (lam1 x each factor), moving
+        only the parts in violation (<= r_mm a shift), until legal or `moves` are spent. The same
+        cost, physics included, decides which way each part leaves: the penalty method taken to
+        its limit (weight -> infinity) instead of a physics-blind legalizer."""
+        from .state import State, grid_violations
+        rep = dict(leg_start=self.leg_total, moves=0)
+        if self.leg_total == 0 or moves <= 0:
+            return rep
+        T = float(getattr(self, "T_last", 1e-6))
+        r = max(1, int(round(r_mm / self.P.g)))
+        fset = set(self.fast.tolist())
+        fstats = np.zeros(6, np.int64)
+        per = max(1, int(moves) // len(factors))
+        batch = 200
+        for f in factors:
+            lam = self.lam1 * f
+            k = 0
+            while k < per and self.leg_total > 0:
+                viol = sorted(grid_violations(State(self.P, self.E.X, self.E.Y, self.E.K), parts=self.mov))
+                fv = np.array([i for i in viol if i in fset], np.int64)
+                sv = [i for i in viol if i not in fset]
+                if len(fv):
+                    run_batch(self.E, fv, self.swap_ptr, self.swap_ids, batch, T, lam, r, fstats)
+                    charge("anneal_move", batch)
+                    if self.E.ip[I_OVERFLOW]:
+                        self._rebuild()
+                for i in sv:
+                    mv = self._propose_slow(r, i=i)
+                    if mv is not None:
+                        self._try_python(mv[0], mv[1], T, lam, mv[2])
+                charge("anneal_move_py", len(sv))
+                k += batch
+                rep["moves"] += batch + len(sv)
+            rep[f"leg_after_x{f}"] = self.leg_total
+            if self.leg_total == 0:
+                break
+        rep["leg_end"] = self.leg_total
+        return rep
 
     def report(self, cpu, planned=0, done=0):
         return dict(cpu_s=round(cpu, 2), planned_moves=planned, moves=done,
@@ -1638,6 +1894,7 @@ class FastAnnealer:
                     by_move={k: dict(tried=v[0], accepted=v[1]) for k, v in self.stats["by_move"].items()},
                     hpwl=round(self.wl, 2), physics=round(self.phys, 4), leg_cells=self.leg_total,
                     T0=getattr(self, "T0", None), engine="compiled", schedule=getattr(self, "ended", None),
+                    xing=int(self.E.tot[T_XING]) if self.E.fp[F_WXING] > 0 else None,
                     fast_parts=int(len(self.fast)), python_parts=len(self.slow))
 
     def write_back(self, use_best_legal=False):

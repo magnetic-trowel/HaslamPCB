@@ -10,7 +10,7 @@ of the copper, they give the parasitic voltages the layout adds (kae.excite.eval
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import scipy.sparse as sp
@@ -28,6 +28,8 @@ class Elem:
     pa: str | None = None   # pad at a (None: internal node)
     pb: str | None = None
     kind: str = ""
+    par: dict = field(default_factory=dict)   # the model's values where a screen reads them (a capacitor:
+    #                                           C, C_nominal, ESR, ESL; kae.excite.pdn)
 
 
 @dataclass
@@ -121,11 +123,11 @@ class Circuit:
             self.nodes[n] = len(self.nodes)
         return self.nodes[n]
 
-    def z(self, name, a, b, z, pa=None, pb=None, kind=""):
+    def z(self, name, a, b, z, pa=None, pb=None, kind="", par=None):
         if a == b:
             return None
         self.node(a), self.node(b)
-        e = Elem(name, a, b, z, pa, pb, kind)
+        e = Elem(name, a, b, z, pa, pb, kind, dict(par or {}))
         self.elems.append(e)
         return e
 
@@ -134,6 +136,18 @@ class Circuit:
         s = Source(name, a, b, pa, pb, kind, meta)
         self.sources.append(s)
         return s
+
+    def edge_model(self):
+        """This circuit with every capacitor part (kind "C") that has a high-frequency form (`z.hf`: its ESR + ESL, its
+        C term dropped) at that form; a semiconductor's, a switch node's or a die's capacitance stays as it is: the switching edge's view, in which capacitors share current by their package
+        inductance and the copper's. A network of resistors and inductors has no resonance, so the copper's share of a
+        loop in it is an inductance at any frequency; with the capacitors' C a bulk/ceramic anti-resonance near the
+        edge band would swing it either way (kae.excite.hotloop)."""
+        out = Circuit(self.ground)
+        out.nodes = dict(self.nodes)
+        out.sources = list(self.sources)
+        out.elems = [replace(e, z=e.z.hf) if e.kind == "C" and hasattr(e.z, "hf") else e for e in self.elems]
+        return out
 
     def _Y(self, w, elems=None):
         elems = self.elems if elems is None else elems

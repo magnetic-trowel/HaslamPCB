@@ -69,6 +69,7 @@ STAGE_KEYS = frozenset({
     "module_clock",       # the module stage keeps its clock (kae.route.critical_joint.optimize_modules clock=True)
     # set by kae.joint.cli from its flags
     "keep", "no_physics", "no_modules", "budget_s", "route_parallel", "first_last_mile", "first_blocked",
+    "next_stage_s",       # placement: the time of the stages after it (exact_repack takes its share; default budget_s less the placement)
     # placer and module stage
     "writer", "edge_mate", "angle_step", "module_time", "window_module_time", "drop_modules_attempt",
     # window re-placement and rip-up
@@ -101,6 +102,7 @@ class KaeStages:
         self.locked = set()
         self.module_parts = {}
         self.writer_hz = []              # hazards of KiCad's writer, one list over every pose write
+        self.place_hz = {}               # placement hazards for the caller, one per code (input_locked_errors)
         self.edge_parts = set()
 
     # ------------------------------------------------------------------ helpers
@@ -122,6 +124,10 @@ class KaeStages:
         self.writer_hz += (wrep or {}).get("hazards") or []
         _project(self.input, dst)
         return dst
+
+    def place_hazards(self):
+        """Placement hazards the caller must see (the latest placement's input_locked_errors)."""
+        return list(self.place_hz.values())
 
     def writer_hazards(self):
         """The writer's post-write hazards (kae.board.pcbnew_io.write_hazards) over the run, one per
@@ -145,9 +151,13 @@ class KaeStages:
         board = self._load(self.input)
         self.locked = {fp.uuid for fp in board.footprints if fp.locked}
         self.edge_parts = {fp.uuid for fp in board.footprints if fp.edge_cuts}
+        # exact_repack's time comes from the stages after placement: the run's budget less the placement's
+        opts = dict(self.opts)
+        if self.opts.get("budget_s") and "next_stage_s" not in opts:
+            opts["next_stage_s"] = max(0.0, float(self.opts["budget_s"]) - float(time_s))
         res = place(board, seed=seed, time_s=time_s, physics=not self.opts.get("no_physics"), workers=1,
                     log=lambda m: self.log(f"place: {m}"), edge_mate=bool(self.opts.get("edge_mate")),
-                    angle_step=self.opts.get("angle_step") or None, board_path=str(self.input), opts=self.opts)
+                    angle_step=self.opts.get("angle_step") or None, board_path=str(self.input), opts=opts)
         out = self._path(0, "placed")
         if res.poses:
             self._write_poses(self.input, out, res.poses)
@@ -155,6 +165,9 @@ class KaeStages:
             shutil.copy2(self.input, out)
             _project(self.input, out)
         rep = res.report
+        for h in rep.get("hazards") or []:
+            if h.get("code") == "input_locked_errors":
+                self.place_hz[h["code"]] = h
         # connectors the placer pinned to the edge stay there: the windows must not pull them in
         self.locked |= set((rep.get("edge_pinned") or {}).get("uuids") or ())
         # big parts fixed before the seed (place.pipeline._anchor_tight_parts) stay there too
@@ -163,6 +176,8 @@ class KaeStages:
         b = self._load(out)
         info = dict(place=dict(seconds=round(clock_now() - t0, 1), legal=legal, hpwl=rep.get("hpwl"),
                                scorecard=(rep.get("scorecard") or {}).get("total"), budget_s=rep.get("budget_s"),
+                               crossings=rep.get("crossings"), untangle=rep.get("untangle"),
+                               input_locked_errors=rep.get("input_locked_errors"),
                                stops=place_stops(rep)))
         return Layout(board=str(out), poses=self._all_poses(b), info=info)
 
@@ -456,7 +471,9 @@ class KaeStages:
                                                         min(max(120.0, time_s / 6), time_s / 1.5))),
                             growth=float(self.opts.get("portfolio_growth", 2.0)),
                             router=[(m, list(a)) for m, a in routers], workdir=d / "runs",
-                            log=lambda m: self.log(m))
+                            log=lambda m: self.log(m), finish=None)
+        # finish=None: the loop's recheck and retweak judge this board next, as before finish existed;
+        # where finish belongs in the joint loop is open (routing-stages.md, "Finish runs in the time left")
         if not raw.exists():
             raise RuntimeError(f"portfolio: no board ({rep.get('stop')})")
         _project(self.input, raw)
@@ -570,7 +587,7 @@ class KaeStages:
         d = self.wd / f"it{it:02d}" / "drc"
         staged = D.stage_board(lay.board, self.input, d)
         try:
-            rep = D.run(staged, d / "drc.json", timeout=int(self.opts.get("drc_timeout", 600)))
+            rep = D.run(staged, d / "drc.json", timeout=self.opts.get("drc_timeout"))
         except D.DrcError as e:
             self.log(f"DRC failed: {e}")
             rep = {"violations": [], "unconnected_items": [], "error": str(e)}

@@ -180,3 +180,90 @@ def test_congestion_history_hook_is_exact_in_both_engines():
     ref = Annealer(P, fa.st.copy(), terms=None, seed=0, w_phys=0.0, cong_history=hist)
     assert np.allclose(fa.E.Dp, ref.cong.Dp)
     assert abs(fa.E.tot[engine.T_CONG] - ref.cong.total()) < 1e-6 * max(1.0, ref.cong.total())
+
+
+def _anneal_with_crossings(w_xing=2.0, seed=2):
+    b, P, st = _legal_state(seed)
+    ann = engine.FastAnnealer(P, st, seed=seed, w_cong=0.0, w_xing=w_xing, xing_from=0.0)
+    return ann, P
+
+
+def test_engine_crossing_total_stays_exact():
+    from kae.place.crossings import Crossings
+    ann, P = _anneal_with_crossings()
+    ann.run(cpu_s=30.0, moves_per_part=300)
+    ann.write_back()
+    # the engine's running total against a fresh count on the Python side
+    view = ann.ann
+    for i in view.mov:
+        view.X[i], view.Y[i], view.K[i] = int(ann.E.X[i]), int(ann.E.Y[i]), int(ann.E.K[i])
+        view._update_pins(i)
+    count = Crossings(P, view).total
+    assert int(ann.E.tot[engine.T_XING]) == count
+    assert ann.terms_report()["xing"] == count
+
+
+def test_crossing_term_lowers_crossings_at_equal_budget():
+    from kae.place.crossings import Crossings
+    base, P = _anneal_with_crossings(w_xing=0.0)
+    term, _ = _anneal_with_crossings(w_xing=20.0)
+    base.run(cpu_s=30.0, moves_per_part=2000)
+    term.run(cpu_s=30.0, moves_per_part=2000)
+    def count(a):
+        v = a.ann
+        for i in v.mov:
+            v.X[i], v.Y[i], v.K[i] = int(a.E.X[i]), int(a.E.Y[i]), int(a.E.K[i])
+            v._update_pins(i)
+        return Crossings(P, v).total
+    assert count(term) <= count(base)
+
+
+def _fixed_overlap(P, st):
+    """Cells of every movable part over fixed obstacles or outside the outline."""
+    tot = 0
+    for i in P.mov:
+        for side, (a, b, c, d), _ in st.grid_rects(i):
+            for ob in P.obstacles:
+                if ob.side == side:
+                    dx = min(b, ob.g[1]) - max(a, ob.g[0])
+                    dy = min(d, ob.g[3]) - max(c, ob.g[2])
+                    tot += max(0, dx) * max(0, dy)
+        tot += P.outside_cells_all(int(st.X[i]), int(st.Y[i]), P.parts[i].rots[st.K[i]].g_boards)
+    return tot
+
+
+@pytest.mark.parametrize("cls", ["engine", "reference"])
+def test_hard_fixed_anneal_never_moves_a_part_onto_fixed_geometry(cls):
+    """pi-w-controller: a 28 mm module annealed onto the locked 40-pin header, 30 mm from any clear
+    pose, and no window of the legalizer could reach it. With hard_fixed a move that adds overlap
+    with fixed obstacles or the outside of the outline is rejected at any temperature, and the
+    uphill sample that sets the temperature ignores those moves."""
+    b, P, st = _legal_state(seed=4)
+    assert _fixed_overlap(P, st) == 0
+    for hard in (False, True):
+        kw = dict(terms=None, seed=3, w_phys=0.0, lam0=1e-6, lam1=1e-6, hard_fixed=hard)   # legality nearly free
+        ann = engine.FastAnnealer(P, st.copy(), **kw) if cls == "engine" else Annealer(P, st.copy(), **kw)
+        ann.run(cpu_s=60.0, max_moves=6000)
+        ann.write_back()
+        if hard:
+            assert _fixed_overlap(P, ann.st) == 0
+            assert ann.T0 < 1e10
+        else:
+            assert _fixed_overlap(P, ann.st) > 0       # the soft penalty lets parts onto it
+
+
+@pytest.mark.parametrize("cls", ["engine", "reference"])
+def test_quench_ends_an_overlapping_anneal_legal(cls):
+    """An anneal that ends with two parts overlapping goes on at its final temperature with the
+    legality weight raised, moving only the parts in violation, until it is legal."""
+    b, P, st = _legal_state(seed=6)
+    i, j = P.mov[0], P.mov[1]
+    st.X[j], st.Y[j], st.K[j] = st.X[i] + 5, st.Y[i] + 3, st.K[i]     # j mostly on top of i
+    kw = dict(terms=None, seed=1, w_phys=0.0)
+    ann = engine.FastAnnealer(P, st.copy(), **kw) if cls == "engine" else Annealer(P, st.copy(), **kw)
+    ann.T_last = 1e-6
+    assert ann.leg_total > 0
+    rep = ann.quench(20000)
+    assert rep["leg_end"] == 0 and ann.leg_total == 0
+    ann.write_back()
+    assert not grid_violations(ann.st)

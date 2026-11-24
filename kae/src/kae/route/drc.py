@@ -7,7 +7,7 @@ KAE_KICAD_WRAP + kicad-cli (e.g. "apptainer exec ~/kicad.sif"), or kicad-cli on 
 The board must have its project files (.kicad_pro, .kicad_dru) beside it, since KiCad takes
 rule severities and custom rules from them.
 """
-from kae import budget
+from kae import budget, proc
 import functools
 import hashlib
 import json
@@ -43,7 +43,7 @@ def kicad_cli():
     return (p,)
 
 
-def run(board, out_json, timeout=900, cache=True):
+def run(board, out_json, timeout=None, cache=True):
     """kicad-cli pcb drc on `board`; returns the parsed JSON report. `cache=False` runs KiCad even
     with the step cache on (a second run of the same board, to see which checks are noisy)."""
     board, out_json = Path(board).resolve(), Path(out_json).resolve()
@@ -80,6 +80,7 @@ def run(board, out_json, timeout=900, cache=True):
     return rep
 
 
+@budget.in_span("kicad-drc")          # the run and its charge in one row of the ledger
 def _run(board, out_json, timeout, cache, mb):
     cmd = [*kicad_cli(), "pcb", "drc", "--format", "json", "--refill-zones", "--severity-all",
            "--units", "mm", "-o", str(out_json), str(board)]
@@ -87,9 +88,10 @@ def _run(board, out_json, timeout, cache, mb):
         if cache and stepcache.enabled():   # KAE_STEP_CACHE: a board DRC'd before, with the same rules, replays its report
             r = stepcache.run("kicad-drc", cmd, inputs=stepcache.kicad_inputs(board), outputs={"report": out_json},
                               wd=board.parent, timeout=timeout, tool=stepcache.kicad_version(kicad_cli()),
-                              cwd=board.parent)
+                              cwd=board.parent, runner=lambda *a, **k: proc.run(None, *a, **k))
         else:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=board.parent, errors="replace")
+            r = proc.run(None, cmd, capture_output=True, text=True, timeout=timeout, cwd=board.parent,
+                         errors="replace")
     except subprocess.TimeoutExpired:
         raise DrcError(f"DRC timed out after {timeout}s")
     finally:
@@ -200,18 +202,36 @@ def canonical_unconnected(rep, items):
     there are as many as KiCad lists (else, e.g. past its cap, each pair is renamed alone: the nearest anchors
     of its two clusters, those with an anchor at one position taken as one). Each side of a connection is the
     first item (by description, position) of its cluster with an anchor there, and the pair's items are in that
-    order. In a net with a pair that names a zone, or an item `items` does not hold as KiCad describes it, those
-    pairs keep KiCad's names and the others are renamed one by one. `items`: pcbnew_io.copper_items of the board
-    the report is of (None: the report is left as it is)."""
+    order. A zone's filled islands are items too (`key`: one per island, all with the zone's uuid; anchors:
+    vertices of the outline): a pair that names a zone is mapped to the island that holds its position (else
+    the nearest), and its side of a renamed pair is the zone at the connection's anchor. KiCad names a net's
+    cut-off island as the zone in one DRC and as a pad of the island in the next (atrivatech ch32v003, at 2
+    threads as at 16), and the repair loop split or dropped the net's planes by those names. A pair with an
+    item `items` does not hold as KiCad describes it keeps KiCad's names, and the other pairs of its net are
+    renamed one by one. `items`: pcbnew_io.copper_items of the board the report is of (None: the report is left
+    as it is)."""
     if not items:
         return rep
     n = {}
     for it in items:
-        n[it["uuid"]] = n.get(it["uuid"], 0) + 1
-    items = [it for it in items if n[it["uuid"]] == 1]          # a uuid two items share names neither
+        n[_ident(it)] = n.get(_ident(it), 0) + 1
+    items = [it for it in items if n[_ident(it)] == 1]          # a uuid two items share names neither
     if any("cluster" not in it for it in items):
         items = _anchor_clusters(items)
-    by_uuid = {it["uuid"]: it for it in items}
+    by_uuid = {it["uuid"]: it for it in items if it.get("kind") != "zone"}
+    islands = {}
+    for it in items:
+        if it.get("kind") == "zone":
+            islands.setdefault(it["uuid"], []).append(it)
+
+    def known_item(i):
+        """`items`' item for a report item: by uuid, a zone's island by the report's position."""
+        u = i.get("uuid")
+        if u in by_uuid:
+            return by_uuid[u]
+        if u in islands and i.get("pos"):
+            return _island_at(islands[u], (round(i["pos"]["x"] * 1e6), round(i["pos"]["y"] * 1e6)))
+        return None
     at = {}                                       # (net, cluster) -> {anchor: [items]}
     for it in items:
         for p in it["anchors"]:
@@ -238,14 +258,15 @@ def canonical_unconnected(rep, items):
         for p, its in a.items():
             at_sup.setdefault(find(k), {}).setdefault(p, []).extend(its)
 
-    def rec(it):
-        x, y = it["pos"]
+    def rec(it, at_):
+        x, y = at_ if it.get("kind") == "zone" else it["pos"]     # a zone: where the connection meets it
         return dict(description=it["description"], pos=dict(x=x / 1e6, y=y / 1e6), uuid=it["uuid"])
 
     def pair(ka, pa, kb, pb, of=at):
-        first = [min(of[k][p], key=lambda i: (i["description"], tuple(i["pos"]), i["uuid"]))
+        first = [(min(of[k][p], key=lambda i: (i["description"], tuple(i["pos"]), _ident(i))), p)
                  for k, p in ((ka, pa), (kb, pb))]
-        return sorted(map(rec, first), key=lambda r: (r["description"], r["pos"]["x"], r["pos"]["y"], r["uuid"]))
+        return sorted((rec(i, p) for i, p in first),
+                      key=lambda r: (r["description"], r["pos"]["x"], r["pos"]["y"], r["uuid"]))
 
     def alone(u, x, y):
         """One pair renamed by itself: the nearest anchors of its two (merged) clusters."""
@@ -257,7 +278,7 @@ def canonical_unconnected(rep, items):
     per_net, raw = {}, set()
     for u in rep.get("unconnected_items") or []:
         its = u.get("items") or []
-        known = [by_uuid.get(i.get("uuid")) for i in its]
+        known = [known_item(i) for i in its]
         nets = {k["net"] for k in known if k is not None}
         if len(its) != 2 or len(nets) != 1 or any(k is None or k["description"] != i.get("description")
                                                    for k, i in zip(known, its)):
@@ -281,6 +302,27 @@ def canonical_unconnected(rep, items):
 
 
 _NET_IN = re.compile(r"\[([^\]]*)\]")
+
+
+def _ident(it):
+    """A copper item's identity: its uuid, or a zone island's key (a zone's islands share its uuid)."""
+    return it.get("key") or it["uuid"]
+
+
+def _island_at(isls, p):
+    """Of a zone's islands (copper_items' zone items), the one whose outline holds the point `p` (nm),
+    else the one with the nearest anchor; ties by key."""
+    def inside(ring):
+        x, y = p
+        n, hit = len(ring), False
+        for i in range(n):
+            (x1, y1), (x2, y2) = ring[i], ring[(i + 1) % n]
+            if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+                hit = not hit
+        return hit
+    return min(isls, key=lambda it: (0 if inside(it.get("ring") or it["anchors"]) else 1,
+                                     min((a[0] - p[0]) ** 2 + (a[1] - p[1]) ** 2 for a in it["anchors"]),
+                                     it["key"]))
 
 
 def _cluster_tree(anchors):
@@ -381,12 +423,12 @@ def _content_key(v):
     return (v.get("type") or "", v.get("severity") or "", sorted((i.get("description") or "", str(i.get("pos"))) for i in v.get("items") or []))
 
 
-def uncapped_unconnected(board, timeout=900):
+def uncapped_unconnected(board, timeout=None):
     """pcbnew's unconnected count of `board` after a zone fill (no cap), None when it cannot run."""
     from kae.board.pcbnew_io import PcbnewError, _charge, kicad_python
     try:
-        r = subprocess.run([*kicad_python(), "-c", UNCONNECTED_PY, str(board)], capture_output=True, text=True,
-                           timeout=budget.wall_timeout(timeout), cwd=Path(board).parent, errors="replace")
+        r = proc.run("pcbnew-unconnected", [*kicad_python(), "-c", UNCONNECTED_PY, str(board)], capture_output=True,
+                     text=True, timeout=budget.wall_timeout(timeout), cwd=Path(board).parent, errors="replace")
         return int(json.loads(r.stdout.strip().splitlines()[-1])["unconnected"])
     except (PcbnewError, OSError, subprocess.TimeoutExpired, ValueError, IndexError, KeyError):
         return None

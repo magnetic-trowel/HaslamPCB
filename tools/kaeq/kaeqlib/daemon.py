@@ -987,7 +987,11 @@ class Daemon:
         drop_scratch(cfg, j["id"])  # left over from a preempted or lost run
         os.makedirs(scratch, exist_ok=True)
         env.update(KAEQ_JOB=str(j["id"]), KAEQ_CPUS=n, OMP_NUM_THREADS=n, MKL_NUM_THREADS=n,
-                   OPENBLAS_NUM_THREADS=n, GOMAXPROCS=n, KAEQ_SCRATCH=scratch, TMPDIR=scratch)
+                   OPENBLAS_NUM_THREADS=n, GOMAXPROCS=n, KAEQ_SCRATCH=scratch, TMPDIR=scratch,
+                   # the job's wall deadline (epoch s), less a margin to finish in: every layer inside (kaeres,
+                   # kaebench, restart, kae and its tools) ends no later (kae.proc). Frozen time is not counted
+                   # here, so a job frozen for memory ends early rather than being killed with nothing written
+                   KAE_DEADLINE=f"{time.time() + j['timeout_s'] - min(300.0, 0.05 * j['timeout_s']):.0f}")
         wrap = 'bash -c "$1"; echo $? > "$2"'
         argv = ["bash", "-c", wrap, "_", j["cmd"], rc]
         timed = (j["qos"] or "timed") == "timed"

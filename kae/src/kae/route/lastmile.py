@@ -47,6 +47,7 @@ from kae.board.kicad_file import load
 from . import critical_write as W
 from .critical_grid import Anchor, GridRouter
 from .critical_space import Space
+from .quantize import fit
 
 MARGINS = (1.0, 3.0, 8.0)       # mm around a part and the nearest other part: search windows
 WIDE = 15.0                     # mm around a part: the last window, before any rip-up
@@ -273,9 +274,13 @@ def _width_ok(sp, net, layer, w):
     return w >= (mn or 0.0) - 1e-6 and (mx is None or w <= mx + 1e-6)
 
 
-def widths_of(sp, net):
-    """The track widths to try for `net`, widest first: each layer's opt and min."""
-    ws = {round(w, 4) for l in sp.cu for w in sp.width_limits(net, l)[:2] if w and w > 0}
+def widths_of(sp, net, layers=None):
+    """The track widths to try for `net`, widest first: each layer's opt and min (of `layers`,
+    default all), in whole nm inside that layer's [min, max]."""
+    ws = set()
+    for l in layers or sp.cu:
+        mn, opt, mx = sp.width_limits(net, l)
+        ws.update(fit(w, mn, mx) or w for w in (opt, mn) if w and w > 0)
     return sorted(ws, reverse=True) or [0.2]
 
 
@@ -370,28 +375,8 @@ def _join(gr, sp, net, src, others, widths, fixed, hist=None, soft=(), rip=True)
     return None
 
 
-# KiCad escapes these characters in net names in the board file and shows them unescaped in
-# its DRC report (EscapeString / UnescapeString)
-_ESCAPES = {"{slash}": "/", "{backslash}": "\\", "{lt}": "<", "{gt}": ">", "{colon}": ":", "{dblquote}": '"',
-            "{quote}": "'", "{space}": " ", "{tab}": "\t", "{return}": "\n", "{brace}": "{", "{comma}": ","}
-
-
-def unescape(name):
-    """A board net name as KiCad's DRC report writes it."""
-    for k, v in _ESCAPES.items():
-        name = name.replace(k, v)
-    return name
-
-
-def open_nets(report):
-    """Nets of the unconnected items of a KiCad DRC report (the name in brackets)."""
-    out = set()
-    for u in report.get("unconnected_items") or []:
-        for it in u.get("items") or []:
-            d = it.get("description") or ""
-            if "[" in d and "]" in d:
-                out.add(d[d.index("[") + 1:d.index("]")])
-    return sorted(out)
+# the DRC report shows net names unescaped ("A/B" for the board's "A{slash}B")
+from kae.drc_items import board_nets, open_nets, unescape  # noqa: E402,F401
 
 
 def round_robin(nets, reached):
@@ -435,8 +420,7 @@ def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=prin
         given = {}
     else:
         # the DRC report names nets unescaped ("A/B" for the board's "A{slash}B")
-        by_shown = {unescape(n): n for n in known}
-        given = {(n if n in known else by_shown.get(n, n)): n for n in nets}     # board name -> caller's
+        given = dict(zip(board_nets(nets, known), nets))     # board name -> caller's
         nets = list(given)
     queue = [net for net in nets if len([p for p in parts(sp, fp, net) if _relevant(p)]) > 1]
     # a net goes back on the queue only after progress: when its open count falls below the
@@ -710,8 +694,7 @@ def plane_escapes(board, info, plan, fills, out, sev=None, log=print, deadline=N
             break
         if not any(it.net == net and it.kind == "pad" for it in sp.pads):
             continue
-        mn, opt, _mx = sp.width_limits(net, sp.cu[0])
-        widths = sorted({round(w, 4) for w in (opt, mn) if w and w > 0}, reverse=True) or [0.2]
+        widths = widths_of(sp, net, sp.cu[:1])
         st = rep["nets"].setdefault(net, [0, 0])
         ps = parts(sp, fp, net)
         planes = [p for p in ps if any(n.kind == "fill" for n in p)]

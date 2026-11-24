@@ -31,10 +31,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from kae.drc_items import ENV_DEPENDENT, PLACEMENT_TYPES  # noqa: F401 - the benchmark's ignored and placement types
+from kae.drc_items import ENV_DEPENDENT, PLACEMENT_TYPES, item_kind, item_nets, item_ref  # noqa: F401 - the benchmark's ignored and placement types
 
-_NET = re.compile(r"\[([^\]]*)\]")
-_REF = re.compile(r"\bof (\S+?)(?:\s+on\s|\s*$)")
 _SHORT = re.compile(r"(?:clearance|min[^;]*?) ([\d.]+) mm; actual (-?[\d.]+) mm")
 
 W_PLACEMENT = 4.0    # spot weights: legality first, then a missing connection, an error, physics
@@ -67,25 +65,9 @@ class Spot:
 def parse_item(item):
     """A DRC item -> dict(kind, ref, net, uuid, pos). kind: pad | track | via | zone | other."""
     d = (item or {}).get("description") or ""
-    low = d.lower()
-    if low.startswith(("pad", "pth pad", "npth pad", "smd pad")):
-        kind = "pad"
-    elif low.startswith(("track", "arc")):
-        kind = "track"
-    elif low.startswith("via"):
-        kind = "via"
-    elif low.startswith(("zone", "teardrop")):
-        kind = "zone"
-    elif low.startswith("footprint"):
-        kind = "footprint"
-    else:
-        kind = "other"
-    nets = [m for m in _NET.findall(d) if m and m != "<no net>"]
-    m = _REF.search(d)
-    ref = m.group(1) if m and kind in ("pad", "footprint", "other") else ""
-    if kind == "footprint" and not ref:
-        parts = d.split()
-        ref = parts[1] if len(parts) > 1 else ""
+    kind = item_kind(d)
+    nets = item_nets(d)
+    ref = (item_ref(d) or "") if kind in ("pad", "footprint", "other") else ""
     pos = (item or {}).get("pos") or {}
     xy = (float(pos.get("x", 0.0)), float(pos.get("y", 0.0))) if pos else None
     return dict(kind=kind, ref=ref, net=nets[0] if nets else "", uuid=(item or {}).get("uuid") or "", pos=xy,

@@ -382,6 +382,22 @@ def cmd_method_show(a):
 
 
 # ------------------------------------------------------------------ evaluators
+DRC_REPORTS = (("drc.json", "drc"), ("placement/drc.json", "placement-drc"), ("routing/drc.json", "routing-drc"))
+
+
+def keep_drc_reports(score_dir, evals_dir, eid):
+    """The scorer's DRC reports of an attempt, gzipped beside its evaluation: <eid>.drc.json.gz (route and place
+    tasks), <eid>.placement-drc.json.gz and <eid>.routing-drc.json.gz (joint tasks score the placement and the
+    routing apart). With them a later scorer can re-judge the run without KiCad. Never overwrites."""
+    kept = []
+    for rel, tag in DRC_REPORTS:
+        src, dst = Path(score_dir) / rel, Path(evals_dir) / f"{eid}.{tag}.json.gz"
+        if src.exists() and not dst.exists():
+            gz(src, dst)
+            kept.append(dst.name)
+    return kept
+
+
 def evaluators_for(harness, kae, kicad):
     """The DRC scorer and routed-physics evaluator a job at these commits applies, registered."""
     drc = dict(type="kaebench-drc", kicad=kicad, code=tree_ids(harness, SCORER_PATHS))
@@ -860,6 +876,20 @@ def _limit_as():
         pass
 
 
+def deadline_env(env=None, timeout=None):
+    """(env, timeout) under this job's KAE_DEADLINE (epoch s; kaeq sets it): the timeout no later than it,
+    and the child's KAE_DEADLINE that timeout from now less 10 % (at most 30 s). The same contract as
+    kaebench.deadline and kae.proc: no inner layer outlives an outer one."""
+    env = dict(os.environ if env is None else env)
+    d = os.environ.get("KAE_DEADLINE")
+    if d:
+        left = max(1.0, float(d) - time.time())
+        timeout = left if timeout is None else min(float(timeout), left)
+    if timeout is not None:
+        env["KAE_DEADLINE"] = f"{time.time() + timeout - min(30.0, 0.1 * timeout):.0f}"
+    return env, timeout
+
+
 # A job being killed (kaeq: --timeout, cancel, memory; SIGTERM, then SIGKILL after its kill_grace_s): STOP holds why
 # and when. The running step gets the SIGTERM too (it runs in a session of its own) and CHILD_GRACE_S to save what it
 # has; then every method's attempts so far go to the store as incomplete runs (_store_incomplete).
@@ -896,7 +926,9 @@ def _on_sigterm(*_):
 def run_logged(cmd, log, env, timeout):
     """Run cmd with output appended to log, and its progress lines (PROGRESS_RE) also printed as they come, so the
     kaeq job's log says which method and attempt ran even after a SIGKILL; returns (rc, timed_out). In a job being
-    stopped (STOP) the step is killed CHILD_GRACE_S after the SIGTERM."""
+    stopped (STOP) the step is killed CHILD_GRACE_S after the SIGTERM. The timeout is no later than this job's
+    KAE_DEADLINE, which the command inherits less a margin (deadline_env)."""
+    env, timeout = deadline_env(env, timeout)
     with open(log, "ab") as f:
         f.write(f"\n$ {' '.join(map(str, cmd))}\n".encode())
         f.flush()
@@ -1078,6 +1110,24 @@ def publish_numba_cache(m, rdir, log=None):
     if added and log:
         with open(log, "a") as fh:
             fh.write(f"numba cache {', '.join(names)}: added {added} kernel(s) from {m['id']}\n")
+    return added
+
+
+def numba_keep_work(m):
+    """kaebench run flags for a method whose template names a numba cache: keep the attempts' work dirs,
+    where its kae processes left the kernels they compiled ($PWD/numba), until finish_numba_cache has
+    read them. kaebench deletes them after scoring otherwise, and until 2026-11-21 it did so before
+    publish_numba_cache looked, so no named cache was ever filled."""
+    return ["--keep-work"] if NUMBA_CACHE_RE.search(m["recipe"]["runner"].get("template") or "") else []
+
+
+def finish_numba_cache(m, rdir, log=None):
+    """After a command method's run: publish its compiled kernels to its named numba cache, then delete
+    the attempts' work dirs that numba_keep_work kept (as kaebench would have). Returns kernels added."""
+    added = publish_numba_cache(m, rdir, log)
+    if numba_keep_work(m) and rdir.is_dir():
+        for w in rdir.glob("*/*/*/attempt-*/work"):
+            shutil.rmtree(w, ignore_errors=True)
     return added
 
 
@@ -1300,7 +1350,7 @@ def _job_group(bid, row, hc, kae, items, human, ws, env, log, kicad, a, size, ph
                 probe, ro = ["--probe", p.get("probe", "cmd-probe"), "--probe-command", ptpl], list(dict.fromkeys(ro + pro))
             else:
                 probe = ["--probe", p["probe"]] if p.get("probe") else []
-            extra = [x for r_ in ro for x in ("--sandbox-ro", r_)] + probe
+            extra = [x for r_ in ro for x in ("--sandbox-ro", r_)] + probe + numba_keep_work(m)
             # the sandbox hides the corpus, and Apptainer refuses to start when a bind source is missing;
             # the method's code must be bound too (KiCad's Python runs its scripts)
             cenv = dict(genv, APPTAINER_BIND=",".join([str(ws), *map(str, ro)]))
@@ -1308,7 +1358,7 @@ def _job_group(bid, row, hc, kae, items, human, ws, env, log, kicad, a, size, ph
                                       "-k", str(k), "--timeout", str(method_timeout(m, row)), "--all", "--only", bid,
                                       "--name", f"cmd-{m['id']}", "-j", "1"], log, cenv,
                                 timeout=k * (method_timeout(m, row) + 1800) + 3600)
-            publish_numba_cache(m, work / "results" / f"cmd-{m['id']}", log)
+            finish_numba_cache(m, work / "results" / f"cmd-{m['id']}", log)
     adirs = {}
     for m, att in todo:
         rn = f"base-{hc[:8]}" if m["recipe"]["runner"]["type"] != "command" else f"cmd-{m['id']}"
@@ -1524,8 +1574,7 @@ def _write_run(bid, m, att, task_id, hc, aj, adir, ph, evs, bugs, steps, a, phc=
         ev = dict(schema=SCHEMA, evaluator=evs["drc"], run=dest.name, at=now(), score=aj["score"], probe=aj.get("probe"),
                   scoring_s=aj.get("scoring_s"), scoring_usage=aj.get("scoring_usage"))
         write_json(tmp / "evals" / f"{evs['drc']}.json", ev)
-        if (adir / "score" / "drc.json").exists():
-            gz(adir / "score" / "drc.json", tmp / "evals" / f"{evs['drc']}.drc.json.gz")
+        keep_drc_reports(adir / "score", tmp / "evals", evs["drc"])
     if ph is not None:
         write_json(tmp / "evals" / f"{evs['physics']}.json", dict(schema=SCHEMA, evaluator=evs["physics"], run=dest.name,
                                                                    at=now(), physics={k: v for k, v in ph.items() if k != "traceback"}))
@@ -1875,7 +1924,7 @@ def exp_rows(e):
             if task_meta is None:
                 task_meta = (read_json(bd / "tasks" / r["task_id"] / "task.json") or {}).get("record") or {}
             ed = evals_of(d)
-            use = dict(evs, physics=evs.get("physics_current") or evs["physics"])
+            use = dict(evs, drc=evs.get("drc_current") or evs["drc"], physics=evs.get("physics_current") or evs["physics"])
             for key, field in (("drc", "score"), ("physics", "physics")):
                 if use[key] not in ed:
                     other = [k for k, v in ed.items() if (v or {}).get(field) is not None]
@@ -2513,6 +2562,139 @@ def cmd_rephysics_job(a):
     return 0
 
 
+# ------------------------------------------------------------------ re-scoring (DRC scorer)
+def _rescore_todo(bid, method_ids, eid):
+    """Runs of these methods on a board with a stored output and no evaluation by DRC scorer eid."""
+    return [(d, r) for d, r in board_runs(bid) if r["method_id"] in method_ids and r.get("status") in ("ok", "score_error")
+            and (d / "output.kicad_pcb.gz").exists() and not (d / "evals" / f"{eid}.json").exists()]
+
+
+def cmd_rescore_submit(a):
+    """Queue re-scoring of an experiment's stored runs with the DRC scorer of a harness commit (after a scoring
+    change). No method is run: each stored output is scored again on the task its run was made on, and the result
+    is a new evaluation beside the old one, never in its place. The experiment's reports then read the new scorer
+    (`drc_current`), falling back to the older evaluation for runs not yet re-scored."""
+    e = load_exp(a.name)
+    repo = main_repo()
+    harness = git(repo, "rev-parse", a.harness)
+    if not on_remote(repo, harness):
+        raise SystemExit(f"{harness[:7]} is on no remote branch: push it first")
+    cd, _ = ensure_harness(harness)
+    eid = evaluators_for(harness, harness, e["kicad"])["drc"]
+    human = next((m for m in methods().values() if m["recipe"]["runner"]["type"] == "reference"), None)
+    mids = {m["id"] for m in e["methods"]} | ({human["id"]} if human and a.human else set())
+    rows = corpus_rows()
+    boards = (exp_dir(a.name) / "boards.txt").read_text().split()
+    if a.only:
+        only = set(Path(a.only[1:]).read_text().split() if a.only.startswith("@") else a.only.split(","))
+        boards = [b for b in boards if b in only]
+    py = cd.with_name(cd.name + ".venv") / "bin" / "python"
+    owner = f"rescore-{a.name}"
+    pending = _kaeq_active(owner)
+    jobs = []
+    for bid in boards:
+        if f"{owner}:{bid}" in pending or bid not in rows:
+            continue
+        todo = _rescore_todo(bid, mids, eid)
+        if not todo:
+            continue
+        sz = board_size_mb(rows[bid])
+        jobs.append(dict(cmd=f"{py} {cd / 'tools' / 'kaeres' / 'kaeres.py'} rescore-job --board {bid} --harness {harness} "
+                             f"--methods {','.join(sorted(mids))}",
+                         name=f"{owner}:{bid}", cpus=2, mem=f"{1.5 + 0.12 * sz + 0.3 * heap_gb(sz):.1f}G",
+                         disk=f"{int(200 + 20 * sz)}M", timeout=f"{int(min(24 * 3600, 1800 + len(todo) * (600 + 240 * sz)))}s",
+                         prio=a.prio))
+        if a.limit and len(jobs) >= a.limit:
+            break
+    ev = dict(e["evaluators"])
+    if ev.get("drc_current") != eid and not a.dry_run:
+        ev.setdefault("drc_history", [ev["drc"]])
+        if eid not in ev["drc_history"]:
+            ev["drc_history"].append(eid)
+        ev["drc_current"] = eid
+        e["evaluators"] = ev
+        write_json(exp_dir(a.name) / "experiment.json", e)
+    f = exp_dir(a.name) / f"rescore-{datetime.now().strftime('%Y%m%dT%H%M%S')}.jsonl"
+    f.write_text("".join(json.dumps(j) + "\n" for j in jobs))
+    print(f"DRC scorer {eid} (harness {harness[:7]}): {len(jobs)} board jobs -> {f}")
+    if jobs and not a.dry_run:
+        subprocess.run(["kaeq", "submit", "--jobs", str(f), "--owner", owner, "--tag", owner, "--live", "--class", "batch",
+                        "--cwd", str(cd), "--retries", "1"], check=True)
+
+
+def cmd_rescore_job(a):
+    """One board: score its runs' stored outputs again with harness a.harness's scorer, on the task each run was
+    made on (prepared again by the harness that prepared it, from the task cache when it can)."""
+    bid = a.board
+    row = corpus_rows()[bid]
+    eid = evaluators_for(a.harness, a.harness, kicad_version())["drc"]
+    todo = _rescore_todo(bid, set(a.methods.split(",")), eid)
+    if not todo:
+        print(f"{bid}: nothing to re-score")
+        return 0
+    ws = Path(os.environ.get("KAEQ_SCRATCH") or tempfile.mkdtemp(prefix="kaeres-", dir="/var/tmp"))
+    src = ws / "src" / bid
+    src.mkdir(parents=True, exist_ok=True)
+    for p in (CORPUS / row["path"]).iterdir():
+        if (p.name.startswith("board.") or p.name == "row.json") and not (src / p.name).exists():
+            os.symlink(p, src / p.name)
+    size = board_size_mb(row)
+    env = dict(os.environ)
+    env.update({k: v for k, v in env_sh().items() if k not in env})
+    binds = [b for b in env.get("APPTAINER_BIND", "").split(",") if b]
+    env["APPTAINER_BIND"] = ",".join(dict.fromkeys(binds + [str(ws), str(CORPUS.resolve())]))
+    env["KICAD_CONFIG_HOME"] = str(STORE / "kicad-config" / "threads-2")
+    env["KAE_DRC_TIMEOUT"] = str(900 if size < 20 else 3600)
+    env.pop("VIRTUAL_ENV", None)
+    log = ws / "job.log"
+    cd = code_dir(a.harness)
+    py = cd.with_name(cd.name + ".venv") / "bin" / "python"
+    human = next((m for m in methods().values() if m["recipe"]["runner"]["type"] == "reference"), None)
+    groups = defaultdict(list)
+    for d, r in todo:
+        kind = _run_kind(r)
+        groups[(run_prepared_by(r), r["task_id"], kind)].append((d, r))
+    written, failed = 0, []
+    for (phc, tid, kind), items in groups.items():
+        steps = {}
+        task, rc, to = _prepare(bid, phc, sorted({INPUT_KIND.get(kind, kind)}), ws, env, log, steps, f"prepare-{phc[:8]}")
+        if task is None:
+            failed += [f"{r['run']}: task not prepared (harness {phc[:7]}, rc {rc}, timed out {to})" for _, r in items]
+            continue
+        man_p = ws / f"rescore-{phc[:8]}-{kind}.json"
+        runs = [f"{r['run']}={d / 'output.kicad_pcb.gz'}:{kind}:{1 if human and r['method_id'] == human['id'] else 0}"
+                for d, r in items]
+        rc, to = run_logged([py, cd / "tools" / "kaeres" / "rescore_runs.py", "--task", task, "--work", ws / "rs",
+                             *[x for spec in runs for x in ("--run", spec)], "--out", man_p],
+                            log, dict(env, PATH=f"{py.parent}:{env.get('PATH', '')}"), timeout=int(1800 + len(items) * (600 + 240 * size)))
+        man = read_json(man_p)
+        if not man:
+            failed += [f"{r['run']}: scorer failed (rc {rc}, timed out {to}): {tail(log, 5)}" for _, r in items]
+            continue
+        for d, r in items:
+            got = (man.get("runs") or {}).get(r["run"]) or {}
+            olds = [j for j in (read_json(p) or {} for p in (d / "evals").glob("*.json"))
+                    if j.get("score") is not None and j.get("evaluator") != eid]
+            old = max(olds, key=lambda j: j.get("at") or "") if olds else None
+            dst = d / "evals" / f"{eid}.json"
+            if dst.exists():
+                continue   # never overwrite (another job got there first)
+            ev = dict(schema=SCHEMA, evaluator=eid, run=r["run"], at=now(), rescored=True, rescored_with=a.harness,
+                      task_prepared_by=phc, score_version=man.get("score_version"), status=got.get("status"),
+                      error=got.get("error"), score=got.get("score"), scoring_usage=got.get("scoring_usage"),
+                      probe=(old or {}).get("probe"), probe_from=(old or {}).get("evaluator") if (old or {}).get("probe") else None)
+            for tag, path in (got.get("drc") or {}).items():
+                name = {"drc": "drc", "placement": "placement-drc", "routing": "routing-drc"}[tag]
+                gz(Path(path), d / "evals" / f"{eid}.{name}.json.gz")
+            write_json(dst, ev)
+            written += 1
+    print(f"{bid}: {written} run(s) re-scored by {eid}", flush=True)
+    for x in failed:
+        print(f"{bid}: {x}", flush=True)
+    shutil.rmtree(ws / "rs", ignore_errors=True)
+    return 1 if failed and not written else 0
+
+
 # ------------------------------------------------------------------ manufacturability measurements (report-only)
 def mfg_evaluator(commit, kicad, refill):
     """The evaluator id of tools/kaeres/mfg_board.py at commit (its code, what it reads and the refill, registered)."""
@@ -2750,6 +2932,18 @@ def main():
     s.add_argument("name"), s.add_argument("--harness", required=True), s.add_argument("--kae", required=True)
     s.add_argument("--after"), s.add_argument("--prio", type=int, default=-1)
     s.set_defaults(f=cmd_rephysics_timer)
+    rs = sub.add_parser("rescore", help="score an experiment's stored runs again with a newer DRC scorer (no method re-run)").add_subparsers(dest="sub", required=True)
+    s = rs.add_parser("submit")
+    s.add_argument("name"), s.add_argument("--only"), s.add_argument("--limit", type=int)
+    s.add_argument("--harness", default="HEAD", help="revision whose scorer runs (bench/src/kaebench)")
+    s.add_argument("--human", action="store_true", help="also re-score the human layout's runs")
+    s.add_argument("--prio", type=int, default=-1)
+    s.add_argument("--dry-run", action="store_true")
+    s.set_defaults(f=cmd_rescore_submit)
+    s = sub.add_parser("rescore-job", help="one board's re-scoring (what each queued job runs)")
+    s.add_argument("--board", required=True), s.add_argument("--harness", required=True)
+    s.add_argument("--methods", required=True)
+    s.set_defaults(f=cmd_rescore_job)
     s = sub.add_parser("rephysics-job", help="one board's physics re-evaluation (what each queued job runs)")
     s.add_argument("--board", required=True), s.add_argument("--harness", required=True), s.add_argument("--kae", required=True)
     s.add_argument("--methods", required=True)
