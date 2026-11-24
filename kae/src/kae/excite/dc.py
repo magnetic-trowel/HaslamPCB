@@ -512,7 +512,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
                 if _top(c) in ("boost", "boost_led") and c.get("low"):
                     pl.dc_pads |= set(tok(c["low"], [n for n, nt, _, _ in pads.get(c["low"], []) if nt == c["sw"]]))
                     pl.dc_pads |= set(_fet_source(pads, c["low"], c["sw"]))
-                elif c.get("high"):
+                elif _top(c) not in ("boost", "boost_led") and c.get("high"):
                     pl.dc_pads |= set(tok(c["high"], [n for n, nt, _, _ in pads.get(c["high"], [])
                                                       if nt in (c["sw"], c["vin"])]))
             if _top(c) == "inverting_buck_boost" and c.get("ind"):
