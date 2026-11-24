@@ -114,3 +114,18 @@ def test_the_pruned_fft_matvec_equals_the_full_circulant_one(tmp_path, monkeypat
     if nv:
         ref[net.off["v"]:net.off["v"] + nv] = op.Lv @ I[net.off["v"]:net.off["v"] + nv]
     assert np.abs(got - ref).max() <= 1e-12 * np.abs(ref).max()
+
+
+def test_an_open_window_is_judged_without_a_solve(tmp_path, monkeypatch):
+    """A window whose copper leaves the loop open (the quote then grows it) is judged by connectivity alone: no
+    COCG system is built for it (forestierr's quote grew twice, each open window a full factorisation and solve)."""
+    from haslam.em import solve as ES
+    built = []
+    orig = ES.System.__init__
+
+    def spy(self, op, f):
+        built.append(f)
+        orig(self, op, f)
+    monkeypatch.setattr(ES.System, "__init__", spy)
+    r = _q(tmp_path, "open", monkeypatch)
+    assert r["state"] == "open" and built == []
