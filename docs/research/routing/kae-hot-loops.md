@@ -172,3 +172,13 @@ Rank by expected gain per cost: R5 > R1 + R2 > R4 > R3 > J1 > T1. Order: E1 + E2
 - EPC WP009 "Impact of Parasitics on Performance" (Reusch), [PDF](https://epc-co.com/epc/Portals/0/epc/documents/papers/Impact%20of%20Parasitcs%20on%20Performance.pdf) [P]; EPC WP010 [P via hot-loops]; EPC first-inner-layer return ≈ 150 pH measured on a monolithic half-bridge ([Electronic Design](https://www.electronicdesign.com/technologies/power/article/21199487/best-practices-part-1-integrating-egan-fets)) [S].
 - MPS Hedrich #0030 [P]; ADI Silent Switcher article [S] (linked in the table).
 - M. Sanjabiasasi et al., "PowerSynth 2", IEEE OJPEL 6 (2025) 899–, doi:10.1109/OJPEL.2025.3567148 [P].
+
+## Using cells first (hotloop-sw rounds 1–3)
+
+Cells first is off by default.
+- *Turn it on:* `KAE_HOTLOOP_CELLS=1`, or the setting `hotloop_cells`.
+- *What it buys:* on 2–4 layer boards it cut the buck and boost loops' inductance by about 18 % and their loop losses by about 20 % against the default. It costs about +20 % routing CPU on regulator boards.
+- *What it risks:* connections on dense boards (6+ layers, many nets crossing the converter area).
+- *Half bridges:* no gain, so `hotloop_cell_kinds` defaults to `buck,boost`.
+- *Hazard:* a board with buck or boost cells routed with it off gets an info hazard, `hotloop_cells_available`, carrying this trade-off and the setting.
+- Results: `bench/results/2026-11-24-hotloop-sw-round3.md` on the route-finish-ab branch.

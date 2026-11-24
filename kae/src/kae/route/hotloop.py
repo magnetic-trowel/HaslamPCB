@@ -78,7 +78,7 @@ MARGIN_WHY = ("a return at height h spreads as h / (x^2 + h^2): a 1 mm band hold
               "to 86 % (h 0.2 mm) of an edge conductor's return; the hull covers the loop's interior")
 SETTINGS = ("hotloop_keepout", "hotloop_keepout_mm", "hotloop_cells", "hotloop_vias", "hotloop_pours",
             "hotloop_budget_s", "hotloop_keepout_pours", "hotloop_lift", "hotloop_keepout_loopvias", "hotloop_clear",
-            "hotloop_clear_force")
+            "hotloop_clear_force", "hotloop_cell_kinds")
 
 
 def _log(msg):
@@ -98,6 +98,7 @@ def settings(board_path=None, opts=None):
     out["keepout_loopvias"] = bool(float(g["hotloop_keepout_loopvias"] or 0))
     out["lift"] = g["hotloop_lift"] if g["hotloop_lift"] in LIFT_LEVELS else "plane"
     out["cells"] = out["cells"] or out["vias"] or out["pours"]
+    out["cell_kinds"] = tuple(k.strip() for k in str(g["hotloop_cell_kinds"] or "").split(",") if k.strip())
     return out
 
 
@@ -854,19 +855,20 @@ def pour_check(s, input_path, info, mods, workdir, log=_log, before=None):
     return out, gone
 
 
-REACH_WINDOW = 2.5     # mm around a pad within which reach_check looks for its way to its net
+REACH_MARGIN = 5.0     # mm round a cell's copper within which reach_check follows every pin's way to its net
 
 
-def _reach(pad, cop, layer, items, info, window):
-    """Whether pad (copper `cop` on `layer`) has a way to its net within `window` past `items` (Space
-    items on that layer): the free room a track of its net's width can use (other nets' copper kept at
-    its clearance) that holds the pad and meets another piece of its net, a zone of its net, or the
-    window's edge (a way on that the window does not see), or a place for a via of its net (a way
-    on another layer, beside or in the pad; the fixture buck's U1.1 sits inside its own cell's loop
-    and leaves by a via)."""
+def _room(net, layer, items, info, window, cache=None, tag=None):
+    """The room `net` has on `layer` within `window` past `items` (Space items on that layer): (free components a
+    track of its net's width can use, its own copper and pourable zones, the via sites, the window, the track
+    width). Other nets' copper is kept at the net's clearance; a zone of the net counts only where it can still
+    pour past them (its clearance, then its minimum width: open-authenticator's U4.2 reached its L1-Pad2 zone's
+    outline at a corner the cell's +3V3 hop had left too thin to pour). Cached per (net, layer, window, tag)."""
+    key = (net, layer, window, tag)
+    if cache is not None and key in cache:
+        return cache[key]
     from shapely.geometry import box
     from shapely.ops import unary_union
-    net = pad.get("net")
     clr, w = CN._class_of(info, net)
     win = box(*window)
     ncs = info.get("netclasses") or {}
@@ -885,54 +887,140 @@ def _reach(pad, cop, layer, items, info, window):
         else:
             obst.append(g.buffer(clr + w / 2))
             raw.append(g)
+    rawu = unary_union(raw) if raw else None
     for z in info.get("zones") or []:
         if z.get("net") == net and layer in (z.get("layers") or []) and not z.get("rule_area"):
-            # the zone where it can still pour past the other nets' copper here (its clearance, then its minimum
-            # width): open-authenticator's U4.2 reached its L1-Pad2 zone's outline at a corner the cell's +3V3 hop
-            # had left too thin to pour, and was left unconnected
             zg = unary_union([x for x in (CN._poly(r) for r in z["rings"]) if x is not None]).intersection(win)
             if zg.is_empty:
                 continue
             zc, mt = float(z.get("clearance") or 0.0), max(float(z.get("min_thickness") or 0.0), 0.05)
-            pour = zg.difference(unary_union([g.buffer(zc) for g in raw])) if raw else zg
+            pour = zg.difference(rawu.buffer(zc)) if rawu is not None else zg
             pour = pour.buffer(-mt / 2).buffer(mt / 2)
             if not pour.is_empty:
                 own.append(pour)
     free = win.difference(unary_union(obst)) if obst else win
+    # a via beside a pad or in it: the last mile leaves a walled-in pad through a via in the pad
+    # (olimex urc: C' joined U1.3 to R4 that way, between the cell's GND copper and U1's other pins)
+    vfree = win.difference(rawu.buffer(clr + via_r)) if rawu is not None else win
+    out = (list(getattr(free, "geoms", [free])), own, vfree, win, w)
+    if cache is not None:
+        cache[key] = out
+    return out
+
+
+def _reach(pad, cop, layer, items, info, window, cache=None, tag=None):
+    """Whether pad (copper `cop` on `layer`) has a way to its net within `window` past `items`: the free room
+    (_room) that holds the pad meets another piece of its net, a zone of its net where it can pour, the window's
+    edge (a way on that the window does not see), or a via site (a way on another layer; the fixture buck's U1.1
+    sits inside its own cell's loop and leaves by a via)."""
+    from shapely.ops import unary_union
+    comps_all, own, vfree, win, w = _room(pad.get("net"), layer, items, info, window, cache, tag)
     seed = cop.buffer(-min(w / 2, 0.05)) if not cop.buffer(-min(w / 2, 0.05)).is_empty else cop.centroid.buffer(1e-3)
-    comps = [c for c in getattr(free, "geoms", [free]) if c.intersects(seed)]
+    comps = [c for c in comps_all if c.intersects(seed)]
     if not comps:
         return False
-    room = unary_union(comps).buffer(w / 2)
+    cu = unary_union(comps)
+    room = cu.buffer(w / 2)
     targets = [g for g in own if not g.equals(cop) and g.intersection(cop).area < 0.9 * cop.area]
     if targets and room.intersects(unary_union(targets)):
         return True
     if room.intersects(win.exterior.buffer(w)):
         return True
-    # a via beside the pad or in it: the last mile leaves a walled-in pad through a via in the pad
-    # (olimex urc: C' joined U1.3 to R4 that way, between the cell's GND copper and U1's other pins)
-    vfree = win.difference(unary_union([g.buffer(clr + via_r) for g in raw])) if raw else win
-    return unary_union(comps).intersects(vfree)
+    return cu.intersects(vfree)
+
+
+CELLS_HINT = ("cells first (KAE_HOTLOOP_CELLS=1, setting hotloop_cells) lays each buck and boost converter's input "
+              "loop before the general router: on 2-4 layer boards it cut loop L by about 18 % and loop losses by about "
+              "20 % against the default (hotloop-sw rounds 2-3, 106 cells), at about +20 % routing CPU on regulator "
+              "boards. It risks connections on dense boards (6+ layers, many nets crossing the converter area) and gains "
+              "nothing on half bridges (hotloop_cell_kinds, default buck,boost)")
+
+
+def cells_hint(board_path, opts=None):
+    """The decision entry for a board with buck or boost cells routed with the cells stage off: an info hazard
+    (`hotloop_cells_available`) with the trade-off and the setting, so the LLM driving kae knows when to turn it on.
+    [] when the stage is on or the board has no such cell (brief as constraints._roles builds and caches it)."""
+    from kae import hazards as H
+    st = settings(board_path, opts)
+    if st["cells"]:
+        return []
+    try:
+        CN._roles(board_path, [], opts or {})
+        import hashlib
+        hit = CN._ROLES.get(hashlib.sha1(Path(board_path).read_bytes()).hexdigest())
+        brief = hit[0] if hit else None
+    except Exception:  # noqa: BLE001 - no brief, no hint
+        brief = None
+    cells = [st_.get("id") for st_ in (brief or {}).get("structures") or [] if st_.get("kind") == "commutation_cell"
+             and str(st_.get("id") or "").split(":")[1:2] in (["buck"], ["boost"])]
+    if not cells:
+        return []
+    return [H.make("hotloop_cells_available", "info", "electrical",
+                   f"{len(cells)} buck/boost cell(s) ({', '.join(cells[:4])}) were routed by the general router. " + CELLS_HINT + ".",
+                   objects=cells[:8], evidence=dict(cells=cells),
+                   fix="Set KAE_HOTLOOP_CELLS=1 for lower loop inductance and loss on an ordinary 2-4 layer board; "
+                       "leave it off on a dense board or when completion matters most.",
+                   decision=dict(options=["route the converters' loops first (lower L and loss)",
+                                          "leave them to the general router (safest completion)"],
+                                 setting="hotloop_cells"))]
+
+
+def drop_cells(s, mods, kinds, log=_log):
+    """Rip the copper of cells the stage does not keep: a topology not in `kinds` (hotloop_cell_kinds, default buck
+    and boost: hotloop-sw round 3, half bridges gained nothing, L 1.06, and on kestrel esc their copper walled in
+    the motor gate nets), and a failed cell, whose hops are no loop (kestrel: failed half-bridge cells' locked hops).
+    The general router lays those nets."""
+    from .critical_joint import _rip
+    for m in mods:
+        if not m.copper:
+            continue
+        kind = (m.id.split(":") + ["", ""])[1]
+        if kinds and kind not in kinds:
+            log(f"hotloop: {m.id}: {kind} is not in hotloop_cell_kinds {','.join(kinds)}; its copper ripped")
+            _rip(s, m)
+            m.status, m.notes = "skipped", [f"skipped: {kind} not in hotloop_cell_kinds"]
+        elif m.status == "failed":
+            log(f"hotloop: {m.id} failed; its {len(m.copper)} item(s) ripped")
+            _rip(s, m)
+            m.status, m.notes = "failed", ["failed: its partial copper ripped"]
 
 
 def reach_check(s, info, mods, log=_log):
-    """The post-cells reachability check: every pad of a net that has a way to its net on the input
-    (its zone, another of its pads, or on out of the window) still has one past the cells' other-net
-    copper, checked on the cells' Space within REACH_WINDOW of the pad (_reach). A pad that lost its
-    way reverts the cells whose other-net copper lies in its window, and a `hotloop_cell_blocks_pin`
-    hazard says so. Catches what the escape lanes and pour links do not foresee (open-authenticator:
-    the cell's GND via between U4's L1 pins and their zones). Returns (hazards, pads still blocked)."""
+    """The post-cells reachability check: every pin near the cells that has a way to its net on the input (another
+    piece of its net, a zone of it where it can pour, a via site, or on out of the window) still has one past the
+    cells' other-net copper. The window is each cell's copper grown by REACH_MARGIN (merged where they overlap),
+    so a pin walled in by a cell's whole loop is seen, not only one closed in within a few mm (kestrel esc, round
+    3: half-bridge cells' locked copper walled in the motor gate nets). A pin that lost its way reverts the cells
+    whose other-net copper lies in that window, and a `hotloop_cell_blocks_pin` hazard says so. Returns (hazards,
+    pins still blocked)."""
     from kae import hazards as H
     from .critical_joint import _rip
     cell_items = {id(it): m for m in mods for it in m.copper}
     if not cell_items:
         return [], []
     sp = s.space
-    near = {}
+    boxes = []
     for m in mods:
-        for it in m.copper:
-            for l in it.layers:
-                near.setdefault(l, []).append(it)
+        if not m.copper:
+            continue
+        xs = [it.bbox for it in m.copper]
+        boxes.append([min(b[0] for b in xs) - REACH_MARGIN, min(b[1] for b in xs) - REACH_MARGIN,
+                      max(b[2] for b in xs) + REACH_MARGIN, max(b[3] for b in xs) + REACH_MARGIN])
+    merged = True
+    while merged:                       # overlapping windows merge into one
+        merged = False
+        for a in range(len(boxes)):
+            for b in range(a + 1, len(boxes)):
+                A, B = boxes[a], boxes[b]
+                if A[0] <= B[2] and B[0] <= A[2] and A[1] <= B[3] and B[1] <= A[3]:
+                    boxes[a] = [min(A[0], B[0]), min(A[1], B[1]), max(A[2], B[2]), max(A[3], B[3])]
+                    del boxes[b]
+                    merged = True
+                    break
+            if merged:
+                break
+    windows = [tuple(b) for b in boxes]
+    cache = {}
     found = []
     for pad in info.get("pads") or []:
         net = pad.get("net")
@@ -941,14 +1029,18 @@ def reach_check(s, info, mods, log=_log):
         for l, cop in (CN._pad_shapes(pad)[1] or {}).items():
             if cop is None or cop.is_empty or l not in sp.items:
                 continue
-            x0, y0, x1, y1 = cop.bounds
-            window = (x0 - REACH_WINDOW, y0 - REACH_WINDOW, x1 + REACH_WINDOW, y1 + REACH_WINDOW)
-            mine = [it for it in near.get(l, ()) if it.net != net and not (it.bbox[2] < window[0] or it.bbox[0] > window[2]
-                                                                          or it.bbox[3] < window[1] or it.bbox[1] > window[3])]
+            c = cop.centroid
+            window = next((wd for wd in windows if wd[0] <= c.x <= wd[2] and wd[1] <= c.y <= wd[3]), None)
+            if window is None:
+                continue
+            mine = [it for it in sp.items[l] if id(it) in cell_items and it.net != net
+                    and not (it.bbox[2] < window[0] or it.bbox[0] > window[2] or it.bbox[3] < window[1]
+                             or it.bbox[1] > window[3])]
             if not mine:
                 continue
             base = [it for it in sp.items[l] if id(it) not in cell_items]
-            if not _reach(pad, cop, l, base, info, window) or _reach(pad, cop, l, sp.items[l], info, window):
+            if not _reach(pad, cop, l, base, info, window, cache, "before") \
+                    or _reach(pad, cop, l, sp.items[l], info, window, cache, "after"):
                 continue
             hit = []
             for it in mine:
@@ -1000,6 +1092,7 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
             s.route(budget_s=budget)
             mods = [m for m in s.modules if m.kind == "cell"]
             rep["hazards"] += s.hazards() + cell_hazards(mods)
+            drop_cells(s, mods, st["cell_kinds"], log=log)
             hz, rep["pour_cut"] = pour_check(s, input_path, s.info, mods, wd, log=log)
             rep["hazards"] += hz
             hz, rep["pin_blocked"] = reach_check(s, s.info, mods, log=log)
