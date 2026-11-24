@@ -682,7 +682,7 @@ def test_routing_connectivity_is_kicads(tmp_path):
     def norm(groups):
         return sorted(sorted(g) for g in groups if g)
     for net in nets:
-        mine = {i["uuid"] for i in got["items"] if i["net"] == net}
+        mine = {i["uuid"] for i in got["items"] if i["net"] == net and i["kind"] != "zone"}   # zones: KiCad lists them too
         kicad = {}
         for u in mine:
             kicad.setdefault(kc[u], set()).add(u)
