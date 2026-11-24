@@ -399,10 +399,33 @@ def _inside_origins(P, rect, xa, xb, ya, yb):
     return ok
 
 
-def _nearest_spot(P, p, X0, Y0, K0, occ, pad, w_rot, span, cost_occ=None, w_cost=0.0):
+def _evict_push(r, X, Y, si, ev):
+    """Per origin (arrays X, Y): grid cells the evictable part with rectangles ev [(side,
+    (i0, i1, j0, j1))] must travel to clear part rotation r at that origin (own pieces on
+    side si, opp rectangles on the other): the shortest straight push, right, left, up or
+    down, clearing every overlap on its side; 0 where they do not overlap. A lower bound on
+    its displacement. Reference of _fastlegal.evict_push."""
+    mine = [(si, o) for o in (r.g_own_rects or (r.g_own,))] + [(1 - si, o) for o in r.g_opp]
+    need = np.zeros((4,) + X.shape, dtype=np.int64)
+    hit = np.zeros(X.shape, dtype=bool)
+    for side, (e0, e1, e2, e3) in ev:
+        for s2, (a, b, c, d) in mine:
+            if s2 != side:
+                continue
+            ov = (X + b > e0) & (e1 > X + a) & (Y + d > e2) & (e3 > Y + c)
+            if not ov.any():
+                continue
+            hit |= ov
+            for q, v in enumerate((X + b - e0, e1 - X - a, Y + d - e2, e3 - Y - c)):
+                need[q] = np.where(ov, np.maximum(need[q], v), need[q])
+    return np.where(hit, need.min(axis=0), 0)
+
+
+def _nearest_spot(P, p, X0, Y0, K0, occ, pad, w_rot, span, evict=None):
     """(cost, X, Y, k) of the nearest origin where part p's rectangles are free in `occ` and
-    its board rectangles inside the outline, or None. With `cost_occ` (cells of parts that
-    may be evicted) the cost adds w_cost x the cells of those parts its own rectangle covers."""
+    its board rectangles inside the outline, or None. With `evict` (the rectangles of each
+    part that may be evicted, [[(side, rect)]]) the cost adds, per such part the spot
+    covers, the push that clears it (_evict_push): the displacement of all it moves."""
     si = 0 if p.s > 0 else 1
     size = max(max(r.g_own[1] - r.g_own[0], r.g_own[3] - r.g_own[2]) for r in p.rots)
     R = max(20, 2 * size)
@@ -435,10 +458,11 @@ def _nearest_spot(P, p, X0, Y0, K0, occ, pad, w_rot, span, cost_occ=None, w_cost
             xs, ys = np.nonzero(ok)
             cost = (np.abs(xs + xa - X0) + np.abs(ys + ya - Y0) + (w_rot if k != K0 else 0.0)).astype(float)
             passes += 1
-            if cost_occ is not None:
-                for o in (r.g_own_rects or (r.g_own,)):
-                    cost += w_cost * _covered(cost_occ[si], o, pad, xa, xb, ya, yb)[xs, ys]
-                    passes += 1
+            if evict:
+                Xs, Ys = xs + xa, ys + ya
+                for ev in evict:
+                    cost += _evict_push(r, Xs, Ys, si, ev)
+                charge("legal_cells", len(evict) * len(xs))     # numpy element passes
             j = int(np.argmin(cost))
             if best is None or cost[j] < best[0]:
                 best = (float(cost[j]), int(xs[j] + xa), int(ys[j] + ya), k)
@@ -448,25 +472,6 @@ def _nearest_spot(P, p, X0, Y0, K0, occ, pad, w_rot, span, cost_occ=None, w_cost
         if (best is not None and best[0] <= R) or R >= span:
             return best
         R = min(span, 2 * R)
-
-
-def _covered(occ, rect, pad, xa, xb, ya, yb):
-    """Occupied-cell count under rect for every origin of the window (cf. _free_origins)."""
-    a, b, c, d = rect
-    nx, ny = xb - xa + 1, yb - ya + 1
-    if b <= a or d <= c:
-        return np.zeros((nx, ny))
-    r0, r1 = xa + a + pad, xb + b + pad
-    s0, s1 = ya + c + pad, yb + d + pad
-    q0, q1 = max(0, r0), min(occ.shape[0], r1)
-    t0, t1 = max(0, s0), min(occ.shape[1], s1)
-    reg = np.zeros((r1 - r0, s1 - s0), dtype=np.int64)
-    if q1 > q0 and t1 > t0:
-        reg[q0 - r0:q1 - r0, t0 - s0:t1 - s0] = occ[q0:q1, t0:t1]
-    L = np.zeros((reg.shape[0] + 1, reg.shape[1] + 1), dtype=np.int64)
-    L[1:, 1:] = reg.cumsum(0).cumsum(1)
-    w, h = b - a, d - c
-    return (L[w:w + nx, h:h + ny] - L[0:nx, h:h + ny] - L[w:w + nx, 0:ny] + L[0:nx, 0:ny]).astype(float)
 
 
 def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
@@ -577,30 +582,38 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
     unplaced = []
 
     def _ripup_at(i, reach):
-        """Spot within reach where part i covers the least of smaller parts (evictable),
-        never an obstacle or a part at least as big: (cost, X, Y, k, 'ripup') or None."""
+        """Spot within reach that moves least in all, never onto an obstacle or a part at least
+        as big: the mover's displacement plus, per smaller part it covers (evicted), the push
+        that clears it (_evict_push). (cost, X, Y, k, 'ripup') or None."""
         p = P.parts[i]
         hard = [np.zeros_like(occ[0]) for _ in (0, 1)]
         soft = [np.zeros_like(occ[0]) for _ in (0, 1)]
         for ob in P.obstacles:
             _mark(hard[ob.side], ob.g, pad, 1)
         n = len(P.obstacles)
+        ev = []
         for j in P.mov:
             if j == i or (j in skip and j not in placed_set):
                 continue
-            tgt = soft if P.parts[j].area < p.area else hard
-            for side, r, _ in st.grid_rects(j):
+            small = P.parts[j].area < p.area
+            tgt = soft if small else hard
+            rs = st.grid_rects(j)
+            for side, r, _ in rs:
                 _mark(tgt[side], r, pad, 1)
                 n += 1
+            if small:
+                ev.append([(side, r) for side, r, _ in rs])
         charge("legal_rect", n)
         H = [sat(hard[0]), sat(hard[1])]
         C = [sat(soft[0]), sat(soft[1])]
         charge("legal_cells", 4 * hard[0].size)
         ks, own, own_n, opp, opp_n, brd, brd_n = arrays(i)
-        c, X, Y, k, n = FL.ripup_spot(H[0], H[1], C[0], C[1], SO, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1,
-                                      int(st.X[i]), int(st.Y[i]), ks.index(int(st.K[i])), float(w_rot), 4.0, own,
-                                      own_n, opp, opp_n, brd, brd_n, int(min(reach, max_d)))
+        E, E0, EB = FL.evict_arrays(ev)
+        c, X, Y, k, n, npair = FL.ripup_spot(H[0], H[1], C[0], C[1], SO, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1,
+                                             int(st.X[i]), int(st.Y[i]), ks.index(int(st.K[i])), float(w_rot), own,
+                                             own_n, opp, opp_n, brd, brd_n, E, E0, EB, int(min(reach, max_d)))
         charge("legal_fit", n)
+        charge("legal_pair", npair)
         return None if c < 0 else (c, X, Y, ks[k], "ripup")
     while queue:
         if out_of_time or (time_s is not None and dl.passed()):
@@ -664,8 +677,10 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
     its side and their board rectangles lie inside the outline; every other movable part
     stays where it is. The search window around the current origin doubles until a spot is
     found or it covers the board. A part that finds no spot (a full board, space cut into
-    pieces) takes the nearby spot that covers the least area of smaller parts, which are
-    evicted and placed again (rip-up; evictions only go to smaller parts, so it ends).
+    pieces) takes the spot that moves least in all (its own displacement plus, per smaller
+    part it covers, the push that clears that part; lengths, so the same at any grid pitch),
+    and those parts are evicted and placed again (rip-up; evictions only go to smaller
+    parts, so it ends).
     Always ends legal for the parts it places; returns {placed, unplaced: [refs], moved_mm,
     ripups}."""
     dl = Deadline(math.inf if time_s is None else time_s)
@@ -712,20 +727,22 @@ def greedy(P, st, parts, log=None, w_rot=None, ripup=True, max_ripups=None, comp
         if best is None:
             # rip-up: obstacles and parts at least as big are hard, smaller placed parts may go
             hard = [np.zeros_like(occ[0]) for _ in (0, 1)]
-            soft = [np.zeros_like(occ[0]) for _ in (0, 1)]
             for ob in P.obstacles:
                 _mark(hard[ob.side], ob.g, pad, 1)
             n = len(P.obstacles)
+            ev = []
             for j in P.mov:
                 if j == i or (j in skip and j not in placed_set):
                     continue
-                tgt = soft if P.parts[j].area < p.area else hard
-                for side, r, _ in st.grid_rects(j):
-                    _mark(tgt[side], r, pad, 1)
+                rs = st.grid_rects(j)
+                if P.parts[j].area < p.area:
+                    ev.append([(side, r) for side, r, _ in rs])
+                    continue
+                for side, r, _ in rs:
+                    _mark(hard[side], r, pad, 1)
                     n += 1
             charge("legal_rect", n)
-            best = _nearest_spot(P, p, int(st.X[i]), int(st.Y[i]), int(st.K[i]), hard, pad, w_rot, span,
-                                 cost_occ=soft, w_cost=4.0)
+            best = _nearest_spot(P, p, int(st.X[i]), int(st.Y[i]), int(st.K[i]), hard, pad, w_rot, span, evict=ev)
             if best is None:
                 unplaced.append(i)
                 continue
