@@ -100,6 +100,7 @@ RATES = {
     "legal_fit": 1.45e-7,      # one origin-and-rotation fit test of the compiled ring walk (nearest_spot, ripup_spot); 1.44-1.45e-7 measured (can485, magtag)
     "legal_cells": 1e-8,      # one cell of a grid-sized numpy pass (a summed-area table, a window or board search); 6e-9-1.7e-8 measured, 3 boards
     "legal_sat_cells": 1.75e-9,      # one summed-area-table cell updated in place when a part is placed or evicted; 1.5-1.9e-9 measured, 3 boards
+    "legal_pair": 2e-9,      # one evictable-part test of a rip-up spot in the compiled ripup_spot (bounding box, push); 1.8-2.2e-9 measured, 300-1000 parts
     "legal_rect": 7.1e-4,      # one rectangle marked into an occupancy map (Python, per obstacle or part); 5.3e-4-5.1e-3 measured, median of 3 boards
     "seconds": 1.0,             # work already measured in nominal seconds by the caller
 }

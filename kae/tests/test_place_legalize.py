@@ -905,8 +905,9 @@ def test_ripup_scan_counts_every_fit_test_of_a_full_board():
     pad, D = 4, 30
     full = sat(np.ones((P.ncx + 2 * pad, P.ncy + 2 * pad), dtype=np.int32))
     empty = sat(np.zeros((P.ncx + 2 * pad, P.ncy + 2 * pad), dtype=np.int32))
-    c, _, _, _, n = FL.ripup_spot(full, full, empty, empty, P.sat_out, P.ncx, P.ncy, pad, 0, P.ncx // 2,
-                                  P.ncy // 2, 0, 1.0, 4.0, own, own_n, opp, opp_n, brd, brd_n, D)
+    E, E0, EB = FL.evict_arrays([])
+    c, _, _, _, n, _ = FL.ripup_spot(full, full, empty, empty, P.sat_out, P.ncx, P.ncy, pad, 0, P.ncx // 2,
+                                     P.ncy // 2, 0, 1.0, own, own_n, opp, opp_n, brd, brd_n, E, E0, EB, D)
     assert c < 0 and n == len(ks) * (2 * D * (D + 1) + 1)
     c, _, _, _, n = FL.nearest_spot(full, full, P.sat_out, P.ncx, P.ncy, pad, 0, P.ncx // 2, P.ncy // 2, 0, 1.0,
                                     own, own_n, opp, opp_n, brd, brd_n, D)
@@ -998,3 +999,75 @@ def test_physics_breaks_ties_between_equal_displacement_repairs():
         assert abs(int(st.Y[i]) - P.ncy // 2) == 0 and int(st.K[i]) == 0
         side[sign] = int(np.sign(int(st.X[i]) - X0))
     assert side == {1: -1, -1: 1}
+
+
+def _strip(g, mover_x):
+    """A 45 x 9 mm board at grid pitch g: a row of 1 x 1 mm parts at y 4-5 mm, 4 mm apart up to
+    x = 17 mm and 7 mm apart after, so an 8 x 8 mm part fits nowhere without covering one of
+    them, and near x = 5-13 mm only by covering two. Returns (P, st, mover index)."""
+    from types import SimpleNamespace as NS
+    from kae.place.problem import sat
+    from kae.place.state import State
+
+    def c(v):
+        return int(round(v / g))
+
+    def part(i, ref, w, h):
+        own = (0, c(w), 0, c(h))
+        r = NS(g_own=own, g_own_rects=(own,), g_opp=(), g_board=own, g_boards=(own,))
+        return NS(i=i, ref=ref, movable=True, area=w * h, s=1.0, rots=[r], n_ortho=1)
+    xs = [1, 5, 9, 13, 17, 24, 31, 38]
+    parts = [part(n, f"R{n}", 1.0, 1.0) for n in range(len(xs))] + [part(len(xs), "M", 8.0, 8.0)]
+    P = NS(g=g, ncx=c(45), ncy=c(9), obstacles=[], parts=parts, mov=list(range(len(parts))))
+    P.sat_out = sat(np.zeros((P.ncx, P.ncy), dtype=bool))
+    st = NS(P=P, X=np.zeros(len(parts), np.int64), Y=np.zeros(len(parts), np.int64), K=np.zeros(len(parts), np.int64))
+    st.grid_rects = lambda i: State.grid_rects(st, i)
+    for n, x in enumerate(xs):
+        st.X[n], st.Y[n] = c(x), c(4)
+    m = len(xs)
+    st.X[m], st.Y[m] = c(mover_x), c(0.5)
+    return P, st, m
+
+
+def test_ripup_prices_evictions_by_distance_the_same_at_any_grid_pitch():
+    """The rip-up charges each evicted part the push that clears it, a length like the mover's
+    own travel. It used to charge 4 per covered cell, an area: at 0.1 and 0.25 mm the 8 mm part
+    travelled 9 mm to cover one 1 mm part instead of pushing two aside where it was, at 0.5 mm
+    it stayed, so the grid pitch decided the placement."""
+    from kae.place.legalize import greedy
+    for compiled in (True, False):
+        got = {}
+        for g in (0.1, 0.25, 0.5):
+            P, st, m = _strip(g, 5.0)
+            rep = greedy(P, st, [m], compiled=compiled)
+            assert rep["ripups"] >= 1 and not rep["unplaced"], rep
+            rs = [r for i in P.mov for _, r, _ in st.grid_rects(i)]
+            assert not any(a[1] > b[0] and b[1] > a[0] and a[3] > b[2] and b[3] > a[2]
+                           for n, a in enumerate(rs) for b in rs[n + 1:])
+            assert all(0 <= r[0] and r[1] <= P.ncx and 0 <= r[2] and r[3] <= P.ncy for r in rs)
+            got[g] = (st.X[m] * g, rep["moved_mm"])
+        xs = [x for x, _ in got.values()]
+        # the mover stays within a few mm (the near pair is cheaper than a 13 mm trip) ...
+        assert all(abs(x - 5.0) < 4.0 for x in xs), (compiled, got)
+        # ... at the same place, whatever the pitch (to within the coarsest cell)
+        assert max(xs) - min(xs) <= 0.5 + 1e-9, (compiled, got)
+
+
+def test_evict_push_is_the_shortest_straight_push():
+    from types import SimpleNamespace as NS
+    from kae.place import _fastlegal as FL
+    from kae.place.legalize import _evict_push
+    own = (0, 80, 0, 80)
+    r = NS(g_own=own, g_own_rects=(own,), g_opp=((30, 50, 30, 50),))
+    ks_own, own_n, opp, opp_n, _, _ = FL.part_arrays(NS(rots=[NS(g_own=own, g_own_rects=(own,),
+                                                                 g_opp=((30, 50, 30, 50),), g_board=own, g_boards=(own,))]))
+    cases = [([(0, (5, 15, 40, 50))], 15),         # 15 cells to the left edge
+             ([(0, (70, 90, 0, 10))], 10),         # 10 up / 10 left: pushed out the shorter way
+             ([(0, (100, 110, 0, 10))], 0),        # clear of it
+             ([(1, (35, 45, 0, 100))], 15),        # the back rectangle meets a back part: 15 sideways
+             ([(1, (5, 15, 40, 50))], 0)]          # a back part under the front piece only: no overlap
+    for ev, want in cases:
+        X, Y = np.array([0]), np.array([0])
+        assert int(_evict_push(r, X, Y, 0, ev)[0]) == want, ev
+        E, E0, _ = FL.evict_arrays([ev])
+        assert FL.evict_push(0, 0, 0, 0, ks_own, own_n, opp, opp_n, E, E0, 0) == want, ev
