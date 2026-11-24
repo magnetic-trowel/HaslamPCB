@@ -87,6 +87,7 @@ class Daemon:
         self.cpuj = {}           # job id -> CPU samples every 10 s: {t, cpu, some, full, rates: [(t, cores)], ...}
         self.timed_wait = 0.0    # share of time timed jobs had a thread waiting for a CPU (smoothed, ~30 s)
         self.admit_why = None    # why the next job did not start at the last admission (kaeqtop shows it)
+        self.tick_s = 0.0        # how long the last tick took
         self.cpu_freeze_ts, self.calm_since = 0.0, 0.0
         self.runq_class, self.runq_class_ts = {}, 0.0
         self.cpu_learn, self.cpu_learn_ts = {}, 0.0
@@ -272,7 +273,7 @@ class Daemon:
                         runq_qv=quantile([r for t, r, _ in self.runq_hist if t >= now - cfg["runq_window_s"]],
                                          self.runq_q or cfg["runq_q"]),
                         runq_over=self.runq_stats[0], runq_idle=self.runq_stats[1], runq_class=self.runq_class,
-                        admit=self.admit_why, timed_wait=round(self.timed_wait, 3),
+                        admit=self.admit_why, timed_wait=round(self.timed_wait, 3), tick_s=round(self.tick_s, 1),
                         pool_rho={o: [round(r, 2), n] for o, (r, n) in self.rho.items()},
                         mem_ratio={o: round(q, 3) for o, q in self.ratios.items()},
                         mem_mode=mode, mem_rise=self.rise, mem_single=single, mem_warm=warm_need,
@@ -1212,7 +1213,7 @@ class Daemon:
             hist = json.dumps(mem_hist(tr, peak)) if seen >= 0.5 and len(tr) >= 6 and peak > 0 else None
             self.c.execute("UPDATE jobs SET state='ok',rc=0,finished=?,pid=NULL,mem_hist=? WHERE id=?",
                            (time.time(), hist, j["id"]))
-            drop_worktree(j)
+            drop_worktree(j, wait=False)
             drop_scratch(config(), j["id"])
             return
         note = "daemon lost the job's process" if lost else f"rc={rc}" + (" (SIGKILL: likely memory-cgroup OOM, raise --mem)" if rc == 137 else "")
@@ -1233,7 +1234,7 @@ class Daemon:
         c.execute("UPDATE jobs SET state=?,rc=?,finished=?,pid=NULL,peak_mb=?,note=? WHERE id=?",
                   (state, rc if rc is not None else -1, time.time(), peak, note, j["id"]))
         if not dying:
-            drop_worktree(j)
+            drop_worktree(j, wait=False)
         r = c.execute("SELECT * FROM jobs WHERE id=?", (j["id"],)).fetchone()
         head = f"#{j['id']} {state.upper()} {note} | {j['name'] or j['cmd'][:60]} | {ref(j)} | {times(r)} peak {fgb(peak)}/{fgb(j['mem_mb'])} attempt {j['attempt']}"
         salvage = [f"  salvage (once stopped, within {fdur(config()['kill_grace_s'])}): "
@@ -1255,10 +1256,14 @@ class Daemon:
         # running jobs from a previous daemon are adopted: check() handles alive / finished / lost
         signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
         while True:
+            t0 = time.time()
             try:
                 self.tick()
             except sqlite3.OperationalError:
                 pass
+            self.tick_s = time.time() - t0      # a slow tick delays every start (shown by kaeqtop, logged)
+            if self.tick_s > 10:
+                dlog(f"slow tick: {self.tick_s:.0f}s")
             time.sleep(TICK)
 
 

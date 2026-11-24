@@ -1457,3 +1457,28 @@ def test_salvage_keeps_logs_first_within_the_cap(kq, tmp_path):
     import gzip
     assert gzip.open(os.path.join(dst, "a", "log.gz")).read().endswith(b"THE END\n")
     assert salvage_scratch(str(tmp_path / "empty"), str(tmp_path / "d2"), 1) is None
+
+
+def test_a_finished_jobs_worktree_is_removed_in_the_background_and_a_reuse_waits_for_it(kq, tmp_path, monkeypatch):
+    import threading
+    from kaeqlib import gitsnap
+    started, release, calls = threading.Event(), threading.Event(), []
+
+    def slow_remove(root, src):           # a network home: deleting the tree takes a while
+        calls.append(src)
+        started.set()
+        release.wait(5)
+    monkeypatch.setattr(gitsnap, "_remove", slow_remove)
+    j = dict(id=7, sha="abc", root=str(tmp_path))
+    t0 = time.time()
+    gitsnap.drop_worktree(j, wait=False)
+    assert time.time() - t0 < 0.5 and started.wait(2)          # the caller (the daemon's tick) does not wait
+    gitsnap.drop_worktree(j, wait=False)                       # already queued: not twice
+    done = []
+    reuse = threading.Thread(target=lambda: (gitsnap.drop_worktree(j), done.append(1)))
+    reuse.start()
+    time.sleep(0.3)
+    assert not done                                            # a start reusing the path waits for the removal
+    release.set()
+    reuse.join(5)
+    assert done and len(calls) == 2
