@@ -1000,6 +1000,7 @@ def cmd_sprint(a):
     priority 5. Boards of the suite without a stored control run get the control run in the same campaign,
     stored like the control's own for later sprints. Cost and the per-board limit come from the control's
     own runs of the same base recipe."""
+    tier = getattr(a, "tier", None) or "sprint"
     d = exp_dir(a.name)
     if not (d / "PLAN.md").exists():
         raise SystemExit(f"refused: no {d / 'PLAN.md'} (the question, the one change, what will decide it).\n"
@@ -1070,11 +1071,11 @@ def cmd_sprint(a):
     if a.allow_over_cap is not None and not a.allow_over_cap.strip():
         raise SystemExit("--allow-over-cap needs the reason (why the question needs the boards over the limit)")
     cmd_exp_create(argparse.Namespace(
-        name=a.name, description=f"sprint on {suite}: {ctl['name']!r} against itself at {commit[:7]} ("
+        name=a.name, description=f"{tier} on {suite}: {ctl['name']!r} against itself at {commit[:7]} ("
                                  + "; ".join(f"{n or 'arm'}:{','.join(common + s)}" for n, s in arms)
                                  + f"); control runs of {a.control} reused",
         method=[ctl["id"], *mids], boards=",".join(boards), attempts=attempts, harness=tag, haslam=tag, env=None,
-        reuse_runs=True, tier="sprint", suite=suite, cost_from=ctl["id"], allow_over_cap=a.allow_over_cap,
+        reuse_runs=True, tier=tier, suite=suite, cost_from=ctl["id"], allow_over_cap=a.allow_over_cap,
         arms=len(mids), record=dict(record, arm_methods={(n or "arm"): mid for (n, _), mid in zip(arms, mids)})))
     if fill and not a.dry_run:
         f = exp_dir(a.control) / "control-fill.jsonl"   # who added runs to the stored control, where
@@ -3270,6 +3271,10 @@ def main():
     s.add_argument("--control-method", metavar="ID", help="which of the control experiment's methods is the control (default: "
                    "its first of the base's kind); the BGA baseline: --control hybrid-bga-w47 --control-method <hybrid id> "
                    "(bench/suites/README.md)")
+    s.add_argument("--tier", choices=("sprint", "ladder"), default="sprint",
+                   help="ladder: the same arms against the same stored control on a ladder suite, for a change that "
+                        "passed sprint; the ladder lifts the total limit (keep to the plan's), --skip-over-cap still "
+                        "uses the 0.5 CPU-h board limit")
     s.add_argument("--dry-run", action="store_true", help="register and create, write the job file, submit nothing")
     s.set_defaults(f=cmd_sprint)
     s = sub.add_parser("job", help="one board (what each queued job runs)")
