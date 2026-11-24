@@ -19,6 +19,7 @@ this projection pass the cap from the 15th of 60 finished jobs on (177 CPU-h pro
 import argparse
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import time
@@ -75,8 +76,22 @@ def project(jobs, min_finished=MIN_FINISHED):
 def haslamq_cancel(ids):
     """Cancel these haslamq jobs. --force: the jobs are the campaign's own and its owner set the cap at submit,
     so the watchdog acts for it even from a timer or another haslamq job's session."""
-    r = subprocess.run(["haslamq", "cancel", "--force", *map(str, ids)], capture_output=True, text=True)
+    exe = haslamq_bin()
+    if not exe:
+        return 127, "no haslamq on PATH, in $HASLAMQ_BIN or ~/.local/bin"
+    try:
+        r = subprocess.run([exe, "cancel", "--force", *map(str, ids)], capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as ex:
+        return 126, f"haslamq cancel: {ex}"
     return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def haslamq_bin():
+    """The haslamq command: $HASLAMQ_BIN, else on PATH, else ~/.local/bin/haslamq (a systemd timer's PATH lacks it)."""
+    for c in (os.environ.get("HASLAMQ_BIN"), shutil.which("haslamq"), str(Path.home() / ".local" / "bin" / "haslamq")):
+        if c and os.access(c, os.X_OK):
+            return c
+    return None
 
 
 def check(name, store=None, dbp=None, dry_run=False, cancel=haslamq_cancel, out=print):
