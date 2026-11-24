@@ -29,6 +29,8 @@ from kae import materials as MAT
 
 MAX_BRIDGE_MM = 1.0          # farther than this in the plane (plus two cells) a split is reported, not bridged
 Z_TIE = 1e-3                 # the weight of a layer change in the nearest-cells search
+TOUCH_MM = 0.002             # copper this close touches: the buffered outlines (8 segments a quarter circle) lie up to
+                             # 0.5 % of a radius inside the true arcs, so an end cap that just reaches a pad still joins it
 PLATING_MM = MAT.VIA_PLATING_MM
 
 
@@ -106,7 +108,7 @@ def reference(bm):
     for qs in by.values():
         geoms = [nodes[q][4] for q in qs]
         tree = STRtree(geoms)
-        a, c = tree.query(geoms, predicate="intersects")
+        a, c = tree.query(geoms, predicate="dwithin", distance=TOUCH_MM)
         for x, y in zip(a, c):
             if x < y:
                 dsu.union(qs[x], qs[y])
