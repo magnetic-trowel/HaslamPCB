@@ -54,13 +54,15 @@ def zone_nets(report, info=None):
     the gap between two GND parts "Zone [GND] on F.Cu" <-> "Zone [GND] on F.Cu", and the same
     board's DRC in work mode (canonical copper order) a pad and a track of those parts."""
     from .lastmile import unescape
-    from .repair import _is_zone, _nets_of
+    from kae.drc_items import item_nets
+
+    from .repair import _is_zone
     pours = {unescape(z["net"]) for z in (info or {}).get("zones") or []
              if z.get("net") and not z.get("rule_area") and not z.get("teardrop")}
     out = set()
     for u in report.get("unconnected_items") or []:
         its = u.get("items") or []
-        nets = {n for it in its for n in _nets_of(it.get("description"))}
+        nets = {n for it in its for n in item_nets(it.get("description"))}
         if any(_is_zone(it.get("description")) for it in its):
             out |= nets
         else:
