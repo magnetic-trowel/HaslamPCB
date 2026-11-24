@@ -8,7 +8,7 @@
 | `<slug>.kicad_pro`, `<slug>.kicad_sch`, `<block>.kicad_sch` | KiCad 10 project: a root sheet plus one hierarchical sheet per block, net classes, lib tables |
 | `haslamsynth.kicad_sym` | Project symbols: generated IC symbols and renumbered transistor symbols |
 | `<slug>.kicad_dru` | Custom DRC rules: clearance and creepage between isolation domains |
-| `intent.yaml` | `pcb-intent/0.2` placement intent for the placer/router: board, domains, barriers, net classes, relations |
+| `<slug>.haslam_intent.json` | haslam.intent/1: operating facts, priced terms and placement relations haslam reads beside the board (`intent.yaml` is retired) |
 | `netlist.json` | The IR netlist, every pin with its net |
 | `bom.csv` | BOM grouped by MPN, with lifecycle and second source |
 | `report.md` | Requirements, questions, hazards, calculations, findings, ERC, parity |
@@ -160,7 +160,8 @@ puts a block on one (default: the first). `board="off"` is for harness items wit
 (inline fuses, ring terminals): they are in the BOM, not on a board. A net may run between
 boards only through a connector on every board it touches (`board.crossing_without_connector`).
 The build writes the whole system schematic in `out/` (review, ERC, system parity) and one
-KiCad project plus `intent.yaml` per board in `out/board-<name>/`, each with its own parity check.
+KiCad project per board in `out/board-<name>/`, each with its own parity check (the intent file is written for the
+whole design only).
 
 ### Nets that ride on other nets
 
@@ -177,6 +178,10 @@ haslamsynth writes it from three places, later ones winning:
 - `d.haslam.net(...)`, `d.haslam.part(...)`, `d.haslam.cell(controller, "buck"|"boost", I_A=(lo, typ, hi), V_V=..., vin=, vout=)`,
   `d.haslam.cable(...)`, `d.haslam.term(...)` (what this design chooses: rail sources and efficiencies, a cell's current and
   switched bus, cables, priced terms). Every fact says why; haslam's own loader checks the file at build time.
+- placement relations: `d.place.near/far/group/edge` (written as haslam's near, keep_away, group, edge) and the decoupling
+  nears the circuit implies; `near(..., within_mm=, note=)` takes a datasheet distance. Other relation kinds are not
+  written and come back as `haslam_intent.relation_unused` warnings with the reason. Only fields haslam reads are written
+  (docs/topics/workflow/intent-file-fields.md).
 
 ### Calculations and waivers
 
@@ -207,6 +212,7 @@ converter output and the pack it charges) belongs to one root: model the worst c
 | `rules.pin_escape`, `rules.pad_gap` | error | a pad no minimum-width track can leave past its neighbours under the generated clearances; pads of one footprint closer than their nets allow (`haslamsynth/layout.py`; necessary, not sufficient: corners and centre pads are not modelled) |
 | `layout.density`, `layout.fab_minimums` | warn/info | courtyard area vs board area (warn above 40 % on 2 layers); board min track/clearance from the finest pitch when `BoardSpec` leaves them unset (0.127/0.15 mm at <= 0.65 mm pitch) |
 | `haslam_intent.invalid` | error | the `<slug>.haslam_intent.json` haslam's own loader rejects, or names that are not in the design |
+| `haslam_intent.relation_unused` | warning | a `d.place` relation haslam has no reader for (each with the reason: a physics term, a board rule, `board.json`, no placer term yet) |
 
 ## Known limits
 
