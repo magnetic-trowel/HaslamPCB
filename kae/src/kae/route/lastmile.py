@@ -671,12 +671,13 @@ ESCAPE_MARGINS = (0.5, 1.5)        # mm windows for a pad's escape to its plane:
 
 
 def plane_escapes(board, info, plan, fills, out, sev=None, log=print, deadline=None, margins=ESCAPE_MARGINS,
-                  balls=True, escape_opts=None):
+                  balls=True, escape_opts=None, pin_first=False):
     """Join every pad of a plane net (a net with zone fill) that the fill does not reach to
     that fill, before any routing: a short stub and, where the fill is on another layer, a
     via (the human boards' "power first": a GND pin of a QFN gets its own via to the GND
     plane next to it); with `balls`, the ball grids' escape plans first (escape.run: dog-bones
-    and escapes, `escape_opts`).
+    and escapes, `escape_opts`); with `pin_first`, the dense parts' walled-in signal pins led out to free
+    space after them (kae.route.pin_access, report "pin_first").
     `board` is the unrouted input with its project files beside it, `fills` its refilled
     zones (pcbnew_io.zone_fills). Searches stay within `margins` of the pad (no rip-up;
     what does not fit is left to the router). The new copper is written unlocked to `out`
@@ -702,6 +703,10 @@ def plane_escapes(board, info, plan, fills, out, sev=None, log=print, deadline=N
                              float(eo.get("escape_min_s", 45.0)), 0.7 * max(0.0, deadline - clock_now())))
         rep["escape"] = esc
         rep["dog_bones"] = escape.dog_bones(sp, info, log=log)    # after the plan: it plans the bare board
+    if pin_first:
+        # pin-first access (kae.route.pin_access): after the dog-bones, before the plane escapes
+        from . import pin_access
+        rep["pin_first"] = pin_access.run(sp, gr, info, dict(escape_opts or {}, _board=str(board)), log=log)
     from . import constraints as CN
     if fp and CN.setting_env("escape_ground_vias", board, escape_opts):
         rep["ground_vias"] = ground_vias(sp, b, plan, fp, log=log)

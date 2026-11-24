@@ -191,6 +191,12 @@ DEFAULTS = dict(
     escape_ground_vias=0,          # arm E (routing-stages.md): 1 lays power_copper's ground vias at decap and IC
                                    # ground pads in lastmile.plane_escapes, before routing, so the site is
                                    # reserved; 0: off (power copper fits them afterwards); env KAE_ESCAPE_GROUND_VIAS
+    pin_first=0,                   # 1: before routing, lead each walled-in signal pin of a dense part out to
+                                   # free space, most crowded first, strict and exact-checked, unlocked for the
+                                   # router (kae.route.pin_access, in lastmile.plane_escapes); 0: off (no change).
+                                   # Env KAE_PIN_FIRST
+    pin_first_density=1.0 / 1.3 ** 2,  # pads per mm^2 from which a part is dense (pin_access.DENSITY)
+    pin_first_s=60.0,              # nominal seconds (counted work) for the pin-first pass at most
     escape_band=0,                 # placement (kae.place.escape_band): the surface escapes of each ball grid
                                    # and fine-pitch ring kept free of parts that are not its own (1: a soft
                                    # annealer term; 2: hard occupancy against every part; 0: off). Off: on

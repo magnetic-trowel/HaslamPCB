@@ -201,7 +201,11 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
         if balls:
             from .escape import has_grid
             balls = has_grid(info)    # no ball grid: no escape stage (its staging and Space cost time)
-        if planes or (zoned and share) or balls:
+        pins = bool(constraints.setting_env("pin_first", input_path, opts))   # KAE_PIN_FIRST, --set; default off
+        if pins:
+            from .pin_access import has_dense
+            pins = has_dense(info, float(constraints.setting_env("pin_first_density", input_path, opts)))
+        if planes or (zoned and share) or balls or pins:
             te = clock_now()
             staged = drc.stage_board(input_path, input_path, wd / "escapes")
             fills = pcbnew_io.zone_fills(staged)["zones"] if zoned else []   # refilled with the board's rules
@@ -209,12 +213,12 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
             fp_ = translate.fill_planes(info, fills)
             opts["strict_planes"] = sorted(l for l, (n, a) in fp_.items() if a >= share)
             report["plane_fill_shares"] = {l: [n, round(a, 3)] for l, (n, a) in fp_.items()}
-        if planes or balls:
+        if planes or balls or pins:
             from . import lastmile
             esc = wd / "escapes" / "escaped.kicad_pcb"
             got = lastmile.plane_escapes(staged, info, p, fills if planes else [], esc, sev=sev, log=log, balls=balls,
                                          deadline=clock_now() + max(10.0, opts.get("escape_share", 0.15) * left()),
-                                         escape_opts=opts)
+                                         escape_opts=opts, pin_first=pins)
             report["plane_escapes"] = {k: v for k, v in got.items() if k not in ("added", "escape")}
             if got.get("escape"):
                 # the escape plan per package (per ball: layer, side, via, exit), and what no routing
