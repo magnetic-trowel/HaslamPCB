@@ -866,10 +866,12 @@ def _move_advice(pr, cir, obs, by_obs, related):
                                       strength="strong", why=f"decoupling: {ref}'s {rail} current loop (kae advice)",
                                       source="kae.intent.advise move.part"),
                         confidence=dict(level="needs-solve", basis="the capacitor carries the aggressor's current: "
-                                        "the copper's potentials change with it; `solve` re-solves the aggressor "
-                                        f"{src} with the part at the pins (no copper of its own)"),
+                                        "the copper's potentials change with it; `solve` re-solves every aggressor "
+                                        "with the part at the pins (no copper of its own)"),
                         bound=dict(max_gain=round(gain, 4), basis=f"{src}'s priced observations at zero"),
-                        solve=dict(edits=specs, sources=[src]),
+                        # every aggressor: the moved part is a branch of the copper all of them share (T4 on
+                        # solar-small: re-solving U302's core alone left U101's buck pair at 167 mV; all: 59)
+                        solve=dict(edits=specs, sources=None),
                         decide=dict(by="llm", question=f"adopt '{e.name} near {ic_pad}, tight' as a placement relation "
                                     f"(the placer holds it), or is {e.name} not {ref}'s decoupling capacitor?"),
                         applies="llm (relation for kae.place) or kae.place (decoupling default)",

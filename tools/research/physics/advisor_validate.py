@@ -103,8 +103,8 @@ def main(argv=None):
         conf = "needs-solve" if car > AD.CARRY_MAX else ("first-order" if cov >= AD.COVER_MIN else f"partial {cov:.2f}")
         rec = dict(name=name, edit=specs, what=what, predicted=p, measured=m, confidence=conf, carried=round(car, 3))
         if name in a.solve:
-            e = AD.solve_entry(dict(solve=dict(edits=specs, sources=None if not name.startswith("T4") else
-                                               ["core:U302:+3V3"])), ev, intent, brief, intent_path=a.intent,
+            srcs = ["core:U302:+3V3"] if name == "T4-control" else None      # None: every aggressor
+            e = AD.solve_entry(dict(solve=dict(edits=specs, sources=srcs)), ev, intent, brief, intent_path=a.intent,
                                log=lambda s: print("  " + s, file=sys.stderr))
             r = {t["term"]: t["after"] for t in e["estimate"]["terms"]}
             rec["solved"] = dict({t: r.get(t, base[t]) for t in TERMS}, total=e["estimate"]["total_after"],
