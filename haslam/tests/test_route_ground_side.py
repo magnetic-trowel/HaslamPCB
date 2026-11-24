@@ -90,7 +90,8 @@ def test_off_by_default_and_priced_when_set():
 
 
 def test_setting_from_opts_and_board(tmp_path):
-    assert constraints.setting("ground_side_cost", None, {}) is None
+    assert constraints.setting("ground_side_cost", None, {}) == 2.0
+    assert constraints.setting("ground_side_cost", None, dict(ground_side_cost=0)) == 0.0   # the old behaviour
     assert constraints.setting("ground_side_cost", None, dict(ground_side_cost=4)) == 4.0
     pcb = tmp_path / "b.kicad_pcb"
     pcb.with_suffix(".kicad_pro").write_text(json.dumps({"text_variables": {"HASLAM_GROUND_SIDE_COST": "3"}}))
