@@ -320,11 +320,14 @@ DEFAULTS = dict(
     tht_narrow="",                 # refs and ref.pad names whose THT connector pins power copper necks even without a
                                    # DC plan (each one left wide is a tht_pad_kept_wide hazard naming this setting);
                                    # env HASLAM_THT_NARROW
-    ground_side_cost=None,         # routing (haslam.route.ground_side): on a two-layer board, the outer layer one
+    ground_side_cost=2.0,          # routing (haslam.route.ground_side): on a two-layer board, the outer layer one
                                    # ground net's zones cover (>= PLANE_SHARE; both: the side with less SMD pad
                                    # area) costs this many times a signal layer per trace length (against the
                                    # preferred direction twice that), as an inner plane under planes "cost";
-                                   # None or <= 1: off (a design trade-off: whole return pour vs shorter routes)
+                                   # None or <= 1: off (a design trade-off: whole return pour vs shorter routes).
+                                   # 2 since ground-side-ladder (84 two-layer ladder boards): cov_opp +9.4 points
+                                   # [+6.7, +12.4], clean net of input -6.0 [-11.9, 0.0] (the guard's bound), vias
+                                   # x1.00 [1.00, 1.09]; at 4 clean fell -8.3 [-15.5, -2.4]
     zone_keepout=1.0,              # placement: weight of pads whose mask opening would bridge another net's
                                    # fixed outer-layer zone or sit in a board-level mask aperture with another
                                    # net (each 0.1 x this; gecko5: all staged DRC errors, 14 -> 0); 0: off

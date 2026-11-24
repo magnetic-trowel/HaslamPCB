@@ -32,7 +32,7 @@ fixed wiring are kept):
   them `(type power)`, which Freerouting never routes on (and which also turns off its own
   detection of plane nets on the remaining layers); "signal" leaves KiCad's types.
   A two-layer board has no inner planes; its ground-pour side can be priced the same way,
-  off by default (haslam.route.ground_side, setting ground_side_cost).
+  on by default at 2 (haslam.route.ground_side, setting ground_side_cost).
 
 - wiring: KiCad writes DSN coordinates with %.6g, so at x or y >= 100 mm half a micrometre
   is lost: a locked track ending exactly on a pad centre such as 137.2875 mm is written
