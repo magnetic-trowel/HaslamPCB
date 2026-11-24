@@ -5,7 +5,7 @@
 Scope: E104, E105: keeping parts and nets off barriers the router cannot cross. Not here: the region scan method -> stage 1.
 Keys: barrier split, fit_split, barrier-fit-ab, region capacity, true region split, voids, slots, HV keepout, rule area, barrier_split, barrier_net_weight, kae.place.barriers, barrier-ab, E104, E105
 
-**Status:** `barrier-weight-ab2` done: `barrier_net_weight` stays 1. `barrier-split-ab2` done: `barrier_split=1` not adopted (legality guard). `barrier_split=2` (fit probe) pre-registered as `barrier-fit-ab` ([PLAN](https://github.com/magnetic-trowel/kicad-auto-everything/blob/8c30deedd782474dcda32cc20dcfc0a8cd020405/tools/kaeres/experiments/barrier-fit-ab/PLAN.md)); results pending.
+**Status:** `barrier-weight-ab2` done: `barrier_net_weight` stays 1 (undecided: opens ratio 0.979, 95 % CI 0.926-1.045). `barrier-split-ab2` done: `barrier_split=1` not adopted (legality guard). `barrier_split=2` (fit probe) pre-registered as `barrier-fit-ab` ([PLAN](https://github.com/magnetic-trowel/kicad-auto-everything/blob/8c30deedd782474dcda32cc20dcfc0a8cd020405/tools/kaeres/experiments/barrier-fit-ab/PLAN.md)); results pending.
 
 **Branch:** `place-barrier-moves`, first commit [db300d4](https://github.com/magnetic-trowel/kicad-auto-everything/commit/db300d480027797c7209c9e781056136ab2006dc) (2026-11-08), last [8c30dee](https://github.com/magnetic-trowel/kicad-auto-everything/commit/8c30deedd782474dcda32cc20dcfc0a8cd020405) (2026-11-14). The code, plans and scripts named here are at [8c30dee](https://github.com/magnetic-trowel/kicad-auto-everything/tree/8c30deedd782474dcda32cc20dcfc0a8cd020405), not on main.
 
