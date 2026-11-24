@@ -16,9 +16,9 @@ Two halves, because the KiCad image has no shapely and the shapely venv has no p
     return_check.py kicad-measure BOARD NETS.json OUT.json
     return_check.py kicad-mutate BOARD TARGET.json OUT.kicad_pcb
 
---mutate also cuts a ground slot (1 mm each side) under the longest signal track covered by pour only, and adds a
-ground track under the longest uncovered one, then measures both mutants with both measures: cov_opp must fall after
-the slot and rise after the added ground, in both. Report-only tooling; it judges nothing.
+--mutate also makes three mutants and measures each with both measures: a load-and-save round trip in pcbnew (null:
+nothing may change), a ground slot (1 mm each side) cut from the pour under the longest signal track covered by pour
+only (cov_opp must fall), and a ground track under the longest uncovered one (cov_opp must rise). Report-only tooling; it judges nothing.
 """
 import json
 import math
@@ -32,7 +32,8 @@ from pathlib import Path
 STEP = 0.05      # mm between samples along a track
 SLOT = 1.0       # mm of pour removed on each side of the slot's track
 ADD_W = 1.0      # mm added to the track width for the added ground track
-MIN_LEN = 2.0    # mm: shortest track a mutation is placed under
+MIN_LEN = 3.0    # mm: shortest track a mutation is placed under
+INSET = 1.0      # mm: the added ground track's ends stay this far from the signal track's ends (its vias)
 
 
 # ------------------------------------------------------------------ KiCad side (no shapely here)
@@ -130,22 +131,29 @@ def kicad_mutate(board_path, target_path, out_path):
                 n += 1
         if not n:
             raise SystemExit('slot: no ground zone on the layer under the target')
-    else:
-        net = b.FindNet(t['gnd_net'])
-        for l in lids:
-            tr = pcbnew.PCB_TRACK(b)
-            tr.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(x0), pcbnew.FromMM(y0)))
-            tr.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(x1), pcbnew.FromMM(y1)))
-            tr.SetWidth(pcbnew.FromMM(t['width'] + ADD_W))
-            tr.SetLayer(l)
-            tr.SetNet(net)
-            b.Add(tr)
+    elif t['kind'] != 'null':
+        raise SystemExit(f"kicad-mutate: unknown kind {t['kind']}")
     for z in b.Zones():
         z.UnFill()
     pcbnew.SaveBoard(out_path, b)
 
 
 # ------------------------------------------------------------------ driver (shapely side)
+def add_ground(src, t, out):
+    """The added-ground mutant, written as text: pcbnew gives a new track the net of a via or pad its end touches
+    on save, so a ground track drawn under a signal came back on the signal's net. Ends pulled in by INSET."""
+    (x0, y0), (x1, y1) = t['start'], t['end']
+    L = math.hypot(x1 - x0, y1 - y0)
+    f = INSET / L
+    a = (x0 + f * (x1 - x0), y0 + f * (y1 - y0))
+    e = (x1 - f * (x1 - x0), y1 - f * (y1 - y0))
+    text = Path(src).read_text()
+    end = text.rstrip().rfind(')')
+    segs = ''.join(f'\t(segment (start {a[0]:.6f} {a[1]:.6f}) (end {e[0]:.6f} {e[1]:.6f}) (width {t["width"] + ADD_W:.4f}) '
+                   f'(layer "{l}") (net "{t["gnd_net"]}"))\n' for l in t['under'])
+    Path(out).write_text(text[:end] + segs + text[end:])
+
+
 def _plain(path, tmp):
     """A plain .kicad_pcb copy of PATH in TMP (pcbnew reads no .gz)."""
     import gzip
@@ -179,6 +187,23 @@ def _both(kicad, path, tmp, tag):
     return dict(return_board=r['cov_opp'], kicad=k['cov_opp'], sig_mm_rb=r['sig_mm'], sig_mm_kicad=round(k['sig_mm'], 2)), k, nets
 
 
+def rb_cover(b):
+    """seg -> length of it over adjacent-layer ground in return_board's own geometry (its pseudo-fill)."""
+    import return_board as R
+    from shapely.geometry import LineString
+    layers = list(b.cu)
+    cu = R.copper_by_net(b, layers)
+    fill, _, _ = R.pseudo_fill(b, layers, cu)
+    gnd_nets = {n for l in layers for n in cu[l] if b.role(n) == 'gnd'}
+    gnd = {l: R.union(fill[l] + [g for n in gnd_nets for g in cu[l].get(n, [])]) for l in layers}
+
+    def cover(seg):
+        under = R.union([gnd[l] for l in seg['under'] if l in gnd and not gnd[l].is_empty])
+        ln = LineString([seg['start'], seg['end']])
+        return ln.intersection(under).length if not under.is_empty else 0.0
+    return cover
+
+
 def check(paths, kicad, mutate=False):
     res = {}
     for i, p in enumerate(paths):
@@ -186,23 +211,39 @@ def check(paths, kicad, mutate=False):
             plain = _plain(p, tmp)
             row, k, nets = _both(kicad, plain, tmp, 'base')
             if mutate and nets['gnd']:
+                # targets the two measures agree on (straight tracks): a mutation tests whether each measure responds
+                # where it sees the change, not where the two already differ (pseudo-fill edge pull-back, for one)
+                import return_board as R
+                rbc = rb_cover(R.load(plain))
                 segs = [s for s in k['segments'] if s['len'] >= MIN_LEN]
-                slot = max((s for s in segs if s['cov'] >= 0.99 * s['len'] and s['cov_items'] <= 0.01 * s['len']),
-                           key=lambda s: s['len'], default=None)
-                add = max((s for s in segs if s['cov'] <= 0.01 * s['len']), key=lambda s: s['len'], default=None)
-                for kind, s in (('slot', slot), ('add', add)):
+                slot = max((s for s in segs if s['cov'] >= 0.99 * s['len'] and s['cov_items'] <= 0.01 * s['len']
+                            and rbc(s) >= 0.99 * s['len']), key=lambda s: s['len'], default=None)
+                add = max((s for s in segs if s['cov'] <= 0.01 * s['len'] and rbc(s) <= 0.01 * s['len']),
+                          key=lambda s: s['len'], default=None)
+                gnd_net = 'GND' if 'GND' in nets['gnd'] else nets['gnd'][0]
+                for kind, s in (('null', segs[0] if segs else None), ('slot', slot), ('add', add)):
                     if s is None:
                         row[kind] = 'no target'
                         continue
                     tf, mp = Path(tmp) / f'{kind}.target.json', Path(tmp) / f'{kind}.kicad_pcb'
-                    tf.write_text(json.dumps(dict(s, kind=kind, gnd=nets['gnd'], gnd_net=nets['gnd'][0])))
-                    _kicad(kicad, 'kicad-mutate', plain, tf, mp)
+                    t = dict(s, kind=kind, gnd=nets['gnd'], gnd_net=gnd_net)
+                    if kind == 'add':
+                        add_ground(plain, t, mp)
+                    else:
+                        tf.write_text(json.dumps(t))
+                        _kicad(kicad, 'kicad-mutate', plain, tf, mp)
                     m, _, _ = _both(kicad, mp, tmp, kind)
-                    sign = -1 if kind == 'slot' else 1
-                    row[kind] = dict(target=dict(net=s['net'], layer=s['layer'], len=round(s['len'], 2)),
-                                     return_board=m['return_board'], kicad=m['kicad'],
-                                     ok_return_board=sign * (m['return_board'] - row['return_board']) > 0,
-                                     ok_kicad=sign * (m['kicad'] - row['kicad']) > 0)
+                    out = dict(target=dict(net=s['net'], layer=s['layer'], len=round(s['len'], 2)),
+                               return_board=m['return_board'], kicad=m['kicad'],
+                               same_signal_mm=m['sig_mm_kicad'] == row['sig_mm_kicad'])
+                    if kind == 'null':      # a load-and-save round trip changes nothing
+                        out.update(ok_return_board=abs(m['return_board'] - row['return_board']) < 1e-6,
+                                   ok_kicad=abs(m['kicad'] - row['kicad']) < 1e-6)
+                    else:
+                        sign = -1 if kind == 'slot' else 1
+                        out.update(ok_return_board=sign * (m['return_board'] - row['return_board']) > 0,
+                                   ok_kicad=sign * (m['kicad'] - row['kicad']) > 0)
+                    row[kind] = out
         res[str(p)] = row
         print(f'[{i + 1}/{len(paths)}] {p}: {json.dumps(row)}', file=sys.stderr)
     return res
