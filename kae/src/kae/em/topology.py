@@ -6,18 +6,19 @@ The raster (kae.em.mesh) labels each cell with one net, so two nets are never jo
 gap is narrower than a cell, a net can lose the cells that carried a connection (a pad between two rows of
 cell centres, a cell another net's copper covers more), and the solve then reads a real connection as open.
 
-The reference is the board's copper itself, connected as KiCad's connectivity connects it: a pad, a via or a
-fill piece joins whatever copper of its net it touches; a track joins other copper only at its ends (a track that
-crosses a fill of its net without ending in it is not joined to it); each fill piece on each layer is its own
-piece, joined to other layers only through vias and through-hole pads. The check compares, per net, the pieces
+The reference is the board's copper itself, connected as KiCad 10's connectivity connects it: any two copper
+items of one net on one layer join wherever their copper touches (a track crossing a fill of its net without
+ending in it, two tracks crossing in an X, a track passing over a pad, an end cap reaching a pad or a fill: all
+joined; measured with pcbnew's own clusters, tests/test_em_topology_kicad.py); each fill piece on each layer is
+its own piece, joined to other layers only through vias and through-hole pads. The check compares, per net, the pieces
 that the copper alone joins on the raster (bars, via barrels, terminals, the raster's own bridges: no part) with
 that reference, at the pads and vias:
 
 - split: copper the board connects lies in two raster pieces. Repaired, when the pieces come within
   MAX_BRIDGE_MM of each other, by a lumped bridge between their nearest cells (the copper's resistance over that
   distance, about 1 nH/mm): the connection is kept, its field coupling over that fraction of a millimetre is lost.
-- join: one raster piece holds copper the board does not connect (two same-net pieces closer than a cell, or a
-  track crossing a fill of its net). Reported, not changed.
+- join: one raster piece holds copper the board does not connect (two same-net pieces closer than a cell).
+  Reported, not changed.
 - unresolved: a pad or via with no cell of its net.
 """
 from __future__ import annotations
@@ -27,7 +28,6 @@ import numpy as np
 from kae import materials as MAT
 
 MAX_BRIDGE_MM = 1.0          # farther than this in the plane (plus two cells) a split is reported, not bridged
-TOL = 1e-6
 Z_TIE = 1e-3                 # the weight of a layer change in the nearest-cells search
 PLATING_MM = MAT.VIA_PLATING_MM
 
@@ -62,18 +62,18 @@ def reference(bm):
     from .kicad import _arc_points
     b, li, win, nets = bm.b, bm.li, bm.win, bm.nets_filter
     keep = (lambda n: bool(n) and (nets is None or n in nets))
-    nodes = []                     # (net, layer, kind, item or None, geom, ends, width)
+    nodes = []                     # (net, layer, kind, item or None, geom)
     dsu = _DSU()
     for key, layer, g, p in _pads(bm):
         if keep(p.net) and layer in li and g is not None and not g.is_empty and g.intersects(win):
-            nodes.append((p.net, layer, "pad", key, g, (g.centroid,), 0.0))
+            nodes.append((p.net, layer, "pad", key, g))
     for k, v in enumerate(b.vias):
         if not keep(v.net) or not win.contains(Point(v.x, v.y)):
             continue
         for layer in bm.span(v.layers):
             if layer in li:
                 disk = Point(v.x, v.y).buffer(v.size / 2, quad_segs=8)
-                nodes.append((v.net, layer, "via", ("via", k), disk, (Point(v.x, v.y),), 0.0))
+                nodes.append((v.net, layer, "via", ("via", k), disk))
     for t in b.tracks:
         if not keep(t.net) or t.layer not in li:
             continue
@@ -81,8 +81,7 @@ def reference(bm):
         ln = LineString(pts)
         if not ln.intersects(win):
             continue
-        ends = (Point(pts[0]), Point(pts[-1]))
-        nodes.append((t.net, t.layer, "track", None, ln.buffer(t.width / 2, quad_segs=8), ends, t.width))
+        nodes.append((t.net, t.layer, "track", None, ln.buffer(t.width / 2, quad_segs=8)))
     for net, per in (bm.fills or {}).items():
         if not keep(net):
             continue
@@ -92,7 +91,7 @@ def reference(bm):
             u = unary_union(pgs).intersection(win)
             for g in getattr(u, "geoms", [u]):
                 if not g.is_empty and g.area > 0:
-                    nodes.append((net, layer, "fill", None, g, None, 0.0))
+                    nodes.append((net, layer, "fill", None, g))
     # an item's nodes are one (a through-hole pad's layers, a via's barrel)
     first = {}
     for q, nd in enumerate(nodes):
@@ -103,42 +102,19 @@ def reference(bm):
     by = {}
     for q, nd in enumerate(nodes):
         by.setdefault((nd[0], nd[1]), []).append(q)
+    # one net's copper on one layer joins wherever it touches, as KiCad 10 joins it
     for qs in by.values():
         geoms = [nodes[q][4] for q in qs]
         tree = STRtree(geoms)
         a, c = tree.query(geoms, predicate="intersects")
         for x, y in zip(a, c):
-            if x >= y:
-                continue
-            na, nb = nodes[qs[x]], nodes[qs[y]]
-            if _touch(na, nb):
+            if x < y:
                 dsu.union(qs[x], qs[y])
     out, num = {}, {}
     for q, nd in enumerate(nodes):
         if nd[3] is not None:
             out[nd[3]] = num.setdefault(dsu.find(q), len(num))
     return out
-
-
-def _touch(na, nb):
-    """Whether two intersecting copper nodes of one net and layer are connected, as KiCad's connectivity has it:
-    a track joins a fill only at its ends (an end within half its width of the fill), other copper where an end
-    cap of it touches that copper or that copper's anchor (a pad's or via's centre, another track's end) lies on
-    it."""
-    ka, kb = na[2], nb[2]
-    if ka == "fill" and kb == "fill":
-        return True
-    if ka != "track" and kb != "track":
-        return True
-    if ka != "track":
-        na, nb = nb, na
-    # na is a track
-    if nb[2] == "fill":
-        return any(nb[4].distance(e) <= na[6] / 2 + TOL for e in na[5])
-    if any(nb[4].distance(e) <= na[6] / 2 + TOL for e in na[5]):
-        return True
-    reach = nb[6] / 2 if nb[2] == "track" else 0.0
-    return any(na[4].distance(e) <= reach + TOL for e in nb[5])
 
 
 def _pads(bm):
@@ -307,7 +283,7 @@ def notes(rep, limit=4):
                    + "; ".join(f"{s['net']}: {', '.join(s['items'][:4])}" for s in rep["splits"][:limit]))
     if rep.get("joins"):
         out.append(f"mesh: {len(rep['joins'])} raster piece(s) join copper the board does not connect (same-net copper "
-                   "closer than a cell, or a track crossing a fill without ending in it): "
+                   "closer than a cell): "
                    + "; ".join(f"{j['net']}: " + " | ".join(", ".join(g[:3]) for g in j["items"][:3])
                                for j in rep["joins"][:limit]))
     if rep.get("unresolved"):

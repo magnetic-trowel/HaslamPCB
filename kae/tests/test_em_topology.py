@@ -135,20 +135,29 @@ def test_two_pours_of_one_net_join_only_through_a_via():
     assert ca == cb
 
 
-def test_a_track_crossing_a_fill_joins_it_only_where_it_ends_in_it():
+def test_a_track_crossing_a_fill_joins_it_as_kicad_does():
+    """KiCad 10 joins a track to a fill of its net wherever their copper touches, not only where the track ends
+    (tests/test_em_topology_kicad.py measures it); the raster fuses them too, so nothing is reported."""
     fills = {"G": {"F.Cu": [box(2, -1, 4, 1)]}}
     pads = [_pad("a", "G", 0.0, 0.0, 0.6, 0.6), _pad("b", "G", 6.0, 0.0, 0.6, 0.6), _pad("c", "G", 3.0, 0.6, 0.3, 0.3)]
-    # a track from a to b straight across the fill, ending in neither: KiCad does not join it to the fill (c's piece)
-    b = _board(pads, [_track("G", (0.0, 0.0), (6.0, 0.0))])
-    bm = BoardMesh(None, (-1, -2, 7, 2), P, b=b, fills=fills)
-    rep = bm.topology
-    assert rep["splits"] == [] and len(rep["joins"]) == 1      # the raster fuses the copper; reported, not changed
-    groups = rep["joins"][0]["items"]
-    assert sorted(groups) == [["U1.a", "U1.b"], ["U1.c"]]
-    # the same track ending in the fill (two segments meeting inside it): one piece, nothing to report
-    b = _board(pads, [_track("G", (0.0, 0.0), (3.0, 0.0)), _track("G", (3.0, 0.0), (6.0, 0.0))])
-    bm = BoardMesh(None, (-1, -2, 7, 2), P, b=b, fills=fills)
-    assert bm.topology["clusters"] == 1 and bm.topology["joins"] == [] and bm.topology["splits"] == []
+    for tracks in ([_track("G", (0.0, 0.0), (6.0, 0.0))],                      # straight across, ending in neither
+                   [_track("G", (0.0, 0.0), (3.0, 0.0)), _track("G", (3.0, 0.0), (6.0, 0.0))]):   # ending in it
+        bm = BoardMesh(None, (-1, -2, 7, 2), P, b=_board(pads, tracks), fills=fills)
+        rep = bm.topology
+        assert rep["clusters"] == 1 and rep["joins"] == [] and rep["splits"] == []
+
+
+def test_same_net_copper_a_hair_apart_is_two_pieces_the_raster_may_join():
+    """A track ending 0.1 mm short of a fill of its net (its end cap clear of it): KiCad keeps them apart; at 0.25 mm
+    the raster fuses them, which is reported as a join, not changed."""
+    fills = {"G": {"F.Cu": [box(2, -1, 4, 1)]}}
+    pads = [_pad("a", "G", 0.0, 0.0, 0.6, 0.6), _pad("c", "G", 3.0, 0.6, 0.3, 0.3)]
+    b = _board(pads, [_track("G", (0.0, 0.0), (1.8, 0.0), w=0.2)])
+    ref = T.reference(BoardMesh(None, (-1, -2, 5, 2), P, b=b, fills=fills, topology=None))
+    assert ref[("pad", "U1.a")] != ref[("pad", "U1.c")]
+    bm = BoardMesh(None, (-1, -2, 5, 2), P, b=b, fills=fills)
+    assert bm.topology["splits"] == [] and bm.topology["clusters"] == 2
+    assert [sorted(g) for g in bm.topology["joins"][0]["items"]] == [["U1.a"], ["U1.c"]]
 
 
 def test_a_split_in_a_track_is_bridged_with_its_resistance():
