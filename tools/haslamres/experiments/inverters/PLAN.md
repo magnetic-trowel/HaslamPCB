@@ -2,7 +2,8 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Inverting cells in the hot-loop stage: N vs C (pre-registration)
 
-Status: pre-registered, user-approved (11 boards, about 45-75 CPU-hours). Nothing is submitted until the coordinator
+Status: pre-registered, user-approved (11 boards, about 45-75 CPU-hours); submitted at the commit that carries this
+line, its suite green (haslamq #123467 at 154b2354, no code change since). Originally: nothing submitted until the coordinator
 gives the go (the suite green at the run's SHA and the operating facts compiled at it).
 
 ## Question
@@ -29,7 +30,7 @@ One run per board and arm (the portfolio is seeded; Freerouting is deterministic
 
 ## Boards (11)
 
-Operating facts: the corpus boards' in the intents folder `intent-inv/compiled-77a5b5f9` (compiled at 77a5b5f9;
+Operating facts: the corpus boards' in the intents folder `intent-inv/compiled-39e63fb` (compiled at 39e63fb;
 `OPSRC` below); the synthetic boards' in `haslam/tests/data/inverters/<name>.operating.json` (make_boards.py).
 
 | board | inverter | footprints | budget |
@@ -82,8 +83,8 @@ Routing: the nominal budgets sum to 4.5 h per arm; at 4 restart workers about 18
 ## Commands (registering only; submitted after the go)
 
 ```bash
-SHA=<pushed commit> OPSRC=<intents folder>/compiled-77a5b5f9 tools/haslamres/experiments/inverters.sh
-SHA=<pushed commit> OPSRC=<intents folder>/compiled-77a5b5f9 STAGE=synthetic tools/haslamres/experiments/inverters.sh
+SHA=<pushed commit> OPSRC=<intents folder>/compiled-39e63fb tools/haslamres/experiments/inverters.sh
+SHA=<pushed commit> OPSRC=<intents folder>/compiled-39e63fb STAGE=synthetic tools/haslamres/experiments/inverters.sh
 # then, after the go: the haslamres experiment's submission as hotloop-sw's, and
 #   haslamq submit --jobs tools/haslamres/experiments/inverters/synthetic-jobs.jsonl
 # physics on each routed board and arm (above), as haslamq jobs (8 CPUs, 16 GB)
