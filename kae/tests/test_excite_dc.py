@@ -403,3 +403,20 @@ def test_a_cell_with_the_facts_efficiency_loses_what_it_states():
                                              "f_sw_Hz": 1.2e6}}
     heat = H.part_heat(bd, pl, cv, {("heat:U1", "R_on_ohm"): 0.3}, {})
     assert heat["U1"] == pytest.approx((1 / 0.85 - 1) * 13.5 * 0.1)
+
+
+def test_a_cells_prior_loss_stays_within_a_working_converters():
+    """Without the facts' eta, the class priors' corners (C_sw 1.3 nF, a guessed 48 V bus, 2 MHz) read 6 W in a
+    3.3 V, 0.35 A buck (solar-small's TPS62933 at 1332 C); the loss is held to the switching-regulator efficiency
+    prior's low end, (1/0.75 - 1) P_out."""
+    from types import SimpleNamespace
+
+    from kae.excite import heat as H
+    cell = dict(id="c", cls="buck", src="cell:c", vin="VIN", vout="OUT", sw="SW", ctrl="U1", rect="", parts=set())
+    pl = DC.Plan()
+    pl.volts = {"VIN": 13.5, "OUT": 3.3}
+    pl.feeds = {"OUT": dict(kind="cell", cell=cell, ref="U1")}
+    pl.loads = []
+    cv = {"cell:c": {"I_A": 0.35, "D": 0.25, "V_V": 48.0, "t_i_s": 1e-8, "C_sw_F": 1.3e-9, "f_sw_Hz": 2e6}}
+    heat = H.part_heat(SimpleNamespace(part_kind={}), pl, cv, {("heat:U1", "R_on_ohm"): 0.3}, {})
+    assert heat["U1"] == pytest.approx((1 / DC.ETA[0] - 1) * 3.3 * 0.35)

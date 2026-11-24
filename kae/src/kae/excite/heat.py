@@ -12,7 +12,8 @@ Heat, per corner of the ledger (the DC band's operating point, kae.excite.dc):
                  pads; the rectifier's V_f I_out at its pads, or, synchronous (no rectifier part), its
                  conduction I_L^2 R_on (1 - D) at the controller's pads too (one R_on for both switches);
                  a 4-switch buck-boost: 2 I_L^2 R_on, and the switching of the leg that switches;
-                 with the facts' efficiency (nets.<rail>.eta): (1/eta - 1) P_out instead
+                 with the facts' efficiency (nets.<rail>.eta): (1/eta - 1) P_out instead; without it,
+                 at most (1/0.75 - 1) P_out (kae.excite.dc.ETA's low end: a working converter)
     load         V I of every load at its pads (an export through a connector leaves the board)
     ac           each part's loss from the switching harmonics (kae.excite.spectrum), when given
 
@@ -206,9 +207,18 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
                 if vo and vi and vi < vo and c.get("src2"):
                     v = dict(cv.get(c["src2"]) or {}, I_A=IL)
                     V = v.get("V_V", vo)
-            add(c["ctrl"], cond + switching_loss(V, IL, v))
-            if c["rect"]:
-                add(c["rect"], val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * (I_out if c["cls"] == "boost" else IL * (1 - D)))
+            w_c = cond + switching_loss(V, IL, v)
+            w_r = val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * (I_out if c["cls"] == "boost" else IL * (1 - D)) \
+                if c["rect"] else 0.0
+            if c["cls"] == "buckboost":
+                I_out = IL / max(1.0, DC._ratio(dcp, r, cv))
+            # a working converter: no more loss than the efficiency prior of a switching regulator without a cell
+            # model allows (kae.excite.dc.ETA, its low end). The class priors' corners alone (C_sw 1.3 nF, a 48 V bus
+            # guessed for a 13.5 V input, 2 MHz) read 6 W in a 3.3 V, 0.35 A buck: 1332 C at its junction
+            cap = (1 / DC.ETA[0] - 1) * vo * I_out if vo and I_out > 0 else None
+            k = min(1.0, cap / (w_c + w_r)) if cap is not None and w_c + w_r > 0 else 1.0
+            add(c["ctrl"], k * w_c)
+            add(c["rect"], k * w_r)
             continue
         I_out = sum(inj.get(q, 0.0) for q in f.get("out") or [])
         if I_out <= 0:
