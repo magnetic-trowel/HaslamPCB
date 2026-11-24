@@ -66,6 +66,17 @@ Several Claude sessions run experiments here at once; tokens are the scarce reso
   wait returns. Message a session directly only to answer its question or when you are blocked on it: one message
   with everything, no status updates, FYIs or thanks.
 
+## Experiment tiers
+
+Every experiment runs on the sprint suites first; details: `docs/topics/verification/experiment-tiers.md`.
+- Suites in `bench/suites/`: `sprint-frontier.txt` + `sprint-quality.txt` (every experiment), `ladder.txt` (only what
+  passed sprint, `--tier ladder`), `canary.txt` (big boards, weekly, `--tier canary`).
+- `kaeres exp create|submit` print the estimated CPU-hours and refuse a sprint over 40 CPU-h or with a board whose
+  history is over 0.5 CPU-h per method-run. The refusal's second line says what to do.
+- Procedure: `bench/suites/README.md`. Build on the weekly tag (`baseline/2026-w47`) plus one change; `kaeres sprint`
+  runs only the new arm against the stored control (`control-w47`). Don't migrate queued work when main moves.
+- "Undecided" is a valid verdict. Queue sprint campaigns at priority 5 (`kaeq prio 5 --owner exp-NAME`).
+
 ## Rules for closed-loop work
 
 - Never change scoring to improve a score. Scoring and integrity checks

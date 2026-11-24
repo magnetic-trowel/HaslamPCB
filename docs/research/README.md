@@ -1,7 +1,7 @@
 # Research: what we tried, what worked, what did not
 
 Scope: map of every placement, routing and PCB-physics method this project built or planned. Each page gives mechanism (objective terms, algorithm steps, parameters), runs, numbers with sources, verdict. Not here: surveys of others' work -> [docs/ideas/](../ideas/), `docs/topics/` (linked, not repeated).
-Keys: research map, status legend, worked, partial, did not work, not finished, untested idea, prior art, defensive publication, dead ends, cp1, cpk, headline findings
+Keys: research map, status legend, worked, partial, did not work, not finished, undecided, untested idea, prior art, defensive publication, dead ends, cp1, cpk, headline findings
 
 Purposes: (1) spare others dead ends: failures are written up as carefully as successes; (2) prior art: every page is a dated, public, enabling description, published so that nobody can patent these methods.
 
@@ -13,6 +13,7 @@ Purposes: (1) spare others dead ends: failures are written up as carefully as su
 | **partial** | Won on one axis or one split and lost on another, or won by less than seed noise |
 | **did not work** | Built and run; no gain over its control, or worse |
 | **not finished** | Built; the deciding run is missing or still running |
+| **undecided** | Run as planned; the effect's interval includes both a gain and none, so nothing is adopted or dropped. A valid final verdict: the page gives the estimate, its interval and the run that would decide it ([experiment tiers](../topics/verification/experiment-tiers.md#rules)) |
 | **untested idea** | Mechanism written down; nothing built or run |
 
 - Page headers give when and where a method first appeared (date, commit, branch).
