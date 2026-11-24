@@ -180,6 +180,7 @@ class _Circuit:
             f_ = spec.split(":")
             if f_[0] == "add":
                 names.add(f"whatif:{f_[1]}:{f_[2]}-{f_[3]}")
+                names.update(f"whatif:{f_[1]}:{f_[2]}-{f_[3]}#{k}" for k in range(2, 9))
             elif f_[0] in ("move", "series", "value"):
                 names.add(f_[1])
         c = self.bd.circuit
@@ -340,7 +341,21 @@ class _WhatIf:
                 vals[i] = v
                 cov = min(cov, c)
         st, key = self.pr.price(vals)
+        self.last = vals
         return st, key, cov, self.carried(specs, observers)
+
+    def unpriced(self, specs, observers):
+        """[(observer, worst before, worst after)] of unpriced observers under a first-order edit."""
+        st, _, _, _ = self.run(specs, observers)
+        if st is None:
+            return []
+        out = []
+        for n in observers:
+            idx = [i for i in self.by_observer.get(n, []) if i in self.last]
+            if idx:
+                out.append(dict(label=n, before=max(max(self.obs[i]["values"]) for i in idx),
+                                after=max(max(self.last[i]) for i in idx)))
+        return out
 
     def carried(self, specs, observers):
         """The largest share of a priced aggressor's current through the edited parts (ideal copper)."""
@@ -410,7 +425,9 @@ def advise(ev, intent, brief, board=None, limit=12, edits=(), solve_budget=0, so
            if s[0] > 0 or s[1] > MIN_SHARE * total0]
     # observations the evaluator calls implausible (noise beyond half a rail) are advised on even unpriced:
     # the status flags them and the commander should see what removes the flag
+    # so are supply pins whose noise is a large share of their rail (SUPPLY_SUSPECT): unpriced when no term asks
     flagged = [n for n in by_obs if n not in top and any(obs[i].get("implausible") for i in by_obs[n])]
+    flagged += [n for n in by_obs if n not in top and n not in flagged and _suspect(obs, by_obs[n], brief, intent)]
     cir = None
     if board is not None:
         try:
@@ -433,8 +450,15 @@ def advise(ev, intent, brief, board=None, limit=12, edits=(), solve_budget=0, so
     if cir is not None:
         out += _capacitive(ev, cir, [cir.obs[n] for n in related if n in cir.obs])
     out = _dedupe(out)
+    unp = [n for n in flagged if n not in top]
     for e in out:
         _risks(e, ev, cir)
+        est = e.get("estimate")
+        if wi is not None and unp and est and e.get("edit") and (e.get("confidence") or {}).get("level") in (
+                "first-order", "partial"):
+            mv = [u for u in wi.unpriced(e["edit"], unp) if abs(u["after"] - u["before"]) > 0.05 * u["before"]]
+            if mv:
+                est["unpriced"] = mv
     # entries that need a solve: solved here within the budget, best bound first
     need = sorted((e for e in out if (e.get("confidence") or {}).get("level") == "needs-solve"),
                   key=lambda e: -(e.get("bound") or {}).get("max_gain", 0.0))
@@ -445,6 +469,7 @@ def advise(ev, intent, brief, board=None, limit=12, edits=(), solve_budget=0, so
     out.sort(key=_rank)
     # what-ifs that buy (almost) nothing are one line: a negative finding the commander should still see
     weak = [e for e in out if e.get("estimate") and e.get("kind") != "facts.question" and not e.get("decided")
+            and not any(u["after"] < 0.5 * u["before"] for u in e["estimate"].get("unpriced") or [])
             and e["estimate"]["delta"] > -NO_EFFECT * total0 and e["estimate"]["hard_after"] >= pr.key0[0]]
     out = [e for e in out if e not in weak]
     priced = [e for e in out if e.get("estimate") and not e.get("decided")]
@@ -465,6 +490,26 @@ def advise(ev, intent, brief, board=None, limit=12, edits=(), solve_budget=0, so
         e["id"] = f"A{k}"
         e.setdefault("options", _options(e))
     return out
+
+
+SUPPLY_SUSPECT = 0.1              # a supply pin's noise above this share of its rail is advised on, priced or not
+
+
+def _suspect(obs, idx, brief, intent):
+    """A supply observer whose worst value exceeds SUPPLY_SUSPECT of its rail's volts (the facts', else the
+    brief's): far beyond any IC's supply tolerance, whether or not a term prices it."""
+    sc = obs[idx[0]]["scope"]
+    if sc.get("kind") != "supply":
+        return False
+    rail = sc.get("rail") or sc.get("observer", "").rsplit(":", 1)[-1]
+    V = ((_facts(intent).get("nets") or {}).get(rail) or {}).get("V_V")
+    if V is None:
+        V = ((brief.get("nets") or {}).get(rail) or {}).get("v_typ")
+    try:
+        V = float(V)
+    except (TypeError, ValueError):
+        return False
+    return V > 0 and max(max(obs[i]["values"]) for i in idx) > SUPPLY_SUSPECT * V
 
 
 def _rank(e):
@@ -515,8 +560,9 @@ def _options(e):
     k = e.get("kind", "")
     edits = e.get("edit") or []
     if k in ("facts.question", "datasheet.check"):
-        return [dict(form="fact", fields=[n["field"] for n in (e.get("decide") or {}).get("needs") or []]),
-                dict(form="decline")]
+        return ([dict(form="design", edit=edits, note=e.get("design_note"))] if edits else []) + [
+            dict(form="fact", fields=[n["field"] for n in (e.get("decide") or {}).get("needs") or []]),
+            dict(form="decline")]
     if k == "move.part":
         return [dict(form="relation", relation=e.get("relation"), edit=edits), dict(form="decline")]
     if k == "layout.coupling":
@@ -868,7 +914,8 @@ def _move_advice(pr, cir, obs, by_obs, related):
                         confidence=dict(level="needs-solve", basis="the capacitor carries the aggressor's current: "
                                         "the copper's potentials change with it; `solve` re-solves every aggressor "
                                         "with the part at the pins (no copper of its own)"),
-                        bound=dict(max_gain=round(gain, 4), basis=f"{src}'s priced observations at zero"),
+                        bound=dict(max_gain=round(gain, 4), basis=f"{src}'s priced observations at zero" + (
+                            "; it moves unpriced flags only: solve to see them" if gain <= 0 else "")),
                         # every aggressor: the moved part is a branch of the copper all of them share (T4 on
                         # solar-small: re-solving U302's core alone left U101's buck pair at 167 mV; all: 59)
                         solve=dict(edits=specs, sources=None),
@@ -907,6 +954,10 @@ def _cout_check(cir, intent):
             rows.append(dict(part=e.name, nominal=_fmt_c(Cn), size=size, dielectric=diel, rated_V=vr,
                              at_V=V, effective=_fmt_c(Cn * kV), factor=round(kV, 3), dist_mm=round(d, 1),
                              F_eff=Cn * kV))
+        for e, rp, ic_pad, d in dc:              # parts the session's adopted edits added (what-ifs)
+            if e.name.startswith("whatif:") and d <= 3 * NEAR_MM:
+                rows.append(dict(part=e.name, nominal="(what-if)", size=None, dielectric=None, rated_V=None, at_V=V,
+                                 effective=_fmt_c(_cap_of(e)), factor=None, dist_mm=round(d, 1), F_eff=_cap_of(e)))
         near = [r for r in rows if r["dist_mm"] <= 3 * NEAR_MM]
         if not near:
             continue
@@ -930,6 +981,18 @@ def _cout_check(cir, intent):
                                               f"output capacitance at {V:g} V (datasheet table or formula)", "F")]))
         else:
             short = need - tot
+            if short > 0:
+                # the same part again, beside the nearest one (its pads: no copper of its own), until the model
+                # counts enough: a design edit the commander may take as it is, or change
+                ref0 = next((r for r in near if r["factor"]), None)
+                if ref0:
+                    el = next(x[0] for x in dc if x[0].name == ref0["part"])
+                    pr_, pg = (el.pa, el.pb) if el.a == net else (el.pb, el.pa)
+                    nadd = math.ceil(short / (ref0["F_eff"] or 1e-30))
+                    e["edit"] = [f"add:C:{pr_}:{pg}:{ref0['nominal']}:{ref0['size']}:{ref0['dielectric']}"] * nadd
+                    e["design_note"] = (f"{nadd} x {ref0['nominal']} {ref0['rated_V']}V {ref0['dielectric']} "
+                                        f"{ref0['size']} beside {ref0['part']} gives {_fmt_c(tot + nadd * ref0['F_eff'])}"
+                                        f" effective (kae's model)")
             e.update(remedy=(f"{ref} needs {_fmt_c(need)} effective (facts); kae counts {_fmt_c(tot)}: add "
                              f"{_fmt_c(short)} effective" if short > 0 else
                              f"{ref} needs {_fmt_c(need)} effective (facts); kae counts {_fmt_c(tot)}: met"),

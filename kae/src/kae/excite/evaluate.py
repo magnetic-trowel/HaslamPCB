@@ -400,20 +400,34 @@ def transfer(J, v, v_ideal, f, z):
 
 def add_part(bd, spec):
     """A hypothetical part between two existing pads ("C:U101.9:U101.17:2.2n", "R:...:10k"): a capacitor
-    with its size's ESL and an MLCC's ESR (0402), or a resistor, in bd.circuit with no copper of its own (its
-    pads are the named pads). Returns the part as a dict for the evaluation's record."""
+    with its size's ESL and an MLCC's ESR (0402 unless a size is given), or a resistor, in bd.circuit with no
+    copper of its own (its pads are the named pads). "C:PA:PB:10u:1206:X5R" names the package and dielectric:
+    the capacitor then takes that size's ESL and kae's DC-bias loss at the nets' voltage (as
+    kae.excite.models builds a placed one). Returns the part as a dict for the evaluation's record."""
     from kae.circuit import values as V
-    kind, pa, pb, val = spec.split(":")
+    f = spec.split(":")
+    if len(f) < 4:
+        raise ValueError(f"add_part {spec}: KIND:PAD_A:PAD_B:VALUE[:SIZE[:DIELECTRIC]]")
+    kind, pa, pb, val = f[:4]
+    size = f[4] if len(f) > 4 else None
+    diel = f[5].upper() if len(f) > 5 else None
     na, nb = bd.net_of.get(pa), bd.net_of.get(pb)
     if na is None or nb is None:
         raise ValueError(f"add_part {spec}: pad {pa if na is None else pb} is not on the board")
     name = f"whatif:{kind}:{pa}-{pb}"
+    n = sum(1 for e in bd.circuit.elems if e.name == name or e.name.startswith(name + "#"))
+    if n:
+        name = f"{name}#{n + 1}"
     if kind.upper() == "C":
         C = V.capacitance(val)
         if not C:
             raise ValueError(f"add_part {spec}: capacitance '{val}' unread")
-        bd.circuit.z(name, na, nb, M._rlc(M.mlcc_esr(C), M.ESL["0402"], C), pa, pb, "C")
-        return dict(kind="C", pads=[pa, pb], nets=[na, nb], F=C, esl_H=M.ESL["0402"], spec=spec)
+        esl = M.ESL.get(size or "0402", M.ESL_DEFAULT)
+        k = 1.0
+        if size:
+            k, _ = M.mlcc_bias_factor(C, M._bias(bd, na, nb), size, diel)
+        bd.circuit.z(name, na, nb, M._rlc(M.mlcc_esr(C), esl, C * k), pa, pb, "C")
+        return dict(kind="C", pads=[pa, pb], nets=[na, nb], F=C, bias_factor=round(k, 4), esl_H=esl, spec=spec)
     if kind.upper() == "R":
         R = V.resistance(val)
         if R is None:

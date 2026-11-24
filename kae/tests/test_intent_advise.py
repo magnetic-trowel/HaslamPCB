@@ -273,3 +273,22 @@ def test_session_helpers_value_and_fields():
     with pytest.raises(SystemExit):
         SE._set_field(it, "terms.T1", 1)
     assert SE._value("20u") == pytest.approx(2e-5) and SE._value("0.5") == 0.5
+
+
+def test_a_sized_added_capacitor_takes_its_esl_and_dc_bias_loss():
+    from kae.excite.evaluate import add_part
+    cir, _ = _toy()
+    rec = add_part(cir.bd, "C:C1.1:C1.2:10u:1206:X5R")          # OUT is 5 V
+    k, _ = M.mlcc_bias_factor(10e-6, 5.0, "1206", "X5R")
+    assert rec["bias_factor"] == pytest.approx(round(k, 4)) and rec["esl_H"] == M.ESL["1206"]
+    rec2 = add_part(cir.bd, "C:C1.1:C1.2:10u:1206:X5R")
+    names = [e.name for e in cir.bd.circuit.elems if e.name.startswith("whatif:")]
+    assert len(set(names)) == 2 and rec2["F"] == pytest.approx(10e-6)
+
+
+def test_a_supply_pin_with_noise_beyond_a_tenth_of_its_rail_is_suspect():
+    ob = dict(values=[0.5], scope=dict(kind="supply", observer="supply:U3:+3V3"))
+    it = {"facts": {"nets": {"+3V3": {"V_V": 3.3}}}}
+    assert AD._suspect([ob], [0], {}, it)
+    assert not AD._suspect([dict(ob, values=[0.2])], [0], {}, it)
+    assert not AD._suspect([ob], [0], {}, {})                  # no voltage known: not judged

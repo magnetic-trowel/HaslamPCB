@@ -144,9 +144,17 @@ def _status_line(ev, it, brief):
     k = OB.key(st)
     unmet = [f"{r['id']} {r.get('value')}" for r in st.get("terms") or [] if r.get("met") is False]
     imp = [f"{x.get('label', '')[:40]} {x.get('worst', 0):.3g}" for x in st.get("implausible") or []]
+    from . import advise as AD
+    by = {}
+    for i, ob in enumerate(ev.get("observations") or []):
+        if (ob.get("scope") or {}).get("kind") == "supply" and not ob.get("implausible"):
+            by.setdefault(ob["scope"]["observer"], []).append(i)
+    big = [n for n, idx in by.items() if AD._suspect(ev["observations"], idx, brief, it)]
+    imp += [f"{n} {max(max(ev['observations'][i]['values']) for i in by[n]):.3g} V (unpriced, > "
+            f"{AD.SUPPLY_SUSPECT:.0%} of its rail)" for n in big]
     return (f"status: hard {k[0]}, total {k[1]:.4g} {st.get('currency', 'mW_eq')}"
             + (f"; unmet {', '.join(unmet)}" if unmet else "; every term met")
-            + (f"; implausible: {'; '.join(imp)}" if imp else "")), st, k
+            + (f"; flagged: {'; '.join(imp)}" if imp else "")), st, k
 
 
 # --------------------------------------------------------------------------------------- commands
@@ -315,8 +323,8 @@ def cmd_answer(a):
     node = _set_field(it, a.field, val)
     node["why"] = (node.get("why", "") + f"; {a.field.split('.')[-1]}: {a.source}").lstrip("; ")
     decs = it.setdefault("decisions", [])
-    e = s.entry(a.id) if a.id else None
-    d = dict(id=f"D{len(decs) + 1}", round=s.round, advice=a.id, key=e.get("key") if e else f"fact:{a.field}",
+    # the key is the field's, not the entry's: an answered question re-advises (a check now with its numbers)
+    d = dict(id=f"D{len(decs) + 1}", round=s.round, advice=a.id, key=f"fact:{a.field}",
              kind="facts.answer", choice="adopt", form="fact", fact=dict(field=a.field, value=val), source=a.source,
              reason=a.reason or "datasheet value", by="llm", at=_now(), status="adopted")
     decs.append(d)
