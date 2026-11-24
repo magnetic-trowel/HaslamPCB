@@ -36,10 +36,10 @@ Keys: hazards, `hazard_summary`, `blocked`, block hazard, warn, info, `--recheck
 
 | Command | Hazards from |
 |---|---|
-| `kae place` | static project hazards; recheck of OUTPUT (opens and dangling copper left out: a placement is not routed); `body_overlap`/`body_relaxed`; `connector_off_edge`; `placement_physics_over_budget`; writer checks; `dru_rejected` |
+| `kae place` | static project hazards; recheck of OUTPUT (opens and dangling copper left out: a placement is not routed); `body_overlap`/`body_relaxed`; `connector_off_edge`; `placement_physics_over_budget`; `pdn_*` (the PDN screen, report `pdn`); writer checks; `dru_rejected` |
 | `kae.route.cli route`, `lastmile` | static; recheck of OUTPUT; BGA `escape_infeasible`; else the bridge's final DRC counts |
 | `kae.route.critical_cli route` | static; recheck; `copper_below_ipc_width`, `rail_left_narrow`, `vias_below_current` (heat of the copper drawn, [critical-net-routing](../routing/critical-net-routing.md)); `class_max_below_ipc` module flags; `crystal_ground_no_plane`; the plan's `land_enlarged_by_track` (a two-terminal land in series with a rail whose current needs more than the land, `constraints.PadRule`) |
-| `kae.route.critical_cli physics` | `physics_over_budget` (u > 1), `physics_unmeasured`; static |
+| `kae.route.critical_cli physics` | `physics_over_budget` (u > 1), `physics_unmeasured`; `pdn_*` with the routed decap loops (`_pdn`); static |
 | `kae.joint.cli run` | static; recheck; everything nested in iterations; `check_not_run` and `physics_over_budget` of the final card; KiCad's writer checks of every pose write, once per code (`kicad_format_upgraded`, ...) |
 | `kae brief` | static project hazards with the brief's net voltages (route and joint reports have no brief at hand, so `hv_clearance_below_ipc` and `capacitor_over_voltage` come from `kae brief` and `kae place`) |
 | `kae.excite.evaluate -o`, `kae.sim evaluate` | harms over their limit (`physics_over_budget`); failed or incomplete simulated requirements (`sim_fail`, `sim_incomplete`) |
@@ -95,6 +95,8 @@ Keys: hazards, `hazard_summary`, `blocked`, block hazard, warn, info, `--recheck
 | `physics_over_budget` | warn | a module's routed u > 1 (the critical recheck flags u crossing 1, [critical-net-routing.md](../routing/critical-net-routing.md)) |
 | `placement_physics_over_budget` | warn | a structure of the placement scorecard (`kae place`, unrouted) with util > 1; evidence `u_before_kicad_repair` when the KiCad repair loop pushed it over. Left out when the report carries routed physics |
 | `outline_incomplete` | block, manufacturing | `kae place`: staged footprints carry Edge.Cuts, the outline is open |
+| `pdn_impedance_over_target` | warn / info, electrical | `kae.excite.pdn` (in `kae place`'s report and `kae.route.critical_cli physics`): a rail's lumped \|Z(f)\| over its target in 100 kHz–100 MHz. The load current is a prior, so never block; warn only past 3× Z_t with the supply's stand-in halved, doubled and damped to Z_t, on a decoupled rail and not at the inductive band top (the decap term's budget), else info. A rail whose finding only the regulator stand-in makes (it meets 1.57× Z_t with the supply damped) is not a hazard: it stays in the report's `pdn.rails[].finding` as `supply_stand_in` (user decision 2026-11-22) ([decoupling-pdn](../rules/decoupling-pdn.md#pdn-screener-kaeexcitepdn)) |
+| `pdn_rogue_wave_risk` / `pdn_cavity_mode_clock` | info, electrical | the same screen: ≥ 2 anti-resonances with Q > 2 above Z_t/2; a plane pair's cavity mode within ±10 % of a stated clock's odd harmonic (n ≤ 7) |
 | `placement_illegal` | block, assembly | `kae place` `legal: false` (exit 3): overlaps or outline violations remain |
 | `rules_not_modelled`, `rule_errors` | warn, data | the bridge's plan: custom-rule functions the router does not model, rules it could not evaluate |
 | `hard_term_violated` / `hard_term_unchecked` / `noise_prediction_capped` | block / warn / warn (info when no hard term is on it) | `kae.em.pnr --intent` (`kae.intent.route.Policy.hazards`): a hard term the field solve finds violated; one the router did not compute; a supply-noise prediction beyond half its rail, priced at the evaluator's cap ([intent-driven-objectives-build](intent-driven-objectives-build.md)), whose hard terms are unverified rather than violated |

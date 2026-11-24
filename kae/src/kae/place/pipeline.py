@@ -1389,6 +1389,30 @@ def final_physics(res):
             rep["hazards"] = [h for h in rep.get("hazards", []) if h.get("source") != "scorecard"] + sc_hz
         except Exception as e:
             rep["physics_error"] = f"{type(e).__name__}: {e}"
+        try:
+            pd = pdn_report(res.terms, {p.uuid: st.pose(p.i) for p in P.parts})
+            if pd is not None:
+                # like the scorecard's: a second call (after the KiCad rounds) replaces the first's findings
+                pd_hz = [dict(h, source="pdn") for h in pd.pop("hazards", None) or []]
+                rep["pdn"] = pd
+                rep["hazards"] = [h for h in rep.get("hazards", []) if h.get("source") != "pdn"] + pd_hz
+        except Exception as e:      # noqa: BLE001 - a report-only screen; never lose the placement
+            rep["pdn"] = dict(error=f"{type(e).__name__}: {e}")
+
+
+def pdn_report(terms, poses):
+    """kae.excite.pdn's screen of the placement: each rail's Z(f) with the capacitors' loops at these poses
+    (the place terms' decap loops), or None when the terms were built without a board. Report-only: it
+    changes no placement."""
+    board = getattr(terms, "board", None)
+    if board is None:
+        return None
+    from kae.excite import pdn
+    t0 = time.perf_counter()
+    loops = pdn.loops_from_breakdown(terms.breakdown(poses))
+    out = pdn.compact(pdn.screen(board, terms.brief, loops=loops, stage="placement"))
+    out["seconds"] = round(time.perf_counter() - t0, 2)
+    return out
 
 
 def grid_verdict(P, st, exact):
