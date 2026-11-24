@@ -209,3 +209,13 @@ def test_a_cell_its_after_drc_reverts_is_not_quoted(work, monkeypatch, tmp_path)
     r0, r1 = rep["cells"]
     assert r0["kept"] and not r1["kept"] and r1["why"] == "unconnected 0 -> 1"
     assert rig.n_q == 2                                       # cell0's before and after only
+
+
+def test_the_estimate_counts_the_after_quote_at_its_own_measured_cost(work, monkeypatch, tmp_path):
+    """Cell 0's measuring quote (40 s) and a DRC revert, cell 1's before (60 s) and warm after (10 s): cell 2 is
+    estimated on one before (mean 50 s) and one after (10 s), not on two of all three quotes' mean (36.7 s)."""
+    cells = [_region(f"cell:buck:U{i}", 10.0 * (3 - i), 2) for i in range(3)]
+    rig = Rig(monkeypatch, tmp_path, cells, lambda n: (40.0, 60.0, 10.0)[n] if n < 3 else 10.0)
+    rig.worse = ("cell0",)
+    rep, _used = rig.run(3600.0)
+    assert rep["cells"][2]["estimate_s"] == pytest.approx(2 * T_DRC + 50.0 + 10.0 + 63.0, abs=0.1)
