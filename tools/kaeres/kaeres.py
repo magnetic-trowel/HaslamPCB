@@ -2468,6 +2468,9 @@ def mfg_table(rows, names):
 
 def cmd_exp_report(a):
     e = load_exp(a.name)
+    if not getattr(a, "no_watchdog", False):   # the cost watchdog first (a report that fails must not skip it)
+        import watchdog
+        watchdog.check(a.name, store=STORE)
     d = exp_dir(a.name)
     rows, bugs, fails = exp_rows(e)
     for f in fails:
@@ -2573,9 +2576,6 @@ def cmd_exp_report(a):
             bl[head], bl[head + 1]] + nondrc[:30]
     (d / "REPORT.md").write_text("\n".join(rep) + "\n")
     print(f"wrote {d / 'REPORT.md'}, results.csv ({len(rows)} rows), bugs/ ({len(bugs)} records)")
-    if not getattr(a, "no_watchdog", False):   # the cost watchdog: cancels the queued jobs past the campaign's cap
-        import watchdog
-        watchdog.check(a.name, store=STORE)
 
 
 def cmd_exp_status(a):
