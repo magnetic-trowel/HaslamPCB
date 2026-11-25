@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Physics table over seeds, from physics_score.py outputs (one --out dir per attempt).
 
-    python phys_seeds.py kae-v7/phys/a0 kae-v7/phys/a1 kae-v7/phys/a2 [--runs RUN1,RUN2]
+    python phys_seeds.py haslam-v7/phys/a0 haslam-v7/phys/a1 haslam-v7/phys/a2 [--runs RUN1,RUN2]
 
 Per run: legal / clean of the physics boards, fast physics (place terms total and capped
 u, method / human geometric mean) and routed physics (all scored boards, and boards with

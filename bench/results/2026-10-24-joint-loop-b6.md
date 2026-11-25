@@ -1,6 +1,6 @@
 # Joint place-route loop, 6 split-B boards (WIP snapshots up to d8c09e6)
 
-Local, 2026-10-24, KiCad 10.0.7, kaebench `joint` kind, 6 split-B boards, seeds 0 and 1, 900 s,
+Local, 2026-10-24, KiCad 10.0.7, haslambench `joint` kind, 6 split-B boards, seeds 0 and 1, 900 s,
 Freerouting heap 3 GB (an attempt hit by an out-of-memory kill was re-run). Values are seed 0 / 1.
 
 | arm | clean | unconnected | DRC errors | module value vs human | worst rail mΩ |

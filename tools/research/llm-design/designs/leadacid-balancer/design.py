@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """leadacid-balancer: MCU-free 2:1 switched-capacitor equalizer for 2-4 series 12 V lead-acid batteries.
 
 Encodes designs/leadacid-balancer/DESIGN.md (engineering rationale, evidence tags, sources) and
-CONNECTIONS.md (net naming, pin rationale). Build: `kaesynth build designs/leadacid-balancer/design.py -v`.
+CONNECTIONS.md (net naming, pin rationale). Build: `haslamsynth build designs/leadacid-balancer/design.py -v`.
 
 Domain model (exact stack, no interval blow-up):
   B1     root, ref TAP0 (system negative). Holds TAP0, TAP1 and every net referenced to TAP0.
@@ -22,7 +22,7 @@ import importlib.util
 import math
 from pathlib import Path
 
-from kaesynth import Design, Hole
+from haslamsynth import Design, Hole
 
 _spec = importlib.util.spec_from_file_location("leadacid_balancer_parts", Path(__file__).with_name("parts.py"))
 P = importlib.util.module_from_spec(_spec)
@@ -143,7 +143,7 @@ def intent(d):
       verify="inspection")
     R("REQ-24", "Component derating in normal operation: semis <= 80 % V, caps <= 80 % V (DC bias counted), "
       "resistors <= 50 % P, fuses <= 75 % I. At the abnormal window edge (failing battery): <= 100 % of the "
-      "temperature-derated rating", value="-", source="task default", verify="kaesynth rating.* checks; calcs")
+      "temperature-derated rating", value="-", source="task default", verify="haslamsynth rating.* checks; calcs")
     R("REQ-25", "Battery-count configuration: shunts on JP101..JP(N-1)01 (channel enable); for each unused "
       "channel a shunt on JPk02 (bridges its alarm opto); every unused tap-plug position bridged to the highest used "
       "position inside the plug", value=f"design default N = {N_BATT} (N_BATT)", source="REQ-1; H-12",
@@ -1177,7 +1177,7 @@ def board(d):
                        "note": "8 mm ISO strip along the north edge (BoardSpec origin is the lower-left corner, "
                                "y up, so y 122-130 is north)"},
                       {"relative": "4.0 mm ring around each mounting hole", "what": "copper", "layers": "all"}],
-            notes="Coordinates: origin at the lower-left corner, x east, y north (kaesynth BoardSpec). Board grew "
+            notes="Coordinates: origin at the lower-left corner, x east, y north (haslamsynth BoardSpec). Board grew "
                   "from 160 x 110 mm for the five 43 x 18 mm 10x38 fuse holders. "
                   "FR-4 CTI >= 175 (IIIa), 2 oz outer / 1 oz inner; all parts top side; no heatsink, power copper "
                   "poured on L1/L4 per net with thermal vias under Q_A-Q_D and R_CF. Uncoated (Q-9).")

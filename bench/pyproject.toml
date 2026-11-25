@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kaebench"
+name = "haslambench"
 version = "0.1.0"
 description = "Benchmark harness for automated KiCad placement and routing"
 readme = "README.md"
@@ -15,13 +15,13 @@ dependencies = []
 test = ["pytest>=7"]
 
 [project.scripts]
-kaebench = "kaebench.cli:main"
+haslambench = "haslambench.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-kaebench = ["kicad_scripts/*.py"]
+haslambench = ["kicad_scripts/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

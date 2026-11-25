@@ -8,7 +8,7 @@ import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Circle
 from matplotlib.transforms import Affine2D
-from kae.board.kicad_file import load
+from haslam.board.kicad_file import load
 
 out, win, hl, drcp = sys.argv[1], [float(v) for v in sys.argv[2].split(",")], set(sys.argv[3].split(",")), sys.argv[4]
 boards = sys.argv[5:]

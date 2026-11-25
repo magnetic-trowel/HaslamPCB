@@ -1,6 +1,6 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Physics advisor: kae tells the commanding LLM what would reduce the priced harms
+# Physics advisor: haslam tells the commanding LLM what would reduce the priced harms
 
 2026-11-24, branch `physics-advisor` off `gfix-dc-model` 2a9c3fe6 (it needs that branch's DC converter model:
 without it solar-small's DC band is void and nothing is priced). v1 a5276292..c68a6c6a; **v2** (this page): series-R
@@ -8,14 +8,14 @@ and re-valued coupling capacitors, return-pad choice, part moves with solved wha
 unpriced risks, and the session loop ([protocol](physics-advisor-protocol.md)). Status: **prototype; 23 of 24
 measured design variants predicted within 4 %, one miss (−23 %)** (one board, [validation](#validation-against-measured-design-variants)).
 
-Scope: after an evaluation, kae lists the changes (design, part values, placement, facts) that would most reduce the
+Scope: after an evaluation, haslam lists the changes (design, part values, placement, facts) that would most reduce the
 status total under the commander's intent, each with an estimated new value and cost delta, its confidence, what the
 score does not see, and the decision the commander owns. Not here: how the LLM takes, records and verifies advice ->
 [physics-advisor-protocol](physics-advisor-protocol.md); the intent, tiers and status ->
 [intent-driven-objectives](../topics/architecture/intent-driven-objectives.md#status-what-the-llm-reads); the
-router's own diagnoses -> `kae/src/kae/route/blocked.py`; the planned physics facade (`what_if`, `menu`) ->
+router's own diagnoses -> `haslam/src/haslam/route/blocked.py`; the planned physics facade (`what_if`, `menu`) ->
 [physics-core-v2-api](../topics/physics/physics-core-v2-api.md#4-the-facade).
-Keys: physics advisor, advice, kae.intent.advise, what-if, node edit, Thevenin, J·dv, shunt capacitor, return pad,
+Keys: physics advisor, advice, haslam.intent.advise, what-if, node edit, Thevenin, J·dv, shunt capacitor, return pad,
 feedback filter capacitor, feed-forward capacitor, series resistor RFF, coupling capacitor, divider impedance,
 quiescent current, move.part, decoupling capacitor, solved what-if, targeted re-solve, apply_edit, carried share,
 facts question, datasheet check, effective output capacitance, DC bias, unpriced risk, capacitive pickup, decide
@@ -24,16 +24,16 @@ facts question, datasheet check, effective output capacitance, DC bias, unpriced
 
 | Principle (project rule) | Consequence for advice |
 |---|---|
-| LLM-commanded, not LLM-dependent | kae computes every estimate deterministically; the LLM chooses. No model inside kae. |
-| Every decision traceable | each entry names the observation, the edit (`kae.excite.evaluate --edit` grammar), the re-priced terms and the full-solve `verify` |
+| LLM-commanded, not LLM-dependent | haslam computes every estimate deterministically; the LLM chooses. No model inside haslam. |
+| Every decision traceable | each entry names the observation, the edit (`haslam.excite.evaluate --edit` grammar), the re-priced terms and the full-solve `verify` |
 | Only genuine trade-offs are surfaced | an entry carries `decide` only when something is given up (loop phase, quiescent current, a part, area); a plainly right copper fix is the router's job |
 | Infeasibility comes with computed relaxations | an entry gives the value that meets a term, or the floor no value gets below (`curve`) |
-| The intent prices, the evaluator measures | every estimate is the status total re-computed through `kae.intent.objective.evaluate` with changed observations |
+| The intent prices, the evaluator measures | every estimate is the status total re-computed through `haslam.intent.objective.evaluate` with changed observations |
 | What is not priced is said | `risks`: mechanisms the score does not see (E-field pickup into a raised impedance, a placed part's copper, loop stability) |
 
 ## Advice taxonomy: victim kind × coupling path × remedy class
 
-`built` = in v2. Every built what-if is a circuit edit in one grammar (`kae.excite.evaluate.apply_edit`):
+`built` = in v2. Every built what-if is a circuit edit in one grammar (`haslam.excite.evaluate.apply_edit`):
 `add:C:PA:PB:1nF`, `remove:REF`, `series:REF:249k`, `value:REF:8.2pF`, `move:REF:PA:PB`.
 
 | Kind | Harm, victim | Coupling path | Remedy | Estimate | Decide (numbers handed over) |
@@ -42,11 +42,11 @@ facts question, datasheet check, effective output capacitance, DC bias, unpriced
 | `coupling_c.series_r` | node with a capacitor to a noisy net (feed-forward C) | the net's copper noise through that capacitor | a resistor in series, the smallest of 10 k … 1 M that meets the terms | first order | zero `1/(2π R_top C)` kept, lead cut above `1/(2π R C)`, divider phase-lead peak before/after, at `f_c` when known |
 | `coupling_c.revalue` | same | same | a smaller value (E6, down to C/10) | first order | the zero's new frequency; the datasheet's formula (needs `cff_F`) |
 | `node.remove_c` | same | same | the capacitor removed | first order | is it the loop's compensation? (needs `cff_required`, `f_c`) |
-| `node.divider_scale` | feedback divider | conductive/inductive (kae prices no capacitive pickup) | R × 0.3, × 0.1 | first order | extra quiescent µA and mW against `facts.requirements.quiescent_max_A` |
+| `node.divider_scale` | feedback divider | conductive/inductive (haslam prices no capacitive pickup) | R × 0.3, × 0.1 | first order | extra quiescent µA and mW against `facts.requirements.quiescent_max_A` |
 | `move.part` | any observer behind a core-current aggressor (`core:REF:RAIL`), a flagged supply pin (implausible, or noise > 10 % of its rail: advised on even unpriced, ranked by its own value) | the IC's supply current returning through far copper | its smallest decoupling capacitor at the IC's rail pin and nearest ground pin; also an intent relation `near … tight` | **solved** (targeted re-solve; budgeted), until then `bound` | adopt as a placement relation? |
 | `layout.coupling` | any | shared copper, named by net (Σ J·dv) | halve the pair's coupling | scaled | — |
 | `facts.question` | any priced peak | a ledger prior (`I_A`, `t_i_s`, `D`) | the datasheet value | exact re-pricing at the prior's ends | the total at each end; the field to fill |
-| `datasheet.check` | a switching regulator's output | — | output capacitance at its operating voltage (kae's MLCC DC-bias model) against `facts.parts.REF.cout_min_eff_F` | estimate | the shortfall; which parts close it |
+| `datasheet.check` | a switching regulator's output | — | output capacitance at its operating voltage (haslam's MLCC DC-bias model) against `facts.parts.REF.cout_min_eff_F` | estimate | the shortfall; which parts close it |
 | `unpriced.capacitive` | high-impedance node | switch-node copper capacitance | filter C, distance | charge share, not priced | — |
 | designed: hot loop, switch-node area, DC copper, thermal | `overshoot.peak`, `loss.*`, `drop.rail`, `temp.junction` | loop inductance, copper R, thermal path | input C closer, wider copper, vias | a band re-solve with the edit (the same targeted re-solve) | mostly plainly right: placer and router |
 
@@ -55,14 +55,14 @@ facts question, datasheet check, effective output capacitance, DC bias, unpriced
 1. **Peak from the stored transfer.** The evaluator stores per (observer, aggressor) pair and band the transfer
    `z_b`, the layout's share of each pad's potential `dv_b[p]` where the observer's ideal-copper pattern `J_b`
    carries current, and every corner's parameters. `V_c = |z_f|·c₁·I_c + |Im z_e / ω_e|·I_c / t_i,c`
-   (`kae.excite.harm.peak`); the advisor advises only on observations it reproduces to 1e-6.
+   (`haslam.excite.harm.peak`); the advisor advises only on observations it reproduces to 1e-6.
 2. **First-order edit (`J'·dv`).** By reciprocity `z = Σ_p J_p·dv_p`. With the edit in the circuit the adjoint
    pattern becomes `J'`; with the aggressor's copper potentials unchanged, `z' = z · (J'·dv)/(J·dv)`. Exact
    Thevenin for a capacitor across the port: `z' = z / (1 + Y·Z_th)`. Valid while the edited parts carry a negligible
    share of an aggressor's current: checked on the ideal-copper circuit (`carried` > 5 % → `needs-solve`).
    Milliseconds per edit and band; `coverage` is the share of `J'` on pads with a stored `dv`.
 3. **Solved edit (targeted re-solve).** An edit that carries an aggressor's current (a decoupling capacitor moved)
-   changes the copper's potentials themselves. `kae.excite.evaluate --edit … --sources AGG` re-solves only that
+   changes the copper's potentials themselves. `haslam.excite.evaluate --edit … --sources AGG` re-solves only that
    aggressor's bands (no DC, heat or switch-node capacitance; the corners are seeded per aggressor, so they are the
    evaluation's own); `advise.splice` puts its observations into the evaluation and the total is re-priced.
    Minutes; a per-round budget in the session.
@@ -75,24 +75,24 @@ facts question, datasheet check, effective output capacitance, DC bias, unpriced
 8. **Effective output capacitance.** Each capacitor from a switching regulator's output rail to ground within 15 mm
    of its pins: nominal × `mlcc_bias_factor(C, V_rail, size, dielectric)` (field proxy `V·√(C/volume)`), summed.
 9. **Unpriced risks.** For each node edit, `|Z_th|` at 10 MHz before and after; a rise > 10 % says that capacitive
-   pickup (which kae does not price) grows, with the charge share `V_sw·C_c/(C_c + C_node)` of each switch node
+   pickup (which haslam does not price) grows, with the charge share `V_sw·C_c/(C_c + C_node)` of each switch node
    coupling > 10 fF into the node.
 
 ## Output
 
-`python -m kae.intent status EVAL.json --intent I.json [--detailed] [--no-advice]` adds `status["advice"]`; the
-session (`python -m kae.intent.session`) shows the same entries with their options. Ordering: hard violations
+`python -m haslam.intent status EVAL.json --intent I.json [--detailed] [--no-advice]` adds `status["advice"]`; the
+session (`python -m haslam.intent.session`) shows the same entries with their options. Ordering: hard violations
 removed first, then cost delta; unestimated entries by `bound`; what-ifs buying < 0.5 % of the total are folded into
 one "no effect" line; 12 priced entries at most. Field contract ->
 [physics-advisor-protocol](physics-advisor-protocol.md#p3-the-advice-entry-the-contract-the-llm-reads).
 
-## What kae applies itself and what it surfaces
+## What haslam applies itself and what it surfaces
 
 | Change | Applied by | Why |
 |---|---|---|
 | wider power copper, pours, vias, shorter hot loops, smaller switch-node copper | the router and placer, by their prices | plainly right |
 | add, remove or re-value a part (filter C, series R, decap, divider) | surfaced (`design`) | changes the schematic and its function |
-| a part's place (decoupling at its pin) | surfaced (`relation`), and a kae default once the placer honours relations | the placer prices it already; the relation makes the wish explicit |
+| a part's place (decoupling at its pin) | surfaced (`relation`), and a haslam default once the placer honours relations | the placer prices it already; the relation makes the wish explicit |
 | a prior (edge time, load current), a datasheet limit | surfaced as a question (`fact`) | only the datasheet or the commander has it |
 
 ## Solar-small A0 (v2 advice)
@@ -114,12 +114,12 @@ implausible. Advice in 9 s (first order only):
 | note | no effect | divider × 0.1 or × 0.3 (both regulators) | −11 … +2.4 | — |
 
 The LTC3130 datasheet's own fix (RFF ≈ R1/20 = 249 k in series with an 8.2 pF CFF, p.17) is A2 at the datasheet's
-value: kae proposes the smallest series R that meets the limit (220 k) and hands over the zero, corner and lead; the
+value: haslam proposes the smallest series R that meets the limit (220 k) and hands over the zero, corner and lead; the
 LLM picks 249 k from the datasheet (`decide --value 249k`, predicted 2.87 mV).
 
 ## Validation against measured design variants
 
-24 design variants of the same board, each a full `kae.excite.evaluate` with the edit in the circuit (another agent's
+24 design variants of the same board, each a full `haslam.excite.evaluate` with the edit in the circuit (another agent's
 screens on branch `solar-small-fb`, `RESULTS-fb.md` §1, plus v1's checks). Predicted from the base evaluation alone
 (`tools/research/physics/advisor_validate.py`).
 
@@ -182,5 +182,5 @@ Readings:
 - LTC3130 datasheet (3130f) p.17 (CFF = 40/R1(MΩ) pF, RFF ≈ R1/20), Table 3 p.23 (minimum output capacitance);
   TPS62933 datasheet SLUSEA4D 10.2.2.10 (CFF); DAC63002 SLASF48 (C_L ≤ 200 pF).
 - Measured variants: `tools/research/llm-design/designs/solar-small/RESULTS-fb.md` (branch `solar-small-fb`).
-- Code: `kae/src/kae/intent/advise.py`, `kae/src/kae/intent/session.py`, `kae/src/kae/excite/evaluate.py`
-  (`apply_edit`, `--edit`, `--sources`, `transfer`), tests `kae/tests/test_intent_advise.py`.
+- Code: `haslam/src/haslam/intent/advise.py`, `haslam/src/haslam/intent/session.py`, `haslam/src/haslam/excite/evaluate.py`
+  (`apply_edit`, `--edit`, `--sources`, `transfer`), tests `haslam/tests/test_intent_advise.py`.

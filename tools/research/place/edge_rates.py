@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Edge rates per panel-connector kind (kae.place.edge_check's rules) from edge_scan.py rows.
+"""Edge rates per panel-connector kind (haslam.place.edge_check's rules) from edge_scan.py rows.
 
     edge_rates.py ROWS.jsonl [--ids IDS.txt] [--sample KIND]
 
@@ -13,7 +13,7 @@ import collections
 import json
 import random
 
-from kae.place import edge_check as E
+from haslam.place import edge_check as E
 
 
 def kind_of(row):

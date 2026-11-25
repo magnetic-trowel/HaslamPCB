@@ -1,17 +1,17 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # BGA window repair: negotiated re-routes of small windows in a ball field
 
-Scope: defensive publication of the monotone BGA window repair (`kae.route.region`) and its four measurements, ending in a negative verdict. Not here: the other closing methods -> [closing open connections](kae-closing-open-connections.md); the ball-grid placer and escape changes it shipped with -> [escape bands § bga-next-ab](../placement/escape-keepouts.md#the-ball-grid-router-changes-bga-next-ab).
-Keys: BGA window repair, kae.route.region, close-bga-region, route-bga-next, region_reserve, region_reserve_frac, region_windows, bga-next-ab, region-reserve-ab, region-complete-ab, dense_refs, negotiated congestion, ball field
+Scope: defensive publication of the monotone BGA window repair (`haslam.route.region`) and its four measurements, ending in a negative verdict. Not here: the other closing methods -> [closing open connections](haslam-closing-open-connections.md); the ball-grid placer and escape changes it shipped with -> [escape bands § bga-next-ab](../placement/escape-keepouts.md#the-ball-grid-router-changes-bga-next-ab).
+Keys: BGA window repair, haslam.route.region, close-bga-region, route-bga-next, region_reserve, region_reserve_frac, region_windows, bga-next-ab, region-reserve-ab, region-complete-ab, dense_refs, negotiated congestion, ball field
 
 **Status:** did not work. One early run looked like −20 % open connections; three later A/Bs with both
 arms side by side found no gain, and given every chance (6× the budget, no caps on windows or rounds)
 it left 26 % more open connections than the same router without it. Not merged; the code stays on
 branch `route-bga-next`.
 **First published:** 2026-11-08. Code: `close-bga-region` (30eef20), merged into `route-bga-next` with a
-time reserve and settings ([edabfb6](https://github.com/magnetic-trowel/kicad-auto-everything/commit/edabfb6dc09814214397d13b0fc8eb6ec491c500));
-recipe `region-complete-ab.sh` ([a6e0897](https://github.com/magnetic-trowel/kicad-auto-everything/commit/a6e0897208dc6a47638640c4a30c83367c1f5e7c)).
+time reserve and settings ([edabfb6](https://github.com/magnetic-trowel/HaslamPCB/commit/edabfb6dc09814214397d13b0fc8eb6ec491c500));
+recipe `region-complete-ab.sh` ([a6e0897](https://github.com/magnetic-trowel/HaslamPCB/commit/a6e0897208dc6a47638640c4a30c83367c1f5e7c)).
 
 ## Mechanism
 
@@ -31,7 +31,7 @@ items in dense parts (≥ 10 % or nothing; capped at `region_reserve_frac` of wh
 | experiment | setup | open connections | verdict |
 |---|---|---|---|
 | close-bga-region (2026-10) | 6 boards × 3 seeds, restart wrapper | 916 → 729 (−20 %); gecko5 216 → 84, kata0510 8 → 11 | one run; whether its arms ran side by side was not recorded |
-| bga-next-ab | kae staged, 10 ball-grid boards × 3 seeds, side by side | 5,270 → 5,526 (+4.9 %), boards 2 better / 4 worse | no gain; on big boards the repair rarely ran: the repair rounds used the time up to the last mile's reserve |
+| bga-next-ab | haslam staged, 10 ball-grid boards × 3 seeds, side by side | 5,270 → 5,526 (+4.9 %), boards 2 better / 4 worse | no gain; on big boards the repair rarely ran: the repair rounds used the time up to the last mile's reserve |
 | region-reserve smoke | nekoink, one seed per arm, its own time reserve | reserve 0: 102; auto: 120; max: 173; single attempt 0 / max: 96 / 113 | the reserve took time from stages that pay more |
 | region-complete-ab | bridge on the human placement, 10 ball-grid boards × 2 seeds, one attempt with 6× the usual budget, `rounds=auto`, `region_windows=50`, reserve up to 80 % | 2,422 → 3,054 (+26 %); runs 2 fewer / 9 more (p = 0.07); boards 1 better / 6 worse / 3 same | did not work |
 

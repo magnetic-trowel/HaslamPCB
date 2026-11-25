@@ -1,9 +1,9 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # The physics set's coverage: what the fast evaluator can score, and why some boards have nothing
 
 **TL;DR**
-- **The 213-board physics set** (route-finish-ab) is scored by `kae.excite.evaluate` (the fast field evaluator) under intents compiled from model-written board specs (`tools/research/physics/intent_from_spec.py`). An audit before stage 2 of the A/B found that a board's lack of physics was often a bug, not an empty board (§1).
+- **The 213-board physics set** (route-finish-ab) is scored by `haslam.excite.evaluate` (the fast field evaluator) under intents compiled from model-written board specs (`tools/research/physics/intent_from_spec.py`). An audit before stage 2 of the A/B found that a board's lack of physics was often a bug, not an empty board (§1).
 - **Evaluator and intent bugs were fixed** (§2), all from the human layouts and synthetic boards, blind to the A/B arms: the evaluator never saw the schematic's pin facts the intent was compiled from; parts that supply and consume were never loads; a self-powered module had no heat band; split footprints, fuses and net ties broke the DC flow; the field window cut off copper beyond the outermost pad; radio modules had no EMI observer or aggressor.
 - **Human-layout coverage (§3):** 158 of 213 boards scored (28 of 41 before on stage 1's boards, now 34), 25 of 32 radio boards with EMI observations (19 with cable emission). J2032, USB armory and PolarFire have no result yet.
 - **The raster's pitch bias does not need a correction for the A/B (§4).** The systematic part (first order in pitch, same sign) is common to both arms and to the human layout. The part that does not cancel is sub-cell snapping, measured by shifting the raster: 1–2% on copper loss, rail drop and the board total, 7–16% (median) on single field observations. Local refinement would not remove it; differences inside the shift spread are noise.
@@ -22,7 +22,7 @@ Stage 1 of route-finish-ab evaluated 41 human layouts: 13 had no observation at 
 
 | Problem | Boards (examples) | Physics of the fix |
 |---|---|---|
-| Intents compiled from a brief with the schematic's pin types and names (kaeres `pintypes.json`); the evaluator and `kae.intent` built theirs from the bare board | 45 of 213 saw a different circuit (govish buck: no cell, no +5V source; kocer SDR: four cells missing) | The operating facts carry `pins`; `kae.board.pinfacts.apply` fills only pads the board left blank, in the evaluator and in `kae.intent` |
+| Intents compiled from a brief with the schematic's pin types and names (haslamres `pintypes.json`); the evaluator and `haslam.intent` built theirs from the bare board | 45 of 213 saw a different circuit (govish buck: no cell, no +5V source; kocer SDR: four cells missing) | The operating facts carry `pins`; `haslam.board.pinfacts.apply` fills only pads the board left blank, in the evaluator and in `haslam.intent` |
 | A feed was never a load: a module or MCU whose regulator feeds a rail drew nothing | fora888 (Teensy), openremise (Pico) | A consuming feed (module, or an MCU/FPGA/radio IC) is a load on its input |
 | A part powered from off the board (its own USB) and alone on its rail: no DC flow, so no heat band | aizuknight keyboard (XIAO, about 0.18 W) | `Plan.self_loads`: its V·I is heat at its pads; the heat band runs without a DC flow |
 | Two footprints with one reference: the plan kept the last one | fora888 (Teensy edge and back pins) | Pads merged, as the copper model's REF.NUM tokens already were |
@@ -41,7 +41,7 @@ Stage 1 of route-finish-ab evaluated 41 human layouts: 13 had no observation at 
 | | Stage-1 boards, human (41) before → after | 213 boards, ab4 arm B → human after |
 |---|---|---|
 | Evaluated | 41 → 41 | 211 → 210 |
-| Scored (kae.intent tiers present) | 28 → 34 | 148 → 158 |
+| Scored (haslam.intent tiers present) | 28 → 34 | 148 → 158 |
 | Radio boards with EMI observations | 2 of 6 → 5 of 6 | 19 of 32 → 25 of 32 |
 | With cable emission (E3) | 2 → 4 | 16 → 19 |
 
@@ -72,8 +72,8 @@ The before column is the old code on the human layouts of stage 1, and routed ar
 - One case is not noise: a board whose objective jumps between offsets (sparkfunx smol-esp32, ×4) has copper that opens or closes at the cell scale (fine-pitch pads or thermal spokes narrower than a cell). Such a board needs its connectivity fixed, not averaging.
 
 **Same copper, same numbers [M].** Until 2026-11-12 the evaluator was not a function of the copper alone:
-- **File order.** The raster is painted item by item, and where two pieces of copper claim one cell the later wins (`Mesh.paint`, `Mesh.paint_line`; a thin track's bars keep the first track's length scale). Two harness commits wrote freetronics secsense's identical copper with the segments in another order, and loss.copper read 654.4 vs 648.5 mW (0.9 %), drops up to 2 %. Tracks and vias are now meshed in content order (`kae.em.kicad.canonical_order`).
-- **BLAS threads.** A threaded OpenBLAS sums by its thread count; SuperLU's complex solves differed in the last bits and COCG grew that to 1e-9–5e-9 of a 50 MHz solve. BLAS now runs on one thread (`kae.em.blas`); the FFTs and kernels, whose sums do not depend on the thread count, keep the parallel work. PYTHONHASHSEED changed nothing.
+- **File order.** The raster is painted item by item, and where two pieces of copper claim one cell the later wins (`Mesh.paint`, `Mesh.paint_line`; a thin track's bars keep the first track's length scale). Two harness commits wrote freetronics secsense's identical copper with the segments in another order, and loss.copper read 654.4 vs 648.5 mW (0.9 %), drops up to 2 %. Tracks and vias are now meshed in content order (`haslam.em.kicad.canonical_order`).
+- **BLAS threads.** A threaded OpenBLAS sums by its thread count; SuperLU's complex solves differed in the last bits and COCG grew that to 1e-9–5e-9 of a 50 MHz solve. BLAS now runs on one thread (`haslam.em.blas`); the FFTs and kernels, whose sums do not depend on the thread count, keep the parallel work. PYTHONHASHSEED changed nothing.
 - **Check** (human layouts of secsense, freetronics kitten, sparkfun edison micro-SD block and gos2022 mb02a1-2, the largest at 300 pads and 13 sources): at 1, 4 and 16 threads, twice at 4, with another hash seed and with segments, arcs and vias shuffled, every number of every `ev.json` is bit-identical. Before: 1e-14 to 1.3e-5 apart across thread counts, 3.7e-5 to 3e-3 after a shuffle, and on edison the shuffle closed copper the file's order left open (the DC band computed instead of void). Run time unchanged within run-to-run noise (4 threads: 191 vs 196 s on gos2022, 99 vs 99 s on edison).
 - **For A/B floors.** The offset spreads above were measured on one file at four offsets, so file-order noise was not in them; it was in every between-arm difference (the A/A twin included), on top of the floor. route-finish-ab's `FLOOR` values (`analyze.py`) came from such spreads. Re-measured with the deterministic evaluator on 25 of the 41 stage-1 human layouts (three shifted windows, half range over mean): loss.copper median 0.6 %, 90th percentile 1.6 %; drop.rail 0.4 % and 2.2 %; supply.peak 0.5 % and 10 %. `FLOOR` (0.5 %, 2 %, 4 %) stands; the A/A twin's spread should now be 0 on identical copper.
 
@@ -89,11 +89,11 @@ The before column is the old code on the human layouts of stage 1, and routed ar
 | Scored, DC band void / some sources open | 22 / 18 | scored on what closes; sampled only |
 | Not finished | 3 | J2032 (6 h timeout), USB armory (KiCad's refill hangs), PolarFire |
 
-Capacitive pickup is not in the fast evaluator's `pickup.peak` (only `kae.excite.wideband` adds Cm; the fast one uses capacitance for switch-node loss). On the radio boards with RF nets it is small: above 10 fF only 2 of 11 boards, ≤ 3.3 mV into 50 Ω, against 64–521 mV inductive on the same victims; the second figure was on a false victim later removed.
+Capacitive pickup is not in the fast evaluator's `pickup.peak` (only `haslam.excite.wideband` adds Cm; the fast one uses capacitance for switch-node loss). On the radio boards with RF nets it is small: above 10 fF only 2 of 11 boards, ≤ 3.3 mV into 50 Ω, against 64–521 mV inductive on the same victims; the second figure was on a false victim later removed.
 
 ### 6. Rail drop is never negative [M]
 
-`drop.rail` of a load is its rail's loss from the source's output pins to the load's supply pins plus its ground's rise from the source's ground pins to the load's ground pins (`kae.excite.dc.observe`). Before 2026-11-12 the signed sum was reported, and 23 values in stage 2 were negative (down to −1.6 mV, larger on a few boards), with zero price, so ratios across arms crossed zero.
+`drop.rail` of a load is its rail's loss from the source's output pins to the load's supply pins plus its ground's rise from the source's ground pins to the load's ground pins (`haslam.excite.dc.observe`). Before 2026-11-12 the signed sum was reported, and 23 values in stage 2 were negative (down to −1.6 mV, larger on a few boards), with zero price, so ratios across arms crossed zero.
 
 - **The sign is physics, not a reference choice.** Potentials are differences inside one connected net, so no ground node enters. In the case taken apart (Green Lion's BMS shield, negative at 13–15 of 19 corners in every arm) the rail part was ≥ 0 and the ground part negative: another rail's return current, or the source's own ground-pin current, flows through ground copper shared with the load and leaves the source's ground pin above the load's. There CN7 is both the +5 V source and the +12 V load; the 0.3 A of +12 V returns from CN7's ground pins to J1, putting them 11 mV above IC1's ground; IC1's rail part is +1.2 mV, the sum −10 mV. The load then sees more than the source's voltage.
 - **Definition.** A drop is what the load loses of its source's voltage, so `drop.rail` = max(0, signed sum). The signed value stays in the observation's `signed` list for the reader. A cost term with a plain rate on drop.rail had paid a credit for a negative drop; it no longer does. `harm.phi` already priced a negative drop at 0.
@@ -101,7 +101,7 @@ Capacitive pickup is not in the fast evaluator's `pickup.peak` (only `kae.excite
 
 ### 7. Boost cells were priced at their output current [M]
 
-The 213 set's intents gave every converter cell `I_A` = the spec's I_out. A boost's switch and hot loop carry its input current, I_out·V_out/(V_in·η) ([converter-currents](converter-currents.md#1-equations-ccm-steady-state)), so 5 of its 6 boost cells were low by the factor below, their ½·L·I²·f by its square. Fixed on branch `converter-currents` (`kae.physics.converter`). Recompiled: the 6 boards below into `intent-213/compiled-51eaed9` (summaries `summaries-9867d0b`; other boards copied; the base commit reproduces `compiled-9867d0b` byte for byte).
+The 213 set's intents gave every converter cell `I_A` = the spec's I_out. A boost's switch and hot loop carry its input current, I_out·V_out/(V_in·η) ([converter-currents](converter-currents.md#1-equations-ccm-steady-state)), so 5 of its 6 boost cells were low by the factor below, their ½·L·I²·f by its square. Fixed on branch `converter-currents` (`haslam.physics.converter`). Recompiled: the 6 boards below into `intent-213/compiled-51eaed9` (summaries `summaries-9867d0b`; other boards copied; the base commit reproduces `compiled-9867d0b` byte for byte).
 
 | Board, cell | V_in → V_out, I_out | I_sw ÷ I_out (typ, η 0.8–0.95) | Effect, human layout, base 37c5307 → 51eaed9 |
 |---|---|---|---|
@@ -124,5 +124,5 @@ A buck cell's DC input current is now D·I_out/η: DC copper loss 0.82–1.06× 
 
 ## Sources
 
-- Code: [`kae.excite`](../../../kae/src/kae/excite/), [`kae.board.pinfacts`](../../../kae/src/kae/board/pinfacts.py), [`intent_from_spec.py`](../../../tools/research/physics/intent_from_spec.py); tests: [`test_excite_physics_set.py`](../../../kae/tests/test_excite_physics_set.py), [`test_intent_from_spec_emi.py`](../../../tools/research/physics/test_intent_from_spec_emi.py).
+- Code: [`haslam.excite`](../../../haslam/src/haslam/excite/), [`haslam.board.pinfacts`](../../../haslam/src/haslam/board/pinfacts.py), [`intent_from_spec.py`](../../../tools/research/physics/intent_from_spec.py); tests: [`test_excite_physics_set.py`](../../../haslam/tests/test_excite_physics_set.py), [`test_intent_from_spec_emi.py`](../../../tools/research/physics/test_intent_from_spec_emi.py).
 - CISPR 32 (radiated emission, class B, 10 m; cable reference length); Ott, *Electromagnetic Compatibility Engineering* (2009), eq. 12-7 (cable common-mode emission).

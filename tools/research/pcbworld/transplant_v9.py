@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Copy a routed board's tracks, arcs and vias onto PCBWorld's KiCad 9 input board.
 
-PCBWorld's scorer (KiCad 9.0.8 engine) cannot open KiCad 10 files, and kaebench writes KiCad 10.
+PCBWorld's scorer (KiCad 9.0.8 engine) cannot open KiCad 10 files, and haslambench writes KiCad 10.
 This reads the copper of a routed board (any version from 9 on: segments, arcs and vias, nets by
 name or number) as text, and adds it with KiCad 9's pcbnew to PCBWorld's own unrouted input
 board (processed_v9_guide_v3_unrouted.kicad_pcb), which is what its rule-based routers start

@@ -1,13 +1,13 @@
 # Functional evaluation: what a board does, when its intent is unknown
 
-Scope: judging whether a routed board works by simulating testbenches on ideal vs routed copper (`kae.sim`), and why today's routed-physics total cannot. Not here: format -> [intent-interchange](../architecture/intent-interchange.md); code and results -> [functional-evaluator](../architecture/functional-evaluator.md); geometric critics -> [physics-critics](physics-critics.md).
-Keys: functional evaluator, kae.sim, testbench, ideal vs routed, layout effect, capability, paired comparison, verdict (pass, marginal, fail, unknown, incomplete, error), rail_dc, rail_step, cell, loop, i2c, pair, excitation inventory, radiator inventory, physics_total, min(u, 5), evaluator c3e877f84ac4
+Scope: judging whether a routed board works by simulating testbenches on ideal vs routed copper (`haslam.sim`), and why today's routed-physics total cannot. Not here: format -> [intent-interchange](../architecture/intent-interchange.md); code and results -> [functional-evaluator](../architecture/functional-evaluator.md); geometric critics -> [physics-critics](physics-critics.md).
+Keys: functional evaluator, haslam.sim, testbench, ideal vs routed, layout effect, capability, paired comparison, verdict (pass, marginal, fail, unknown, incomplete, error), rail_dc, rail_step, cell, loop, i2c, pair, excitation inventory, radiator inventory, physics_total, min(u, 5), evaluator c3e877f84ac4
 
 Tags: [M] measured in this repo; [I] inference.
 
 ## 1. The current evaluator [M]
 
-`tools/kaeres/physics_board.py` runs `kae.route.critical_recheck.board_physics` and sums `min(u, 5)` per module (`kae.joint.scorecard.physics_total`), counting an unmeasured module as 3. It cannot say whether a board works. Evaluator `c3e877f84ac4`, 2026-10-27:
+`tools/haslamres/physics_board.py` runs `haslam.route.critical_recheck.board_physics` and sums `min(u, 5)` per module (`haslam.joint.scorecard.physics_total`), counting an unmeasured module as 3. It cannot say whether a board works. Evaluator `c3e877f84ac4`, 2026-10-27:
 
 | Finding | Number |
 |---|---|
@@ -17,7 +17,7 @@ Tags: [M] measured in this repo; [I] inference.
 | Decap modules unmeasured | 48%; in a 40-board sample ~76% had every candidate cap below ownership 0.5, which `decap_pairs` drops (approximate: briefs rebuilt without schematic pin types) |
 | Share of total by kind | decap 69%, ESD chain 24%, hot loop 3%, power path 2.5%, crystal 1.3% |
 | Length, skew, diff-pair DRC violations | 6, 7, 32 of 11,758 boards; ordinary error counts; nothing reads the brief's `Zdiff` budgets |
-| Copper connectivity (before the fix in `kae.route.copper`) | 353 falsely split nets on 150 boards, now 5 ([functional-evaluator §3](../architecture/functional-evaluator.md#3-extraction)) |
+| Copper connectivity (before the fix in `haslam.route.copper`) | 353 falsely split nets on 150 boards, now 5 ([functional-evaluator §3](../architecture/functional-evaluator.md#3-extraction)) |
 
 ## 2. Principles
 
@@ -73,12 +73,12 @@ Radiators: traces and stubs (λ/4 ≈ 14 cm at 300 MHz on FR-4); plane slots (ha
 
 ## 6. Trusting the evaluator
 
-- **Analytic tests:** extracted R and L of a track match closed forms; simulated DC drop = I × R within 5% ([test_sim.py](../../../kae/tests/test_sim.py)).
+- **Analytic tests:** extracted R and L of a track match closed forms; simulated DC drop = I × R within 5% ([test_sim.py](../../../haslam/tests/test_sim.py)).
 - **Mutation benchmark** ([physics-critics-validation](physics-critics-validation.md)): DRC-neutral planted faults with oracle deltas and benign twins, before any test becomes a reward.
 - **LLM subset:** 10–30 stratified boards where an agent replaces priors with cited facts (cached per part number); measures the automatic testbench's errors, checks cheap verdicts, allows absolute pass/fail there. Pilot on one board, measure cost, then size the subset.
 - **Robust conclusions only:** a method ranking is reported only if it holds across the prior ranges.
 
-Deployment: add `kae.sim` to kaeres as a new evaluator beside the legacy total, never inside cp1, cpk or `score.py` (CLAUDE.md); re-run routed-physics baselines under the new copper connectivity.
+Deployment: add `haslam.sim` to haslamres as a new evaluator beside the legacy total, never inside cp1, cpk or `score.py` (CLAUDE.md); re-run routed-physics baselines under the new copper connectivity.
 
 ## Open questions
 
@@ -89,6 +89,6 @@ Deployment: add `kae.sim` to kaeres as a new evaluator beside the legacy total, 
 
 ## Sources
 
-- In-repo: kaeres index, evaluator `c3e877f84ac4` (kae `dfe6260`, `physics_board.py` `cd4ab2e`), 2026-10-27; `kae.sim` runs, 2026-10-28.
+- In-repo: haslamres index, evaluator `c3e877f84ac4` (haslam `dfe6260`, `physics_board.py` `cd4ab2e`), 2026-10-27; `haslam.sim` runs, 2026-10-28.
 - NXP UM10204, I2C-bus specification (rise-time limits, pin capacitance).
 - Related: [physics-set-coverage](physics-set-coverage.md), [physics-ir](physics-ir.md), [comprehension](comprehension.md), [schematic-to-physics](schematic-to-physics.md), [fields-emi-budget](fields-emi-budget.md).

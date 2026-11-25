@@ -1,7 +1,7 @@
 # liion-balancer: active cell balancer for a 13–16S home Li-ion pack (≈ 10 kWh)
 
 Status: engineering design, encoded in [`design.py`](design.py) / [`parts.py`](parts.py) and built
-with `kaesynth` (0 errors, 0 unwaived warnings, 24 waivers; KiCad ERC 0 errors; netlist round trip
+with `haslamsynth` (0 errors, 0 unwaived warnings, 24 waivers; KiCad ERC 0 errors; netlist round trip
 identical). Independently reviewed (REVIEW.md: 0 blocker, 5 major, 8 minor — all addressed, see its
 "Response to review"); not certified. Net table and naming rules: [CONNECTIONS.md](CONNECTIONS.md);
 full pin list: `out/netlist.json`; checks, calculations and waivers: `out/report.md`.
@@ -212,7 +212,7 @@ FR-4 CTI ≥ 175 (material group IIIa), PD2. Creepage / clearance in mm.
 |---|---|---|---|---|---|
 | B-1 | adjacent positions (BAT0–C1 … C16–STACK) | functional | 4.2 (8.4 swap) | 0.2 / 0.2 | IPC-2221B B2 0–15 V: 0.1 [S] |
 | B-1a | SW_k, SNB_k (domains SWk) to every other net | functional | 38.5 | 0.6 | B2 31–50 V: 0.6 [S] (barrier BAT0–SWk, inherited by all) |
-| B-2 | every other pair inside the battery (positions ≥ 2 apart, CTRL, STACK) | functional | exact pair voltage | 0.2 up to 30 V, **0.6 above**; 1.0 preferred on open board | B2 [S]; emitted by kaesynth from the exact worst voltage of each domain pair |
+| B-2 | every other pair inside the battery (positions ≥ 2 apart, CTRL, STACK) | functional | exact pair voltage | 0.2 up to 30 V, **0.6 above**; 1.0 preferred on open board | B2 [S]; emitted by haslamsynth from the exact worst voltage of each domain pair |
 | B-3 | T1kk primary ↔ secondary (RET ↔ cells); FLYBUS/SEC/BUCK_SW ↔ BAT0 | functional; part 1500 Vrms [P] | ≤ 106 pk | 0.6 (footprint gives 11.7) | B2 31–150 V [S] |
 | B-4u | battery ↔ USER | **reinforced** | 250 Vrms | required 5.0 / 3.8; **design 8.0 / 8.0** | IEC 60664-1 F.4/F.2, IEC 62368-1 Table 10 via TI SLUP419 [S]; ISO7721DWV pads 8.85 apart |
 | B-4f | battery ↔ FAULT | **reinforced** | 250 Vrms | **5.0 / 3.8** (required) | as B-4u; the AQY210EH SMDIP-4 pads are only 5.6 mm apart |
@@ -396,7 +396,7 @@ upward, check every adjacent pair at the plug (2.5–4.2 V, rising) and the sum,
 
 ## 10. Verification plan
 
-**Build checks** (`kaesynth build`): voltage/current/power ratings at the 67.2 V envelope, isolation
+**Build checks** (`haslamsynth build`): voltage/current/power ratings at the 67.2 V envelope, isolation
 and barrier grades, provenance, protection, calculations, KiCad ERC, netlist round trip, DRU lint.
 IC rail pins carry their datasheet recommended operating maximum (`v_rec`). Waived findings, each
 with its reason in `design.py`: transformer peak current 6.8 of 7.0 A (16), LM5164 BST–SW set by its

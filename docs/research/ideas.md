@@ -5,10 +5,10 @@ Keys: untested ideas, defensive publication, prior art, original ideas, transpla
 
 **Status:** untested idea, unless an entry says otherwise.
 **First published:**
-- original ideas: 2026-10-21, commit [7ac84d6](https://github.com/magnetic-trowel/kicad-auto-everything/commit/7ac84d621fa687fb17ce63f0cb1f350594fa7ee9) on `main`;
-- cross-domain transplants: 2026-10-21, commit [0ea98bf](https://github.com/magnetic-trowel/kicad-auto-everything/commit/0ea98bff673d70b65a5459dcdf547046dd3fac34) on `main`;
-- joint place-and-route catalog: 2026-10-24, commit [44831ff](https://github.com/magnetic-trowel/kicad-auto-everything/commit/44831ff3f802b1758b9c1299e0ae0b212d581f9a) on branch `claude/keen-wright-mlkjv6`;
-- problem transformations: 2026-10-24, commit [7ae90d8](https://github.com/magnetic-trowel/kicad-auto-everything/commit/7ae90d849fd4697b32ecd76ac579b9f7d2558059) on the same branch.
+- original ideas: 2026-10-21, commit [7ac84d6](https://github.com/magnetic-trowel/HaslamPCB/commit/7ac84d621fa687fb17ce63f0cb1f350594fa7ee9) on `main`;
+- cross-domain transplants: 2026-10-21, commit [0ea98bf](https://github.com/magnetic-trowel/HaslamPCB/commit/0ea98bff673d70b65a5459dcdf547046dd3fac34) on `main`;
+- joint place-and-route catalog: 2026-10-24, commit [44831ff](https://github.com/magnetic-trowel/HaslamPCB/commit/44831ff3f802b1758b9c1299e0ae0b212d581f9a) on branch `claude/keen-wright-mlkjv6`;
+- problem transformations: 2026-10-24, commit [7ae90d8](https://github.com/magnetic-trowel/HaslamPCB/commit/7ae90d849fd4697b32ecd76ac579b9f7d2558059) on the same branch.
 
 ## Contents
 
@@ -16,7 +16,7 @@ Keys: untested ideas, defensive publication, prior art, original ideas, transpla
 - [Cross-domain transplants (33)](#cross-domain-transplants-33)
 - [Joint place and route: untested catalog ideas](#joint-place-and-route-untested-catalog-ideas)
 - [Problem transformations](#problem-transformations)
-- [Untested pieces of the kae line](#untested-pieces-of-the-kae-line)
+- [Untested pieces of the haslam line](#untested-pieces-of-the-haslam-line)
 - [The physics-first catalog (about 890 ideas)](#the-physics-first-catalog-about-890-ideas)
 
 ## Original ideas (58)
@@ -35,7 +35,7 @@ Partial tests and related results (every other original idea: untested):
 | P2 Contracted floorplan + cut check | untested | cut-capacity bounds as layer predictors did not work ([collapse-obst](joint/layer-collapse-analysis.md)), a different use |
 | P5 Verified motif distributions | untested | data step exists as measured decap priors ([measured-priors](../topics/data/measured-priors.md)) |
 | P7 Live topological sketch objective | closest test | lifted layer-collapse cost as a placement measure ranked placements at ρ 0.85 vs 0.51 for HPWL ([collapse-assign](joint/layer-collapse-analysis.md)) |
-| R5 Router-portfolio bandit | untested | a fixed restart portfolio (not a bandit) worked ([restart-portfolio-and-budgets](routing/kae-restart-portfolio.md)) |
+| R5 Router-portfolio bandit | untested | a fixed restart portfolio (not a bandit) worked ([restart-portfolio-and-budgets](routing/haslam-restart-portfolio.md)) |
 | S6 Successive halving | **partial** | best-of-N ranked by in-loop DRC reached 12/14 ([ap-sa-best](placement/autoplace.md)); a QD archive did not beat `jc` ([qd-archive](joint/jc-extensions.md)) |
 | V2 Red-team reward-hacker gate | **partial** | fixed hand-written red-team suite guards the benchmark ([redteam_cheats.py](../../bench/tests/redteam_cheats.py)); no adversarial agent |
 | L5 Git-history repair pairs | untested | the [board corpus](data/board-corpus.md) pins single commits only |
@@ -48,7 +48,7 @@ Ranked table with mechanisms: [cross-domain-transplants](../ideas/cross-domain-t
 |---|---|---|
 | 7 | Polygon-partition MCTS global router | related form: MCTS did not work at our budget ([mcts](joint/tree-search.md)) |
 | 9 | QD portfolio with legalizer repair | tried: no gain over `jc` ([qd-archive](joint/jc-extensions.md)) |
-| 11 | Silkscreen refdes by map labelling | the `kae` placer has a related silk pass ([placement](placement/README.md)) |
+| 11 | Silkscreen refdes by map labelling | the `haslam` placer has a related silk pass ([placement](placement/README.md)) |
 | 15 | LLM as MAPF meta-controller | our grid router uses PathFinder without an LLM ([pnr-engine](joint/engine.md)) |
 | 17 | SAT/ZDD local windows | tried as exact CP-SAT windows: no merit ([cpsat-windows](joint/anneal-and-repair.md)) |
 | 26 | MCTS over coarse placement decisions | related result: [mcts](joint/tree-search.md) |
@@ -77,12 +77,12 @@ Untested:
 
 Tested in notes only, dropped: T11 extremal-length bounds on pour resistance (exact on rectangles, 2–200× loose on perforated pours); DCT-preconditioned CG on masked pours (did not converge). Checked and dropped without tests: braids, knots, Noether, Koopman, a tropical reading of `jc`, Minkowski sums, steerable filters, eikonal, Radon, Morse, spectral/SOS/QUBO, sheaves.
 
-## Untested pieces of the kae line
+## Untested pieces of the haslam line
 
 Built on branch `claude/vigilant-mayer-i91rrr`, never measured; off by default. Tested parts of this line: [routing](routing/README.md), [placement](placement/README.md), [joint](joint/README.md), [physics](physics/README.md).
 
-- **Free part angles.** `kae place --angles STEP`: parts take any multiple of STEP degrees in the annealer; heatsink-mount packages keep right angles; CP-SAT stays on right angles. Paired test `tools/research/place/anglepolish.py`: both arms start from the same finished legal placement and get the same number of low-temperature moves (geometric schedule T0·hot → T0·1e-4, final legality weight, same seed), scored on HPWL and the physics scorecard. No recorded paired result. First appeared in [6a32272](https://github.com/magnetic-trowel/kicad-auto-everything/commit/6a322723ca7e85f6136de3655071a9c132c2b163) and [e171267](https://github.com/magnetic-trowel/kicad-auto-everything/commit/e171267e73ad11b230df15ac32a9ef9e2e832be0), 2026-10-23.
-- **Edge-mate.** Footprints that carry Edge.Cuts (edge connectors, cut-outs) are placed by mating their outline segments to the board outline (`kae/src/kae/place/edges.py`, `--edge-mate`). The six outline-incomplete tasks stayed held out, so no result. First appeared in [1120fc0](https://github.com/magnetic-trowel/kicad-auto-everything/commit/1120fc039a1dbb970fe7f05bfe731f6513094e5d), 2026-10-22.
+- **Free part angles.** `haslam place --angles STEP`: parts take any multiple of STEP degrees in the annealer; heatsink-mount packages keep right angles; CP-SAT stays on right angles. Paired test `tools/research/place/anglepolish.py`: both arms start from the same finished legal placement and get the same number of low-temperature moves (geometric schedule T0·hot → T0·1e-4, final legality weight, same seed), scored on HPWL and the physics scorecard. No recorded paired result. First appeared in [6a32272](https://github.com/magnetic-trowel/HaslamPCB/commit/6a322723ca7e85f6136de3655071a9c132c2b163) and [e171267](https://github.com/magnetic-trowel/HaslamPCB/commit/e171267e73ad11b230df15ac32a9ef9e2e832be0), 2026-10-23.
+- **Edge-mate.** Footprints that carry Edge.Cuts (edge connectors, cut-outs) are placed by mating their outline segments to the board outline (`haslam/src/haslam/place/edges.py`, `--edge-mate`). The six outline-incomplete tasks stayed held out, so no result. First appeared in [1120fc0](https://github.com/magnetic-trowel/HaslamPCB/commit/1120fc039a1dbb970fe7f05bfe731f6513094e5d), 2026-10-22.
 
 ## The physics-first catalog (about 890 ideas)
 

@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Physics-driven design: the formal problem, feasibility and the build
 
@@ -102,13 +102,13 @@ Uniform raster per layer -> L_p block-Toeplitz -> mat-vec by FFT: 0.16 s per pro
 
 | Stage | Today | Gap against this design |
 |---|---|---|
-| Brief (`kae.circuit`) | structures from names, values, footprints; excitations = E5 table priors (`physics/priors.py`); no per-net current, di/dt, sensitivity | W from simulation (M3) |
+| Brief (`haslam.circuit`) | structures from names, values, footprints; excitations = E5 table priors (`physics/priors.py`); no per-net current, di/dt, sensitivity | W from simulation (M3) |
 | Placer | simulated annealing on `place_terms` (loop, decap, coupling, crystal, thermal, ESD, common-mode; closed forms) | allocations -> prices |
 | Critical router | A* on length × cell multipliers; physics = discrete choice among quoted candidates (widths, layers, via sites, poses), each quoted by a closed-form `Loop` over zone outlines | price fields in search; slots; coupling |
 | Bulk routing (Freerouting) | no physics beyond 4× plane-layer cost and locked critical copper | cost-map hook |
-| Score | `physics_total`: routed u per module, capped at 5, missing module = 3; kaebench scores no physics | T2 + SPICE (M6) |
+| Score | `physics_total`: routed u per module, capped at 5, missing module = 3; haslambench scores no physics | T2 + SPICE (M6) |
 
-**Placement** (decides most of every loop and separation): keep terms and delta evaluation (22–40 µs per move); W replaces priors; loop L = body floor (`cell_body_floor`, [critical_recheck](../../../kae/src/kae/route/critical_recheck.py)) + predicted path. Smooth closed-form kernels keep a gradient placer possible.
+**Placement** (decides most of every loop and separation): keep terms and delta evaluation (22–40 µs per move); W replaces priors; loop L = body floor (`cell_body_floor`, [critical_recheck](../../../haslam/src/haslam/route/critical_recheck.py)) + predicted path. Smooth closed-form kernels keep a gradient placer possible.
 
 **Routing** (largest build item):
 1. Route nets with non-zero W rows first, by ΣW, on price fields (the critical stage generalized from a fixed structure list).
@@ -150,4 +150,4 @@ Order: M1 ∥ M3; M2 after M1; M4 after M2 and M3. M1–M3 ≈ 2–3 weeks of wo
 
 ## 9. What this keeps and stops
 
-Keep: kernels, place terms, PEEC, pt_mesh_loop, testbench machinery (-> W extractor and sign-off), body floors, φ. Stop: SPICE budget sweep as router input (diagnostic only); new theory docs until M1–M4 pass (~50 physics docs and 96 research scripts exist, none imported by kae: the gap is building, not theory).
+Keep: kernels, place terms, PEEC, pt_mesh_loop, testbench machinery (-> W extractor and sign-off), body floors, φ. Stop: SPICE budget sweep as router input (diagnostic only); new theory docs until M1–M4 pass (~50 physics docs and 96 research scripts exist, none imported by haslam: the gap is building, not theory).

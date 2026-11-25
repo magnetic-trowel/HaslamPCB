@@ -9,7 +9,7 @@ Tags: [S] secondary, [C] computed by the scripts in Sources; quasi-static and un
 
 ## 1. Method
 
-**Pipeline.** For each board the runner copies the board and its reference rules to a scratch directory, refills and saves the zones (`kicad-cli pcb drc --refill-zones --save-board`), and runs the passports and the critics in separate processes (600 s timeout, 4 GB resident-memory watchdog). An aggregation step writes `summary.json` and `summary.md` under `kae-work/physics/<run>/`, never into kaebench's `results/` or `score/`. `--boards-glob` runs the same physics on router outputs, paired with the human board by task id.
+**Pipeline.** For each board the runner copies the board and its reference rules to a scratch directory, refills and saves the zones (`kicad-cli pcb drc --refill-zones --save-board`), and runs the passports and the critics in separate processes (600 s timeout, 4 GB resident-memory watchdog). An aggregation step writes `summary.json` and `summary.md` under `haslam-work/physics/<run>/`, never into haslambench's `results/` or `score/`. `--boards-glob` runs the same physics on router outputs, paired with the human board by task id.
 
 **Roles.** Each role carries its evidence and a confidence (high, medium, low).
 
@@ -154,7 +154,7 @@ No geometry is reproduced [C].
 
 Router-introduced faults that DRC does not see [C]: thin power tracks (PWR-TRACE) on 5 boards, worst drops above 100 mV/A on 3, and sole-path leads on 2, where the rail runs through other parts' pins. It also removed 22 void crossings, so return-path quality is a wash on these boards. Reported apart: on two incomplete boards the hot loop is worse (DCDC-50-5-12 6.5 → 10.6 nH, Noisecard 9.6 → 39 nH).
 
-## Consequences for kae
+## Consequences for haslam
 
 1. Model terminals as constraints, not dense rows: multipoint constraints or a Schur complement for equipotential pads; orderings that defer dense rows; test every solver on the suite's electrode-heavy boards. Whole-board exact DC passports then cost seconds; HF windows need Schur-windowed or reduced-order solves ([physics-core-v2](physics-core-v2.md)).
 2. Roles are an input with provenance: pin types carry inference on 89% of boards, but libraries mistype pins and sense lines borrow rail names; infer, show evidence, have a human confirm sources, Kelvin pairs and stacked domains ([physics-critics](physics-critics.md#2-suite-architecture)).
@@ -174,7 +174,7 @@ Router-introduced faults that DRC does not see [C]: thin power tracks (PWR-TRACE
 ## Sources
 
 - Scripts: [suite_physics.py](../../../tools/research/physics/suite_physics.py) (runner, aggregation, pairing), [suite_passports.py](../../../tools/research/physics/suite_passports.py) (roles, DC, ground, HF), [pc_refplane.py](../../../tools/research/physics/pc_refplane.py) (critics), [rb_board_passports.py](../../../tools/research/physics/rb_board_passports.py) (network, terminals, HF model).
-- Outputs (not committed; third-party boards): `kae-work/physics/human-k10/` and `fr-ab-k10/`, with per-board JSON and logs and per-run `summary.json`/`.md` and `compare.json`/`.md`.
+- Outputs (not committed; third-party boards): `haslam-work/physics/human-k10/` and `fr-ab-k10/`, with per-board JSON and logs and per-run `summary.json`/`.md` and `compare.json`/`.md`.
 - Suite and licences: [qualified-kicad-10.0.7.txt](../../../bench/suites/qualified-kicad-10.0.7.txt), `bench/manifests/candidates.jsonl`.
 - T. A. Davis et al., "A column approximate minimum degree ordering algorithm", ACM TOMS 30(3), 2004 (dense-row handling in COLAMD) [S].
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """probe.py REPO_URL [REF] -> JSON: pinned commit, board/schematic files, licence texts.
-Partial clone (blob:none) into $KAE_SOURCING_CACHE/clones; fetches only licence/readme blobs."""
+Partial clone (blob:none) into $HASLAM_SOURCING_CACHE/clones; fetches only licence/readme blobs."""
 import json, os, re, subprocess, sys, hashlib
-S = os.environ.get('KAE_SOURCING_CACHE', os.path.expanduser('~/.cache/kae-sourcing'))
+S = os.environ.get('HASLAM_SOURCING_CACHE', os.path.expanduser('~/.cache/haslam-sourcing'))
 url = sys.argv[1].rstrip('/')
 ref = sys.argv[2] if len(sys.argv) > 2 else None
 name = re.sub(r'[^A-Za-z0-9]+', '_', url.split('://')[-1])

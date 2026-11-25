@@ -1,10 +1,10 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Check the datasheet library (datasheet_prompt.md): every value's number must appear on the PDF page it
 cites (in the page's pdftotext text, in any SI scaling: mA, uA, nC, pF, MHz ...). Writes index.jsonl
 (one line per part: its datasheet, sha256, and counts) and marks each value "verified": true / false.
 
-    python datasheet_check.py [LIBRARY]         (default $KAE_DATASHEETS or ~/kae-datasheets)
+    python datasheet_check.py [LIBRARY]         (default $HASLAM_DATASHEETS or ~/haslam-datasheets)
 
 A value that is not found is not wrong by itself (a scanned PDF, a graph read, a sum of rows): it is
 unverified, and a consumer may choose to use only verified values.
@@ -47,7 +47,7 @@ def found(pages, page, nums):
 
 
 def main(argv=None):
-    lib = os.path.expanduser((argv or sys.argv[1:] or [os.environ.get("KAE_DATASHEETS", "~/kae-datasheets")])[0])
+    lib = os.path.expanduser((argv or sys.argv[1:] or [os.environ.get("HASLAM_DATASHEETS", "~/haslam-datasheets")])[0])
     index, tot = [], dict(values=0, verified=0)
     for p in sorted(glob.glob(f"{lib}/facts/*.json")):
         f = json.load(open(p))

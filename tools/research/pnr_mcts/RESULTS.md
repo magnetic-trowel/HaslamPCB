@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Tree search over grow-style place-and-route (tag `mcts`, ideas 7 and 8)
 
@@ -22,7 +22,7 @@ search and with AlphaGo-style UCT (MCTS routing: He & Bao 2020).
   - Progressive widening ceil(1.5·N^0.5), with a fading prior from the child's routed cost.
   - Rollout: greedy HPWL placement, then 3 PathFinder iterations.
 - **`grow_wide`**: the greedy ablation (same score, K=24).
-- **`phys_w`** adds phys_w × the kae.physics place terms to every node score, with unplaced
+- **`phys_w`** adds phys_w × the haslam.physics place terms to every node score, with unplaced
   parts parked at the board centre. Parts left unplaced go through the engine's ripple
   legalizer.
 

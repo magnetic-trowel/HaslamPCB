@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """corpus.py OUT_DIR NAME=ROWS.jsonl[@WORKDIR] ... [-j N] [--fetch-missing] [--drc]
              [--no-fetch-tag TAG] [--prune]
@@ -8,7 +8,7 @@ Build a local board corpus: one folder per board in the bench's board.* layout,
 plus OUT_DIR/manifest.jsonl. Rows come from enrich results or bench manifests; each
 NAME becomes the row's `collection`. Later arguments win for the same id, so list the
 benchmark manifest last to keep its rows. Boards are copied from WORKDIR/cache/<id>
-(as left by enrich.py or `kaebench fetch`); with --fetch-missing, boards not in the
+(as left by enrich.py or `haslambench fetch`); with --fetch-missing, boards not in the
 cache are fetched into WORKDIR/cache first, except rows carrying a --no-fetch-tag tag
 (e.g. host-robots-restricted), which are included only when already cached. With --drc,
 boards without a DRC report get one (KiCad DRC as saved, under the board's own rules, the
@@ -16,10 +16,10 @@ same command enrich.py runs). Boards listed in dru_fixes.py get their rules file
 (KiCad 10 would drop it silently); their DRC report is then made fresh. --prune deletes folders whose id is no longer in the inputs.
 Boards are never committed (licences).
 
-    python corpus.py ~/kae-boards --fetch-missing --drc --no-fetch-tag host-robots-restricted \\
-      wide=../../../bench/manifests/wide.jsonl@$HOME/kae-boards-work \\
-      wide-noncommercial=../../../bench/manifests/wide-noncommercial.jsonl@$HOME/kae-boards-work \\
-      candidates=../../../bench/manifests/candidates.jsonl@$HOME/kae-boards-work
+    python corpus.py ~/haslam-boards --fetch-missing --drc --no-fetch-tag host-robots-restricted \\
+      wide=../../../bench/manifests/wide.jsonl@$HOME/haslam-boards-work \\
+      wide-noncommercial=../../../bench/manifests/wide-noncommercial.jsonl@$HOME/haslam-boards-work \\
+      candidates=../../../bench/manifests/candidates.jsonl@$HOME/haslam-boards-work
 """
 import argparse
 import collections
@@ -30,7 +30,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from kaebench import fetch as kfetch, tools
+from haslambench import fetch as kfetch, tools
 
 import dru_fixes
 
@@ -59,7 +59,7 @@ def copy_board(bid, name, row, work, boards, fetch_missing, run_drc):
             return bid, f"fetch failed: {type(e).__name__}: {e}"[:200]
     meta = json.loads(meta_path.read_text())
     for k in ("kicad_pcb", "kicad_pro", "kicad_dru", "source_pcb"):
-        if meta.get(k):  # paths may be relative to wherever kaebench ran; the files sit in cache/<id>/
+        if meta.get(k):  # paths may be relative to wherever haslambench ran; the files sit in cache/<id>/
             meta[k] = cache / bid / Path(meta[k]).name
     if row.get("pcb_sha256") and meta.get("pcb_sha256") != row["pcb_sha256"]:
         return bid, "cache holds a different version"

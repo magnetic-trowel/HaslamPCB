@@ -1,6 +1,6 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-<!-- kae-work/score_all.sh jcollapse-final ... (copied from kae-work/score/jcollapse-final.md) -->
+<!-- haslam-work/score_all.sh jcollapse-final ... (copied from haslam-work/score/jcollapse-final.md) -->
 ## DRC (all 33 boards)
 boards in common: 33
 

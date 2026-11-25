@@ -1,7 +1,7 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """intent_from_spec: a converter's operating facts (I_out_A, V_in_V, V_out_V, eta) from which the evaluator derives its
-commutated current by topology (kae.physics.converter); I_switch_A, stated, overrides; per-field provenance rides along."""
+commutated current by topology (haslam.physics.converter); I_switch_A, stated, overrides; per-field provenance rides along."""
 import os
 import sys
 
@@ -19,7 +19,7 @@ def conv(**kw):
     c = {"cell": "cell:boost:U1", "V_in_V": 3.7, "V_out_V": 5.0, "f_sw_Hz": 1e6, "I_out_A": 0.5, "basis": "datasheet",
          "why": "test"}
     c.update(kw)
-    return {"schema": "kae.board-spec/1", "rails": [], "loads": [], "converters": [c]}
+    return {"schema": "haslam.board-spec/1", "rails": [], "loads": [], "converters": [c]}
 
 
 def test_switch_current_wins_over_output_current():
@@ -31,7 +31,7 @@ def test_switch_current_wins_over_output_current():
 def test_a_boost_states_its_operating_point_and_the_switch_current_is_derived():
     """Without I_switch_A the compiler writes the facts (I_out, V_in, V_out) and the derived switch current's
     provenance; the evaluator converts with the same module: a boost's switch carries I_out V_out / (V_in eta)."""
-    from kae.physics import converter as CV
+    from haslam.physics import converter as CV
     _, op = I.compile_spec(conv(), SUMMARY)
     c = op["cells"]["cell:boost:U1"]
     assert "I_A" not in c and "I_switch_A" not in c

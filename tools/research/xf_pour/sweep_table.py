@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Weight-sweep summary on a suite: per run, over seeds and the suite's boards, mean
 completion, legal/clean counts, total length and vias on boards every run completed
@@ -17,7 +17,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from pour_score import per_board_net, gmean  # noqa: E402
 
-W = Path(os.environ.get("XF_WORK", HERE.parents[2] / "kae-work2"))
+W = Path(os.environ.get("XF_WORK", HERE.parents[2] / "haslam-work2"))
 
 
 def load(run, ids):

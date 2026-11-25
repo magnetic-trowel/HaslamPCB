@@ -104,7 +104,7 @@ A netlist is H0 of the copper: which pins share a conductor. The [vocabulary](vo
 - **Cut member:** crosses a declared boundary; must be filtered, bonded, balanced or budgeted; e.g. connector pins, Y-capacitor.
 - **Linked:** its flux threads an external cycle; drives CM EMF; e.g. fast trace between cable connectors.
 
-## Use in kae
+## Use in haslam
 
 1. Topological layer in the board physics model (PC1), run before every metric critic: per-band conduction graph, block–cut tree, extended-graph cycle basis (tree–cotree for ground loops, Kelvin, star points, filters), b0/b1 and holes per reference, return words. Return-path continuity is a topological invariant with an exact gate (CT27, CT29).
 2. Before trusting LII, budget couplings on cycles (CT22) and add the world node (CT16).

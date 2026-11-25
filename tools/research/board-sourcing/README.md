@@ -6,7 +6,7 @@ Scripts behind the wide open-board corpus. The write-up (method, licence policy,
 **What is here.** The scripts, the candidate lists (`found/*.jsonl`, `*.rejected.jsonl`), `keep.txt`,
 `todo*.txt` and `dups.jsonl`; the reviewed manifests are `bench/manifests/wide*.jsonl`. The fetch-time
 imports (Eagle/Altium/Allegro/PADS/CADSTAR) and KiCad 10 load repairs they rely on are in
-`bench/src/kaebench/{fetch,boardfiles,manifest}.py`; `bench/scripts/build-corpus.sh` builds the local
+`bench/src/haslambench/{fetch,boardfiles,manifest}.py`; `bench/scripts/build-corpus.sh` builds the local
 corpus ([local-board-corpus](../../../docs/topics/data/local-board-corpus.md)). Merged from branch
 `claude/compassionate-ramanujan-lo56ee`.
 

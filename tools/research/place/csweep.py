@@ -1,21 +1,21 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """CLI placement sweep over a split, with legality, runtime, physics and order rules vs the
 human placement aggregated into one JSON and one Markdown file.
 
-    python tools/research/place/csweep.py run --snap SNAP --tasks kae-work-v2/tasks --split C \\
-        --time 600 -j 24 --workers 2 --out kae-work-v2/csweep/v7 [--ids a,b] [-- extra kae args]
-    python tools/research/place/csweep.py summary --snap SNAP --tasks kae-work-v2/tasks --out kae-work-v2/csweep/v7
+    python tools/research/place/csweep.py run --snap SNAP --tasks haslam-work-v2/tasks --split C \\
+        --time 600 -j 24 --workers 2 --out haslam-work-v2/csweep/v7 [--ids a,b] [-- extra haslam args]
+    python tools/research/place/csweep.py summary --snap SNAP --tasks haslam-work-v2/tasks --out haslam-work-v2/csweep/v7
 
-`run` places every qualified board of the split with `python -m kae.cli place` from the frozen
-snapshot SNAP (PYTHONPATH=SNAP, NUMBA_CACHE_DIR=SNAP/.numba_cache, KAE_WORKERS=--workers),
+`run` places every qualified board of the split with `python -m haslam.cli place` from the frozen
+snapshot SNAP (PYTHONPATH=SNAP, NUMBA_CACHE_DIR=SNAP/.numba_cache, HASLAM_WORKERS=--workers),
 `-j` boards at a time, and then writes the summary. Warm the numba cache once before (outside
 any sandbox, at the snapshot's final path):
 
-    env PYTHONPATH=$SNAP NUMBA_CACHE_DIR=$SNAP/.numba_cache $PY -m kae.cli place \\
-        kae/tests/data/board/fixture.kicad_pcb /tmp/warm.kicad_pcb --time 40
+    env PYTHONPATH=$SNAP NUMBA_CACHE_DIR=$SNAP/.numba_cache $PY -m haslam.cli place \\
+        haslam/tests/data/board/fixture.kicad_pcb /tmp/warm.kicad_pcb --time 40
 
-Per board it keeps OUT/<id>.json (kae's report, the last stdout line), OUT/<id>.log (stderr),
+Per board it keeps OUT/<id>.json (haslam's report, the last stdout line), OUT/<id>.log (stderr),
 OUT/<id>.time (wall seconds) and OUT/<id>/board.kicad_pcb (git-ignored work area: never
 commit boards). The summary (OUT/summary.json, OUT/summary.md) counts boards whose staged
 footprints carry Edge.Cuts (outline_incomplete) and boards with no movable part separately
@@ -23,7 +23,7 @@ footprints carry Edge.Cuts (outline_incomplete) and boards with no movable part 
 why: the exact check's findings by type, grid violators left after escalation, the closed
 loop's diagnosis (no room / side full / crowded), KiCad's last DRC verdict, timeouts and
 errors. Physics and order rules are compared with the human placement (reference poses) under
-the snapshot's own brief and place terms. The tool imports kae only from the snapshot.
+the snapshot's own brief and place terms. The tool imports haslam only from the snapshot.
 """
 from __future__ import annotations
 
@@ -56,8 +56,8 @@ def run_one(args, tid, extra):
     (out / tid).mkdir(parents=True, exist_ok=True)
     snap = str(Path(args.snap).resolve())
     env = dict(os.environ, PYTHONPATH=snap, NUMBA_CACHE_DIR=str(Path(snap) / ".numba_cache"),
-               KAE_WORKERS=str(args.workers))
-    cmd = [args.python, "-m", "kae.cli", "place", str(Path(args.tasks) / tid / "place" / "input" / "board.kicad_pcb"),
+               HASLAM_WORKERS=str(args.workers))
+    cmd = [args.python, "-m", "haslam.cli", "place", str(Path(args.tasks) / tid / "place" / "input" / "board.kicad_pcb"),
            str(out / tid / "board.kicad_pcb"), "--time", str(args.time), "--writer", "sexpr",
            "--workers", str(args.workers)] + list(extra)
     t0 = time.monotonic()
@@ -74,13 +74,13 @@ def warm(args):
     """Compile (or load) every numba kernel into SNAP/.numba_cache once, before the sweep:
     the place-term kernels and a fixture placement (annealing engine, greedy legalizer)."""
     snap = str(Path(args.snap).resolve())
-    env = dict(os.environ, PYTHONPATH=snap, NUMBA_CACHE_DIR=str(Path(snap) / ".numba_cache"), KAE_WORKERS="1")
-    fixture = Path(__file__).resolve().parents[3] / "kae" / "tests" / "data" / "board" / "fixture.kicad_pcb"
+    env = dict(os.environ, PYTHONPATH=snap, NUMBA_CACHE_DIR=str(Path(snap) / ".numba_cache"), HASLAM_WORKERS="1")
+    fixture = Path(__file__).resolve().parents[3] / "haslam" / "tests" / "data" / "board" / "fixture.kicad_pcb"
     out = Path(args.out) / "_warm"
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic()
-    subprocess.run([args.python, "-c", "from kae.physics import jit; jit.warm(jit.nb())"], env=env, check=False)
-    subprocess.run([args.python, "-m", "kae.cli", "place", str(fixture), str(out / "board.kicad_pcb"), "--time", "40",
+    subprocess.run([args.python, "-c", "from haslam.physics import jit; jit.warm(jit.nb())"], env=env, check=False)
+    subprocess.run([args.python, "-m", "haslam.cli", "place", str(fixture), str(out / "board.kicad_pcb"), "--time", "40",
                     "--writer", "sexpr"], env=env, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print(f"numba warm-up {time.monotonic() - t0:.1f}s", flush=True)
 
@@ -116,13 +116,13 @@ def _human(snap, tasks, tid):
     """Human placement under the snapshot's brief and terms: physics scorecard and order
     rules broken (None when the snapshot cannot score it)."""
     sys.path.insert(0, str(Path(snap).resolve()))
-    from kae.board.kicad_file import load
-    from kae.place import clusters
-    from kae.place.anneal import Annealer
-    from kae.place.pipeline import _net_kinds, physics_summary
-    from kae.place.problem import Problem
-    from kae.place.state import State
-    from kae.place.stubs import make_brief, make_terms
+    from haslam.board.kicad_file import load
+    from haslam.place import clusters
+    from haslam.place.anneal import Annealer
+    from haslam.place.pipeline import _net_kinds, physics_summary
+    from haslam.place.problem import Problem
+    from haslam.place.state import State
+    from haslam.place.stubs import make_brief, make_terms
     base = load(Path(tasks) / tid / "place" / "input" / "board.kicad_pcb")
     ref = load(Path(tasks) / tid / "reference" / "board.kicad_pcb")
     brief, _ = make_brief(base)
@@ -270,7 +270,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="csweep")
     ap.add_argument("mode", choices=("run", "summary"))
     ap.add_argument("--snap", required=True)
-    ap.add_argument("--tasks", default="kae-work-v2/tasks")
+    ap.add_argument("--tasks", default="haslam-work-v2/tasks")
     ap.add_argument("--split", default="C")
     ap.add_argument("--ids")
     ap.add_argument("--time", type=float, default=600.0)

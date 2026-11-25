@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Which copper layers a task may use (kicad_scripts/layer_plan.py); no KiCad needed."""
 import pytest
 
-from kaebench.kicad_scripts import layer_plan as lp
+from haslambench.kicad_scripts import layer_plan as lp
 
 
 def use(n=4, inner=(), routing=10, zones=0, stackup=True, named=()):

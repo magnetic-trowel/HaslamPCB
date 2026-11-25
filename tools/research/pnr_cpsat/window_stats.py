@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Summarize the CP-SAT window log of kaebench runs (attempt-N/cpsat_windows.json).
+"""Summarize the CP-SAT window log of haslambench runs (attempt-N/cpsat_windows.json).
 
-    python window_stats.py kae-work/results/RUN [...]
+    python window_stats.py haslam-work/results/RUN [...]
 """
 import json
 import statistics as st

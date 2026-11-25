@@ -1,7 +1,7 @@
 # Sequential controls: seq, seq_margin, grow
 
 **Status:** `seq` is the control; `seq_margin` did not work; `grow` did not work alone (useful inside beam search).
-**First published:** 2026-10-24, commit [44831ff](https://github.com/magnetic-trowel/kicad-auto-everything/commit/44831ff3f802b1758b9c1299e0ae0b212d581f9a) on branch `claude/keen-wright-mlkjv6`.
+**First published:** 2026-10-24, commit [44831ff](https://github.com/magnetic-trowel/HaslamPCB/commit/44831ff3f802b1758b9c1299e0ae0b212d581f9a) on branch `claude/keen-wright-mlkjv6`.
 
 Scope: the place-for-length-then-route baselines every joint method is compared with, and two simple routing-aware variants. Not here: v7 `seq` numbers -> [combo.md](combo.md#results); physics variant `seq_phys` -> [physics-objective.md](physics-objective.md).
 Keys: seq, control, seq_margin, grow, grow_phys, growth order, ripple legalizer, best-response HPWL descent, idea 6

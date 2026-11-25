@@ -164,7 +164,7 @@ A conductor's job depends on the frequency and on the length scale of the questi
 
 [lens-cd](lens-cd.md)'s passport should therefore hold job(f, ℓ), evaluated at each budget's observable scale (LS28, LS29).
 
-## Use in kae
+## Use in haslam
 
 1. Give each structure θ, Z/Z0, ε_L, ε_C per band; switch to co-simulation or modes when the edit's (or back-annotation's) Woodbury radius r reaches 1; ε·Q ≥ 1 is its modal estimate (LS5, LS15; [physics-core-v2](physics-core-v2.md) §4).
 2. Put 4–6 complex images into the PEEC core (SIM16, SIM46); mesh only slots and edges (LS1–LS4).

@@ -1,12 +1,12 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Critical copper with and without stage-2 tightening (kae.route.critical_taut) on one board.
+"""Critical copper with and without stage-2 tightening (haslam.route.critical_taut) on one board.
 
     python tools/research/routing/crit_tighten_smoke.py ROUTED.kicad_pcb OUTDIR ARM [--time S] [--opt K=V ...]
 
 ARM: "grid" (tighten off) or "taut" (tighten on). ROUTED is any board with the placement to use;
 its routing is stripped first (router A/Bs start from bare placement), its .kicad_pro/.kicad_dru
-are copied beside. Then kae.route.critical.run (critical copper, then the bridge) writes
+are copied beside. Then haslam.route.critical.run (critical copper, then the bridge) writes
 OUTDIR/ARM.kicad_pcb; KiCad's DRC on it (zones refilled) gives errors by type and unconnected.
 OUTDIR/ARM.json: critical copper length and corners (on the locked copper the bridge got),
 module physics, tightening counters, DRC, seconds. Summary: crit_tighten_summary.py.
@@ -20,7 +20,7 @@ from pathlib import Path
 
 
 def strip(src, dst):
-    from kae.route import critical_write as W
+    from haslam.route import critical_write as W
     uu = [r["uuid"] for r in W.routing(src)]
     W.edit(src, dst, remove=uu)
     for ext in (".kicad_pro", ".kicad_dru"):
@@ -32,8 +32,8 @@ def strip(src, dst):
 def crit_stats(board):
     """Length, corners and arcs of the locked (critical) copper of a board file."""
     import math
-    from kae.board.kicad_file import load
-    from kae.route import arcs as A
+    from haslam.board.kicad_file import load
+    from haslam.route import arcs as A
     b = load(board)
     ts = [t for t in b.tracks if t.locked]
     ends = {}
@@ -59,7 +59,7 @@ def main(argv=None):
     ap.add_argument("--time", type=float, default=600.0)
     ap.add_argument("--opt", action="append", default=[])
     a = ap.parse_args(argv)
-    from kae.route import critical, drc
+    from haslam.route import critical, drc
     out = Path(a.outdir).resolve()
     out.mkdir(parents=True, exist_ok=True)
     inp = out / "in.kicad_pcb"

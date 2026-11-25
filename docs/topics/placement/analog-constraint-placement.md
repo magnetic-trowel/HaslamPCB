@@ -32,7 +32,7 @@ Keys: MAGICAL, ALIGN, soft penalty, hard constraint, LP/ILP legalization, typed 
 - Multi-level multi-agent RL exploring asymmetric placements (DAC'25 LBR); ACDC 10k-sample synthetic symmetric grid benchmark for LLMs [S].
 - Template retargeting: IPRAIL extracts a structural template from a tuned layout and re-applies it under new sizes/rules (0.25 → 0.18 µm op-amps) [S].
 
-## Use in kae
+## Use in haslam
 - **Compile every LLM constraint twice** (the analog split: soft penalties in global placement, hard equalities/orders in LP/ILP legalization): smooth penalty with LLM-tunable weight in global placement; exact linear constraint in legalization; report infeasible subsets back ([legalization](legalization.md)) [I].
 - Base our PCB constraint vocabulary on ALIGN + PCB additions (hard: fixed, on_edge, keepout, side, rot_allowed, inside, clearance; soft: near(pin), ring, align, order, symmetric, group, spread, away_from, loop_compact) — see [LLM-guided placement](llm-guided-placement.md) [I].
 - Mapping: decap/crystal/ESD proximity → PlaceCloser/Order/Align/PlaceOnBoundary; differential front ends, half-bridge legs, RF chains → SymmetricBlocks [I].

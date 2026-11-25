@@ -1,8 +1,8 @@
 # Physics fidelity A/B on splits A+B at 92afed4
 
-Run on the shared benchmark host, 2026-10-24, KiCad 10.0.7. The critical-net router (`kae.route.critical_cli`) with
+Run on the shared benchmark host, 2026-10-24, KiCad 10.0.7. The critical-net router (`haslam.route.critical_cli`) with
 `--physics-fidelity fast` against `multi --physics-k 4` (fast ranks candidates, PEEC re-scores the
-best four), route tasks of splits A+B, 33 boards, k = 2, 1800 s, scored by kaebench.
+best four), route tasks of splits A+B, 33 boards, k = 2, 1800 s, scored by haslambench.
 
 | arm | cp1 | cpk | completion | errors / board | clean attempts |
 |---|---|---|---|---|---|

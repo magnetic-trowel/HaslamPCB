@@ -1,14 +1,14 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tables for RESULTS.md (venv Python).
 
-    python summarize.py [--place kae-work/pour/place.json]
+    python summarize.py [--place haslam-work/pour/place.json]
 
 Resistance is reported as R_eff = 1 / mean_pairs(1/R_ij), with a disconnected pad pair
 counted as zero conductance, next to the number of pads cut off from the largest
 group, so no result gains from dropped pads.
 Placement study: correlations of the cheap term with the full Laplace R_eff and with the
-kae physics cached by tools/research/pnr_phys/physics_score.py in kae-work/phys/
+haslam physics cached by tools/research/pnr_phys/physics_score.py in haslam-work/phys/
 (fast = place terms, routed = recheck on copper, worst rail mOhm) and with routed length
 and vias from the harness, all as method/human ratios.
 """
@@ -21,8 +21,8 @@ import numpy as np
 from scipy.stats import spearmanr
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
-WORK = os.path.join(ROOT, "kae-work", "pour")
-PHYS = os.path.join(ROOT, "kae-work", "phys")
+WORK = os.path.join(ROOT, "haslam-work", "pour")
+PHYS = os.path.join(ROOT, "haslam-work", "phys")
 
 
 def short(b):
@@ -134,7 +134,7 @@ def place_table(path):
             row["length"] = hv.get("length_mm")
             row["vias"] = hv.get("vias")
         pairs.append(row)
-    print(f"\nboard level ({len(pairs)} method boards, ratios to human; physics from kae-work/phys)")
+    print(f"\nboard level ({len(pairs)} method boards, ratios to human; physics from haslam-work/phys)")
     print("| target | n | Spearman with pour_score ratio | Spearman with full R_eff ratio |")
     print("|---|---|---|---|")
     for tgt in ("R", "fast", "routed", "rail", "length", "vias"):

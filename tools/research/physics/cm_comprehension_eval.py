@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Weak-label validation of kae.circuit (comprehension) against human placements.
+"""Weak-label validation of haslam.circuit (comprehension) against human placements.
 
 The brief is inferred without positions. This script then reads the human layout of each
 reference board and asks whether the inferred structures are where a designer would have put
@@ -35,9 +35,9 @@ Weak labels:
                     dropped at random, as for cells.
 
 Usage:
-  python -I cm_comprehension_eval.py --tasks kae-work/tasks --out DIR [-j 2] [--only id,id] [--no-sheets] [--rank-w W] [--tie random] [--cap-class value]
+  python -I cm_comprehension_eval.py --tasks haslam-work/tasks --out DIR [-j 2] [--only id,id] [--no-sheets] [--rank-w W] [--tie random] [--cap-class value]
 Writes DIR/eval.json (per-board rows and pooled numbers) and DIR/suite.md (tables).
-Needs kae (kae/src on sys.path is added here) and numpy. Deterministic (fixed seeds).
+Needs haslam (haslam/src on sys.path is added here) and numpy. Deterministic (fixed seeds).
 """
 import os
 
@@ -57,11 +57,11 @@ from multiprocessing import Pool  # noqa: E402
 import numpy as np  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# --kae-src DIR evaluates another copy of kae/src (comparing code versions); read before kae is imported
-_src = sys.argv[sys.argv.index('--kae-src') + 1] if '--kae-src' in sys.argv else os.path.join(HERE, '..', '..', '..', 'kae', 'src')
+# --haslam-src DIR evaluates another copy of haslam/src (comparing code versions); read before haslam is imported
+_src = sys.argv[sys.argv.index('--haslam-src') + 1] if '--haslam-src' in sys.argv else os.path.join(HERE, '..', '..', '..', 'haslam', 'src')
 sys.path.insert(0, os.path.abspath(_src))
-from kae.board.kicad_file import load  # noqa: E402
-from kae.circuit.brief import build  # noqa: E402
+from haslam.board.kicad_file import load  # noqa: E402
+from haslam.circuit.brief import build  # noqa: E402
 
 N_RAND = 400
 
@@ -513,24 +513,24 @@ def suite_md(rows):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('--tasks', default='kae-work/tasks')
+    ap.add_argument('--tasks', default='haslam-work/tasks')
     ap.add_argument('--out', required=True)
     ap.add_argument('-j', type=int, default=2)
     ap.add_argument('--only', default='')
     ap.add_argument('--no-sheets', action='store_true')
-    ap.add_argument('--rank-w', type=float, default=None, help='override kae.circuit.structures.RANK_W (ablation)')
+    ap.add_argument('--rank-w', type=float, default=None, help='override haslam.circuit.structures.RANK_W (ablation)')
     ap.add_argument('--tie', choices=('schematic', 'random'), default=None, help='capacitor tie-break order (ablation)')
     ap.add_argument('--cap-class', choices=('package', 'value'), default=None,
-                    help='override kae.circuit.roles.CAP_CLASS: HF decaps by body or by value (ablation)')
-    ap.add_argument('--kae-src', default=None, help='another copy of kae/src to evaluate (read at import time)')
+                    help='override haslam.circuit.roles.CAP_CLASS: HF decaps by body or by value (ablation)')
+    ap.add_argument('--haslam-src', default=None, help='another copy of haslam/src to evaluate (read at import time)')
     a = ap.parse_args(argv)
-    import kae.circuit.structures as _st
+    import haslam.circuit.structures as _st
     if a.rank_w is not None:
         _st.RANK_W = a.rank_w
     if a.tie:
         _st.TIE_ORDER = a.tie
     if a.cap_class:
-        import kae.circuit.roles as _ro
+        import haslam.circuit.roles as _ro
         _ro.CAP_CLASS = a.cap_class
     paths = sorted(glob.glob(os.path.join(a.tasks, '*', 'reference', 'board.kicad_pcb')))
     if a.only:

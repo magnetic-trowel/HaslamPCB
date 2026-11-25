@@ -71,10 +71,10 @@ RPA §14 [I].
 | HC-06 | Kelvin shunts with pads not shared with the power path | [current-sense-kelvin.md](current-sense-kelvin.md) | Tap inside the pad | S1 |
 | PDN-07 | Size power traces and pours with IPC + IR drop | as above | Per-net minimum width vs regulator rating | S2 |
 
-## How kae applies these
-- **Track width.** The critical router sizes current-carrying copper at IPC-2221 (10 K, or the intent's `dT_max_K`). Its 3 mm cap (`rail_max_mm`) binds above ~5.3 A on 1 oz, and no kae stage then adds a pour (the power-copper pass also stops at 3 mm). So copper narrower than its IPC width, a capped track or a branch left to the general router at the class width, reports a hazard: its rise by IPC-2221 and IPC-2152, `warn`, or `block` when even the expected current (without the 3× E5 margin) takes it from 50 °C past FR-4's 130 °C, `warn` past 105 °C (aluminium electrolytics and many connectors are rated 85–105 °C), or `info` within 1.2× of the IPC width and below 105 °C ([critical-net-routing](../../routing/critical-net-routing.md)).
+## How haslam applies these
+- **Track width.** The critical router sizes current-carrying copper at IPC-2221 (10 K, or the intent's `dT_max_K`). Its 3 mm cap (`rail_max_mm`) binds above ~5.3 A on 1 oz, and no haslam stage then adds a pour (the power-copper pass also stops at 3 mm). So copper narrower than its IPC width, a capped track or a branch left to the general router at the class width, reports a hazard: its rise by IPC-2221 and IPC-2152, `warn`, or `block` when even the expected current (without the 3× E5 margin) takes it from 50 °C past FR-4's 130 °C, `warn` past 105 °C (aluminium electrolytics and many connectors are rated 85–105 °C), or `info` within 1.2× of the IPC width and below 105 °C ([critical-net-routing](../../routing/critical-net-routing.md)).
 - **Vias.** Count = max(⌈I / I_via⌉, the equal cross-section count), I_via the SLVA959 fit above for the via's drill at 20 µm plating (`critical_physics.vias_needed`): 2 vias for 1 A and 5 for 4 A at 0.3 mm, 13 for 10 A. Overrides: `via_A` (1.0 is TI's one per amp), `via_plating_mm`. Too few placed is a hazard.
-- **One plating everywhere:** 20 µm and π(d+t)t in the router, the DC and heat evaluators (`kae.materials`).
+- **One plating everywhere:** 20 µm and π(d+t)t in the router, the DC and heat evaluators (`haslam.materials`).
 
 ## Open questions
 - **SLAA896 vs SLVA959:** 2.21 A vs 0.84 A at 12 mil. SLVA959 matches the internal curve and SLAA896 the external one on the same barrel (above); neither states its assumptions.

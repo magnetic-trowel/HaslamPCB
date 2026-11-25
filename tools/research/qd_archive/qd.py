@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Quality-diversity archive over joint-collapse boards (catalog idea 16, tag `qd`).
 
@@ -18,7 +18,7 @@ Descriptors (option desc, two names):
     spread   RMS distance of movable part origins from their centroid (placement shape)
     vias     routed via count
     len      routed length (mm)
-    phys     fast physics total (kae place terms; vias on boards without structures)
+    phys     fast physics total (haslam place terms; vias on boards without structures)
     hpwl     half-perimeter wire length
     none     single cell: the archive degenerates to elitist iterated local search
 Mutation operators: `shift` (k nearest parts around a random part moved up to 3 mm,
@@ -61,10 +61,10 @@ from jc import Collapse, _reset, collapse_once  # noqa: E402
 
 
 def _board_id(world):
-    """Task id from the input path (kae-v7 or kae-work task trees)."""
+    """Task id from the input path (haslam-v7 or haslam-work task trees)."""
     parts = Path(world.data.get("path", "board")).parts
     for s in reversed(parts):
-        if any((ROOT / d / "tasks" / s).is_dir() for d in ("kae-v7", "kae-work")):
+        if any((ROOT / d / "tasks" / s).is_dir() for d in ("haslam-v7", "haslam-work")):
             return s
     return Path(world.data.get("path", "board")).parent.name
 
@@ -332,7 +332,7 @@ def qd(world, seed=0, budget=300, log=print, desc="spread,vias", n_init=2, polis
                            **{a: round(b, 3) for a, b in e["d"].items()}) for e in A.cells.values()],
                best=list(best["key"]), by_len=list(by_len["key"]),
                by_phys=list(by_phys["key"]) if by_phys else None, hist=hist)
-    # the kaebench sandbox keeps only stdout (adapter.log): one line, read by archive_stats.py
+    # the haslambench sandbox keeps only stdout (adapter.log): one line, read by archive_stats.py
     print("QDARCHIVE " + json.dumps(out), flush=True)
     if qd_dir:
         Path(qd_dir).mkdir(parents=True, exist_ok=True)

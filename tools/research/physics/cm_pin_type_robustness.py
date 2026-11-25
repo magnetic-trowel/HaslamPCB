@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""How much does kae.circuit's brief depend on library pin electrical types?
+"""How much does haslam.circuit's brief depend on library pin electrical types?
 
 Library pin types are often wrong: VIN typed input, VIN+ typed power_in, GPIOs named after an oscillator
 function. The comprehension evidence model should let pin names, values and topology outvote a
@@ -18,8 +18,8 @@ Agreement with the unperturbed brief, pooled over boards:
   decaps      Jaccard of (IC, rail, function) decap groups.
 
 Usage:
-  python -I cm_pin_type_robustness.py --tasks kae-work/tasks [-j 2] [--only id,id] [--kae-src DIR] [--out FILE]
-`--kae-src` points at another copy of kae/src (to compare code versions).
+  python -I cm_pin_type_robustness.py --tasks haslam-work/tasks [-j 2] [--only id,id] [--haslam-src DIR] [--out FILE]
+`--haslam-src` points at another copy of haslam/src (to compare code versions).
 """
 import argparse
 import glob
@@ -33,7 +33,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_v, "1")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-KAE_SRC = os.path.join(HERE, '..', '..', '..', 'kae', 'src')
+HASLAM_SRC = os.path.join(HERE, '..', '..', '..', 'haslam', 'src')
 
 SUPPLY = re.compile(r'^(P?VIN\d*|AVIN|VBAT\w*|VDD\w*|VCC\w*|AVDD\w*|DVDD\w*|IOVDD|PVDD\w*|VBUS|VSYS|VDDIO\w*|VDDA\w*|VCCIO\w*)$', re.I)
 SIGNAL = re.compile(r'^(GPIO\w*|IO\d+\w*|P[A-K]\d{1,2}\w*|P\d[._]\d+\w*|SDA\w*|SCL\w*|MOSI|MISO|SCK|TXD?\d?|RXD?\d?|EN|ENABLE|INT\w*|'
@@ -74,8 +74,8 @@ def jac(a, b):
 def one(args):
     path, src = args
     sys.path.insert(0, src)
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
     bid = path.split('/')[-3]
     try:
         r0, rails0, cells0, dec0 = summary(build(load(path)))
@@ -94,17 +94,17 @@ def one(args):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('--tasks', default='kae-work/tasks')
+    ap.add_argument('--tasks', default='haslam-work/tasks')
     ap.add_argument('-j', type=int, default=2)
     ap.add_argument('--only', default='')
-    ap.add_argument('--kae-src', default=KAE_SRC)
+    ap.add_argument('--haslam-src', default=HASLAM_SRC)
     ap.add_argument('--out', default='')
     a = ap.parse_args(argv)
     paths = sorted(glob.glob(os.path.join(a.tasks, '*', 'reference', 'board.kicad_pcb')))
     if a.only:
         keep = set(a.only.split(','))
         paths = [p for p in paths if p.split('/')[-3] in keep]
-    jobs = [(p, os.path.abspath(a.kae_src)) for p in paths]
+    jobs = [(p, os.path.abspath(a.haslam_src)) for p in paths]
     if a.j > 1:
         with Pool(a.j) as pool:
             rows = pool.map(one, jobs, chunksize=1)

@@ -1,11 +1,11 @@
-# Benchmark harness (kaebench)
+# Benchmark harness (haslambench)
 
-Scope: what `bench/` (package `kaebench`) does: pipeline stages, score v2 integrity, adapters, qualification yield, first Freerouting baseline. Not here: metric definitions -> [quality-metrics.md](quality-metrics.md); benchmark recipe and plans -> [benchmark-plan.md](benchmark-plan.md); public benchmarks -> [benchmarks.md](benchmarks.md).
-Keys: kaebench, bench/, harness, manifest, fetch, prepare, qualified, split A B C, route task, place task, score v2, transplant-routing, transplant-placement, integrity, valid, clean, completion, wl_ratio, via_delta, legal, hpwl_ratio, probe route, @1, @k, best-of-k, adapter, --command, bubblewrap, bwrap, freerouting, freerouting-stock, reference, noop, ENV_DEPENDENT_CHECKS, test_redteam.py
+Scope: what `bench/` (package `haslambench`) does: pipeline stages, score v2 integrity, adapters, qualification yield, first Freerouting baseline. Not here: metric definitions -> [quality-metrics.md](quality-metrics.md); benchmark recipe and plans -> [benchmark-plan.md](benchmark-plan.md); public benchmarks -> [benchmarks.md](benchmarks.md).
+Keys: haslambench, bench/, harness, manifest, fetch, prepare, qualified, split A B C, route task, place task, score v2, transplant-routing, transplant-placement, integrity, valid, clean, completion, wl_ratio, via_delta, legal, hpwl_ratio, probe route, @1, @k, best-of-k, adapter, --command, bubblewrap, bwrap, freerouting, freerouting-stock, reference, noop, ENV_DEPENDENT_CHECKS, test_redteam.py
 Tags: [M] measured by our harness.
 
 ## Harness invariants
-1. `bench/` holds `kaebench`, a stdlib-only Python harness: manifest → fetch at pinned commit → convert to KiCad 10 → qualify → route/place tasks → adapter × k attempts → independent `kicad-cli` scoring → @1/@k report ([bench/README.md](../../../bench/README.md)).
+1. `bench/` holds `haslambench`, a stdlib-only Python harness: manifest → fetch at pinned commit → convert to KiCad 10 → qualify → route/place tasks → adapter × k attempts → independent `kicad-cli` scoring → @1/@k report ([bench/README.md](../../../bench/README.md)).
 2. **No method scores itself; only allowed changes count.** Score v2 rebuilds each board from the task input plus the method's tracks and vias (route) or footprint poses (place), installs the reference rules, and runs DRC in a fresh process. Any other change (rules, outline, keepouts, pads, layers, nets, locked parts) is detected and makes the result invalid.
 3. External methods run in a bubblewrap sandbox with no network and no view of reference layouts. `bench/tests/test_redteam.py` holds the cheats this must catch.
 4. Built-in adapters: `reference` (human), `noop`, `freerouting` (DSN/SES with the documented pitfalls fixed); any external tool plugs in through `--command`.
@@ -70,6 +70,6 @@ Tags: [M] measured by our harness.
 
 ## Sources
 
-- Harness code: [bench/src/kaebench/](../../../bench/src/kaebench/), tests in [bench/tests/](../../../bench/tests/)
+- Harness code: [bench/src/haslambench/](../../../bench/src/haslambench/), tests in [bench/tests/](../../../bench/tests/)
 - Recipe and metrics: [benchmark-plan](benchmark-plan.md), [quality-metrics](quality-metrics.md), [../routing/pcbworld.md](../routing/pcbworld.md)
 - See also [../data/open-board-sources.md](../data/open-board-sources.md).

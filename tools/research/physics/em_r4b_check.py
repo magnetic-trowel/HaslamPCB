@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """A hop that replaces an unrouted connection, priced from the board before it: which trial currents give the
 board after it (stage R4b, docs/topics/architecture/physics-frequency-coverage.md).
@@ -28,10 +28,10 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[2] / "kae" / "src"))
+sys.path.insert(0, str(HERE.parents[2] / "haslam" / "src"))
 
-from kae.em import solve as ES  # noqa: E402
-from kae.em.mesh import Layer, Mesh  # noqa: E402
+from haslam.em import solve as ES  # noqa: E402
+from haslam.em.mesh import Layer, Mesh  # noqa: E402
 
 T, H = 0.035, 0.2
 C_SW, ESR, ESL, C_OUT = 200e-12, 0.02, 0.5e-9, 1e-6
@@ -160,7 +160,7 @@ def hop_bars(m, y, rows, layer, sign=1.0, spread=None):
 def flux_along(op, I, bars):
     """Raw flux (V s per A) of branch currents I through the bars [(layer, o, j, i, share)]: the partial
     mutual inductance of the hop's unit current with I."""
-    from kae.em import fields as EF
+    from haslam.em import fields as EF
     fl = EF.flux(op, I.astype(complex), layers=sorted({l for l, *_ in bars}))
     return sum(c * fl[(l, o)][j, i] for (l, o, j, i, c) in bars)
 
@@ -183,10 +183,10 @@ def main(argv=None):
     hb = hop_bars(m1, y, rows, 0)
     img = hop_bars(m1, y, rows, 1, -1.0, spread=(H + T, w))
     imgs = [img, hop_bars(m1, y, rows, 1, -1.0, spread=(0.5 * (H + T), w)), hop_bars(m1, y, rows, 1, -1.0, spread=(2 * (H + T), w))]
-    # the router's own route (kae.em.hopport on the reduced model of the board before the hop)
-    from kae.em import reduce as RD
-    from kae.em import hopport as HP
-    from kae.em.spectral import Spectral
+    # the router's own route (haslam.em.hopport on the reduced model of the board before the hop)
+    from haslam.em import reduce as RD
+    from haslam.em import hopport as HP
+    from haslam.em.spectral import Spectral
     md = RD.Reduced(op0, PORTS, log=lambda s: None, emf=[b])
     md.build(3e8, fmin=1e3, tol=1e-4, f0=(0.0, 1e7), snap_tol=1e-9)
     bf = Spectral._basis(None, md, n0, op0, m0, None)
@@ -214,7 +214,7 @@ def main(argv=None):
         return out
     print(f"case {a.case}{' slot' if a.slot else ''}: dZ = Z after the hop - Z before; ratios model / direct "
           f"(magnitude, phase)", flush=True)
-    print(f"{'f MHz':>9s} {'pair':>4s} {'|dZ| direct':>12s} {'kae.em.hopport':>16s} {'stationary':>16s} {'image return':>16s} {'P+e+img':>16s}")
+    print(f"{'f MHz':>9s} {'pair':>4s} {'|dZ| direct':>12s} {'haslam.em.hopport':>16s} {'stationary':>16s} {'image return':>16s} {'P+e+img':>16s}")
     alpha_log = []
     for f in FREQS:
         s0 = ES.System(op0, f)
@@ -238,7 +238,7 @@ def main(argv=None):
             Br = Ws.T @ np.concatenate([np.zeros((n1.n_br, 2)), -S1])
             Yr = np.linalg.solve(Ar, Br)
             res[nm] = (Br.T @ Yr) * (-1 / s1.kap)                            # port impedances
-        # the compensation model (kae.em.spectral): model quantities of the board before the hop only, plus the
+        # the compensation model (haslam.em.spectral): model quantities of the board before the hop only, plus the
         # hop's own loop with its image return
         jw = 2j * np.pi * f
         I, Yb = X[b, :2], X[b, 2]

@@ -1,14 +1,14 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Does kae's reader name nets, layers and pads as pcbnew does on old boards?
+"""Does haslam's reader name nets, layers and pads as pcbnew does on old boards?
 
     python names_audit.py pick CORPUS N_OLD N_CONTROL [extra_ids.txt] > ids.txt
-    $KAE_KICAD_WRAP python3 names_audit.py pcbnew CORPUS ids.txt > pcbnew.jsonl
-    python names_audit.py kae CORPUS ids.txt > kae.jsonl          # PYTHONPATH picks the kae
-    python names_audit.py compare pcbnew.jsonl kae.jsonl
+    $HASLAM_KICAD_WRAP python3 names_audit.py pcbnew CORPUS ids.txt > pcbnew.jsonl
+    python names_audit.py haslam CORPUS ids.txt > haslam.jsonl          # PYTHONPATH picks the haslam
+    python names_audit.py compare pcbnew.jsonl haslam.jsonl
 
 Per board, both sides list (canonical layer names, positions in mm rounded to 1 um):
-  nets      every net name (pcbnew: GetNetsByName; kae: Board.nets)
+  nets      every net name (pcbnew: GetNetsByName; haslam: Board.nets)
   pads      [ref, x, y, number, net, attribute]
   tracks    [layer, net, start, end] for segments and arcs
   vias      [x, y, net, layers]
@@ -16,7 +16,7 @@ Per board, both sides list (canonical layer names, positions in mm rounded to 1 
   sides     [ref, F|B]
 `compare` prints, per category, the boards and items that differ (multisets; positions match
 within 2 um, pcbnew's display layer names map to the file names).
-pcbnew reads with PCB_IO_MGR.Load (KICAD_SEXP), kae's writers' reader.
+pcbnew reads with PCB_IO_MGR.Load (KICAD_SEXP), haslam's writers' reader.
 """
 import collections
 import json
@@ -78,8 +78,8 @@ def pcbnew_view(path):
     return dict(nets=nets, pads=pads, tracks=tracks, vias=vias, zones=zones, sides=sides)
 
 
-def kae_view(path):
-    from kae.board import kicad_file
+def haslam_view(path):
+    from haslam.board import kicad_file
     b = kicad_file.load(str(path))
     pads = [[f.ref, r3(p.x), r3(p.y), p.number, p.net, p.kind] for f in b.footprints for p in f.pads]
     sides = [[f.ref, f.side] for f in b.footprints]
@@ -110,7 +110,7 @@ def run(fn, corpus, ids_file):
 DISPLAY = {"F.Silkscreen": "F.SilkS", "B.Silkscreen": "B.SilkS", "F.Adhesive": "F.Adhes", "B.Adhesive": "B.Adhes",
            "F.Courtyard": "F.CrtYd", "B.Courtyard": "B.CrtYd", "User.Drawings": "Dwgs.User",
            "User.Comments": "Cmts.User", "User.Eco1": "Eco1.User", "User.Eco2": "Eco2.User"}
-TOL = 0.002   # mm: kae's float positions and pcbnew's nm round to different sides of 1 um
+TOL = 0.002   # mm: haslam's float positions and pcbnew's nm round to different sides of 1 um
 
 
 def _split(x):
@@ -167,7 +167,7 @@ def compare(pfile, kfile):
             if n:
                 tot[c] += n
                 boards[c] += 1
-                print(f"{c:6s} {bid[:60]:60s} pcbnew-only {len(only_p)} kae-only {len(only_k)}"
+                print(f"{c:6s} {bid[:60]:60s} pcbnew-only {len(only_p)} haslam-only {len(only_k)}"
                       f"  e.g. {json.dumps(only_p[:1])} vs {json.dumps(only_k[:1])}")
     print(f"\n{len(P)} boards, {errors} errors")
     for c in cats:
@@ -179,8 +179,8 @@ def main(argv):
         print("\n".join(pick(argv[1], int(argv[2]), int(argv[3]), argv[4] if len(argv) > 4 else None)))
     elif argv[0] == "pcbnew":
         run(pcbnew_view, argv[1], argv[2])
-    elif argv[0] == "kae":
-        run(kae_view, argv[1], argv[2])
+    elif argv[0] == "haslam":
+        run(haslam_view, argv[1], argv[2])
     elif argv[0] == "compare":
         compare(argv[1], argv[2])
 

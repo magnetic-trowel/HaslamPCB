@@ -39,7 +39,7 @@ Best first: pcb-corpus > PCBWorld D3 > Freerouting fixtures > Cypress > KiCad de
 | **Cypress** ([artifacts](https://github.com/NVlabs/Cypress/tree/743b07c4e33dc52a00584d55d2e67f38f70957f5/artifacts/benchmarks)) | small-1..10 in KiCad 7 (kiutils) + small-1..20 in Bookshelf; anonymised | Yes | Apache-2.0 | Partial clone | Placement only: **no Edge.Cuts outline**, no copper, stale net table [P, measured] |
 | **ASP-DAC'21 bm1–bm11** | Routed/unrouted KiCad 5 boards and DSN | Yes | No repo licence; only bm1, bm11 have a CC BY-SA licence.txt | Clone | Keep bm1 and bm11 only [P] |
 | **KiCad demos** ([LICENSE.README](https://gitlab.com/kicad/code/kicad/-/blob/b1d58a59a9a3da4d061ee3dc22ceba3d11812eb2/LICENSE.README)) | 19 boards at tag 10.0.7, incl. vme-wren (12 layers), cm5_minima, multichannel_mixer (+unrouted) | Yes (pin the **10.0.7 tag**, not master) | "CC BY-SA 4.0: All the demo files provided in demos/*" | GitLab partial clone | On master `constraints.kicad_pcb` uses format 20260624, won't open in 10.0.x; master demos may need 10.99 [P, measured] |
-| **Raspberry Pi minimal** | RP2040 and RP2350A KiCad 10 projects (both DRC-clean) | No git: zip only | MIT (LICENSE.txt in zip) | `datasheets.raspberrypi.com/.../Minimal-KiCAD.zip` → versioned pip-assets file | Pin by sha256. In `netlist_candidates.jsonl` because kaebench requires a 40-hex commit [P] |
+| **Raspberry Pi minimal** | RP2040 and RP2350A KiCad 10 projects (both DRC-clean) | No git: zip only | MIT (LICENSE.txt in zip) | `datasheets.raspberrypi.com/.../Minimal-KiCAD.zip` → versioned pip-assets file | Pin by sha256. In `netlist_candidates.jsonl` because haslambench requires a 40-hex commit [P] |
 | **OmniLayout / OmniRouting** | 1,681 Eagle-derived designs | — | No data licence | Not released ("will open-source") | Not usable yet [S] |
 | **tscircuit dataset-srj18** | 16 boards as Simple Route JSON (5 Arduino + 11 Antmicro) | Upstream refs `main`, not commits | **No licence file** | — | Use upstream Antmicro repos [P] |
 | **RL_PCB** | 9 tiny KiCad 5 boards (3–9 parts) | Yes | MIT | Clone | Netlist toy set [P] |
@@ -104,7 +104,7 @@ Quality signals:
 
 ## Fetch pitfalls [P unless marked]
 
-- Harness check: kaebench's `fetch` retrieved 31 sampled rows (GitHub, GitLab, the Forgejo host, PCBench), sha256 verified [P, measured].
+- Harness check: haslambench's `fetch` retrieved 31 sampled rows (GitHub, GitLab, the Forgejo host, PCBench), sha256 verified [P, measured].
 - Partial clone: `git clone --filter=blob:none --no-checkout --depth 1` + `git cat-file -p <commit>:<path>` fetches only needed blobs. `git ls-tree -l` on such a clone lazily downloads **every** blob (needs sizes) [P, observed].
 - Git LFS: many repos carry `.gitattributes`; no manifest board was an LFS pointer. Detect `version https://git-lfs` and fall back to `media.githubusercontent.com` [I].
 - Multi-revision folders (Olimex, Glasgow revC0–revD1, moteus r1.x) and backups (`-backups/`, `_autosave`) need explicit path pins.

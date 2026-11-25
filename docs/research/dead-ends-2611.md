@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Ideas dropped 2026-11-20 to 2026-11-22
 
@@ -29,7 +29,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 
 **Did not work**; stored-data analysis.
 
-- **Tried:** slide a small unlocked part (≤ 4 pads) by the deficit `kae.route.blocked` reports, so the relaxed path becomes legal. Stored-data analysis: relaxed search with all copper in place on 966 diagnosed opens of 59 staged boards, kae's own geometry, no KiCad DRC; 2.6 CPU-h. Scripts `t1_rediag.py`, `t2_elastic.py`, `t3_insert.py` (design-session scratch, not committed).
+- **Tried:** slide a small unlocked part (≤ 4 pads) by the deficit `haslam.route.blocked` reports, so the relaxed path becomes legal. Stored-data analysis: relaxed search with all copper in place on 966 diagnosed opens of 59 staged boards, haslam's own geometry, no KiCad DRC; 2.6 CPU-h. Scripts `t1_rediag.py`, `t2_elastic.py`, `t3_insert.py` (design-session scratch, not committed).
 - **Evidence** [C]: binding gap against another net's via 33.0 %, own part's pad 15.5 %, another net's track 14.5 %, larger part 9.7 %, **small unlocked part 6.0 % [3.9, 8.8]** (kill line 20 %); P22 (staged open, bridge clean) 15.1 % [6.9, 23.1]; joint loop 6.0 %, bridge 3.4 %. Deficits median 0.22 mm, yet a legal slide in any of 17 directions clears the binding gap for 1.0 / 1.4 / 2.1 % of opens at 0.5 / 1 / 2 mm, and every gap of the path for 1 of 966 (the path runs between the part's pads).
 - **Why dead:** small parts are rarely what blocks, and moving one rarely clears the whole path.
 - **Reopen if:** an elastic finishing state exists (vias and tracks move with the part: 51.2 % [44, 59] of slides ≤ 1 mm are feasible without rip-up; track shove alone fits 11.7 % of opens). Part slides then become one move of that engine, not a mechanism of their own.
@@ -58,7 +58,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Tried:** stored-data analysis, `tools/research/diagnostics/placement_rank.py` (branch `d5-stage0-tools` c7b00198): 9,809 placements, 211 boards, 165 owners, 42 features.
 - **Evidence** [C]: model minus best single feature +0.04 to +0.075 in within-board ρ, intervals include 0. On 201 same-arm seed pairs, flyline crossings alone order pairs at 0.629 [0.567, 0.686], every model 0.52-0.56; HPWL at chance. Within-board share of log-opens variance 1.7-5.5 %; model-based selection −2.4 % opens, oracle −12 %.
 - **Why dead:** little within-board variance to learn, and one feature already captures it.
-- **Reopen if:** labels exist per connection on kae placements (connection ledger). Net-level signal is real: within-board AUC 0.847 vs 0.804 for MST length (+0.043 [+0.015, +0.074]), +0.115 [+0.063, +0.167] on 2-3 pad signal nets, human placement only.
+- **Reopen if:** labels exist per connection on haslam placements (connection ledger). Net-level signal is real: within-board AUC 0.847 vs 0.804 for MST length (+0.043 [+0.015, +0.074]), +0.115 [+0.063, +0.167] on 2-3 pad signal nets, human placement only.
 
 ## 5. Pin and gate swaps as a search variable
 
@@ -100,7 +100,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 
 **Did not work**; micro replay.
 
-- **Tried:** branch `d4-closure` 428c8f61 (`kae/src/kae/route/closure.py`, setting `closure=1`): take the path that exists without our copper, rip the nets it crosses (conflict set K, shrunk greedily), solve {open} + K jointly over all orders (≤ 24), all-or-nothing through the journal; never rip input or locked copper. Sets are small (median 2-3 nets). Micro replay `d4-closure-micro`: 11 near-miss bridge boards, 30 opens, 120 s counted work from the stored board.
+- **Tried:** branch `d4-closure` 428c8f61 (`haslam/src/haslam/route/closure.py`, setting `closure=1`): take the path that exists without our copper, rip the nets it crosses (conflict set K, shrunk greedily), solve {open} + K jointly over all orders (≤ 24), all-or-nothing through the journal; never rip input or locked copper. Sets are small (median 2-3 nets). Micro replay `d4-closure-micro`: 11 near-miss bridge boards, 30 opens, 120 s counted work from the stored board.
 - **Evidence** [C]: control (last mile with rip-up) and closure each closed 0 opens; none worse. Closure records: 15 "needs fixed copper", 5 joint solve failed, 5 out of time.
 - **Why dead:** pre-registered kill (fewer than 3 boards) met. Half the opens need fixed or input copper moved, which closure may not touch; `lastmile.close` already rips what a soft search crosses. Limit: the control closed nothing either, so 120 s cannot separate arms.
 - **Reopen if:** an elastic state can move vias and fixed copper ([§ 2](#2-part-slides-inside-the-last-mile)), or a longer replay in which the control closes something.
@@ -118,7 +118,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 
 **Did not work**; stored-data analysis.
 
-- **Tried:** stored-data analysis. Reach (`tools/kaeres/reach.py`, branch `d6-reach` 4dafcfd4): skip an arm's run when its state after the changed stage hashes equal to the control's. Stopping: empirical-Bernstein confidence sequence (Waudby-Smith and Ramdas 2024) on paired board differences clipped at ±2 (`confseq.py`, design-session scratch).
+- **Tried:** stored-data analysis. Reach (`tools/haslamres/reach.py`, branch `d6-reach` 4dafcfd4): skip an arm's run when its state after the changed stage hashes equal to the control's. Stopping: empirical-Bernstein confidence sequence (Waudby-Smith and Ramdas 2024) on paired board differences clipped at ±2 (`confseq.py`, design-session scratch).
 - **Evidence** [C]: placement fingerprint (`hpwl, scorecard, crossings`) identical on **0 of 507** pairs for the crossing and channel terms (89 under counted work), 5 of 132 for untangle. Sequence width / fixed-n width: 5.0× at 60 boards, 2.5× at 300, 1.8× at 1,200; on 188 stored arms fixed-n excludes 0 on 79, the sequence on 24.
 - **Why dead:** any annealer term change moves the whole anneal, so a hash saves nothing for placement terms; a sequence costs 5× the boards at sprint size.
 - **Reopen if:** the change is gated or late (reach check pays about half the CPU there), or evidence accumulates over weeks to ≥ 1,200 boards (sequence then 1.8×).
@@ -136,7 +136,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 
 **Did not work**; experiments + user decision.
 
-- **Tried:** the joint loop's window repair (re-place parts near an open, rip about 10 nets, fresh Freerouting, full-board DRC per try) → [kae-joint-loop](joint/kae-joint-loop.md), [window outcomes](joint/window-outcomes-2611.md), [window budget](joint/window-budget-2611.md).
+- **Tried:** the joint loop's window repair (re-place parts near an open, rip about 10 nets, fresh Freerouting, full-board DRC per try) → [haslam-joint-loop](joint/haslam-joint-loop.md), [window outcomes](joint/window-outcomes-2611.md), [window budget](joint/window-budget-2611.md).
 - **Evidence** ([audit-2611b](audit-2611b.md#six-conclusions); `j10-joint-window2` verdict): 126 of 4,036 windows kept (3.1 %), about 2 useful revisions per CPU-hour; 38 % die illegal, 28 % end with more opens. `j10-joint-window2` (cancelled at 25 %): in 25 of 28 runs per arm no re-placement ran at 900 s × √(fp/40). Placements under 1 % of the diagonal apart differ in opens as much as unrelated ones (77 pairs, 4 boards, descriptive).
 - **Why dead:** a fresh restart re-draws every pose and beats windows at equal CPU. The remaining campaigns `loop-win3` and `j10-joint-window2` (about 1,300 queued CPU-h) were retired by user decision on 2026-11-20.
 - **Reopen if:** `d2-perturb-response` shows the router responds smoothly to small placement changes, or windows edit an elastic state instead of ripping nets.
@@ -145,7 +145,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 
 **Did not work (superseded)**; stored-data analysis.
 
-- **Tried:** stored-data analysis (`s0_return.py`, design-session scratch) on 46 2-layer boards finished by the human, bridge and staged: reserved ground bands as `kae-crit:` zones, which `constraints.py` treats as hard obstacles, laid before signals.
+- **Tried:** stored-data analysis (`s0_return.py`, design-session scratch) on 46 2-layer boards finished by the human, bridge and staged: reserved ground bands as `haslam-crit:` zones, which `constraints.py` treats as hard obstacles, laid before signals.
 - **Evidence** [C]: ground within 1 mm on the same layer or directly opposite (`cov_any`): bridge − human −1.3 points [−3.2, +0.5], within noise. Ground directly under the track (`cov_opp`): bridge −3.7 [−6.3, −1.0], staged −9.8 [−13.7, −6.1]. 2-10 % of opens involve a zone, so a skeleton buys no completion.
 - **Why dead:** the gap is `cov_opp`, which the price form closes: `ground-side-ab` +8.4 points [+5.5, +11.6] (0.507 → 0.591), adopted as candidate. On the 6 of 43 boards with no ground zone the human is no reference (`cov_any` 5 %); the skeleton's value there rests on a secondary source only.
 - **Reopen if:** the ground-side cost fails its completion guard on the ladder, or a measured return-path row shows a gap on plane-less boards.

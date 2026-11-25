@@ -14,7 +14,7 @@ Tags: [P] primary; [I] inference. Items 1–7 from the constraints/benchmarks no
 ## Benchmark tracks
 | # | Track | Content | Scoring |
 |---|---|---|---|
-| 1 | Routing leaderboard | PCBWorld D3-A/B, later D3-C | @5 CP / Pot. / Rout. / DRV / WL / Via / Time / Parse-fail, against published Freerouting (0.80/0.78) and KRT (0.74/0.20). Also re-run Freerouting 2.5.0, since the published baseline is 2.1.0 (VK). The published numbers come from KiCad 9.0.8, Freerouting 2.1.0 at `-mp 10`, 99 D3-A and 10 D3-B boards, 4-seed means, so they are not a same-version, same-suite baseline. kaebench's `cpk` is any-clean@k, not PCBWorld's Φ-selected CP@5, and can only be ≥ it ([quality-metrics.md](quality-metrics.md)) |
+| 1 | Routing leaderboard | PCBWorld D3-A/B, later D3-C | @5 CP / Pot. / Rout. / DRV / WL / Via / Time / Parse-fail, against published Freerouting (0.80/0.78) and KRT (0.74/0.20). Also re-run Freerouting 2.5.0, since the published baseline is 2.1.0 (VK). The published numbers come from KiCad 9.0.8, Freerouting 2.1.0 at `-mp 10`, 99 D3-A and 10 D3-B boards, 4-seed means, so they are not a same-version, same-suite baseline. haslambench's `cpk` is any-clean@k, not PCBWorld's Φ-selected CP@5, and can only be ≥ it ([quality-metrics.md](quality-metrics.md)) |
 | 2 | Placement leaderboard | Cypress small benchmarks; PCBWorld D3 boards with placement stripped (keep outline, mechanical parts, connectors and locks; re-place everything else) | Cypress protocol (Freerouting v1.9.0 routability, two free layers, default settings; VP #37) plus HPWL, overlap, out-of-bounds, crossings; compare with the human placement routed by the same router |
 | 3 | Intent track | Subset of D3 plus own boards, annotated with human-confirmed IR constraints ([../architecture/constraint-ir.md](../architecture/constraint-ir.md)) | PRC pass rate by constraint kind; hard-violation counts |
 | 4 | Physics track | Decap PRCs, return-path violations, IR-drop margin (padne/KiPI); si-wrapper/openEMS impedance and delay on a few high-speed boards | Measured vs limit ([evaluation-stack.md](evaluation-stack.md)) |
@@ -42,7 +42,7 @@ Then add placement-stripped variants and intent annotations [I].
 - Licences of PCBWorld D3, PCBench and the Cypress benchmarks need per-board verification.
 - IR checkers (pad distance, via-to-plane, loop area, layer switches) need implementation and validation against Quilter-style PRC definitions and openEMS before the intent and physics tracks are trustworthy.
 - Tier timings for padne and KiPI on representative boards are unmeasured. DRC is partly measured: on KiCad 10.0.7, 4 of 297 manifest boards timed out at 900 s ([harness.md](harness.md)).
-- The qualified kaebench suite is selected: 112 of 297 boards qualify, and only 10 of 54 boards with 6+ layers, so it skews to simple boards ([harness.md](harness.md)).
+- The qualified haslambench suite is selected: 112 of 297 boards qualify, and only 10 of 54 boards with 6+ layers, so it skews to simple boards ([harness.md](harness.md)).
 
 ## Sources
 

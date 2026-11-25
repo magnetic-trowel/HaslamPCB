@@ -1,16 +1,16 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Bus yardstick: a bare-board bus detector and a report-only bus scorecard (A1), with a skew decomposition (A2)
 
-**Status:** built (report-only tooling). Changes no score, cost or selection. The corpus run is queued (kaeq owner `bus-yardstick-1`; `kaeres bus report yardstick-1` writes `~/kae-baselines/bus/yardstick-1/BUS.md`).
+**Status:** built (report-only tooling). Changes no score, cost or selection. The corpus run is queued (haslamq owner `bus-yardstick-1`; `haslamres bus report yardstick-1` writes `~/haslam-baselines/bus/yardstick-1/BUS.md`).
 **First published:** 2026-11-09, branch `bus-yardstick`.
-Keys: bus scorecard, bus detector, lanes open, coupled share, via parity, skew budget, controller-keyed limits, skew decomposition, kae.bus
+Keys: bus scorecard, bus detector, lanes open, coupled share, via parity, skew budget, controller-keyed limits, skew decomposition, haslam.bus
 
 ## What it is
 
-- `kae.bus.detect` finds buses (nets meant to be routed as one object) from what a new board has: netlist, net names and classes, footprints, part data, pin positions. It never reads tracks or vias. It is the bus campaign's census detector, moved into the package unchanged: on 200 random corpus boards, stripped of copper, it gives exactly the census's buses (200/200 identical). Census validation (precision 96%, recall 92-99% by interface tag) carries over.
-- `kae.bus.scorecard` measures a routed board's buses: per bus and per diff pair. `python -m kae.bus.scorecard BOARD [--drc drc.json] [--decompose]`.
-- `kaeres bus submit|report` runs it over stored runs (`tools/kaeres/busreport.py`). Results live beside each run in `runs/<run>/bus/<evaluator>.json.gz`, not in `evals/`, so no DRC or physics reader sees them. `kaeres exp report` appends the tables when an experiment's runs have scorecards.
+- `haslam.bus.detect` finds buses (nets meant to be routed as one object) from what a new board has: netlist, net names and classes, footprints, part data, pin positions. It never reads tracks or vias. It is the bus campaign's census detector, moved into the package unchanged: on 200 random corpus boards, stripped of copper, it gives exactly the census's buses (200/200 identical). Census validation (precision 96%, recall 92-99% by interface tag) carries over.
+- `haslam.bus.scorecard` measures a routed board's buses: per bus and per diff pair. `python -m haslam.bus.scorecard BOARD [--drc drc.json] [--decompose]`.
+- `haslamres bus submit|report` runs it over stored runs (`tools/haslamres/busreport.py`). Results live beside each run in `runs/<run>/bus/<evaluator>.json.gz`, not in `evals/`, so no DRC or physics reader sees them. `haslamres exp report` appends the tables when an experiment's runs have scorecards.
 
 ## Columns
 
@@ -25,10 +25,10 @@ Keys: bus scorecard, bus detector, lanes open, coupled share, via parity, skew b
 | stripline share | Share of length on inner layers | |
 | coupled 3W | Share of sampled length whose nearest same-bus lane on the same layer is within 3 trace widths edge to edge | Shape only. No target. Never reward it |
 | bundled 2 mm | Same, centre distance 2 mm (the census's number) | Shape only |
-| tier, no ref mm, ref changes (pairs) | `kae.route.pairs`: rule, interface or name; length with no zone on an adjacent copper layer; changes of the plane net under the pair | [diff pairs](kae-diff-pair-report.md). `busreport` loads each output with the corpus board's project rules (its net classes; a KiCad 5 board's own `net_class` blocks), since a run keeps only its board. Scorecards made before 2026-11-11 loaded none, so their tier puts a class-declared pair with no known interface under "name" |
-| limit, skew OK, via OK | `kae.bus.limits`: controller- or interface-keyed budget, else a class default marked `keyed: false` | A check with no key would fail most working boards (human DDR byte skew median 2.7 mm, 20% within 0.5 mm) |
+| tier, no ref mm, ref changes (pairs) | `haslam.route.pairs`: rule, interface or name; length with no zone on an adjacent copper layer; changes of the plane net under the pair | [diff pairs](haslam-diff-pair-report.md). `busreport` loads each output with the corpus board's project rules (its net classes; a KiCad 5 board's own `net_class` blocks), since a run keeps only its board. Scorecards made before 2026-11-11 loaded none, so their tier puts a class-declared pair with no known interface under "name" |
+| limit, skew OK, via OK | `haslam.bus.limits`: controller- or interface-keyed budget, else a class default marked `keyed: false` | A check with no key would fail most working boards (human DDR byte skew median 2.7 mm, 20% within 0.5 mm) |
 
-Limits used (`kae.bus.limits`; sources in `bus/physics.md` §3 and the rule packs): DDR byte keyed by controller (TI AM62x 0.3 mm, TI KeyStone 0.254 mm, Intel DDR3 1.47 mm, Agilex 5 0.51 mm, PolarFire 3.7 mm), else by DRAM generation (DDR3 0.5 mm Micron, DDR4 3.7 mm, LPDDR4 22 mm with per-bit deskew), all marked assumed; vias at most 2 and equal. DDR address: vias only. SD/eMMC 6 mm assumed (HS400 would be 1.27 mm). RGMII 74 mm assumed. QSPI, RGB, GPIO, ribbons, matrices: no budget. Pairs by interface (PCIe, USB3, SATA 0.127 mm; MIPI 0.7 mm; USB2 and Ethernet MDI 1.27 mm; HDMI 3.7 mm; LVDS 7.4 mm).
+Limits used (`haslam.bus.limits`; sources in `bus/physics.md` §3 and the rule packs): DDR byte keyed by controller (TI AM62x 0.3 mm, TI KeyStone 0.254 mm, Intel DDR3 1.47 mm, Agilex 5 0.51 mm, PolarFire 3.7 mm), else by DRAM generation (DDR3 0.5 mm Micron, DDR4 3.7 mm, LPDDR4 22 mm with per-bit deskew), all marked assumed; vias at most 2 and equal. DDR address: vias only. SD/eMMC 6 mm assumed (HS400 would be 1.27 mm). RGMII 74 mm assumed. QSPI, RGB, GPIO, ribbons, matrices: no budget. Pairs by interface (PCIe, USB3, SATA 0.127 mm; MIPI 0.7 mm; USB2 and Ethernet MDI 1.27 mm; HDMI 3.7 mm; LVDS 7.4 mm).
 
 ## A2: skew decomposition
 
@@ -51,7 +51,7 @@ agreement (0.68 vs 0.84). Corpus numbers (`bus_any`, 6,423 boards, human / `fr-f
 
 Census bug found on the way: the census's DRC parser (`\[([^\]]*)\]`) truncates net names that contain brackets (`sdram_dq[0]`), so their
 opens were not counted as bus opens. 172 of 56,864 detected buses (10 DDR bytes) have such names: the census's shares move by well under
-1 point. `kae.bus.scorecard` parses them correctly (test).
+1 point. `haslam.bus.scorecard` parses them correctly (test).
 
 ## What it does not do
 

@@ -1,0 +1,545 @@
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""haslam command line.
+
+    haslam place INPUT OUTPUT [--seed N] [--time S] [--no-physics] [--stages seed,anneal,legalize]
+                           [--workers W] [--writer auto|pcbnew|sexpr] [--edge-mate] [--report FILE]
+                           [--drc auto|on|off] [--drc-rounds N] [--recheck auto|on|off]
+    haslam brief INPUT [--out FILE]
+
+`haslam place` reads INPUT (.kicad_pcb with its project files beside it), places every unlocked
+footprint (locked ones stay; sides are kept) and writes OUTPUT; a JSON report goes to the
+last line of stdout, to OUTPUT.haslam.json beside the board, and to --report FILE. (haslambench
+keeps only the board and the method's log of a --command method, so in a run the report is
+the last line of adapter.log.) As a haslambench method:
+
+    haslambench run --adapter haslam --kinds place --probe freerouting \\
+      --command "<venv>/bin/python -m haslam.cli place {input} {output} --seed {attempt} --time {timeout}"
+
+Legality is closed-loop: the placer repairs against its exact check (haslam.place.exact), and
+then, when kicad-cli is found (HASLAM_KICAD_CLI / HASLAM_KICAD_WRAP / PATH; --drc auto|on|off),
+KiCad's DRC on the written board feeds every placement error back as a constraint and the
+board is repaired and written again (--drc-rounds, default 6) until KiCad has no placement
+error or the time is up. Every report ends with "hazards" and "hazard_summary" (haslam.hazards):
+what would make the board not work, not buildable or risky, including a recheck of OUTPUT
+with the safety checks forced on whatever the project's severities say (--recheck;
+haslam.board_hazards). `haslam brief` ends with the project's static hazards. Exit status: 0 when the placement passed the exact check and KiCad
+(when it ran), 3 when an output was written but violations remain (listed in the report,
+with the closed loop's diagnosis per part), 2 on errors.
+
+The place terms run numba kernels when numba is installed. A read-only NUMBA_CACHE_DIR
+(e.g. a cache pre-warmed beside a frozen snapshot, used inside the benchmark sandbox) is
+copied to a temporary directory first, because numba ignores cache directories it cannot
+write to and would recompile every time.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+
+from haslam.budget import start_run as _start_run
+from haslam.budget import now as clock_now
+from pathlib import Path
+
+
+def _log(msg):
+    print(f"[haslam {time.strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
+
+
+def _numba_cache():
+    """Make a read-only NUMBA_CACHE_DIR usable. numba (0.68) only uses a cache directory it can
+    write to and otherwise falls back to ~/.cache, so inside the benchmark sandbox (a frozen,
+    read-only snapshot; tmpfs home) every attempt would recompile the place-term kernels.
+    A read-only cache directory (pre-warmed beside the snapshot) is therefore copied to a
+    private temporary directory, and numba is pointed there, before numba is imported.
+    Returns (source, used) or None."""
+    import os
+    src = os.environ.get("NUMBA_CACHE_DIR")
+    if not src or not os.path.isdir(src) or os.access(src, os.W_OK) or "numba" in sys.modules:
+        return None
+    import shutil
+    import tempfile
+    try:
+        dst = tempfile.mkdtemp(prefix="haslam-numba-")
+        shutil.copytree(src, dst, dirs_exist_ok=True)
+    except OSError as e:
+        _log(f"numba cache {src} is read-only and could not be copied ({e}); kernels will compile")
+        return None
+    os.environ["NUMBA_CACHE_DIR"] = dst
+    return src, dst
+
+
+def cmd_place(a):
+    from haslam.board.kicad_file import load
+    from haslam.place.pipeline import place
+    from haslam.place.writer import write
+    t0 = clock_now()
+    board = load(a.input)
+    _log(f"loaded {a.input}: {len(board.footprints)} footprints ({clock_now() - t0:.2f}s)")
+    stages = {x.strip() for x in a.stages.split(",") if x.strip()}
+    unknown = stages - {"seed", "anneal", "legalize"}
+    if unknown:
+        raise SystemExit(f"unknown stages {sorted(unknown)} (seed, anneal, legalize)")
+    anneal = "anneal" in stages and not a.no_anneal
+    anneal_args = json.loads(a.anneal_args) if a.anneal_args else None
+    kw = dict(physics=not a.no_physics, workers=a.workers, log=_log, anneal=anneal, edge_mate=a.edge_mate,
+              anneal_args=anneal_args, angle_step=a.angles, board_path=a.input,
+              opts={k: v for k, v in (("place_severity", getattr(a, "severity", None)),
+                                      ("relax_bodies", getattr(a, "relax_bodies", None))) if v} or None)
+    fix_classes = [c.strip() for c in (a.fix_class or "").split(",") if c.strip()]
+    fix_refs = [r.strip() for r in (a.fix or "").split(",") if r.strip()]
+    if fix_classes or fix_refs:
+        from haslam.place.fixed import fixed_uuids
+        try:
+            kw["fixed"] = fixed_uuids(board, fix_classes, fix_refs)
+        except ValueError as e:
+            raise SystemExit(str(e))
+        _log(f"fixed at their input pose: {len(kw['fixed'])} parts ({','.join(fix_classes) or 'by reference'})")
+    bundle = None
+    if getattr(a, "intent", None):
+        # the intent's placement relations (haslam.place.relations): names resolved and pre-checked before
+        # anything is placed; an unknown name or a malformed relation stops here with what exists
+        from haslam.place.relations import compile_intent
+        from haslam.place.stubs import make_brief
+        brief, bsrc = make_brief(board)
+        try:
+            bundle = compile_intent(a.intent, board, brief, a.input, kw["opts"])
+        except ValueError as e:
+            print(json.dumps(dict(error=str(e), intent=a.intent, intent_error=True)), flush=True)
+            _log(f"intent: {e}")
+            return 2
+        kw["brief"] = brief
+        if bundle is not None:
+            kw["relations"] = bundle
+            _log(f"intent: {len(bundle.rels)} relations, {len(bundle.precheck)} conflicts proven before placing")
+    on_disk = []           # the severity ladder's rungs, in the order their poses were written
+
+    def verify(r, end):
+        # a rung of the severity ladder: written and judged by KiCad's DRC loop within its share
+        t1 = clock_now()
+        r.report["writer"] = write(a.input, a.output, r.poses, mode=a.writer, log=_log)
+        r.report["write_s"] = round(clock_now() - t1, 2)
+        on_disk.append(r)
+        clean, wr = (None, None)
+        if r.state is not None:
+            clean, wr = _kicad_loop(a, r, t0, write, end=end)
+        if wr is not None:
+            r.report["writer"] = wr
+        return dict(clean=clean)
+    if a.probe_select and a.probe_select > 1:
+        res = _probe_select(a, board, kw, t0, write)
+    else:
+        res = place(board, seed=a.seed, time_s=a.time, verify=verify if a.drc != "off" else None, **kw)
+    res.report["stages_run"] = sorted({"seed", "legalize"} | ({"anneal"} if anneal else set()))
+    kicad_clean = None
+    if res.verified is not None:
+        # the ladder judged each rung; the kept one is written again if a later rung overwrote it
+        kicad_clean = res.verified.get("clean")
+        if on_disk and on_disk[-1] is not res:
+            res.report["writer"] = write(a.input, a.output, res.poses, mode=a.writer, log=_log)
+            res.report["severity_ladder"]["rewritten"] = True
+    else:
+        t1 = clock_now()
+        wrep = write(a.input, a.output, res.poses, mode=a.writer, log=_log) if res.poses else None
+        if wrep is None:
+            import shutil
+            shutil.copy2(a.input, a.output)
+            wrep = dict(writer="copy", moved=0)
+        res.report["writer"] = wrep
+        res.report["write_s"] = round(clock_now() - t1, 2)
+        if a.drc != "off" and res.poses and res.state is not None:
+            kicad_clean, wrep2 = _kicad_loop(a, res, t0, write)
+            if wrep2 is not None:
+                res.report["writer"] = wrep2
+    if a.drc != "off" and res.poses and res.state is not None:
+        from haslam.place.pipeline import body_hazards
+        body_hazards(res.report, res.problem, res.state)
+    # what the writer's post-write check found in the file it wrote (format upgrade, changed items),
+    # moved to the top level once (popped so the nested copy is not listed again)
+    res.report.setdefault("hazards", []).extend((res.report.get("writer") or {}).pop("hazards", None) or [])
+    from haslam.route.constraints import setting
+    if res.poses and int(setting("connector_edge", a.input)) >= 1:
+        from haslam.place.pipeline import edge_hazards
+        edge_hazards(res.report, board, res.poses)
+    res.report["total_s"] = round(clock_now() - t0, 2)
+    legal = not res.report.get("exact") and not res.report.get("outline_incomplete") and kicad_clean is not False
+    res.report["legal"] = bool(legal)
+    if bundle is not None:
+        # the oracle: every relation measured on the board as written, re-read from the file
+        try:
+            st = bundle.status(load(a.output), defaults=(res.report.get("relations_applied") or {}).get("defaults"))
+            res.report.setdefault("hazards", []).extend(st.pop("hazards"))
+            res.report["relations"] = st
+            sm = st["summary"]
+            _log(f"relations: {sm['met']} of {sm['n']} met; unmet {sm['unmet'][:8]}; conflicts {sm['conflicts'][:8]}")
+        except Exception as e:      # noqa: BLE001 - a report section; never lose the placement
+            res.report.setdefault("hazards", []).append(dict(
+                code="relation_check_failed", severity="warn", category="data",
+                message=f"the relations could not be measured on the written board ({type(e).__name__}: {e})",
+                objects=[], fix="report it; the placement itself is written"))
+    _hazards(res.report, a, "place", t0, brief=getattr(res, "brief", None), board=board)
+    text = json.dumps(res.report, default=str)
+    print(text, flush=True)          # last line of stdout: what haslambench keeps (adapter.log)
+    side = Path(str(a.output) + ".haslam.json")
+    try:
+        side.write_text(json.dumps(res.report, indent=1, default=str))
+    except OSError as e:
+        _log(f"could not write {side}: {e}")
+    if a.report:
+        Path(a.report).write_text(json.dumps(res.report, indent=1, default=str))
+    _log(f"wrote {a.output} with {(res.report.get('writer') or {}).get('writer')} in {res.report['total_s']}s; "
+         f"legal={legal}, severity {res.report.get('severity_used')}")
+    return 0 if legal else 3
+
+
+DRC_RETRIES = 2                      # kicad-cli runs again after dying on a signal
+_DRC_SIGNAL = __import__("re").compile(r"rc=-\d+")
+
+
+def _kicad_loop(a, res, t0, write, end=None):
+    """KiCad's DRC on the written placement, fed back until it is clean (haslam.place.exact:
+    kicad_feedback -> repair -> write again), within the caller's time. The best placement
+    KiCad has judged (clean, else fewest placement errors, the earliest of equals) is kept: when
+    the loop ends on a worse or merely equal verdict, or on a repair KiCad has not judged (time, a
+    DRC failure), that one is
+    written again (report: kicad_written_round). `end` (monotonic seconds): when the loop's
+    share of the time ends (a rung of the severity ladder), else t0 + a.time. Report:
+    kicad_verdict, the placer's errors by type on the board as written. Returns (clean or None
+    when KiCad could not run, the last writer report or None)."""
+    import tempfile
+    try:
+        from haslam.route import drc as kdrc
+        kdrc.kicad_cli()
+    except Exception as e:      # noqa: BLE001 - no KiCad here: the exact check stands alone
+        if a.drc == "on":
+            _log(f"KiCad DRC unavailable: {e}")
+        res.report["kicad_drc"] = dict(skipped=str(e)[:200])
+        return None, None
+    from haslam.place import exact as X
+    from haslam.place.legalize import exact_check
+    P, st = res.problem, res.state
+    tmp = tempfile.mkdtemp(prefix="haslam-drc-")
+    rounds, clean, wrep = [], None, None
+    before = st.poses()
+    best = None            # (placement errors, round, X, Y, K, poses, by type) KiCad judged
+    judged = None          # errors of the board as written now (None: not judged yet)
+    judged_types = {}
+    limit = (t0 + 0.97 * float(a.time)) if end is None else (end - 0.03 * float(a.time))
+    for it in range(a.drc_rounds + 1):
+        left = limit - clock_now()
+        if left < 15.0:
+            rounds.append(dict(round=it, skipped="time"))
+            break
+        t = clock_now()
+        report, err, crashes = None, None, 0
+        for attempt in range(1 + DRC_RETRIES):
+            # a fresh staged copy each attempt; the first verdict may take nearly all that is
+            # left, repairs need a share after
+            staged = kdrc.stage_board(a.output, a.input, tempfile.mkdtemp(prefix="haslam-drc-", dir=tmp))
+            if getattr(P, "severity_mode", "board") in ("strict", "level_c"):
+                # KiCad reports what the profile keeps as errors; courtyards taken in to Level C
+                # stay the exact model's alone (KiCad would object to the margins they allow)
+                from haslam.place.problem import FIXED_ERROR_CHECKS
+                kdrc.promote_severities(staged, [c for c in FIXED_ERROR_CHECKS
+                                                 if not (c == "courtyards_overlap" and P.cy_shrink > 0)])
+            left = limit - clock_now()
+            try:
+                report = kdrc.run(staged, Path(staged).parent / "drc.json",
+                                  timeout=max(10.0, (left - 5.0) if it == 0 else 0.5 * left))
+                err = None
+                break
+            except kdrc.DrcError as e:
+                err = str(e)
+                # kicad-cli killed by a signal (rc < 0, e.g. -11 on buspirate5): run it again
+                if not _DRC_SIGNAL.search(err) or left < 30.0:
+                    break
+                crashes += 1
+                _log(f"KiCad DRC round {it} crashed ({err[:60]}); retrying")
+        if report is None:
+            rounds.append(dict(round=it, error=(err or "")[:200], crashes=crashes))
+            break
+        fb = X.kicad_feedback(P, st, report)
+        rounds.append(dict(round=it, errors=fb["errors"], by_type=fb["by_type"], fixed_only=fb["fixed_only"],
+                           placer_by_type=fb.get("placer_by_type", {}),
+                           seconds=round(clock_now() - t, 1), **({"crashes": crashes} if crashes else {})))
+        _log(f"KiCad DRC round {it}: {fb['errors']} placement errors {fb['by_type']}")
+        clean = fb["errors"] == fb["fixed_only"]
+        judged = fb["errors"] - fb["fixed_only"]
+        judged_types = dict(fb.get("placer_by_type", {}))
+        if best is None or judged < best[0]:
+            best = (judged, it, st.X.copy(), st.Y.copy(), st.K.copy(), dict(res.poses), judged_types)
+        if clean or it == a.drc_rounds:
+            break
+        left = limit - clock_now()
+        pre_repair = st.poses()
+        rounds[-1]["repair"] = X.repair(P, st, time_s=max(3.0, min(120.0, 0.4 * left)), log=_log)
+        rounds[-1]["repair"].pop("findings", None)
+        rep_r = rounds[-1]["repair"]
+        if rep_r.get("start") and st.poses() == pre_repair:
+            # the repair had findings and left every pose as it was (each reseed rejected): KiCad
+            # would judge the same board again, and the next round's grown constraints only make it
+            # harder (hanqaqa, terjeio, zynthian: 6 such rounds, ~560 s, no change). With no
+            # findings (start 0: KiCad objects, the exact model does not yet) the loop goes on: the
+            # constraints grow each round until the model sees it (kotbenek's LCD1 moved in round 2)
+            rep_r["unchanged"] = True
+            _log(f"KiCad DRC: round {it}'s repair changed nothing; stopping")
+            break
+        if X.silk_on(P) and (rep_r.get("moved") or rep_r.get("evicted") or rep_r.get("reseeds")):
+            # the repair re-placed parts without the silkscreen: the silk pass again (pic-
+            # programmer with its interface fixed: 40 parts evicted, 18 silk errors after)
+            try:
+                left = limit - clock_now()
+                rep_r["silk_fix"] = X.fix_silk(P, st, time_s=max(2.0, min(30.0, 0.15 * left)), log=_log)
+            except Exception as e:      # noqa: BLE001 - a polish pass; never lose the placement
+                rep_r["silk_fix"] = dict(error=f"{type(e).__name__}: {e}")
+        poses = dict(res.poses)
+        poses.update(st.poses())
+        res.poses = poses
+        wrep = write(a.input, a.output, res.poses, mode=a.writer, log=_log)
+        judged = None
+    written = None if judged is None else rounds[-1]["round"] if "errors" in rounds[-1] else None
+    if not clean and best is not None and (judged is None or judged > best[0]
+                                           or (judged == best[0] and written != best[1])):
+        # the loop ended worse than a placement KiCad already judged, or no better than an
+        # earlier one: write that one again. On a tie the earliest round wins, the one least
+        # moved from the annealed placement (freetronics-kitten: 1 error every round, and the
+        # last round's REG1 sat 40 mm from its input caps, decap loop 3.0 -> 17.0)
+        _, written, X0, Y0, K0, poses0, judged_types = best
+        judged = best[0]
+        st.X[:], st.Y[:], st.K[:] = X0, Y0, K0
+        res.poses = poses0
+        wrep = write(a.input, a.output, res.poses, mode=a.writer, log=_log)
+        clean = best[0] == 0
+        _log(f"KiCad DRC: wrote round {written}'s placement again ({best[0]} placement errors)")
+    res.report["kicad_written_round"] = written
+    if judged is not None:
+        res.report["kicad_verdict"] = dict(errors=judged, by_type=judged_types, round=written)
+    res.report["kicad_drc"] = rounds
+    res.report["kicad_verified"] = clean is not None
+    res.report["exact"] = exact_check(P, st)
+    if st.poses() != before:
+        _refresh_physics(res)
+    return clean, wrep
+
+
+PROBE_PHYS_SLACK = 0.10       # a probed candidate may cost 10% more physics than the best one
+PROBE_JITTER = 0.15           # candidates after the first start from a seed stage jittered this much
+
+
+def _probe_select(a, board, kw, t0, write):
+    """--probe-select N: place N times (seeds seed .. seed+N-1, each a share of the time; the
+    candidates after the first also start from a jittered seed stage, --probe-jitter, so they
+    differ beyond the annealer's seed), route each placement briefly with haslam.route.bridge
+    (last mile on; --probe-parallel P of them at once), and keep the one with the fewest open
+    connections; physics breaks ties, and a candidate with fewer opens is taken only within
+    PROBE_PHYS_SLACK of the best physics among the candidates. A fallback for when the
+    congestion estimates cannot tell which placement routes (paw3395)."""
+    import math
+    import shutil
+    import tempfile
+    from concurrent.futures import ThreadPoolExecutor
+    from haslam.board.kicad_file import load
+    from haslam.place.pipeline import place
+    from haslam.route import bridge
+    from haslam.route import drc as kdrc
+    n = int(a.probe_select)
+    par = max(1, min(n, int(getattr(a, "probe_parallel", 1) or 1)))
+    waves = math.ceil(n / par)
+    jitter = float(getattr(a, "probe_jitter", PROBE_JITTER))
+    usable = float(a.time) * 0.85
+    place_s = max(30.0, 0.45 * usable / n)
+    probe_s = max(30.0, min(300.0, (usable - n * place_s) / waves))
+    tmp = tempfile.mkdtemp(prefix="haslam-probe-")
+    cands = []
+    for k in range(n):
+        if k and clock_now() - t0 > usable - place_s - waves * probe_s:
+            break
+        kk = dict(kw)
+        if k and jitter > 0:
+            kk["anneal_args"] = dict(kk.get("anneal_args") or {}, seed_jitter=jitter)
+        r = place(load(a.input) if k else board, seed=a.seed + k, time_s=place_s, **kk)
+        legal = not r.report.get("exact") and not r.report.get("outline_incomplete")
+        phys = (r.report.get("scorecard") or {}).get("total_linear") or 0.0
+        out = Path(tmp) / f"cand{k}" / "board.kicad_pcb"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        staged = None
+        if r.poses and legal:
+            write(a.input, str(out), r.poses, mode=a.writer, log=_log)
+            staged = kdrc.stage_board(str(out), a.input, str(out.parent / "staged"))
+        cands.append(dict(seed=a.seed + k, jitter=jitter if k else 0.0, res=r, legal=legal, physics=phys,
+                          unconnected=None, staged=staged, out=out))
+
+    def probe(c):
+        if c["staged"] is None:
+            return None
+        try:
+            routed = c["out"].parent / "routed.kicad_pcb"
+            rep = bridge.route(c["staged"], str(routed), seed=0, time_s=probe_s,
+                               opts=dict(last_mile=True), log=lambda m: None)
+            unc = ((rep.get("repair") or {}).get("final") or {}).get("unconnected")
+            if unc is None and routed.exists():
+                # the router used the whole probe (no time left for its repair or DRC):
+                # count the routed board's opens with kicad-cli instead
+                d = c["out"].parent / "drc"
+                staged = kdrc.stage_board(str(routed), a.input, str(d))
+                unc = kdrc.summary(kdrc.run(staged, d / "drc.json"))["unconnected"]
+            return unc
+        except Exception as e:      # noqa: BLE001 - a probe that fails leaves the candidate unranked
+            _log(f"probe of seed {c['seed']} failed: {type(e).__name__}: {e}")
+            return None
+    t_probe = clock_now()
+    with ThreadPoolExecutor(max_workers=par) as ex:
+        for c, unc in zip(cands, ex.map(probe, cands)):
+            c["unconnected"] = unc
+            _log(f"probe seed {c['seed']}: legal={c['legal']} physics={c['physics']:.4g} unconnected={unc}")
+    ok = [c for c in cands if c["legal"] and c["unconnected"] is not None]
+    if not ok:
+        best = cands[0]
+    else:
+        floor = min(c["physics"] for c in ok)
+        within = [c for c in ok if c["physics"] <= floor * (1.0 + PROBE_PHYS_SLACK) + 1e-9]
+        best = min(within, key=lambda c: (c["unconnected"], c["physics"]))
+    shutil.rmtree(tmp, ignore_errors=True)
+    res = best["res"]
+    res.report["probe_select"] = dict(n=n, parallel=par, jitter=jitter, place_s=round(place_s, 1),
+                                      probe_s=round(probe_s, 1), probe_wall_s=round(clock_now() - t_probe, 1),
+                                      chosen=best["seed"],
+                                      candidates=[{k: c[k] for k in ("seed", "jitter", "legal", "physics", "unconnected")}
+                                                  for c in cands])
+    return res
+
+
+def _refresh_physics(res):
+    """A KiCad round moved parts: protection order and the physics scorecard again, for the
+    board as written; the values place() reported stay as *_pre_drc."""
+    from haslam.place.pipeline import final_physics, physics_trace
+    for k in ("protection_order", "scorecard"):
+        if k in res.report:
+            res.report[f"{k}_pre_drc"] = res.report[k]
+    final_physics(res)
+    if res.terms is not None:
+        physics_trace(res.report, "kicad_repair", res.terms,
+                      {p.uuid: res.state.pose(p.i) for p in res.problem.parts})
+
+
+def _hazards(report, a, kind, t0, brief=None, board=None):
+    """The report's closing hazards and hazard_summary (haslam.hazards; haslam.board_hazards.finish:
+    the project's own settings, and the output rechecked with the safety checks forced on)."""
+    from haslam.board_hazards import finish
+    deadline = None if getattr(a, "time", None) is None else t0 + float(a.time)
+    if getattr(a, "drc", None) == "off" and getattr(a, "recheck", "auto") == "auto":
+        mode = "off"                 # --drc off: no KiCad for this run (ablations, unit tests)
+    else:
+        mode = getattr(a, "recheck", "auto")
+    t = clock_now()
+    finish(report, a.output, a.input, kind=kind, mode=mode, deadline=deadline, brief=brief, board=board, log=_log)
+    report.setdefault("recheck", {})["total_s"] = round(clock_now() - t, 2)
+    s = report["hazard_summary"]
+    _log(f"hazards: {s['block']} block, {s['warn']} warn, {s['info']} info"
+         + (f" (blocked: {', '.join(s.get('block_codes') or {})})" if s["blocked"] else ""))
+
+
+def cmd_brief(a):
+    from haslam.board.kicad_file import load
+    board = load(a.input)
+    try:
+        from haslam.circuit.brief import build
+    except ImportError:
+        from haslam.place.stubs import stub_brief as build
+    b = build(board)
+    from haslam.board_hazards import static_hazards
+    from haslam.hazards import finalize
+    finalize(b, extra=static_hazards(a.input, brief=b, board=board))
+    text = json.dumps(b, indent=1, default=str)
+    if a.out:
+        Path(a.out).write_text(text)
+    else:
+        print(text)
+    return 0
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="haslam", description="Physics-first placement and routing for KiCad boards")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sp = sub.add_parser("place", help="place the unlocked footprints of a board")
+    sp.add_argument("input")
+    sp.add_argument("output")
+    sp.add_argument("--seed", type=int, default=0)
+    sp.add_argument("--time", type=float, default=300.0, help="wall-clock seconds the caller allows")
+    sp.add_argument("--no-physics", action="store_true", help="routability and legality only (ablation)")
+    sp.add_argument("--no-anneal", action="store_true", help="seed and legalize only (= --stages seed,legalize)")
+    sp.add_argument("--stages", default="seed,anneal,legalize",
+                    help="stages to run; seed and legalize always run, so 'seed,legalize' skips the annealer")
+    sp.add_argument("--workers", type=int, default=None, help="CP-SAT threads (default: HASLAM_WORKERS or cores/2)")
+    sp.add_argument("--writer", default="auto", choices=("auto", "pcbnew", "sexpr"))
+    sp.add_argument("--edge-mate", action="store_true",
+                    help="place staged footprints that carry Edge.Cuts where their open pieces close the "
+                         "outline exactly (default: hold them and flag outline_incomplete)")
+    sp.add_argument("--report", help="also write the JSON report here")
+    sp.add_argument("--drc", default="auto", choices=("auto", "on", "off"),
+                    help="KiCad DRC on the result, fed back until clean (auto: when kicad-cli is found)")
+    sp.add_argument("--drc-rounds", type=int, default=6, help="repair rounds driven by KiCad's DRC")
+    sp.add_argument("--angles", type=float, default=None, metavar="STEP",
+                    help="let parts turn to any multiple of STEP degrees, not only right angles "
+                         "(heatsink-mount packages keep right angles; CP-SAT stays on right angles)")
+    sp.add_argument("--probe-select", type=int, default=0, metavar="N",
+                    help="place N times (seeds seed..seed+N-1) and keep the placement a quick haslam.route "
+                         "probe leaves the fewest open connections on (physics within 10%%; off by default)")
+    sp.add_argument("--fix", default="", metavar="REF[,REF...]",
+                    help="keep these parts at their input pose (fixed obstacles, as locked parts)")
+    sp.add_argument("--severity", default=None, choices=("strict_then_level_c", "strict", "level_c", "board"),
+                    help="placement legality: courtyards, copper-to-edge, rule areas, clearance, shorts and hole "
+                         "clearance are errors whatever the project says. 'strict_then_level_c' (default) places "
+                         "with drawn courtyards in 55%% of the time and, only if that leaves placement errors, "
+                         "again with courtyards at IPC Level C (0.15 mm in) where the project waives them; "
+                         "'strict' or 'level_c' one of the two; 'board' follows the project's severities "
+                         "(also: HASLAM_PLACE_SEVERITY)")
+    sp.add_argument("--relax-bodies", default=None, choices=("off", "escalate", "auto"),
+                    help="parts without a courtyard: 'off' (default) keeps their bodies as obstacles; 'escalate' "
+                         "frees them to their pads when legalization fails; 'auto' also up front on a board over "
+                         "95%% full (the old behaviour). Relaxed parts are hazards in the report")
+    sp.add_argument("--intent", default=None, metavar="FILE",
+                    help="haslam.intent/1 file whose 'relations' steer placement (near, region, on_edge, keep_away, "
+                         "order, orient, hold, side, group, row; haslam.place.relations); every relation is measured "
+                         "on the written board and reported under 'relations', with conflicts and relaxations")
+    sp.add_argument("--fix-class", default="", metavar="CLASS[,CLASS...]",
+                    help="keep every part of these classes at its input pose: connectors, mounting, user "
+                         "(haslam.place.fixed.classify)")
+    sp.add_argument("--probe-parallel", type=int, default=1, metavar="P",
+                    help="with --probe-select: probe P candidates at once (each probe runs Freerouting)")
+    sp.add_argument("--probe-jitter", type=float, default=PROBE_JITTER, metavar="F",
+                    help="with --probe-select: candidates after the first start from a seed stage moved by "
+                         "F x the board span (0: annealer seeds only)")
+    sp.add_argument("--anneal-args", help="JSON of annealer weights for experiments, e.g. '{\"w_phys\": 2.0}' "
+                                          "(w_phys, w_wl, w_cong, w_order, w_disp, cong_args, ...)")
+    from haslam.board_hazards import add_arguments as recheck_args
+    recheck_args(sp)
+    sp.set_defaults(fn=cmd_place)
+    sb = sub.add_parser("brief", help="print the physics brief of a board")
+    sb.add_argument("input")
+    sb.add_argument("--out")
+    sb.set_defaults(fn=cmd_brief)
+    sd = sub.add_parser("dru-check", help="check .kicad_dru custom rules (static, then KiCad's own parser); "
+                                          "KiCad silently drops the whole file on any error")
+    from haslam.board import dru_check
+    dru_check.add_arguments(sd)
+    sd.set_defaults(fn=dru_check.run)
+    a = ap.parse_args(argv)
+    if getattr(a, "time", None):
+        _start_run(float(a.time))
+    nc = _numba_cache()
+    if nc:
+        _log(f"numba cache: read-only {nc[0]} copied to {nc[1]}")
+    try:
+        return a.fn(a)
+    except Exception as e:  # report and fail
+        import traceback
+        traceback.print_exc()
+        _log(f"error: {type(e).__name__}: {e}")
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

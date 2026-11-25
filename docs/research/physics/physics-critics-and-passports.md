@@ -1,7 +1,7 @@
 # Physics critics and conductor passports on real boards
 
 **Status:** partial (the tools run on real boards and the 112-board suite; they are measurement instruments without calibration: model outputs, not measured physics).
-**First published:** 2026-10-22, commits [19c91b3](https://github.com/magnetic-trowel/kicad-auto-everything/commit/19c91b384a4724e2b9b77744406ba2fda772ec13) (critics), [91671c8](https://github.com/magnetic-trowel/kicad-auto-everything/commit/91671c8dd253b6b08c5a5df98bd8f9acce5057c7) (real-board passports), [34a12a8](https://github.com/magnetic-trowel/kicad-auto-everything/commit/34a12a8e561cd161f1e7e5983700aa50f0b47d1f) (suite passports) on branch `claude/vigilant-mayer-i91rrr`; per-module comparison `crit_compare.py` 2026-10-23 in [6d731a8](https://github.com/magnetic-trowel/kicad-auto-everything/commit/6d731a8168626034c1c30f3954f8e346a2507f53).
+**First published:** 2026-10-22, commits [19c91b3](https://github.com/magnetic-trowel/HaslamPCB/commit/19c91b384a4724e2b9b77744406ba2fda772ec13) (critics), [91671c8](https://github.com/magnetic-trowel/HaslamPCB/commit/91671c8dd253b6b08c5a5df98bd8f9acce5057c7) (real-board passports), [34a12a8](https://github.com/magnetic-trowel/HaslamPCB/commit/34a12a8e561cd161f1e7e5983700aa50f0b47d1f) (suite passports) on branch `claude/vigilant-mayer-i91rrr`; per-module comparison `crit_compare.py` 2026-10-23 in [6d731a8](https://github.com/magnetic-trowel/HaslamPCB/commit/6d731a8168626034c1c30f3954f8e346a2507f53).
 
 Scope: physics scorecard separate from cp1/cpk for what DRC cannot see (return path across a void, decap via adding nanohenries, a neck carrying 143 A/mm², one via carrying a whole rail): return-path critics from the `.kicad_pcb`, DC and hot-loop conductor passports on routed boards, per-module human-vs-router comparison; ran on all 112 qualified boards. Model computations on real geometry, uncalibrated. Not here: critic catalog -> [physics-critics](../../topics/physics/physics-critics.md), [physics-critics-catalog](../../topics/physics/physics-critics-catalog.md); full results -> [physics-critics-validation](../../topics/physics/physics-critics-validation.md), [real-board-passports](../../topics/physics/real-board-passports.md), [suite-physics-results](../../topics/physics/suite-physics-results.md).
 Keys: physics critics, scorecard, RET-COV, RET-VIA, RET-HOP, RET-EDGE, RET-REFNET, RPQF, PLANE-PERF, PWR-TRACE, CAVITY, mutation benchmark, DRC-equivalent mutants, conductor passport, Tellegen attribution, leverage, cancellation index χ, hot-loop L, `pc_refplane.py`, `rb_board_passports.py`, `suite_passports.py`, `crit_compare.py`, lens CD
@@ -26,7 +26,7 @@ Keys: physics critics, scorecard, RET-COV, RET-VIA, RET-HOP, RET-EDGE, RET-REFNE
 
 **Suite passports** (`suite_passports.py`): per board, copy with reference rules, refill zones with kicad-cli, then in separate processes (600 s, 4 GB RSS watchdog): role inference, DC passport for ground and every medium/high-confidence rail (≤ 300k nodes, COLAMD sparse LU, 1 A per load), necks, via bottlenecks (ρ ≥ 0.8; sole path ρ ≥ 0.999), dead copper, floors, up to 3 hot-loop cells. `--boards-glob` runs the same on router outputs paired by task id.
 
-**`crit_compare.py`:** per-module paired comparison of human vs router arms on the same route tasks: commutation and decap loop L (nH), crystal trace capacitance, surge-path L, per-rail source-to-load R (mΩ), via `kae.route.critical_recheck.board_physics`.
+**`crit_compare.py`:** per-module paired comparison of human vs router arms on the same route tasks: commutation and decap loop L (nH), crystal trace capacitance, surge-path L, per-rail source-to-load R (mΩ), via `haslam.route.critical_recheck.board_physics`.
 
 Boards (fetched at pinned commits from `bench/manifests/candidates.jsonl`, hash-checked, not committed; licences from that manifest): BLDCM-Power ([brenocq/bldc-motor](https://github.com/brenocq/bldc-motor), MIT); oasis ([justbuchanan/oasis](https://github.com/justbuchanan/oasis), Apache-2.0); Caffeinated-AFTONSPARV ([caffeinated-labs/Caffeinated-AFTONSPARV](https://github.com/caffeinated-labs/Caffeinated-AFTONSPARV), CERN-OHL-S-2.0); Pi5_PCIe ([m1geo/Pi5_PCIe](https://github.com/m1geo/Pi5_PCIe), MIT); the 112 boards of the KiCad 10.0.7 qualified suite (licences per board in the manifest).
 
@@ -73,11 +73,11 @@ Red team ([redteam-corrections](redteam-corrections.md)): ε_r = 1 electrostatic
 ## Code
 
 `tools/research/physics/`:
-- `pc_refplane.py`: `python3 -I pc_refplane.py BOARD.kicad_pcb [--json OUT] [--roles ROLES.json] [--selftest]` (reads a refilled board; `kae/src/kae/board/sexpr.py` is adapted from its parser); `pc_budget_calcs.py`.
+- `pc_refplane.py`: `python3 -I pc_refplane.py BOARD.kicad_pcb [--json OUT] [--roles ROLES.json] [--selftest]` (reads a refilled board; `haslam/src/haslam/board/sexpr.py` is adapted from its parser); `pc_budget_calcs.py`.
 - `rb_board_passports.py`: `python -I rb_board_passports.py BOARD.kicad_pcb [--quick] [--no-hf]`.
 - `suite_passports.py`, `suite_physics.py`: suite runners; outputs under a git-ignored work dir.
-- `crit_compare.py`: `--tasks DIR --out DIR --arm name=results/<run>/<adapter>`; imports `kae`.
+- `crit_compare.py`: `--tasks DIR --out DIR --arm name=results/<run>/<adapter>`; imports `haslam`.
 
 Board files are never committed; only summary numbers are.
 
-Related: [validation-program](validation-program.md), [routing area](../routing/README.md) (critical copper uses `kae.route.critical_recheck`), [critics ideas](../../ideas/physics-first/critics.md).
+Related: [validation-program](validation-program.md), [routing area](../routing/README.md) (critical copper uses `haslam.route.critical_recheck`), [critics ideas](../../ideas/physics-first/critics.md).

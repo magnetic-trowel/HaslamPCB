@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Differentiable joint place-and-route by gradient descent (catalog ideas 17, 18, 22, 23).
 
@@ -775,7 +775,7 @@ def optimize(world, kit, mov, rng, mode, clock, t_opt, log, kw, start=None, ph=N
             gX += s_r * hx
             gpi += s_r * hp
             Rw = R_val
-        # physics place terms (kae.physics via pnr/physics.Phys): central finite differences
+        # physics place terms (haslam.physics via pnr/physics.Phys): central finite differences
         # of the exact delta for the parts a term touches; the soft rotation sees the delta
         # of each of the four orientations (mixture, linearized)
         if ph is not None and phys_w > 0:
@@ -947,7 +947,7 @@ def grad_hpwl(world, seed=0, budget=120, log=print, **kw):
 
 
 def grad_phys(world, seed=0, budget=120, log=print, phys_w=2.0, **kw):
-    """Soft-routing energy plus phys_w (mm per unit) times the kae physics place terms."""
+    """Soft-routing energy plus phys_w (mm per unit) times the haslam physics place terms."""
     return grad(world, seed=seed, budget=budget, log=log, mode="route", phys_w=phys_w, **kw)
 
 

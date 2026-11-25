@@ -1,10 +1,10 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Totals and per-board rows of the native rule D entry A/B (fr_entry_ab.sh score.json files).
 
     python tools/research/routing/fr_entry_summary.py BOARDS_DIR ARM [ARM ...]
 
-Per arm and stage (routed: kae.route.cli's output; rr: after pad_reroute): oblique / acute
+Per arm and stage (routed: haslam.route.cli's output; rr: after pad_reroute): oblique / acute
 entries, entries on the long centre line, overhanging entries, unconnected, DRC errors (and by
 type), track m, vias, route seconds, and the fork's tail counts."""
 import json

@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Whole-codebase bug audit (2026-11)
 
@@ -6,7 +6,7 @@ Scope: the whole-codebase bug audit of 2026-11: method, what was wrong per area,
 Keys: bug audit, utilization double count, relax_bodies, 499 cap, uncapped unconnected, restart judge, task spec 9, score v9, decap_pairs, regulator_vout, static analysis, profiling
 
 **Status:** worked. About 50 confirmed bugs fixed with a regression test each; the post-audit baselines
-improve kae staged (−4.6 % open, physics −13 % on load-stable boards; [post-audit-baselines](routing/post-audit-baselines.md)).
+improve haslam staged (−4.6 % open, physics −13 % on load-stable boards; [post-audit-baselines](routing/post-audit-baselines.md)).
 **First published:** 2026-11-04. The fixes reached main through branch `place-escape-keepouts` (21bc53d,
 merged with `thermal-heatsinks-merge`, PR #24).
 
@@ -22,7 +22,7 @@ the whole codebase was audited at once instead.
 
 Seven read-only auditors, one per area, on a frozen copy (b96ee0c): critical router; bridge, rules and
 escape planner; placer; physics and EM; board model and circuit comprehension; evaluator, joint loop and
-intent; benchmark harness, scoring, restart wrapper and kaeres. Each finding had to be reproduced or
+intent; benchmark harness, scoring, restart wrapper and haslamres. Each finding had to be reproduced or
 proven by arithmetic on the code and was labelled CONFIRMED or PLAUSIBLE. Static analysis ran beside it:
 ruff's bug rules (545 findings, 192 in product code), vulture and pyright (209 errors); a triage found 2
 real bugs among them, the rest false positives (closures used within their own loop iteration, numpy
@@ -38,7 +38,7 @@ fixes are separate commits that say which results they change.
 - The restart wrapper's judge ran DRC with `--severity-error`, missing unconnected items set to
   "warning"; and it read KiCad's report list, which stops at 499, so on big boards it chose between
   attempts blind (polarfire-som: a 206 s attempt kept with 1,306 open where a 1,500 s one leaves 429).
-- kaeres looked up existing runs without the task id (a run on an older task spec counted as done);
+- haslamres looked up existing runs without the task id (a run on an older task spec counted as done);
   report means were over each method's own subset of boards; command methods lost their output when
   the harness timed them out while Freerouting kept its partial result; place-task physics was
   measured on an unrouted board; the off-board check read graphics from every layer as the outline.
@@ -74,12 +74,12 @@ circles and rectangles that pcbnew fills were dropped.
 - Task spec 9 (castellated edge pads and 4UCONN connectors are fixed in place-fixed tasks), score v8
   and v9: earlier place-fixed / joint-fixed results and physics numbers are not comparable with later
   ones; [post-audit-baselines](routing/post-audit-baselines.md) re-runs the reference methods.
-- kaeres now refuses an experiment whose methods prepare boards with a harness of another task spec
+- haslamres now refuses an experiment whose methods prepare boards with a harness of another task spec
   (a Freerouting method pinned to an old harness had run every job and written nothing).
 
 ## Performance, measured alongside
 
-py-spy profiles of kae staged and the bridge on three board sizes: Freerouting (a separate Java process)
+py-spy profiles of haslam staged and the bridge on three board sizes: Freerouting (a separate Java process)
 takes 40–72 % of wall time, the placer 25–40 %, the last mile 11–29 %. No easy speedup: caching the last
 mile's cost rasters would hit 12 % of requests and save about 1 % (measured by instrumenting a run); the
 compiled annealer's time shows as Python only because py-spy cannot see into numba.

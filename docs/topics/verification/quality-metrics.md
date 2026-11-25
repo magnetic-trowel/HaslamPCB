@@ -1,6 +1,6 @@
 # Layout quality metrics beyond DRC
 
-Scope: canonical home for published layout-quality metric definitions (PCBWorld, OmniRouting, Quilter, Cypress, RL_PCB, KRT, Freerouting scores), kaebench cpk vs CP@5, and our union metric set. Not here: convention ("looks right") metrics -> [looks-right-metrics.md](looks-right-metrics.md); benchmark tracks -> [benchmark-plan.md](benchmark-plan.md); harness -> [harness.md](harness.md).
+Scope: canonical home for published layout-quality metric definitions (PCBWorld, OmniRouting, Quilter, Cypress, RL_PCB, KRT, Freerouting scores), haslambench cpk vs CP@5, and our union metric set. Not here: convention ("looks right") metrics -> [looks-right-metrics.md](looks-right-metrics.md); benchmark tracks -> [benchmark-plan.md](benchmark-plan.md); harness -> [harness.md](harness.md).
 Keys: quality metrics, Clean Pass, CP, CP@5, potential gain Φ, NRR, PRR, Open, PShort, NShort, DRV, wirelength, TWL, MGS, Multi-Scale Graph Similarity, PRC, Quilter, Cypress routability, HPWL, V2_CONTINUOUS, V2_LOWER_BOUND, normalized_score, cpk, any-clean@k, figure of merit
 Tags: [P] primary; [S] snippet/secondary; [V] vendor; [I] inference.
 
@@ -28,8 +28,8 @@ Tags: [P] primary; [S] snippet/secondary; [V] vendor; [I] inference.
 | Quilter blog | Routing metrics without first-pass yield or bring-up data do not prove boards work | [S] |
 | Practitioners | "how to calculate a figure of merit for an attempt at a PCB, which is a necessary step in reinforcement learning" (AndyC_772); AI needs "a clear definition of a correct vs incorrect classification" (TheHeintzel) | [P] |
 
-## kaebench cpk vs CP@5
- kaebench's `cpk` is "any-clean@k": any clean attempt counts (attempts ranked clean → completion → errors → length). It is not PCBWorld's Φ-selected CP@5 and can only be ≥ it. Its Freerouting attempts vary only the `-mp` pass schedule, and Freerouting seeds `Random(0)`, so attempts are not independent samples ([harness.md](harness.md), [dev-eval-plan.md](dev-eval-plan.md)).
+## haslambench cpk vs CP@5
+ haslambench's `cpk` is "any-clean@k": any clean attempt counts (attempts ranked clean → completion → errors → length). It is not PCBWorld's Φ-selected CP@5 and can only be ≥ it. Its Freerouting attempts vary only the `-mp` pass schedule, and Freerouting seeds `Random(0)`, so attempts are not independent samples ([harness.md](harness.md), [dev-eval-plan.md](dev-eval-plan.md)).
 
 ## Union metric set
 

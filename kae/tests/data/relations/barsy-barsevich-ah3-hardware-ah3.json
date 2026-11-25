@@ -1,9 +1,0 @@
-{"schema": "kae.intent/1", "generation": 1,
- "note": "hand-written from the netlist and silk legends only (no part positions read)",
- "relations": [
-  {"id": "swd-legend", "kind": "near", "a": "J1", "b": "label:\"SWD\"", "mag": "close", "why": "the GND|3V3 SWD|SWC legend names the programming header's pins"},
-  {"id": "swd-edge", "kind": "on_edge", "part": "J1", "edge": "edge:nearest", "facing": "any", "strength": "strong", "why": "the programming clip reaches the header from the edge"},
-  {"id": "scl-pullup", "kind": "near", "a": "R4", "b": "J3", "mag": "close", "why": "I2C pull-up at the bus connector"},
-  {"id": "sda-pullup", "kind": "near", "a": "R5", "b": "J3", "mag": "close", "why": "I2C pull-up at the bus connector"},
-  {"id": "mcu-c", "kind": "region", "members": ["U3"], "region": "region:c", "strength": "medium", "why": "the MCU between both pressure sensors and the connectors"}
- ]}

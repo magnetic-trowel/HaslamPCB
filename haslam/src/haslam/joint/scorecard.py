@@ -1,0 +1,201 @@
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The joint loop's judgement of one placed and routed board, and the acceptance rule.
+
+A Scorecard holds what KiCad and the routed-physics recheck say about a board:
+- legality: placement errors (exact check of the poses; KiCad's placement-type DRC errors);
+- completion: KiCad's unconnected items; DRC: error-level violations (library-environment
+  checks excluded, as haslambench);
+- physics: per module the routed utilization u = value / allocation (critical_recheck), and
+  their sum, each capped at U_CAP, a module without a value counted at U_MISSING (reports) or
+  U_CAP (acceptance); the place terms' straight-line total is reported beside it. `method`
+  names the measurement (recheck of the module stage, or board_physics).
+- checked: which checks ran ({drc, physics, brief}). A check that did not run is reported as
+  null, never as a value (to_dict: unconnected/errors null without DRC, physics null without
+  the recheck); internally the card keeps sentinels (DRC failed: 10**6; physics: no modules)
+  so the acceptance rule stays conservative.
+
+`accept(old, new)` keeps a step by the ranked judge the delivered results use
+(haslam.rank.board_rank, as tools/haslamres/restart.py chooses among attempts; user decision,
+2026-11-17): legal before illegal, clean before not clean, then fewer unconnected items, then
+fewer DRC errors. Fewer open connections win whatever they cost in DRC errors (a finishing try
+that took 7 open connections to 5 at 4 -> 14 errors was reverted before). Only on an equal rank
+does routed physics decide (on the modules both cards measured with the same method, a module
+without a value at U_CAP): it must improve beyond `phys_tol` (float noise). Track length and
+vias are reported (the efficiency layer of quality-metrics.md); with eff_tiebreak they also
+break a tie of everything above. Anything else is reverted.
+`physics_guard(old, new, phys_slack)` is the older rule, kept for the last mile's re-laid
+critical copper (haslam.route.critical.soft_critical): legality, unconnected items and DRC errors
+never worse, and a strict gain in completion or DRC kept when routed physics worsens by at most
+`phys_slack` of the incumbent's total per item gained.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from .feedback import PLACEMENT_TYPES  # noqa: F401 - KiCad's placement-type checks (stages.placement_errors)
+
+U_CAP = 5.0          # one module far over budget must not hide every other module's change
+U_MISSING = 3.0      # a module whose routed value cannot be computed (copper missing), in reports
+
+
+def physics_total(modules, missing=U_MISSING):
+    """Sum of capped routed utilizations: modules {id: u or None}, None priced `missing`."""
+    tot = 0.0
+    for _, u in sorted(modules.items()):
+        tot += missing if u is None else min(U_CAP, max(0.0, float(u)))
+    return tot
+
+
+@dataclass
+class Scorecard:
+    placement_errors: int = 0          # exact placement violations (0 = legal)
+    unconnected: int = 0
+    errors: int = 0
+    errors_by_type: dict = field(default_factory=dict)
+    modules: dict = field(default_factory=dict)      # module id -> routed u (None: no value)
+    flagged: list = field(default_factory=list)      # modules the recheck flags
+    place_terms: float | None = None                 # straight-line place-terms total
+    method: str = ""                                 # how `modules` were measured ('recheck', 'board_physics')
+    worst_rail_mohm: float | None = None
+    track_length_mm: float | None = None             # total copper track length (efficiency, reported)
+    vias: int | None = None                          # via count (efficiency, reported)
+    note: str = ""
+    checked: dict = field(default_factory=lambda: dict(drc=True, physics=True, brief=True))
+
+    @property
+    def physics(self):
+        return physics_total(self.modules)
+
+    @property
+    def legal(self):
+        return self.placement_errors == 0
+
+    @property
+    def clean(self):
+        return self.placement_errors == 0 and self.unconnected == 0 and self.errors == 0
+
+    def key(self):
+        """Lower is better, lexicographically."""
+        return (self.placement_errors, self.unconnected + self.errors, self.unconnected, round(self.physics, 6))
+
+    def reported(self):
+        """(unconnected, errors, physics, flagged) as reported: None for what was not checked."""
+        drc = bool(self.checked.get("drc", True))
+        phys = bool(self.checked.get("physics", True))
+        return (self.unconnected if drc else None, self.errors if drc else None,
+                round(self.physics, 4) if phys else None, list(self.flagged) if phys else None)
+
+    def to_dict(self):
+        unc, err, phys, flagged = self.reported()
+        drc = bool(self.checked.get("drc", True))
+        return dict(legal=self.legal if drc else None, placement_errors=self.placement_errors if drc else None,
+                    unconnected=unc, errors=err, errors_by_type=dict(self.errors_by_type), physics=phys,
+                    modules={k: (None if v is None else round(v, 4)) for k, v in sorted(self.modules.items())},
+                    flagged=flagged, place_terms=None if self.place_terms is None else round(self.place_terms, 4),
+                    worst_rail_mohm=self.worst_rail_mohm,
+                    track_length_mm=None if self.track_length_mm is None else round(self.track_length_mm, 2),
+                    vias=self.vias, **({"method": self.method} if self.method else {}),
+                    checked=dict(self.checked), note=self.note or None)
+
+
+def _phys_on(card, ids):
+    # a module whose copper became unmeasurable must never beat a measured value (at 3.0 a
+    # hot loop at u 4.6 'improved' by losing its copper): price it at the cap
+    return physics_total({k: card.modules.get(k) for k in ids}, missing=U_CAP)
+
+
+def card_rank(c):
+    """A card's rank (haslam.rank.board_rank): placement errors, unconnected items, DRC errors."""
+    from haslam.rank import board_rank
+    return board_rank(c.unconnected, c.errors, c.placement_errors)
+
+
+def accept(old, new, phys_tol=0.005, eff_tiebreak=False, eff_tol=0.01):
+    """(keep, why). See the module docstring: the ranked judge, then routed physics on an equal
+    rank. `eff_tiebreak` (off by default, an A/B arm): with an equal rank and physics within
+    phys_tol, keep a board whose copper dominates: no more vias and track length shorter by more
+    than `eff_tol`, or fewer vias and no longer track."""
+    from haslam.rank import FIELDS
+    r0, r1 = card_rank(old), card_rank(new)
+    if r1 != r0:
+        k = next(i for i, (a, b) in enumerate(zip(r0, r1)) if a != b)
+        word = "better" if r1 < r0 else "worse"
+        return r1 < r0, f"rank {word} on {FIELDS[k]} {tuple(r0)} -> {tuple(r1)}"
+    ids = sorted(set(old.modules) & set(new.modules)) if old.method == new.method else []
+    p0, p1 = _phys_on(old, ids), _phys_on(new, ids)
+    scale = max(1.0, abs(p0))
+    if p1 > p0 + phys_tol * scale:
+        return False, f"physics worse ({p0:.4f} -> {p1:.4f})"
+    if p1 < p0 - phys_tol * scale:
+        return True, f"physics better ({p0:.4f} -> {p1:.4f})"
+    if eff_tiebreak and None not in (old.track_length_mm, new.track_length_mm, old.vias, new.vias):
+        l0, l1, v0, v1 = old.track_length_mm, new.track_length_mm, old.vias, new.vias
+        if (v1 <= v0 and l1 < l0 * (1 - eff_tol)) or (v1 < v0 and l1 <= l0):
+            return True, f"copper better ({l0:.1f} -> {l1:.1f} mm, {v0} -> {v1} vias)"
+    return False, "no improvement"
+
+
+def physics_guard(old, new, phys_tol=0.005, phys_slack=0.10, eff_tiebreak=False, eff_tol=0.01):
+    """(keep, why). See the module docstring. `phys_slack`: how much routed physics (share
+    of the incumbent's total) each item of completion/DRC gain may cost; 0 makes physics a
+    hard guard except for a board that becomes clean. `eff_tiebreak` (off by default, an A/B
+    arm): with equal completion, DRC and physics (within phys_tol), keep a board whose copper
+    dominates: no more vias and track length shorter by more than `eff_tol`, or fewer vias and
+    no longer track."""
+    if new.placement_errors > old.placement_errors:
+        return False, f"legality worse ({old.placement_errors} -> {new.placement_errors} placement errors)"
+    if new.unconnected > old.unconnected:
+        return False, f"completion dropped ({old.unconnected} -> {new.unconnected} unconnected)"
+    if new.errors > old.errors:
+        return False, f"DRC errors rose ({old.errors} -> {new.errors})"
+    # physics on the modules both boards measured, and only when measured the same way: the
+    # union priced every module one card lacked (a stage-only recheck against a board_physics
+    # card of every module) at the missing value, so a worse shared module read as better
+    ids = sorted(set(old.modules) & set(new.modules)) if old.method == new.method else []
+    p0, p1 = _phys_on(old, ids), _phys_on(new, ids)
+    k0 = (old.placement_errors, old.unconnected + old.errors, old.unconnected)
+    k1 = (new.placement_errors, new.unconnected + new.errors, new.unconnected)
+    scale = max(1.0, abs(p0))
+    if k1 < k0:
+        if k1 == (0, 0, 0):
+            # a finished board outranks any unfinished one (lexicographic: completion first)
+            return True, f"clean {k0} -> {k1}, physics {p0:.4f} -> {p1:.4f}"
+        slack = max(phys_tol, phys_slack * (k0[1] - k1[1]))
+        if p1 > p0 + slack * scale:
+            return False, f"physics worse beyond the slack ({p0:.4f} -> {p1:.4f}) for {k0} -> {k1}"
+        return True, f"better {k0} -> {k1}, physics {p0:.4f} -> {p1:.4f}"
+    if p1 > p0 + phys_tol * scale:
+        return False, f"physics worse ({p0:.4f} -> {p1:.4f})"
+    if p1 < p0 - phys_tol * scale:
+        return True, f"physics better ({p0:.4f} -> {p1:.4f})"
+    if eff_tiebreak and k1 == k0 and None not in (old.track_length_mm, new.track_length_mm, old.vias, new.vias):
+        l0, l1, v0, v1 = old.track_length_mm, new.track_length_mm, old.vias, new.vias
+        if (v1 <= v0 and l1 < l0 * (1 - eff_tol)) or (v1 < v0 and l1 <= l0):
+            return True, f"copper better ({l0:.1f} -> {l1:.1f} mm, {v0} -> {v1} vias)"
+    return False, "no improvement"
+
+
+def copper_totals(board):
+    """(track length in mm, via count) of a haslam Board: segments straight, arcs by their
+    three points."""
+    import math
+    tot = 0.0
+    for t in board.tracks:
+        (x0, y0), (x1, y1) = t.start, t.end
+        if t.mid is None:
+            tot += math.hypot(x1 - x0, y1 - y0)
+            continue
+        xm, ym = t.mid
+        a, b, c = math.hypot(xm - x0, ym - y0), math.hypot(x1 - xm, y1 - ym), math.hypot(x1 - x0, y1 - y0)
+        area2 = abs((xm - x0) * (y1 - y0) - (x1 - x0) * (ym - y0))
+        if area2 < 1e-12 or c == 0:
+            tot += a + b
+            continue
+        r = a * b * c / (2 * area2)
+        half = min(1.0, c / (2 * r))
+        ang = 2 * math.asin(half)
+        if a * a + b * b > c * c:  # the mid point sees the chord at an acute angle: it is on the major arc
+            ang = 2 * math.pi - ang
+        tot += r * ang
+    return tot, len(board.vias)

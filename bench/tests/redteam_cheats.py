@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Cheating methods for the red-team tests, run as `--command` adapters on the
 redteam.kicad_pcb tasks. Each mode edits the task input the way a dishonest or broken
@@ -26,7 +26,7 @@ ZERO = "00000000-0000-0000-0000-000000000000"
 J1 = "cccccccc-cccc-cccc-cccc-ccccccccccc1"
 HUMAN_POSES = {"11111111-1111-1111-1111-111111111111": (110, 105),
                "22222222-2222-2222-2222-222222222221": (120, 105),
-               ZERO: (105, 115), str(uuid.uuid5(uuid.NAMESPACE_URL, f"kaebench:{ZERO}:1")): (110, 115),
+               ZERO: (105, 115), str(uuid.uuid5(uuid.NAMESPACE_URL, f"haslambench:{ZERO}:1")): (110, 115),
                J1: (130, 103), "dddddddd-dddd-dddd-dddd-ddddddddddd1": (103.5, 108),
                "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeee1": (135, 105)}
 R2 = "22222222-2222-2222-2222-222222222221"

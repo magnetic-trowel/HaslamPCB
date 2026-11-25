@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """sig.py FOUND_GLOB WORKDIR EXISTING_MANIFEST [-j N] [--threshold 0.75]
 
@@ -23,8 +23,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import enrich  # noqa: E402
-from kaebench import fetch as kfetch  # noqa: E402
-from kaebench.manifest import import_format  # noqa: E402
+from haslambench import fetch as kfetch  # noqa: E402
+from haslambench.manifest import import_format  # noqa: E402
 
 NPERM, BANDS = 96, 24
 ROWS = NPERM // BANDS

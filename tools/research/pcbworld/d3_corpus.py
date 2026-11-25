@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Build a kaeres corpus (KAE_CORPUS layout) from PCBWorld's D3 boards.
+"""Build a haslamres corpus (HASLAM_CORPUS layout) from PCBWorld's D3 boards.
 
 PCBWorld (github.com/LGAI-Research/PCBWorld, BSD-3) rebuilds its D3 boards from PCBench with its own
 chain (tools/quickstart/prepare_pcbench.sh: KiCad 5 -> 9.0.8 conversion, .kicad_pro severity/rule
@@ -8,12 +8,12 @@ edits, per-net guide widths). Each D3 board folder holds processed_v9_guide_v3.k
 the reference) and processed_v9_guide_v3.kicad_pro (the rules PCBWorld scores with). This script
 copies the boards of the given suites into
 
-    OUT/manifest.jsonl                 one row per board (kaeres corpus_rows)
-    OUT/boards/<id>/board.kicad_pcb    the guide board, routed (kaebench prepare strips the copper)
+    OUT/manifest.jsonl                 one row per board (haslamres corpus_rows)
+    OUT/boards/<id>/board.kicad_pcb    the guide board, routed (haslambench prepare strips the copper)
     OUT/boards/<id>/board.kicad_pro    its project, PCBWorld's rules
     OUT/boards/<id>/row.json           the manifest row
 
-so kaeres can run route experiments on them with KAE_CORPUS=OUT. Board files keep their upstream
+so haslamres can run route experiments on them with HASLAM_CORPUS=OUT. Board files keep their upstream
 licences (PCBench collects third-party boards; many have none): never commit OUT.
 
     python3 d3_corpus.py --exacad $PCBWORLD_DATA_ROOT/pcbench/exacad_sorted --out DIR \

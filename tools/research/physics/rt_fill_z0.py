@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Red-team resolution of a cross-document conflict: same-layer ground fill at gap g = h beside a
 ~50-ohm microstrip changes Z0 by -3.7% (rule-genealogy-si-emi-rf.md, rg_fill_and_decaps.py) or by

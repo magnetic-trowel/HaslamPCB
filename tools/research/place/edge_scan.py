@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Distance of mechanical-interface parts to the board edge, per connector sub-class.
 
@@ -12,8 +12,8 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 from shapely.geometry import Point, MultiPolygon, box
 from shapely.ops import unary_union
 
-from kae.board import kicad_file, transform
-from kae.place import fixed, mech_rules
+from haslam.board import kicad_file, transform
+from haslam.place import fixed, mech_rules
 
 I = re.I
 SUB = (  # first match wins; text = lib name value desc
@@ -140,7 +140,7 @@ def _scan(item):
 
 def main():
     out, lst = sys.argv[1], sys.argv[2]
-    nproc = int(os.environ.get("KAEQ_CPUS", "8"))
+    nproc = int(os.environ.get("HASLAMQ_CPUS", "8"))
     items = []
     for line in open(lst):
         p = line.rstrip("\n").split("\t")

@@ -1,6 +1,6 @@
 # Joint place-and-route experiments (pnr lab)
 
-Scope: experiment log and method index of the pnr lab (own Freerouting-free place-and-route engine, 33 A/B boards); one line + link per method. Mechanism, numbers and provenance live on the method pages in [research/joint](../../research/joint/README.md). Not here: kae's own joint loop -> [kae-joint-loop](../../research/joint/kae-joint-loop.md). [M] = measured by the pnr scripts.
+Scope: experiment log and method index of the pnr lab (own Freerouting-free place-and-route engine, 33 A/B boards); one line + link per method. Mechanism, numbers and provenance live on the method pages in [research/joint](../../research/joint/README.md). Not here: haslam's own joint loop -> [haslam-joint-loop](../../research/joint/haslam-joint-loop.md). [M] = measured by the pnr scripts.
 Keys: pnr, joint place-and-route, halo grid, negotiated-congestion router, FFT legal-position maps, seq, seq_phys, anneal, anneal_phys, grow, beam, combo, combo_lv, combo_full, jc, jc_lv, jc_frozen, joint collapse, negotiate, grad, soft-min routing gradient, Physarum, LLM move proposer, seq_margin, CP-SAT windows, Numberlink, Terms.delta, RoutedPhys, score v7, v7-bugs, silk_overlap, solder_mask_bridge, starved_thermal
 
 ## Setup and eras
@@ -34,7 +34,7 @@ Verdict per idea: [scorecard](../../ideas/original/scorecard.md). Merit arms in 
 
 DRC types no method's objective sees (`silk_overlap`, `solder_mask_bridge`, `starved_thermal`, `shorting_items`, unenterable 0.5 mm-pitch pads), each traced to placement crowding → [engine verdict](../../research/joint/engine.md#verdict).
 
-## Use in kae
+## Use in haslam
 
 - Make physics a first-class term in every placement objective (`Terms.delta` ~50 µs per move); score routed physics on the final copper. HPWL alone gives electrically wrong boards that route well → [physics-objective](../../research/joint/physics-objective.md#verdict).
 - Use `combo` as the baseline to beat ([mcts.py](../../../tools/research/pnr_mcts/mcts.py), [methods_combo.py](../../../tools/research/pnr/methods_combo.py)) → [combo](../../research/joint/combo.md).

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Exact simultaneous place-and-route of small windows with CP-SAT, as an LNS step.
 
@@ -19,7 +19,7 @@ coarse grid (pitch = smallest even multiple of the engine cell >= the track halo
             each connection a Numberlink path (endpoint degree 1, else 0 or 2); cells
             exclusive per net; a via clears its 8 neighbours
   objective 3000 * missed connections + length (0.1 mm) + 20 per via + exit cost
-            + 10 * phys_w * kae physics delta of the pose (first order)
+            + 10 * phys_w * haslam physics delta of the pose (first order)
 
 Solve in two phases (current poses as assumptions -> complete hint -> free poses), one
 worker, no LP, no presolve, deterministic time limit. Decode: place at the solved poses,
@@ -394,7 +394,7 @@ class Window:
             npose += len(lst)
             M.AddExactlyOne([e[0] for e in lst])
             self.pv[pi] = lst
-        # ---- physics place terms (kae.physics), first order: per-pose delta vs the current
+        # ---- physics place terms (haslam.physics), first order: per-pose delta vs the current
         # board, in objective units (0.1 mm of routed copper per phys_w^-1 units of physics)
         self.phys_obj = []
         if phys is not None:
@@ -849,7 +849,7 @@ def cpsat(world, seed=0, budget=300, log=print, start="seq_phys", max_parts=3, s
         try:
             from physics import Phys
             ph = getattr(world, "phys", None) or Phys(world, world.data["path"])
-        except Exception as e:  # kae not importable: route cost only
+        except Exception as e:  # haslam not importable: route cost only
             log(f"  physics unavailable: {e!r}")
     mov = [q for q in kit.movable() if q in world.pose]
 

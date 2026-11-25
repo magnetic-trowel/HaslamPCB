@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Module physics of routed boards side by side: the human reference and router arms
 (e.g. bridge alone, critical routing then bridge) on the same route tasks, measured with
-critical-net routing's routed-copper estimator (kae.route.critical_recheck.board_physics).
+critical-net routing's routed-copper estimator (haslam.route.critical_recheck.board_physics).
 
 For each task: the brief is built once from the task input, so module ids pair across
 boards; each board is refilled by KiCad's zone filler and read as a copper graph; per
@@ -18,11 +18,11 @@ arm/arm ratios per module kind, wins and losses, rail resistance ratios). Never 
 scores or results directories.
 
 Usage:
-  python tools/research/physics/crit_compare.py --tasks kae-work-v2/tasks --out DIR \\
-      --arm bridge=kae-work-v2/results/<run>/kae-fr --arm crit=kae-work-v2/results/<run>/kae-crit \\
+  python tools/research/physics/crit_compare.py --tasks haslam-work-v2/tasks --out DIR \\
+      --arm bridge=haslam-work-v2/results/<run>/haslam-fr --arm crit=haslam-work-v2/results/<run>/haslam-crit \\
       [--only id1,id2 | --suite FILE] [--attempt 0] [-j 4]
   python tools/research/physics/crit_compare.py --out DIR --aggregate-only
-  python tools/research/physics/crit_compare.py --out DIR --retweak kae-work-v2/results/<run>/kae-crit
+  python tools/research/physics/crit_compare.py --out DIR --retweak haslam-work-v2/results/<run>/haslam-crit
 """
 import argparse
 import json
@@ -53,9 +53,9 @@ def arm_board(arm_dir, tid, attempt):
 
 def one(job):
     tid, tasks, arms, attempt, out = job
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
-    from kae.route.critical_recheck import board_physics
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
+    from haslam.route.critical_recheck import board_physics
     rec = dict(id=tid, boards={})
     t0 = time.time()
     try:

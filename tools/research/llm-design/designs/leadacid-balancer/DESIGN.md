@@ -1,6 +1,6 @@
 # leadacid-balancer: MCU-free switched-capacitor equalizer for 2–4 series 12 V lead-acid batteries
 
-Status: engineering design, encoded in [design.py](design.py) and [parts.py](parts.py). `kaesynth
+Status: engineering design, encoded in [design.py](design.py) and [parts.py](parts.py). `haslamsynth
 build` passes with 0 errors and 0 warnings (31 findings waived with reasons), KiCad ERC 0/0, netlist
 round trip identical. Independently reviewed ([REVIEW.md](REVIEW.md), with the response at its end);
 not built or certified; four blocking questions are open. Naming
@@ -81,7 +81,7 @@ Verbatim:
 | REQ-21 | Telemetry | One isolated fail-safe contact: closed only while every channel charges without fault or warning; opens on fault, warning, open tap or lost supply; open at rest. ≤ 30 V, ≤ 1 mA, reverse-protected. | derived; review M-4 | V-14; calcs `opto_*` |
 | REQ-22 | Harness | N + 1 wires: system negative plus every battery positive. 14 AWG ≤ 3 m (16 AWG ≤ 1.5 m). Ring terminals. Fused. Pluggable at the board. Thinner wires are not possible because R_ext must stay small against R_SC ≈ 0.5 Ω. | brief; REQ-6 | Inspection |
 | REQ-23 | Service | Board can be unplugged in one action to replace a battery | derived | Inspection |
-| REQ-24 | Component derating | Normal operation: semis ≤ 80 % V; caps ≤ 80 % V (DC bias counted); resistors ≤ 50 % P; fuses ≤ 75 % I. Abnormal window edge (failing battery): ≤ 100 % of the temperature-derated rating | task default | kaesynth `rating.*`; waivers in the build report |
+| REQ-24 | Component derating | Normal operation: semis ≤ 80 % V; caps ≤ 80 % V (DC bias counted); resistors ≤ 50 % P; fuses ≤ 75 % I. Abnormal window edge (failing battery): ≤ 100 % of the temperature-derated rating | task default | haslamsynth `rating.*`; waivers in the build report |
 | REQ-25 | Battery-count configuration | Shunts on JP101…JP(N−1)01; a shunt on JPk02 for each unused channel (bridges its alarm opto); every unused plug position bridged to the highest used one. Default N = 4 (`N_BATT`). | REQ-1; H-12 | V-1; label at J1 |
 
 ## 3. Assumptions and open questions
@@ -214,7 +214,7 @@ Blocks in [design.py](design.py) (one schematic sheet each):
 | `mech` | Mounting holes | — |
 | `harness` (`board="off"`) | N + 1 fused tap wires, ring lugs, plug P1, bridges, alarm plug P2 | POSTj → TAPj_IN |
 
-**Domains (the kaesynth voltage model).** Every net belongs to one domain and has a voltage range
+**Domains (the haslamsynth voltage model).** Every net belongs to one domain and has a voltage range
 relative to the domain's reference. A floating domain sits on a net of another domain, so the checker
 sums ranges along the chain and stacked batteries come out exact.
 
@@ -520,7 +520,7 @@ Diodes orderable addenda read on 2026-10-23 unless tagged.
 
 - **Board.** 180 × 130 mm (grown from 160 × 110 for five 43 × 18 mm 10×38 fuse holders), 4 layers, 1.6 mm FR-4 with CTI ≥ 175. 2 oz outer and 1 oz inner copper.
   All parts on the top side.
-- **Mounting.** Four M3 holes, 5 mm from the corners, on nylon standoffs. Coordinates follow the kaesynth
+- **Mounting.** Four M3 holes, 5 mm from the corners, on nylon standoffs. Coordinates follow the haslamsynth
   BoardSpec: origin at the lower-left corner, y north, so the ISO keep-out at y 122–130 is the north edge.
 - **Enclosure.** IP54 polycarbonate wall box, about 250 × 200 × 90 mm. M20 gland for the harness at
   the bottom and M12 for the alarm. LEDs behind a clear lid or light pipes.
@@ -564,7 +564,7 @@ build writes them to `out/intent.yaml` (358 relations, plus inferred ones). Per 
   of Bk, `far` from the FETs; divider filter caps tight to U108.
 - Board: `separate` for every barrier (spacing from §6), keep-outs at the holes, all parts top side.
 
-Relations outside the kaesynth vocabulary go through `d.place.custom` and are checked by people
+Relations outside the haslamsynth vocabulary go through `d.place.custom` and are checked by people
 until a checker exists: `order` (domains west → east), `strip` (north ISO strip), `cluster` (the five
 functional groups inside a channel block), `pour`, `connect_at` (divider taps at the C_TOP/C_BOT pads,
 channel side of the fuses), `guard` (T_L ring around the high-impedance nodes), `matched` (PH1/PH2 to

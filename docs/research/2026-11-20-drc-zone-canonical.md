@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Zone islands in the canonical form of DRC's unconnected pairs (2026-11-20)
 
@@ -9,7 +9,7 @@
 to the island that holds its position. A zone net's pairs then become a minimum spanning tree between its
 parts, as other nets' pairs already were.
 
-**A/A** (kaeq job 116709, branch commit 7c91b4cd vs main's drc, KAE_BUDGET=work, 16 KiCad threads). The
+**A/A** (haslamq job 116709, branch commit 7c91b4cd vs main's drc, HASLAM_BUDGET=work, 16 KiCad threads). The
 board was atrivatech ch32v003's round-0 routed board: stripped input, one Freerouting session. Each code
 ran 6 DRCs of the same file.
 

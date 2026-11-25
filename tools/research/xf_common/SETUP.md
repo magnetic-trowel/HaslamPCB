@@ -1,37 +1,37 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Shared setup for the xf experiments (round 2)
 
 Branch `xf-experiments`, merged with `claude/keen-wright-mlkjv6` at harness score v7, task
 spec 6 and pnr engine v6.1. One worktree on local disk holds the code, the venv and the
-git-ignored work dirs. The physics engine (`kae`, branch `claude/vigilant-mayer-i91rrr`) is
-a second, detached worktree beside it named `kae-phys`. Engine and method docs:
+git-ignored work dirs. The physics engine (`haslam`, branch `claude/vigilant-mayer-i91rrr`) is
+a second, detached worktree beside it named `haslam-phys`. Engine and method docs:
 [AGENT_BRIEF.md](../pnr/AGENT_BRIEF.md), [joint-pnr-experiments](../../../docs/topics/placement/joint-pnr-experiments.md),
 [collapse_joint/RESULTS.md](../collapse_joint/RESULTS.md). The brief's paths
 are relative to the worktree root.
 
 **Round 2 changes the protocol.** Methods run as `--kinds joint` tasks: the input is the
 place task's input, and one output holds placement and routing. The harness scores both
-together (`score_joint_task`), in the kaebench sandbox. Round 1 ran `--kinds place --probe
-self` on an older harness, engine and prepare. Its results stay in `kae-work/`, and they
+together (`score_joint_task`), in the haslambench sandbox. Round 1 ran `--kinds place --probe
+self` on an older harness, engine and prepare. Its results stay in `haslam-work/`, and they
 are not comparable with round 2.
 
 ## Environment
 
 ```bash
 cd <worktree root>                         # $XF_ROOT
-source tools/research/xf_common/env.sh     # XF_WORK=<root>/kae-work2 unless set
+source tools/research/xf_common/env.sh     # XF_WORK=<root>/haslam-work2 unless set
 ```
 
-[env.sh](env.sh) activates `bench/.venv` (which sources the kaebench `env.sh`, setting
-`KAE_KICAD_WRAP` for KiCad 10.0.7 in Apptainer) and exports:
+[env.sh](env.sh) activates `bench/.venv` (which sources the haslambench `env.sh`, setting
+`HASLAM_KICAD_WRAP` for KiCad 10.0.7 in Apptainer) and exports:
 
 | Variable | Value | Why |
 |---|---|---|
-| `XF_WORK` | `<root>/kae-work2` (set it before sourcing to override; `<root>/kae-work` is round 1) | kaebench work dir: cache, tasks, results, scores |
+| `XF_WORK` | `<root>/haslam-work2` (set it before sourcing to override; `<root>/haslam-work` is round 1) | haslambench work dir: cache, tasks, results, scores |
 | `APPTAINER_BIND` | parent dir of the worktree | the KiCad container must see boards in it |
-| `KAE_SRC` | `<parent>/kae-phys/kae/src` (`XF_PHYS` overrides the worktree) | `pnr/physics.py` imports `kae` from it |
-| `KAE_KICAD_PYTHON` | [kicad-python](kicad-python) | one executable that runs KiCad's `python3` (pcbnew) in the container |
+| `HASLAM_SRC` | `<parent>/haslam-phys/haslam/src` (`XF_PHYS` overrides the worktree) | `pnr/physics.py` imports `haslam` from it |
+| `HASLAM_KICAD_PYTHON` | [kicad-python](kicad-python) | one executable that runs KiCad's `python3` (pcbnew) in the container |
 | `NUMBA_NUM_THREADS`, `OMP_NUM_THREADS`, BLAS threads | 1 | budgets are CPU seconds (`placekit.Clock`); one thread per attempt |
 | `NUMBA_CACHE_DIR` | `$XF_WORK/numba-cache` | kernels compile once, not inside every attempt's budget |
 
@@ -46,16 +46,16 @@ The scripts below set `ulimit -v 40000000` for KiCad themselves.
 
 ## Sandbox
 
-kaebench now runs `--command` methods under bubblewrap: no network, a private `/tmp` and
+haslambench now runs `--command` methods under bubblewrap: no network, a private `/tmp` and
 `/var/tmp`, a hidden home directory, and only the attempt's work dir writable.
 [runext.sh](runext.sh) makes that work for the pnr engine:
 
-- **Read-only paths.** It passes `--sandbox-ro` for the worktree, `kae-phys`, the numba cache
+- **Read-only paths.** It passes `--sandbox-ro` for the worktree, `haslam-phys`, the numba cache
   and the venv's base interpreter. The interpreter is a uv-managed Python under the home
   directory. Without it, `python` in the sandbox silently runs the system Python 3.10
-  (shapely 1.8, numba 0.55), and jc fails in `kae` on `shapely.total_bounds`.
+  (shapely 1.8, numba 0.55), and jc fails in `haslam` on `shapely.total_bounds`.
 - **Hidden paths.** The harness hides only `$XF_WORK/tasks` and `results`. runext.sh also
-  hides `$XF_WORK/cache` and `phys-cache`, and every other `kae-work*` dir in the worktree,
+  hides `$XF_WORK/cache` and `phys-cache`, and every other `haslam-work*` dir in the worktree,
   since they hold human layouts.
 - **Numba cache.** The cache is read-only in the sandbox, and numba ignores a read-only
   cache. [xf_run.sh](xf_run.sh) copies it into the attempt's work dir before it starts
@@ -70,7 +70,7 @@ kaebench now runs `--command` methods under bubblewrap: no network, a private `/
 `$XF_WORK/tasks/` holds all 112 boards of `bench/suites/qualified-kicad-10.0.7.txt`
 (manifest `bench/manifests/candidates.jsonl`), prepared by [prepare.sh](prepare.sh) with
 this branch's harness (task spec 6). All 112 are qualified (`$XF_WORK/qualified.txt`). The
-cache was copied from round 1's `kae-work/cache/`, which [seed_cache.py](seed_cache.py)
+cache was copied from round 1's `haslam-work/cache/`, which [seed_cache.py](seed_cache.py)
 filled from the local board corpus, sha256-checked against the manifest. Nothing was
 downloaded.
 
@@ -99,7 +99,7 @@ $XF_WORK/score.sh RUN [RUN ...]
 
 Both are thin wrappers for [runext.sh](runext.sh) and [score.sh](score.sh) here.
 
-- **runext.sh** runs `kaebench --workdir $XF_WORK run --adapter x-NAME --command "exec
+- **runext.sh** runs `haslambench --workdir $XF_WORK run --adapter x-NAME --command "exec
   xf_run.sh SPEC {input} {output} BUDGET {attempt}" --kinds joint -k SEEDS --timeout
   BUDGET*6+120 -j JOBS --only @SUITE --name NAME`, plus the sandbox options above.
   - SPEC is `/abs/path/module.py:function`.
@@ -118,7 +118,7 @@ Both are thin wrappers for [runext.sh](runext.sh) and [score.sh](score.sh) here.
     phys10), seeds `0..PHYS_SEEDS-1` (default 3). It reports fast and routed physics as
     mean ± sd. Per-seed tables are in `NAME-phys-seedN.md`, and JSON in `NAME-phys/seed-N/`.
     `NO_PHYS=1` skips it. `physics_score_xf.py --attempt N` replaces `xf_physmap/phys_seed.py`,
-    which still reads round 1's `kae-work`.
+    which still reads round 1's `haslam-work`.
 
   All readers take joint attempts: their score holds placement and routing together. The
   physics wrapper changes only where physics_score looks: the work dir, the attempt, and
@@ -165,7 +165,7 @@ Columns:
 - **The remaining DRC errors** (seed 0) are mostly:
   - jc variants: `solder_mask_bridge`, `shorting_items`, `starved_thermal`;
   - combo variants: `silk_overlap`.
-- **Compare only within round 2.** Round 1 numbers (`kae-work/score/baselines.md`, the
+- **Compare only within round 2.** Round 1 numbers (`haslam-work/score/baselines.md`, the
   older version of this file) used place tasks with a self-routing probe, an older engine
   and an older prepare.
 
@@ -179,7 +179,7 @@ terminals (pcbcorpus-justbuchanan-oasis-ledboard; the board's `.kicad_dru` edge 
 now read too). Both boards are now legal. Every earlier run used the old engine; round-3
 runs are prefixed `xf3` (baselines `xf3-base-<method>-ab33`, `tools/research/xf_common/baselines.sh xf3`).
 
-Baselines (joint, ab33, budget 120, 3 seeds; `kae-work2/score/baselines-xf3.md`):
+Baselines (joint, ab33, budget 120, 3 seeds; `haslam-work2/score/baselines-xf3.md`):
 
 | run | seeds | legal | clean | clean best-of-k | completion | length (mm) | vias | fast phys | routed phys |
 |---|---|---|---|---|---|---|---|---|---|

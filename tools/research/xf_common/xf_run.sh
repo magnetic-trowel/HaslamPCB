@@ -1,7 +1,7 @@
 #!/bin/sh
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Method launcher inside the kaebench sandbox (runext.sh's --command):
+# Method launcher inside the haslambench sandbox (runext.sh's --command):
 #   xf_run.sh SPEC INPUT OUTPUT BUDGET SEED [run.py options ...]
 # The sandbox makes everything but the attempt's work dir (the cwd) read-only, and numba
 # only uses a writable cache. Copy the warm cache ($NUMBA_CACHE_DIR, see warm_numba.sh)

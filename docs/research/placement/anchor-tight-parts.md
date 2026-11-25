@@ -1,16 +1,16 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Anchoring tight parts: big parts with no spot free of the fixed geometry
 
-Scope: why three boards with clean human layouts were never legal under kae placement, and the fix in `kae.place.pipeline`. Not here: legality in general -> [kae-exact-legality](kae-exact-legality.md).
-Keys: legality, anchor_tight, tight part, courtyard overhang, allow_overhang, kae.place.pipeline._anchor_tight_parts, J19, openremise, vik-pmw3360, esp32 flight controller
+Scope: why three boards with clean human layouts were never legal under haslam placement, and the fix in `haslam.place.pipeline`. Not here: legality in general -> [haslam-exact-legality](haslam-exact-legality.md).
+Keys: legality, anchor_tight, tight part, courtyard overhang, allow_overhang, haslam.place.pipeline._anchor_tight_parts, J19, openremise, vik-pmw3360, esp32 flight controller
 
 **Status:** worked (third run, `loop-legal-ab3`, below; PR #56). Earlier status: partial, not merged. The root cause is verified. A second version (KiCad-verified spots, `loop-legal-ab2`, 60 boards) cuts placement errors 29 % with strong significance in both chains, but fails its pre-registered guard: three small module carriers lose legality to pads hanging off the board edge.
 **First published:** 2026-11-09, branch `loop-legality`.
 
 ## The failure
 
-Stored runs (one evaluator per run, joint-fixed task, kae staged and joint arms): on boards with no placement error in the human layout,
+Stored runs (one evaluator per run, joint-fixed task, haslam staged and joint arms): on boards with no placement error in the human layout,
 
 | Board | Legal runs | Placement errors (typical run) | The part |
 |---|---|---|---|
@@ -34,7 +34,7 @@ There is a second, smaller layer: the grid's rectangles of a fixed through-hole 
 
 ## Numbers so far
 
-`kae place` alone, 95 s budget, KiCad judging the placement through the benchmark's transplant (before = main, after = branch):
+`haslam place` alone, 95 s budget, KiCad judging the placement through the benchmark's transplant (before = main, after = branch):
 
 | Board | Seed | Before | After |
 |---|---|---|---|
@@ -42,7 +42,7 @@ There is a second, smaller layer: the grid's rectangles of a fixed through-hole 
 | esp32 flight controller | 2 | not run on this seed; stored runs 0 of 18 legal | legal |
 | vik-pmw3360 | 2, 3 | illegal: copper_edge_clearance; clearance, copper_edge_clearance, hole_to_hole | legal, legal |
 
-These are single-seed placements, not routed results. The experiment that decides, `tools/kaeres/experiments/loop-legal-ab/`, runs the full staged and joint chains on the boards where a part is anchored.
+These are single-seed placements, not routed results. The experiment that decides, `tools/haslamres/experiments/loop-legal-ab/`, runs the full staged and joint chains on the boards where a part is anchored.
 
 ## Scope of the change
 
@@ -55,7 +55,7 @@ The code path does nothing unless a part over 5 % of the board has no spot free 
 
 ## A/B: `loop-legal-ab` (2026-11-10)
 
-Plan: `tools/kaeres/experiments/loop-legal-ab/PLAN.md` (pre-registered). Commit dbc70f5: anchors parts with a courtyard or a connected pad. f2f4151 required a courtyard, which dropped vik-pmw3360's carrier, and was corrected before this ran. Boards: the 20 merit boards where the scan finds a tight part (13 anchored, 7 overhang only). Seeds 0-2, J1's restart wrapper, arms interleaved; KiCad scored 240 of 240 runs.
+Plan: `tools/haslamres/experiments/loop-legal-ab/PLAN.md` (pre-registered). Commit dbc70f5: anchors parts with a courtyard or a connected pad. f2f4151 required a courtyard, which dropped vik-pmw3360's carrier, and was corrected before this ran. Boards: the 20 merit boards where the scan finds a tight part (13 anchored, 7 overhang only). Seeds 0-2, J1's restart wrapper, arms interleaved; KiCad scored 240 of 240 runs.
 
 | arm | legal | legal_strict | clean | completion | opens | errors | placement errors | CPU h |
 |---|---|---|---|---|---|---|---|---|
@@ -79,7 +79,7 @@ The regression: melexinvn-bs-kombo goes from 3 of 3 legal to 0 of 3 in both chai
 
 ## Second A/B: `loop-legal-ab2` (2026-11-10)
 
-Plan: `tools/kaeres/experiments/loop-legal-ab2/PLAN.md` on branch `loop-legal-exp2` (commit 9260dbb), pre-registered.
+Plan: `tools/haslamres/experiments/loop-legal-ab2/PLAN.md` on branch `loop-legal-exp2` (commit 9260dbb), pre-registered.
 - Change since the first A/B: a spot only the exact check accepts is fixed only if KiCad's DRC agrees, else the part keeps the overhang.
 - Both arms carry PR #52's arc fix.
 - Boards: 60 tight-part boards (scans of the merit suite, the stored outputs and the qualified corpus), seeds 0-2, J1's restart wrapper. KiCad scored all 720 runs.

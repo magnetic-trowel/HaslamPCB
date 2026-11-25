@@ -1,22 +1,22 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Board spec (kae.board-spec/1): what a model states about a board for kae's evaluator
+# Board spec (haslam.board-spec/1): what a model states about a board for haslam's evaluator
 
-kae is not an LLM: it reads numbers. A model (or a designer) reads a board's summary
+haslam is not an LLM: it reads numbers. A model (or a designer) reads a board's summary
 (`board_summary.py`) and writes one spec; `intent_from_spec.py` turns it into the evaluator's operating
-facts and the board's `kae.intent`, checking every id against the board and every number against
+facts and the board's `haslam.intent`, checking every id against the board and every number against
 physical bounds. This file is the instruction given to the model.
 
 ## Input
 
 `SUMMARY.json`: `source` (repo, path, tags), `parts` (ref, kind, role, value, lib_id), `rails`
-(net -> volts as kae inferred it), `sections` (ids such as `cell:buck:U2`, `victim:feedback:U2.4`,
+(net -> volts as haslam inferred it), `sections` (ids such as `cell:buck:U2`, `victim:feedback:U2.4`,
 `ant:U3`, `decap:...`, `chain:J1:...`), `summary`.
 
 ## Output: exactly this JSON
 
 ```json
-{"schema": "kae.board-spec/1",
+{"schema": "haslam.board-spec/1",
  "purpose": "one line: what the board is and does",
  "rails": [{"net": "<a net from rails or sections>", "V_nom": 3.3, "tolerance_pct": 5,
             "ripple_max_mV": 50, "I_max_A": 0.5, "source_ref": "<ref of the regulator/connector feeding it>",
@@ -65,13 +65,13 @@ physical bounds. This file is the instruction given to the model.
   `switching` (buck, boost, buck-boost, charge pump), or `none` (a connector, battery or module output).
   `from_net`: the rail it regulates from (an LDO's input, a buck's VIN), copied exactly; null when none.
   `eta`: a switching regulator's efficiency range at this load from its datasheet class (e.g. [0.85, 0.92]);
-  null otherwise. Without these, kae takes the regulator as the board's power input and sees no loss in it.
+  null otherwise. Without these, haslam takes the regulator as the board's power input and sees no loss in it.
 - `loads`: every IC and module, with typical and maximum current from its datasheet class, and
   `T_max_C` its maximum junction (or operating) temperature when the part number's datasheet gives it
-  (null otherwise: kae then uses the part class's rating).
+  (null otherwise: haslam then uses the part class's rating).
 - `converters`: one per `cell:` section; switching regulators and motor/LED drivers. `I_out_A` is the
   converter's load current; `I_switch_A` (optional) is the cell's commutated current, its inductor's average:
-  a buck's is its output current, a boost's its input current, I_out V_out / (V_in eta). kae prices the hot
+  a buck's is its output current, a boost's its input current, I_out V_out / (V_in eta). haslam prices the hot
   loop with `I_switch_A` when it is given, else with `I_out_A`. Optional, for the reader and the record:
   `L_H` (the inductor's value), `inductor_ref`, `C_in` and `C_out` (lists of {"ref", "value_F"}), and `fields`
   ({"<key>": {"basis": "board|datasheet|typical|guess", "why": "..."}}: each value's own provenance, `board`

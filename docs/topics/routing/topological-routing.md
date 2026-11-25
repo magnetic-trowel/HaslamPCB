@@ -46,7 +46,7 @@ Eremex; [product page](https://www.eremex.ru/products/delta-design/topor/) [V].
 - Samsung SDS "Circular Frame" (substrate layer → polygonal schema, routes as non-crossing chords): 1000/1000 completions at n = 2–10 vs grid A* falling to 209–220; 0.085 s vs 22–47 s at n=10; baselines are naive Python A* without rip-up on toy instances ([arXiv 2105.07892](https://arxiv.org/abs/2105.07892) [P]).
 - JITX topo-routes as homotopy classes with rubber-band fallback [S]; Topola (Rust, MIT, NLnet-funded, WIP) [S]; gEDA and Numberlink "island-in-cavity" solvers → [cross-domain routing](cross-domain-routing-transplants.md#puzzles-and-sat).
 
-## Topology tier for kae (Tier 1.5)
+## Topology tier for haslam (Tier 1.5)
 
 [I]
 - Represent each LLM-proposed critical route/bus as a homotopy class (ordered CDT edges crossed per layer + via points), not a polyline.

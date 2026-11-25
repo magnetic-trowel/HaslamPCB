@@ -97,7 +97,7 @@ The ranking, DC gradient ≫ thermal > magnetic ≈ electric (only in alias band
 | D | geometry first | slew and frequency plan first | 12 dB from one register bit |
 
 
-## Use in kae
+## Use in haslam
 
 1. Turn the four cases into synthetic benchmark boards with the reasoning layer's expected hand-off as a golden file; score whether the system finds the binding output ([benchmark-plan](../verification/benchmark-plan.md)) [I].
 2. Ship oracles for plane DC flow, loop mutual inductance with images, K-factor capacitance, trapezoid envelopes and fin-model gradients as T0 spend models [C demo].

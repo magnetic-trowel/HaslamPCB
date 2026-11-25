@@ -1,16 +1,16 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Bugs found while fixing jc (tag `jcfix`)
 
 Each entry: what, where, effect, fix, which runs it affects. Scoring code was never changed.
 
-1. **Physics methods cannot import `kae` inside the harness sandbox** (environment, kae-v7).
-   `tools/research/pnr/physics.py` defaults `KAE_SRC` to a `/tmp` scratchpad; kaebench's
+1. **Physics methods cannot import `haslam` inside the harness sandbox** (environment, haslam-v7).
+   `tools/research/pnr/physics.py` defaults `HASLAM_SRC` to a `/tmp` scratchpad; haslambench's
    bwrap sandbox mounts a tmpfs over `/tmp`, so every `phys_w`-using method (jc, seq_phys,
-   combo, ...) died with `No module named 'kae'` (all attempts `no_output`). Fix: copy of
-   kae src in `kae-work/kae-src`, `export KAE_SRC=...` before `kae-v7/runj.sh` (the env
-   passes through bwrap); `trust` then added `--sandbox-ro` for the kae src to
-   `kae-v7/runj.sh`, which all later jcfix runs use. Failed runs deleted and re-run.
+   combo, ...) died with `No module named 'haslam'` (all attempts `no_output`). Fix: copy of
+   haslam src in `haslam-work/haslam-src`, `export HASLAM_SRC=...` before `haslam-v7/runj.sh` (the env
+   passes through bwrap); `trust` then added `--sandbox-ro` for the haslam src to
+   `haslam-v7/runj.sh`, which all later jcfix runs use. Failed runs deleted and re-run.
 2. **jc double counts two legality terms on engine v6** (jc.py, by design at the time).
    Engine v6 stamps drilled holes into both courtyard planes and footprint cutouts into
    every plane; jc still adds its own hole-under-courtyard and cutout maps to the part
@@ -24,7 +24,7 @@ Each entry: what, where, effect, fix, which runs it affects. Scoring code was ne
    siderakb-pmw3610 beta sits at 500 for 15 iterations with the same 5 conflicting nets
    and no part moving; legalization then drops them (6 open connections). jc2 `stall=4`
    stops a continuation after 4 flat iterations at the top of the schedule.
-5. **Tasks re-prepared under running jobs** (workdir, not code). kae-v7 tasks were
+5. **Tasks re-prepared under running jobs** (workdir, not code). haslam-v7 tasks were
    re-prepared to task spec 6 at 19:47-19:49 UTC while the first dev6 arms ran; attempts
    whose input came from the old task and whose score used the new one were invalid
    (`place_foreign`: dimensions, targets, graphics with new uuids). All jcfix runs started
@@ -39,7 +39,7 @@ Each entry: what, where, effect, fix, which runs it affects. Scoring code was ne
    and left unchanged.
 7. **Shared engine edited under running jobs** (workdir). tools/research/pnr changed
    (v6.1 -> v6.3) while the first jc2 runs were in flight. Every jcfix run before the
-   engine freeze at c78c537 (pnr v6.3) is discarded (parked in `kae-v7/jcfix-old/`);
+   engine freeze at c78c537 (pnr v6.3) is discarded (parked in `haslam-v7/jcfix-old/`);
    all reported runs are `-r3`/`-r3b` on c78c537, and the run queue logs an md5 of the
    engine and harness at the start and end of each arm. Two later md5 changes were checked
    and are not behaviour changes for jc2: an uncommitted edit of the analysis script
@@ -48,7 +48,7 @@ Each entry: what, where, effect, fix, which runs it affects. Scoring code was ne
    parent class of `MPCollapse`; jc2 uses `MinPlus` and the two `MPCollapse` methods, which
    did not change.
 8. **jc2 min-plus arm could not import `minplus` from a code snapshot** (jc2.py). The path
-   was relative to the module file, which the run queue copies to `kae-v7/jcfix-snap/`;
+   was relative to the module file, which the run queue copies to `haslam-v7/jcfix-snap/`;
    every `jcfix-jc2-mp-dev6-r3` attempt was `no_output`. Fixed (absolute path); the arm
    was re-run as `-r3b` (all other code paths identical to `-r3`).
 9. **jc can pick an illegal restart** (jc.py `jc`). Restarts are ranked by routed cost +

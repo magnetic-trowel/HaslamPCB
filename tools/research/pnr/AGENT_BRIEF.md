@@ -40,16 +40,16 @@ source bench/.venv/bin/activate          # in the repository root
 # one board, quick:
 python tools/research/pnr/run.py /abs/path/to/your_module.py:your_fn IN.kicad_pcb OUT_DIR/board.kicad_pcb --budget 60
 # through the harness (place tasks, self-routed copper scored by kicad-cli):
-kae-work/runext.sh /abs/path/to/your_module.py:your_fn <tag>-dev6-v1 120 kae-work/dev6.txt 1
-python tools/research/pnr/compare.py kae-work/results/pnr-seq-v5 kae-work/results/<tag>-dev6-v1
+haslam-work/runext.sh /abs/path/to/your_module.py:your_fn <tag>-dev6-v1 120 haslam-work/dev6.txt 1
+python tools/research/pnr/compare.py haslam-work/results/pnr-seq-v5 haslam-work/results/<tag>-dev6-v1
 ```
-Task inputs: `kae-work/tasks/<id>/place/input/board.kicad_pcb`. Suites: `kae-work/dev6.txt`
-(6 dev boards), `kae-work/ab33.txt` (all 33 qualified A+B boards). Per-attempt artifacts:
-`kae-work/results/<run>/x-<run>/place/<id>/attempt-0/` (`attempt.json`, `adapter.log`,
+Task inputs: `haslam-work/tasks/<id>/place/input/board.kicad_pcb`. Suites: `haslam-work/dev6.txt`
+(6 dev boards), `haslam-work/ab33.txt` (all 33 qualified A+B boards). Per-attempt artifacts:
+`haslam-work/results/<run>/x-<run>/place/<id>/attempt-0/` (`attempt.json`, `adapter.log`,
 `probe/score/drc.json`). Metrics: `legal` (placement), `clean` (legal + copper fully
 connected + no DRC errors), `completion`, routed length, vias.
 
-Baselines (same engine v5, same boards; budgets are CPU seconds via placekit.Clock): `kae-work/results/pnr-seq-v5` (place-then-route
+Baselines (same engine v5, same boards; budgets are CPU seconds via placekit.Clock): `haslam-work/results/pnr-seq-v5` (place-then-route
 control), `pnr-grow-v5`, `pnr-anneal-v5`, ... (a batch is running; use what exists), and
 `pnr-route-v5` (the human placement routed by the same router: A clean 0.85, B 0.50).
 

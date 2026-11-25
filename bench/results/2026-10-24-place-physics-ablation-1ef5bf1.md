@@ -2,7 +2,7 @@
 
 Run on the shared benchmark host, 2026-10-24, KiCad 10.0.7, spec-5 place tasks, `csweep.py --split C --time 600
 -j 18 --workers 2`, seed 0, the same code with and without `--no-physics` (routability and
-legality only). Legal means kae's exact model and kicad-cli DRC both pass. Tasks with no movable
+legality only). Legal means haslam's exact model and kicad-cli DRC both pass. Tasks with no movable
 part and the six outline-incomplete tasks are held out.
 
 | | physics off | physics on | human placement |

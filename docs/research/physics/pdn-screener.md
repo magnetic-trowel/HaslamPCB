@@ -1,23 +1,23 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # PDN impedance screener: validation and corpus check (2026-11)
 
-**Status:** built, report-only. It runs in `kae place` and `kae.route.critical_cli physics`. It changes no placement or routing, so it has no A/B.
+**Status:** built, report-only. It runs in `haslam place` and `haslam.route.critical_cli physics`. It changes no placement or routing, so it has no A/B.
 **First published:** 2026-11-22 on branch `pdn-screener` (audit physics-power #12).
 
-Scope: how `kae.excite.pdn` was checked against published Z(f) cases and ngspice, and what it reports on 80 human boards. Not here: the rule and the screen's definition -> [decoupling-pdn](../../topics/rules/decoupling-pdn.md#pdn-screener-kaeexcitepdn); the capacitor models -> [component-priors](component-priors.md).
-Keys: PDN screener, kae.excite.pdn, pdn_impedance_over_target, pdn_rogue_wave_risk, pdn_cavity_mode_clock, Novak anti-resonance, UG583 mounted SRF, regulator stand-in, supply probe, pdn_validate.py
+Scope: how `haslam.excite.pdn` was checked against published Z(f) cases and ngspice, and what it reports on 80 human boards. Not here: the rule and the screen's definition -> [decoupling-pdn](../../topics/rules/decoupling-pdn.md#pdn-screener-haslamexcitepdn); the capacitor models -> [component-priors](component-priors.md).
+Keys: PDN screener, haslam.excite.pdn, pdn_impedance_over_target, pdn_rogue_wave_risk, pdn_cavity_mode_clock, Novak anti-resonance, UG583 mounted SRF, regulator stand-in, supply probe, pdn_validate.py
 
 **Results**
 - The sweep and peak extraction reproduce three published cases and agree with ngspice to a median of 5e-5.
 - On the 80 sprint-quality boards, 61 have a rail with a known voltage and an IC load (136 rails). 40 rails are over target. 27 of them are only the regulator stand-in's peak, which stays in the report and is not a hazard (user decision). The LLM gets 13 `pdn_impedance_over_target` and 5 rogue-wave risks, all info. A first version warned on 8 boards; reading them by hand showed that each warning came from the regulator stand-in, and the warn rule was changed.
-- Cost: about 1.2 s per placement on a 65-capacitor board, once per `kae place` result.
+- Cost: about 1.2 s per placement on a 65-capacitor board, once per `haslam place` result.
 
 ## Validation against published cases
 
-`tools/research/physics/pdn_validate.py cases`. The same cases are in `kae/tests/test_excite_pdn.py`.
+`tools/research/physics/pdn_validate.py cases`. The same cases are in `haslam/tests/test_excite_pdn.py`.
 
-| Case | Source | Published | kae.excite.pdn |
+| Case | Source | Published | haslam.excite.pdn |
 |---|---|---|---|
 | 100 µF (3 mΩ, 2 nH) ∥ 1 µF (15 mΩ, 1 nH) | Novak, [Quiet Power 2010](https://iconnect007.com/article/39561/quiet-power-calculating-basic-resonances-in-the-pdn/39564/design) | "a peak with a value of 0.08 Ohms" at "3 MHz" | 0.0794 Ω at 2.87 MHz, Q 2.4 |
 | 0.01 µF, 0.9 nH self, + 0.8 nH mounting | AMD [UG583](https://docs.amd.com/r/en-US/ug583-ultrascale-pcb-design/Capacitor-Effective-Frequency) | 53 MHz bare, 38 MHz mounted | 53.1 / 38.6 MHz |
@@ -28,7 +28,7 @@ Keys: PDN screener, kae.excite.pdn, pdn_impedance_over_target, pdn_rogue_wave_ri
 
 ## Sweep against ngspice
 
-`pdn_validate.py spice BOARD`. The tool takes a real rail's series-RLC elements (capacitors, the regulator stand-in), writes them as a SPICE deck, and runs an AC sweep from 50 kHz to 200 MHz in the KiCad container's ngspice. The |Z| ratio kae/ngspice:
+`pdn_validate.py spice BOARD`. The tool takes a real rail's series-RLC elements (capacitors, the regulator stand-in), writes them as a SPICE deck, and runs an AC sweep from 50 kHz to 200 MHz in the KiCad container's ngspice. The |Z| ratio haslam/ngspice:
 
 | Board | Rail | Elements | Median error | Max error |
 |---|---|---|---|---|
@@ -39,7 +39,7 @@ The maximum is interpolation at the sharp series-resonance minima.
 
 ## Human boards (sprint-quality suite, 80 boards)
 
-`pdn_validate.py corpus` builds the place terms at each board's own poses and reports what `kae place` would report for that placement. It ran as kaeq campaign `pdn-screener-corpus3`, with no errors.
+`pdn_validate.py corpus` builds the place terms at each board's own poses and reports what `haslam place` would report for that placement. It ran as haslamq campaign `pdn-screener-corpus3`, with no errors.
 - **Coverage:**
   - 61 boards / 136 rails screened;
   - 878 of 1,687 capacitors had a decap loop from the place terms; the rest took ESL + 1 nH;
@@ -80,7 +80,7 @@ The rules changed accordingly:
 - **Open:**
   - the 0.2 µH regulator stand-in makes the 27 `supply_stand_in` rails. A datasheet output impedance (parts.json) or a stated load current would turn them into findings;
   - a "BUCK_SW" net that the brief calls a rail was screened (fujinet);
-  - capacitor values written as ".1uF" are not read by `kae.circuit.values.capacitance`; the model then assumes 100 nF.
+  - capacitor values written as ".1uF" are not read by `haslam.circuit.values.capacitance`; the model then assumes 100 nF.
 
 ## Sources
 - Smith, Sandler, Bogatin, "Target Impedance Is Not Enough", [SIJ 2019](https://signalintegrityjournal.com/articles/1083-target-impedance-is-not-enough): 1.57× and 3× peaks, Q.

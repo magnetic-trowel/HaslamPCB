@@ -1,16 +1,16 @@
 # Physics engine design, details: types, API, licences, tests, build order
 
-Scope: reference for the `kae.physics` engine: frozen types, `PhysicsSession` API, dependency licences, correctness matrix, calibration, build order E0–E5. Design rationale, algorithms and measured costs -> [physics-engine-design](physics-engine-design.md).
+Scope: reference for the `haslam.physics` engine: frozen types, `PhysicsSession` API, dependency licences, correctness matrix, calibration, build order E0–E5. Design rationale, algorithms and measured costs -> [physics-engine-design](physics-engine-design.md).
 Keys: Exactness E0–E5, Belief, EpochKey, ModelScope, DirtyRegion, Piece, WorldConductor, Discretization, Operator, Factorization protocol, WindowModel, Edit, TopoEvent, Quote, passports .npz, ledger.json, PhysicsSession, EditBatch, QuoteBatch, CommitResult, physics actors, licence gate, CHOLMOD licence, faer, Triangle excluded, cuDSS, correctness matrix, metamorphic tests, mutation benchmark, calibration, E4 Belief, schema v0, build order E0–E5
 
 Tags as in [physics-engine-design](physics-engine-design.md).
 
 ## Types
 
-Freeze these as schema v0 in M0, with the `.npz` passport layout documented in `schemas/`. Belief and Exactness live in `kae.units`, the rest in `kae.physics`: frozen dataclasses for epochs, scopes, pieces, edits, quotes, events; arrays for discretizations, operators, windows; `.npz` tables for passports.
+Freeze these as schema v0 in M0, with the `.npz` passport layout documented in `schemas/`. Belief and Exactness live in `haslam.units`, the rest in `haslam.physics`: frozen dataclasses for epochs, scopes, pieces, edits, quotes, events; arrays for discretizations, operators, windows; `.npz` tables for passports.
 
 ```python
-# kae.units
+# haslam.units
 class Exactness(IntEnum):
     E0 = 0; E1 = 1; E2 = 2; E3 = 3; E4 = 4; E5 = 5   # topological ... conjectured
 
@@ -26,7 +26,7 @@ class Belief:
     validity: Literal["in", "edge", "out"] = "in"
     lineage: tuple[str, ...] = ()            # kernel@version and input Belief ids
 
-# kae.physics: versions and scope
+# haslam.physics: versions and scope
 @dataclass(frozen=True, slots=True)
 class EpochKey:
     topology: str        # hash of K1 invariants for every band
@@ -212,7 +212,7 @@ Every dependency is GPL-3.0-compatible or kept out of shipped code. Re-check row
 | AMD, CAMD, COLAMD | orderings | BSD-3-Clause [S] | ship |
 | METIS 5.x | nested dissection | Apache-2.0 [S] | ship |
 | OpenBLAS | dense kernels | BSD-3-Clause [S] | ship |
-| faer, gemm, pulp, dyn-stack | Rust factorization | MIT [C: Cargo.toml] | ship (`kae-fast`) |
+| faer, gemm, pulp, dyn-stack | Rust factorization | MIT [C: Cargo.toml] | ship (`haslam-fast`) |
 | PyO3, rayon | bindings, threads | MIT or Apache-2.0 [C for rayon] | ship |
 | spade or CGAL 2D | constrained Delaunay | MIT or Apache-2.0 / GPL-3.0+ [S] | ship |
 | MUMPS | complex symmetric LDLᵀ with Schur output, if adopted | CeCILL-C [S] | ship |
@@ -226,7 +226,7 @@ Every dependency is GPL-3.0-compatible or kept out of shipped code. Re-check row
 
 ## Correctness matrix
 
-Make this E-level matrix the CI gate for `kae.physics`. Every kernel has an independent check.
+Make this E-level matrix the CI gate for `haslam.physics`. Every kernel has an independent check.
 
 | Level | Test | Tolerance | Measured [C] |
 |---|---|---|---|
@@ -234,7 +234,7 @@ Make this E-level matrix the CI gate for `kae.physics`. Every kernel has an inde
 | E0 events | λ = 1 at every K1 disconnect of a grown cut; discretization islands and holes equal the polygons' | exact | skeleton λ = 1.00000 |
 | E2 bounds | DC first-order bounds on all tile removals; brackets contain closed forms (annulus, L-bend 0.5587, notched strip) | never violated | 0/444 and 0/296; 5/5 resolutions |
 | E3 forms | Peaceman 0.1985; strip over a plane μ0hl/w; via pair in a plate pair; complex images; cut law | 10⁻³; 0.7%; 5×10⁻⁵; 3.5%; 6 digits | 0.1985 |
-| Goldens | `rt_*` scripts frozen; they never import `kae` | as registered | — |
+| Goldens | `rt_*` scripts frozen; they never import `haslam` | as registered | — |
 | Refinement | h → h/2 on every regression board | change inside the reported spread | — |
 | Metamorphic | lattice-step translation and 90° rotation leave Beliefs within 10⁻⁹; mirror symmetry; Z_qp = Z_pq to 10⁻¹²; doubling copper thickness halves R; a floating island changes nothing | as stated | — |
 | Mutation | planted DRC-neutral faults (≥ 8 operators, ≥ 50 boards) move a job verb or binding Belief by more than its spread; benign twins do not | recall ≥ 90%, false alarms ≤ 5% (build plan) | 31/31 and 0/7 ([physics-critics](../physics/physics-critics.md)) |
@@ -251,7 +251,7 @@ Make this E-level matrix the CI gate for `kae.physics`. Every kernel has an inde
 | E2 (M1) | passports (`.npz`), leverage, K5; HF stack window; Schur windows | [real-board-passports](../physics/real-board-passports.md) reproduced within 1%; scorecard median ≤ 2, p90 ≤ 10 CPU-min, ≤ 4 GB on ≥ 106/112 boards |
 | E3 (M2) | complex K2 with residual check; K6; merged K3; physics actors | f_p within 2% of ls_post_lattice; Q = h/δ; K3 within 3.5% of ls_thin_sheet and 1.3% of PEECN; `what_if` ≤ 50 ms p95; refresh ≤ 2 s p95 |
 | E4 (M2–M3) | K7 legalizer; K8; boundary-fitted brackets | vp_floors and in_emi_voi reproduced; legalization keeps K1 invariants; brackets contain closed forms |
-| E5 (M4) | `kae-fast`: faer, quote kernel, rasterizer, selected inversion | rank-1 quote ≤ 2 µs; build ≤ 2 s per million copper cells; exact leverage of every branch in ≤ 3 factorizations' time |
+| E5 (M4) | `haslam-fast`: faer, quote kernel, rasterizer, selected inversion | rank-1 quote ≤ 2 µs; build ≤ 2 s per million copper cells; exact leverage of every branch in ≤ 3 factorizations' time |
 
 ## Sources
 

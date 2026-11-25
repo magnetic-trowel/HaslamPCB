@@ -1,0 +1,245 @@
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The board's aggressors as unit sources in its circuit, each with its physical scale.
+
+- Commutation cells: the active switch is a current source (the commutated current I steps in
+  t_sw); the rectifier conducts and the inductor is open at the edge, so the circuit solve itself
+  finds the hot loop (switch, rectifier, the capacitors that close it) and how the capacitors
+  share it, whatever the topology.
+- ICs: the dynamic supply current of the core, drawn from the internal supply node to ground.
+- Modules (MCU and radio boards of their own, haslam.excite.models' ports): their supply-current steps at their
+  supply pins, returning at the nearest ground pin, slowed by their own decoupling (MODULE_TR).
+- Clock drivers: the output pin charges the net's load, returning through the driver's ground (a clock
+  arriving through a port, a connector or a module (haslam.excite.models): from the port's pin, back
+  through its nearest ground pin; a port pin the clock reaches is a receiver there).
+
+Each source carries di/dt (A/s) and the edge frequency f_e = 1/(pi t_r) at which its injection
+vector is solved; requirements scale the unit solution by these.
+"""
+from __future__ import annotations
+
+import math
+import re
+
+from .models import C_MODULE, PKG_L, PKG_R, SW_FN, _rl, _rlc, nearest_ground
+
+# dynamic core current and edge of IC classes (stand-ins; an IC's datasheet replaces them)
+DYNAMIC = {"mcu": (0.05, 1e-9), "fpga": (0.5, 0.5e-9), "memory": (0.1, 1e-9), "logic": (0.02, 1e-9),
+           "adc_dac": (0.01, 2e-9), "": (0.01, 2e-9)}
+DIGITAL = ("mcu", "fpga", "memory", "logic", "adc_dac", "interface", "phy", "module", "processor", "soc")
+# a module's supply-current step at its pins (stand-in: an MCU's 50 mA through the module's own decoupling and pin
+# inductance, which slow the die's 1 ns edge to a few ns); a datasheet's burst current replaces it
+MODULE_I, MODULE_TR = 0.05, 5e-9
+NOT_CLOCKED = re.compile(r"Mini360|DC.?DC|\bbuck\b|\bboost\b|\bLDO\b|regulator|Converter|DFPlayer|\bamp(lifier)?\b|charger|"
+                         r"TP4056|MP1584|XL\d{4}|LM2596|\bR-?78|\bTSR", re.I)
+CLOCK_TR = 1e-9
+CLOCK_F = 25e6                   # a clock whose frequency the board does not state
+CORE_F = 50e6                    # core clock of an IC whose clock is not known
+CLOCK_C = 10e-12                 # load of a short clock net (receiver plus trace)
+HIGH_SIDE = ("buck", "half_bridge", "motor_driver", "sepic", "flyback", "forward")
+
+
+def add_all(bd, brief, nl=None):
+    """Add every source to bd.circuit; returns the list of Source objects."""
+    out = []
+    uuid = {u: p["ref"] for u, p in brief["parts"].items()}
+    for s in brief.get("structures") or []:
+        if s.get("kind") == "commutation_cell":
+            src = _cell(bd, s, uuid)
+            if src is not None:
+                out.append(src)
+    for ref, nodes in bd.ic_nodes.items():
+        kind, sub, role = bd.part_kind.get(ref, ("ic", None, ""))
+        if sub not in DIGITAL and ref not in (getattr(bd, "radios", None) or {}):
+            continue                 # only clocked logic (and a radio: its digital core and PA) draws a core current
+            #                          at its clock; a charger, a regulator or an analog part does not
+        I, tr = DYNAMIC.get(sub or ("mcu" if ref in (getattr(bd, "radios", None) or {}) else ""), DYNAMIC[""])
+        for rail, v in nodes.items():
+            if rail == "g":
+                continue
+            src = bd.circuit.src(f"core:{ref}:{rail}", v, nodes["g"], kind="core", ref=ref, rail=rail,
+                                 I=I, didt=I / tr, f_e=1 / (math.pi * tr), V=bd.rails.get(rail) or 3.3, f_rep=CORE_F)
+            out.append(src)
+    # a module (an MCU or radio board of its own, haslam.excite.models' ports): its supply current changes reach the
+    # carrier at its supply pins, returning at its nearest ground pin. Its own decoupling supplies its core edges,
+    # so the carrier sees a slower step than an IC's die (MODULE_TR); a power or audio module is no clocked load
+    text = {p["ref"]: f"{p.get('value') or ''} {p.get('lib_id') or ''}" for p in brief["parts"].values()}
+    for net in sorted(bd.rails):
+        seen = set()
+        for tok in bd.pads_of.get(net, []):
+            ref = tok.rsplit(".", 1)[0]
+            if ref in seen or bd.port.get(ref) != "module" or bd.pin_type.get(tok) == "power_out" or \
+                    NOT_CLOCKED.search(text.get(ref, "")):
+                continue
+            g = nearest_ground(bd, ref, tok)
+            if g is None:
+                continue
+            seen.add(ref)
+            I, tr = MODULE_I, MODULE_TR
+            meta = dict(kind="core", ref=ref, rail=net, I=I, didt=I / tr, f_e=1 / (math.pi * tr), V=bd.rails.get(net) or 3.3,
+                        f_rep=CORE_F)
+            c = bd.circuit
+            if any(e.name == f"{tok}:supply" for e in c.elems):
+                # the module supplies this rail (haslam.excite.models._port_supplies): its decoupling is that port element
+                out.append(c.src(f"core:{ref}:{net}", net, bd.net_of[g], pa=tok, pb=g, **meta))
+                continue
+            # inside the module: its MCU draws from its own decoupling (C_MODULE), which its supply and ground pins
+            # (PKG_L each) join to the carrier; the carrier's copper carries only what that decoupling does not
+            nodes = bd.module_nodes.setdefault(ref, {})
+            if "g" not in nodes:
+                nodes["g"] = gi = f"{ref}:mgnd"
+                for tg in [t for nt in sorted(bd.grounds) for t in bd.pads_of.get(nt, []) if t.rsplit(".", 1)[0] == ref]:
+                    c.z(f"{tg}:mpkg", bd.net_of[tg], gi, _rl(PKG_R, PKG_L), tg, None, "pkg")
+            v = nodes[net] = f"{ref}:m{net}"
+            c.z(f"{tok}:mpkg", net, v, _rl(PKG_R, PKG_L), tok, None, "pkg")
+            c.z(f"{ref}:{net}:mdec", v, nodes["g"], _rlc(0.01, 0.2e-9, C_MODULE), None, None, "die")
+            out.append(c.src(f"core:{ref}:{net}", v, nodes["g"], **meta))
+    for net, d in brief["nets"].items():
+        if d.get("role") != "clock":
+            continue
+        drv = clock_driver(bd, net)
+        if drv is None:
+            bd.assumptions.append(f"clk:{net}: no pin that can drive it (only inputs); no clock source")
+            continue
+        ref = drv.rsplit(".", 1)[0]
+        if ref in bd.ic_nodes:
+            a, pa = bd.ic_nodes[ref]["g"], None                  # returns through the driver's ground
+        else:
+            pa = _nearest_ground(bd, ref, drv)                   # an oscillator, or a port: from off the board
+            if pa is None:
+                bd.assumptions.append(f"clk:{net}: driver {drv} has no ground pin to return through; no clock source")
+                continue
+            a = bd.net_of[pa]
+        _offboard_loads(bd, net, drv)
+        V = 3.3
+        I = CLOCK_C * V / CLOCK_TR
+        src = bd.circuit.src(f"clk:{net}", a, net, pa=pa, pb=drv, kind="clock", net=net,
+                             I=I, didt=I / CLOCK_TR, f_e=1 / (math.pi * CLOCK_TR), V=V,
+                             f_rep=(d.get("f_Hz") or CLOCK_F))
+        out.append(src)
+    return out
+
+
+DRIVES = ("output", "tri_state", "power_out")      # pin types that drive a net
+UNTYPED = ("", "unspecified", "passive", "free")
+
+
+def clock_driver(bd, net):
+    """The pad that drives a clock net, by the schematic's pin types: an output; else an oscillator's
+    pin; else a bidirectional IC pin; else a module's (a board of its own); else a connector's (the
+    clock comes from off the board); else an IC pin of no stated direction. An input never drives. None
+    if nothing can."""
+    toks = bd.pads_of.get(net, [])                     # the board's order breaks ties (as before)
+    ref = lambda t: t.rsplit(".", 1)[0]
+    typ = lambda t: bd.pin_type.get(t, "")
+    kind = lambda t: bd.part_kind.get(ref(t), ("",))[0]
+    for test in (lambda t: typ(t) in DRIVES,
+                 lambda t: kind(t) == "oscillator" and typ(t) != "input",
+                 lambda t: typ(t) == "bidirectional" and ref(t) in bd.ic_nodes,
+                 lambda t: _port(bd, ref(t)) == "module" and typ(t) != "input",
+                 lambda t: _port(bd, ref(t)) == "connector" and typ(t) != "input",
+                 lambda t: typ(t) in UNTYPED and ref(t) in bd.ic_nodes):
+        for t in toks:
+            if test(t):
+                return t
+    return None
+
+
+def _port(bd, ref):
+    """"connector" or "module" when ref is a port (haslam.excite.models.port_kind), else None."""
+    port = getattr(bd, "port", None)
+    if port is not None:
+        return port.get(ref)
+    k = bd.part_kind.get(ref, ("",))[0]
+    return k if k in ("connector", "module") else None
+
+
+def _offboard_loads(bd, net, drv):
+    """A clock reaching a port pin (a connector: cable, next board; a module) drives a receiver there:
+    CLOCK_C from the pin to the port's nearest ground pin, so its edge current returns through the
+    copper to that pin. (An IC's pins already load the net: haslam.excite.models.)"""
+    for t in bd.pads_of.get(net, []):
+        ref = t.rsplit(".", 1)[0]
+        if t == drv or not _port(bd, ref):
+            continue
+        g = _nearest_ground(bd, ref, t)
+        if g is None:
+            bd.assumptions.append(f"clk:{net}: {t} leaves the board with no ground pin beside it; its receiver is left out")
+            continue
+        bd.circuit.z(f"{t}:offboard", net, bd.net_of[g], _rlc(0, PKG_L, CLOCK_C), t, g, "in")
+
+
+_nearest_ground = nearest_ground
+
+
+def _cell(bd, s, uuid):
+    c = bd.circuit
+    sw, gnd, bus = s.get("sw"), s.get("gnd") or bd.ground, s.get("rail")
+    ex = s.get("excite") or {}
+    I, V = ex.get("I") or 1.0, ex.get("V") or bd.rails.get(bus) or 12.0
+    t_sw = (ex.get("t_sw_ns") or 10.0) * 1e-9
+    high = (s.get("class") or "") in HIGH_SIDE
+    meta = dict(kind="cell", cell=s["id"], I=I, V=V, t_sw=t_sw, didt=I / t_sw, f_e=1 / (math.pi * t_sw),
+                f_sw=ex.get("f_sw_Hz"), cls=s.get("class"), sw=sw, bus=bus, gnd=gnd)
+    ctrl = uuid.get(s.get("controller"))
+    # an integrated switch: the controller's SW pin(s) on the switch node. Not when the brief says the switches are
+    # discrete (a half-bridge gate driver's HS pin sits on the switch node but carries no commutated current: taking
+    # it for the switch drove the cell into the driver's supply pins, an island that never closes)
+    if ctrl and ctrl in bd.ic_nodes and s.get("integrated_switches") is not False:
+        swp = [t for t in bd.pads_of.get(sw, []) if t.startswith(ctrl + ".")]
+        if swp:
+            nodes = bd.ic_nodes[ctrl]
+            if high:
+                a, pa = nodes.get(bus), None
+                if a is None:
+                    # no internal node for the bus (its pin typed as neither supply nor power input): the switch's
+                    # current enters at the controller's own pad on the bus. Driven at the bare net (no pad), it came
+                    # from nowhere and the copper saw it open on every layout (pms67's MP2359, 1 A "with no way out")
+                    a = bus
+                    pa = next((t for t in sorted(bd.pads_of.get(bus, [])) if t.startswith(ctrl + ".")), None)
+                    if pa is None:
+                        bd.assumptions.append(f"{s['id']}: {ctrl} has no pad on the bus {bus}; cell not excited")
+                        return None
+                src = c.src(f"cell:{s['id']}", a, sw, pa=pa, pb=swp[0], **meta)
+            else:
+                src = c.src(f"cell:{s['id']}", sw, nodes["g"], pa=swp[0], **meta)
+            loop_refs = {uuid.get(u) for u, _ in s.get("loop") or []}
+            rect = [r for r in loop_refs if r and r != ctrl and bd.part_kind.get(r, ("",))[0] in ("diode", "transistor")]
+            if not rect:
+                # synchronous: the other switch is inside the controller and conducts
+                other = nodes["g"] if high else (nodes.get(bus) or bus)
+                # the rectifier's far end: an internal node, or the bus net itself at the controller's own pin on
+                # it (a net end without a pad would carry the cell's current into the net from nowhere)
+                op_ = next((t for t in bd.pads_of.get(bus, []) if t.rsplit(".", 1)[0] == ctrl), None) \
+                    if other == bus else None
+                c.z(f"{ctrl}:sync", sw if high else other, other if high else sw, _rl(0.05, PKG_L),
+                    swp[0] if high else op_, op_ if high else swp[0], "sync_on")
+                bd.assumptions.append(f"{s['id']}: no rectifier part in the loop; a synchronous switch inside {ctrl} conducts")
+            return src
+    # a discrete switch: the transistor in the loop between the switch node and the far net
+    far = bus if high else gnd
+    loop_pins = {}
+    for u, pins in s.get("loop") or []:
+        ref = uuid.get(u)
+        if ref:
+            loop_pins.setdefault(ref, []).extend(pins if isinstance(pins, list) else [pins])
+    for u, _ in s.get("loop") or []:
+        ref = uuid.get(u)
+        if ref and bd.part_kind.get(ref, ("",))[0] == "transistor":
+            pa = next((t for t in bd.pads_of.get(sw, []) if t.startswith(ref + ".")), None)
+            pb = next((t for t in bd.pads_of.get(far, []) if t.startswith(ref + ".")), None)
+            if pa and not pb:
+                # the switch's far terminal on another net: a current-sense resistor between a low-side FET's source and
+                # ground (MAX1771, LTC3783, LT3754 boosts). The loop's own pin of the transistor that is not on the
+                # switch node is the switch's far end; the commutated current runs on through the sense resistor
+                pb = next((f"{ref}.{n}" for n in loop_pins.get(ref, [])
+                           if f"{ref}.{n}" != pa and bd.net_of.get(f"{ref}.{n}") not in (None, sw)), None)
+                if pb:
+                    far_ = bd.net_of[pb]
+                    a, b = (far_, sw) if high else (sw, far_)
+                    return c.src(f"cell:{s['id']}", a, b, pa=pb if high else pa, pb=pa if high else pb, **meta)
+            if pa and pb:
+                a, b = (far, sw) if high else (sw, far)
+                return c.src(f"cell:{s['id']}", a, b, pa=pb if high else pa, pb=pa if high else pb, **meta)
+    bd.assumptions.append(f"{s['id']}: switch not found; cell not excited")
+    return None

@@ -124,7 +124,7 @@ Per piece and band, one PEEC or sheet solve gives six numbers [I]: **guide** (Po
 
 A budget's sensitivity to the piece is the energy density at its boundary: free for self terms, one adjoint for interactions. Lens CD builds the passport ([lens-cd](lens-cd.md)); VP supplies the energies.
 
-## Use in kae
+## Use in haslam
 
 1. Floor stage before optimization: certified floors per structure (Beckmann, convex relaxation, hull capacity, HS, empty circle) feed τ (DR17), pruning (JPR30), the stop rule (OP57), infeasibility certificates (DR41).
 2. Tag every term A, A′, B or C: optimize A jointly and convexly first, continue into B, give C worst-frequency sensitivities. Every class-A F2 evaluator returns a primal–dual bracket as σ. Price edits by polarization tensors (with CT, SY).

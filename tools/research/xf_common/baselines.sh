@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Baselines: five methods on ab33, budget 120 CPU-s, 3 seeds, joint tasks, all in parallel
 # at -j ${J:-4} each.

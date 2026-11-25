@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Pour partitions on real boards (venv Python; KiCad steps call kicad_dump.py).
 
@@ -41,8 +41,8 @@ sys.path.insert(0, HERE)
 from mbo import MBO, schedule  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-TASKS = os.path.join(ROOT, "kae-work", "tasks")
-WORK = os.path.join(ROOT, "kae-work", "pour")
+TASKS = os.path.join(ROOT, "haslam-work", "tasks")
+WORK = os.path.join(ROOT, "haslam-work", "pour")
 KPY = "/usr/bin/python3"
 
 

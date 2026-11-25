@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Does a projection on a few frequencies' solutions reproduce a board's response at all others?
 
-The board's copper with its two-pad parts lumped in (as kae.excite.evaluate builds it) is solved for
+The board's copper with its two-pad parts lumped in (as haslam.excite.evaluate builds it) is solved for
 the first commutation cell's edge-band injection and every observer pattern at DC and 10 MHz; more
 snapshot frequencies are added greedily where the full system's scaled residual of the reduced
 solution is largest (1 kHz .. 300 MHz). The full saddle system is projected by congruence onto the
@@ -20,9 +20,9 @@ import time
 
 import numpy as np
 
-import kae.em.solve as ES
-import kae.excite.evaluate as EV
-import kae.excite.observe as O
+import haslam.em.solve as ES
+import haslam.excite.evaluate as EV
+import haslam.excite.observe as O
 
 GRID = np.logspace(3, np.log10(3e8), 23)            # residual search, 1 kHz .. 300 MHz
 TESTS = (2e3, 5e4, 7e5, 4.4e6, 2.5e7, 1.1e8, 2.2e8)  # none of them a snapshot

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Red-team test of the candidate principle 'a conductor is invisible to first order when its
 characteristic impedance equals the circuit impedance it carries; then its only effect is delay'

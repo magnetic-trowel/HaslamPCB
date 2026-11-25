@@ -33,7 +33,7 @@ adaptec1 HPWL (×10⁵): EfficientPlace 5.94, ChiPFormer 6.62, MaskPlace 7.62 ([
 
 **Explainability ranking.** End-to-end neural placers (CT, ChiPFormer, diffusion, DRLPlace) are the least explainable; weighted costs, declarative constraints, hierarchy/relative-position graphs, region anchors, orders/seeds, raster masks and feature-rich conflict lists are steerable ([LLM-guided](llm-guided-placement.md)).
 
-## Use in kae
+## Use in haslam
 - No RL training in v1. Learned pieces help where they order, partition, mask, group or prioritize and feed a classical engine (orders, grouping, region proposals, cost weights/schedules, heuristic evolution → [LLM-evolved heuristics](../solvers/llm-evolved-heuristics.md)); exact geometry stays classical [I].
 - Hold every ML claim to tuned-SA and analytical baselines on open boards (TILOS lesson) [I].
 - Mask-based legality (PCBAgent position/boundary/spacing masks per rotation) is reusable as a feasibility raster even without RL [I].

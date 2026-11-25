@@ -1,7 +1,7 @@
 # Digest: expert practice, trust, verification and constraint IR
 
 Scope: expert workflow, trust, review, evaluation, benchmarks, our harness and dev-eval, constraint IR. Not here: KiCad tools -> [ecosystem](ecosystem.md); rules -> [rules-hs-emi-interfaces](rules-hs-emi-interfaces.md), [rules-power-rf-analog-dfm](rules-power-rf-analog-dfm.md); physics scorecard -> [physics-first](physics-first.md). Ideas: [inventory](../ideas/inventory-practice-evaluation.md).
-Keys: expert state machine, review gates, Olney 85% gate, layer count, EVM reuse, delegation, autorouter distrust, trust requirements, review checklist, critic stack, respins, fab holds, looks-right metrics, evaluation tiers, kaebench, score v2, harness defects, cp1_mean, pcb-intent
+Keys: expert state machine, review gates, Olney 85% gate, layer count, EVM reuse, delegation, autorouter distrust, trust requirements, review checklist, critic stack, respins, fab holds, looks-right metrics, evaluation tiers, haslambench, score v2, harness defects, cp1_mean, pcb-intent
 
 ## Expert workflow
 - Experts work constraint-first and spend judgment on placement: an 18-state backtracking state machine, three review gates (Gates 1, 3 human); placement → routing gate is Olney's 2012 test autoroute ≥85% (one source, uncalibrated). → [states](../topics/workflow/expert-state-machine.md#state-table)
@@ -24,13 +24,13 @@ Keys: expert state machine, review gates, Olney 85% gate, layer count, EVM reuse
 - "Looks right" is measurable (orientation entropy, grid snap, Manhattan ratio); pair each neatness term with a coupling penalty. → [metrics](../topics/verification/looks-right-metrics.md#proposed-metrics)
 - Tiers T0–T3: geometry per move, `kicad-cli` DRC plus router probe, PI at gates, openEMS/FEM for finalists; calibrate proxies before rewarding on them. → [tiers](../topics/verification/evaluation-stack.md#tiers)
 - Router probes suit a placement loop only on small boards (KRT ≈0.65 s, Freerouting ≈7 s at ≤31 pads); large boards hit 600 s / 900 s timeouts. → [rules](../topics/verification/evaluation-stack.md#evaluation-rules)
-- Metrics: union of legality (CP, NRR/PRR), efficiency and physics (Quilter PRCs); human boards score NRR 93.58%; MGS is diagnostic only; kaebench `cpk` (any-clean@k) is ≥ PCBWorld CP@5. → [rules](../topics/verification/quality-metrics.md#metric-rules), [cpk](../topics/verification/quality-metrics.md#kaebench-cpk-vs-cp5)
+- Metrics: union of legality (CP, NRR/PRR), efficiency and physics (Quilter PRCs); human boards score NRR 93.58%; MGS is diagnostic only; haslambench `cpk` (any-clean@k) is ≥ PCBWorld CP@5. → [rules](../topics/verification/quality-metrics.md#metric-rules), [cpk](../topics/verification/quality-metrics.md#haslambench-cpk-vs-cp5)
 
 ## Benchmarks, harness and dev-eval
 - No ISPD/ICCAD PCB contest exists; PCBWorld-Bench (routing) and Cypress (placement) are de-facto standards; re-run Freerouting: the pinned fork, not the published 2.1.0. → [conclusions](../topics/verification/benchmarks.md#benchmark-conclusions)
 - LLMs must act through the engine: GPT-5.4 CP 0.65 interactive vs 0.02 engine-free (D3-A); PCBWorld evaluates 99 D3-A and 10 of 287 D3-B boards. → [LLM agents](../topics/routing/pcbworld.md#llm-agents), [datasets](../topics/routing/pcbworld.md#datasets)
 - Plan: 11 tracks: routing/placement leaderboards plus intent, physics, checklist, trust, blind review. → [tracks](../topics/verification/benchmark-plan.md#benchmark-tracks)
-- kaebench: no method scores itself; score v2 rebuilds the board from allowed changes only and runs `kicad-cli` DRC in a fresh process; external methods run sandboxed; 112 of 297 boards qualify on KiCad 10.0.7. → [invariants](../topics/verification/harness.md#harness-invariants), [yield](../topics/verification/harness.md#qualification-yield-and-first-baseline)
+- haslambench: no method scores itself; score v2 rebuilds the board from allowed changes only and runs `kicad-cli` DRC in a fresh process; external methods run sandboxed; 112 of 297 boards qualify on KiCad 10.0.7. → [invariants](../topics/verification/harness.md#harness-invariants), [yield](../topics/verification/harness.md#qualification-yield-and-first-baseline)
 - Dev-eval plan: fix harness defects H1–H12 first, then routing/placement strategies; LLM arms only after measured headroom, against zero-token controls. → [summary](../topics/verification/dev-eval-plan.md#plan-summary), [defects](../topics/verification/dev-eval-plan.md#harness-defects-found)
 - Protocol: gate `valid`; primary `cp1_mean`; report `cp1` and `cpk`; boards paired; guardrails fixed in advance. → [protocol](../topics/verification/dev-eval-protocol.md#evaluation-protocol)
 

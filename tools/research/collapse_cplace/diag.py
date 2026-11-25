@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Diagnostics of the collapse terms on finished boards.
 
-    python diag.py OUT.json RUN_DIR[:attempts] [RUN_DIR ...] [--suite kae-work/ab33.txt]
+    python diag.py OUT.json RUN_DIR[:attempts] [RUN_DIR ...] [--suite haslam-work/ab33.txt]
 
 For every board of each run (output board of attempt N, extracted with KiCad's Python):
 per bus, the forced-via count at the board's orientations, the minimum over the 16
@@ -24,8 +24,8 @@ sys.path.insert(0, str(HERE))
 from terms import CollapseTerms, bus_fv_cyclic  # noqa: E402
 from world import World  # noqa: E402
 
-KICAD_PY = os.environ.get("KAE_KICAD_PYTHON", "/usr/bin/python3")
-CACHE = Path(os.environ.get("CPLACE_CACHE", str(ROOT / "kae-work/cplace/ext")))
+KICAD_PY = os.environ.get("HASLAM_KICAD_PYTHON", "/usr/bin/python3")
+CACHE = Path(os.environ.get("CPLACE_CACHE", str(ROOT / "haslam-work/cplace/ext")))
 
 
 def extract(pcb, key):
@@ -78,7 +78,7 @@ def board_diag(data, pcb):
 def main():
     args = sys.argv[1:]
     out = Path(args.pop(0))
-    suite = ROOT / "kae-work/ab33.txt"
+    suite = ROOT / "haslam-work/ab33.txt"
     if "--suite" in args:
         i = args.index("--suite")
         suite = Path(args[i + 1])

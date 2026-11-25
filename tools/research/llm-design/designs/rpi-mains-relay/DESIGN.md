@@ -6,7 +6,7 @@ certification body. This is revision 4 (re-review fixes N1–N3, m1–m8, on the
 decisions Q-2 to Q-5; revision 3 applies the user's Q-8 decision (one enclosure, receptacles in
 its cover).
 
-`kaesynth build` result: 0 errors, 0 warnings, 31 waived findings (6 waiver rules, each with its reason
+`haslamsynth build` result: 0 errors, 0 warnings, 31 waived findings (6 waiver rules, each with its reason
 in [out/report.md](out/report.md)). KiCad ERC is clean and the netlist round trip is identical. Four
 BLOCKING questions remain open (Q-1, Q-6, Q-7, Q-17), so the design is not ready for fabrication.
 
@@ -516,7 +516,7 @@ cannot arm without edges.
 | D15 standoff ratio | 5.25/7.0 = 0.75 | |
 
 The outlet paths on L_IN and L_SW1–6 have no fuse on the board; the 15 A breaker protects them.
-F1 protects only the PS1 branch. kaesynth now reports exactly that (the relays sit on the wire side of F1),
+F1 protects only the PS1 branch. haslamsynth now reports exactly that (the relays sit on the wire side of F1),
 and the overcurrent and entry-fuse waivers cover L_IN as well as L_SW1–6.
 
 **C-10 Relay life.**
@@ -652,7 +652,7 @@ current_path(L_IN, N, L_SW1-6: crossings single-layer)  enclosure_layout  ground
 - **Grounding.** All EGCs are spliced in one listed lever connector in the middle of the wire compartment, ≥ 25 mm from any terminal. Green pigtails go to each receptacle.
 - **Dressing.** Conductors are tied to the back panel within 50 mm of the terminals. The stripped length is 11–13 mm (WAGO).
 
-**Vocabulary still missing from kaesynth:**
+**Vocabulary still missing from haslamsynth:**
 
 - An absolute datum (part position fixed by board holes).
 - 3-D compartments and walls.

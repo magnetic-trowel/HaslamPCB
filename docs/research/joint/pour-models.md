@@ -1,7 +1,7 @@
 # Pour models: minimal-partition (soap-film) pours, and pour-damage maps in jc
 
 **Status:** minimal-partition pours did not work; layer-coupled pour-damage maps worked on the physics objective (needs confirming).
-**First published:** 2026-10-24, commit [014cf29](https://github.com/magnetic-trowel/kicad-auto-everything/commit/014cf29fb3604d6c15b36cc2295509de7ae3bc56) on branch `claude/keen-wright-mlkjv6` (pours; final [e0a8cab](https://github.com/magnetic-trowel/kicad-auto-everything/commit/e0a8cabaef167886085dbf28bd5a47fa415e4835)); pour-damage maps [553ae9f](https://github.com/magnetic-trowel/kicad-auto-everything/commit/553ae9fe88141481bd998d1c9976b4a5952f6538), results [ecaa86a](https://github.com/magnetic-trowel/kicad-auto-everything/commit/ecaa86a78322c0fdcd1021568a3e29185d6aacfd).
+**First published:** 2026-10-24, commit [014cf29](https://github.com/magnetic-trowel/HaslamPCB/commit/014cf29fb3604d6c15b36cc2295509de7ae3bc56) on branch `claude/keen-wright-mlkjv6` (pours; final [e0a8cab](https://github.com/magnetic-trowel/HaslamPCB/commit/e0a8cabaef167886085dbf28bd5a47fa415e4835)); pour-damage maps [553ae9f](https://github.com/magnetic-trowel/HaslamPCB/commit/553ae9fe88141481bd998d1c9976b4a5952f6538), results [ecaa86a](https://github.com/magnetic-trowel/HaslamPCB/commit/ecaa86a78322c0fdcd1021568a3e29185d6aacfd).
 
 Scope: pours carry power and return current, so their shape and the holes parts punch into them matter; two models: pours drawn as minimal partitions, and first-order pour-damage maps from the pour potential fed into jc. Not here: T11 extremal-length bounds, T12 parametric min-cut splits -> [untested-ideas.md](untested-ideas.md); idea -> [layer-collapse.md](../../ideas/original/layer-collapse.md).
 Keys: minimal partition, soap film, Wulff shape, MBO threshold dynamics, Esedoglu–Otto, octagon kernel, R_eff, netcond, `pour_score`, pour-damage map, Dirichlet principle, Thomson principle, energy density σ|∇v|², pjc, pjc2, layer coupling, `pour_w`, `route_w`, `VIA_G`, T4
@@ -17,7 +17,7 @@ Keys: minimal partition, soap film, Wulff shape, MBO threshold dynamics, Esedogl
 **Results** ([collapse_pour/RESULTS.md](../../../tools/research/collapse_pour/RESULTS.md), [summary-final.md](../../../tools/research/collapse_pour/summary-final.md)):
 - Synthetic geometry matches theory: junction angle error 3.3° → 0.45° with grid refinement; octagon Wulff shape reproduced ([synth_results.json](../../../tools/research/collapse_pour/synth_results.json)).
 - Real boards (21 pour nets on 6 boards): R_eff vs human pours gmean 1.045 (fill mode), 1.033 (equal area), 1.011 (octagon). Interleaved rails (kobold keyboard, 4-rail inner layer) fail: 17–18 unconnected items vs 0.
-- Placement study: full pour R_eff (ratio to human) tracks kae routed physics at Spearman 0.65; cheap `pour_score` only 0.11. combo's placements give better pours than the human ones (R_eff 0.897×).
+- Placement study: full pour R_eff (ratio to human) tracks haslam routed physics at Spearman 0.65; cheap `pour_score` only 0.11. combo's placements give better pours than the human ones (R_eff 0.897×).
 
 **Verdict: did not work.** Perimeter minimization is the wrong objective for conductance: what matters is how close copper comes to the pads that inject current; this led to the damage maps. Not a merit arm.
 

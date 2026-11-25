@@ -1,12 +1,12 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Routability inside the placer: ratsnest crossings, routing channels, routing failures as placer input
 
-Scope: the mechanism and A/Bs of four placer changes aimed at placements that fail to route: the untangle pass (ledger J70), a crossing term in the annealer, routing history fed to the global placer across restart attempts (J6), the routing-channel term (J46). Not here: legality failures of the placer (J19) -> [kae-exact-legality](kae-exact-legality.md).
-Keys: untangle, ratsnest crossings, place_untangle, place_w_xing, kae.place.crossings, place_w_chan, channel_grid, place_history, cong_history, placement-routability
+Scope: the mechanism and A/Bs of four placer changes aimed at placements that fail to route: the untangle pass (ledger J70), a crossing term in the annealer, routing history fed to the global placer across restart attempts (J6), the routing-channel term (J46). Not here: legality failures of the placer (J19) -> [haslam-exact-legality](haslam-exact-legality.md).
+Keys: untangle, ratsnest crossings, place_untangle, place_w_xing, haslam.place.crossings, place_w_chan, channel_grid, place_history, cong_history, placement-routability
 
 **Status:** crossing term and routing history undecided (underpowered: −4.4 % and −4.5 % at p 0.14 and 0.17; not adopted), untangle did not work (2026-11-13/15); channel term undecided (its per-board mechanism check never ran). All stay off by default.
-**First published:** 2026-11-08, commit [16cd6f0](https://github.com/magnetic-trowel/kicad-auto-everything/commit/16cd6f0d) on branch `place-routab-exp`; arms at [d21a9ac](https://github.com/magnetic-trowel/kicad-auto-everything/commit/d21a9acc); last commit [f6214ea](https://github.com/magnetic-trowel/kicad-auto-everything/commit/f6214ea1efd0d3537fbf51b7fdf6fa592c314097) (2026-11-13). Code never on main: [`kae/src/kae/place/crossings.py` at f6214ea](https://github.com/magnetic-trowel/kicad-auto-everything/blob/f6214ea1efd0d3537fbf51b7fdf6fa592c314097/kae/src/kae/place/crossings.py).
+**First published:** 2026-11-08, commit [16cd6f0](https://github.com/magnetic-trowel/HaslamPCB/commit/16cd6f0d) on branch `place-routab-exp`; arms at [d21a9ac](https://github.com/magnetic-trowel/HaslamPCB/commit/d21a9acc); last commit [f6214ea](https://github.com/magnetic-trowel/HaslamPCB/commit/f6214ea1efd0d3537fbf51b7fdf6fa592c314097) (2026-11-13). Code never on main: [`haslam/src/haslam/place/crossings.py` at f6214ea](https://github.com/magnetic-trowel/HaslamPCB/blob/f6214ea1efd0d3537fbf51b7fdf6fa592c314097/haslam/src/haslam/place/crossings.py).
 
 ## Why crossings
 
@@ -23,14 +23,14 @@ What follows for a placer: a term must see the degrees of freedom HPWL does not;
 
 ## Design
 
-- **Untangle pass** (`kae.place.crossings.untangle`, `--set place_untangle=1`): after legalization, greedily swap parts of equal `shape_key` and half-turn parts, when that removes crossings, costs at most `place_untangle_x_mm` (2 mm) of weighted HPWL per crossing removed, and does not worsen physics or zone cost. Labelled, protection-order and zone-pinned parts stay. At the end of the placement because it needs a legal state, and because the moves it uses keep legality without the annealer's machinery; the question of the same moves inside the loop is the crossing term's.
+- **Untangle pass** (`haslam.place.crossings.untangle`, `--set place_untangle=1`): after legalization, greedily swap parts of equal `shape_key` and half-turn parts, when that removes crossings, costs at most `place_untangle_x_mm` (2 mm) of weighted HPWL per crossing removed, and does not worsen physics or zone cost. Labelled, protection-order and zone-pinned parts stay. At the end of the placement because it needs a legal state, and because the moves it uses keep legality without the annealer's machinery; the question of the same moves inside the loop is the crossing term's.
 - **Crossing term** (`--set place_w_xing=X`, default off): X mm of weighted HPWL per crossing, added to the annealer's delta (compiled kernel `_x_delta`, MST of each net touched, box-pruned test against the others). Joins at 25% of the schedule (`place_xing_from`), when parts stop wandering.
-- **Routing-channel term** (`--set place_w_chan=W`): the existing `channel_grid` halos, previously reachable only from `kae place --anneal-args`.
+- **Routing-channel term** (`--set place_w_chan=W`): the existing `channel_grid` halos, previously reachable only from `haslam place --anneal-args`.
 - **Routing history across attempts** (`--set place_history=DIR --set place_w_cong=30`): each routed attempt saves its failed corridors (`CongestionHistory`); a fresh attempt's global placement reads the mean of what earlier attempts left, as extra congestion demand in the annealer's RUDY bins. The history is inert unless the RUDY term is on, so the arm needs a control with the term on and no history.
 
 ## Experiments
 
-Pre-registered plans: [placement-routability/PLAN.md](https://github.com/magnetic-trowel/kicad-auto-everything/blob/f6214ea1efd0d3537fbf51b7fdf6fa592c314097/tools/kaeres/experiments/placement-routability/PLAN.md) (a028737; addenda d21a9ac before the full run, 7cf3e6b, f6214ea after the place-history result, which it says). Boards are the placements that fail to route (47 boards, selection in the plan).
+Pre-registered plans: [placement-routability/PLAN.md](https://github.com/magnetic-trowel/HaslamPCB/blob/f6214ea1efd0d3537fbf51b7fdf6fa592c314097/tools/haslamres/experiments/placement-routability/PLAN.md) (a028737; addenda d21a9ac before the full run, 7cf3e6b, f6214ea after the place-history result, which it says). Boards are the placements that fail to route (47 boards, selection in the plan).
 
 ### Placer-only smoke (not a routing result)
 
@@ -49,7 +49,7 @@ equal-shape swaps and half turns: the pass is the small version of the idea, the
 weight (2 mm) goes into the routing test.
 
 ### Routing test: `placement-routability` (2026-11-15)
-46 of 47 boards (nekoink-pcb-2 timed out in both jobs), seeds 0–2, one placement + one route per seed (`kae.joint.cli run --max-iters 0 --no-modules`), kae d21a9ac, Freerouting fork 2e1125a in every arm. Opens = per-board mean over seeds of KiCad unconnected items, summed; two-sided sign-flip test on mean Δlog1p(opens).
+46 of 47 boards (nekoink-pcb-2 timed out in both jobs), seeds 0–2, one placement + one route per seed (`haslam.joint.cli run --max-iters 0 --no-modules`), haslam d21a9ac, Freerouting fork 2e1125a in every arm. Opens = per-board mean over seeds of KiCad unconnected items, summed; two-sided sign-flip test on mean Δlog1p(opens).
 
 | arm | opens (control 1,885.7) | sign-flip p | boards lower/higher | DRC errors (control 2,656) | legal (control 13) | completion (control .829) |
 |---|---|---|---|---|---|---|
@@ -73,4 +73,4 @@ weight (2 mm) goes into the routing test.
 - **Untangle: did not work** (+5.4 %, p 0.98, shorting guard fails). An earlier 10-board, 2-seed run (rules-placement 6e42c04: opens 203 → 162) did not reproduce.
 - **Routing history: undecided** at this power (−4.5 %, p 0.17; the extension needed ≥ 10 %). A powered test would score only post-wave-1 attempts, k = 3.
 - **Channel term: undecided.** Diluted all-board results are flat; the pre-registered per-board overlap check (placement-only reruns, about 3 CPU-h) was not run. One hand-checked board (kata0510) had 0 movable-pair channel overlaps in control.
-- Sources: kaeres experiments `placement-routability`, `place-history` (`kaeres exp report`).
+- Sources: haslamres experiments `placement-routability`, `place-history` (`haslamres exp report`).

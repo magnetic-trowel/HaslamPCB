@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """enrich.py FOUND_GLOB OUT_JSONL WORKDIR [-j N] [--skip MANIFEST,...] [--only IDS_FILE] [--reverse]
 
-Turn agent-found rows into kaebench manifest rows: fetch at pinned commit (sha256),
+Turn agent-found rows into haslambench manifest rows: fetch at pinned commit (sha256),
 pcbnew stats, kicad-cli DRC under the board's own rules, heuristic tags.
-Run with the kaebench venv python. Resumable: per-board results cached in WORKDIR/meta.
+Run with the haslambench venv python. Resumable: per-board results cached in WORKDIR/meta.
 """
 import concurrent.futures as cf
 import glob
@@ -17,8 +17,8 @@ import sys
 import traceback
 from pathlib import Path
 
-from kaebench import fetch as kfetch, tools
-from kaebench.manifest import import_format
+from haslambench import fetch as kfetch, tools
+from haslambench.manifest import import_format
 
 TIER = {}
 for k in ("MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "ISC", "0BSD", "Unlicense", "CC0-1.0", "CC-BY-4.0",

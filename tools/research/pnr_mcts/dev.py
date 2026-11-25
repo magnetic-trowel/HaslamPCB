@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """In-process dev loop (no KiCad): run methods on extracted boards, print engine cost.
 
@@ -35,7 +35,7 @@ def main():
     ap.add_argument("-v", action="store_true")
     a = ap.parse_args()
     a.ext = str(Path(a.ext).resolve())
-    os.chdir(Path(os.environ.get("KAE_REPO") or Path(__file__).resolve().parents[3]))  # extracts carry repo-relative board paths
+    os.chdir(Path(os.environ.get("HASLAM_REPO") or Path(__file__).resolve().parents[3]))  # extracts carry repo-relative board paths
     opts = {}
     for kv in a.opt:
         k, v = kv.split("=", 1)

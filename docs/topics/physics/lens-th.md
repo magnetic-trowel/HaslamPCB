@@ -127,7 +127,7 @@ The conductor record ([lens-cd](lens-cd.md)) gains six fields per piece b:
 | Makes EMF | Σ ΔS·ΔT at material junctions | T field + BOM |
 | Ages | ḋ_b(J, T, ΔT_cyc, E, RH) | DC and AC kernels |
 
-## Use in kae
+## Use in haslam
 
 1. Modal Q ledger in `ledger.json`: per mode f, Q, channel shares, ring-band emission; flag modes whose designed share is < 50% while excitation × Q exceeds budget.
 2. Synthesize dampers as (R, C, L_mount, position) by mode shape: tuning condition, ±2× C_oss check, watt price. Count PDN damping in stackup synthesis: d·Q(d), hybrid laminates.

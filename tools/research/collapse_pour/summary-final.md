@@ -69,7 +69,7 @@ placement study: 80 (board, placement, pour net) rows; 72 with a finite R_eff
 | pad spread | 72/42 | +0.00 | -0.06 |
 | free fraction | 72/42 | -0.41 | -0.39 |
 
-board level (30 method boards, ratios to human; physics from kae-work/phys)
+board level (30 method boards, ratios to human; physics from haslam-work/phys)
 | target | n | Spearman with pour_score ratio | Spearman with full R_eff ratio |
 |---|---|---|---|
 | R | 30 | +0.26 | +1.00 |

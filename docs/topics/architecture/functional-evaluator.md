@@ -1,7 +1,7 @@
-# Functional evaluator: code architecture (`kae.sim`)
+# Functional evaluator: code architecture (`haslam.sim`)
 
-Scope: code, extraction, decks, budgets, CLI and runs of `kae.sim`: ngspice runs each testbench test on the ideal circuit (each net one node) and the routed circuit (test nets replaced by extracted copper) at every corner of its parameter intervals. Not here: semantics, check catalogue, verdict definitions -> [functional-evaluation](../physics/functional-evaluation.md); testbench format and its history -> [intent-interchange](intent-interchange.md); kernels and exactness classes -> [physics-engine-design](physics-engine-design.md).
-Keys: kae.sim, testbench.tb.cir, autotb, extract.py, signal profile, power profile, lmax, lmin, names.py, ideal deck, routed deck, layout effect, capability, `incomplete`, `unknown`, `error`, `kae_pdiss`, `questions`, kae.sim.budget, `budgets`, board.budgets.json, `Vloop`, cell_body_floor, stand-in, hot loop, pt_mesh_loop, Gear, rshunt, e_sw, p_loss, ardor, argo, chesslab powerboard, astro-cat
+Scope: code, extraction, decks, budgets, CLI and runs of `haslam.sim`: ngspice runs each testbench test on the ideal circuit (each net one node) and the routed circuit (test nets replaced by extracted copper) at every corner of its parameter intervals. Not here: semantics, check catalogue, verdict definitions -> [functional-evaluation](../physics/functional-evaluation.md); testbench format and its history -> [intent-interchange](intent-interchange.md); kernels and exactness classes -> [physics-engine-design](physics-engine-design.md).
+Keys: haslam.sim, testbench.tb.cir, autotb, extract.py, signal profile, power profile, lmax, lmin, names.py, ideal deck, routed deck, layout effect, capability, `incomplete`, `unknown`, `error`, `haslam_pdiss`, `questions`, haslam.sim.budget, `budgets`, board.budgets.json, `Vloop`, cell_body_floor, stand-in, hot loop, pt_mesh_loop, Gear, rshunt, e_sw, p_loss, ardor, argo, chesslab powerboard, astro-cat
 
 Tags: [M] measured here, [I] design choice.
 
@@ -11,21 +11,21 @@ Status: 8 modules, 19 unit tests (analytic track R and L, I × R drop end to end
 
 | Module | Role |
 |---|---|
-| [`testbench.py`](../../../kae/src/kae/sim/testbench.py) | testbench format: parse (errors carry line numbers), render, SPICE numbers |
-| [`autotb.py`](../../../kae/src/kae/sim/autotb.py) | default testbench from board + brief, no LLM: rail DC drop and load step, I2C, switching cells (buck, boost, half-bridge, motor-driver phases) and their hot loops, differential-pair delay and skew |
-| [`design.py`](../../../kae/src/kae/sim/design.py) | board passives as elements: values from the value field, ESR and ESL by package (E5), ferrites as R + L |
-| [`schematic.py`](../../../kae/src/kae/sim/schematic.py) | values and fields from a KiCad 6+ schematic via `kicad-cli sch export netlist` |
-| [`extract.py`](../../../kae/src/kae/sim/extract.py) | copper → Network of R, L, C, K between node keys; copper islands per net |
-| [`names.py`](../../../kae/src/kae/sim/names.py) | generates every node and element name: safe, case-proof, dot-free, kept both ways; unresolvable names rejected |
-| [`ngspice.py`](../../../kae/src/kae/sim/ngspice.py) | batch runs (PATH or the KiCad container); reads `.meas`; keeps warnings and errors |
-| [`evaluate.py`](../../../kae/src/kae/sim/evaluate.py) | decks per test, mode, corner; parallel runs; verdicts, capability, questions |
-| [`cli.py`](../../../kae/src/kae/sim/cli.py) | `testbench`, `evaluate`, `questions`, `budgets` |
+| [`testbench.py`](../../../haslam/src/haslam/sim/testbench.py) | testbench format: parse (errors carry line numbers), render, SPICE numbers |
+| [`autotb.py`](../../../haslam/src/haslam/sim/autotb.py) | default testbench from board + brief, no LLM: rail DC drop and load step, I2C, switching cells (buck, boost, half-bridge, motor-driver phases) and their hot loops, differential-pair delay and skew |
+| [`design.py`](../../../haslam/src/haslam/sim/design.py) | board passives as elements: values from the value field, ESR and ESL by package (E5), ferrites as R + L |
+| [`schematic.py`](../../../haslam/src/haslam/sim/schematic.py) | values and fields from a KiCad 6+ schematic via `kicad-cli sch export netlist` |
+| [`extract.py`](../../../haslam/src/haslam/sim/extract.py) | copper → Network of R, L, C, K between node keys; copper islands per net |
+| [`names.py`](../../../haslam/src/haslam/sim/names.py) | generates every node and element name: safe, case-proof, dot-free, kept both ways; unresolvable names rejected |
+| [`ngspice.py`](../../../haslam/src/haslam/sim/ngspice.py) | batch runs (PATH or the KiCad container); reads `.meas`; keeps warnings and errors |
+| [`evaluate.py`](../../../haslam/src/haslam/sim/evaluate.py) | decks per test, mode, corner; parallel runs; verdicts, capability, questions |
+| [`cli.py`](../../../haslam/src/haslam/sim/cli.py) | `testbench`, `evaluate`, `questions`, `budgets` |
 
 ## 2. Data flow
 
 ```
 board.kicad_pcb ─┬─ load (+ pintypes.json, + schematic values when the footprints carry none)
-                 ├─ brief (kae.circuit.brief: roles, rails and sources, structures, diff pairs)
+                 ├─ brief (haslam.circuit.brief: roles, rails and sources, structures, diff pairs)
                  ├─ design (passives)                         ┌─ ideal deck  ─┐
 testbench.tb.cir ┴─ tests ─▶ per test × corner ───────────────┤               ├─▶ ngspice ─▶ .meas
                              (RoutedBoard + kicad-cli fills) ─┴─ routed deck ─┘
@@ -43,7 +43,7 @@ Built on the repo's closed forms: Hammerstad–Jensen L′ and C′, Grover/Neum
 | Via | barrel R and partial self-L between the layers it joins |
 | Pour of a non-ground net | copper graph's pour links (2 mm strips) for R and L; plate capacitance εA/h over its contacts (coarse) |
 | Ground net | pours = reference node; tracks and vias between pads and pours extracted |
-| Neighbours (signal profile) | same-layer pieces of other nets within 1 mm: mutual L with plane images (K clamped at ±0.9), coupling C from patch potential coefficients over the dielectric slab (within 6 % of the layered field solver `kae.em.static` at gaps ≥ 3 h, up to 25 % low near h) |
+| Neighbours (signal profile) | same-layer pieces of other nets within 1 mm: mutual L with plane images (K clamped at ±0.9), coupling C from patch potential coefficients over the dielectric slab (within 6 % of the layered field solver `haslam.em.static` at gaps ≥ 3 h, up to 25 % low near h) |
 
 | Profile | Sections | Short pieces (< lmin) | Line C | Coupling | Used by |
 |---|---|---|---|---|---|
@@ -51,7 +51,7 @@ Built on the repo's closed forms: Hammerstad–Jensen L′ and C′, Grover/Neum
 | `power` | long R–L sections ≤ 20 mm, pour and via parasitics | none | no (0.1 pF/mm against µF of decoupling) | no | rails, converters |
 
 - **Micrometre pieces:** the copper graph splits tracks at junctions into µm-long pieces; as full sections they put fF behind µΩ, the matrix goes near-singular, ngspice reported "timestep too small" at 2 ps [M]. Short pieces keep R, drop only their negligible L. All R ≥ 0.1 mΩ.
-- **Connectivity:** copper graph ([`kae.route.copper`](../../../kae/src/kae/route/copper.py)) connects items as KiCad does: shapes colliding on a shared layer, round-ended tracks, jumper pad groups, net-carrying copper shapes, pours one conductor each. On 150 human boards it splits 5 nets KiCad reports connected; the earlier `NetGraph` split 353 (overlapping round track ends, pours with distant contact clusters, jumper pads, net copper shapes) [M]. Custom pad primitives are still modelled as the pad's rectangle.
+- **Connectivity:** copper graph ([`haslam.route.copper`](../../../haslam/src/haslam/route/copper.py)) connects items as KiCad does: shapes colliding on a shared layer, round-ended tracks, jumper pad groups, net-carrying copper shapes, pours one conductor each. On 150 human boards it splits 5 nets KiCad reports connected; the earlier `NetGraph` split 353 (overlapping round track ends, pours with distant contact clusters, jumper pads, net copper shapes) [M]. Custom pad primitives are still modelled as the pad's rectangle.
 - **Copper islands:** test pins are checked against copper islands first; a split test is `incomplete` (stranded pins listed, routed runs skipped), since a load on an island returns only through the 10¹² Ω leak and the solver would chase 10¹¹ V.
 - **Limits:** ideal plane under each piece (slots and splits are for geometric checks); power planes as AC ground for line C; no broadside coupling across layers; no pad copper or thermal spokes; no skin effect; coarse pours (a sheet solver, the engine's K2 operator, would replace the 2 mm strip mesh).
 
@@ -60,7 +60,7 @@ Built on the repo's closed forms: Hammerstad–Jensen L′ and C′, Grover/Neum
 - **Ideal deck:** every pin of a net on one node; ground nets = node 0. **Routed deck:** each pin of an extracted net is its own node, joined by extracted copper.
 - **Board passives** enter a test only if every terminal is on a test net, ground or a testbench-named net (else e.g. a capacitor's ESL feeds an undriven node).
 - **Guards** [M]: KiCad names → generated names; `<…>` tokens resolving to nothing are an error; `v(a,b)` becomes a B-source probe (batch `.meas` cannot read it); `.option rshunt=1e12 method=gear`; every requested `.meas` must come back.
-- **Dissipation:** a test naming `kae_pdiss` in its `.control` block gets a vector of the power in every board resistance (copper, resistors, capacitor ESR, inductor DCR), computed after the run, never as a probe node. Loss is summed over dissipating elements, never from sources' delivered power: that also counts energy still flowing into bus capacitors while the off-board feed settles (≈ 100 µs vs a 12-period run) and gave −3.5 W on a 1 W cell [M].
+- **Dissipation:** a test naming `haslam_pdiss` in its `.control` block gets a vector of the power in every board resistance (copper, resistors, capacitor ESR, inductor DCR), computed after the run, never as a probe node. Loss is summed over dissipating elements, never from sources' delivered power: that also counts energy still flowing into bus capacitors while the off-board feed settles (≈ 100 µs vs a 12-period run) and gave −3.5 W on a 1 W cell [M].
 
 ## 5. Verdicts
 
@@ -76,17 +76,17 @@ Verdict rules (pass / fail / marginal per requirement per mode; test status `unk
 
 `questions` ranks: (1) marginal verdicts and their prior inputs; (2) unknowns; (3) verdicts resting on priors alone.
 
-## 5a. Budgets (`kae.sim.budget`)
+## 5a. Budgets (`haslam.sim.budget`)
 
-`kae.sim.cli budgets` sweeps a series inductance at each cell's loop insertion point to derive a budget for the placer and critical router; it is applied only when trusted, achievable and stand-in independent, and only with `critical_cli route --budgets`, never by evaluators. None passed on the smoke boards. The boost loop's measures (router closed form vs mesh reference vs SPICE extraction) are cross-checked there too: [functional-evaluator-budgets](functional-evaluator-budgets.md).
+`haslam.sim.cli budgets` sweeps a series inductance at each cell's loop insertion point to derive a budget for the placer and critical router; it is applied only when trusted, achievable and stand-in independent, and only with `critical_cli route --budgets`, never by evaluators. None passed on the smoke boards. The boost loop's measures (router closed form vs mesh reference vs SPICE extraction) are cross-checked there too: [functional-evaluator-budgets](functional-evaluator-budgets.md).
 
 ## 6. Command line
 
 ```
-python -m kae.sim.cli testbench BOARD.kicad_pcb [--pintypes F] [--schematic ROOT.kicad_sch] -o board.tb.cir
-python -m kae.sim.cli evaluate  BOARD.kicad_pcb --testbench board.tb.cir [--pintypes F] [--schematic ROOT]
+python -m haslam.sim.cli testbench BOARD.kicad_pcb [--pintypes F] [--schematic ROOT.kicad_sch] -o board.tb.cir
+python -m haslam.sim.cli evaluate  BOARD.kicad_pcb --testbench board.tb.cir [--pintypes F] [--schematic ROOT]
                                 [--input TASK_INPUT.kicad_pcb] [-j 8] [--only ID ...] --workdir DIR -o eval.json
-python -m kae.sim.cli questions eval.json
+python -m haslam.sim.cli questions eval.json
 ```
 
 `--input` builds the brief from the task's input board, so two layouts of one task share their tests.
@@ -126,7 +126,7 @@ On ardor the automatic testbench now judges the 3.3 V tree (was unknown); only t
 ## 8. Next
 
 1. Add crosstalk victim tests on routed copper, leakage and creepage, excitation and radiator inventories with the source-to-radiator check, antenna feed. Stand-ins: boost and half-bridge done (generic cells, hot-loop test); next flyback, buck-boost, charge pumps, LDO and load-switch dissipation, creepage and clearance vs working voltage. Find the cause of slow and singular signal runs (scaling couplings to keep the inductance matrix positive definite did not cure them).
-2. Hook into kaeres as a new evaluator (evaluator id hashes the code tree) beside legacy `physics_total`; report per category, never inside cp1, cpk or `score.py` (deployment rule canonical in [functional-evaluation](../physics/functional-evaluation.md#6-trusting-the-evaluator)).
+2. Hook into haslamres as a new evaluator (evaluator id hashes the code tree) beside legacy `physics_total`; report per category, never inside cp1, cpk or `score.py` (deployment rule canonical in [functional-evaluation](../physics/functional-evaluation.md#6-trusting-the-evaluator)).
 3. Re-run routed-physics baselines under the new connectivity (it changes the evaluator id); model custom pad primitives.
 4. Before KiCad 11, port the SWIG `pcbnew` users (fills, board writer) to the IPC API.
 
@@ -153,6 +153,6 @@ On ardor the automatic testbench now judges the 3.3 V tree (was unknown); only t
 
 ## Sources
 
-- Code and tests: [`kae/src/kae/sim/`](../../../kae/src/kae/sim/), [`kae/tests/test_sim.py`](../../../kae/tests/test_sim.py).
-- Reused: [`critical_recheck.py`](../../../kae/src/kae/route/critical_recheck.py) (RoutedBoard, fills), [`copper.py`](../../../kae/src/kae/route/copper.py) (NetGraph), [`kernels.py`](../../../kae/src/kae/physics/kernels.py), [`fastloop.py`](../../../kae/src/kae/physics/fastloop.py), [`priors.py`](../../../kae/src/kae/physics/priors.py), [`brief.py`](../../../kae/src/kae/circuit/brief.py).
+- Code and tests: [`haslam/src/haslam/sim/`](../../../haslam/src/haslam/sim/), [`haslam/tests/test_sim.py`](../../../haslam/tests/test_sim.py).
+- Reused: [`critical_recheck.py`](../../../haslam/src/haslam/route/critical_recheck.py) (RoutedBoard, fills), [`copper.py`](../../../haslam/src/haslam/route/copper.py) (NetGraph), [`kernels.py`](../../../haslam/src/haslam/physics/kernels.py), [`fastloop.py`](../../../haslam/src/haslam/physics/fastloop.py), [`priors.py`](../../../haslam/src/haslam/physics/priors.py), [`brief.py`](../../../haslam/src/haslam/circuit/brief.py).
 - Related: [physics-critics](../physics/physics-critics.md).

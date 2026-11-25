@@ -3,8 +3,8 @@
 # usage: rl.py <task input> <routed board> <outdir> <seconds> <seed> [KEY=JSON ...]
 import sys, time, json, shutil
 from pathlib import Path
-from kae.board import pcbnew_io
-from kae.route import constraints, drc, repair, bridge
+from haslam.board import pcbnew_io
+from haslam.route import constraints, drc, repair, bridge
 inp, board, od, T, seed = sys.argv[1], sys.argv[2], Path(sys.argv[3]), float(sys.argv[4]), int(sys.argv[5])
 if od.exists(): shutil.rmtree(od)
 od.mkdir(parents=True)

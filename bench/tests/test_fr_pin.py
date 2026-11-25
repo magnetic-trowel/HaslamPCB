@@ -1,11 +1,11 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""kaebench's Freerouting is named (KAE_FREEROUTING or the bridge's pin), never the newest install."""
+"""haslambench's Freerouting is named (HASLAM_FREEROUTING or the bridge's pin), never the newest install."""
 import hashlib
 
 import pytest
 
-from kaebench import tools
+from haslambench import tools
 
 
 def _bundle(home, name, jar=b"jar"):
@@ -19,8 +19,8 @@ def _bundle(home, name, jar=b"jar"):
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
-    monkeypatch.setattr(tools, "KAE_HOME", tmp_path)
-    monkeypatch.delenv("KAE_FREEROUTING", raising=False)
+    monkeypatch.setattr(tools, "HASLAM_HOME", tmp_path)
+    monkeypatch.delenv("HASLAM_FREEROUTING", raising=False)
     tools.freerouting_cmd.cache_clear()
     yield tmp_path
     tools.freerouting_cmd.cache_clear()
@@ -34,10 +34,10 @@ def test_two_installs_without_a_pin_raise(home):
 
 
 def test_the_pin_names_the_build(home):
-    fork = _bundle(home, "kae-freerouting-fork-d137fd1")
+    fork = _bundle(home, "haslam-freerouting-fork-d137fd1")
     _bundle(home, "freerouting-2.5.0-linux-x64")
     _bundle(home, "freerouting-2.6.0-RC10-20261106-linux-x64")
-    (home / tools.FR_PIN).write_text("kae-freerouting-fork-d137fd1/bin/freerouting\n")
+    (home / tools.FR_PIN).write_text("haslam-freerouting-fork-d137fd1/bin/freerouting\n")
     assert tools.freerouting_cmd() == [str(fork)]
 
 
@@ -50,7 +50,7 @@ def test_a_pin_to_a_missing_build_fails(home):
 def test_environment_wins_over_the_pin(home, monkeypatch):
     stock = _bundle(home, "freerouting-2.5.0-linux-x64")
     (home / tools.FR_PIN).write_text(str(stock))
-    monkeypatch.setenv("KAE_FREEROUTING", "/opt/fr/freerouting-2.5.0.jar")
+    monkeypatch.setenv("HASLAM_FREEROUTING", "/opt/fr/freerouting-2.5.0.jar")
     assert tools.freerouting_cmd() == ["java", "-jar", "/opt/fr/freerouting-2.5.0.jar"]
 
 

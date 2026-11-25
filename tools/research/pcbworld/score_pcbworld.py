@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Score kaeres runs on PCBWorld's D3 boards with PCBWorld's own evaluation chain (report-only).
+"""Score haslamres runs on PCBWorld's D3 boards with PCBWorld's own evaluation chain (report-only).
 
-For each method (a kaeres method id) this builds one PCBWorld "cell": a directory whose boards/ holds
+For each method (a haslamres method id) this builds one PCBWorld "cell": a directory whose boards/ holds
 <board_id>_<cell>_s00_r<RR>.kicad_pcb, one per attempt RR, plus <board_id>.kicad_pro (PCBWorld's rules),
 in the file grammar PCBWorld's eval pipeline reads (eval/eval_utils.parse_cell_artifact). The copper of
 each run's output board is copied onto PCBWorld's own unrouted KiCad 9 input board by transplant_v9.py,
@@ -12,10 +12,10 @@ because their KiCad 9.0.8 engine cannot open KiCad 10 files. Then it runs, from 
         --reward-config drc_dense_promoted --selection-method final_potential --check-angle 45
 
 which are the paper's scoring settings (experiments/kdd/configs/paper_train_flags.sh). Nothing here
-changes a kaebench score; it adds a second, independent scorer's view.
+changes a haslambench score; it adds a second, independent scorer's view.
 
     python3 score_pcbworld.py --pcbworld PCBWORLD --python PCBWORLD_ENV/bin/python --corpus CORPUS \
-        --exacad DATA/pcbench/exacad_sorted --out OUT --attempts 5 --cell kae-bridge=<method id> ...
+        --exacad DATA/pcbench/exacad_sorted --out OUT --attempts 5 --cell haslam-bridge=<method id> ...
     # --reference: also a cell of PCBWorld's own routed guide boards (their Reference row), and
     # --cell NAME=@guide: PCBWorld's guide boards pushed through the transplant (checks transplant_v9.py)
 """
@@ -121,12 +121,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--pcbworld", type=Path, required=True, help="PCBWorld checkout with build_rl/ (engine built)")
     ap.add_argument("--python", type=Path, required=True, help="PCBWorld env's python")
-    ap.add_argument("--corpus", type=Path, required=True, help="d3_corpus.py output (KAE_CORPUS)")
+    ap.add_argument("--corpus", type=Path, required=True, help="d3_corpus.py output (HASLAM_CORPUS)")
     ap.add_argument("--exacad", type=Path, required=True, help="PCBWorld's pcbench/exacad_sorted")
-    ap.add_argument("--store", type=Path, default=Path(os.path.expanduser(os.environ.get("KAE_RESULTS", "~/kae-baselines"))))
+    ap.add_argument("--store", type=Path, default=Path(os.path.expanduser(os.environ.get("HASLAM_RESULTS", "~/haslam-baselines"))))
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--attempts", type=int, default=1)
-    ap.add_argument("--workers", type=int, default=int(os.environ.get("KAEQ_CPUS", "4")))
+    ap.add_argument("--workers", type=int, default=int(os.environ.get("HASLAMQ_CPUS", "4")))
     ap.add_argument("--only", help="corpus ids, comma-separated or @FILE")
     ap.add_argument("--cell", action="append", default=[], metavar="NAME=METHOD_ID")
     ap.add_argument("--reference", action="store_true", help="also score PCBWorld's own routed guide boards")

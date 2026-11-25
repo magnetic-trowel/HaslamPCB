@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Pour quality as a function of placement, and a cheap placement term for it.
 
@@ -147,9 +147,9 @@ def world_score(board_path, work):
 
 def boards_with_zones():
     out = []
-    for bid in sorted(os.listdir(os.path.join(ROOT, "kae-work", "results", "pnr-seq-v5",
+    for bid in sorted(os.listdir(os.path.join(ROOT, "haslam-work", "results", "pnr-seq-v5",
                                               "x-pnr-seq-v5", "place"))):
-        t = json.load(open(os.path.join(ROOT, "kae-work", "tasks", bid, "task.json")))
+        t = json.load(open(os.path.join(ROOT, "haslam-work", "tasks", bid, "task.json")))
         if t["reference"]["stats"]["zones"] > 0:
             out.append(bid)
     return out
@@ -161,9 +161,9 @@ def main():
     ids = sys.argv[2:] or boards_with_zones()
     res = json.load(open(out_path)) if os.path.exists(out_path) else {}
     for bid in ids:
-        srcs = {"human": os.path.join(ROOT, "kae-work", "tasks", bid, "reference", "board.kicad_pcb")}
+        srcs = {"human": os.path.join(ROOT, "haslam-work", "tasks", bid, "reference", "board.kicad_pcb")}
         for run in ("pnr-seq-v5", "pnr-combo-v5"):
-            p = os.path.join(ROOT, "kae-work", "results", run, f"x-{run}", "place", bid,
+            p = os.path.join(ROOT, "haslam-work", "results", run, f"x-{run}", "place", bid,
                              "attempt-0", "output", "board.kicad_pcb")
             if os.path.exists(p):
                 srcs[run] = p
@@ -171,7 +171,7 @@ def main():
             key = f"{bid}|{name}"
             if key in res:
                 continue
-            work = os.path.join(ROOT, "kae-work", "pour", "place", bid, name)
+            work = os.path.join(ROOT, "haslam-work", "pour", "place", bid, name)
             os.makedirs(work, exist_ok=True)
             try:
                 dj = os.path.join(work, "dump.json")

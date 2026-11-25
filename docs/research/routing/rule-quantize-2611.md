@@ -1,27 +1,27 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Rule-aware quantization of widths and vias (2026-11-15)
 
 Scope: one helper that puts every width and via size on a grid without leaving the board rule's interval, where
 it applies, and the A/B that decides it. Not here: the bridge's other rule fixes ->
 [bridge-fixes-2611](bridge-fixes-2611.md) (branch `bridge-fixes-ab`); the bridge itself ->
-[kae-freerouting-bridge](kae-freerouting-bridge.md).
+[haslam-freerouting-bridge](haslam-freerouting-bridge.md).
 Keys: rule-quantize, quantize.fit, track_width, annular_width, min = max, session units, DSN resolution, nm grid
 
-**Status:** pre-registered (`tools/kaeres/experiments/rule-quantize/PLAN.md`). The mech run is decided (2026-11-16):
+**Status:** pre-registered (`tools/haslamres/experiments/rule-quantize/PLAN.md`). The mech run is decided (2026-11-16):
 Q removes every grid error, and its guards pass against main. The guard set (`rule-quantize-guard`) and the
 zero-width check (`rule-quantize-zw`) are still running; adoption waits for them.
 
 ## Mechanism
-KiCad stores and judges every length in whole nm. kae and Freerouting keep coarser grids:
-- kae's DSN uses 0.1 um, and kae names vias in whole um;
+KiCad stores and judges every length in whole nm. haslam and Freerouting keep coarser grids:
+- haslam's DSN uses 0.1 um, and haslam names vias in whole um;
 - Freerouting keeps half widths in whole 0.1 um units, so a routed width falls on a 0.2 um grid. It rounds a half
   width to the nearest unit, so a width never comes back narrower than asked.
 
 Rounding onto a grid in a fixed direction is safe for a minimum and wrong for a maximum. Main had three such cases:
 - **Width past a max.** thunderscope rev5-3's PCIe rules have min = opt = max = 0.19079 mm (outer) and 0.14789 mm
-  (inner). kae rounded them up to 0.1908 and 0.1479: 186 track_width errors in a control run. ducktop2's 0.1521 mm
-  rule is on kae's grid but not on Freerouting's, which returns 0.1522 (bridge-ses-width's case).
+  (inner). haslam rounded them up to 0.1908 and 0.1479: 186 track_width errors in a control run. ducktop2's 0.1521 mm
+  rule is on haslam's grid but not on Freerouting's, which returns 0.1522 (bridge-ses-width's case).
 - **Ring below its min.** A via's drill and diameter were each rounded up to 1 um on their own.
   thunderscope's 0.4064/0.2032 mm via with a 0.1016 mm minimum ring became 0.407/0.204, a 0.1015 mm ring: 199
   annular_width errors in the same run.
@@ -30,7 +30,7 @@ Rounding onto a grid in a fixed direction is safe for a minimum and wrong for a 
   past a min = max rule.
 
 ## The helper
-`kae.route.quantize.fit(v, lo, hi, q, side)` returns the point of grid `q` inside `[lo, hi]` nearest `v` (or the
+`haslam.route.quantize.fit(v, lo, hi, q, side)` returns the point of grid `q` inside `[lo, hi]` nearest `v` (or the
 nearest at or above, or at or below, it). Where the interval holds no point of `q`, it uses KiCad's nm grid instead.
 It returns None only for a contradictory rule (lo > hi).
 
@@ -57,9 +57,9 @@ its two callers that rounded), `escape.small_via` / `legal_via` (up, never below
 coordinates written at 6 decimals.
 
 **Effective limits (af3cc286, PR #66 folded in).** `critical_space.Space.width_limits` is the one source of a net's
-width limits for kae's own routers. They are the board's stated min, opt and max, and where the board states no
+width limits for haslam's own routers. They are the board's stated min, opt and max, and where the board states no
 minimum, the narrowest class width (the bridge's own neck in that case), capped at opt and max. The board's rules
-win; kae only fills their silence. With a minimum of 0, width ladders ending at the minimum laid zero-width copper
+win; haslam only fills their silence. With a minimum of 0, width ladders ending at the minimum laid zero-width copper
 (chassis-soft M: on 10 boards). `clamp_width` fits into these limits with `fit`, and so do the module stage's trim
 widths. Check: `PLAN-zw.md`.
 
@@ -113,7 +113,7 @@ means annular_width within 1 um of the minimum.
 
   Completion is 0.669 -> 0.691; cp1 and cpk are 0 in both arms.
 - **QL vs CB:** CB (W2 + L) still has thunderscope's 179.6 width errors per run, because W only restores
-  one-unit widths and the error is kae's own rounding, and both rings. QL has none of either, and no board has more
+  one-unit widths and the error is haslam's own rounding, and both rings. QL has none of either, and no board has more
   grid errors under QL than under CB.
   - opens 0.62 [0.24, 1.00]: pass;
   - defects 0.79 [0.62, 0.99]: pass;

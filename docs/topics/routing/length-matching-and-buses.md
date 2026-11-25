@@ -45,13 +45,13 @@ Meander SI side-effect: Tseng, Li, Ho, Schlichtmann ICCAD'13: dense meanders cau
 - Contests: ICCAD 2018 Problem B "Obstacle-Aware On-Track Bus Routing" is an IC problem (winners CU-Bus, Bus_Driver, Fujita/Chang team); DAG-based follow-up (Hsu et al. DAC'19/TCAD'21) found top-3 contest routers had 145%, 158%, 420% higher costs. Contest pages 2015–2026 contain no PCB/board/package problem (2026: LLM netlist exploration, regression bucketing, FloorSet) [P-doc].
 - Cross-domain: PACOR microfluidic length-matched escape (DME Steiner + MCF + bounded detours, 100% completion) → [cross-domain routing](cross-domain-routing-transplants.md#other-physical-design-domains).
 
-## Length matching in kae
+## Length matching in haslam
 
 [I]
 - Convert DDR/bus constraints (LLM-read from datasheets) into per-net extension budgets and keep-out meander regions allocated before bulk routing (BSG/LP-style area assignment).
 - Route buses with reserved area, then tune with KiCad PNS meanders (point-to-point; check chain-level fields) or KRT trombones.
 - Meander rules as explicit LLM-set constraints from the interface rule pack: DDR centre-to-centre ≥5W including serpentines ([DDR](../rules/interfaces/ddr.md)); USB2 meander gap ≥5X with X = max(W, H) ([USB2](../rules/interfaces/usb2.md)); PCIe serpentine segments ≥ max(3W, 3H) ([PCIe](../rules/interfaces/pcie.md)); TopoR's pitch ≥3w only as generic fallback; min corner radius ≥ half width; avoid tight meanders (Tseng); verify by a length-group spread / skew check.
-- Untangle buses before routing (O(n) single detour); prefer allowed bit swaps (LLM decision) that remove the twist → [escape](escape-routing.md#escape-in-kae).
+- Untangle buses before routing (O(n) single detour); prefer allowed bit swaps (LLM decision) that remove the twist → [escape](escape-routing.md#escape-in-haslam).
 - Relation API: `match_group(nets, tol_ps, reserve_area=region)` / `route_matched(nets, tol_class)` → [LLM routing evidence](llm-routing-evidence.md).
 
 ## Open questions

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Part cards for leadacid-balancer: one PartDef per distinct part (DESIGN.md section 8).
 
@@ -7,8 +7,8 @@ datasheet read, [S] secondary source or KiCad library only, [I] inference. Datas
 downloaded and read in October 2026; lifecycle from the TI/Vishay/Diodes orderable addenda unless
 tagged otherwise.
 """
-from kaesynth import Isolation, PartDef, PinDef, Ratings, VLimit
-from kaesynth.lib import C, C_pol, IC, LED, R, Conn, Fuse, MountingHole
+from haslamsynth import Isolation, PartDef, PinDef, Ratings, VLimit
+from haslamsynth.lib import C, C_pol, IC, LED, R, Conn, Fuse, MountingHole
 
 # ---------------------------------------------------------------------------------------------
 # Power stage

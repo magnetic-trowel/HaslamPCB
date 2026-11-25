@@ -60,7 +60,7 @@ Typed relation bundle = the only LLM write API [I]. Verification note's vocabula
 
 EDA note adds `same_side`, `route_priority`, `min_loop(nets)`, `plane(net, layer, region)`, `kelvin(R_sense)`.
 
-Placement-side additions (RAC/VP synthesis, [placement/llm-guided-placement](../placement/llm-guided-placement.md#use-in-kae)): `ring(ic, refs, priority)`, `order`, `spread(heat)`, `away_from`, `loop_compact(nets)`; hard `fixed`, `on_edge`, `inside`, `clearance`, `rot_allowed`.
+Placement-side additions (RAC/VP synthesis, [placement/llm-guided-placement](../placement/llm-guided-placement.md#use-in-haslam)): `ring(ic, refs, priority)`, `order`, `spread(heat)`, `away_from`, `loop_compact(nets)`; hard `fixed`, `on_edge`, `inside`, `clearance`, `rot_allowed`.
 
 ## Realization and feedback
 

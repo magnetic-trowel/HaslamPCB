@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # jc2: fixing joint collapse's weaknesses (tag `jcfix`) — PARTIAL
 
@@ -41,7 +41,7 @@ Final arms: `jc2_fix` = guard + legal_first + stall + complete + via_beta + clea
 objective). `jc2_fixmp_lv` = the same + late min-plus (phys_w = 0). End passes take their
 time from the polish, not from the restarts (BUGS 10).
 
-## Provisional results (kae-v7, score v7, engine v6.3, 120 CPU-s; runs `-r5` vs `v7-*-r3`)
+## Provisional results (haslam-v7, score v7, engine v6.3, 120 CPU-s; runs `-r5` vs `v7-*-r3`)
 
 Paired on the attempts every arm finished (board × seed). Length and vias are summed over
 the attempts every arm fully routed. Clean is also shown per seed, as the spread.
@@ -86,12 +86,12 @@ physics score, and the clean differences are inside the seed spread.
 
 ## Next steps to finish
 
-1. Re-run the missing attempts. Same names and code snapshot `kae-v7/jcfix-snap/r5`;
+1. Re-run the missing attempts. Same names and code snapshot `haslam-v7/jcfix-snap/r5`;
    re-using a run name resumes it:
-   `VER=r5 TAG=ab33 queue2.sh kae-v7/ab33.txt 1 3 120 jc2_fix`, and the same for
+   `VER=r5 TAG=ab33 queue2.sh haslam-v7/ab33.txt 1 3 120 jc2_fix`, and the same for
    `jc2_fixmp_lv`.
-2. Run `agg3.py` (33 and `kae-v7/jcfix-ab28.txt`), `compare.py`, and `physics_score.py
-   --suite kae-v7/phys10.txt` (and `jcfix-phys6.txt`) against `v7-jc-r3`, `v7-jc_lv-r3`,
+2. Run `agg3.py` (33 and `haslam-v7/jcfix-ab28.txt`), `compare.py`, and `physics_score.py
+   --suite haslam-v7/phys10.txt` (and `jcfix-phys6.txt`) against `v7-jc-r3`, `v7-jc_lv-r3`,
    `v7-combo*-r3`. Read the per-type errors (solder_mask_bridge on lt6c is an engine
    limitation).
 3. Ablate on the full set: jc2_base (bug fixes only) vs jc2_fix, to split bug fixes from

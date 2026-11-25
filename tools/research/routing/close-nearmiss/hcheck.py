@@ -5,10 +5,10 @@
 import sys, gzip, shutil, collections
 from pathlib import Path
 from shapely.geometry import box, LineString, Point
-from kae.board import pcbnew_io
-from kae.board.kicad_file import load
-from kae.route import constraints, bridge
-from kae.route.critical_space import Space
+from haslam.board import pcbnew_io
+from haslam.board.kicad_file import load
+from haslam.route import constraints, bridge
+from haslam.route.critical_space import Space
 inp, hum, bx, nets = sys.argv[1], sys.argv[2], [float(v) for v in sys.argv[3].split(',')], set(sys.argv[4].split(','))
 import tempfile
 od = Path(tempfile.mkdtemp(prefix='hcheck-'))

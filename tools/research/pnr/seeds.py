@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Per-seed DRC table of joint runs (kaebench --kinds joint, -k seeds = attempts).
+"""Per-seed DRC table of joint runs (haslambench --kinds joint, -k seeds = attempts).
 
-    python seeds.py kae-v7/results/RUN1 kae-v7/results/RUN2 ... [--suite kae-v7/ab33.txt]
+    python seeds.py haslam-v7/results/RUN1 haslam-v7/results/RUN2 ... [--suite haslam-v7/ab33.txt]
 
 Per run and attempt (seed): legal, clean and completion over the suite (a missing or
 failed attempt counts as not legal, not clean, completion 0); length and vias summed over
@@ -38,7 +38,7 @@ def ms(xs, nd=3):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", nargs="+")
-    ap.add_argument("--suite", default="kae-v7/ab33.txt")
+    ap.add_argument("--suite", default="haslam-v7/ab33.txt")
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--override", action="append", default=[], metavar="RUN=OTHER",
                     help="take the --override-ids boards of RUN from run directory OTHER")

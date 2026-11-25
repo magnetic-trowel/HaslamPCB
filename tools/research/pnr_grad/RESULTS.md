@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Differentiable joint place-and-route (tag `grad`)
 
@@ -18,7 +18,7 @@ term (soft-min DP, perturbed optimizers, DGR, ePlace).
     usage) under each part's halos.
   - Overflow is priced into the next field and also pushes pads ("copper as charge").
 - **Placement terms:** overflow-only Poisson density, box penetration, edge penalties.
-- **Physics (optional):** phys_w × kae place terms, differentiated by finite differences of
+- **Physics (optional):** phys_w × haslam place terms, differentiated by finite differences of
   `Phys.delta`.
 - **Schedule:** HPWL (WA) blends into soft routing from 20 % to 50 % of the run. T goes
   from 3 to 0.4 mm and wb from 0.5 to 4. Penalties grow only while needed. Optimizer: Adam

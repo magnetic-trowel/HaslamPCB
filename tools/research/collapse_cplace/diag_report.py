@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Summarize diag.py output: LDS-optimality of orientations per run, and how well the
 predicted forced vias / crossings / overflow track the routed vias.

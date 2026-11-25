@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """How the exact evaluators' cost grows with the problem (docs/topics/physics/exact-physics-options.md).
 
@@ -31,7 +31,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / 'kae' / 'src'))
+sys.path.insert(0, str(ROOT / 'haslam' / 'src'))
 sys.path.insert(0, str(HERE))
 
 import numpy as np  # noqa: E402
@@ -81,10 +81,10 @@ def sweep_peec():
 
 def sweep_route(board):
     import ex_exact as X
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
-    from kae.physics.place_terms import Terms
-    b = load(str(ROOT / 'kae-work-v2' / 'tasks' / board / 'reference' / 'board.kicad_pcb'))
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
+    from haslam.physics.place_terms import Terms
+    b = load(str(ROOT / 'haslam-work-v2' / 'tasks' / board / 'reference' / 'board.kicad_pcb'))
     T = Terms(b, build(b))
     R = X.Router(T, max_cells=10**7)
     R.refresh()
@@ -131,10 +131,10 @@ def sweep_route(board):
 
 def sweep_fv(board):
     import ex_exact as X
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
-    from kae.physics.place_terms import Terms
-    b = load(str(ROOT / 'kae-work-v2' / 'tasks' / board / 'reference' / 'board.kicad_pcb'))
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
+    from haslam.physics.place_terms import Terms
+    b = load(str(ROOT / 'haslam-work-v2' / 'tasks' / board / 'reference' / 'board.kicad_pcb'))
     T = Terms(b, build(b))
     if T.thermal is None:
         return None

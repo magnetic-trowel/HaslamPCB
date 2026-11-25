@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Acid traps as etchant sees them: acute notches in the outline of each net's merged copper.
 
@@ -94,15 +94,15 @@ def _far(leg, x, y):
 
 
 def analyse(board, fills=None):
-    from kae.board import pcbnew_io
-    from kae.board.kicad_file import load
-    from kae.route import arcs as A
-    from kae.route.constraints import _pad_shapes
+    from haslam.board import pcbnew_io
+    from haslam.board.kicad_file import load
+    from haslam.route import arcs as A
+    from haslam.route.constraints import _pad_shapes
     b = load(Path(board))
-    with tempfile.TemporaryDirectory(prefix="kae-notch-") as d:
+    with tempfile.TemporaryDirectory(prefix="haslam-notch-") as d:
         info = pcbnew_io.export_dsn(Path(board), Path(d) / "board.dsn", probes=False)
     if fills is None:
-        from kae.route.critical_recheck import fills_of
+        from haslam.route.critical_recheck import fills_of
         fills = fills_of(Path(board))
     pads, tracks, vias = {}, {}, {}
     for pd in info.get("pads") or []:

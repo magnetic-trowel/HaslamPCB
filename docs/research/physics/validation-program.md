@@ -1,7 +1,7 @@
 # Validation program: VOI-ranked claims, a two-arm test board, coupons and a floor census
 
 **Status:** untested idea (predictions registered and computed; nothing fabricated or measured).
-**First published:** 2026-10-22, commit [2171ac1](https://github.com/magnetic-trowel/kicad-auto-everything/commit/2171ac1a79c027d5836c01b94da193cdba562690) on branch `claude/vigilant-mayer-i91rrr` (scripts from [0dfe51a](https://github.com/magnetic-trowel/kicad-auto-everything/commit/0dfe51aadd1968b83f8425a2197befc98c3d32ea) and [ca92bc5](https://github.com/magnetic-trowel/kicad-auto-everything/commit/ca92bc5b4b716e2ee0a1d42c25b94e99e307a37e)).
+**First published:** 2026-10-22, commit [2171ac1](https://github.com/magnetic-trowel/HaslamPCB/commit/2171ac1a79c027d5836c01b94da193cdba562690) on branch `claude/vigilant-mayer-i91rrr` (scripts from [0dfe51a](https://github.com/magnetic-trowel/HaslamPCB/commit/0dfe51aadd1968b83f8425a2197befc98c3d32ea) and [ca92bc5](https://github.com/magnetic-trowel/HaslamPCB/commit/ca92bc5b4b716e2ee0a1d42c25b94e99e307a37e)).
 
 Scope: plan to anchor the model-only physics numbers in measurement: rank claims by value of information, one two-arm test board, six coupons, pre-registered predictions with kill criteria, blind measurement. Computed so far: design-stage predictions and a pilot floor census on four open boards. **No board or coupon ordered; nothing measured.** Not here: full plan -> [validation-program](../../topics/physics/validation-program.md), [validation-coupons](../../topics/physics/validation-coupons.md).
 Keys: VOI, EVPI, engineer-weeks EW, VAL-1, arm R, arm P, arm F, kill criteria, coupons LM FP VC NL SS CM, floor census, Beckmann floor, SIMP p = 1, LS30, IN27, IN28

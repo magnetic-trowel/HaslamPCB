@@ -1,7 +1,7 @@
 # One month: physics-first joint placement and routing
 
-Scope: the first-month plan (status 2026-10-22) for `kae` to place and route real boards end to end from the kaebench place task (fixed parts locked, the rest off-board); it replaces milestones M1–M6 of [system-design-build-plan](system-design-build-plan.md) for month 1, and the physics engine ([physics-engine-design](physics-engine-design.md)) supplies the judges and, from week 3, exact quotes. Not here: what was built and measured -> [status-2026-10-25](status-2026-10-25.md); the loop as built -> [joint-loop](joint-loop.md).
-Keys: month plan, day-30 goal, physics-first placer, self vs interaction terms, `kae.board.model`, `pad_xy`, physics brief, `kae.physics.place_terms`, module, re-tweak, physics-off ablation, `--min-movable 1`
+Scope: the first-month plan (status 2026-10-22) for `haslam` to place and route real boards end to end from the haslambench place task (fixed parts locked, the rest off-board); it replaces milestones M1–M6 of [system-design-build-plan](system-design-build-plan.md) for month 1, and the physics engine ([physics-engine-design](physics-engine-design.md)) supplies the judges and, from week 3, exact quotes. Not here: what was built and measured -> [status-2026-10-25](status-2026-10-25.md); the loop as built -> [joint-loop](joint-loop.md).
+Keys: month plan, day-30 goal, physics-first placer, self vs interaction terms, `haslam.board.model`, `pad_xy`, physics brief, `haslam.physics.place_terms`, module, re-tweak, physics-off ablation, `--min-movable 1`
 
 ## Day-30 goal and pipeline
 
@@ -12,7 +12,7 @@ The placer is physics-first: it reads what each circuit structure does, places t
 2. physics scorecard ≥ the human placement's on the binding budgets of most boards;
 3. ablation: physics terms improve physics without costing routability.
 
-**Pipeline:** board I/O → comprehension → physics brief → fast physics terms → cells-first seed → legalize → anneal → route critical nets → route the rest → repair loop → judge. Each stage is a `kae` module ([system-design](system-design.md#packages)) with a file contract.
+**Pipeline:** board I/O → comprehension → physics brief → fast physics terms → cells-first seed → legalize → anneal → route critical nets → route the rest → repair loop → judge. Each stage is a `haslam` module ([system-design](system-design.md#packages)) with a file contract.
 
 **Compute:** code and smoke tests in the cloud session; suite and corpus runs on the shared benchmark host (≤ 50 cores and 96 GB, detached, under its cgroup).
 
@@ -35,19 +35,19 @@ Order ([physics-in-the-loop-optimization](../physics/physics-in-the-loop-optimiz
 ## Package layout (created in week 1)
 
 ```
-kae/pyproject.toml
-kae/src/kae/board/     model, KiCad file loader, pcbnew extractor and writer, transforms
-kae/src/kae/circuit/   roles, structures, decap assignment, physics brief
-kae/src/kae/physics/   place_terms (fast estimators); judges wrap tools/research/physics until promoted
-kae/src/kae/place/     seed, CP-SAT legalizer, annealer, cost assembly
-kae/src/kae/route/     critical-net router, Freerouting bridge, repair loop
-kae/src/kae/cli.py     kae place | route | joint | brief | score; kaebench --command adapter
-kae/tests/
+haslam/pyproject.toml
+haslam/src/haslam/board/     model, KiCad file loader, pcbnew extractor and writer, transforms
+haslam/src/haslam/circuit/   roles, structures, decap assignment, physics brief
+haslam/src/haslam/physics/   place_terms (fast estimators); judges wrap tools/research/physics until promoted
+haslam/src/haslam/place/     seed, CP-SAT legalizer, annealer, cost assembly
+haslam/src/haslam/route/     critical-net router, Freerouting bridge, repair loop
+haslam/src/haslam/cli.py     haslam place | route | joint | brief | score; haslambench --command adapter
+haslam/tests/
 ```
 
-`kae` and `kaebench` never import each other; methods plug in through `--command`. Build the three contracts below first: every later week depends on them.
+`haslam` and `haslambench` never import each other; methods plug in through `--command`. Build the three contracts below first: every later week depends on them.
 
-## Contract 1: the board model (`kae.board.model`)
+## Contract 1: the board model (`haslam.board.model`)
 
 Units mm and degrees; KiCad board coordinates (y down). Field names fixed from day one.
 
@@ -60,9 +60,9 @@ Units mm and degrees; KiCad board coordinates (y down). Field names fixed from d
 | `Stackup` | `copper` (ordered layer names), `cu_thickness`, `gaps` (dielectric between adjacent copper, mm), `er` |
 | `Rules` | `clearance`, `track_min`, `via_min`, `edge_clearance`, `hole_clearance`, netclasses with widths and clearances |
 
-`kae.board.transform.pad_xy(fp, pad, x, y, rot, side)`: a pad's absolute position for any trial pose; used in the annealer's inner loop; built model and its verification against pcbnew (112 boards, flipped parts included) → [kae-board-model](../../research/placement/kae-board-model.md#results).
+`haslam.board.transform.pad_xy(fp, pad, x, y, rot, side)`: a pad's absolute position for any trial pose; used in the annealer's inner loop; built model and its verification against pcbnew (112 boards, flipped parts included) → [haslam-board-model](../../research/placement/haslam-board-model.md#results).
 
-## Contract 2: the physics brief (`kae.circuit.brief`)
+## Contract 2: the physics brief (`haslam.circuit.brief`)
 
 One JSON document per board:
 - net roles: ground, rails with voltage, switch nodes, clocks, high-speed pairs, analog-sensitive, RF;
@@ -71,7 +71,7 @@ One JSON document per board:
 
 Every entry carries a confidence and its evidence (name, value, footprint, pin function, topology). Budgets attach to structures as Beliefs (E5 until a datasheet or simulation fixes them). The place task has nets, values, footprints and pin functions but no schematic or datasheets, so budgets start as E5 priors.
 
-## Contract 3: placement terms (`kae.physics.place_terms`)
+## Contract 3: placement terms (`haslam.physics.place_terms`)
 
 `Terms(board, brief)` exposes `total(poses)`, `delta(poses, moved_refs, new_poses)` (incremental moves) and `breakdown(poses)` per structure in physical units (nH, pF, K, dB) with the budget each spends. Each estimator cites its derivation and its validation against an exact kernel ([solver-ladder](../physics/solver-ladder.md)); validate each before the annealer uses it. Annealer cost = Σ budget utilization over structures + routability (signal-net wirelength with ground and power down-weighted, RUDY congestion, escape space) + legality.
 
@@ -79,8 +79,8 @@ Every entry carries a confidence and its evidence (name, value, footprint, pin f
 
 | Week | Build | Runs on the shared benchmark host | Exit |
 |---|---|---|---|
-| 1 | board I/O with verified transforms and writer; comprehension v1; place terms v1; `kae place` returning a legal placement; baselines | baseline (human, noop, Freerouting k = 3) | pads match pcbnew on 112/112 boards; human placement scores better than ≥ 90% of its own perturbations under the place terms (sanity check of brief and terms together); legal placements on split A |
-| 2 | cells-first seed; CP-SAT legalizer; annealer on physics plus routability; `kae place` as kaebench `--command` adapter; physics scorecard on placements | suite with Freerouting probe; physics-off ablation (keep it in every run) | legal ≥ 0.95 on A+B; probe clean ≥ human + Freerouting − 0.10 on A+B; physics better than the ablation |
+| 1 | board I/O with verified transforms and writer; comprehension v1; place terms v1; `haslam place` returning a legal placement; baselines | baseline (human, noop, Freerouting k = 3) | pads match pcbnew on 112/112 boards; human placement scores better than ≥ 90% of its own perturbations under the place terms (sanity check of brief and terms together); legal placements on split A |
+| 2 | cells-first seed; CP-SAT legalizer; annealer on physics plus routability; `haslam place` as haslambench `--command` adapter; physics scorecard on placements | suite with Freerouting probe; physics-off ablation (keep it in every run) | legal ≥ 0.95 on A+B; probe clean ≥ human + Freerouting − 0.10 on A+B; physics better than the ablation |
 | 3 | critical nets routed by our physics-aware router (cells, decaps, crystals); Freerouting for the rest with them locked; router failures and congestion feed back into placement; `joint` task kind (separate harness commit) | joint runs on the suite | clean ≥ human + Freerouting on A+B |
 | 4 | copper in the loop (pours, stitching, decap vias) priced by exact quotes; split C; corpus dev set; report | full suite + corpus dev set | the three day-30 numbers |
 
@@ -97,9 +97,9 @@ The built loop generalizes this to windows that can move parts → [joint-loop](
 
 ## How results are judged
 
-- kaebench scoring is never changed to improve a score; the `joint` kind and fixes go in separate commits with baselines re-run; same harness commit, KiCad version, manifest, suite; report cp1, cpk, completion, per-type errors (CLAUDE.md).
+- haslambench scoring is never changed to improve a score; the `joint` kind and fixes go in separate commits with baselines re-run; same harness commit, KiCad version, manifest, suite; report cp1, cpk, completion, per-type errors (CLAUDE.md).
 - Mechanical interface fixed at its given poses (connectors, mounting holes, fiducials, user-facing parts); everything else placed. A placement that moves them can beat the human board on the metrics while failing its enclosure and cables, so the task that frees them is not the headline (user's decision, 2026-10-24). Class list → [status-2026-10-25](status-2026-10-25.md#user-decisions-binding).
-- Place and joint runs include every task with ≥ 1 movable part (`kaebench run --min-movable 1`); tasks that lock every footprint are held out.
+- Place and joint runs include every task with ≥ 1 movable part (`haslambench run --min-movable 1`); tasks that lock every footprint are held out.
 - Physics judged apart from cp1/cpk: passports and critics on the routed board, plus the place terms' breakdown, against the human board.
 
 ## Open questions

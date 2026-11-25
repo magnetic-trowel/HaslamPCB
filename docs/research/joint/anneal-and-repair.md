@@ -1,7 +1,7 @@
 # Routed-cost annealing, blocker-directed repair, and exact CP-SAT windows
 
 **Status:** annealing worked; blocker repair worked as a stage; CP-SAT windows did not work.
-**First published:** 2026-10-24, commit [44831ff](https://github.com/magnetic-trowel/kicad-auto-everything/commit/44831ff3f802b1758b9c1299e0ae0b212d581f9a) on branch `claude/keen-wright-mlkjv6` (CP-SAT windows: [6e5c658](https://github.com/magnetic-trowel/kicad-auto-everything/commit/6e5c658f0ea7c268fe8d44682160bf7a820b4d4b), results [95265a6](https://github.com/magnetic-trowel/kicad-auto-everything/commit/95265a6ac80097d86dea3a42a5b933b2667012bf)).
+**First published:** 2026-10-24, commit [44831ff](https://github.com/magnetic-trowel/HaslamPCB/commit/44831ff3f802b1758b9c1299e0ae0b212d581f9a) on branch `claude/keen-wright-mlkjv6` (CP-SAT windows: [6e5c658](https://github.com/magnetic-trowel/HaslamPCB/commit/6e5c658f0ea7c268fe8d44682160bf7a820b4d4b), results [95265a6](https://github.com/magnetic-trowel/HaslamPCB/commit/95265a6ac80097d86dea3a42a5b933b2667012bf)).
 
 Scope: three local searches that judge a placement change by the copper the router actually lays; anneal and repair became stages of [combo](combo.md). Not here: CP-SAT placement on synthetic instances -> `tools/research/solver-bench/`, [solver benchmarks](../../topics/solvers/benchmarks.md).
 Keys: anneal, anneal_phys, simulated annealing on routed cost, repair, repair_phys, blockers, LNS, guided local search, cpsat, CP-SAT window, Numberlink, SP&R, `NoOverlap2D`, ideas 11 12 13 36

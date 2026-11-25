@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """FastHenry reference solver wrapper: neutral PCB copper geometry -> port Z(f).
 
@@ -8,7 +8,7 @@ the magneto-quasi-static mesh equations with filament discretization.  This
 module translates a small neutral geometry spec into a FastHenry input deck,
 runs the binary and parses ``Zc.mat``.
 
-Binary lookup: ``$KAE_FASTHENRY``, else ``fasthenry`` on ``$PATH``.
+Binary lookup: ``$HASLAM_FASTHENRY``, else ``fasthenry`` on ``$PATH``.
 
 Spec (all lengths in ``units``, default mm)::
 
@@ -490,7 +490,7 @@ def build_deck(spec):
     for n in list(uf.p):
         groups.setdefault(uf.find(n), []).append(n)
 
-    out = ["* kae ref_fasthenry deck", ".units mm",
+    out = ["* haslam ref_fasthenry deck", ".units mm",
            ".default sigma=%s" % _f(sigma * 1e-3)]
     for c in conds:
         out.append("* cond %s = %s (%s)" % (c.idx, c.name, type(c).__name__))
@@ -528,9 +528,9 @@ def _mk_plane(idx, r, s, delta, nmax, holes):
 # --------------------------------------------------------------------------
 
 def fasthenry_bin():
-    b = os.environ.get("KAE_FASTHENRY") or shutil.which("fasthenry")
+    b = os.environ.get("HASLAM_FASTHENRY") or shutil.which("fasthenry")
     if not b:
-        raise FileNotFoundError("FastHenry binary not found: set KAE_FASTHENRY")
+        raise FileNotFoundError("FastHenry binary not found: set HASLAM_FASTHENRY")
     return b
 
 
@@ -987,7 +987,7 @@ def test_smoke(rows, workdir):
 
 
 def selftest(quick=False):
-    workdir = os.environ.get("KAE_REF_WORKDIR") or tempfile.mkdtemp(prefix="fhself_")
+    workdir = os.environ.get("HASLAM_REF_WORKDIR") or tempfile.mkdtemp(prefix="fhself_")
     rows = []
     print("FastHenry:", fasthenry_bin(), " workdir:", workdir)
     test_strip(rows, workdir)

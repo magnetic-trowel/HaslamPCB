@@ -1,14 +1,14 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Freerouting says routed, KiCad says open: pours
 
-Scope: why Freerouting reports a pour board fully routed while KiCad finds open connections; whether `plane_as_obstacle` helps; what the fork's pour model misses. Not here: pour handling in kae's repair loop ([kae-repair-loop](kae-repair-loop.md)).
+Scope: why Freerouting reports a pour board fully routed while KiCad finds open connections; whether `plane_as_obstacle` helps; what the fork's pour model misses. Not here: pour handling in haslam's repair loop ([haslam-repair-loop](haslam-repair-loop.md)).
 Keys: pour truth, plane_as_obstacle, fill fragmentation, zone min width, thermal spokes, PlaneFillConnectivity, R5, R6, E14.
 
 **Status:** root cause measured; `plane_as_obstacle` did not work (A/B stopped early, `r6-plane-obstacle`).
 **First published:** 2026-11-09, branch `fr-pours`. **Commit measured:** fork 06d2686 stored runs (`fr-baseline`); tools in `tools/research/routing/fr_pour_truth/`.
 
-**Branch:** `fr-pours`, first commit [1461e42](https://github.com/magnetic-trowel/kicad-auto-everything/commit/1461e42514218558b02ae54ead05c7319ef6d4da) (2026-11-09), last [6ec594f](https://github.com/magnetic-trowel/kicad-auto-everything/commit/6ec594f6d785bba021b3a2f61171828b767cccda) (2026-11-09). The code, plans and scripts named here are at [6ec594f](https://github.com/magnetic-trowel/kicad-auto-everything/tree/6ec594f6d785bba021b3a2f61171828b767cccda), not on main.
+**Branch:** `fr-pours`, first commit [1461e42](https://github.com/magnetic-trowel/HaslamPCB/commit/1461e42514218558b02ae54ead05c7319ef6d4da) (2026-11-09), last [6ec594f](https://github.com/magnetic-trowel/HaslamPCB/commit/6ec594f6d785bba021b3a2f61171828b767cccda) (2026-11-09). The code, plans and scripts named here are at [6ec594f](https://github.com/magnetic-trowel/HaslamPCB/tree/6ec594f6d785bba021b3a2f61171828b767cccda), not on main.
 
 ## 1. The gap (ledger R5)
 
@@ -23,7 +23,7 @@ Method: for each of the 30 boards, KiCad's connectivity after a refill of the ro
 | Pads the bare fill connects and the routing separates (cut by routing) | 124 (88 %) |
 | Pads already separate in the bare fill | 17 (12 %) |
 
-Scope of the 88 %: the fork alone on R5's 30 selected boards. It is not kae's residue: under the kae bridge 2-10 % of opens involve a zone ([audit-2611b](../audit-2611b.md#corrected-beliefs)).
+Scope of the 88 %: the fork alone on R5's 30 selected boards. It is not haslam's residue: under the haslam bridge 2-10 % of opens involve a zone ([audit-2611b](../audit-2611b.md#corrected-beliefs)).
 
 Which KiCad fill rule makes the separation (the routed board, refilled under changed zone rules):
 
@@ -38,15 +38,15 @@ So at least half the opens Freerouting does not see are the two rules its pour m
 
 Physically: Freerouting treats a plane net as connected whenever a pad lies in the pour polygon, and routes other nets through the same area. A real pour is what is left after clearances, minimum-width trimming and island removal; a foreign track can split it into pieces.
 
-Bridge consequence: this gap costs kae almost nothing. Under `kae bridge main final` (merge3-ab, 213 merit boards, final boards) 261 of 2,671 opens involve a zone, and the zone-only opens block exactly 1 board from being complete; the bridge's repair rounds and last mile close them with KiCad's real fill. A fork patch for fill rules would mostly help the plain Freerouting control.
+Bridge consequence: this gap costs haslam almost nothing. Under `haslam bridge main final` (merge3-ab, 213 merit boards, final boards) 261 of 2,671 opens involve a zone, and the zone-only opens block exactly 1 board from being complete; the bridge's repair rounds and last mile close them with KiCad's real fill. A fork patch for fill rules would mostly help the plain Freerouting control.
 
 ## 3. `plane_as_obstacle` A/B (did not work)
 
-Fork 2e1125a, 900 s, one run per board per arm, side by side; plan in [PLAN](https://github.com/magnetic-trowel/kicad-auto-everything/blob/6ec594f6d785bba021b3a2f61171828b767cccda/tools/kaeres/experiments/r6-plane-obstacle/PLAN.md). Stopped early, which the plan did not provide for, with 42 of 90 boards done: the bar was out of reach.
+Fork 2e1125a, 900 s, one run per board per arm, side by side; plan in [PLAN](https://github.com/magnetic-trowel/HaslamPCB/blob/6ec594f6d785bba021b3a2f61171828b767cccda/tools/haslamres/experiments/r6-plane-obstacle/PLAN.md). Stopped early, which the plan did not provide for, with 42 of 90 boards done: the bar was out of reach.
 
 | Boards | n | Opens, control | Opens, plane obstacle | Worse / better / equal |
 |---|---|---|---|---|
 | Selected on the control's failure (R5) | 17 | 84 | 1,212 | 17 / 0 / 0 |
 | Unselected (`complex_pours`, `power_pours`) | 25 | 6,138 | 12,129 | 19 / 1 / 5 |
 
-Mean completion: selected 0.909 against 0.035; unselected 0.761 against 0.319. Mechanism: a pour covering a layer shuts foreign nets out of that layer, so the board cannot route. Keep `plane_as_obstacle` off. Do not build R36/E14 for kae on this evidence: section 2's bridge result says the gap costs kae one merit board.
+Mean completion: selected 0.909 against 0.035; unselected 0.761 against 0.319. Mechanism: a pour covering a layer shuts foreign nets out of that layer, so the board cannot route. Keep `plane_as_obstacle` off. Do not build R36/E14 for haslam on this evidence: section 2's bridge result says the gap costs haslam one merit board.

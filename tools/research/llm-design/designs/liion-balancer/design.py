@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """liion-balancer: active cell balancer for a 13-16S home Li-ion pack (about 10 kWh).
 
 Encodes designs/liion-balancer/DESIGN.md (engineering rationale, evidence tags, sources) and
-CONNECTIONS.md (net table and naming rules). Build: `kaesynth build designs/liion-balancer/design.py -v`.
+CONNECTIONS.md (net table and naming rules). Build: `haslamsynth build designs/liion-balancer/design.py -v`.
 
 One LT8584 isolated flyback per cell (cell -> whole stack, about 2.5 A), an ADBMS1818 monitor whose
 S pins enable the balancers, an STM32G031 controller, a second enable path through an opto string,
@@ -34,7 +34,7 @@ import importlib.util
 import math
 from pathlib import Path
 
-from kaesynth import Design, Hole
+from haslamsynth import Design, Hole
 
 _spec = importlib.util.spec_from_file_location("liion_balancer_parts", Path(__file__).with_name("parts.py"))
 P = importlib.util.module_from_spec(_spec)

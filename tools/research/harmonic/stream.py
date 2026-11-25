@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Coarse streamline trees -> fine (0.1 mm) cell paths for the pnr engine, with
 line-of-sight shortcutting against the net's foreign halos (string pulling)."""

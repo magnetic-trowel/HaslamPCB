@@ -1,18 +1,18 @@
 # place_ab.py BOARD_DIR ARM SEED: one placement-only run of the crowded-fixes A/B (PLAN.md); prints one JSON line
 import collections, hashlib, json, math, os, re, subprocess, sys, tempfile, time, shutil
 from pathlib import Path
-from kae.board.kicad_file import load
-from kae.joint.stages import KaeStages
-from kae.joint.loop import derive_seed
+from haslam.board.kicad_file import load
+from haslam.joint.stages import HaslamStages
+from haslam.joint.loop import derive_seed
 ARMS = {"control": {}, "control2": {}, "pairs": {"place_edge_headers": 1, "place_edge_slot": 1, "place_edge_header_pairs": 1}, "clear": {"place_edge_headers": 1, "place_edge_slot": 1, "place_edge_header_pairs": 1, "place_edge_pose_clear": 1}}
 bd, arm, seed = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
 inp = bd / "board.kicad_pcb"
 b0 = load(str(inp))
 locked = {f.uuid for f in b0.footprints if f.locked}
 budget = 900 * math.sqrt(max(1, len(b0.footprints)) / 40)
-wd = Path(tempfile.mkdtemp(prefix=f"ab-{arm}{seed}-", dir=os.environ.get("KAEQ_SCRATCH", "/var/tmp")))
+wd = Path(tempfile.mkdtemp(prefix=f"ab-{arm}{seed}-", dir=os.environ.get("HASLAMQ_SCRATCH", "/var/tmp")))
 t0 = time.time()
-st = KaeStages(inp, wd, opts=dict(ARMS[arm], budget_s=budget, no_modules=True), log=lambda m: None)
+st = HaslamStages(inp, wd, opts=dict(ARMS[arm], budget_s=budget, no_modules=True), log=lambda m: None)
 lay = st.place(derive_seed(seed, 0), time_s=max(20.0, 0.30 * budget))
 info = lay.info["place"]
 b = load(lay.board)
@@ -27,7 +27,7 @@ for f in bd.glob("board.*"):
 (dd / "board.kicad_pcb").write_bytes(Path(lay.board).read_bytes())
 PT = ("courtyards_overlap", "copper_edge_clearance", "clearance", "hole_clearance", "hole_to_hole", "holes_co_located",
       "items_not_allowed", "malformed_courtyard", "npth_inside_courtyard", "pth_inside_courtyard", "shorting_items")
-r = subprocess.run(os.environ["KAE_KICAD_WRAP"].split() + ["kicad-cli", "pcb", "drc", "--format", "json", "--severity-error",
+r = subprocess.run(os.environ["HASLAM_KICAD_WRAP"].split() + ["kicad-cli", "pcb", "drc", "--format", "json", "--severity-error",
                    "-o", str(dd / "drc.json"), str(dd / "board.kicad_pcb")], capture_output=True, text=True, timeout=1800)
 try:
     d = json.load(open(dd / "drc.json"))

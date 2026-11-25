@@ -61,7 +61,7 @@ Thesis in one line: a circuit is Maxwell at zeroth order; layout adds correction
 |---|---|---|
 | [design-reasoning-architecture](design-reasoning-architecture.md) | reasoning pipeline R1–R7, least-slack τ, boundary conditions, roles of LLM/solvers/human, locality index | τ = budget/floor, physics package, ECO menu |
 | [schematic-to-physics](schematic-to-physics.md) | simulate the schematic: net passports, adjoint susceptibility, LII, √(k·s) budgets | `.noise`, LII, back-annotation |
-| [comprehension](comprehension.md) | `kae.circuit` brief: roles, structures, confidences; measured accuracy on 112 boards | brief, caps_p, pairing, power_path |
+| [comprehension](comprehension.md) | `haslam.circuit` brief: roles, structures, confidences; measured accuracy on 112 boards | brief, caps_p, pairing, power_path |
 | [physics-ir](physics-ir.md) | `pcb-intent/0.3` schema, validation, compile targets | intent.yaml, ledger.json, entity kinds |
 | [physics-ir-examples](physics-ir-examples.md) | six circuits in the IR with their binding budgets | buck, USB3, crystal, ADC, 2.4 GHz, 48 V |
 | [physics-core-v2](physics-core-v2.md) | core design: Piece/Passport/Belief, E0–E5, kernels K1–K8, edit spectrum r, classes A–L, build order | K1–K8, Woodbury radius, E0–E5 |
@@ -76,10 +76,10 @@ Thesis in one line: a circuit is Maxwell at zeroth order; layout adds correction
 | [joint-place-route](joint-place-route.md) | why staged P&R stalls, prior art, topology-carrying joint state, three timescales | homotopy, kinetic bands, PROXI, Starfish |
 | [joint-place-route-experiment](joint-place-route-experiment.md) | PoC: joint SA vs sequential and equal-CPU portfolio; proxy study | refiner 10/10, portfolio tie 5/10 |
 | [physics-in-the-loop-optimization](physics-in-the-loop-optimization.md) | physics terms with gradients, adjoints, routing as current flow, legalization | loop kernel, Gilbert tree, price field |
-| [place-terms](place-terms.md) | `kae.physics.place_terms`: one currency u = v/a, closed forms, validation, speed | φ(u), detour 1 + c√ℓ, delta µs |
+| [place-terms](place-terms.md) | `haslam.physics.place_terms`: one currency u = v/a, closed forms, validation, speed | φ(u), detour 1 + c√ℓ, delta µs |
 | [copper-shape-synthesis](copper-shape-synthesis.md) | topology optimization of pours: methods, DFM mapping, POC, zone export | SIMP, −14.5%, f_c |
 | [exact-physics-options](exact-physics-options.md) | cost and decision flips of exact physics in placement; designs (a)–(h) | route floor, multi-fidelity top-K |
-| [exact-physics-in-kae](exact-physics-in-kae.md) | shipped `--physics-fidelity fast\|exact\|multi` (PEEC, FV) | PEEC, kae.physics.exact |
+| [exact-physics-in-haslam](exact-physics-in-haslam.md) | shipped `--physics-fidelity fast\|exact\|multi` (PEEC, FV) | PEEC, haslam.physics.exact |
 
 ### Engines
 
@@ -96,8 +96,8 @@ Thesis in one line: a circuit is Maxwell at zeroth order; layout adds correction
 | [physics-critics-catalog](physics-critics-catalog.md) | 41 critic definitions | RET-COV, HOTLOOP-L, CM-V … |
 | [physics-critics-validation](physics-critics-validation.md) | calibration, planted faults, gaming guards per critic | equivalent mutant, Ott slot fit |
 | [hot-loop-evaluation](hot-loop-evaluation.md) | how the evaluator measures a switching cell's hot loop: open cells at their caps, the per-cell window solve (L_loop, R_loop, overshoot), cap bodies left out | open cell, L_loop, R_loop, CELL_PITCH |
-| [converter-currents](converter-currents.md) | a converter's switch, inductor, input and ripple currents and duty by topology (buck, boost, inverting, 4-switch by region, SEPIC), with sources; where kae uses each | I_sw, I_in, D, ΔI, kae.physics.converter |
-| [functional-evaluation](functional-evaluation.md) | whether a board works: ideal vs routed testbenches (`kae.sim`) | capability, verdicts, rail_dc |
+| [converter-currents](converter-currents.md) | a converter's switch, inductor, input and ripple currents and duty by topology (buck, boost, inverting, 4-switch by region, SEPIC), with sources; where haslam uses each | I_sw, I_in, D, ΔI, haslam.physics.converter |
+| [functional-evaluation](functional-evaluation.md) | whether a board works: ideal vs routed testbenches (`haslam.sim`) | capability, verdicts, rail_dc |
 | [verification-and-limits](verification-and-limits.md) | claims checked by independent methods, scopes, steelman of rules, falsification | PEECN filaments, steelman |
 | [validation-program](validation-program.md) | VOI-ranked measurement plan, VAL-1, floor census, kill criteria | VAL-1, EVPI, kill criteria |
 | [validation-coupons](validation-coupons.md) | five coupons with registered predictions | LM, FP, SS, NL, CM |

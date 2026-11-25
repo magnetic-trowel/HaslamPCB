@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Gate G1 for kae.em: the raster PEEC solver against FastHenry on identical geometry.
+"""Gate G1 for haslam.em: the raster PEEC solver against FastHenry on identical geometry.
 
     python em_vs_fasthenry.py run CASE {em PITCH | fh} [-o results.jsonl]
     python em_vs_fasthenry.py table results.jsonl
@@ -25,7 +25,7 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(HERE.parents[2] / "kae" / "src"))
+sys.path.insert(0, str(HERE.parents[2] / "haslam" / "src"))
 
 T = 0.035
 F = 1e8
@@ -154,8 +154,8 @@ def cases():
 
 
 def run_em(spec, pitch, nsub=3):
-    from kae.em import solve as S
-    from kae.em.spec import mesh_of
+    from haslam.em import solve as S
+    from haslam.em.spec import mesh_of
     m = mesh_of(spec, pitch, nsub=nsub)
     r = S.solve(m, spec["freqs"])
     return dict(Z=[[[z.real, z.imag] for z in row] for row in r["Z"][0]], iters=r["iters"], seconds=r["seconds"],

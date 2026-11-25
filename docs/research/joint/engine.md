@@ -1,7 +1,7 @@
 # pnr engine: halo-grid world, PathFinder router, FFT legal maps, fast router, anytime output
 
 **Status:** worked (substrate); the fast router worked on thin evidence; anytime output is engineering, untested in isolation.
-**First published:** 2026-10-24, commit [44831ff](https://github.com/magnetic-trowel/kicad-auto-everything/commit/44831ff3f802b1758b9c1299e0ae0b212d581f9a) on branch `claude/keen-wright-mlkjv6`.
+**First published:** 2026-10-24, commit [44831ff](https://github.com/magnetic-trowel/HaslamPCB/commit/44831ff3f802b1758b9c1299e0ae0b212d581f9a) on branch `claude/keen-wright-mlkjv6`.
 
 Scope: the self-contained place-and-route engine every pnr method runs on (no Freerouting call), and `route_only` on human placements. Not here: eras and suites -> [README](README.md#eras-and-caveats); methods -> sibling pages.
 Keys: pnr engine, halo grid, occT, occV, PathFinder, negotiated congestion, legalize, FFT legal map, `legal_map`, `hpwl_map`, `total_cost`, Clock, CPU seconds, `route_only`, fast router, `PNR_FAST`, `PNR_STALL`, connection-level legalize, anytime output, `anytime.py`, `--stop-when-routed`
@@ -47,7 +47,7 @@ Default `D,L,K,B,R,J`. `PNR_FAST=none` reproduces the original router bit for bi
 
 ### Anytime output (`anytime.py`, 2026-10-27)
 
-Need: restart wrappers (`tools/kaeres/restart.py`) judge the board left when an attempt exits and kill at a deadline; pnr methods used to write only at the end and ran the final PathFinder outside the CPU clock.
+Need: restart wrappers (`tools/haslamres/restart.py`) judge the board left when an attempt exits and kill at a deadline; pnr methods used to write only at the end and ran the final PathFinder outside the CPU clock.
 - Hooks every `Router.legalize` (end of each PathFinder call, `Kit.reroute`, final legalize).
 - Write condition: pnr's own checks pass (all parts placed, no routed net in conflict, no overlap or part outside the board, no stale copper) and fewer connections open (tie-break: routed length, then vias).
 - Write: through KiCad to a temp file, `os.replace` into place, in a background thread.
@@ -66,8 +66,8 @@ Each version fixes a DRC class found in runs; bug log [v7-bugs.md](../../../tool
 | v5 | courtyards per side, pad keep-outs per copper layer, pad-local clearances, hole keep-outs, thermal-spoke room ([world.py](../../../tools/research/pnr/world.py)) |
 | v6 | solder-mask apertures between pads; holes under courtyards on both sides |
 | v6.1–6.2 | footprint keep-outs; footprint copper drawings become no-net copper |
-| v6.3 ([c78c537](https://github.com/magnetic-trowel/kicad-auto-everything/commit/c78c537d0b4928fb4505065a39d07934887c577b)) | pad terminals from KiCad's inner outline (custom ring pads); edge test covers whole pads |
-| v6.4 (merged 9db768f, 9 tests pass) | board copper drawings and copper text are pad obstacles; `.kicad_dru` edge clearance; merged with the benchmark-host fix [4c4330a](https://github.com/magnetic-trowel/kicad-auto-everything/commit/4c4330a97b4bd1e1ee735a441674f095be12d458); changes 5 of 33 boards |
+| v6.3 ([c78c537](https://github.com/magnetic-trowel/HaslamPCB/commit/c78c537d0b4928fb4505065a39d07934887c577b)) | pad terminals from KiCad's inner outline (custom ring pads); edge test covers whole pads |
+| v6.4 (merged 9db768f, 9 tests pass) | board copper drawings and copper text are pad obstacles; `.kicad_dru` edge clearance; merged with the benchmark-host fix [4c4330a](https://github.com/magnetic-trowel/HaslamPCB/commit/4c4330a97b4bd1e1ee735a441674f095be12d458); changes 5 of 33 boards |
 
 Legality calibration against the human boards: the first model counted 22 of 33 human placements illegal (through-hole parts blocked both sides, courtyards could not overhang the board edge, courtyards drawn on the other side went unread); v5: 12, each by ~0.1 mm of raster rounding; legal rate 0.39 → 0.79. Other v3–v5 fixes, each found as DRC errors: pad-local clearances, NPTH hole keep-outs, footprint Edge.Cuts, duplicate UUIDs, courtyards smaller than pads. (Verdict below: 13 of 33 under the later model.)
 
@@ -75,11 +75,11 @@ Legality calibration against the human boards: the first model counted 22 of 33 
 
 | setting | human placement routed by | A clean | B clean | time | source |
 |---|---|---|---|---|---|
-| v5, route tasks, ab33 (13 A, 20 B boards) | pnr `route_only` | 0.846 | 0.500 | 7.6 / 12.6 s mean wall per board (A / B) | [route-only-v5.md](../../../tools/research/pnr/results/route-only-v5.md), [2a1c9c1](https://github.com/magnetic-trowel/kicad-auto-everything/commit/2a1c9c1f6213e7e289bea7e014c0e9b5c90b6328) |
+| v5, route tasks, ab33 (13 A, 20 B boards) | pnr `route_only` | 0.846 | 0.500 | 7.6 / 12.6 s mean wall per board (A / B) | [route-only-v5.md](../../../tools/research/pnr/results/route-only-v5.md), [2a1c9c1](https://github.com/magnetic-trowel/HaslamPCB/commit/2a1c9c1f6213e7e289bea7e014c0e9b5c90b6328) |
 | v5, same boards | tuned Freerouting (repo default) | 0.62 | 0.35 | ≤ 600 s | [scorecard.md](../../ideas/original/scorecard.md) (row "Own grid router") |
 | v7, route task, k = 1 | pnr `route_only` | 0.923 | 0.500 | — | [v7-baselines.md](../../../tools/research/pnr/results/v7-baselines.md) (33 boards: clean 0.667, completion 0.927) |
 
-Fast router, **2 boards only**, numbers from commit messages [bf06b18](https://github.com/magnetic-trowel/kicad-auto-everything/commit/bf06b1816fc4707e2fa041286600dc706231b2ca), [eaf1719](https://github.com/magnetic-trowel/kicad-auto-everything/commit/eaf1719b8c33c5070f5b3875c92ab8723a9771f4):
+Fast router, **2 boards only**, numbers from commit messages [bf06b18](https://github.com/magnetic-trowel/HaslamPCB/commit/bf06b1816fc4707e2fa041286600dc706231b2ca), [eaf1719](https://github.com/magnetic-trowel/HaslamPCB/commit/eaf1719b8c33c5070f5b3875c92ab8723a9771f4):
 
 | board, method | unrouted connections, fast | original | CPU saving |
 |---|---|---|---|
@@ -116,7 +116,7 @@ No ab33 run of the fast router; no benchmark of anytime output alone.
 
 - [`tools/research/pnr/`](../../../tools/research/pnr/): `world.py`, `router.py` (switch docs near the top), `placekit.py`, `raster.py`, `kicad_io.py`, `run.py`, `anytime.py`, `methods.py`; tests `test_world.py`, `test_anytime.py`; suites `suites/*.txt` (board ids only); per-era results `results/*.md`; method-writer brief `AGENT_BRIEF.md`.
 - Entry: `python tools/research/pnr/run.py <module.py:fn> IN.kicad_pcb OUT.kicad_pcb --budget 120 --seed N`, or `tools/research/xf_common/xf_run.sh` for harness runs. `run.py` writes `pnr_summary.json` with the A* work counters.
-- Deps: numpy, numba, scipy, shapely (tests), KiCad 10 Python via the `KAE_KICAD_PYTHON` wrapper ([`xf_common/kicad-python`](../../../tools/research/xf_common/kicad-python)). Physics methods need the kae package (`KAE_SRC`).
+- Deps: numpy, numba, scipy, shapely (tests), KiCad 10 Python via the `HASLAM_KICAD_PYTHON` wrapper ([`xf_common/kicad-python`](../../../tools/research/xf_common/kicad-python)). Physics methods need the haslam package (`HASLAM_SRC`).
 - Tests: `NUMBA_CACHE_DIR=... python -m pytest tools/research/pnr/test_world.py tools/research/pnr/test_anytime.py`.
 
 ## Related

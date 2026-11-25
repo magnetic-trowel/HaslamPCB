@@ -31,7 +31,7 @@ file's license and copyright line, as for the PCBWorld suites.
 New source files should start with:
 
 ```
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 ```
 

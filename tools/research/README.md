@@ -4,7 +4,7 @@ The code behind every research path: experiments, prototypes and measurement
 scripts. It is research quality, not library code. Each path is written up in
 [docs/research](../../docs/research/README.md): how it works, what we tried, the
 numbers, and whether it worked. The production placer and router live in the
-[`kae`](../../kae/) package; its research scripts are under `physics/`, `place/`,
+[`haslam`](../../haslam/) package; its research scripts are under `physics/`, `place/`,
 `routing/` and `joint/` here.
 
 | Directory | What it is | Write-up |
@@ -20,33 +20,33 @@ numbers, and whether it worked. The production placer and router live in the
 | `harmonic/`, `qd_archive/`, `xf_minplus/` | extensions of jc: harmonic fields, QD archive, min-plus maps | [jc extensions](../../docs/research/joint/jc-extensions.md) |
 | `xf_common/` | shared launcher and helpers for the pnr experiments | [engine](../../docs/research/joint/engine.md) |
 | `physics/` | physics models, critics, derivation and validation scripts of the physics-first line | [physics](../../docs/research/physics/README.md) |
-| `place/`, `routing/`, `joint/` | experiment drivers for kae's placer, router and joint loop | [placement](../../docs/research/placement/README.md), [routing](../../docs/research/routing/README.md), [kae joint loop](../../docs/research/joint/kae-joint-loop.md) |
-| `llm-design/` | kaesynth: typed circuit description to checked KiCad schematic, plus four LLM-made designs | [kaesynth](../../docs/research/llm-design/kaesynth.md) |
+| `place/`, `routing/`, `joint/` | experiment drivers for haslam's placer, router and joint loop | [placement](../../docs/research/placement/README.md), [routing](../../docs/research/routing/README.md), [haslam joint loop](../../docs/research/joint/haslam-joint-loop.md) |
+| `llm-design/` | haslamsynth: typed circuit description to checked KiCad schematic, plus four LLM-made designs | [haslamsynth](../../docs/research/llm-design/haslamsynth.md) |
 | `board-sourcing/` | open-board corpus: licence audit, dedup, import | [board corpus](../../docs/research/data/board-corpus.md) |
-| `kicad-io/` | load/save round trip of corpus boards through KiCad's writer; re-import of real SES sessions with kae's checks | [kae board model: writing boards](../../docs/research/placement/kae-board-model.md#writing-boards) |
+| `kicad-io/` | load/save round trip of corpus boards through KiCad's writer; re-import of real SES sessions with haslam's checks | [haslam board model: writing boards](../../docs/research/placement/haslam-board-model.md#writing-boards) |
 | `solver-bench/`, `layout-data/` | survey micro-benchmarks and board measurements (below) | below |
 
 ## Archived prototypes
 
 Removed from HEAD on 2026-11-15: research code that nothing in HEAD imports, runs or tests, with a "did not
 work" or "partial" verdict on its page. It stays public and runnable at tag
-[`archive/research-prototypes-2611`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research) (main `ca98570`); run it from a checkout of
-the tag. Kaeres recipes pin their code by commit, so stored methods rerun without HEAD.
+[`archive/research-prototypes-2611`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research) (main `ca98570`); run it from a checkout of
+the tag. Haslamres recipes pin their code by commit, so stored methods rerun without HEAD.
 
 | Directory at the tag | What it is | Verdict | Write-up |
 |---|---|---|---|
-| [`pnr_slime/`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/pnr_slime) | Physarum (slime-mould) routing in the pnr engine | did not work | [forces and fields](../../docs/research/joint/forces-and-fields.md#physarum-networks-idea-20) |
-| [`pnr_llm/`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/pnr_llm) | LLM move proposer, engine verifies | did not work | [LLM proposer](../../docs/research/joint/llm-proposer.md) |
-| [`collapse_obst/`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/collapse_obst) | layer-count bounds from obstruction maps | did not work (narrow partial results) | [layer-collapse analysis](../../docs/research/joint/layer-collapse-analysis.md#layer-count-bounds-collapse_obst) |
-| [`collapse_assign/`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/collapse_assign) | exact layer assignment as a router; lifted cost (plus its driver `pnr/scripts/collapse-runs.sh`) | did not work | [layer-collapse analysis](../../docs/research/joint/layer-collapse-analysis.md#exact-layer-assignment-as-a-router-lifted-cost-as-a-placement-measure-collapse_assign) |
-| [`learn_value/`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/learn_value) | learned value of partial boards to prune jc restarts | did not work | [jc extensions](../../docs/research/joint/jc-extensions.md#learned-value-of-partial-boards) |
-| [`xf_physmap/`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/xf_physmap) | exact physics maps (T2) in jc | did not work | [jc extensions](../../docs/research/joint/jc-extensions.md#exact-physics-maps-t2) |
-| [`autoplace/`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/autoplace) | annealing placer with the router and DRC in the loop (also tags `archive/autoplace-experiments`, `archive/autoplace-kae-router`) | partial | [autoplace](../../docs/research/placement/autoplace.md), [with kae's router](../../docs/research/placement/autoplace-kae-router.md) |
-| [`joint/joint_physics.py`](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/joint/joint_physics.py) | routed module physics per A/B arm | replaced by `tools/kaeres/physics_board.py` | [kae joint loop](../../docs/research/joint/kae-joint-loop.md) |
+| [`pnr_slime/`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/pnr_slime) | Physarum (slime-mould) routing in the pnr engine | did not work | [forces and fields](../../docs/research/joint/forces-and-fields.md#physarum-networks-idea-20) |
+| [`pnr_llm/`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/pnr_llm) | LLM move proposer, engine verifies | did not work | [LLM proposer](../../docs/research/joint/llm-proposer.md) |
+| [`collapse_obst/`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/collapse_obst) | layer-count bounds from obstruction maps | did not work (narrow partial results) | [layer-collapse analysis](../../docs/research/joint/layer-collapse-analysis.md#layer-count-bounds-collapse_obst) |
+| [`collapse_assign/`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/collapse_assign) | exact layer assignment as a router; lifted cost (plus its driver `pnr/scripts/collapse-runs.sh`) | did not work | [layer-collapse analysis](../../docs/research/joint/layer-collapse-analysis.md#exact-layer-assignment-as-a-router-lifted-cost-as-a-placement-measure-collapse_assign) |
+| [`learn_value/`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/learn_value) | learned value of partial boards to prune jc restarts | did not work | [jc extensions](../../docs/research/joint/jc-extensions.md#learned-value-of-partial-boards) |
+| [`xf_physmap/`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/xf_physmap) | exact physics maps (T2) in jc | did not work | [jc extensions](../../docs/research/joint/jc-extensions.md#exact-physics-maps-t2) |
+| [`autoplace/`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/autoplace) | annealing placer with the router and DRC in the loop (also tags `archive/autoplace-experiments`, `archive/autoplace-haslam-router`) | partial | [autoplace](../../docs/research/placement/autoplace.md), [with haslam's router](../../docs/research/placement/autoplace-haslam-router.md) |
+| [`joint/joint_physics.py`](https://github.com/magnetic-trowel/HaslamPCB/blob/archive/research-prototypes-2611/tools/research/joint/joint_physics.py) | routed module physics per A/B arm | replaced by `tools/haslamres/physics_board.py` | [haslam joint loop](../../docs/research/joint/haslam-joint-loop.md) |
 
 Kept although research-only: `pnr/`, `pnr_mcts/`, `pnr_phys/`, `collapse_joint/`, `xf_minplus/`, `xf_common/`
 (the `pcbworld-d3` recipe registers methods at a current main commit with them on `PYTHONPATH`),
-`physics/` (oracles for `kae/tests/test_physics_exact.py`), and the merit-arm and measurement code above.
+`physics/` (oracles for `haslam/tests/test_physics_exact.py`), and the merit-arm and measurement code above.
 
 ## `solver-bench/`: placement and routing solver micro-benchmarks
 

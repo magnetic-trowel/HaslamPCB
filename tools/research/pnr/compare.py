@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Paired comparison of joint place-and-route runs (kaebench place runs with --probe self).
+"""Paired comparison of joint place-and-route runs (haslambench place runs with --probe self).
 
-    python compare.py kae-work/results/RUN1 kae-work/results/RUN2 ...
+    python compare.py haslam-work/results/RUN1 haslam-work/results/RUN2 ...
 
 Per run: legal rate, clean rate (legal placement AND self-routed copper clean), mean
 completion, routed length and vias over boards where every run completed, and DRC error

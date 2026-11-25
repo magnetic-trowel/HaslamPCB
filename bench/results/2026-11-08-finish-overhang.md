@@ -1,8 +1,8 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Finish: pad-entry overhang by land kind, and two physics regressions of route-finish-ab stage 1
 
-Boards: the 9 of route-finish-ab stage 1 with the most overhang (or the regressions below). Arms as there: A (legacy), B (finish on A's board, stage 1 code), C (route-finish defaults, finish in the portfolio); B2 = finish on A's board with this branch (`python -m kae.route.cli finish`, 1,200 s). Overhang: `kae.route.taut stats` `overhang_mm2`, split by `tools/research/routing/overhang_diag.py` into two-terminal SMD lands, other SMD lands and plated through-hole pads.
+Boards: the 9 of route-finish-ab stage 1 with the most overhang (or the regressions below). Arms as there: A (legacy), B (finish on A's board, stage 1 code), C (route-finish defaults, finish in the portfolio); B2 = finish on A's board with this branch (`python -m haslam.route.cli finish`, 1,200 s). Overhang: `haslam.route.taut stats` `overhang_mm2`, split by `tools/research/routing/overhang_diag.py` into two-terminal SMD lands, other SMD lands and plated through-hole pads.
 
 ## Overhang (mm², sum over the 9 boards)
 

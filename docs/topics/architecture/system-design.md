@@ -1,7 +1,7 @@
 # System design: physics-first, LLM-assisted placement and routing
 
-Scope: target architecture of `kae`: product surfaces, packages, data contracts, process model, main loops, LLM contract, built-in evaluation, technology, repo layout. Untested design [I] unless tagged. Not here: milestones and acceptance tests -> [system-design-build-plan](system-design-build-plan.md); engine internals -> [physics-engine-design](physics-engine-design.md); what was built -> [status-2026-10-25](status-2026-10-25.md).
-Keys: copper doctor, joint optimizer, LLM physicist, `BoardSession`, `kae serve`, `intent.yaml`, `ledger.json`, Belief, exactness E0–E5, Finding, Quote, `dag.jsonl`, `board_rev`, τ, VOI, human gates, token budget, physics scorecard, `kae eval release`, promotion order
+Scope: target architecture of `haslam`: product surfaces, packages, data contracts, process model, main loops, LLM contract, built-in evaluation, technology, repo layout. Untested design [I] unless tagged. Not here: milestones and acceptance tests -> [system-design-build-plan](system-design-build-plan.md); engine internals -> [physics-engine-design](physics-engine-design.md); what was built -> [status-2026-10-25](status-2026-10-25.md).
+Keys: copper doctor, joint optimizer, LLM physicist, `BoardSession`, `haslam serve`, `intent.yaml`, `ledger.json`, Belief, exactness E0–E5, Finding, Quote, `dag.jsonl`, `board_rev`, τ, VOI, human gates, token budget, physics scorecard, `haslam eval release`, promotion order
 
 ## Product surfaces
 
@@ -23,22 +23,22 @@ Input: schematic plus fixed constraints (outline, holes, connectors, antenna reg
 
 | Package | Responsibility |
 |---|---|
-| `kae.units` | quantities, dimension checks, `Belief`, `Exactness` |
-| `kae.board` | `BoardSession` (file, live IPC 10, headless 11); immutable snapshots with `board_rev`; CST splice; `kicad-cli` and DSN/SES helpers |
-| `kae.store` | revisions, decision DAG, content-addressed cache, run manifests |
-| `kae.intent` | `pcb-intent` 0.4 schema and validator; rule packs; compiler to `.kicad_dru`, classes, rule areas, optimizer terms |
-| `kae.circuit` | netlist import, MNA adjoints, ngspice and Xyce drivers, net passports, budget allocation |
-| `kae.physics` | pieces, world conductors, kernels K1–K8, the `PhysicsCore` facade ([API](../physics/physics-core-v2-api.md)) |
-| `kae.critics` | board physics model views, critic registry, scorecard, mutation operators |
-| `kae.engines` | adapters: Freerouting, PNS, KRT, CP-SAT, openEMS, Palace, FasterCap |
-| `kae.optimize` | joint state (P, T, C), seeders, legalizer, realizers, copper synthesis, search loops |
-| `kae.agent` | deterministic orchestrator, LLM contracts, brief builder, VOI questions, explanation renderer |
-| `kae.mcp`, `plugin/` | MCP server; KiCad IPC plugin with a local web view |
-| `kae.eval` | physics report over kaebench runs, mutation benchmark, validation registry |
+| `haslam.units` | quantities, dimension checks, `Belief`, `Exactness` |
+| `haslam.board` | `BoardSession` (file, live IPC 10, headless 11); immutable snapshots with `board_rev`; CST splice; `kicad-cli` and DSN/SES helpers |
+| `haslam.store` | revisions, decision DAG, content-addressed cache, run manifests |
+| `haslam.intent` | `pcb-intent` 0.4 schema and validator; rule packs; compiler to `.kicad_dru`, classes, rule areas, optimizer terms |
+| `haslam.circuit` | netlist import, MNA adjoints, ngspice and Xyce drivers, net passports, budget allocation |
+| `haslam.physics` | pieces, world conductors, kernels K1–K8, the `PhysicsCore` facade ([API](../physics/physics-core-v2-api.md)) |
+| `haslam.critics` | board physics model views, critic registry, scorecard, mutation operators |
+| `haslam.engines` | adapters: Freerouting, PNS, KRT, CP-SAT, openEMS, Palace, FasterCap |
+| `haslam.optimize` | joint state (P, T, C), seeders, legalizer, realizers, copper synthesis, search loops |
+| `haslam.agent` | deterministic orchestrator, LLM contracts, brief builder, VOI questions, explanation renderer |
+| `haslam.mcp`, `plugin/` | MCP server; KiCad IPC plugin with a local web view |
+| `haslam.eval` | physics report over haslambench runs, mutation benchmark, validation registry |
 
 - Imports run only down the table (an import linter checks it).
-- `kaebench` imports nothing from `kae`: it judges methods, so it stays outside every write scope (CLAUDE.md; one practitioner's agent rewrote its own scoreboard, [trust-requirements](../workflow/trust-requirements.md)).
-- `kae.eval` reads attempt directories as files and writes only `attempt-N/physics/`.
+- `haslambench` imports nothing from `haslam`: it judges methods, so it stays outside every write scope (CLAUDE.md; one practitioner's agent rewrote its own scoreboard, [trust-requirements](../workflow/trust-requirements.md)).
+- `haslam.eval` reads attempt directories as files and writes only `attempt-N/physics/`.
 
 ## Data contracts
 
@@ -57,14 +57,14 @@ Required (intent) and observed (ledger) live apart, so critics diff them and no 
 
 | Concern | Design |
 |---|---|
-| Shape | library first (batch review, bench adapters, tests in-process); for live and optimizer use one session server per board, `kae serve`, owning the only KiCad IPC connection (KiCad answers on one UI thread; clients "should not open multiple connections", [ipc-api-10-vs-11](../kicad/ipc-api-10-vs-11.md)), the store, the orchestrator and one writer lock; stale `board_rev` writes refused |
+| Shape | library first (batch review, bench adapters, tests in-process); for live and optimizer use one session server per board, `haslam serve`, owning the only KiCad IPC connection (KiCad answers on one UI thread; clients "should not open multiple connections", [ipc-api-10-vs-11](../kicad/ipc-api-10-vs-11.md)), the store, the orchestrator and one writer lock; stale `board_rev` writes refused |
 | Physics service | actor workers own factorizations per (operator, band, epoch) key and answer solves, quotes, passports. Compiled factorization ≈ 1 s at 0.8M nodes (SuperLU 7–9 s); quote in a cached window 25–110 µs [C]. Optimizer workers receive exact window models and boundary Schur complements, quote and commit locally ([physics-core-v2](../physics/physics-core-v2.md), [physics-engine-design](physics-engine-design.md)) |
 | Helpers | subprocesses for crash isolation: SWIG DSN/SES, Freerouting (`-mt 1`, hash-pinned), PNS, ngspice, openEMS |
 | KiCad 10: four channels | IPC CRUD in commit groups (≤ 32 creates, one undo entry); direct `.kicad_dru` writes; `kicad-cli pcb drc --refill-zones` on a saved copy, the only legal referee; SWIG DSN/SES. Live snapshots from `SaveDocumentToString`. File mode writes by byte-preserving splice, never `SaveBoard`, and is refused once a board has been seen live ([file-format-and-version-hazards](../kicad/file-format-and-version-hazards.md#silent-data-loss-on-write), [10.x backend recipe](../kicad/ipc-api-10-vs-11.md#10x-backend-recipe)) |
 | KiCad 11 | `HeadlessSession` on `kicad-cli api-server`, DSN/SES and structured `CustomRule` over IPC; DRC stays with `kicad-cli`; baselines re-run per version |
 | Concurrency | one IPC queue with request IDs; refills polled through `AS_BUSY`; single-threaded workers; results merge in candidate-id order and budgets count moves, so runs replay exactly |
 | Caching | kernel results keyed by geometry window, stackup, band, kernel version; engine runs by decision-prefix hash, seeds, tool versions ([S2](../../ideas/original/system-loop.md)); snapshot diffs invalidate within an interaction cutoff; topological events bump the epoch |
-| Persistence | sidecar `<board>.kae/`: `intent.yaml`, `stackup.yaml`, `dag.jsonl` committed; revisions, ledgers, caches git-ignored. Artifacts record versions, inputs hash, seeds, so any revision regenerates from its DAG prefix; LLM outputs live in DAG nodes, so replay never calls the LLM |
+| Persistence | sidecar `<board>.haslam/`: `intent.yaml`, `stackup.yaml`, `dag.jsonl` committed; revisions, ledgers, caches git-ignored. Artifacts record versions, inputs hash, seeds, so any revision regenerates from its DAG prefix; LLM outputs live in DAG nodes, so replay never calls the LLM |
 
 ## Main loops
 
@@ -120,12 +120,12 @@ KiCad sends no change notifications and IPC cannot create persistent markers ([U
 
 ## Evaluation built in
 
-- **Benchmark:** kaebench unchanged (cp1, cpk, completion, per-type errors; same KiCad version, manifest, suite). A `joint` task kind (place-task input, route-task scoring, fixed-part integrity) enters as a separate harness commit with baselines re-run.
-- **Physics scorecard,** never inside cp1/cpk: coverage, hard budgets, minimum margin, counts by root cause, deltas vs the human board; compared lexicographically, no blended number ([physics-critics](../physics/physics-critics.md)). Physics results appear only there and in `kae eval physics` reports.
+- **Benchmark:** haslambench unchanged (cp1, cpk, completion, per-type errors; same KiCad version, manifest, suite). A `joint` task kind (place-task input, route-task scoring, fixed-part integrity) enters as a separate harness commit with baselines re-run.
+- **Physics scorecard,** never inside cp1/cpk: coverage, hard budgets, minimum margin, counts by root cause, deltas vs the human board; compared lexicographically, no blended number ([physics-critics](../physics/physics-critics.md)). Physics results appear only there and in `haslam eval physics` reports.
 - **Mutation benchmark and red team:** DRC-equivalent planted faults with oracle deltas and benign twins, written by someone other than the critic's author. A critic becomes an optimizer term only after calibration, mutation and red-team tests ([physics-critics-validation](../physics/physics-critics-validation.md)).
-- **Regression references:** `rt_*` scripts become golden tests and never import `kae`; core identities, DC bounds and registered predictions are versioned golden values ([verification-and-limits](../physics/verification-and-limits.md)). They gate every merge; moving one needs a written reason and a version bump.
+- **Regression references:** `rt_*` scripts become golden tests and never import `haslam`; core identities, DC bounds and registered predictions are versioned golden values ([verification-and-limits](../physics/verification-and-limits.md)). They gate every merge; moving one needs a written reason and a version bump.
 - **Pre-registered validation:** VAL-1 (rules arm vs physics arm) and coupons; predictions hashed in `validation/registry/` before fabrication ([validation-program](../physics/validation-program.md)).
-- **Release judgement:** `kae eval release` writes one report: tests; bench vs last release and Freerouting; scorecard vs human boards; critic validation status; registry scores; tokens, CPU, questions per board. Block a release on a failed golden test, fewer cpk-clean boards on any split, more error-level DRC violations, an optimizer-term critic below its mutation gate, or registry coverage < 80% for a model class used for compliance.
+- **Release judgement:** `haslam eval release` writes one report: tests; bench vs last release and Freerouting; scorecard vs human boards; critic validation status; registry scores; tokens, CPU, questions per board. Block a release on a failed golden test, fewer cpk-clean boards on any split, more error-level DRC violations, an optimizer-term critic below its mutation gate, or registry coverage < 80% for a model class used for compliance.
 
 ## Technology and licensing
 
@@ -145,14 +145,14 @@ Licences: code GPL-3.0-or-later; schemas and rule packs CC0; data CDLA-Permissiv
 ## Repository layout
 
 ```
-kae/              pyproject.toml; src/kae/{units,board,store,intent,circuit,physics,critics,
+haslam/              pyproject.toml; src/haslam/{units,board,store,intent,circuit,physics,critics,
                   engines,optimize,agent,mcp,eval}; tests/{unit,golden,kicad,mutation}
-crates/kae-fast/  Rust extension (from the joint-search milestone)
+crates/haslam-fast/  Rust extension (from the joint-search milestone)
 plugin/           KiCad IPC plugin for the PCM
 schemas/          JSON Schemas: intent, ledger, findings, passports, DAG (CC0)
 rulepacks/        rule records with regime predicates (CC0)
 validation/       registered predictions, coupon and VAL board definitions, measurements
-bench/            kaebench, unchanged and independent
+bench/            haslambench, unchanged and independent
 tools/research/   research scripts, frozen as the evidence behind [C] tags
 ```
 

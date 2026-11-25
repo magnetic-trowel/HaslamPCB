@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Harmonic-field routing in the joint loop (tag `harm`, idea 19) — PARTIAL
 
@@ -18,7 +18,7 @@ Idea 19 of [joint-pnr](../../../docs/ideas/original/joint-pnr.md), built on [jc]
   - **(c) `press`:** parts pay for other nets' expected occupancy |J|/I under their pads (Maxwell-stress analog). Its price is capped at β = 2.
 - **Synthetic checks pass:** maximum principle, streamline termination, insulating walls, and |J|/I integrating to 1.6× the straight distance.
 
-## Findings (v5, engine v5, kae-work)
+## Findings (v5, engine v5, haslam-work)
 
 - **(a) streamlines are not routes.** On 33 human placements, 974 of 980 sinks reached the source. But only 49.5 % of connections were clearance-legal at 0.1 mm, legal ones were 1.45× A* length, and CPU was 56× A*. Inside jc, (a) never converged: wire conflicts stayed in the hundreds. All-33 seed 0 gave clean 0.697 vs jc 0.667, but worse physics (fast 1.02× vs 0.82×; routed 1.19× vs 1.05×) and +8 % copper on all 3 seeds. Dropped.
 - **(c) uncapped** (price ∝ β) made parts accept courtyard overlap. Capping it fixed this.
@@ -46,7 +46,7 @@ Idea 19 of [joint-pnr](../../../docs/ideas/original/joint-pnr.md), built on [jc]
 | `v7-jc_lv-r3` | 0.986 | 0.722 ± 0.021 | 0.928 | 2576 | 44 |
 | `hjc_press_lv-r3` | 1.000 | 0.694 ± 0.062 | 0.925 | 2581 | 47 |
 
-**Physics, phys10, per seed** (method/human gmean; jc not yet scored; output in `kae-v7/harm-phys/`):
+**Physics, phys10, per seed** (method/human gmean; jc not yet scored; output in `haslam-v7/harm-phys/`):
 
 | Run | Fast physics (φ-total) | Routed physics |
 |---|---|---|
@@ -66,12 +66,12 @@ The physics rows cover the 10 phys10 boards, which may include boards that engin
 
 ## Next steps to finish
 
-1. Re-run the jc comparison on all 28 boards once `v7-jc-r3` / `v7-jc_lv-r3` complete: `python tools/research/pnr/seeds.py kae-v7/results/{v7-jc-r3,harm-hjc_press-r3,v7-jc_lv-r3,harm-hjc_press_lv-r3} --suite tools/research/pnr/results/v63-v64-unchanged.txt`.
-2. Score jc physics with `kae-v7/harm-phys/run.sh v7-jc-r3 v7-jc_lv-r3 ...`, and restrict physics to the unchanged boards.
+1. Re-run the jc comparison on all 28 boards once `v7-jc-r3` / `v7-jc_lv-r3` complete: `python tools/research/pnr/seeds.py haslam-v7/results/{v7-jc-r3,harm-hjc_press-r3,v7-jc_lv-r3,harm-hjc_press_lv-r3} --suite tools/research/pnr/results/v63-v64-unchanged.txt`.
+2. Score jc physics with `haslam-v7/harm-phys/run.sh v7-jc-r3 v7-jc_lv-r3 ...`, and restrict physics to the unchanged boards.
 3. If it stays a tie, close idea 19 as "no merit" and test |J|/I as a restart-ranking feature in jc.
 
 **Operational notes:**
 - Runs go through `runj_harm.sh` with `WT=<frozen worktree>` (a frozen worktree at 5987f57; engine identical to c78c537).
-- `KAE_SRC` is the kae copy in `~/.cache/kaebench/kae-phys/src`. The sandbox hides /tmp; this was diagnosed here and the lead's fix followed.
+- `HASLAM_SRC` is the haslam copy in `~/.cache/haslambench/haslam-phys/src`. The sandbox hides /tmp; this was diagnosed here and the lead's fix followed.
 - Earlier v7 runs `harm-*-v7`, `-v7r2` and smoke runs used a moving engine. They are discarded.
 - `pyamg` was installed into `bench/.venv` for a solver test and is unused.

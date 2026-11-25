@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tree search over constructive interleaved place-and-route (joint-pnr ideas 7 and 8).
 
@@ -14,7 +14,7 @@ are parts and whose branches are candidate poses. This module searches that tree
              and a short PathFinder and return -(routed cost + unrouted penalty + phys)
   grow_wide  the greedy ablation at equal time: grow with a time-filling K (same scoring)
 
-Every method takes phys_w (default 0): mm of routed copper per unit of the kae.physics
+Every method takes phys_w (default 0): mm of routed copper per unit of the haslam.physics
 place-terms total (physics.Phys). Unplaced parts are parked at the board centre in the
 physics poses, so children of one node (same parts placed) are compared fairly.
 
@@ -43,7 +43,7 @@ from placekit import Clock, Kit  # noqa: E402
 
 # ---------------------------------------------------------------- physics tracking
 class PhysTrack:
-    """kae.physics place terms kept in step with the world: placed parts at their poses,
+    """haslam.physics place terms kept in step with the world: placed parts at their poses,
     unplaced movable parts parked at the board centre."""
 
     def __init__(self, world, order):

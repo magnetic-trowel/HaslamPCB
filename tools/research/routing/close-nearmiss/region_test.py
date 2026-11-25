@@ -7,10 +7,10 @@ usage: region_test.py <task input> <routed board .gz> <drc.json.gz> <outdir> [ma
 """
 import sys, json, gzip, shutil, time, math, os
 from pathlib import Path
-from kae.board import pcbnew_io
-from kae.board.kicad_file import load
-from kae.route import constraints, drc, bridge, repair, lastmile as LM, lastmile_region as LR
-from kae.route.critical_space import Space
+from haslam.board import pcbnew_io
+from haslam.board.kicad_file import load
+from haslam.route import constraints, drc, bridge, repair, lastmile as LM, lastmile_region as LR
+from haslam.route.critical_space import Space
 
 inp, routed, drcp, od = sys.argv[1], sys.argv[2], sys.argv[3], Path(sys.argv[4])
 margins = [float(x) for x in (sys.argv[5] if len(sys.argv) > 5 else "1,3,6").split(",")]

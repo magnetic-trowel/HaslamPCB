@@ -1,16 +1,16 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # What the joint loop's windows did before they had a budget
 
-Scope: how the windows of `kae.joint` ended, from stored loop reports, and what that rules in or out for the window fixes (ledger J3, J4, J15, J16). Not here: the arms that test the fixes -> `tools/kaeres/experiments/loop-window-bench/`; the loop itself -> [kae-joint-loop](kae-joint-loop.md).
+Scope: how the windows of `haslam.joint` ended, from stored loop reports, and what that rules in or out for the window fixes (ledger J3, J4, J15, J16). Not here: the arms that test the fixes -> `tools/haslamres/experiments/loop-window-bench/`; the loop itself -> [haslam-joint-loop](haslam-joint-loop.md).
 Keys: joint loop, windows, illegal after repair, greedy legalizer, skip_unfixable_drc, NO_MOVE_FIXES, J3, J4, J15, J16
 
 **Status:** analysis of stored runs. J3 (skip windows on these types) **did not work** in its A/B, below: it removes the futile windows, but the loop does not spend the time saved on useful ones. The other fixes are not finished.
 **First published:** 2026-11-09, branch `loop-j3-unfixable-drc`.
 
-Data: 136 single-run reports (`kae joint loop`, commit 45efe00, 900 s, no restart wrapper; the JSON report is in each run's `adapter.log.gz`), 440 windows. Single seed. Later code changed the windows' details, but not the shares or the legalizer's time.
+Data: 136 single-run reports (`haslam joint loop`, commit 45efe00, 900 s, no restart wrapper; the JSON report is in each run's `adapter.log.gz`), 440 windows. Single seed. Later code changed the windows' details, but not the shares or the legalizer's time.
 
-**Branch:** `loop-j3-unfixable-drc`, first commit [6a51787](https://github.com/magnetic-trowel/kicad-auto-everything/commit/6a517876fd88219e1696ec08a0bdd863c18949c4) (2026-11-08), last [bb053e5](https://github.com/magnetic-trowel/kicad-auto-everything/commit/bb053e5875e28081cd3ab84f3cf9c69face1148f) (2026-11-10). The code, plans and scripts named here are at [bb053e5](https://github.com/magnetic-trowel/kicad-auto-everything/tree/bb053e5875e28081cd3ab84f3cf9c69face1148f), not on main.
+**Branch:** `loop-j3-unfixable-drc`, first commit [6a51787](https://github.com/magnetic-trowel/HaslamPCB/commit/6a517876fd88219e1696ec08a0bdd863c18949c4) (2026-11-08), last [bb053e5](https://github.com/magnetic-trowel/HaslamPCB/commit/bb053e5875e28081cd3ab84f3cf9c69face1148f) (2026-11-10). The code, plans and scripts named here are at [bb053e5](https://github.com/magnetic-trowel/HaslamPCB/tree/bb053e5875e28081cd3ab84f3cf9c69face1148f), not on main.
 
 ## How windows end
 
@@ -33,7 +33,7 @@ Data: 136 single-run reports (`kae joint loop`, commit 45efe00, 900 s, no restar
 
 ## DRC types no move can change (J3)
 
-Within one evaluator, across every kae placement of a board, these nine types have the same count on every board that has them: footprint_type_mismatch (42 board and evaluator pairs), unresolved_variable (41), annular_width (31), zones_intersect (30), invalid_outline (26), malformed_courtyard (10), text_on_edge_cuts (6), padstack (5), drill_out_of_range (3). None of the 194 pairs varies. Windows opened only for these: 75 of the 440, none kept.
+Within one evaluator, across every haslam placement of a board, these nine types have the same count on every board that has them: footprint_type_mismatch (42 board and evaluator pairs), unresolved_variable (41), annular_width (31), zones_intersect (30), invalid_outline (26), malformed_courtyard (10), text_on_edge_cuts (6), padstack (5), drill_out_of_range (3). None of the 194 pairs varies. Windows opened only for these: 75 of the 440, none kept.
 
 The audit's list also had `silk_over_copper` and `silk_overlap`. Those do vary with placement (10 of 10 and 8 of 9 pairs) and 4 windows on them were kept, so they keep their windows.
 
@@ -45,7 +45,7 @@ On the first 40 boards finished in the J1 chassis experiment's joint arm (restar
 
 ## J3 A/B: `loop-j3-unfixable-v2` (2026-11-10)
 
-Plan: `tools/kaeres/experiments/loop-j3-unfixable/PLAN.md` (pre-registered). 30 merit boards that have the filtered types, one per repo family, k = 1, commit f2f4151. Arms: `w2 ctl` (filter off) and `w2 j3` (filter on). Both give the windows two budgets beyond iteration 0 and use no restart wrapper; they ran interleaved. KiCad scored every run (60 of 60).
+Plan: `tools/haslamres/experiments/loop-j3-unfixable/PLAN.md` (pre-registered). 30 merit boards that have the filtered types, one per repo family, k = 1, commit f2f4151. Arms: `w2 ctl` (filter off) and `w2 j3` (filter on). Both give the windows two budgets beyond iteration 0 and use no restart wrapper; they ran interleaved. KiCad scored every run (60 of 60).
 
 | | w2 ctl | w2 j3 |
 |---|---|---|

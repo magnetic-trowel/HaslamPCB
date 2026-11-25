@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # xf_pour: T4 pour-damage maps in jc (experiment C), rounds 2–3
 
@@ -99,8 +99,8 @@ Per seed (0 / 1 / 2):
 - Against human, pour R is 1.43× for base jc and 1.20× for pjc2.
 - DRC error types match the baselines' (`solder_mask_bridge`, `starved_thermal`,
   `silk_overlap`). All 396 attempts were ok.
-- Tables are in `kae-work2/score/xf3C-pjc{,_lv}.md`, and pour R in
-  `kae-work2/xf_pour/pour-xf3.json`.
+- Tables are in `haslam-work2/score/xf3C-pjc{,_lv}.md`, and pour R in
+  `haslam-work2/xf_pour/pour-xf3.json`.
 
 ## Verdict: merit for the coupled maps on the physics objective; no merit elsewhere
 The success criterion: pour R ≤ 0.9× the baseline, lower routed physics, and completion

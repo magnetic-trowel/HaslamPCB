@@ -55,7 +55,7 @@ OmniLayout notes most PCB works use private sets of 10–20 boards and lists Cyp
 - VLSI warning: Circuit Training proxy (1.0·WL + 1.0·density top-10%×0.5 + 0.5·congestion top-5%) "correlates weakly" with post-route PPA (VP-verified).
 - Router configurations differ: Cypress Freerouting v1.9.0 2-layer, % routed pin pairs; PCBWorld → [baseline configs](../routing/pcbworld.md#results-table-21-5); ModuPlace averages PcbRouter + Freerouting configs.
 
-## Use in kae
+## Use in haslam
 - Metric stack [I]: (1) hard legality via KiCad DRC (courtyard, Edge.Cuts, keep-outs, clearance); (2) fast proxies (net-class-weighted HPWL/TEWL, crossings, RUDY, SLW-like count, alignment count); (3) domain rules (decap-to-pin, crystal distance, switching-loop area, connector at edge, thermal spacing); (4) periodic ground truth (pinned Freerouting RR, routed length, vias, DRC).
 - Benchmark ladder: OmniLayout-style RR/PRWL + pad-overlap/OoB, with **Chen DAC'25 (RR 0.62) and Quilter (0.84) as bars** and LMM zero-shot RR (GPT-5.5 0.90) as a non-trivial baseline; Cypress KiCad boards (after synthesizing outlines and rebuilding the net table); OmniLayout subset; PCBWorld D3 boards with routing stripped [I].
 - Calibrate proxies against Freerouting on a held-out set before trusting them inside tuners ([multi-fidelity](../solvers/performance-and-multifidelity.md)) [I].

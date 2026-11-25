@@ -1,14 +1,14 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Where do the fast place terms and exact physics rank candidate placements differently?
 (docs/topics/physics/exact-physics-options.md, decision flips)
 
 Candidates are the local perturbations of pt_human_perturb.py on the human reference boards
-(kae-work-v2/tasks/*/reference/board.kicad_pcb): for a sampled part of a structure kind, its
+(haslam-work-v2/tasks/*/reference/board.kicad_pcb): for a sampled part of a structure kind, its
 human pose, three legal 1-5 mm translations and the legal 90/180/270 degree rotations in place.
 Every candidate is priced, for every structure the part belongs to, by
 
-  fast     the place terms (kae.physics.place_terms: straight hops, closed forms);
+  fast     the place terms (haslam.physics.place_terms: straight hops, closed forms);
   detour   fast + L'(w, h) x (routed - straight) per board hop (a fresh any-angle route);
   cf       closed forms on any-angle routes of every hop (the module stage's model);
   cfm      closed forms on Manhattan routes;
@@ -32,10 +32,10 @@ three cheap corrections anchored at the human pose:
            straight hop (no routing per move).
 
 Usage:
-  python tools/research/physics/ex_decision_flips.py --out kae-work/physics/exact-options/flips [-j 1]
+  python tools/research/physics/ex_decision_flips.py --out haslam-work/physics/exact-options/flips [-j 1]
          [--only id1,id2] [--parts 6] [--seed 1] [--max-parts 300]
   python tools/research/physics/ex_decision_flips.py --out DIR --aggregate-only
-Deterministic for a given seed. Never writes boards; outputs stay under kae-work/ (git-ignored).
+Deterministic for a given seed. Never writes boards; outputs stay under haslam-work/ (git-ignored).
 """
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / 'kae' / 'src'))
+sys.path.insert(0, str(ROOT / 'haslam' / 'src'))
 sys.path.insert(0, str(HERE))
 
 import numpy as np  # noqa: E402
@@ -75,8 +75,8 @@ def _f(v):
 # ============================================================================ per board
 def eval_structs(T, R, ks, X, modes=LOOP_MODES):
     """{struct id: {fast, <mode>: value, comps: [...], t: {mode: s}}} at the current state."""
-    from kae.physics.place_terms import _red
-    from kae.physics.structures import CouplingComp, CrystalComp, EsdComp, LoopComp, NearestLoopComp, PlanePairLoop
+    from haslam.physics.place_terms import _red
+    from haslam.physics.structures import CouplingComp, CrystalComp, EsdComp, LoopComp, NearestLoopComp, PlanePairLoop
     st = T.st
     R.refresh()
     out = {}
@@ -139,9 +139,9 @@ def eval_structs(T, R, ks, X, modes=LOOP_MODES):
 
 def run_board(path, out_dir, seed, n_parts, max_parts):
     import ex_exact as X
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
-    from kae.physics.place_terms import Terms
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
+    from haslam.physics.place_terms import Terms
     from pt_human_perturb import Legal, kind_parts
     bid = Path(path).parents[1].name
     rng = random.Random(f'{seed}:{bid}')
@@ -247,7 +247,7 @@ def run_board(path, out_dir, seed, n_parts, max_parts):
 
 # ============================================================================ aggregate
 def _phi(u, beta=4.0, usat=10.0):
-    from kae.physics import priors as PR
+    from haslam.physics import priors as PR
     return PR.phi(u, beta, usat)
 
 
@@ -273,8 +273,8 @@ def corrected(rec, anchor, cand, how):
             return None
         return f + anchor['peec'] - anchor['fast']
     if how == 'hops':
-        from kae.physics.kernels import lprime_hj
-        from kae.physics.place_terms import _red
+        from haslam.physics.kernels import lprime_hj
+        from haslam.physics.place_terms import _red
         vals = []
         for ca, cc in zip(anchor['comps'], cand['comps']):
             v = cc['fast']
@@ -512,7 +512,7 @@ def aggregate(out_dir):
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', required=True)
-    ap.add_argument('--tasks', default=str(ROOT / 'kae-work-v2' / 'tasks'))
+    ap.add_argument('--tasks', default=str(ROOT / 'haslam-work-v2' / 'tasks'))
     ap.add_argument('-j', type=int, default=1)
     ap.add_argument('--only', default='')
     ap.add_argument('--seed', type=int, default=1)

@@ -91,7 +91,7 @@ Others [S]: EECBS (bounded-suboptimal, ~50 conflicting agents), LaCAM3, large-ag
 | Permutation graphs (Dilworth) [S] | Two-sided fixed order (bus to connector): min via-free layers = longest decreasing subsequence, O(n log n); inversions = forced crossings | Bus layer bound; a pin swap that shortens the LDS saves a layer |
 | Thickness [S] | θ ≥ ⌈m/(3n − 6)⌉; NP-hard to compute | Weak on PCBs (vias are free-standing) |
 
-### 8. Proposed window-routing method for kae
+### 8. Proposed window-routing method for haslam
 
 [I]
 1. Window reroute (work item 2) as LNS, not global PathFinder: treat a BGA window as MAPF-LNS2; every window net routed with conflicts allowed; lexicographic A* on (conflicting cells with other nets, length + via cost); repair 4–16 nets at a time, chosen adaptively from three generators; accept if conflicting pairs do not rise. Reuses `lastmile.py`'s grid and A*, replaces its greedy rip-up rounds inside the window.

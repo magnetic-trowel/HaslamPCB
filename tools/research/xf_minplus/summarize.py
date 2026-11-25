@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Per-seed legal / clean / completion and length / vias (summed over boards that every
 listed run fully routed in that seed), from attempt.json (kicad-cli scores).
@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[3]
-WORK = Path(os.environ.get("XF_WORK", ROOT / "kae-work2"))
+WORK = Path(os.environ.get("XF_WORK", ROOT / "haslam-work2"))
 
 
 def load(run):

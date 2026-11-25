@@ -1,7 +1,7 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Survey: board strings with a leading-dot number ('.5A', '.8V', '.5pF') that the parsers outside
-kae.circuit.values read differently after the leading-dot fix (current ratings, net voltages, stated
+haslam.circuit.values read differently after the leading-dot fix (current ratings, net voltages, stated
 crystal load, ferrite impedance, provisional-brief frequencies).
 
   python leading_dot_numbers.py OUT.jsonl BOARD...

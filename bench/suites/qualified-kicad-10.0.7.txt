@@ -1,5 +1,5 @@
 # Boards whose human layout qualified (fully connected, no error-level DRC) after conversion with
-# KiCad 10.0.7 (kaebench prepare, 2026-10-21): 112 of 297 in candidates.jsonl.
+# KiCad 10.0.7 (haslambench prepare, 2026-10-21): 112 of 297 in candidates.jsonl.
 256foundation-emberone00-pcb-emberone
 antmicro-ddr5-testbed-ddr5-testbed
 antmicro-myra-sip-interposer-myra-sip-interposer

@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Compile a method's numba kernels into $NUMBA_CACHE_DIR before a sandboxed run, which
 # can only copy the cache (xf_run.sh). Runs each SPEC once, unsandboxed, on one board.

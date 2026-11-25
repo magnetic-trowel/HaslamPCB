@@ -59,7 +59,7 @@ The KiCad core has no SI/PI plans: a July 2026 forum request got no developer re
 | Item | Figure | Tag |
 |---|---|---|
 | PCBWorld per-rollout time | Freerouting 2.1.0, KRT, PPO, GPT-5.4 agent times -> [PCBWorld](../routing/pcbworld.md#results-table-21-5) | [P] |
-| kaebench on KiCad 10.0.7 | 22 of 79 split-C boards time out at 600 s; 4 of 297 DRC timeouts at 900 s; CLAUDE.md sets `KAE_DRC_TIMEOUT=3600` for big boards ([harness.md](harness.md)) | [M] |
+| haslambench on KiCad 10.0.7 | 22 of 79 split-C boards time out at 600 s; 4 of 297 DRC timeouts at 900 s; CLAUDE.md sets `HASLAM_DRC_TIMEOUT=3600` for big boards ([harness.md](harness.md)) | [M] |
 | gerber2ems sample | 3.37 ms/timestep × 10,000 steps ≈ 34 s per excited port; scales with cells, steps and ports | [P, derived] |
 | Analytic radiated power | 30 s vs ~5 h full-wave | [S] |
 

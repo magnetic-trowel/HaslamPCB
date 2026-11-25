@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Part cards for rpi-mains-relay: one PartDef per distinct part (see DESIGN.md section 8).
 
@@ -6,8 +6,8 @@ Every fact typed here cites where it was read (source=). Evidence was gathered i
 datasheets downloaded and read, lifecycle from Digi-Key search results. [S] = distributor listing
 or secondary source only; [I] = inferred; both are flagged in DESIGN.md.
 """
-from kaesynth import Isolation, PartDef, Ratings, VLimit
-from kaesynth.lib import C, LED, R, Conn, Fuse, MountingHole, TestPoint
+from haslamsynth import Isolation, PartDef, Ratings, VLimit
+from haslamsynth.lib import C, LED, R, Conn, Fuse, MountingHole, TestPoint
 
 # ---------------------------------------------------------------------------------------------
 # Mains side
@@ -275,7 +275,7 @@ def _mech(mpn, manufacturer, description, datasheet, source, prefix="MP", generi
 
 _CARLON = "https://tnb.ca.abb.com/en/pdf-catalogues/boxes-and-covers-meter-sockets/enclosures/E-Enclosures-E.pdf"
 
-PARTITION = _mech("KAE-RPMR-MP1", "custom (die-cut and folded to drawing, TBD)",
+PARTITION = _mech("HASLAM-RPMR-MP1", "custom (die-cut and folded to drawing, TBD)",
                   "Partition: 1.5 mm polycarbonate UL 94 V-0 (Lexan FR class): wall across the enclosure from the "
                   "PCB to the lid at the J1-J4 south faces, plus a flat sheet die-cut around J1-J4 covering the PCB "
                   "north of the wall; separates field wiring from the PCB/Pi",
@@ -294,7 +294,7 @@ ENCLOSURE = _mech("NS14126", "ABB (Carlon) Circuit Safe",
 BACK_PANEL = _mech("JP1412P", "ABB (Carlon)", "Back panel PVC 12.75 x 10.88 in for NS1412x (10-32 x 3/8 screws "
                    "ordered separately)", _CARLON, {"ratings": "catalog p.13-14 back panel table"},
                    lifecycle="active", second_source="JP1412 steel panel (then bond it to the EGC)")
-SUBPLATE = _mech("KAE-RPMR-MP4", "custom (machined to drawing, TBD)",
+SUBPLATE = _mech("HASLAM-RPMR-MP4", "custom (machined to drawing, TBD)",
                  "Receptacle subplate assembly: 6.4 mm (1/4 in) polycarbonate UL 94 V-0 plate behind the cover's "
                  "3-gang cut-out, fixed with 6 nylon-insulated through bolts; brass heat-set 6-32 inserts at standard "
                  "yoke spacing (3-9/32 in screw centres, 1-13/16 in gang pitch), never threads cut in the plastic; a "
@@ -303,7 +303,7 @@ SUBPLATE = _mech("KAE-RPMR-MP4", "custom (machined to drawing, TBD)",
                  "", {"ratings": "requirement from DESIGN.md 5.2 and review N3 [I]; not a listed device-mounting "
                                  "method (Q-17)"},
                  lifecycle="active", second_source="UL 508A panel shop to its own drawing")
-SHIELD = _mech("KAE-RPMR-MP16", "custom (folded to drawing, TBD)",
+SHIELD = _mech("HASLAM-RPMR-MP16", "custom (folded to drawing, TBD)",
                "Mains-area shield: 1.0 mm clear polycarbonate UL 94 V-0 tray over the board from the MP1 wall to the "
                "barrier band (F1 and its clips, relay contact pins, PS1 AC end, L/L_SW copper), 35 mm above the board, "
                "4 mm perforations (IP2X: finger probe cannot pass), flanges screwed to the back panel beyond both "

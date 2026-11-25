@@ -22,7 +22,7 @@ Keys: diffusion placement, chip diffusion, ICML'25, synthetic netlists, inverted
 - **AlphaFold2 recycling** (Nature 2021, [P]): whole-network iterative refinement "contributes markedly to accuracy with minor extra training time"; 4 recycles × 48 blocks = 192-step inspectable trajectory.
 - RFdiffusion motif scaffolding = conditional inpainting around fixed motifs; unified via Doob's h-transform [S].
 
-## Use in kae (research track)
+## Use in haslam (research track)
 A netlist-conditioned diffusion placer is plausible for PCBs (chip diffusion trains at ~200 objects, PCB scale); long-horizon track, not v1 [I].
 - Port the synthetic-data generator to PCBs [I]: real KiCad footprints (courtyards, pad positions) placed legally at random; nets between pads with p ∝ exp(−l/s) plus PCB structure (one power net touching many parts, very short decap pairs, connector-to-IC buses); condition on footprint geometry, side and 4-way rotation (discrete).
 - Guidance = our constraint DSL as potentials (courtyard overlap, outline, keep-outs, decap distance, HPWL) with dual ascent on legality ([LLM-guided](llm-guided-placement.md)) [I].

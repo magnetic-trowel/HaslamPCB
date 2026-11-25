@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Negotiated-congestion (PathFinder) grid router prototype: SciPy Dijkstra vs pure-Python heapq A*.
 

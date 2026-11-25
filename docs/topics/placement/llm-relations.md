@@ -1,43 +1,43 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Placement relations: what `kae place --intent` does
+# Placement relations: what `haslam place --intent` does
 
 Scope: the built phase 1 of the relations input: format checks, names, the compiler onto the placer's hooks, pre-checks, the oracle, the status rows and hazards, the settings. Not here: the design, vocabulary rationale and later phases -> [llm-relations-input](llm-relations-input.md); the hazard contract -> [hazards](../architecture/hazards.md).
-Keys: kae place --intent, kae.intent.relations, kae.place.relations, Bundle, relations status, kae.relations-status/1, relations_applied, D- rows, defaults_off, D-edge, D-label, D-order, measured only, REL_SEED_W, relations_mm, relations_vs_physics, relations_block, rel_w_strong, relation_conflict, relation_unmet
+Keys: haslam place --intent, haslam.intent.relations, haslam.place.relations, Bundle, relations status, haslam.relations-status/1, relations_applied, D- rows, defaults_off, D-edge, D-label, D-order, measured only, REL_SEED_W, relations_mm, relations_vs_physics, relations_block, rel_w_strong, relation_conflict, relation_unmet
 
 ## Format and loading
 
-`kae place IN OUT --intent FILE` reads a `kae.intent/1` file; its `relations` list follows [R2-R3](llm-relations-input.md#r3-format-kaeintent1-relations). Two stages reject a bad file before anything is placed (exit 2, a JSON line `{"error", "intent_error": true}`, no output board):
+`haslam place IN OUT --intent FILE` reads a `haslam.intent/1` file; its `relations` list follows [R2-R3](llm-relations-input.md#r3-format-haslamintent1-relations). Two stages reject a bad file before anything is placed (exit 2, a JSON line `{"error", "intent_error": true}`, no output board):
 
-1. Shape (`kae.intent.relations.check`, run by `kae.intent.objective.load`): unknown kind, argument, value or strength; a missing `why`/`source`; an id that repeats (across relations and terms) or starts `D-`; an `order` path under 3 members.
-2. Names (`kae.place.relations.Resolver`): refs, pins (`U2.5` by number, `U2.SW` by pin function), sections (the brief's, as the intent's `sections` edits them), `net:`, `label:"TEXT"` (board silk text, exact or one token, must be unique), `area:` (board-level rule area), `region:nw…se|c`, `edge:north|south|east|west|nearest`, `hole:`. Each error lists what exists.
+1. Shape (`haslam.intent.relations.check`, run by `haslam.intent.objective.load`): unknown kind, argument, value or strength; a missing `why`/`source`; an id that repeats (across relations and terms) or starts `D-`; an `order` path under 3 members.
+2. Names (`haslam.place.relations.Resolver`): refs, pins (`U2.5` by number, `U2.SW` by pin function), sections (the brief's, as the intent's `sections` edits them), `net:`, `label:"TEXT"` (board silk text, exact or one token, must be unique), `area:` (board-level rule area), `region:nw…se|c`, `edge:north|south|east|west|nearest`, `hole:`. Each error lists what exists.
 
 Not built and refused at load: `hold` `as: relative` ([open question 6](llm-relations-input.md#open-questions)).
 
 ## Compiler: relation -> hook
 
-| Relation | Hook (`kae/src/kae/place/`) | Enforced |
+| Relation | Hook (`haslam/src/haslam/place/`) | Enforced |
 |---|---|---|
 | `hold` (as drawn) | fixed at the input pose, as `--fix` | hard |
-| `on_edge`, required or strong | pinned by `edge_check.pin_poses` on the named edge's segments (outward normal within 45° of the compass), facing out (cos ≥ 0.3), along (\|cos\| ≤ 0.3) or any, at the spot nearest another relation's target on the part (a label, a region), else nearest its seed; then fixed. KiCad errors among pinned parts stay placement errors (`P.kae_placed`) | hard |
+| `on_edge`, required or strong | pinned by `edge_check.pin_poses` on the named edge's segments (outward normal within 45° of the compass), facing out (cos ≥ 0.3), along (\|cos\| ≤ 0.3) or any, at the spot nearest another relation's target on the part (a label, a region), else nearest its seed; then fixed. KiCad errors among pinned parts stay placement errors (`P.haslam_placed`) | hard |
 | `on_edge`, medium or weak | label-term pull into the edge band (the part's size + 1 mm deep) | soft |
 | `orient allowed` | the part's rotation set (`Problem.build(part_rotations=)`): right_angles, x_axis (0°, 180°), y_axis (90°, 270°), as_drawn | hard |
 | `region` (any strength) | label-term pull: target the region box's centre, dead zone the box less the part | soft |
 | `near` to a label, or to parts that do not move | label-term pull of the one movable part (dead zone: the distance plus both halves, its diagonal share) | soft |
 | `keep_away` (parts, sections, nets) | soft-overlap class `REL_CLASS + k`: a's courtyard box grown by the distance + 1 cell vs b's bodies, same side only | soft |
 | `order` | protection-order rules from each consecutive triple (annealer term, `exact.fix_order`, `OrderGuard`) | strong rule |
-| `side` | none: kae never flips; a part on the other side is a proven conflict ([Q4](llm-relations-input.md#open-questions)) | hard (input) |
+| `side` | none: haslam never flips; a part on the other side is a proven conflict ([Q4](llm-relations-input.md#open-questions)) | hard (input) |
 | `near` between movable parts, `group`, `row`, `exclusive`, `pins_toward`, `keep_away` to an area | none yet | measured only |
 
 - Pulls also seed: each pulled part starts the seed at its target and the CP-SAT floorplan holds it there with displacement weight `REL_SEED_W` = 20 (other parts 1). Without it the annealer's local moves left a part 25 mm from its region at pull weight 8 on the fixture board, and met it at 3 with it [M].
 - A part pulled by several relations takes the heaviest; the others are measured only on that part (row `applied` says so). A relation pull replaces a silk-label default on the same part.
 - Required `region`, `near`, `keep_away` are placed soft at the required weight until phase 2 builds them hard; the row says so.
 - Weights per strength (`rel_w_weak/medium/strong/required` = 0.3 / 1 / 3 / 10) are label-term weights; the silk-label default for numbered rows is 1.0.
-- `kae.joint` windows do not read relations yet (phase 2).
+- `haslam.joint` windows do not read relations yet (phase 2).
 
 ## Magnitudes
 
-`tight | close | loose` resolve per relation (`Bundle.target_mm`), all overridable as `KAE_REL_<MAG>_<CLASS>`:
+`tight | close | loose` resolve per relation (`Bundle.target_mm`), all overridable as `HASLAM_REL_<MAG>_<CLASS>`:
 
 | Pair | Metric | tight / close / loose |
 |---|---|---|
@@ -62,15 +62,15 @@ Proven from the input alone, before placing (`Bundle._prechecks`); each is a `re
 
 ## Status, conflicts and hazards
 
-After the last write, `kae place` re-reads OUTPUT and measures every relation on it (the oracle, `Bundle.status`). `report.relations` (`kae.relations-status/1`):
+After the last write, `haslam place` re-reads OUTPUT and measures every relation on it (the oracle, `Bundle.status`). `report.relations` (`haslam.relations-status/1`):
 
 - `rows`: per relation `id, kind, strength, enforced, how, met, measured, target, margin`, `binding` (parts on the segment from a member to its target, locked ones marked), `conflicts`, `proof`, `relaxations`, `applied` (what the placer did: pinned or not and why, the pull weight).
-- `defaults`: kae's own relations as `D-` rows, measured the same way: `D-edge-<ref>` (user-facing connectors pinned on an edge), `D-label-<ref>` (silk-label pulls), `D-order-<ref>` (protection order). `"defaults_off": ["D-label-*"]` switches them off; an explicit `on_edge` or pull on the part replaces its default.
+- `defaults`: haslam's own relations as `D-` rows, measured the same way: `D-edge-<ref>` (user-facing connectors pinned on an edge), `D-label-<ref>` (silk-label pulls), `D-order-<ref>` (protection order). `"defaults_off": ["D-label-*"]` switches them off; an explicit `on_edge` or pull on the part replaces its default.
 - `precheck`, `assumed`, `settings`, `summary` (`n`, `met`, `unmet`, `conflicts`, `measured_only`).
 
 Relaxations are a ladder predicted on this placement, never applied: looser magnitudes (each re-measured), other compass cells that would hold the members, k of n members, `edge:nearest`, facing any, strength weak (soft rows), drop, and `unlock <ref>` as a board change when a locked part binds.
 
-Hazards (`Bundle.hazards`, then `kae.hazards.finalize`):
+Hazards (`Bundle.hazards`, then `haslam.hazards.finalize`):
 
 | Code | Severity | When |
 |---|---|---|
@@ -81,7 +81,7 @@ Hazards (`Bundle.hazards`, then `kae.hazards.finalize`):
 
 ## Settings
 
-`kae.route.constraints.DEFAULTS` (project `KAE_<NAME>` text variable, else opts):
+`haslam.route.constraints.DEFAULTS` (project `HASLAM_<NAME>` text variable, else opts):
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -93,7 +93,7 @@ Hazards (`Bundle.hazards`, then `kae.hazards.finalize`):
 
 ## Evaluation (phase 1)
 
-Hand-written relation files for six corpus boards are test fixtures (`kae/tests/data/relations/`), written from the netlist and silk legends only, never from the human placement; two carry a deliberate conflict (an LQFP-48 asked into the middle third of a 17 mm board; a part asked onto the bottom). Kaeres experiment `relations-p1-ab3` (`tools/kaeres/experiments/relations-p1-ab.sh`): baseline/2026-w47 + this change, counted work, Freerouting probe, seeds 0 and 1, paired [M]:
+Hand-written relation files for six corpus boards are test fixtures (`haslam/tests/data/relations/`), written from the netlist and silk legends only, never from the human placement; two carry a deliberate conflict (an LQFP-48 asked into the middle third of a 17 mm board; a part asked onto the bottom). Haslamres experiment `relations-p1-ab3` (`tools/haslamres/experiments/relations-p1-ab.sh`): baseline/2026-w47 + this change, counted work, Freerouting probe, seeds 0 and 1, paired [M]:
 
 | Endpoint | Without intent | With intent |
 |---|---|---|
@@ -104,8 +104,8 @@ Hand-written relation files for six corpus boards are test fixtures (`kae/tests/
 | probe opens (sum; paired mean ± sd) | 218 | 215; −0.25 ± 2.8 |
 | HPWL ratio | | median 1.075 (0.69–1.32) |
 
-Soft relations fall short of the 90% design target at today's weights (tight label pulls at medium strength, regions on a dense board): undecided, n = 12. The first rounds exposed two pre-existing legality bugs on a board where an on_edge relation pinned a module, both fixed: KiCad errors among parts kae fixed itself counted as the caller's (`P.kae_placed`), and a pinned footprint's own rule areas stayed at its staged pose (`edge_check.with_poses`).
+Soft relations fall short of the 90% design target at today's weights (tight label pulls at medium strength, regions on a dense board): undecided, n = 12. The first rounds exposed two pre-existing legality bugs on a board where an on_edge relation pinned a module, both fixed: KiCad errors among parts haslam fixed itself counted as the caller's (`P.haslam_placed`), and a pinned footprint's own rule areas stayed at its staged pose (`edge_check.with_poses`).
 
 ## Sources
 
-- Design: [llm-relations-input](llm-relations-input.md). Code: `kae/src/kae/intent/relations.py`, `kae/src/kae/place/relations.py`, `kae/src/kae/place/pipeline.py` (`relations=`), `kae/src/kae/place/edge_check.py` (`pin_poses(spec=)`), `kae/src/kae/cli.py` (`--intent`). Tests: `kae/tests/test_place_relations.py`.
+- Design: [llm-relations-input](llm-relations-input.md). Code: `haslam/src/haslam/intent/relations.py`, `haslam/src/haslam/place/relations.py`, `haslam/src/haslam/place/pipeline.py` (`relations=`), `haslam/src/haslam/place/edge_check.py` (`pin_poses(spec=)`), `haslam/src/haslam/cli.py` (`--intent`). Tests: `haslam/tests/test_place_relations.py`.

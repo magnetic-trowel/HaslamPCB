@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Batch runner: conductor passports and physics critics on every board of a suite, plus aggregation.
 
 Report: docs/topics/physics/suite-physics-results.md. Physics numbers here are a separate scorecard: this
-script never reads or writes cp1/cpk, never writes into kaebench results or score directories, and never
+script never reads or writes cp1/cpk, never writes into haslambench results or score directories, and never
 modifies bench/.
 
 For each board:
@@ -21,11 +21,11 @@ compare.json and compare.md: router and human layouts of the same task paired by
 completion 1.0 are electrically comparable; the rest are reported separately).
 
 Usage:
-  python suite_physics.py --tasks kae-work/tasks --suite bench/suites/qualified-kicad-10.0.7.txt \\
-         --out kae-work/physics/<run> [-j 3] [--timeout 600] [--mem-gb 4] [--only id1,id2]
-  python suite_physics.py --tasks kae-work/tasks --out kae-work/physics/<router-run> --label freerouting \\
-         --boards-glob 'kae-work/results/<run>/freerouting/route/*/attempt-0/work/output/board.kicad_pcb' \\
-         [--compare-to kae-work/physics/<human-run>]
+  python suite_physics.py --tasks haslam-work/tasks --suite bench/suites/qualified-kicad-10.0.7.txt \\
+         --out haslam-work/physics/<run> [-j 3] [--timeout 600] [--mem-gb 4] [--only id1,id2]
+  python suite_physics.py --tasks haslam-work/tasks --out haslam-work/physics/<router-run> --label freerouting \\
+         --boards-glob 'haslam-work/results/<run>/freerouting/route/*/attempt-0/work/output/board.kicad_pcb' \\
+         [--compare-to haslam-work/physics/<human-run>]
   python suite_physics.py --out DIR --aggregate-only [--compare-to HUMAN_OUT]
 Re-running with the same --out skips boards that have meta.json (use --force to redo them).
 """
@@ -67,11 +67,11 @@ def rss_mb(pid):
 
 def kicad_cli_argv(cmd=None):
     """kicad-cli as an argv list: an explicit command (shell-split, so it may carry a wrapper
-    prefix), else KAE_KICAD_WRAP (e.g. an Apptainer exec prefix) + kicad-cli, else kicad-cli."""
+    prefix), else HASLAM_KICAD_WRAP (e.g. an Apptainer exec prefix) + kicad-cli, else kicad-cli."""
     import shlex
     if cmd:
         return shlex.split(cmd)
-    wrap = os.environ.get('KAE_KICAD_WRAP')
+    wrap = os.environ.get('HASLAM_KICAD_WRAP')
     return [*shlex.split(wrap), 'kicad-cli'] if wrap else ['kicad-cli']
 
 def run_child(cmd, log_path, timeout, mem_gb, cwd=None, env=None):
@@ -633,7 +633,7 @@ def compare(router_out, human_out):
 # ============================================================================ main
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--tasks', help='kaebench tasks directory (kae-work/tasks)')
+    ap.add_argument('--tasks', help='haslambench tasks directory (haslam-work/tasks)')
     ap.add_argument('--suite', help='suite file (one task id per line)')
     ap.add_argument('--only', help='comma-separated ids (overrides --suite; filters --boards-glob)')
     ap.add_argument('--boards-glob', help='arbitrary board files, e.g. router outputs; ids from the task id in the path')
@@ -644,9 +644,9 @@ def main(argv=None):
     ap.add_argument('--refill-timeout', type=float, default=None, help='seconds for the KiCad refill (default --timeout)')
     ap.add_argument('--mem-gb', type=float, default=4.0, help='resident-memory cap per tool process (GB; address space capped at 2.5x)')
     ap.add_argument('--python', default=sys.executable)
-    ap.add_argument('--kicad-cli', default=os.environ.get('KAE_KICAD_CLI'),
-                    help='kicad-cli command (may carry a wrapper prefix); default: KAE_KICAD_CLI, else '
-                         'KAE_KICAD_WRAP + kicad-cli, else kicad-cli')
+    ap.add_argument('--kicad-cli', default=os.environ.get('HASLAM_KICAD_CLI'),
+                    help='kicad-cli command (may carry a wrapper prefix); default: HASLAM_KICAD_CLI, else '
+                         'HASLAM_KICAD_WRAP + kicad-cli, else kicad-cli')
     ap.add_argument('--passport-args', default='', help='extra arguments for suite_passports.py (quoted)')
     ap.add_argument('--force', action='store_true', help='redo boards that already have meta.json')
     ap.add_argument('--keep-work', action='store_true', help='keep the refilled board copies')
@@ -658,7 +658,7 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     for bad in ('/results/', '/score', '/bench/'):
         if bad in str(out.resolve()) + '/':
-            raise SystemExit(f'refusing to write under {out}: physics output never goes into kaebench results, score or bench/')
+            raise SystemExit(f'refusing to write under {out}: physics output never goes into haslambench results, score or bench/')
     if not args.aggregate_only:
         items = board_items(args)
         print(f"{len(items)} boards -> {out} (-j {args.j}, timeout {args.timeout} s, mem {args.mem_gb} GB)", flush=True)

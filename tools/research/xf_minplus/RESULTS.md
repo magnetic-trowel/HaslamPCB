@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Experiment A (T1): min-plus best-response maps in jc (round 3, fixed engine)
 
@@ -40,7 +40,7 @@ routed cost (mm + 2/via), the ranking a best response uses:
 - **Pooled ρ is lower for min-plus** (0.72 vs 0.97): a per-part offset that does not change a best response.
 
 **Gate passed.** On engine v6.1 the results were nearly the same: 0.81 vs 0.79, regret 0.79 vs 1.48.
-Tables: `kae-work2/xf_minplus/gate-report*.md`.
+Tables: `haslam-work2/xf_minplus/gate-report*.md`.
 
 ## Results (ab33, joint, budget 120, 3 seeds; all 396 attempts ok)
 
@@ -59,7 +59,7 @@ Table columns, from `score.sh` / `table.py`:
 | xf3A-mp05-lv-ab33 | 0.990 ± 0.017 | 0.667 ± 0.030 | 0.697 | 0.940 ± 0.007 | 3402 (−1.8%) | 54 (−11%) | 2.35 ± 0.31 | 1.20 ± 0.06 |
 
 Paired by seed, against the matching baseline. Each seed is compared on the boards that
-seed's runs all fully routed (`summarize.py`, `kae-work2/xf_minplus/summarize-xf3A.md`):
+seed's runs all fully routed (`summarize.py`, `haslam-work2/xf_minplus/summarize-xf3A.md`):
 
 | arm | length / seed (mean) | vias / seed (mean) | vias without noisecard | length without noisecard |
 |---|---|---|---|---|

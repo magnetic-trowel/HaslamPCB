@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Checks of field.py on a synthetic world (no board, no KiCad): discrete maximum principle,
 streamline termination, current conservation, |J|/I integrating to the path length, walls

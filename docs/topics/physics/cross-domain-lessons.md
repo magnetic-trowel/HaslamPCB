@@ -138,7 +138,7 @@ Keys: stream function ψ, slit cost (π/4)R_s(Δψ/I)², bfieldtools, REGCOIL, M
   - Maximal Poisson-disk sampling bounds the largest empty circle between stitching vias.
 - **Does not.** Curvature is not physics below several GHz. [C] a sharp 90° corner counts as 0.56 squares at DC, consistent with R01 in [rule-genealogy-routing-style-dfm](rule-genealogy-routing-style-dfm.md).
 
-## Use in kae
+## Use in haslam
 
 - **Critics** ([physics-critics-catalog](physics-critics-catalog.md)): Δψ² slit cost; per-via share; N-1 via and neck; I²t coordination; step voltage; paralleled-layer AC share; decap within λ_pdn; multipole buffer distance; dipole orientation.
 - **IR fields** ([physics-ir](physics-ir.md)): `sizing: loss | worst_drop | heating`; `feed: reverse_return | h_tree | comb`; zones where "no noisy streamline crosses"; `mirror_loops`; per-net `fill: maximize | minimize` from dV/dt.

@@ -1,12 +1,12 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Sum kae.budget ledgers: where wall time and CPU went, and what each part was charged.
+"""Sum haslam.budget ledgers: where wall time and CPU went, and what each part was charged.
 
   python ledger.py FILE... [--by tag|argv0|none] [--self] [--min-wall 1] [--json]
 
-FILEs are logs holding kae's `[kae.budget] {...}` exit reports (adapter.log, restart attempt logs,
-kaeq job logs), one per process. Per span path it prints the count, wall seconds, own wall (less
-child spans), CPU of kae's process, CPU of child processes (KiCad, Freerouting), charged seconds
+FILEs are logs holding haslam's `[haslam.budget] {...}` exit reports (adapter.log, restart attempt logs,
+haslamq job logs), one per process. Per span path it prints the count, wall seconds, own wall (less
+child spans), CPU of haslam's process, CPU of child processes (KiCad, Freerouting), charged seconds
 and two ratios: wall / charged and CPU / charged (CPU = own + child). A ratio far from 1 is a
 mispriced action; a span charged nothing that takes time is uncounted work. The root row "" is
 each process as a whole: its own wall is time no span covered ("unattributed").
@@ -19,14 +19,14 @@ import sys
 
 
 def records(paths):
-    """(file, report) for each `[kae.budget] {...}` line of the files."""
+    """(file, report) for each `[haslam.budget] {...}` line of the files."""
     for p in paths:
         with open(p, errors="replace") as f:
             for line in f:
-                i = line.find("[kae.budget] {")
+                i = line.find("[haslam.budget] {")
                 if i >= 0:
                     try:
-                        yield p, json.loads(line[i + len("[kae.budget] "):])
+                        yield p, json.loads(line[i + len("[haslam.budget] "):])
                     except ValueError:
                         continue
 

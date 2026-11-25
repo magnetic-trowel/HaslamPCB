@@ -1,7 +1,7 @@
 # Congestion forces on parts: pin tension, bloating, soft-route gradients, Physarum
 
 **Status:** did not work (tension, bloat, Physarum); soft-route gradients did not work as a driver but `grad_phys post=phys` is a partial result for physics.
-**First published:** 2026-10-24, commit [44831ff](https://github.com/magnetic-trowel/kicad-auto-everything/commit/44831ff3f802b1758b9c1299e0ae0b212d581f9a) on branch `claude/keen-wright-mlkjv6` (tension, bloat); [6e5c658](https://github.com/magnetic-trowel/kicad-auto-everything/commit/6e5c658f0ea7c268fe8d44682160bf7a820b4d4b) (grad, Physarum; results [aa741a1](https://github.com/magnetic-trowel/kicad-auto-everything/commit/aa741a14eadb45994fbb2b766997b61c5b273871), [4570654](https://github.com/magnetic-trowel/kicad-auto-everything/commit/4570654c232260243ba594c722365b0394181fff)).
+**First published:** 2026-10-24, commit [44831ff](https://github.com/magnetic-trowel/HaslamPCB/commit/44831ff3f802b1758b9c1299e0ae0b212d581f9a) on branch `claude/keen-wright-mlkjv6` (tension, bloat); [6e5c658](https://github.com/magnetic-trowel/HaslamPCB/commit/6e5c658f0ea7c268fe8d44682160bf7a820b4d4b) (grad, Physarum; results [aa741a1](https://github.com/magnetic-trowel/HaslamPCB/commit/aa741a14eadb45994fbb2b766997b61c5b273871), [4570654](https://github.com/magnetic-trowel/HaslamPCB/commit/4570654c232260243ba594c722365b0394181fff)).
 
 Scope: four ways to turn routing information into a continuous push on parts. All numbers v5 era (place tasks, 120 CPU-s, **1 seed**; [eras](README.md#eras-and-caveats)); `seq` / `seq_phys` reference values → [sequential-controls.md](sequential-controls.md#results), [physics-objective.md](physics-objective.md#results). Not here: harmonic fields, the potential-flow cousin of Physarum -> [jc-extensions.md](jc-extensions.md#harmonic-field-routing-and-field-pressure).
 Keys: pin tension, envelope theorem, bloat, SimPLR, soft routing, soft-route gradient, grad, grad_hpwl, grad_phys, `post=phys`, direction test, gradcheck, Physarum, slime mould, Tero, copper as charge, ideas 2 3 17 18 20 22 23 26
@@ -54,7 +54,7 @@ Shared lesson: on boards that route at about HPWL length, the routing signal add
 - Part motion (from `seq`): pads pull along their outgoing tubes, foreign occupancy pushes the body, optionally −`phys_w` · ∇physics; steps legalized and kept only if network cost drops.
 - Routing prior: +λ history for net n off its dilated final tubes (λ = 0.2 default).
 
-**Results** ([pnr_slime/RESULTS.md](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/pnr_slime/RESULTS.md)):
+**Results** ([pnr_slime/RESULTS.md](https://github.com/magnetic-trowel/HaslamPCB/blob/archive/research-prototypes-2611/tools/research/pnr_slime/RESULTS.md)):
 - dev6: motion, prior and full equal `seq` (completion 0.904–0.908, length 683–685 mm) or worse (full lost a clean board to `starved_thermal`).
 - phys10: seq + slime with physics, place physics 3.77 vs 4.05; on top of `seq_phys` 1.53 vs 1.52, routed 1.30 vs 1.26.
 - Unconditional force moves: HPWL +4–8%, routed length +3–7%; λ = 0.6: +2–8% length. Not run on all 33 boards.
@@ -67,11 +67,11 @@ Shared lesson: on boards that route at about HPWL length, the routing signal add
 
 ## Code
 
-- **Archived:** [`pnr_slime`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/pnr_slime) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/kicad-auto-everything/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [1e53ff1](https://github.com/magnetic-trowel/kicad-auto-everything/commit/1e53ff126883570507cb8f7400556e52c200ff25) (2026-10-27, import from the research branch, path fixes only). Run it from a checkout of the tag.
+- **Archived:** [`pnr_slime`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/pnr_slime) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/HaslamPCB/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [1e53ff1](https://github.com/magnetic-trowel/HaslamPCB/commit/1e53ff126883570507cb8f7400556e52c200ff25) (2026-10-27, import from the research branch, path fixes only). Run it from a checkout of the tag.
 
 - [`tools/research/pnr/methods.py`](../../../tools/research/pnr/methods.py): `tension`, `pin_tensions`, `bloat`.
 - [`tools/research/pnr_grad/`](../../../tools/research/pnr_grad/): `grad.py` (`grad`, `grad_hpwl`, `grad_phys`), `gradcheck.py`.
-- [`tools/research/pnr_slime/slime.py`](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/pnr_slime/slime.py) (`slime`, `slime_motion`, `slime_prior`, `slime_phys`, `slime_phys2`).
+- [`tools/research/pnr_slime/slime.py`](https://github.com/magnetic-trowel/HaslamPCB/blob/archive/research-prototypes-2611/tools/research/pnr_slime/slime.py) (`slime`, `slime_motion`, `slime_prior`, `slime_phys`, `slime_phys2`).
 
 ## Related
 

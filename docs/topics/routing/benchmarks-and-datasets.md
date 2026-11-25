@@ -31,9 +31,9 @@ Keys: PCBench, PCBWorld-Bench, D3-A, D3-B, D3-C, OmniRouting, ASP-DAC 2021 PCBBe
 ## Contests and SI coverage
 
 - No ISPD/ICCAD PCB routing contest exists: ICCAD 2015–2026 problem titles contain no PCB/board/package problem; ICCAD 2018 Problem B (bus routing) is IC → [length matching](length-matching-and-buses.md).
-- No public benchmark scores SI constraints (coupling, skew, length-group spread, return vias): kae must add an SI harness [I].
+- No public benchmark scores SI constraints (coupling, skew, length-group spread, return vias): haslam must add an SI harness [I].
 
-## Evaluation stack for kae
+## Evaluation stack for haslam
 
 [I]
 - PCBWorld D3-A/B with @1 and @5 next to published Freerouting/KRT/PPO/DeepPCB numbers; D3-C + Freerouting Tier C/D as stress sets; OmniRouting multilayer subset (EAGLE, needs conversion); a custom SI-constraint harness (coupling, skew, length-group spread, return vias, plane-reference changes) plus practitioner metrics → [skepticism](autorouter-skepticism.md#practitioner-metrics-to-score).

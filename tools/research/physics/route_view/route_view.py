@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Several routings of one board side by side as an interactive page: tracks by copper layer, pads, vias,
 part outlines and pour outlines (fills are not drawn), with synced zoom and pan, layer toggles and a net
@@ -8,7 +8,7 @@ highlighted across every version on hover.
         --version human="Human layout"=human/board.kicad_pcb \
         --version fr="Freerouting alone"=runs/fr.kicad_pcb ... [--meta META.json]
 
-META.json (optional): {"note": "...", "rerouted": [nets highlighted by the 'routed by kae' toggle],
+META.json (optional): {"note": "...", "rerouted": [nets highlighted by the 'routed by haslam' toggle],
 "rows": {"loss": ["53.6 mW", ...], ...}, "row_labels": [["loss", "Copper loss", 1], ...]} where each row has
 one value per version and a 1 marks rows whose smallest number is highlighted.
 The page is template.html beside this file with the data inlined."""
@@ -17,8 +17,8 @@ import json
 import math
 from pathlib import Path
 
-from kae.board import transform as T
-from kae.board.kicad_file import load
+from haslam.board import transform as T
+from haslam.board.kicad_file import load
 
 
 def r(v):

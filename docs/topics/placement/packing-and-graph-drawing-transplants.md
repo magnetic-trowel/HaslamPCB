@@ -32,7 +32,7 @@ Keys: sparrow, jagua-rs, hazards, guided local search, irregular nesting, sequen
 - **Control cabinets**: Pareto SA on wire length vs heat → [sides/thermal](sides-thermal-emc-reuse.md#methods-and-results); duct auto-wiring with fill-level and EMC segregation (Zuken E3.panel) [S].
 - **Origami/foldable PCBs**: PCB Origami, PCBend joints free of rigid parts, Miura-ori stretchable boards [S].
 
-## Use in kae
+## Use in haslam
 - **sparrow-style legalizer** [I]: fix outline; courtyards = interior hazards; outline complement, keep-outs, hole clearances, connector-overhang zones = hazards with per-type filters (height zones under heatsinks, no-back-side zones); allow overlaps; GLS on weighted overlap proxy + displacement-from-target + HPWL; then compress block bounding boxes. Keep connectivity terms or inflate courtyards by channel margins (nesting ignores nets).
 - **Sequence-pair bridge** [I]: LLM pairwise relations = partial SP → complete by topological sort (tie-break by netlist proximity) → longest-path decode = non-overlapping packing (reject cyclic relation sets first; outline/keep-out/fixed-part legality via the legalizer); anneal remaining freedom with the LLM's partial order as hard precedence.
 - **Block floorplanning as UAFLP**: LLM supplies flow matrix (net count × criticality) and area estimates; slicing-tree GA or MIP [I].

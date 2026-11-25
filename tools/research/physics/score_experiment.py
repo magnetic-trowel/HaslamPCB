@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Physics under each board's intent for every layout of a kaeres experiment (and the human layout).
+"""Physics under each board's intent for every layout of a haslamres experiment (and the human layout).
 
     python score_experiment.py queue EXPERIMENT --intents DIR --out DIR [--boards @FILE] > batch.txt
-        one eval_intent.sh command per (board, layout) not yet evaluated, for `kaeq submit --batch`;
+        one eval_intent.sh command per (board, layout) not yet evaluated, for `haslamq submit --batch`;
         each line carries its own --cpus/--mem (sized from the board's footprints)
     python score_experiment.py table EXPERIMENT --intents DIR --out DIR -o table.csv
         per board, each layout's key under its intent, on the terms every layout of that board computed
@@ -19,14 +19,14 @@ import json
 import os
 import sys
 
-STORE = os.path.expanduser("~/kae-baselines")
-CORPUS = os.path.expanduser("~/kae-boards/boards")
+STORE = os.path.expanduser("~/haslam-baselines")
+CORPUS = os.path.expanduser("~/haslam-boards/boards")
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def runs(exp, boards=None):
     """(board, tag, board file, method name) for the human layout and every ok attempt-0 run of the
-    experiment's methods on its boards, whichever experiment made the run (kaeres reuses runs)."""
+    experiment's methods on its boards, whichever experiment made the run (haslamres reuses runs)."""
     e = json.load(open(f"{STORE}/experiments/{exp}/experiment.json"))
     mids = {m["id"] for m in e["methods"]}
     eb = set(open(f"{STORE}/experiments/{exp}/boards.txt").read().split())
@@ -68,7 +68,7 @@ def cmd_queue(a):
         fp = footprints(b)
         mem = min(60, int(3 + 0.16 * fp))
         hours = 1 if fp <= 80 else (3 if fp <= 250 else 6)
-        print(json.dumps(dict(cmd=f"env KAE_PY={py} KAE_RULES_FROM={CORPUS}/{b}/board.kicad_pcb {HERE}/eval_intent.sh "
+        print(json.dumps(dict(cmd=f"env HASLAM_PY={py} HASLAM_RULES_FROM={CORPUS}/{b}/board.kicad_pcb {HERE}/eval_intent.sh "
                                   f"{path} {op} {it} {od} {tag}",
                               name=f"phys:{b[:40]}:{tag[:24]}", cpus=4, mem=f"{mem}G", timeout=f"{hours}h")))
         n += 1
@@ -76,8 +76,8 @@ def cmd_queue(a):
 
 
 def cmd_table(a):
-    sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "kae", "src"))
-    from kae.intent import objective as OB
+    sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "haslam", "src"))
+    from haslam.intent import objective as OB
     by = {}
     for b, tag, _, m in runs(a.experiment, a.board_list):
         p = f"{a.out}/{b}/{tag}.status.json"

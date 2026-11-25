@@ -14,10 +14,10 @@ Every test starts from the same final copper (undone after).
 import sys, json, gzip, shutil, time, math
 from pathlib import Path
 from shapely.geometry import box
-from kae.board import pcbnew_io
-from kae.board.kicad_file import load
-from kae.route import constraints, drc, bridge, lastmile as LM
-from kae.route.critical_space import Space
+from haslam.board import pcbnew_io
+from haslam.board.kicad_file import load
+from haslam.route import constraints, drc, bridge, lastmile as LM
+from haslam.route.critical_space import Space
 
 inp, routed, drcp, od = sys.argv[1], sys.argv[2], sys.argv[3], Path(sys.argv[4])
 human = sys.argv[5] if len(sys.argv) > 5 else None

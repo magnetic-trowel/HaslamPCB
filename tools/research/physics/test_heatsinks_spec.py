@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """intent_from_spec: heat sinks and forced air in a board spec become operating facts, checked against the board."""
 import os
@@ -12,7 +12,7 @@ SUMMARY = {"parts": [{"ref": "U1", "kind": "ic", "value": "LM1117-5.0", "lib_id"
 
 
 def compile_thermal(thermal):
-    spec = {"schema": "kae.board-spec/1", "purpose": "test", "rails": [], "loads": [], "thermal": thermal}
+    spec = {"schema": "haslam.board-spec/1", "purpose": "test", "rails": [], "loads": [], "thermal": thermal}
     intent, op = I.compile_spec(spec, SUMMARY)
     return op["requirements"].get("thermal") or {}, op["provenance"]["rejected"]
 
@@ -37,7 +37,7 @@ def test_heat_sinks_and_airflow_reach_the_operating_facts_and_bad_ones_are_rejec
 def test_assembly_process_is_recorded_with_the_boards_own_evidence():
     summary = dict(SUMMARY, parts=SUMMARY["parts"] + [{"ref": "U2", "kind": "ic", "value": "ESP32-C3",
                                                          "lib_id": "Package_DFN_QFN:QFN-32-1EP_5x5mm", "nets": {}}])
-    spec = {"schema": "kae.board-spec/1", "rails": [], "loads": [], "assembly": {"process": "hand", "why": "a kit"}}
+    spec = {"schema": "haslam.board-spec/1", "rails": [], "loads": [], "assembly": {"process": "hand", "why": "a kit"}}
     _, op = I.compile_spec(spec, summary)
     a = op["requirements"]["assembly"]
     assert a["process"] == "hand" and a["reflow_only_parts"] == ["U2"]

@@ -1,7 +1,7 @@
 # Rule genealogy, derivation audit and foundations
 
 **Status:** partial (analysis computed model-vs-model; nothing built into the tools, nothing measured).
-**First published:** 2026-10-22, commit [0822bd7](https://github.com/magnetic-trowel/kicad-auto-everything/commit/0822bd7f76d20a1683abd9eb2292aab23144744c) on branch `claude/vigilant-mayer-i91rrr`.
+**First published:** 2026-10-22, commit [0822bd7](https://github.com/magnetic-trowel/HaslamPCB/commit/0822bd7f76d20a1683abd9eb2292aab23144744c) on branch `claude/vigilant-mayer-i91rrr`.
 
 Scope: 160 PCB rules of thumb decompressed into protected quantity + binding regime, then derived from seven principles. Not here: full tables -> [rule-basis-set](../../topics/physics/rule-basis-set.md), [derivation-audit](../../topics/physics/derivation-audit.md), [foundations](../../topics/physics/foundations.md).
 Keys: rule genealogy, derivation audit, foundations, basis quantities, regime selectors, proxy words, criterion G, (I − G)⁻¹, spectral radius, T1 impedance level, P01–P59, S01–S55, R01–R46, RG1–RG53, F1–F7
@@ -45,7 +45,7 @@ Method: closed forms (Hammerstad–Jensen, Grover, cavity via pair, Johnson via 
 
 ## Results
 
-All [C], model vs model. Sources: [rule-basis-set](../../topics/physics/rule-basis-set.md); genealogy tables [power/analog/thermal](../../topics/physics/rule-genealogy-power-analog-thermal.md), [SI/EMI/RF](../../topics/physics/rule-genealogy-si-emi-rf.md), [routing style/DFM](../../topics/physics/rule-genealogy-routing-style-dfm.md); [derivation-audit](../../topics/physics/derivation-audit.md) (commit [19a4d7b](https://github.com/magnetic-trowel/kicad-auto-everything/commit/19a4d7bd8f168de136541f4c068b2739c596ec03)); [foundations](../../topics/physics/foundations.md) (commit [b5c2122](https://github.com/magnetic-trowel/kicad-auto-everything/commit/b5c2122483d5c483b1ad81fc482db6f1e361379b)).
+All [C], model vs model. Sources: [rule-basis-set](../../topics/physics/rule-basis-set.md); genealogy tables [power/analog/thermal](../../topics/physics/rule-genealogy-power-analog-thermal.md), [SI/EMI/RF](../../topics/physics/rule-genealogy-si-emi-rf.md), [routing style/DFM](../../topics/physics/rule-genealogy-routing-style-dfm.md); [derivation-audit](../../topics/physics/derivation-audit.md) (commit [19a4d7b](https://github.com/magnetic-trowel/HaslamPCB/commit/19a4d7bd8f168de136541f4c068b2739c596ec03)); [foundations](../../topics/physics/foundations.md) (commit [b5c2122](https://github.com/magnetic-trowel/HaslamPCB/commit/b5c2122483d5c483b1ad81fc482db6f1e361379b)).
 
 | Result | Value |
 |---|---|
@@ -73,7 +73,7 @@ Red-team corrections ([redteam-corrections](redteam-corrections.md)): S18 fill-g
 
 ## Verdict
 
-Useful map: most rules encode a real quantity and fail by regime, not direction. Limits: one auditor's classification (agreement test RG40 proposed, not run); every verdict waits on measured boards. None of RG1–RG53 (rule store, regime predicates, proxy-word lint, myth-zoo regression suite) is implemented; `kae` uses its own closed forms in `kae/src/kae/physics/`. P7 needs a damage-norm objective class that does not exist.
+Useful map: most rules encode a real quantity and fail by regime, not direction. Limits: one auditor's classification (agreement test RG40 proposed, not run); every verdict waits on measured boards. None of RG1–RG53 (rule store, regime predicates, proxy-word lint, myth-zoo regression suite) is implemented; `haslam` uses its own closed forms in `haslam/src/haslam/physics/`. P7 needs a damage-norm objective class that does not exist.
 
 ## Code
 

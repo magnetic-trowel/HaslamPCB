@@ -1,7 +1,7 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The critical router's module stage under --physics-fidelity fast, multi and exact
-(kae.physics.exact; docs/topics/physics/exact-physics-in-kae.md section 4).
+(haslam.physics.exact; docs/topics/physics/exact-physics-in-haslam.md section 4).
 
 For one placed board (a route task's input), every loop module (cells, power paths, decaps,
 protection chains) is routed by critical_modules.route_module once per fidelity, from the
@@ -10,8 +10,8 @@ seconds, PEEC calls, multi's decisions and changed choices, the vias chosen, and
 (closed-form) and exact (PEEC) values of the copper it ended with. Per evaluation: the
 closed-form and PEEC quote times on the fast run's final copper (cold and warm block cache).
 
-    kae/.venv/bin/python tools/research/physics/ex_fidelity.py BOARD.kicad_pcb [--k 4]
-        [--modes fast,multi,exact] [--out kae-work-v3/physics/exact-fidelity/NAME.json]
+    haslam/.venv/bin/python tools/research/physics/ex_fidelity.py BOARD.kicad_pcb [--k 4]
+        [--modes fast,multi,exact] [--out haslam-work-v3/physics/exact-fidelity/NAME.json]
 
 Needs KiCad's Python for the DSN export (as the critical router). One core; a board of a few
 dozen modules takes 1-10 minutes.
@@ -29,9 +29,9 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_v, "1")
 
 ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / "kae" / "src"))
+sys.path.insert(0, str(ROOT / "haslam" / "src"))
 
-from kae.physics import exact as EX  # noqa: E402
+from haslam.physics import exact as EX  # noqa: E402
 
 KINDS = ("cell", "path", "decap", "chain")
 
@@ -41,10 +41,10 @@ def _vias(m):
 
 
 def run_mode(path, mode, k, shared, log):
-    from kae.board.kicad_file import load
-    from kae.route.critical import Session
-    from kae.route.critical_modules import modules_from_brief, route_module
-    from kae.route.critical_rails import rail_currents
+    from haslam.board.kicad_file import load
+    from haslam.route.critical import Session
+    from haslam.route.critical_modules import modules_from_brief, route_module
+    from haslam.route.critical_rails import rail_currents
     rows = {}
     with EX.scope(mode, k=k):
         EX.clear_cache()
@@ -75,7 +75,7 @@ def run_mode(path, mode, k, shared, log):
 
 def timing(sess, mods, n=3):
     """Closed-form and PEEC quote CPU times on each loop module's final copper."""
-    from kae.route.critical_modules import quote
+    from haslam.route.critical_modules import quote
     out = {}
     for m in mods:
         if m.kind not in ("cell", "path", "decap") or m.status not in ("routed", "partial"):
@@ -108,21 +108,21 @@ def main(argv=None):
     a = ap.parse_args(argv)
     path = Path(a.board).resolve()
     name = path.parent.parent.parent.name if path.parent.name == "input" else path.stem
-    out = Path(a.out) if a.out else ROOT / "kae-work-v3" / "physics" / "exact-fidelity" / f"{name}.json"
+    out = Path(a.out) if a.out else ROOT / "haslam-work-v3" / "physics" / "exact-fidelity" / f"{name}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
 
     def log(msg):
         print(msg, flush=True)
     import tempfile
 
-    from kae.board import pcbnew_io
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
-    from kae.route.critical_modules import place_terms
+    from haslam.board import pcbnew_io
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
+    from haslam.route.critical_modules import place_terms
     t0 = time.process_time()
     b = load(path)
     brief = build(b)
-    with tempfile.TemporaryDirectory(prefix="kae-exf-") as d:
+    with tempfile.TemporaryDirectory(prefix="haslam-exf-") as d:
         info = pcbnew_io.export_dsn(path, Path(d) / "board.dsn")
     terms = place_terms(b, brief)
     shared = dict(brief=brief, info=info, terms=terms)

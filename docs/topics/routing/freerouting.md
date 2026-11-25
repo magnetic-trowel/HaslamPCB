@@ -1,6 +1,6 @@
 # Freerouting: internals, interfaces and current performance
 
-Scope: Freerouting lineage, search internals, defaults, interfaces, self-reported and external benchmarks. Not here: how kae translates KiCad rules into DSN and relies on 2.5.0 behaviour -> [constraint bridge](freerouting-constraint-bridge.md); integration pitfalls -> [specctra-freerouting-integration](../kicad/specctra-freerouting-integration.md).
+Scope: Freerouting lineage, search internals, defaults, interfaces, self-reported and external benchmarks. Not here: how haslam translates KiCad rules into DSN and relies on 2.5.0 behaviour -> [constraint bridge](freerouting-constraint-bridge.md); integration pitfalls -> [specctra-freerouting-integration](../kicad/specctra-freerouting-integration.md).
 Keys: Freerouting, Specctra DSN, SES, expansion room, ExpansionDoor, DestinationDistance, MazeRipupResolver, MazeTraceShover, ItemSelectionStrategy, fanout, via_costs, start_ripup_costs, max_passes, -mp, -mt, improvement_threshold, -drc, -inc, REST API, MCP server, freerouting-client, nightly benchmark, tiers A–D, v2.5.0, 2.6.0-RC3, 2.6.0-RC4, #925, Issue 558
 
 **Results**
@@ -61,13 +61,13 @@ PCBench suite, 1,157 boards, v2.4.1 → v2.5.0 ([release](https://github.com/fre
 
 - PCBWorld (v2.1.0, `-mp 10`): best D3-B clean pass of all methods, 7–10 s/board; fewer vias and shorter WL than the human boards (D3-A at routability 0.91) → [PCBWorld](pcbworld.md#results-table-21-5), [skepticism](autorouter-skepticism.md#benchmark-evidence).
 - FanoutNet (v1.4.5.1): 81%, >24 h on 4/5 HDI boards. Cypress used v1.9.0 two layers. DeepPCB marketing claims ("60–75%") conflict with these [V].
-- kae measurements of 2.5.0 on our benchmark → [constraint bridge](freerouting-constraint-bridge.md#measured-effect).
+- haslam measurements of 2.5.0 on our benchmark → [constraint bridge](freerouting-constraint-bridge.md#measured-effect).
 
-## Use in kae
+## Use in haslam
 
-- Pin a tested build as bulk router, fallback and routability judge; kae's control is the pinned fork ([RC10 vs fork](../../research/routing/freerouting-rc10-vs-fork-2611.md)). Do not wait for 2.6.0: on zoned fixtures RC16 is worse than 2.5.0 and slower ([PR 1184](https://github.com/freerouting/freerouting/pull/1184)) [P]; re-score outputs with KiCad DRC; record version/flags in every benchmark [I].
+- Pin a tested build as bulk router, fallback and routability judge; haslam's control is the pinned fork ([RC10 vs fork](../../research/routing/freerouting-rc10-vs-fork-2611.md)). Do not wait for 2.6.0: on zoned fixtures RC16 is worse than 2.5.0 and slower ([PR 1184](https://github.com/freerouting/freerouting/pull/1184)) [P]; re-score outputs with KiCad DRC; record version/flags in every benchmark [I].
 - Final runs `-mt 1`: every run prints "Multi-threaded route optimization is broken and it is known to generate clearance violations" (POA sets `num_threads = 1`; KMS forces `-mt 1` in best-of-N → [integration pitfalls](../kicad/specctra-freerouting-integration.md#pitfalls-documented-by-the-four-mcp-codebases)) [P]. Fidelity knobs (`-mp`, `-mt 0` = optimizer off, improvement threshold) for fast probes only; budget minutes–hours on large boards; run as a JVM process [I].
-- Freerouting is deterministic in DSN item order: the same DSN gives the same result; diversity comes from permuting item order (`--seed`) → [restart portfolio](../../research/routing/kae-restart-portfolio.md).
+- Freerouting is deterministic in DSN item order: the same DSN gives the same result; diversity comes from permuting item order (`--seed`) → [restart portfolio](../../research/routing/haslam-restart-portfolio.md).
 - Pre-route and lock SI-critical classes (pairs, matched groups, escape) before bulk; compensate weaknesses with LLM-set order hints, via costs, layer directions [I].
 - Contribute or wrap improvements (congestion-aware fanout, negotiated rip-up schedule): code is GPL-3 and actively developed [I].
 

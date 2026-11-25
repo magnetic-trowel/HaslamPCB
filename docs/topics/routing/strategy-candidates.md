@@ -1,6 +1,6 @@
-# Routing strategy candidates for kaebench
+# Routing strategy candidates for haslambench
 
-Scope: ranked routing strategies for kaebench with effort, expected gain and kill criterion. Not here: the evaluation plan and split C failure diagnosis -> [dev-eval-plan](../verification/dev-eval-plan.md).
+Scope: ranked routing strategies for haslambench with effort, expected gain and kill criterion. Not here: the evaluation plan and split C failure diagnosis -> [dev-eval-plan](../verification/dev-eval-plan.md).
 Keys: R1, R2, R3, R4, R5, R6, R7, R9, budgets, partial output, DSN fidelity, seeded diversity, best-of-k, fastroute, DRC-driven repair, portfolio selector, oracle portfolio, PCBWorld-Engine, negotiated-congestion router, kill criterion
 
 Order: cheap wins first (budgets with partial output, DSN fidelity, seeded diversity), then new engines (fastroute, then KRT in a portfolio); a home-grown PathFinder router is gated on measured congestion. Gains are hypotheses [I] unless tagged [P]/[M].

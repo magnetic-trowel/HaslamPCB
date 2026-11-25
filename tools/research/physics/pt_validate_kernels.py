@@ -1,13 +1,13 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Place-term estimators vs exact kernels (docs/topics/physics/place-terms.md, Validation).
 
 Each section builds the same geometry for an exact (or finer) solver and for the fast
-estimator in kae.physics, and reports the error distribution. Sections:
+estimator in haslam.physics, and reports the error distribution. Sections:
 
   loop_peec     (a) commutation cells, routed around their pads (grid A*), PEEC
                 (pw_peec, filament partial inductances with a PEC plane) vs the closed
-                forms of kae.physics.kernels.loop_L on the same routed segments, and vs the
+                forms of haslam.physics.kernels.loop_L on the same routed segments, and vs the
                 placement estimator (jit loop_core on straight pad-to-pad hops);
   decap_peec    (b) decoupling loops (0402 cap at a QFN pin pair), same three ways;
   oblique       loop_core vs loop_L on random oblique straight-hop loops: what the fast
@@ -23,11 +23,11 @@ estimator in kae.physics, and reports the error distribution. Sections:
   cprime        (d) per-length trace capacitance (Hammerstad-Jensen) vs fe_field2d;
   thermal       (e) fin kernel with edge images (rings 0, 1, 2) vs tm_board_thermal_fv;
   rb_hf         (a) on human boards: estimator vs rb_board_passports' HF loop L of the
-                same cell (kae-work/physics/human-k10-mmd; rb is uncalibrated: ranks).
+                same cell (haslam-work/physics/human-k10-mmd; rb is uncalibrated: ranks).
 
 Usage:
   python tools/research/physics/pt_validate_kernels.py [--only loop_peec,thermal] [--out DIR] [--quick]
-Needs kae/.venv (numpy, scipy, shapely). Deterministic. About 5 minutes on one core.
+Needs haslam/.venv (numpy, scipy, shapely). Deterministic. About 5 minutes on one core.
 """
 from __future__ import annotations
 
@@ -45,15 +45,15 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / 'kae' / 'src'))
+sys.path.insert(0, str(ROOT / 'haslam' / 'src'))
 sys.path.insert(0, str(HERE))
 
 import numpy as np  # noqa: E402
 from scipy.stats import spearmanr  # noqa: E402
 
 import pw_peec as pw  # noqa: E402
-from kae.physics import kernels as K  # noqa: E402
-from kae.physics.jit import GAUSS, PY  # noqa: E402
+from haslam.physics import kernels as K  # noqa: E402
+from haslam.physics.jit import GAUSS, PY  # noqa: E402
 
 MM = 1e-3
 
@@ -477,7 +477,7 @@ def sec_esd(quick):
     """Surge path connector pin -> strip of length l at height h -> protector -> via into
     the plane (connector side closed through its own pin/via): EsdComp's L'(w,h) l + vias
     vs PEEC."""
-    from kae.physics import fastloop as FL
+    from haslam.physics import fastloop as FL
     rows = []
     for h in (0.1, 0.2, 0.4, 0.8):
         for ln in (2.0, 5.0, 10.0, 20.0):
@@ -636,8 +636,8 @@ def sec_thermal(quick):
     3 x 3 mm pads. FV temperature at each source centre and at probe points vs the fin kernel
     with 0, 1, 2 rings of adiabatic-edge images (ThermalField)."""
     import tm_board_thermal_fv as tm
-    from kae.physics.kernels import fin_params
-    from kae.physics.structures import State, ThermalField
+    from haslam.physics.kernels import fin_params
+    from haslam.physics.structures import State, ThermalField
     lx, ly = 60.0, 40.0
     srcs = [(10.0, 10.0, 1.0), (30.0, 20.0, 0.5), (52.0, 32.0, 0.8), (45.0, 8.0, 0.3), (3.0, 37.0, 0.4)]
     probes = [(20.0, 20.0), (40.0, 30.0), (57.0, 5.0), (5.0, 25.0)]
@@ -674,12 +674,12 @@ def sec_thermal(quick):
 # ============================================================================ rb passports
 def sec_rb_hf(quick):
     """Commutation-cell estimate at the human placement vs rb_board_passports' HF loop L of
-    the same cell (switching part + its decoupling cap), from kae-work/physics/human-k10-mmd."""
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
-    from kae.physics.place_terms import Terms
+    the same cell (switching part + its decoupling cap), from haslam-work/physics/human-k10-mmd."""
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
+    from haslam.physics.place_terms import Terms
     rows = []
-    for f in sorted(glob.glob(str(ROOT / 'kae-work' / 'physics' / 'human-k10-mmd' / '*' / 'passports.json'))):
+    for f in sorted(glob.glob(str(ROOT / 'haslam-work' / 'physics' / 'human-k10-mmd' / '*' / 'passports.json'))):
         d = json.load(open(f))
         # rb's own failures (a non-finite or absurd L, e.g. 1.9e11 nH on one cell) are dropped
         cells = [c for c in (d.get('hf') or {}).get('cells', [])
@@ -687,7 +687,7 @@ def sec_rb_hf(quick):
         if not cells:
             continue
         bid = Path(f).parent.name
-        pcb = ROOT / 'kae-work' / 'tasks' / bid / 'reference' / 'board.kicad_pcb'
+        pcb = ROOT / 'haslam-work' / 'tasks' / bid / 'reference' / 'board.kicad_pcb'
         if not pcb.exists():
             continue
         b = load(str(pcb))
@@ -733,7 +733,7 @@ SECTIONS = dict(loop_peec=sec_loop_peec, decap_peec=sec_decap_peec, oblique=sec_
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--only', default='')
-    ap.add_argument('--out', default=str(ROOT / 'kae-work' / 'physics' / 'place-terms' / 'validate'))
+    ap.add_argument('--out', default=str(ROOT / 'haslam-work' / 'physics' / 'place-terms' / 'validate'))
     ap.add_argument('--quick', action='store_true')
     a = ap.parse_args(argv)
     names = [n for n in a.only.split(',') if n] or list(SECTIONS)

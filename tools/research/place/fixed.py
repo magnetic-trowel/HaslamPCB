@@ -1,10 +1,10 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The fixed-part classifier (kae.place.fixed.classify: the benchmark's mech_rules) on the
+"""The fixed-part classifier (haslam.place.fixed.classify: the benchmark's mech_rules) on the
 human boards: per class and split, parts and boards, the deciding rules, and the parts a rule
 frees (test points, jumpers, trimmers, programming / debug headers, ...) with why.
 
-    python tools/research/place/fixed.py kae-work-v3/tasks [--json rows.json] [--show N]
+    python tools/research/place/fixed.py haslam-work-v3/tasks [--json rows.json] [--show N]
 """
 import argparse
 import collections
@@ -13,8 +13,8 @@ import json
 import os
 import sys
 
-from kae.board.kicad_file import load
-from kae.place import fixed
+from haslam.board.kicad_file import load
+from haslam.place import fixed
 
 
 def main(argv=None):

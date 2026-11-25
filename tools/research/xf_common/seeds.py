@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Seed spread of kaebench joint runs (and place runs with --probe self): compare.py
+"""Seed spread of haslambench joint runs (and place runs with --probe self): compare.py
 reads attempt-0 only.
 
     python seeds.py $XF_WORK/results/RUN1 [RUN2 ...] [--suite FILE]

@@ -1,7 +1,7 @@
 # LLM proposes relational moves, the engine verifies
 
 **Status:** did not work (routing inconclusive, physics no merit).
-**First published:** 2026-10-24, commit [6e5c658](https://github.com/magnetic-trowel/kicad-auto-everything/commit/6e5c658f0ea7c268fe8d44682160bf7a820b4d4b) on branch `claude/keen-wright-mlkjv6` (results [13be758](https://github.com/magnetic-trowel/kicad-auto-everything/commit/13be75829834fe3da9aae61f835b35b1becf7b17)).
+**First published:** 2026-10-24, commit [6e5c658](https://github.com/magnetic-trowel/HaslamPCB/commit/6e5c658f0ea7c268fe8d44682160bf7a820b4d4b) on branch `claude/keen-wright-mlkjv6` (results [13be758](https://github.com/magnetic-trowel/HaslamPCB/commit/13be75829834fe3da9aae61f835b35b1becf7b17)).
 
 Scope: a language model proposes only relational moves ("put C3 tight to U1 pin 5", "swap R1 and R2"); the pnr engine realizes and verifies them (idea 30 of the [catalog](../../ideas/original/joint-pnr.md)). Not merit-list arm. Not here: other LLM-driven work -> the llm-design area of `docs/research/`.
 Keys: LLM proposer, relational moves, move language, verifier, blocker proposer, random proposer, `llmloop.py`, idea 30
@@ -16,12 +16,12 @@ Premise: language models handle relations much better than coordinates. No model
 
 ## What we tried
 
-- **Routing:** 4 hard boards (electron271, siderakb-pmw3610, paw3395, pmw3610), engine v4, harness attempt 0, 2–6 rounds per board; controls 6 rounds each, re-run on a frozen v4 copy ([3a6b885](https://github.com/magnetic-trowel/kicad-auto-everything/commit/3a6b885874b8777fe76337783c7b4bf40fe69b14)). These v4 rounds were a **second pass**: the proposer had seen the verifier's answers in an unscored v3 pilot on the same boards.
+- **Routing:** 4 hard boards (electron271, siderakb-pmw3610, paw3395, pmw3610), engine v4, harness attempt 0, 2–6 rounds per board; controls 6 rounds each, re-run on a frozen v4 copy ([3a6b885](https://github.com/magnetic-trowel/HaslamPCB/commit/3a6b885874b8777fe76337783c7b4bf40fe69b14)). These v4 rounds were a **second pass**: the proposer had seen the verifier's answers in an unscored v3 pilot on the same boards.
 - **Physics:** olimex dcdc and noisecard, engine v5, `--phys`.
 
 ## Results
 
-Routing ([pnr_llm/RESULTS.md](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/pnr_llm/RESULTS.md); L = legal, u = DRC unconnected items):
+Routing ([pnr_llm/RESULTS.md](https://github.com/magnetic-trowel/HaslamPCB/blob/archive/research-prototypes-2611/tools/research/pnr_llm/RESULTS.md); L = legal, u = DRC unconnected items):
 
 | board | seq | blocker ctl | random ctl | **LLM** (rounds) | anneal (v3, 120 s) | human, routed |
 |---|---|---|---|---|---|---|
@@ -49,9 +49,9 @@ Cost: ~3k–5k tokens per round (1.4k–2.6k image + summary, 60–220 output, e
 
 ## Code
 
-- **Archived:** [`pnr_llm`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/pnr_llm) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/kicad-auto-everything/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [1e53ff1](https://github.com/magnetic-trowel/kicad-auto-everything/commit/1e53ff126883570507cb8f7400556e52c200ff25) (2026-10-27, import from the research branch, path fixes only). Run it from a checkout of the tag.
+- **Archived:** [`pnr_llm`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/pnr_llm) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/HaslamPCB/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [1e53ff1](https://github.com/magnetic-trowel/HaslamPCB/commit/1e53ff126883570507cb8f7400556e52c200ff25) (2026-10-27, import from the research branch, path fixes only). Run it from a checkout of the tag.
 
-[`tools/research/pnr_llm/llmloop.py`](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/pnr_llm/llmloop.py) (render, summary, move resolver, verifier, controls), `emit.py` (hands boards to the harness). Move logs were in git-ignored `kae-work/`, not published; the RESULTS appendix quotes the key moves.
+[`tools/research/pnr_llm/llmloop.py`](https://github.com/magnetic-trowel/HaslamPCB/blob/archive/research-prototypes-2611/tools/research/pnr_llm/llmloop.py) (render, summary, move resolver, verifier, controls), `emit.py` (hands boards to the harness). Move logs were in git-ignored `haslam-work/`, not published; the RESULTS appendix quotes the key moves.
 
 ## Related
 

@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Quality-diversity archive over joint collapse (tag `qd`, idea 16) — PARTIAL
 
@@ -22,7 +22,7 @@ Counted runs come from a frozen worktree (engine v6.3 c78c537, qd 5987f57; [runj
 
 ## Results (v7 harness, ab33, 3 seeds, 120 CPU-s; mean [min, max] over seeds)
 
-Physics columns are the 10 physics boards (`kae-v7/phys10.txt`), fast and routed physics × human. 4 of those 10 boards are among the 5 that engine v6.4 changes.
+Physics columns are the 10 physics boards (`haslam-v7/phys10.txt`), fast and routed physics × human. 4 of those 10 boards are among the 5 that engine v6.4 changes.
 
 | run (ab33) | legal | clean (cp) | cpk | completion | length | vias | fast phys | routed phys |
 |---|---|---|---|---|---|---|---|---|
@@ -77,9 +77,9 @@ Mechanism, from the dev logs: on large boards only 2–3 continuations fit in 12
 ## Next step
 
 To finish:
-1. When `v7-jc-r3` and `v7-jc_lv-r3` reach 99/99, rerun the table: `seeds.py` with `--phys`, after scoring jc with `kae-work/qd/phys.sh jc v7-jc-r3 v7-jc_lv-r3`.
+1. When `v7-jc-r3` and `v7-jc_lv-r3` reach 99/99, rerun the table: `seeds.py` with `--phys`, after scoring jc with `haslam-work/qd/phys.sh jc v7-jc-r3 v7-jc_lv-r3`.
 2. Rescore on engine v6.4.
 
 If pursued: archive restarts by restart descriptor instead of mutating elites; use full routed physics (`RoutedPhys`) only for the final pick among elites.
 
-Runs: `kae-v7/results/qd-{qd,qd_lv,qdh}-ab33-r3`. Physics: `kae-work/qd/phys/`. Dev: `kae-work/results/qd-*-{dev6,phys10}-v1`.
+Runs: `haslam-v7/results/qd-{qd,qd_lv,qdh}-ab33-r3`. Physics: `haslam-work/qd/phys/`. Dev: `haslam-work/results/qd-*-{dev6,phys10}-v1`.

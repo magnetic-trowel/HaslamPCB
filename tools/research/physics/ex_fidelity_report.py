@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tables from ex_fidelity.py outputs (docs/topics/physics/exact-physics-in-kae.md section 4).
+"""Tables from ex_fidelity.py outputs (docs/topics/physics/exact-physics-in-haslam.md section 4).
 
-    python tools/research/physics/ex_fidelity_report.py kae-work-v3/physics/exact-fidelity/*.json
+    python tools/research/physics/ex_fidelity_report.py haslam-work-v3/physics/exact-fidelity/*.json
 """
 import json
 import sys

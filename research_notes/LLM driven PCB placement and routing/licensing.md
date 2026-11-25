@@ -2,7 +2,7 @@
 
 > **Not legal advice.** These are research notes from public primary sources: license files, FSF/GNU, ASF, OSI, Creative Commons, CERN, the US Copyright Office, KiCad docs, and statements by KiCad lead developers. They are meant to inform a decision. Have counsel review before relying on anything here, especially the patent, dataset, and model-weight sections. Licenses were checked on 2026-10-20 by fetching the actual LICENSE/COPYING files (raw.githubusercontent.com, gitlab.com, codeberg.org), PyPI/npm/crates.io/Hugging Face metadata APIs, and the cited web pages.
 >
-> **Context.** `magnetic-trowel/kicad-auto-everything` currently contains a plain GPL-3.0 `LICENSE` (no "only"/"or later" notice), a two-line README, and research notes. Git history shows one human commit (the owner's "Initial commit") and Claude-authored research-note commits, with no third-party contributors (`git shortlog -sne`, run locally 2026-10-20).
+> **Context.** `magnetic-trowel/HaslamPCB` currently contains a plain GPL-3.0 `LICENSE` (no "only"/"or later" notice), a two-line README, and research notes. Git history shows one human commit (the owner's "Initial commit") and Claude-authored research-note commits, with no third-party contributors (`git shortlog -sne`, run locally 2026-10-20).
 >
 > **Method note.** Research notes in this folder were grepped for every tool, library, dataset, and model mentioned. The WebSearch budget ran out partway through, so later facts come from direct fetches of primary URLs only. Some pages could not be retrieved: Google Patents (blocked), OpenAI's terms page (JavaScript-only), and some arXiv pages. These are listed under Gaps.
 
@@ -335,7 +335,7 @@ Measured against "very open and a good base for others," the permissive options 
   - GitHub ToS: "Whenever you add Content to a repository containing notice of a license, you license that Content under the same terms… commonly referred to by the shorthand 'inbound=outbound'". A CLA supersedes this [GitHub ToS D.6](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service#6-contributions-under-repository-license).
   - FSF asks for assignment to simplify GPL enforcement [GPL FAQ: AssignCopyright](https://www.gnu.org/licenses/gpl-faq.html#AssignCopyright).
 - Relicensing:
-  - GPL-3.0 rights already granted "are irrevocable provided the stated conditions are met" (§2) [repo LICENSE](https://github.com/magnetic-trowel/kicad-auto-everything/blob/main/LICENSE). Anyone who already copied the GPL version keeps those rights to that snapshot.
+  - GPL-3.0 rights already granted "are irrevocable provided the stated conditions are met" (§2) [repo LICENSE](https://github.com/magnetic-trowel/HaslamPCB/blob/main/LICENSE). Anyone who already copied the GPL version keeps those rights to that snapshot.
   - "Once the work has other contributors (each a copyright holder), 'nobody' starts including you" [choosealicense](https://choosealicense.com/no-permission/).
   - "Only the copyright holders for the program can legally authorize" exceptions [GPL FAQ: LinkingOverControlledInterface](https://www.gnu.org/licenses/gpl-faq.html#LinkingOverControlledInterface).
   - Example: OpenSSL applies Apache-2.0 only from 3.0 on, with older releases keeping their old license [OpenSSL license page](https://openssl-library.org/source/license/index.html). kicad-python relicensed about six weeks after its 0.1.0 release (2024-12-21 → 2025-02-02) while the KiCad Developers held the copyright [issue #9](https://gitlab.com/kicad/code/kicad-python/-/work_items/9).
@@ -421,12 +421,12 @@ Notes on the table:
 **Practical checklist**
 1. **Relicense now.**
    - Replace `LICENSE` with Apache-2.0 text.
-   - Add `NOTICE`, e.g., "kicad-auto-everything, Copyright 2026 The kicad-auto-everything contributors".
+   - Add `NOTICE`, e.g., "HaslamPCB, Copyright 2026 The HaslamPCB contributors".
    - State in the README that versions before commit X were GPL-3.0, and that the owner relicenses their own contributions.
    - Decide before accepting any outside PR.
 2. **REUSE layout.**
    - `LICENSES/Apache-2.0.txt`, `CC-BY-4.0.txt`, `CC0-1.0.txt`, `CDLA-Permissive-2.0.txt`. Add `GPL-3.0-or-later.txt` only if a GPL bridge lives in this repo; better to put it in a separate repo, PCBWorld-style.
-   - Put SPDX headers in every source file: `SPDX-FileCopyrightText: 2026 The kicad-auto-everything contributors` and `SPDX-License-Identifier: Apache-2.0`.
+   - Put SPDX headers in every source file: `SPDX-FileCopyrightText: 2026 The HaslamPCB contributors` and `SPDX-License-Identifier: Apache-2.0`.
    - Add a `REUSE.toml` that annotates `docs/**`, `reports/**`, `research_notes/**` as CC-BY-4.0, `rules/**` as CC0-1.0, and `datasets/manifests/**` as CDLA-Permissive-2.0. Note that quotations inside research notes remain the property of their sources.
    - Run `reuse lint` in CI.
 3. **Rust crates.** Use Apache-2.0, or "Apache-2.0 OR MIT" if crates.io and GPL-2.0-only compatibility matter. Run `cargo deny check licenses` with an allow-list: Apache-2.0, MIT, BSD-2/3-Clause, ISC, Zlib, BSL-1.0, Unicode-3.0, MPL-2.0. Deny GPL, AGPL, LGPL and unlicensed crates in core crates.
@@ -466,7 +466,7 @@ Notes on the table:
 13. **Re-verify at each release.** Licenses change. libspatialindex went LGPL→MIT, kipy went GPL→MIT, and Topola's crate shows MIT-or-Apache while its repo shows MIT. Re-run the license audit and update `THIRD_PARTY_NOTICES.md`.
 
 ### Gaps
-- The KiCad trademark or branding policy for using "KiCad" in the project name (`kicad-auto-everything`) was not researched.
+- The KiCad trademark or branding policy for using "KiCad" in the project name (`HaslamPCB`) was not researched.
 - Whether to use a DCO GitHub App or a CI action was not compared.
 - No counsel input. Corporate-adoption claims are inferred from ASF and FSF policy, not surveyed.
 

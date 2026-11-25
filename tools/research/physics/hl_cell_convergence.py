@@ -1,13 +1,13 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Convergence of the per-cell hot-loop window solve (kae.excite.hotloop) in pitch and window margin.
+"""Convergence of the per-cell hot-loop window solve (haslam.excite.hotloop) in pitch and window margin.
 
     hl_cell_convergence.py BOARD.kicad_pcb OPERATING.json OUT.json [--pitches 0.25 0.125 0.0625 0.03125]
                            [--margins 3 6]
 
 For every pitch (at the default margin) and every extra margin (at the second pitch given), one evaluation of the
 board (DC band off) with its cells' window solves; OUT.json holds each cell's L_loop, R_loop at f_sw, 3 f_sw and
-5 f_sw, the board solve's values, the window and the seconds. Run it through kaeq (KAEQ_CPUS sets the threads).
+5 f_sw, the board solve's values, the window and the seconds. Run it through haslamq (HASLAMQ_CPUS sets the threads).
 """
 import argparse
 import json
@@ -24,9 +24,9 @@ def main(argv=None):
     ap.add_argument("--margins", type=float, nargs="*", default=[])
     ap.add_argument("--no-skin", action="store_true")
     a = ap.parse_args(argv)
-    from kae.excite import hotloop as HL
-    from kae.excite.beliefs import load_intent
-    from kae.excite.evaluate import evaluate
+    from haslam.excite import hotloop as HL
+    from haslam.excite.beliefs import load_intent
+    from haslam.excite.evaluate import evaluate
     it = load_intent(a.intent)
     runs = [(p, None) for p in a.pitches] + [(a.pitches[min(1, len(a.pitches) - 1)], m) for m in a.margins]
     out = dict(board=a.board, runs=[])

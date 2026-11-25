@@ -1,7 +1,7 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Score kaebench joint runs (or place runs with --probe self): DRC metrics, seeds, physics.
+# Score haslambench joint runs (or place runs with --probe self): DRC metrics, seeds, physics.
 #   score.sh RUN [RUN ...]        (run names under $XF_WORK/results/)
 # Writes $XF_WORK/score/NAME.md (NAME = the runs joined by '+', or $SCORE_NAME), with
 # physics per seed in $XF_WORK/score/NAME-phys/seed-N/ (tables NAME-phys-seedN.md).

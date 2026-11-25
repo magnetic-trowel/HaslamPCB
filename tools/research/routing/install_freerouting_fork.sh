@@ -1,17 +1,17 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Build the magnetic-trowel/freerouting fork and install it where kae's bridge finds it:
-#   $KAE_HOME/kae-freerouting-fork-<sha>/bin/freerouting
+# Build the magnetic-trowel/freerouting fork and install it where haslam's bridge finds it:
+#   $HASLAM_HOME/haslam-freerouting-fork-<sha>/bin/freerouting
 # with its own Java runtime (jlink, the modules of the upstream 2.5.0 bundle), so it runs in
-# the benchmark sandbox without a system JDK. kae.route.freerouting runs the build named by
-# KAE_BRIDGE_FREEROUTING or pinned in $KAE_HOME/kae-freerouting.pin, never the newest install:
-# --pin makes this build the pinned one. kaebench's own `freerouting` adapter keeps using the
+# the benchmark sandbox without a system JDK. haslam.route.freerouting runs the build named by
+# HASLAM_BRIDGE_FREEROUTING or pinned in $HASLAM_HOME/haslam-freerouting.pin, never the newest install:
+# --pin makes this build the pinned one. haslambench's own `freerouting` adapter keeps using the
 # upstream release, so the human+Freerouting baseline does not change.
 #
 #   tools/research/routing/install_freerouting_fork.sh [REF] [SRC_DIR] [--pin]
-# REF defaults to origin/master; SRC_DIR to $KAE_HOME/src/freerouting (cloned if missing).
+# REF defaults to origin/master; SRC_DIR to $HASLAM_HOME/src/freerouting (cloned if missing).
 # Gradle provisions the JDK 25 toolchain the fork needs.
 set -euo pipefail
 PIN=0
@@ -20,9 +20,9 @@ for a in "$@"; do
   if [ "$a" = "--pin" ]; then PIN=1; else ARGS+=("$a"); fi
 done
 set -- "${ARGS[@]+"${ARGS[@]}"}"
-KAE_HOME=${KAE_HOME:-$HOME/.cache/kaebench}
+HASLAM_HOME=${HASLAM_HOME:-$HOME/.cache/haslambench}
 REF=${1:-origin/master}
-SRC=${2:-$KAE_HOME/src/freerouting}
+SRC=${2:-$HASLAM_HOME/src/freerouting}
 URL=https://github.com/magnetic-trowel/freerouting
 MODULES=java.base,java.datatransfer,java.xml,java.prefs,java.desktop,java.logging,java.management,java.net.http,java.transaction.xa,java.sql,jdk.crypto.ec,jdk.management
 
@@ -33,11 +33,11 @@ git -C "$SRC" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
 git -C "$SRC" fetch -q --prune origin
 git -C "$SRC" checkout -q --detach "$REF"
 SHA=$(git -C "$SRC" rev-parse --short=7 HEAD)
-DEST=$KAE_HOME/kae-freerouting-fork-$SHA
+DEST=$HASLAM_HOME/haslam-freerouting-fork-$SHA
 pin() {
   if [ "$PIN" = 1 ]; then
-    echo "$DEST/bin/freerouting" > "$KAE_HOME/kae-freerouting.pin"
-    echo "pinned: $DEST/bin/freerouting ($KAE_HOME/kae-freerouting.pin)"
+    echo "$DEST/bin/freerouting" > "$HASLAM_HOME/haslam-freerouting.pin"
+    echo "pinned: $DEST/bin/freerouting ($HASLAM_HOME/haslam-freerouting.pin)"
   fi
 }
 if [ -x "$DEST/bin/freerouting" ]; then
@@ -45,9 +45,9 @@ if [ -x "$DEST/bin/freerouting" ]; then
   pin
   exit 0
 fi
-# Gradle's wrapper needs a java to start: JAVA_HOME, else java on PATH, else a JDK in KAE_HOME
+# Gradle's wrapper needs a java to start: JAVA_HOME, else java on PATH, else a JDK in HASLAM_HOME
 if [ -z "${JAVA_HOME:-}" ] && ! command -v java > /dev/null; then
-  for d in "$KAE_HOME"/jdk-25*; do [ -x "$d/bin/java" ] && export JAVA_HOME=$d && break; done
+  for d in "$HASLAM_HOME"/jdk-25*; do [ -x "$d/bin/java" ] && export JAVA_HOME=$d && break; done
 fi
 (cd "$SRC" && ./gradlew -q executableJar)
 JAR=$(ls "$SRC"/build/libs/*-executable.jar)

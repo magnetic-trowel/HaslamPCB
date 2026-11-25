@@ -1,23 +1,23 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Physics score of joint place-and-route runs, against the human board.
 
-    KAE_KICAD_PYTHON=/usr/bin/python3 <kae-venv>/bin/python physics_score.py \\
-        kae-work/results/RUN1 [kae-work/results/RUN2 ...] [--suite kae-work/ab33.txt] \\
-        [--out kae-work/phys] [--md FILE] [--no-routed] [--timeout 600]
+    HASLAM_KICAD_PYTHON=/usr/bin/python3 <haslam-venv>/bin/python physics_score.py \\
+        haslam-work/results/RUN1 [haslam-work/results/RUN2 ...] [--suite haslam-work/ab33.txt] \\
+        [--out haslam-work/phys] [--md FILE] [--no-routed] [--timeout 600]
 
-Needs the `kae` package (branch claude/vigilant-mayer-i91rrr, `pip install -e 'kae[fast]'`)
+Needs the `haslam` package (branch claude/vigilant-mayer-i91rrr, `pip install -e 'haslam[fast]'`)
 in the interpreter that runs this script; KiCad's Python (pcbnew) for zone refills.
 
-Per board, once: the circuit brief of the human reference board (kae.circuit.brief.build,
-cached in kae-work/phys-cache/<id>/brief.json) and the place terms built on it
-(kae.physics.place_terms.Terms). Every board (the human reference and each run's
+Per board, once: the circuit brief of the human reference board (haslam.circuit.brief.build,
+cached in haslam-work/phys-cache/<id>/brief.json) and the place terms built on it
+(haslam.physics.place_terms.Terms). Every board (the human reference and each run's
 attempt-0 output) is then scored with that same brief and those same allocations:
 
 - place: Terms.total(poses) (sum over structures of confidence * phi(u), phi with its
   over-budget barrier), Terms.total_by_kind, and a robust variant, the sum of utilizations
   capped at 5 (as the Scorecard caps routed u), overall and per kind;
-- routed: kae.route.critical_recheck.board_physics on the board's real copper (zones
+- routed: haslam.route.critical_recheck.board_physics on the board's real copper (zones
   refilled by KiCad), summarized as the Scorecard's physics_total (per module u capped at
   5, a module without a value at 3) plus the number of open hops (an unrouted connection
   inside a module is priced as a straight strip, so missing copper looks optimistic).
@@ -43,10 +43,10 @@ import traceback
 from collections import Counter, defaultdict
 from pathlib import Path
 
-os.environ.setdefault("KAE_KICAD_PYTHON", "/usr/bin/python3")
+os.environ.setdefault("HASLAM_KICAD_PYTHON", "/usr/bin/python3")
 
-ROOT = Path(os.environ.get("KAE_REPO") or Path(__file__).resolve().parents[3])
-WORK = ROOT / "kae-work"
+ROOT = Path(os.environ.get("HASLAM_REPO") or Path(__file__).resolve().parents[3])
+WORK = ROOT / "haslam-work"
 VERSION = "phys-1"           # harness numbers are re-read every time           # bump when the scoring here changes (invalidates the caches)
 U_CAP = 5.0
 EPS = 0.01                   # ratio floor: (m + EPS) / (h + EPS)
@@ -84,8 +84,8 @@ class BoardCtx:
     """Brief and place terms of one board, built once from the human reference."""
 
     def __init__(self, bid, cache):
-        from kae.board.kicad_file import load
-        from kae.physics.place_terms import Terms
+        from haslam.board.kicad_file import load
+        from haslam.physics.place_terms import Terms
         self.bid = bid
         self.ref_dir = WORK / "tasks" / bid / "reference"
         self.ref_path = self.ref_dir / "board.kicad_pcb"
@@ -98,7 +98,7 @@ class BoardCtx:
         if bf.exists() and meta.exists() and json.loads(meta.read_text()).get("ref_md5") == h:
             self.brief = json.loads(bf.read_text())
         else:
-            from kae.circuit.brief import build
+            from haslam.circuit.brief import build
             self.brief = json.loads(json.dumps(build(self.ref), default=str))
             bf.write_text(json.dumps(self.brief, indent=1))
             meta.write_text(json.dumps(dict(ref_md5=h, built=time.strftime("%F %T"))))
@@ -124,7 +124,7 @@ class BoardCtx:
         return out, miss
 
     def place(self, board):
-        from kae.board.kicad_file import load
+        from haslam.board.kicad_file import load
         b = load(board)
         poses, miss = self.poses(b)
         T = self.terms
@@ -143,8 +143,8 @@ class BoardCtx:
                     n_structs=len(structs), unmatched_parts=miss, structs=structs)
 
     def routed(self, board):
-        from kae.joint.scorecard import physics_total
-        from kae.route.critical_recheck import board_physics
+        from haslam.joint.scorecard import physics_total
+        from haslam.route.critical_recheck import board_physics
         ph = board_physics(str(board), brief=self.brief, terms=self.terms)
         mods, opens, errs, per = {}, 0, {}, {}
         for k, v in ph.items():
@@ -367,7 +367,7 @@ def main(argv=None):
     ap.add_argument("--no-routed", action="store_true")
     ap.add_argument("--timeout", type=float, default=600)
     ap.add_argument("--only", default=None, help="comma-separated board ids")
-    ap.add_argument("--workdir", default=str(WORK), help="kaebench workdir holding tasks/ (reference boards)")
+    ap.add_argument("--workdir", default=str(WORK), help="haslambench workdir holding tasks/ (reference boards)")
     ap.add_argument("--attempt", type=int, default=0, help="which attempt (seed) of each task to score")
     a = ap.parse_args(argv)
     WORK = Path(a.workdir).resolve()

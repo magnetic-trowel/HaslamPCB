@@ -25,7 +25,7 @@ Method background: OPRO ([2309.03409](https://arxiv.org/abs/2309.03409)), EoH ([
 ## Offline track for our system
 
 [I] Evolve the KiCad-side realizer (placer loss, legalizer heuristics, router costs) over a board corpus with full-flow scoring:
-1. Placer loss over a restricted observable API via CoEvoP&R's pipeline; targets and evaluation cascade -> [solvers offline loop](../solvers/llm-evolved-heuristics.md#offline-evolution-loop-for-kae).
+1. Placer loss over a restricted observable API via CoEvoP&R's pipeline; targets and evaluation cascade -> [solvers offline loop](../solvers/llm-evolved-heuristics.md#offline-evolution-loop-for-haslam).
 2. Freerouting cost functions or a custom router's heuristics with full-flow scoring and GR-Evolve/GoalEvolve-style stage attribution (placement vs routing vs DRC).
 3. Hold out boards from day one; compare against tuned hyperparameters, not stock settings.
 4. Log lineage (config, program, prompt, response, metrics) so every evolved artifact is reproducible and reviewable as a diff.

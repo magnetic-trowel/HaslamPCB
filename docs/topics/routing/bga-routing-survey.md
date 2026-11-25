@@ -96,7 +96,7 @@ FanoutNet → [escape routing](escape-routing.md); no follow-up from the same te
 - Practitioner doctrine (Pfeil, Mentor, *BGA Breakouts & Routing*; [PCD&F 2008](https://pcdandf.com/pcdesign/index.php/2008-archive-articles/3555-fanout-patterns-parts-1-2-3-and-4) [P]): "The BGA fanout pattern has the greatest impact on route density"; quadrant dog-bone (vias angled away from centre, per quadrant) opens the centre row and column for ~2–3 extra routes per layer; fan out every power and ground ball; blind vias shifted into columns ~+24% edge escapes; 1+N+1 microvias in columns ~+36% over a through-via quadrant dog-bone.
 - Channel guide: "outer two perimeters without vias on top, the next two on the bottom side, the rest on inner layers" ([embedded.com](https://www.embedded.com/?p=4438466) [S]): exactly the layer use our human layouts show and our routes lack.
 
-## Escape pipeline for kae
+## Escape pipeline for haslam
 
 [I]
 1. Escape as its own deterministic stage, locked before Freerouting: Yan–Wong network from the board's own rules (§1 with c_tp, c_tt, net-class widths, real pad shapes), one copy per signal layer; outer layers as main resource (top for outer rings, bottom via dog-bone for next rings); min-cost flow (OR-Tools `SimpleMinCostFlow`, Apache-2.0); decompose into per-ball escape paths written as fixed/protected wires in the DSN; then Freerouting. Replaces the fixed-pattern dog-bone pre-pass on branch `rules-escape`; min cut is a by-product certificate → [certificates](routing-infeasibility-certificates.md).

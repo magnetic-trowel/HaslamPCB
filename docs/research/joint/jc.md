@@ -1,9 +1,9 @@
 # Joint layer collapse by continuation (jc), its predecessor negotiate, and jc2
 
 **Status:** jc worked (best family); negotiate partial; jc2 likely worked, unconfirmed (stopped at 61–62 of 99 attempts).
-**First published:** 2026-10-24, commit [e55d880](https://github.com/magnetic-trowel/kicad-auto-everything/commit/e55d880d62b400dafeda64c771d763fedf44f1ca) on branch `claude/keen-wright-mlkjv6` (results [0d4b7e9](https://github.com/magnetic-trowel/kicad-auto-everything/commit/0d4b7e94061b3ca99bc19a76658eb0e8d0363677); idea doc [1a36bd0](https://github.com/magnetic-trowel/kicad-auto-everything/commit/1a36bd0caa665eacade6cf757d6e4521db492cb8); negotiate [44831ff](https://github.com/magnetic-trowel/kicad-auto-everything/commit/44831ff3f802b1758b9c1299e0ae0b212d581f9a); jc2 [7c80c05](https://github.com/magnetic-trowel/kicad-auto-everything/commit/7c80c052c3007e04658122c452002e256c0399b0), results [36270e7](https://github.com/magnetic-trowel/kicad-auto-everything/commit/36270e7711003e2565fd4cb3b172f1bacf624d1d)).
+**First published:** 2026-10-24, commit [e55d880](https://github.com/magnetic-trowel/HaslamPCB/commit/e55d880d62b400dafeda64c771d763fedf44f1ca) on branch `claude/keen-wright-mlkjv6` (results [0d4b7e9](https://github.com/magnetic-trowel/HaslamPCB/commit/0d4b7e94061b3ca99bc19a76658eb0e8d0363677); idea doc [1a36bd0](https://github.com/magnetic-trowel/HaslamPCB/commit/1a36bd0caa665eacade6cf757d6e4521db492cb8); negotiate [44831ff](https://github.com/magnetic-trowel/HaslamPCB/commit/44831ff3f802b1758b9c1299e0ae0b212d581f9a); jc2 [7c80c05](https://github.com/magnetic-trowel/HaslamPCB/commit/7c80c052c3007e04658122c452002e256c0399b0), results [36270e7](https://github.com/magnetic-trowel/HaslamPCB/commit/36270e7711003e2565fd4cb3b172f1bacf624d1d)).
 
-Scope: start with every part at its own optimum and every net routed alone (overlaps allowed), then raise one price β on shared space so parts and wires both move apart until the board is legal. Not here: extensions on top of jc -> [jc-extensions.md](jc-extensions.md); pour-damage maps in jc -> [pour-models.md](pour-models.md#pour-damage-maps-in-jc-t4); kae's own joint loop -> [kae-joint-loop.md](kae-joint-loop.md).
+Scope: start with every part at its own optimum and every net routed alone (overlaps allowed), then raise one price β on shared space so parts and wires both move apart until the board is legal. Not here: extensions on top of jc -> [jc-extensions.md](jc-extensions.md); pour-damage maps in jc -> [pour-models.md](pour-models.md#pour-damage-maps-in-jc-t4); haslam's own joint loop -> [haslam-joint-loop.md](haslam-joint-loop.md).
 Keys: jc, joint layer collapse, continuation, β schedule, lift, collapse iteration, cached-FFT best response, restarts, jc_lv, jc_full, jc_frozen, jc_nopol, jc_lv_nopol, joint vs frozen, negotiate, jc2, jc2_fix, jc2_fixmp_lv, `legal_first`, `via_beta`, idea 1
 
 ## Predecessor: negotiate (idea 1, PathFinder generalized)
@@ -91,18 +91,18 @@ xf3 jc baselines (fixed engine 4c4330a, all 33 boards, 3 seeds): rows "base jc" 
 **Verdict: likely worked, unconfirmed.** A cleanup of jc, not a new method: fewer vias and open connections, equal length, clean within seed spread; most of the gain from end-phase bug fixes. Merit arms: `jc2_fix`, `jc2_fixmp_lv`.
 
 ## jc on the 213-board merit suite (2026-10-29/30)
-The v5 headline (legal 0.879, clean 0.667, physics 0.82× human) is one seed on 33 boards, and 0.82 is fast physics; routed physics there was 1.05. On the merit suite jc loses to the kae line and is not worth porting into `kae` [C].
+The v5 headline (legal 0.879, clean 0.667, physics 0.82× human) is one seed on 33 boards, and 0.82 is fast physics; routed physics there was 1.05. On the merit suite jc loses to the haslam line and is not worth porting into `haslam` [C].
 
 | all 213 merit boards, attempt 0 | cp1 | completion | opens | CPU h | no output |
 |---|---|---|---|---|---|
 | pnr jc / jc2_fix / pjc2 | 0.225 / 0.230 / 0.230 | 0.850 / 0.847 / 0.842 | 4,386 / 4,050 / 4,644 | 149 / 142 / 151 | 12 |
-| kae staged / kae joint loop | 0.291 / 0.305 | 0.906 / 0.898 | 4,884 / 5,675 | 127 / 133 | 6 / 6 |
-| kae bridge on the human placement | 0.268 | 0.927 | 6,160 | 107 | 4 |
-| jc2_fix placement + kae bridge (hybrid, branch `hybrid-pnr-kae`) | 0.258 | 0.786 | 4,969 | 169 | 21 |
+| haslam staged / haslam joint loop | 0.291 / 0.305 | 0.906 / 0.898 | 4,884 / 5,675 | 127 / 133 | 6 / 6 |
+| haslam bridge on the human placement | 0.268 | 0.927 | 6,160 | 107 | 4 |
+| jc2_fix placement + haslam bridge (hybrid, branch `hybrid-pnr-haslam`) | 0.258 | 0.786 | 4,969 | 169 | 21 |
 
 - By split, cp1: B (72 boards) staged 0.458, joint loop 0.458, jc 0.375; C (126) joint loop 0.175, staged 0.151, jc 0.087.
 - Physics: module ratio on the 28 A+B human-clean boards jc **0.47**, joint loop 0.87, staged 1.19; on fully routed boards jc / joint loop 1.10 (n 28, jc worse), jc / staged 0.815.
-- Engine 957a37f (fast router, anytime output), 120 CPU-s per attempt as in the scorecard, under the restart wrapper. Sources: kaeres experiments `merit-500r3` (pnr arms) and `merit-500r3k` (kae arms), same days and evaluators (DRC 98dc632c1679).
+- Engine 957a37f (fast router, anytime output), 120 CPU-s per attempt as in the scorecard, under the restart wrapper. Sources: haslamres experiments `merit-500r3` (pnr arms) and `merit-500r3k` (haslam arms), same days and evaluators (DRC 98dc632c1679).
 - Verdict: jc's legality and clean-rate lead does not carry over from ab33 to the merit suite; it keeps good physics on small boards. `pnr route_only` (7 CPU-h for 213 boards vs bridge 107 h; opens 2,749 vs 1,435 on 195 common boards) is cheap but weaker: a possible fast probe, not a finisher [I].
 
 ## Open questions

@@ -1,6 +1,6 @@
 # Pad-edge entry on 12 routed boards (branch pad-edge-entry, 59caa02)
 
-Post-passes on the merge3-ab `kae-bridge-main-final` outputs (harness e9889fd, KiCad 10.0.7) with the human project files; no re-routing of whole boards. DRC: kicad-cli on the re-opened board (zones refilled). Entries: segment crossings into a same-net land; oblique = 10-45 deg off the edge normal, acute = more than 45 deg. Physics: `tools/research/physics/eval_intent.sh`, `KAE_EM_TOL=1e-4`, intents compiled-6329e71. Write-up: [kae-pad-edge-entry](../../docs/research/routing/kae-pad-edge-entry.md).
+Post-passes on the merge3-ab `haslam-bridge-main-final` outputs (harness e9889fd, KiCad 10.0.7) with the human project files; no re-routing of whole boards. DRC: kicad-cli on the re-opened board (zones refilled). Entries: segment crossings into a same-net land; oblique = 10-45 deg off the edge normal, acute = more than 45 deg. Physics: `tools/research/physics/eval_intent.sh`, `HASLAM_EM_TOL=1e-4`, intents compiled-6329e71. Write-up: [haslam-pad-edge-entry](../../docs/research/routing/haslam-pad-edge-entry.md).
 
 Scripts: `tools/research/routing/pad_edge_smoke.sh DIR trim|reend|phys-<variant>`, `pad_edge_summary.py --variant V --terms`, `pad_entry_compare.py BEFORE NAME=OTHER...`.
 

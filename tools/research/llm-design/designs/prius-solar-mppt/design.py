@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """prius-solar-mppt: roof C60 array -> 2 x analog MPPT -> isolated LLC-DCX -> 2017 Prius Prime Li-ion pack.
 
 Encodes designs/prius-solar-mppt/DESIGN.md (rationale, evidence tags, sources); CONNECTIONS.md
-summarises the netlist this file produces. Build: `kaesynth build designs/prius-solar-mppt/design.py -v`.
+summarises the netlist this file produces. Build: `haslamsynth build designs/prius-solar-mppt/design.py -v`.
 
 Domain model (README "Domains and voltages"):
   LV      root, ref GND (bonded to chassis at the main box). PV strings, VINT bus, AUX12, logic, the
@@ -23,7 +23,7 @@ system's full voltage); recorded on the domains, the barriers and HZ-1.
 import importlib.util
 from pathlib import Path
 
-from kaesynth import Design, Hole
+from haslamsynth import Design, Hole
 
 _spec = importlib.util.spec_from_file_location("prius_solar_mppt_parts", Path(__file__).with_name("parts.py"))
 P = importlib.util.module_from_spec(_spec)
@@ -1564,7 +1564,7 @@ def build():
                description="Roof C60 array (2 x 28 cells) -> 2 analog MPPT buck-boost -> reinforced LLC-DCX 1:22 -> "
                            "battery-end board with fuses, blocking diode and 2-pole disconnect on the Prime Li-ion "
                            "pack; own SOC/voltage/temperature layers for charging while the car sleeps.",
-               revision="B", author="kaesynth design agent", brief=BRIEF, ambient_c=(-40, 85))
+               revision="B", author="haslamsynth design agent", brief=BRIEF, ambient_c=(-40, 85))
     intent(d)
     domains(d)
     mppt(d, "A", 100)

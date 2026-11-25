@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Part cards for prius-solar-mppt: one PartDef per distinct part (DESIGN.md section 8).
 
@@ -7,8 +7,8 @@ October 2026 unless the source says [S] (secondary: distributor page, family dra
 snippet) or [unverified]. Lifecycle is what the vendor page or datasheet showed; no distributor
 API was queried.
 """
-from kaesynth import Isolation, PartDef, PinDef, Ratings, VLimit
-from kaesynth.lib import IC, LED, C, C_pol, Conn, Fuse, L, MountingHole, R, TestPoint, Thermistor
+from haslamsynth import Isolation, PartDef, PinDef, Ratings, VLimit
+from haslamsynth.lib import IC, LED, C, C_pol, Conn, Fuse, L, MountingHole, R, TestPoint, Thermistor
 
 TI = "Texas Instruments"
 DS = {

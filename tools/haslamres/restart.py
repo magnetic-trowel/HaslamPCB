@@ -1,0 +1,1606 @@
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Restart portfolio for any method: the same schedule as haslam.route.portfolio, judged by KiCad.
+
+    restart.py --input IN --output OUT --time T [--seed S] [--parallel P] [--first-s F] [--growth G]
+               -- COMMAND...
+
+COMMAND is one attempt of the method, run with `sh -c` in its own directory, with @IN@, @OUT@,
+@SEED@, @TIME@ and @BEST@ replaced. With --resume S, a share S of each wave after the first
+continues from the best board so far: @BEST@ is a copy of it (with the input's project files) and
+HASLAM_RESUME=1 is set; otherwise @BEST@ is the input and HASLAM_RESUME=0. A command decides what
+continuing means (a router routes what is still open; a placer may keep the placement and route). `parallel` attempts run at once; attempt k gets seed S*1000+k and a
+budget of F * G**(k // P) seconds (a doubling schedule: a board that needs one long attempt
+still gets one). Each finished attempt is checked with kicad-cli DRC (zones refilled, the input's
+project rules) and ranked by judge in the harness's order: legal first (--check-placement), then
+fewer unconnected items, then fewer DRC errors beyond the input's own. The first clean one (none
+open, no error beyond the input's) ends the run; otherwise the best is kept when time runs out. Only stdlib; KiCad comes from HASLAM_KICAD_WRAP.
+
+With --final COMMAND, the board kept gets one more pass at the end (final_pass), however late its
+attempt ended: COMMAND runs with @IN@ (the input), @BEST@ (a copy of the kept board with the
+input's project files), @OUT@, @SEED@ and @TIME@ replaced, its time reserved from the start
+(final_reserve: --final-s, or FINAL_MIN_S plus one DRC of the board, plus judging the result).
+Its board replaces the kept one only when KiCad's DRC ranks it better. For a router this is the
+last mile alone (haslam.route.cli lastmile): an attempt that ended late is not punished for it.
+
+With --finish COMMAND, the board kept after that (clean or not) gets the finish stage (for haslam,
+`python -m haslam.route.cli finish @IN@ @BEST@ @OUT@ --time @TIME@ --input-drc @DRC@ --drc-s @DRC_S@`,
+docs/topics/routing/routing-stages.md stage 7): @DRC@ is the judge's DRC report of @BEST@, so the
+finish's gate need not run the input again. Routing gets its time first: no time is reserved for
+finish (a reserved wall second costs `parallel` attempt seconds on a board that is not complete).
+Finish runs when a clean attempt ends the run early, in the time left, or after the final pass, in
+whatever remains (at least FINISH_RUN_MIN_S plus one judgement, else it is skipped); the finish
+command's own estimates decide which of its parts fit. Its board replaces the kept one when KiCad
+ranks it no worse. Attempts get HASLAM_FINISH_KEPT=1 (haslam.route.cli route then defers its own finish).
+
+With --clear COMMAND (for haslam `python -m haslam.route.cli clear @IN@ @BEST@ @OUT@ --time @TIME@`: the hot
+loops' returns cleared of foreign copper, design D of haslam.route.hotloop), the board kept after --final is
+cleared once, before --finish, with an allowance of its own (--clear-s, on top of --time: never taken from
+routing; in work mode nominal seconds of counted work). Attempts and the final pass get HASLAM_CLEAR_KEPT=1, so
+they do not clear themselves. Its board replaces the kept one when KiCad ranks it no worse; its time is
+recorded on its own (summary.json "clear", work "clear_wall_s"), and the time left for --finish is not cut by it.
+summary.json's "finish" says which parts ran and which were skipped; a finish skipped, killed or
+failed, and the finish's own hazards, are added to restarts/report.json's hazards.
+
+With --history, every judged attempt adds the nets KiCad found open on its board to a failure
+history (restarts/history.json, {net: attempts that left it open}; record_open), and every attempt
+gets its path in HASLAM_ROUTE_HISTORY: a router may route those nets first (haslam.route.bridge does).
+Each attempt's record in summary.json lists the nets it left open.
+
+With --alt-env "K=V ...", two settings of the method run side by side and the better board is kept (the
+choose-better portfolio): fresh attempts alternate between the method as given (arm A, even k) and the
+method with those variables (arm B, odd k); a resumed attempt continues from the best board of its own
+arm (A for even k, B for odd), so both arms keep their lineages, and the final and finish passes run with the
+kept board's arm. The kept board is ranked by KiCad first, as always; among clean attempts of different arms,
+--tiebreak COMMAND (@BOARD@, @OUT@: a JSON file with "score", lower better; for haslam `python -m
+haslam.excite.cellquote @BOARD@ --score-out @OUT@`, the hot loops' quote) decides, when the scores differ by
+more than --tiebreak-margin; otherwise (closer, or a board it cannot score) arm A, the method as given, is kept.
+A clean board does not end the run at once: attempts already running finish
+(no new ones start), so the other arm can offer a clean board of its own to compare. The summary lists the
+arm of every attempt and each tie-break.
+
+Work is measured, since a sandboxed method's processes are invisible to the harness: every
+attempt's processes (its process tree and session, so a router started in a session of its own
+counts too) are sampled from /proc each second (CPU seconds summed over all of them, peak RSS);
+an attempt that exits is reaped with wait4, whose rusage covers every descendant it waited for,
+and the larger of the two counts. The DRC judging is counted separately. The totals go to
+restarts/summary.json and to a last stdout line `HASLAM_WORK {json}` that haslamres records.
+
+With HASLAM_STEP_CACHE set (haslam/src/haslam/route/stepcache.py), the judge's DRCs and the attempts'
+Freerouting runs and DRCs replay earlier identical runs, and time is charged as if they had
+run. Every attempt appends its steps to its own HASLAM_CHARGE_FILE (restarts/a<k>/charge.jsonl);
+the time a hit saved keeps the attempt's slot held after it exits, and counts against its
+budget while it runs. A judge's hit holds this loop just as long. A hold elapses in real time
+while any attempt is computing, and is skipped when none is, so the schedule (what starts, is
+judged or killed when) is the uncached one, and only the wall time shrinks. The hits, misses
+and charged seconds go to summary.json and HASLAM_WORK (step_cache).
+"""
+import argparse
+import gzip
+import importlib.util
+import io
+import resource
+import json
+import os
+import re
+import shlex
+import shutil
+import tempfile
+import signal
+import subprocess
+import sys
+import tarfile
+import time
+from pathlib import Path
+
+GRACE_S = 30.0  # an attempt is killed this long after its own budget
+# Counted-work budgets (HASLAM_BUDGET=work, haslam.budget): the attempts' --time is nominal seconds of work.
+# The schedule must not depend on which attempt ends first, so attempts run in batches (up to --parallel,
+# all waited for, judged in order); the plan's clock adds each batch's budget, and wall time is only
+# the ceiling (WORK_CEILING x an attempt's budget, as in haslam.budget).
+WORK = os.environ.get("HASLAM_BUDGET") == "work"
+WORK_CEILING = 4.0
+OPEN_REST_MIN_S = 60.0   # --open-rest: no third run with less than this per lane
+WORK_FINAL_SHARE, WORK_FINISH_SHARE = 0.15, 0.10     # of --time, for --final and --finish (unless --final-s / --finish-s)
+FINAL_MIN_S = 60.0  # the final pass at least, beyond one DRC of the board (a last mile's joins and refill)
+FINISH_RUN_MIN_S = 30.0   # the finish pass runs only with this much (beyond one judgement) left
+# the final pass leaves this many judgements' time for its own judgement: a routed board's DRC varies
+# (dilemma-3: attempts 123-140 s, the last mile's board over 171 s), and a board the judge cannot
+# finish is not kept (route-finish-default smoke: 140 -> 112 open lost, the finish reserve had
+# hidden that slack)
+FINAL_JUDGE_SLACK = 1.5
+
+
+def _stepcache():
+    """haslam's step cache module, loaded by path (stdlib only), when HASLAM_STEP_CACHE is set."""
+    f = Path(__file__).resolve().parents[2] / "haslam" / "src" / "haslam" / "route" / "stepcache.py"
+    if not os.environ.get("HASLAM_STEP_CACHE") or not f.exists():
+        return None
+    spec = importlib.util.spec_from_file_location("haslam_stepcache", f)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    m.AUTO_ADVANCE = False   # this loop holds instead: attempts compute meanwhile (hold)
+    return m
+
+
+SC = _stepcache()
+
+
+def _drc_items():
+    """haslam's DRC counting rules (haslam/src/haslam/drc_items.py, stdlib only), loaded by path from this
+    checkout like stepcache: the judge counts errors, ignored checks and the 499 cap as haslam does."""
+    f = Path(__file__).resolve().parents[2] / "haslam" / "src" / "haslam" / "drc_items.py"
+    spec = importlib.util.spec_from_file_location("haslam_drc_items", f)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+DI = _drc_items()
+
+
+def _rank():
+    """haslam's board ranking (haslam/src/haslam/rank.py, stdlib only), loaded by path from this checkout: the joint
+    loop keeps its steps by the same rule as this judge."""
+    f = Path(__file__).resolve().parents[2] / "haslam" / "src" / "haslam" / "rank.py"
+    spec = importlib.util.spec_from_file_location("haslam_rank", f)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+RANK = _rank()
+BUSY = [lambda: False]   # whether any attempt is computing (main sets it)
+# SIGTERM (the job is being killed: a queue timeout or cancel): TERM holds when it came. Running attempts get it too
+# (each in a session of its own, so it is passed on), have TERM_GRACE_S to save what they have, are then killed and
+# not judged; nothing new starts, and summary.json and HASLAM_WORK are written with what was done ("killed").
+TERM = []
+TERM_GRACE_S = 10.0
+ATTEMPT_PIDS = set()   # process groups of running attempts and passes
+
+
+def _on_term(*_):
+    if TERM:
+        return
+    TERM.append(time.monotonic())
+    os.write(1, f"[restart {time.strftime('%H:%M:%S')}] SIGTERM: stopping, keeping what was done\n".encode())
+    for g in list(ATTEMPT_PIDS):
+        try:
+            os.killpg(g, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def term_over():
+    """SIGTERM came more than TERM_GRACE_S ago: what still runs is killed."""
+    return bool(TERM) and time.monotonic() > TERM[0] + TERM_GRACE_S
+
+
+def saving(p):
+    """After a SIGTERM, an attempt is done only once its whole session is: the shell it runs in may exit at once while
+    the method below it still writes its report (and the sandbox would end it the moment this wrapper exits)."""
+    if not TERM:
+        return False
+    try:
+        os.killpg(p.pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def hold(seconds, tick=lambda: None):
+    """Spend `seconds` of charged time a cache hit saved: in real time while an attempt computes
+    (it would have computed meanwhile), skipped at once when none does."""
+    end = time.monotonic() + seconds
+    while (left := end - time.monotonic()) > 0:
+        if not BUSY[0]():
+            SC.advance(left)
+            return
+        tick()
+        time.sleep(min(1.0, left))
+
+
+def saved(info):
+    """Charged seconds an attempt's cache hits saved so far (its charge file), 0 without one."""
+    return SC.charges(info["charge"])["saved_s"] if SC and info.get("charge") else 0.0
+
+
+def alive(pid):
+    """A process that runs (not exited: a zombie waiting for wait4 is not computing)."""
+    try:
+        return open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[0] != "Z"
+    except (OSError, IndexError):
+        return False
+
+
+def wall_left():
+    """Wall seconds to this wrapper's HASLAM_DEADLINE (epoch s, from the harness: haslambench, haslamq), inf without one."""
+    d = os.environ.get("HASLAM_DEADLINE")
+    return float(d) - time.time() if d else float("inf")
+
+
+def deadline_env(seconds):
+    """HASLAM_DEADLINE for a child stopped `seconds` from now: no later than this wrapper's, less 10 % (at most
+    30 s) for it to finish in (the contract of haslam.proc and haslambench.deadline)."""
+    t = min(float(seconds), wall_left())
+    return {"HASLAM_DEADLINE": f"{time.time() + t - min(30.0, 0.1 * t):.0f}"} if t != float("inf") else {}
+
+
+def run_group(argv, seconds, **kw):
+    """subprocess.run of `argv` in a process group of its own with deadline_env(seconds); past `seconds` the
+    group is killed (a timeout of subprocess.run kills only the shell, and the haslam under it ran on).
+    Returns the exit code, or "timeout"."""
+    env = dict(kw.pop("env", os.environ), **deadline_env(seconds))
+    p = subprocess.Popen(argv, start_new_session=True, env=env, **kw)
+    ATTEMPT_PIDS.add(p.pid)          # a SIGTERM to this wrapper is passed on (_on_term)
+    try:
+        return p.wait(timeout=None if seconds == float("inf") else seconds)
+    except subprocess.TimeoutExpired:
+        for sig, wait in ((signal.SIGTERM, 5.0), (signal.SIGKILL, None)):
+            try:
+                os.killpg(p.pid, sig)
+                p.wait(timeout=wait)
+                break
+            except ProcessLookupError:
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        return "timeout"
+    finally:
+        ATTEMPT_PIDS.discard(p.pid)
+
+
+def publish(src, dst):
+    """Copy the best board to `dst` atomically: a kill at any moment leaves the previous best whole."""
+    Path(dst).parent.mkdir(parents=True, exist_ok=True)
+    tmp = f"{dst}.part-{os.getpid()}"
+    shutil.copy2(src, tmp)
+    os.replace(tmp, dst)
+
+
+def log(msg):
+    print(f"[restart {time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+TICK = os.sysconf("SC_CLK_TCK")
+PAGE = os.sysconf("SC_PAGE_SIZE")
+
+
+class Meter:
+    """CPU and memory of attempts, by sampling /proc: an attempt is its root process, the
+    processes below it and those in its session (processes that live < 1 s between samples are
+    missed; reap() adds the CPU of those the attempt waited for)."""
+
+    def __init__(self):
+        self.cpu = {}   # root pid -> {pid: cpu ticks last seen}
+        self.rss = {}   # root pid -> peak summed RSS bytes
+        self.members = {}   # root pid -> its processes at the last sample
+
+    def sample(self, roots):
+        procs = {}      # pid -> (ppid, sid, ticks, rss)
+        for d in os.listdir("/proc"):
+            if not d.isdigit():
+                continue
+            try:
+                f = open(f"/proc/{d}/stat").read()
+            except OSError:
+                continue
+            x = f[f.rindex(")") + 2:].split()
+            procs[int(d)] = (int(x[1]), int(x[3]), int(x[11]) + int(x[12]), int(x[21]) * PAGE)
+        kids = {}
+        for pid, (ppid, _, _, _) in procs.items():
+            kids.setdefault(ppid, []).append(pid)
+        for root in roots:
+            mine = {pid for pid, v in procs.items() if v[1] == root}
+            todo = [root]
+            while todo:
+                pid = todo.pop()
+                if pid in procs:
+                    mine.add(pid)
+                todo.extend(c for c in kids.get(pid, ()) if c not in mine)
+            self.members[root] = mine
+            seen = self.cpu.setdefault(root, {})
+            for pid in mine:
+                seen[pid] = max(seen.get(pid, 0), procs[pid][2])
+            self.rss[root] = max(self.rss.get(root, 0), sum(procs[pid][3] for pid in mine))
+
+    def cpu_s(self, root):
+        return round(sum(self.cpu.get(root, {}).values()) / TICK, 1)
+
+    def rss_mb(self, root):
+        return round(self.rss.get(root, 0) / 2 ** 20)
+
+
+def reap(p, info, block=False):
+    """p.poll() / p.wait() through wait4, keeping the CPU of p and every descendant it waited
+    for (info["ru_cpu_s"]). Returns the exit code, None while p runs."""
+    if p.returncode is not None:
+        return p.returncode
+    try:
+        pid, status, ru = os.wait4(p.pid, 0 if block else os.WNOHANG)
+    except ChildProcessError:
+        return p.poll()
+    if pid == 0:
+        return None
+    p.returncode = os.waitstatus_to_exitcode(status)
+    info["ru_cpu_s"] = ru.ru_utime + ru.ru_stime
+    ATTEMPT_PIDS.discard(p.pid)
+    return p.returncode
+
+
+def child_cpu():
+    r = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return r.ru_utime + r.ru_stime
+
+
+def report_unconnected(pro):
+    """Make the project copy `pro` report unconnected items when it sets them to "ignore": KiCad's
+    DRC then lists none at all, whatever --severity (7 corpus boards; the harness counts them by
+    pcbnew there, haslambench.score._uncapped). Only the judge's copy beside an attempt's board."""
+    try:
+        d = json.loads(pro.read_text(encoding="utf-8"))
+        sev = d["board"]["design_settings"]["rule_severities"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return
+    if sev.get("unconnected_items") == "ignore":
+        sev["unconnected_items"] = "error"
+        pro.write_text(json.dumps(d, indent=2), encoding="utf-8")
+
+
+_QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
+def _paren_depth(line):
+    """The change in S-expression depth over a line, quoted strings left out: a net named with an unbalanced
+    parenthesis ('Net-(U2-PA13(JTMS)', a pin name with one) wrote a copper block whose parentheses never balanced
+    when counted raw, and the scan ran off the end of the file."""
+    s = _QUOTED.sub('""', line)
+    return s.count("(") - s.count(")")
+
+
+def canonical_copper_order(board, uuids=False):
+    """Rewrite `board` with its top-level (segment), (arc) and (via) blocks in the order of their content
+    (the same rule as haslam.route.drc.canonical_copper_order; this wrapper is stdlib only), and with `uuids`
+    their UUIDs derived from that content. KiCad writes copper in UUID order, new on every import of a
+    routed board, and its DRC counts depend on both: two copies of one board (same copper, other UUIDs)
+    judged 13 and 15 errors, and the schedule then promoted different attempts. Returns {new uuid: old
+    uuid} (empty without `uuids`)."""
+    lines = Path(board).read_text(errors="replace").split("\n")
+    blocks, first, out, i = [], None, [], 0
+    while i < len(lines):
+        ln = lines[i]
+        if ln.startswith(("\t(segment", "\t(arc", "\t(via")) and not ln.startswith("\t(via_"):
+            j, depth = i, 0
+            while j < len(lines):
+                depth += _paren_depth(lines[j])
+                if depth <= 0:
+                    break
+                j += 1
+            j = min(j, len(lines) - 1)
+            blocks.append(lines[i:j + 1])
+            if first is None:
+                first = len(out)
+            i = j + 1
+            continue
+        out.append(ln)
+        i += 1
+    back = {}
+    if blocks:
+        blocks.sort(key=lambda b: [x for x in b if "(uuid" not in x and "(tstamp" not in x])
+        if uuids:
+            import hashlib
+            for k, blk in enumerate(blocks):
+                h = hashlib.sha1(("%d\n" % k + "\n".join(x for x in blk if "(uuid" not in x)).encode()).hexdigest()
+                u = f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
+                for x in blk:
+                    m = re.search(r'\(uuid "?([0-9a-fA-F-]+)"?\)', x)
+                    if m:
+                        back[u] = m.group(1)
+                blocks[k] = [re.sub(r'\(uuid "?[0-9a-fA-F-]+"?\)', f'(uuid "{u}")', x) for x in blk]
+        out[first:first] = [x for b in blocks for x in b]
+        Path(board).write_text("\n".join(out))
+    return back
+
+
+def task_rules(inp, board):
+    """Put the task's project files (.kicad_pro, .kicad_dru) beside `board`, and remove any the
+    task has none of: a rules file the method left there must not judge it (as haslambench's
+    install_rules). Before, an attempt's own .kicad_dru stayed when the input had none."""
+    for ext in (".kicad_pro", ".kicad_dru"):
+        src, dst = inp.with_suffix(ext), board.with_suffix(ext)
+        if src.exists():
+            shutil.copy2(src, dst)
+        else:
+            dst.unlink(missing_ok=True)
+
+
+def drc(board, inp, timeout):
+    """_drc of `board`; work mode: of a canonical copy (copper in content order with content-derived
+    UUIDs), since KiCad's counts depend on the copper's file order and UUIDs."""
+    if not WORK or not board.exists() or board.stat().st_size == 0:
+        return _drc(board, inp, timeout)
+    d = Path(tempfile.mkdtemp(prefix="judge-", dir=board.parent))
+    try:
+        c = d / "board.kicad_pcb"
+        shutil.copy2(board, c)
+        back = canonical_copper_order(c, uuids=True)
+        r = _drc(c, inp, timeout)
+        _keep_report(c.with_name("drc.json"), board.with_name("drc.json"), back)
+        return r
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _keep_report(src, dst, back):
+    """The judge's DRC report of the canonical copy `src` as `dst` (where time mode's judge leaves it, beside
+    the attempt's board), its UUIDs mapped back to the board's (`back`: {copy's uuid: board's}). --finish gets
+    it as @DRC@ (the finish gate's identity diff names
+    copper by UUID). Without it finish judged its input again in work mode."""
+    try:
+        r = json.loads(src.read_text())
+    except (OSError, ValueError):
+        dst.unlink(missing_ok=True)
+        return
+    for k in ("violations", "unconnected_items"):
+        for v in r.get(k) or []:
+            for it in v.get("items") or []:
+                if it.get("uuid") in back:
+                    it["uuid"] = back[it["uuid"]]
+    tmp = dst.with_name(dst.name + ".tmp")
+    tmp.write_text(json.dumps(r, indent=2))
+    os.replace(tmp, dst)
+
+
+def _drc(board, inp, timeout):
+    """{type: count} of DRC errors (env-dependent checks dropped) and the unconnected count of a
+    board by kicad-cli, with the input's project rules; None when there is no usable board."""
+    if not board.exists() or board.stat().st_size == 0:
+        return None
+    task_rules(inp, board)
+    report_unconnected(board.with_suffix(".kicad_pro"))
+    rep = board.with_name("drc.json")
+    # --severity-all: kicad-cli filters unconnected items by the project's severity like violations,
+    # so --severity-error read 0 open connections on boards that make them warnings (keytops-blank:
+    # 43 with --severity-all, 0 with --severity-error) and kept the first error-free attempt as clean
+    cmd = [*shlex.split(os.environ.get("HASLAM_KICAD_WRAP", "")), "kicad-cli", "pcb", "drc", "--format", "json",
+           "--severity-all", "--refill-zones", "--output", str(rep), str(board)]
+    try:
+        if SC:
+            rep.unlink(missing_ok=True)
+            r = SC.run("kicad-drc-judge", cmd, inputs=SC.kicad_inputs(board), outputs={"report": rep}, wd=board.parent,
+                       timeout=max(60, timeout), tool=SC.kicad_version(cmd[:cmd.index("kicad-cli") + 1]))
+            hold(r.saved)
+        else:
+            subprocess.run(cmd, capture_output=True, timeout=max(60, timeout))
+        r = json.loads(rep.read_text())
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return None
+    types = DI.errors_by_type(r)          # env-dependent checks dropped
+    n = len(r.get("unconnected_items", []))
+    if n >= DRC_UNCONNECTED_CAP:
+        # kicad-cli lists at most 499: past it, pcbnew's count after a zone fill (as the scorer,
+        # haslambench score._uncapped). polarfire-som: ~150 attempts all read 499, so screening,
+        # resume and the final pass chose blind (a 206 s attempt kept: 1306 open; 1500 s: 429)
+        m = uncapped_unconnected(board, timeout)
+        n = m if m is not None else n
+    return dict(types=types, unconnected=n, overlaps=overlaps(r))
+
+
+DRC_UNCONNECTED_CAP, UNCONNECTED_PY = DI.DRC_UNCONNECTED_CAP, DI.UNCONNECTED_PY
+
+
+def uncapped_unconnected(board, timeout):
+    """pcbnew's unconnected count after a zone fill, None when KiCad's Python cannot run it."""
+    cmd = [*shlex.split(os.environ.get("HASLAM_KICAD_WRAP", "")), "python3", "-c", UNCONNECTED_PY, str(board)]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=max(60, timeout), errors="replace")
+        return int(json.loads(r.stdout.strip().splitlines()[-1])["unconnected"])
+    except (subprocess.TimeoutExpired, OSError, ValueError, IndexError, KeyError):
+        return None
+
+
+def overlaps(report):
+    """Pairs of parts a placement put on top of each other, from a DRC report: courtyards that
+    overlap, and pads of two parts that short (pad to pad: a track's short is the router's).
+    can485: a 1x6 header placed over a 1x12 one gave 47 shorting_items and was kept."""
+    pairs = set()
+    for v in report.get("violations", []):
+        if v.get("type") not in ("courtyards_overlap", "shorting_items") or v.get("severity", "error") != "error":
+            continue
+        refs = []
+        for it in v.get("items", []):
+            d = it.get("description", "")       # a pad's or a footprint's owner; a track's short is the router's
+            refs.append(DI.item_ref(d) if DI.item_kind(d) in ("pad", "footprint") else None)
+        if len(refs) == 2 and None not in refs and refs[0] != refs[1]:
+            pairs.add(tuple(sorted(refs)))
+    return sorted(pairs)
+
+
+NUM = r"(-?[0-9.]+)"
+
+
+def block(txt, i):
+    """The S-expression block opening at txt[i] == "(" (to the end of txt if it never closes)."""
+    d, j, n, in_str = 0, i, len(txt), False
+    while j < n:
+        c = txt[j]
+        if in_str:
+            if c == "\\":
+                j += 1
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c == "(":
+            d += 1
+        elif c == ")":
+            d -= 1
+            if d == 0:
+                return txt[i:j + 1]
+        j += 1
+    return txt[i:]
+
+
+def edge_cuts_graphics(txt):
+    """Board graphics (gr_line/arc/rect/poly/circle) on Edge.Cuts, each its own block. A regex from
+    a graphic to the next `(layer "Edge.Cuts")` took in every graphic on another layer before an
+    Edge.Cuts one (mulcmu-plimsoll-3: outline (100,100)-(142,150) read as (-2.95,-2.85)-(142,150);
+    6 of 115 corpus boards inflated), so parts staged on that side were not counted outside."""
+    for m in re.finditer(r"\((?:gr_line|gr_arc|gr_rect|gr_poly|gr_circle)\b", txt):
+        blk = block(txt, m.start())
+        lay = re.search(r'\(layer "?([^"\s)]*)', blk)
+        if lay and lay.group(1) == "Edge.Cuts":
+            yield blk
+
+
+def outside(board):
+    """Unlocked footprints with pads whose anchor lies outside the Edge.Cuts bounding box (a part left staged
+    off the board, which DRC does not flag): a cheap stand-in for the harness's legality check.
+    Locked parts are the task's fixed interface and may overhang the edge."""
+    txt = board.read_text(errors="replace")
+    pts = [(float(x), float(y)) for blk in edge_cuts_graphics(txt)
+           for x, y in re.findall(r"\((?:start|end|mid|xy|center) " + NUM + " " + NUM, blk)]
+    if not pts:
+        return 0
+    x0, x1 = min(p[0] for p in pts), max(p[0] for p in pts)
+    y0, y1 = min(p[1] for p in pts), max(p[1] for p in pts)
+    n = 0
+    for m in re.finditer(r"\(footprint \"[^\"]*\"(.*?)\(at " + NUM + " " + NUM, txt, re.S):
+        x, y = float(m.group(2)), float(m.group(3))
+        end = txt.find("\n\t(footprint ", m.end())
+        pads = "(pad " in txt[m.end():end if end > 0 else len(txt)]
+        # like the harness (pad centres outside the outline): footprints without pads (logos) never count
+        n += pads and "(locked" not in m.group(1) and not (x0 <= x <= x1 and y0 <= y <= y1)
+    return n
+
+
+def judge(board, inp, base, timeout, placement=False, base_pairs=()):
+    """Rank key (lower is better, haslam.rank.board_rank) in the harness's order: legal, clean, then fewer
+    unconnected, then fewer DRC errors beyond the input's own (per type). With `placement`, parts outside the
+    outline, or parts on top of each other that the input (`base_pairs`) does not already have,
+    make it illegal; the last field counts both. None when there is no board."""
+    d = drc(board, inp, timeout)
+    if d is None:
+        return None
+    new = sum(max(0, c - base.get(t, 0)) for t, c in d["types"].items())
+    out = outside(board) if placement else 0
+    if placement:
+        out += len(set(map(tuple, d.get("overlaps", ()))) - set(map(tuple, base_pairs)))
+    return RANK.board_rank(d["unconnected"], new, out)
+
+
+def charge_env(info):
+    return {"HASLAM_CHARGE_FILE": info["charge"]} if info.get("charge") else {}
+
+
+# haslam.route.finish's estimate from the board's size (finish.COEF and DRC_COEF, duplicated here since
+# this file is stdlib only): its parts (rule D tails, taut, power copper) and the gate's two DRCs
+FINISH_COEF = (15.0, 0.17)      # seconds: fixed, per pad (tails 5+0.02, taut 5+0.12, power 5+0.03)
+FINISH_MIN_S = 30.0
+_PADS = {}          # input board -> pad count (read once: deadline() asks every second)
+
+
+def finish_estimate(a, inp, judge_est):
+    """Seconds the finish pass gets: --finish-s, else its estimate from the input's pad count plus
+    two DRCs (the gate's output DRC and one more) as long as the slowest judgement so far."""
+    if not a.finish:
+        return 0.0
+    if a.finish_s:
+        return a.finish_s
+    if inp not in _PADS:
+        try:
+            _PADS[inp] = Path(inp).read_text(encoding="utf-8", errors="replace").count("(pad ")
+        except (OSError, TypeError):
+            _PADS[inp] = 0
+    pads = _PADS[inp]
+    return max(FINISH_MIN_S, FINISH_COEF[0] + FINISH_COEF[1] * pads + 2 * judge_est + 5.0)
+
+
+def work_final_s(a):
+    """Work mode: the nominal seconds of the --final pass, --final-s, else WORK_FINAL_SHARE of --time."""
+    return (a.final_s or WORK_FINAL_SHARE * a.time) if a.final else 0.0
+
+
+def work_finish_s(a):
+    """Work mode: the nominal seconds of the --finish pass, --finish-s, else WORK_FINISH_SHARE of --time (until
+    2026-11-11 work mode ignored --finish-s: a 30 % finish got 10 % and the other 20 % went unused)."""
+    return (a.finish_s or WORK_FINISH_SHARE * a.time) if a.finish else 0.0
+
+
+def final_reserve(a, judge_est, inp=None):
+    """Seconds kept free from the start for the final pass: the last mile (--final; --final-s,
+    else FINAL_MIN_S plus one DRC of the board, as long as the slowest judgement so far) with the
+    judgement of its board. 0 without it. The finish (--finish) has no reserve: it runs in the time
+    a clean attempt or the final pass leaves (routing-stages.md, "Finish runs in the time left")."""
+    if a.final:
+        return (a.final_s or FINAL_MIN_S + judge_est) + judge_est + 10.0
+    return 0.0
+
+
+def _last_json(path):
+    """The last JSON object line of a log (a haslam command's report), {} when there is none."""
+    try:
+        lines = Path(path).read_text(errors="replace").splitlines()
+    except OSError:
+        return {}
+    for line in reversed(lines):
+        if line.startswith("{"):
+            try:
+                r = json.loads(line)
+                return r if isinstance(r, dict) else {}
+            except ValueError:
+                continue
+    return {}
+
+
+FR_RAW_LIMIT = 20_000_000    # bytes as stored: a run's raw Freerouting logs and result files plus its compact telemetry
+
+
+def fr_raw_env(d):
+    """Where haslam.route.freerouting copies each run's whole log and result file for this attempt."""
+    return {"HASLAM_FR_RAW_DIR": str(Path(d) / "fr-raw")}
+
+
+def keep_fr_raw(wd, summary, limit=FR_RAW_LIMIT):
+    """Gzip every attempt's raw Freerouting files (wd/<attempt>/fr-raw) into wd/fr-telemetry.tar,
+    `<attempt>/<name>.gz`, with manifest.json listing the parts kept and dropped (`parts`, `dropped`:
+    name, raw_bytes, gz_bytes). The tar and the attempts' compact `fr` in summary.json together stay
+    within `limit` bytes as stored: the compact telemetry is always kept, and the bulkiest raw parts
+    go first when they would not fit. Returns the record for summary.json's `fr_raw` (`file` None:
+    no tar, because nothing was kept), or None when no attempt ran Freerouting."""
+    raw = sorted(p for p in wd.glob("*/fr-raw/*") if p.is_file() and not p.is_symlink())
+    if not raw:
+        return None
+    gz_dir = wd / ".fr-raw-gz"
+    gz_dir.mkdir(exist_ok=True)
+    parts = []
+    for i, p in enumerate(raw):
+        g = gz_dir / str(i)
+        with open(p, "rb") as fi, gzip.open(g, "wb", compresslevel=6) as fo:
+            shutil.copyfileobj(fi, fo)
+        parts.append(dict(name=f"{p.parent.parent.name}/{p.name}.gz", raw_bytes=p.stat().st_size,
+                          gz_bytes=g.stat().st_size, g=g))
+    bare = dict(summary, attempt_log=[{k: v for k, v in d.items() if k != "fr"} for d in summary["attempt_log"]])
+    budget = limit - (len(json.dumps(summary, indent=1)) - len(json.dumps(bare, indent=1))) - 1024   # the fr_raw record
+    kept, dropped = sorted(parts, key=lambda x: x["gz_bytes"]), []   # kept[-1] is the bulkiest
+    while kept and sum(x["gz_bytes"] + 1024 for x in kept) > budget:   # 1024: a tar member's header and padding
+        dropped.append(kept.pop())
+    tar = wd / "fr-telemetry.tar"
+    public = lambda x: {k: v for k, v in x.items() if k != "g"}
+    while True:
+        manifest = json.dumps(dict(limit_bytes=limit, parts=[public(x) for x in kept], dropped=[public(x) for x in dropped]),
+                              indent=1).encode()
+        with tarfile.open(tar, "w") as t:
+            info = tarfile.TarInfo("manifest.json")
+            info.size = len(manifest)
+            t.addfile(info, io.BytesIO(manifest))
+            for x in kept:
+                t.add(x["g"], arcname=x["name"], recursive=False)
+        stored = tar.stat().st_size
+        if stored <= budget or not kept:
+            break
+        dropped.append(kept.pop())
+    if stored > budget:   # even the manifest does not fit: the record below still says what was dropped
+        tar.unlink()
+        stored = 0
+    for d in {p.parent for p in raw} | {gz_dir}:
+        shutil.rmtree(d, ignore_errors=True)
+    return dict(file=tar.name if stored else None, limit_bytes=limit, stored_bytes=stored, parts_kept=len(kept),
+                parts_dropped=len(dropped), dropped_raw_bytes=sum(x["raw_bytes"] for x in dropped))
+
+
+FAILURE_TAIL = 1200   # characters of a failed attempt's log kept in its record
+
+
+def attempt_failure(log_path):
+    """Why an attempt exited non-zero, for its record in summary.json (the attempt's own log goes
+    with the work directory): the status and error of its report (the last JSON line), and the
+    end of its log without that line."""
+    rep = _last_json(log_path)
+    try:
+        lines = Path(log_path).read_text(errors="replace").splitlines()
+    except OSError:
+        lines = []
+    tail = "\n".join(ln for ln in lines if not ln.startswith("{"))[-FAILURE_TAIL:]
+    return dict(status=rep.get("status"), error=(str(rep.get("error"))[:FAILURE_TAIL] if rep.get("error") else None),
+                log_tail=tail)
+
+
+def fr_telemetry(log_path):
+    """The Freerouting telemetry (haslam.route.freerouting.telemetry) of a route attempt's report (the
+    last JSON line of its log): {"first": the first routing, "repair": [one per repair round that
+    routed]}, {} when the attempt reports none."""
+    rep = _last_json(log_path)
+    out = {}
+    first = ((rep.get("router") or {}).get("report") or {}).get("telemetry")
+    if first:
+        out["first"] = first
+    rounds = [t for r in ((rep.get("repair") or {}).get("rounds") or [])
+              if (t := (r.get("router") or {}).get("telemetry"))]
+    if rounds:
+        out["repair"] = rounds
+    return out
+
+
+def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, stop, cpu_s, base_pairs, keep_equal):
+    """Run `command` once on the kept board (in wd/kind) with `b` seconds, judge its board and say
+    whether it replaces the kept one: when KiCad ranks it better, or (keep_equal) no worse."""
+    d = wd / kind
+    d.mkdir(exist_ok=True)
+    src, o = d / "best_in.kicad_pcb", d / "board.kicad_pcb"
+    shutil.copy2(best["out"], src)
+    task_rules(inp, src)
+    t = time.monotonic()
+    seed = a.seed * 1000 + 999
+    drc_json = Path(best["out"]).with_name("drc.json")      # the judge's DRC of the kept board
+    c = command.replace("@IN@", shlex.quote(str(inp))).replace("@OUT@", shlex.quote(str(o)))
+    c = c.replace("@BEST@", shlex.quote(str(src))).replace("@SEED@", str(seed)).replace("@TIME@", str(int(b)))
+    c = c.replace("@DRC@", shlex.quote(str(drc_json)) if drc_json.exists() else "''")
+    c = c.replace("@DRC_S@", str(round(judge_est, 1)))
+    log(f"{kind} pass on #{best['k']}'s board: {b:.0f}s")
+    info = dict(k=kind, seed=seed, budget=round(b), out=o, t=t, resumed_from=best["k"])
+    if SC:
+        info["charge"] = str(d / "charge.jsonl")
+    kill_s = min((WORK_CEILING if WORK else 1.0) * b + GRACE_S, end - judge_est - 5 - time.monotonic())
+    p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
+                         start_new_session=True, env=dict(os.environ, HASLAM_RESUME="1", **charge_env(info), **fr_raw_env(d),
+                                                          **({"HASLAM_CLEAR_KEPT": "1"} if a.clear and kind != "clear" else {}),
+                                                          **(best.get("env") or {}), **deadline_env(kill_s)))
+    ATTEMPT_PIDS.add(p.pid)
+    info["arm"], info["env"] = best.get("arm"), best.get("env")
+    while reap(p, info) is None or saving(p):
+        if term_over() or time.monotonic() + saved(info) > min(t + (WORK_CEILING if WORK else 1.0) * b + GRACE_S,
+                                                               end - judge_est - 5):
+            stop(p, info)
+            info["killed"] = True
+            break
+        meter.sample([p.pid])
+        time.sleep(1)
+    info.update(cpu_s=cpu_s(p, info), peak_rss_mb=meter.rss_mb(p.pid), rc=p.returncode)
+    if SC:
+        hold(saved(info))
+        info["step_cache"] = SC.charges(info["charge"])
+    info["wall_s"] = round(time.monotonic() - t, 1)
+    c0, w0 = child_cpu(), time.monotonic()
+    rank = None if TERM else judge(o, inp, base, max(10.0, end - w0 - 5), a.check_placement, base_pairs)
+    info.update(rank=rank, judge_cpu_s=child_cpu() - c0, judge_wall_s=time.monotonic() - w0)
+    info["kept"] = rank is not None and (rank <= tuple(best["rank"]) if keep_equal else rank < tuple(best["rank"]))
+    log(f"{kind} pass rc {p.returncode} {rank}: {'kept' if info['kept'] else 'not better'}")
+    return info
+
+
+def final_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s, base_pairs=()):
+    """One more pass of --final on the board kept, whenever its attempt ended: the time left up to
+    the end (at least what final_reserve kept free) less FINAL_JUDGE_SLACK judgements; routing comes first, so the
+    finish gets what the last mile leaves. Returns its record (kept: whether KiCad's DRC ranks its
+    board better than the kept one), None when there is nothing to do (no board, a clean one, or after SIGTERM)."""
+    if best is None or best.get("rank") is None or best["rank"][:2] == (0, 0) or TERM:
+        return None
+    b = work_final_s(a) if WORK else max(20.0, end - time.monotonic() - FINAL_JUDGE_SLACK * judge_est - 10.0)
+    return _one_pass(a, "final", a.final, best, inp, base, wd, end, b, judge_est, meter, stop, cpu_s, base_pairs,
+                     keep_equal=False)
+
+
+def clear_pass(a, best, inp, base, wd, judge_est, meter, stop, cpu_s, base_pairs=()):
+    """--clear on the board kept after --final, clean or not, with --clear-s of its own (never taken from
+    routing). Its board replaces the kept one when KiCad ranks it no worse. The record carries the clear
+    command's own report (cells cleared, kept or skipped, seconds). None without a board or after SIGTERM."""
+    if best is None or best.get("rank") is None or TERM:
+        return None
+    b = a.clear_s
+    # the pass's own end: its allowance (and, in work mode, its wall ceiling) plus one judgement, after now,
+    # but never past the harness's HASLAM_DEADLINE
+    end_c = time.monotonic() + min((WORK_CEILING if WORK else 1.0) * b + GRACE_S + 2 * judge_est + 20.0, wall_left())
+    info = _one_pass(a, "clear", a.clear, best, inp, base, wd, end_c, b, judge_est, meter, stop, cpu_s, base_pairs,
+                     keep_equal=True)
+    rep = _last_json(wd / "clear" / "log")
+    if rep:
+        info["hazards"] = [h for h in rep.get("hazards") or [] if isinstance(h, dict)]
+        info["clear"] = dict(cells=rep.get("cells"), seconds=rep.get("seconds"),
+                             estimate_s_per_cell=rep.get("estimate_s_per_cell"), status=rep.get("status"))
+    return info
+
+
+def finish_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s, base_pairs=()):
+    """--finish on the board kept (after --final), clean or not: the time left less one judgement.
+    Its board replaces the kept one when KiCad ranks it no worse (finishing shapes copper; it does
+    not aim to change the rank). The record carries the finish's own report summary (which parts
+    ran, were skipped or failed; its DRC runs). None without a board or after SIGTERM; a record with `skipped`
+    when less than FINISH_RUN_MIN_S is left (the finish never runs past the end)."""
+    if best is None or best.get("rank") is None or TERM:
+        return None
+    b = work_finish_s(a) if WORK else end - time.monotonic() - judge_est - 10.0
+    if b < FINISH_RUN_MIN_S:
+        log(f"finish pass skipped: {b:.0f}s left after the routing")
+        return dict(k="finish", skipped=f"time: {max(0.0, b):.0f} s left after routing, "
+                                        f"{FINISH_RUN_MIN_S:.0f} s needed", budget=round(max(0.0, b)),
+                    estimate_s=round(finish_estimate(a, inp, judge_est)), resumed_from=best["k"], kept=False)
+    info = _one_pass(a, "finish", a.finish, best, inp, base, wd, end, b, judge_est, meter, stop, cpu_s, base_pairs,
+                     keep_equal=True)
+    rep = _last_json(wd / "finish" / "log")
+    if rep:
+        info["hazards"] = [h for h in rep.get("hazards") or [] if isinstance(h, dict)]
+        info["finish"] = dict(parts=rep.get("parts"), drc_runs=rep.get("drc_runs"),
+                              drc_in_reused=rep.get("drc_in_reused"), entries=rep.get("entries"),
+                              kept_entries=rep.get("kept"), noise=rep.get("noise"), seconds=rep.get("seconds"),
+                              step_cache=rep.get("step_cache"))
+    return info
+
+
+def rung_plan(wall_s, parallel, screen_s, eta=2):
+    """Successive halving sized from the budget: rung r runs budget screen_s * eta**r; each rung
+    gets the same share of the slot-seconds (parallel * wall_s), so rung r holds n0 / eta**r
+    candidates. At least two rungs (a top budget past the wall time is cut at the deadline;
+    with one rung nothing is ever resumed: bestelampe, a 26 s DRC, got [304] s and 9 fresh
+    placements), else the most whose top budget fits in the wall time and whose top rung still
+    has one candidate. Returns (budgets, n0)."""
+    R = 2
+    while screen_s * eta ** R <= wall_s and (R + 1) * eta ** R * screen_s <= parallel * wall_s:
+        R += 1
+    n0 = max(parallel, int(parallel * wall_s // (R * screen_s)))
+    return [screen_s * eta ** r for r in range(R)], n0
+
+
+class Halving:
+    """Asynchronous successive halving over placements (ASHA, Li et al., MLSys 2020): a free slot
+    promotes a candidate in the top 1/eta of those judged at its rung (its board resumed with
+    the next rung's budget, a new seed), else starts a new candidate (a fresh placement with the
+    screen budget) while rung 0 has room, a lower rung may still promote or a new one has time
+    to climb every rung, else resumes the best board at the top rung. A
+    candidate's score at a rung is its attempt's rank there; every candidate and score goes to
+    summary.json."""
+
+    def __init__(self, budgets, n0, eta=2):
+        self.budgets, self.n0, self.eta = budgets, n0, eta
+        self.cands = []          # {id, seed, rungs: [{k, rank}], promoted: set of rungs}
+
+    @staticmethod
+    def last(c):
+        """A candidate's latest judged attempt at any rung ({k, rank}), None before one."""
+        xs = [x for x in c["rungs"] if x["rank"] is not None]
+        return xs[-1] if xs else None
+
+    def next(self, left=float("inf")):
+        """(candidate or None, rung, budget, k of the attempt whose board it resumes or None):
+        what the next free slot runs; `left`: seconds left for attempts."""
+        top = len(self.budgets) - 1
+        for r in range(top - 1, -1, -1):       # the highest rung first: its budget is the longest
+            done = [c for c in self.cands if len(c["rungs"]) > r and c["rungs"][r]["rank"] is not None]
+            done.sort(key=lambda c: c["rungs"][r]["rank"])
+            for c in done[:len(done) // self.eta]:
+                if r not in c["promoted"]:
+                    c["promoted"].add(r)
+                    return c, r + 1, self.budgets[r + 1], c["rungs"][r]["k"]
+        waiting = any(not x.get("done") for c in self.cands for x, r in zip(c["rungs"], range(top)))
+        if len(self.cands) < self.n0 or waiting or left >= sum(self.budgets):
+            # rung 0 has room, a lower rung may still promote, or a new placement still has time
+            # to climb every rung: a short fresh placement fills the slot. Resuming the same
+            # board again rarely helps (merge2-eval-joint: 18 of 70 second resumes, 21.5 -> 21.0
+            # open on average), so the best is resumed only when nothing else fits
+            return None, 0, self.budgets[0], None
+        scored = [c for c in self.cands if self.last(c)]
+        if scored:
+            c = min(scored, key=lambda c: self.last(c)["rank"])
+            return c, top, self.budgets[top], self.last(c)["k"]
+        return None, 0, self.budgets[0], None
+
+    def started(self, cand, k, seed):
+        if cand is None:
+            cand = dict(id=len(self.cands), seed=seed, rungs=[], promoted=set())
+            self.cands.append(cand)
+        cand["rungs"].append(dict(k=k, rank=None))
+        return cand
+
+    def judged(self, cand, k, rank):
+        for x in cand["rungs"]:
+            if x["k"] == k:
+                x["rank"], x["done"] = rank, True
+
+    def summary(self):
+        return dict(budgets=[round(b) for b in self.budgets], n0=self.n0, eta=self.eta,
+                    candidates=[dict(id=c["id"], seed=c["seed"],
+                                     rungs=[dict(k=x["k"], rank=x["rank"] and list(x["rank"])) for x in c["rungs"]])
+                                for c in self.cands])
+
+
+def parse_env(text):
+    """{K: V} of "K=V K2=V2"."""
+    out = {}
+    for tok in shlex.split(text or ""):
+        k, _, v = tok.partition("=")
+        if k:
+            out[k] = v
+    return out
+
+
+def tiebreak_score(a, info, cache):
+    """The --tiebreak score of an attempt's board (cached by its path), None when the command gives none."""
+    key = str(info["out"])
+    if key in cache:
+        return cache[key]
+    o = Path(info["out"]).with_name("tiebreak.json")
+    c = a.tiebreak.replace("@BOARD@", shlex.quote(key)).replace("@OUT@", shlex.quote(str(o)))
+    t = time.monotonic()
+    if TERM:        # after SIGTERM no new process: the scores do not decide (better() then keeps arm A)
+        return None
+    try:
+        with open(Path(info["out"]).with_name("tiebreak.log"), "w") as f:
+            rc = run_group(["sh", "-c", c], min(float(a.tiebreak_s), wall_left()), cwd=Path(info["out"]).parent,
+                           stdout=f, stderr=subprocess.STDOUT, env=dict(os.environ, **(info.get("env") or {})))
+        score = json.loads(o.read_text()).get("score") if rc != "timeout" else None
+    except (OSError, ValueError):
+        score = None
+    cache[key] = score
+    log(f"tie-break score of #{info['k']} (arm {info.get('arm')}): {score} ({time.monotonic() - t:.0f}s)")
+    return score
+
+
+def better(a, new, best, cache, ties):
+    """Whether attempt `new` replaces `best`: a better KiCad rank; with --alt-env and --tiebreak, both clean, of
+    different arms, and a tie-break score lower by more than --tiebreak-margin, or, when the scores do not decide
+    (closer than the margin, or one missing), `new` being arm A (each comparison goes to `ties`)."""
+    if new.get("rank") is None:
+        return False
+    if best is None or best.get("rank") is None:
+        return True
+    if tuple(new["rank"]) != tuple(best["rank"]) or not (a.alt_env and a.tiebreak) or tuple(new["rank"][:2]) != (0, 0):
+        # only clean boards are compared by the tie-break: an open board's lineage and final pass still change
+        # its copper, and a quote of a big board can take minutes (the loop waits for it)
+        return tuple(new["rank"]) < tuple(best["rank"])
+    if new.get("arm") == best.get("arm"):
+        return False
+    sb, sn = tiebreak_score(a, best, cache), tiebreak_score(a, new, cache)
+    if sb is not None and sn is not None and abs(sn - sb) > a.tiebreak_margin:
+        win = sn < sb
+    else:
+        # no clear difference, or a board the tie-break could not score: the method as given (arm A) is kept
+        win = new.get("arm") == "A"
+    ties.append(dict(rank=list(new["rank"]), kept=best["k"], kept_arm=best.get("arm"), kept_score=sb,
+                     other=new["k"], other_arm=new.get("arm"), other_score=sn, switched=win))
+    return win
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", required=True)
+    ap.add_argument("--output", required=True)
+    ap.add_argument("--time", type=float, required=True, help="wall seconds for everything")
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--parallel", type=int, default=4)
+    ap.add_argument("--first-s", type=float, default=60.0)
+    ap.add_argument("--growth", type=float, default=2.0)
+    ap.add_argument("--scale-first", action="store_true",
+                    help="first-s x sqrt(footprints / 40) when above 1: big boards need longer single attempts")
+    ap.add_argument("--check-placement", action="store_true",
+                    help="methods that place: unlocked parts outside the outline, or parts on top of each other "
+                         "(courtyards, pad-to-pad shorts) beyond the input's, make an attempt illegal")
+    ap.add_argument("--max-attempts", type=int, default=0,
+                    help="stop launching after this many (deterministic methods: 1); 0 = no limit")
+    ap.add_argument("--slack", type=float, default=1.0,
+                    help="an attempt may run budget x slack before it is killed (methods whose budget is "
+                         "solver CPU time and that spend more on KiCad I/O around it)")
+    ap.add_argument("--resume", type=float, default=0.0,
+                    help="share of each wave after the first that continues from the best board so far "
+                         "(@BEST@, HASLAM_RESUME=1); 0 = every attempt starts from the input")
+    ap.add_argument("--final", default="",
+                    help="command for one last pass on the kept board (@IN@, @BEST@, @OUT@, @SEED@, @TIME@), "
+                         "its time reserved from the start; kept only when KiCad ranks it better")
+    ap.add_argument("--final-s", type=float, default=0.0,
+                    help="seconds for the final pass; 0 = FINAL_MIN_S plus one DRC of the board")
+    ap.add_argument("--finish", default="",
+                    help="command for the finish stage on the kept board after --final (@IN@, @BEST@, @OUT@, @SEED@, "
+                         "@TIME@, @DRC@: the judge's DRC report of @BEST@, @DRC_S@: one judgement's seconds), "
+                         "in the time routing leaves (nothing reserved); kept when KiCad ranks it no worse, clean "
+                         "boards too. Attempts get HASLAM_FINISH_KEPT=1")
+    ap.add_argument("--clear", default="",
+                    help="command clearing the hot loops' returns on the kept board after --final, before --finish (@IN@, "
+                         "@BEST@, @OUT@, @TIME@), with --clear-s of its own; kept when KiCad ranks it no worse. Attempts "
+                         "and the final pass get HASLAM_CLEAR_KEPT=1")
+    ap.add_argument("--clear-s", type=float, default=300.0,
+                    help="seconds for the --clear pass, on top of --time (work mode: nominal seconds of counted work)")
+    ap.add_argument("--finish-s", type=float, default=0.0,
+                    help="seconds for the finish pass in work mode (0: WORK_FINISH_SHARE of --time); in time mode "
+                         "the pass's estimate, reported when it is skipped (0: from the input's pad count plus two DRCs)")
+    ap.add_argument("--history", action="store_true",
+                    help="keep a history of the nets judged attempts left open (restarts/history.json) and pass "
+                         "its path to every attempt in HASLAM_ROUTE_HISTORY")
+    ap.add_argument("--screen", action="store_true",
+                    help="methods that place: successive halving over placements instead of the fixed waves "
+                         "(fresh attempts at --screen-s, the best of each rung resumed with eta x the budget)")
+    ap.add_argument("--screen-s", type=float, default=0.0,
+                    help="rung-0 budget (0: first-s; haslam staged at half of it overran its budget: placing alone "
+                         "takes 60-100 s)")
+    ap.add_argument("--eta", type=int, default=2)
+    ap.add_argument("--alt-env", default="",
+                    help='choose-better portfolio: "K=V ..." for arm B (odd attempts; resumed attempts continue '
+                         "their own arm's best board); the final and finish passes run with the kept board's arm")
+    ap.add_argument("--tiebreak", default="",
+                    help="command scoring a board (@BOARD@, @OUT@: JSON with 'score', lower better) to choose "
+                         "between the arms' boards of equal KiCad rank")
+    ap.add_argument("--tiebreak-margin", type=float, default=0.1,
+                    help="a score must be lower by more than this to win a tie-break")
+    ap.add_argument("--tiebreak-s", type=float, default=600.0, help="time limit of one tie-break command")
+    ap.add_argument("--policy", default="", choices=("", "completion-first"),
+                    help="completion-first: two runs of this wrapper in --time (half each). The second is --alt "
+                         "(e.g. the module stage) when the first run's board is clean, else another run of COMMAND "
+                         "with the next --seed; the better board by the harness's ranking is kept (--alt's when no "
+                         "worse). Off by default")
+    ap.add_argument("--open-alt", default="",
+                    help="completion-first: the command of the second run when phase 1's board is not clean, on that "
+                         "board (@BEST@), instead of COMMAND again; kept when it ranks no worse")
+    ap.add_argument("--open-rest", action="store_true",
+                    help="completion-first with --open-alt: the --open-alt run's unused budget goes to one more run "
+                         "(COMMAND with the next seed, or --alt on a clean board with --open-rest-alt)")
+    ap.add_argument("--open-rest-alt", action="store_true",
+                    help="with --open-rest: when the kept board is clean, that run is --alt (kept when no worse)")
+    ap.add_argument("--alt", default="", help="completion-first: the command of the second run on a clean board")
+    ap.add_argument("command", nargs=argparse.REMAINDER)
+    a = ap.parse_args()
+    signal.signal(signal.SIGTERM, _on_term)
+    if a.alt and not a.policy:
+        a.policy = "completion-first"     # --alt makes completion-first the policy (completion-first verdict, 2026-11)
+    if a.policy:
+        return run_policy(ap, a)
+    cmd = " ".join(a.command[1:] if a.command[:1] == ["--"] else a.command)
+    inp, out = Path(a.input).resolve(), Path(a.output).resolve()
+    wd = Path.cwd() / "restarts"
+    wd.mkdir(exist_ok=True)
+    t0 = time.monotonic()
+    if a.scale_first:
+        nfp = inp.read_text(errors="replace").count("(footprint ")
+        a.first_s *= max(1.0, nfp / 40) ** 0.5
+        log(f"{nfp} footprints: first wave {a.first_s:.0f}s")
+    end = t0 + min(2 * WORK_CEILING * a.time if WORK else a.time, wall_left())
+    plan_s = max(0.0, a.time - work_final_s(a) - work_finish_s(a))
+    plan_used = [0.0]        # work mode: nominal seconds of the batches launched so far
+    base_dir = wd / "input"  # the input's own DRC errors (silk, rules) are not the method's
+    base_dir.mkdir(exist_ok=True)
+    shutil.copy2(inp, base_dir / "board.kicad_pcb")
+    w = time.monotonic()
+    b0 = drc(base_dir / "board.kicad_pcb", inp, a.time if WORK else 0.2 * a.time)
+    judge_est = 0.0 if WORK else max(1.0, time.monotonic() - w)   # seconds one judgement takes (the slowest seen)
+
+    def deadline():
+        # attempts stop in time for the last wave to be judged one by one before the end
+        # (seniordesign hdmi2rgb: a DRC takes ~60 s; a fixed reserve let the wrapper run 88 s
+        # past its time, the harness killed it and kept nothing)
+        return end - max(min(0.25 * a.time, 60 + 0.05 * a.time), a.parallel * judge_est + GRACE_S + 15) \
+            - final_reserve(a, judge_est, inp)
+
+    def left():
+        return plan_s - plan_used[0] if WORK else deadline() - time.monotonic()
+    base = (b0 or {}).get("types", {})
+    sh = None
+    if a.screen:
+        sh = Halving(*rung_plan(left(), a.parallel, a.screen_s or a.first_s, a.eta), eta=a.eta)
+        log(f"successive halving: rung budgets {[round(b) for b in sh.budgets]} s, {sh.n0} placements")
+    log(f"input DRC errors by type: {base}")
+    running, done, k = {}, [], 0
+    best = None
+    alt = parse_env(a.alt_env)
+    arm_best, tb_cache, ties, no_new = {}, {}, [], [False]   # per-arm best; tie-break scores; comparisons
+    meter, judge_cpu, judge_wall = Meter(), 0.0, 0.0
+    fast_fails = 0  # attempts in a row that died within seconds without a board: a broken command
+
+    def launch():
+        nonlocal k
+        # the method's budget follows the schedule; slack only lets an attempt run past it (up to
+        # the overall deadline), it does not shrink the budget of late attempts
+        if sh is not None:
+            cand, rung, b, src_k = sh.next(left())
+            b = min(b, left())
+            frm = next(x for x in done if x["k"] == src_k) if src_k is not None else None
+        else:
+            b = min(a.first_s * a.growth ** (k // a.parallel), left())
+            src_best = (arm_best.get("B" if k % 2 else "A") or best) if alt else best
+            frm = src_best if (a.resume > 0 and k >= a.parallel and src_best is not None and src_best["rank"] is not None
+                               and k % a.parallel < round(a.resume * a.parallel)) else None
+        if b < 20 or (a.max_attempts and k >= a.max_attempts) or no_new[0] or TERM:
+            return False
+        arm = (frm.get("arm") if frm is not None else ("B" if k % 2 else "A")) if alt else None
+        env_k = alt if arm == "B" else {}
+        d = wd / f"a{k}"
+        d.mkdir(exist_ok=True)
+        o = d / "board.kicad_pcb"
+        s = a.seed * 1000 + k
+        src, resume = inp, False
+        if frm is not None:
+            src, resume = d / "best_in.kicad_pcb", True
+            shutil.copy2(frm["out"], src)
+            task_rules(inp, src)
+        c = cmd.replace("@IN@", shlex.quote(str(inp))).replace("@OUT@", shlex.quote(str(o)))
+        c = c.replace("@BEST@", shlex.quote(str(src)))
+        c = c.replace("@SEED@", str(s)).replace("@TIME@", str(int(b)))
+        ch = dict(charge=str(d / "charge.jsonl")) if SC else {}
+        kill_s = b * (WORK_CEILING if WORK else a.slack) + GRACE_S
+        p = subprocess.Popen(["sh", "-c", c], cwd=d, stdout=open(d / "log", "w"), stderr=subprocess.STDOUT,
+                             start_new_session=True, env=dict(os.environ, HASLAM_RESUME="1" if resume else "0",
+                                                              **({"HASLAM_FINISH_KEPT": "1"} if a.finish else {}),
+                                                              **({"HASLAM_CLEAR_KEPT": "1"} if a.clear else {}),
+                                                              **charge_env(ch), **fr_raw_env(d), **env_k,
+                                                              **deadline_env(min(kill_s, end - time.monotonic()))))
+        ATTEMPT_PIDS.add(p.pid)
+        running[p] = dict(k=k, seed=s, budget=round(b), out=o, t=time.monotonic(),
+                          resumed_from=frm["k"] if resume else None, **ch)
+        if alt:
+            running[p].update(arm=arm, env=env_k)
+        if sh is not None:
+            running[p].update(cand=sh.started(cand, k, s), rung=rung)
+        log(f"start #{k} seed {s} budget {b:.0f}s" + (f" arm {arm}" if alt else "") + (f" from #{frm['k']}'s board" if resume else "")
+            + (f" (candidate {running[p]['cand']['id']}, rung {rung})" if sh is not None else ""))
+        k += 1
+        return True
+
+    def stop(p, info):
+        # the whole tree, not just the process group: a router in a session of its own would
+        # otherwise run on after its parent is gone
+        meter.sample([p.pid])
+        for pid in [p.pid, *meter.members.get(p.pid, ())]:
+            try:
+                os.killpg(pid, signal.SIGKILL) if pid == p.pid else os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        reap(p, info, block=True)
+
+    def cpu_s(p, info):
+        return max(meter.cpu_s(p.pid), round(info.pop("ru_cpu_s", 0.0), 1))
+
+    def busy():
+        # an attempt that has exited but is not reaped yet computes no more: note when it was seen
+        # so, its hold counts from then even when a judge's hold is skipped meanwhile
+        live = False
+        for p, i in running.items():
+            if "hold" not in i:
+                if alive(p.pid):
+                    live = True
+                else:
+                    i.setdefault("dead_at", time.monotonic())
+        return live
+    BUSY[0] = busy
+
+    def fill():
+        """Start attempts while slots are free (work mode: a whole batch, only when none is running)."""
+        if WORK and running:
+            return
+        while len(running) < a.parallel and launch():
+            pass
+        if WORK and running:
+            plan_used[0] += max(i["budget"] for i in running.values())
+    fill()
+    while running:
+        if SC and all("hold" in i for i in running.values()):   # nothing computes: skip to the first hold's end
+            SC.advance(min(i["hold"] for i in running.values()) - time.monotonic())
+        else:
+            time.sleep(1)
+        meter.sample([p.pid for p in running if "hold" not in running[p]])
+        now = time.monotonic()
+        if not TERM and WORK and any(alive(p.pid) and now <= i["t"] + i["budget"] * WORK_CEILING + GRACE_S
+                                     for p, i in running.items()):
+            continue                 # the batch is judged whole, in launch order
+        for p, info in list(running.items()):
+            if "hold" not in info:
+                spent = now + saved(info)   # the attempt's own clock: charged time counts as elapsed
+                over = (spent > info["t"] + info["budget"] * WORK_CEILING + GRACE_S) if WORK else (
+                    spent > info["t"] + info["budget"] * a.slack + GRACE_S or spent > deadline() + GRACE_S)
+                over = over or term_over()
+                if (reap(p, info) is None or saving(p)) and not over:
+                    continue
+                if p.returncode is None or saving(p):
+                    stop(p, info)
+                info.update(cpu_s=cpu_s(p, info), peak_rss_mb=meter.rss_mb(p.pid))
+                # its slot stays taken for the time its hits saved, from when it exited
+                info["hold"] = min(now, info.pop("dead_at", now)) + saved(info)
+                if SC:
+                    info["step_cache"] = SC.charges(info["charge"])
+            if time.monotonic() < info["hold"] and not TERM:
+                continue
+            del info["hold"]
+            del running[p]
+            info["wall_s"] = round(time.monotonic() - info["t"], 1)
+            c0, w0 = child_cpu(), time.monotonic()
+            if TERM:
+                rank = None   # the job is being killed: no time to judge it
+                info["not_judged"] = "killed"
+            elif w0 + judge_est > end - 5:
+                rank = None   # no time left to judge it: the best so far stays the output
+                info["not_judged"] = "time"
+            else:
+                rank = judge(info["out"], inp, base, max(10.0, end - w0 - 5), a.check_placement,
+                             (b0 or {}).get("overlaps", ()))
+                judge_est = 0.0 if WORK else max(judge_est, time.monotonic() - w0)
+            judge_cpu += child_cpu() - c0
+            judge_wall += time.monotonic() - w0
+            info.update(rc=p.returncode, rank=rank)
+            if (fr := fr_telemetry(info["out"].parent / "log")):
+                info["fr"] = fr
+            if p.returncode:
+                info["failure"] = attempt_failure(info["out"].parent / "log")
+            if sh is not None:
+                sh.judged(info["cand"], info["k"], rank)
+            fast_fails = fast_fails + 1 if rank is None and info["wall_s"] < 10 else 0
+            done.append(info)
+            log(f"end #{info['k']} rc {p.returncode} (illegal, not clean, unconnected, new errors, outside) {rank}")
+            if alt and rank is not None:
+                ab = arm_best.get(info["arm"])
+                if ab is None or rank < ab["rank"]:
+                    arm_best[info["arm"]] = info
+            if rank is not None and better(a, info, best, tb_cache, ties):
+                best = info
+                publish(best["out"], out)  # at once: a kill at the deadline keeps the best so far
+        if alt and a.tiebreak and best and best["rank"][:2] == (0, 0) and \
+                any("hold" in i or alive(p.pid) for p, i in running.items() if i.get("arm") != best.get("arm")):
+            if not no_new[0]:
+                log(f"#{best['k']} (arm {best.get('arm')}) is clean: no new attempts; the other arm's running "
+                    f"attempts finish for the tie-break")
+            no_new[0] = True
+        elif best and best["rank"][:2] == (0, 0):
+            log(f"#{best['k']} is clean: stopping the rest")
+            meter.sample([p.pid for p in running])
+            for p, info in list(running.items()):
+                if "hold" not in info:   # a held one has exited: its CPU and memory are counted
+                    stop(p, info)
+                    info.update(cpu_s=cpu_s(p, info), peak_rss_mb=meter.rss_mb(p.pid))
+                    if SC:
+                        info["step_cache"] = SC.charges(info["charge"])
+                info.pop("hold", None)
+                info.update(wall_s=round(time.monotonic() - info["t"], 1), rc=None, rank=None, stopped=True)
+                done.append(info)
+            running.clear()
+            break
+        if fast_fails >= 2 * a.parallel:
+            log(f"{fast_fails} attempts in a row died within 10 s without a board: giving up (see restarts/a*/log)")
+            for p, info in list(running.items()):
+                if "hold" not in info:
+                    stop(p, info)
+            running.clear()
+            break
+        fill()
+    fin = final_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s,
+                     (b0 or {}).get("overlaps", ())) if a.final else None
+    if fin is not None:
+        judge_cpu += fin.pop("judge_cpu_s", 0.0)
+        judge_wall += fin.pop("judge_wall_s", 0.0)
+        done.append(fin)
+        if fin.get("kept"):
+            best = fin
+            publish(best["out"], out)
+    cz, cz_hazards = None, []
+    if a.clear:
+        tc = time.monotonic()
+        cz = clear_pass(a, best, inp, base, wd, judge_est, meter, stop, cpu_s, (b0 or {}).get("overlaps", ()))
+        # clearing has its own allowance: the time left for --finish is not cut (but never past HASLAM_DEADLINE)
+        end = min(end + time.monotonic() - tc, time.monotonic() + wall_left())
+        if cz is not None:
+            judge_cpu += cz.pop("judge_cpu_s", 0.0)
+            judge_wall += cz.pop("judge_wall_s", 0.0)
+            own = cz.pop("hazards", None) or []
+            cz_hazards = own if cz.get("kept") else [h for h in own if str(h.get("code", "")).startswith("hotloop_clear")]
+            done.append(cz)
+            if cz.get("kept"):
+                best = cz
+                publish(best["out"], out)
+    fz = finish_pass(a, best, inp, base, wd, end, judge_est, meter, stop, cpu_s,
+                     (b0 or {}).get("overlaps", ())) if a.finish else None
+    carry = best["out"].parent if best else None   # the routed board's own report (blocked, hazards)
+    fz_hazards = finish_hazards(fz) if fz is not None else []
+    if fz is not None:
+        judge_cpu += fz.pop("judge_cpu_s", 0.0)
+        judge_wall += fz.pop("judge_wall_s", 0.0)
+        fz.pop("hazards", None)
+        done.append(fz)
+        if fz.get("kept"):
+            best = fz
+            publish(best["out"], out)
+    work = dict(attempts=len(done), clean_found=bool(best and best["rank"][:2] == (0, 0)),
+                best_attempt=best and best["k"], best_seed=best and best["seed"], best_rank=best and list(best["rank"]),
+                cpu_s=round(sum(d.get("cpu_s", 0) for d in done) + judge_cpu, 1),
+                method_cpu_s=round(sum(d.get("cpu_s", 0) for d in done), 1), judge_cpu_s=round(judge_cpu, 1),
+                judge_wall_s=round(judge_wall, 1), wall_s=round(time.monotonic() - t0, 1), budget_s=a.time,
+                parallel=a.parallel, peak_rss_mb=max([d.get("peak_rss_mb", 0) for d in done] + [0]),
+                wall_to_best_s=best and round(best["t"] + best["wall_s"] - t0, 1),
+                finish=(((fz or {}).get("finish") or ({"skipped": fz["skipped"]} if fz and fz.get("skipped") else None))
+                        if a.finish else None), **({"killed": True} if TERM else {}))
+    if a.clear:
+        work.update(clear=(cz or {}).get("clear"), clear_wall_s=(cz or {}).get("wall_s"), clear_kept=bool((cz or {}).get("kept")))
+    if SC:   # wall_s and the attempts' times above are charged time; real_wall_s is what passed
+        tot = dict(hits=SC.STATS["hits"], misses=SC.STATS["misses"], uncacheable=SC.STATS["uncacheable"],
+                   charged_s=SC.STATS["charged_s"], saved_s=SC.STATS["saved_s"])
+        for d_ in done:
+            for k_ in tot:
+                tot[k_] += (d_.get("step_cache") or {}).get(k_, 0)
+        work["step_cache"] = dict({k_: round(v, 1) if isinstance(v, float) else v for k_, v in tot.items()},
+                                  real_wall_s=round(work["wall_s"] - SC.offset(), 1), cache_gb=SC.size_gb())
+    summary = dict(work, attempt_log=[{k_: (v["id"] if k_ == "cand" else v) for k_, v in d.items()
+                                       if k_ not in ("out", "t", "charge", "dead_at")}
+                                      for d in done])
+    if sh is not None:
+        summary["halving"] = sh.summary()
+    if alt:
+        summary["choose_better"] = dict(alt_env=alt, kept_arm=best and best.get("arm"), ties=ties,
+                                        arm_best={k_: dict(k=v["k"], rank=list(v["rank"])) for k_, v in arm_best.items()})
+    if (fr_raw := keep_fr_raw(wd, summary)):
+        summary["fr_raw"] = fr_raw
+    (wd / "summary.json").write_text(json.dumps(summary, indent=1))
+    print("HASLAM_WORK " + json.dumps(work), flush=True)
+    if TERM:
+        log(f"killed: {len(done)} attempt(s) recorded, best so far {best and best['k']} kept in the output")
+        return 143
+    if best is None:
+        log("no attempt produced a board")
+        return 1
+    publish(best["out"], out)
+    log(f"kept #{best['k']} (seed {best['seed']}): {best['rank']}")
+    carry_report(carry or best["out"].parent, wd)
+    add_hazards(wd / "report.json", cz_hazards + fz_hazards)
+    origin_report(best, done, wd)
+    return 0
+
+
+def _phase_argv(ap, a, time_s, seed, output, command):
+    """This wrapper's own argv for one phase of a policy: every option as given, but the policy's own."""
+    skip = {"policy", "alt", "open_alt", "open_rest", "open_rest_alt", "time", "seed", "output", "command", "help"}
+    argv = []
+    for act in ap._actions:
+        if act.dest in skip or not act.option_strings:
+            continue
+        v = getattr(a, act.dest)
+        if isinstance(act, argparse._StoreTrueAction):
+            if v:
+                argv.append(act.option_strings[0])
+        elif v != act.default:
+            argv += [act.option_strings[0], str(v)]
+    return [sys.executable, str(Path(__file__).resolve()), *argv, "--time", str(time_s), "--seed", str(seed),
+            "--output", str(output), "--", command]
+
+
+def run_policy(ap, a):
+    """--policy completion-first (see --help): phase 1 runs COMMAND with half of --time; phase 2 runs --alt when phase
+    1's board is clean, else COMMAND again with seed + 1, in what is left. Each phase is this wrapper (its own waves,
+    resumes, --final and --finish) in restarts/policy<k>; the kept board's reports are copied to restarts/."""
+    cmd = " ".join(a.command[1:] if a.command[:1] == ["--"] else a.command)
+    inp, out = Path(a.input).resolve(), Path(a.output).resolve()
+    wd = Path.cwd() / "restarts"
+    wd.mkdir(exist_ok=True)
+    t0 = time.monotonic()
+    base_dir = wd / "input"
+    base_dir.mkdir(exist_ok=True)
+    shutil.copy2(inp, base_dir / "board.kicad_pcb")
+    b0 = drc(base_dir / "board.kicad_pcb", inp, a.time if WORK else 0.2 * a.time)
+    base, base_pairs = (b0 or {}).get("types", {}), (b0 or {}).get("overlaps", ())
+
+    def phase(k, seed, time_s, command):
+        d = wd / f"policy{k}"
+        d.mkdir(exist_ok=True)
+        o = d / "out.kicad_pcb"
+        log(f"policy phase {k}: seed {seed}, {time_s:.0f}s: {command[:80]}")
+        # in this process group: a SIGTERM to the job reaches it; it ends by its HASLAM_DEADLINE (phase 1: half the
+        # wall time left), so no kill of its own
+        with open(d / "log", "w") as f:
+            r = subprocess.run(_phase_argv(ap, a, time_s, seed, o, command), cwd=d, stdout=f, stderr=subprocess.STDOUT,
+                               env=dict(os.environ, **deadline_env(wall_left() * (0.5 if k == 1 else 1.0))))
+        work = None
+        for line in (d / "log").read_text(errors="replace").splitlines():
+            if line.startswith("HASLAM_WORK "):
+                work = json.loads(line[9:])
+        rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() and not TERM else None
+        log(f"policy phase {k}: rc {r.returncode}, rank {rank}")
+        return dict(k=k, seed=seed, out=o, dir=d, rank=rank, work=work or {}, command=command[:200])
+
+    def open_phase(k, seed, time_s, command, prev):
+        """--open-alt on phase 1's board: one command, @IN@ the input, @BEST@ phase 1's board (with the task's
+        rules), @OUT@, @SEED@, @TIME@ (its nominal seconds in work mode); killed at 4x (work) or its time + grace."""
+        d = wd / f"policy{k}"
+        d.mkdir(exist_ok=True)
+        src, o = d / "best_in.kicad_pcb", d / "out.kicad_pcb"
+        shutil.copy2(prev["out"], src)
+        for ext in (".kicad_pro", ".kicad_dru"):    # the task's rules
+            if inp.with_suffix(ext).exists():
+                shutil.copy2(inp.with_suffix(ext), src.with_suffix(ext))
+                shutil.copy2(inp.with_suffix(ext), o.with_suffix(ext))
+        c = command.replace("@IN@", shlex.quote(str(inp))).replace("@OUT@", shlex.quote(str(o)))
+        c = c.replace("@BEST@", shlex.quote(str(src))).replace("@SEED@", str(seed)).replace("@TIME@", str(int(time_s)))
+        c = c.replace("@REPORT@", shlex.quote(str(d / "report.json")))
+        log(f"policy phase {k} (open-alt): seed {seed}, {time_s:.0f}s: {command[:80]}")
+        w0 = time.monotonic()
+        with open(d / "log", "w") as f:
+            rc = run_group(["sh", "-c", c], WORK_CEILING * time_s if WORK else time_s + GRACE_S, cwd=d, stdout=f,
+                           stderr=subprocess.STDOUT)
+        rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() else None
+        log(f"policy phase {k}: rc {rc}, rank {rank}")
+        used = time.monotonic() - w0
+        if (d / "report.json").exists():                # the command's report (@REPORT@): kept beside the summary
+            shutil.copy2(d / "report.json", wd / "report-windows.json")
+            try:                                         # its own clock: nominal seconds in work mode
+                used = float(json.loads((d / "report.json").read_text()).get("seconds") or used)
+            except (ValueError, OSError, AttributeError):
+                pass
+        return dict(k=k, seed=seed, out=o, dir=d, rank=rank, command=command[:200], time_s=time_s, used_s=used,
+                    work=dict(attempts=1, wall_s=round(time.monotonic() - w0, 1)))
+
+    p1 = phase(1, a.seed, 0.5 * a.time, cmd)
+    if TERM:   # killed during phase 1: its own summary is in restarts/policy1; record that here and stop
+        work = dict(policy="completion-first", killed=True, phases=[dict(k=1, seed=p1["seed"], **{
+            x: p1["work"].get(x) for x in ("attempts", "cpu_s", "method_cpu_s", "wall_s")})],
+            attempts=p1["work"].get("attempts") or 0, cpu_s=p1["work"].get("cpu_s"),
+            method_cpu_s=p1["work"].get("method_cpu_s"), wall_s=round(time.monotonic() - t0, 1), budget_s=a.time)
+        (wd / "summary.json").write_text(json.dumps(work, indent=1, default=str))
+        print("HASLAM_WORK " + json.dumps(work, default=str), flush=True)
+        if p1["out"].exists():
+            publish(p1["out"], out)
+        return 143
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if p1["rank"] is not None and p1["out"].exists():
+        # the kept board is on disk from here on, whatever a later phase does: a phase the harness kills at its
+        # timeout (s2-merit213: the windows phase of 8 boards ran past it) must not leave the run without output
+        publish(p1["out"], out)
+    clean1 = p1["rank"] is not None and p1["rank"][1] == 0
+    alt = bool(clean1 and a.alt)
+    left = 0.5 * a.time if WORK else a.time - (time.monotonic() - t0)   # work mode: nominal halves
+    open_alt = bool(not clean1 and a.open_alt and p1["rank"] is not None and p1["out"].exists())
+    if open_alt:
+        # one process where a restart phase runs --parallel lanes: the same work in counted seconds is lanes x its time
+        p2 = open_phase(2, a.seed + 1, max(30.0, left) * max(1, a.parallel), a.open_alt, p1)
+    else:
+        p2 = phase(2, a.seed + 1, max(30.0, left), a.alt if alt else cmd)
+    if p2["rank"] is not None and (p1["rank"] is None or (p2["rank"] <= p1["rank"] if (alt or open_alt)
+                                                          else p2["rank"] < p1["rank"])):
+        best = p2
+        if best["out"].exists():
+            publish(best["out"], out)        # kept as soon as it is better (a later kill keeps it)
+    else:
+        best = p1
+    phases = [p1, p2]
+    third = None
+    if open_alt and a.open_rest and not TERM:
+        # --open-rest: the windows' unused budget (they stop when no window is left) goes to one more run: --alt
+        # when the kept board is clean and --open-rest-alt is set (kept when no worse), else COMMAND with the next
+        # seed (kept when strictly better); per lane, as the restart phases count it
+        rest = (p2["time_s"] - p2["used_s"]) / max(1, a.parallel)
+        if rest >= OPEN_REST_MIN_S:
+            clean_b = best["rank"] is not None and best["rank"][1] == 0
+            third = "alt" if (clean_b and a.open_rest_alt and a.alt) else "restart"
+            p3 = phase(3, a.seed + 2, rest, a.alt if third == "alt" else cmd)
+            phases.append(p3)
+            if p3["rank"] is not None and (best["rank"] is None or (p3["rank"] <= best["rank"] if third == "alt"
+                                                                    else p3["rank"] < best["rank"])):
+                best = p3
+                if best["out"].exists():
+                    publish(best["out"], out)        # kept as soon as it is better (a later kill keeps it)
+    work = dict(policy="completion-first", second="alt" if alt else "open-alt" if open_alt else "restart", kept=best["k"],
+                third=third,
+                phases=[dict(k=p["k"], seed=p["seed"], rank=p["rank"], command=p["command"],
+                             **{x: p.get(x) for x in ("time_s", "used_s")},
+                             **{x: p["work"].get(x) for x in ("attempts", "cpu_s", "method_cpu_s", "wall_s")})
+                        for p in phases],
+                attempts=sum(p["work"].get("attempts") or 0 for p in phases),
+                cpu_s=round(sum(p["work"].get("cpu_s") or 0 for p in phases), 1),
+                method_cpu_s=round(sum(p["work"].get("method_cpu_s") or 0 for p in phases), 1),
+                wall_s=round(time.monotonic() - t0, 1), best_rank=best["rank"], budget_s=a.time,
+                **({"killed": True} if TERM else {}))
+    for n in ("report.json", "report-origin.json"):
+        if (best["dir"] / "restarts" / n).exists():
+            shutil.copy2(best["dir"] / "restarts" / n, wd / n)
+    (wd / "summary.json").write_text(json.dumps(work, indent=1, default=str))
+    print("HASLAM_WORK " + json.dumps(work, default=str), flush=True)
+    if best["rank"] is None or not best["out"].exists():
+        log("no phase produced a board")
+        return 1
+    publish(best["out"], out)
+    log(f"policy kept phase {best['k']} ({work['second']} second run): {best['rank']}")
+    return 0
+
+
+def carry_report(attempt_dir, wd):
+    """The kept attempt's own JSON report (a method's last stdout line, as haslam.route.cli prints it)
+    goes to restarts/report.json, and its "blocked" lines (haslam.route.blocked: the rule each open
+    connection is blocked by) to this log, so the kept board's diagnosis reaches the caller."""
+    try:
+        lines = (attempt_dir / "log").read_text(errors="replace").splitlines()
+    except OSError:
+        return
+    for line in reversed(lines):
+        if line.startswith("{"):
+            try:
+                rep = json.loads(line)
+            except ValueError:
+                continue
+            (wd / "report.json").write_text(json.dumps(rep, indent=1))
+            b = rep.get("blocked") if isinstance(rep, dict) else None
+            if isinstance(b, dict):
+                log(f"blocked: {len(b.get('blocked') or [])} open connections the rules block, "
+                    f"{len(b.get('congestion') or [])} congestion (restarts/report.json)")
+                for s in b.get("summary") or []:
+                    log(f"blocked: {s}")
+            return
+
+
+def _hazard(code, severity, message, evidence, fix):
+    """One entry of haslam.hazards' schema (this file is stdlib only)."""
+    return dict(code=code, severity=severity, category="data", message=message, objects=["finish"],
+                evidence=evidence, fix=fix)
+
+
+def finish_hazards(fz):
+    """Hazards of the finish pass for the kept board's report: skipped for time, killed or failed
+    (finish_part_skipped / finish_failed), and the finish command's own (when its board was kept,
+    all of them; otherwise only its finish_* ones, which say what did not run)."""
+    out = []
+    if fz.get("skipped"):
+        out.append(_hazard("finish_part_skipped", "info",
+                           f"The finish stage did not run: {fz['skipped']}; the board keeps the router's copper "
+                           f"shapes and widths (no rule D tails, taut arcs or power copper).",
+                           dict(reason=fz["skipped"], estimate_s=fz.get("estimate_s")),
+                           "Give the run more time, or run haslam.route.cli finish on the board."))
+        return out
+    if fz.get("killed") or fz.get("rc"):
+        why = "killed at its deadline" if fz.get("killed") else f"exit status {fz.get('rc')}"
+        out.append(_hazard("finish_failed", "warn",
+                           f"The finish stage did not complete ({why}); the board is the routed one.",
+                           dict(rc=fz.get("rc"), killed=bool(fz.get("killed")), budget_s=fz.get("budget"),
+                                wall_s=fz.get("wall_s")),
+                           "Report the board; the routed copper is intact."))
+    own = fz.get("hazards") or []
+    out += own if fz.get("kept") else [h for h in own if str(h.get("code", "")).startswith("finish_")]
+    return out
+
+
+def add_hazards(path, hazards):
+    """Append `hazards` to the report at `path` (restarts/report.json) and its hazard_summary counts."""
+    if not hazards:
+        return
+    try:
+        rep = json.loads(path.read_text())
+    except (OSError, ValueError):
+        rep = {}
+    if not isinstance(rep, dict):
+        return
+    have = {(h.get("code"), h.get("message")) for h in rep.get("hazards") or [] if isinstance(h, dict)}
+    new = [h for h in hazards if (h.get("code"), h.get("message")) not in have]
+    rep["hazards"] = list(rep.get("hazards") or []) + new
+    sm = rep.get("hazard_summary")
+    if isinstance(sm, dict):
+        for h in new:
+            sev = h.get("severity", "warn")
+            sm[sev] = sm.get(sev, 0) + 1
+            sm["total"] = sm.get("total", 0) + 1
+            if "shown" in sm:
+                sm["shown"] += 1
+    path.write_text(json.dumps(rep, indent=1))
+
+
+def origin_report(best, done, wd):
+    """When the kept board came from a resumed attempt or a final pass, restarts/report.json is only
+    that router's report: the report of the fresh attempt it descends from (a joint loop's iterations,
+    windows and stop reason) goes to restarts/report-origin.json."""
+    by_k, cur, seen = {d["k"]: d for d in done}, best, set()
+    while cur.get("resumed_from") in by_k and cur["k"] not in seen:
+        seen.add(cur["k"])
+        cur = by_k[cur["resumed_from"]]
+    if cur is not best:
+        rep = _last_json(cur["out"].parent / "log")
+        if rep:
+            (wd / "report-origin.json").write_text(json.dumps(dict(rep, origin_attempt=cur["k"]), indent=1))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

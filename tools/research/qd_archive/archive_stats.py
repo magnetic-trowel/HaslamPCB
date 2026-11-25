@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Summarize qd archives (qd_dir JSON per board) and, optionally, jc restart logs.
 
-    python archive_stats.py kae-work/qd/<run> [--jc kae-work/jc-png/ab33-jc] [--suite FILE]
+    python archive_stats.py haslam-work/qd/<run> [--jc haslam-work/jc-png/ab33-jc] [--suite FILE]
 
 Per run: candidates and cells per board, share of candidates that opened a new cell /
 improved a cell / improved the global best, where the final pick came from (init vs a
@@ -18,7 +18,7 @@ import numpy as np
 
 
 def load_archives(path):
-    """{(board, seed): archive} from a qd_dir of JSON files or from a kaebench run
+    """{(board, seed): archive} from a qd_dir of JSON files or from a haslambench run
     directory (the QDARCHIVE line of each attempt's adapter.log)."""
     path = Path(path)
     out = {}

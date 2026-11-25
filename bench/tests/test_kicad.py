@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """End-to-end tests on a two-net fixture board. Need KiCad 10; Freerouting optional."""
 import shutil
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from kaebench import adapters, prepare, report, runner, tools
+from haslambench import adapters, prepare, report, runner, tools
 
 FIXTURE = Path(__file__).parent / "fixtures" / "two_pads.kicad_pcb"
 
@@ -27,7 +27,7 @@ needs_fr = pytest.mark.skipif(not _have(tools.freerouting_cmd), reason="Freerout
 
 @pytest.fixture(scope="module")
 def tasks(tmp_path_factory):
-    root = tmp_path_factory.mktemp("kae")
+    root = tmp_path_factory.mktemp("haslam")
     src = root / "src"
     src.mkdir()
     shutil.copy2(FIXTURE, src / "two_pads.kicad_pcb")
@@ -113,7 +113,7 @@ def test_probe_routes_the_rebuilt_placement(tasks):
 def test_rescore_rescores_saved_outputs(tasks):
     """A scoring fix is applied to a finished run without re-running the method."""
     import json
-    from kaebench.score import SCORE_VERSION
+    from haslambench.score import SCORE_VERSION
     root, _ = tasks
     _run(root, adapters.Reference(), kinds=("route", "place"), name="ref-rescore")
     run_dir = root / "results" / "ref-rescore"

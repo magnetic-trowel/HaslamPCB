@@ -1,22 +1,22 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 # Counted budgets in practice: repeatability, pricing, and what they did to boards (2026-11)
 
-Scope: making `KAE_BUDGET=work` repeatable on large boards, Freerouting's own work budget, the refitted prices, where work ran unbudgeted, and the board-quality regression the budget caused. Not here: why wall-clock budgets were dropped -> [host-load drift](benchmark-drift-2611.md).
-Keys: counted budget, work budget, KAE_BUDGET, RATES, max_work, autorouter.max_work, WORK_BUDGET, work_fill_weight, work_optimizer_step_weight, FillWorkMeter, fr_work, KAE_FR_WORK_BUDGET, KAE_BUDGET_GAP, KAE_BUDGET_PROFILE, budget gap reporter, DRC determinism, canonical unconnected, canonical_copper_order, shuffle test, twin runs, starved_thermal, starved thermal, spokes, SPOKES_MIN_S, close_loop, greedy legaliser, exact_pair, Freerouting pin, kae-freerouting.pin
+Scope: making `HASLAM_BUDGET=work` repeatable on large boards, Freerouting's own work budget, the refitted prices, where work ran unbudgeted, and the board-quality regression the budget caused. Not here: why wall-clock budgets were dropped -> [host-load drift](benchmark-drift-2611.md).
+Keys: counted budget, work budget, HASLAM_BUDGET, RATES, max_work, autorouter.max_work, WORK_BUDGET, work_fill_weight, work_optimizer_step_weight, FillWorkMeter, fr_work, HASLAM_FR_WORK_BUDGET, HASLAM_BUDGET_GAP, HASLAM_BUDGET_PROFILE, budget gap reporter, DRC determinism, canonical unconnected, canonical_copper_order, shuffle test, twin runs, starved_thermal, starved thermal, spokes, SPOKES_MIN_S, close_loop, greedy legaliser, exact_pair, Freerouting pin, haslam-freerouting.pin
 
-**Status:** merged (kae #97, #101, #102, #103, #105, #110, #113, #114; freerouting #12, #13, #14). Freerouting's per-step price spread is open.
+**Status:** merged (haslam #97, #101, #102, #103, #105, #110, #113, #114; freerouting #12, #13, #14). Freerouting's per-step price spread is open.
 
-Follows [host-load drift](benchmark-drift-2611.md), which introduced `KAE_BUDGET=work`. Over the next week (2026-11-11
+Follows [host-load drift](benchmark-drift-2611.md), which introduced `HASLAM_BUDGET=work`. Over the next week (2026-11-11
 to 11-19), budgets were made repeatable on large boards, prices were refitted, and Freerouting got a work budget of
 its own. That surfaced six places where work ran unbudgeted, and one board-quality regression the budget itself caused.
-The budget code is in `kae.budget` and the rates are in its `RATES`; every rate there carries its evidence in a comment.
+The budget code is in `haslam.budget` and the rates are in its `RATES`; every rate there carries its evidence in a comment.
 
 ## Repeatability on large boards
 
 On small boards, two runs of the same work-mode command gave the same board. On an 821-pin board, twins of one
-joint-loop attempt still diverged: about 450–500 items differed. The divergence was traced to KiCad, not kae:
+joint-loop attempt still diverged: about 450–500 items differed. The divergence was traced to KiCad, not haslam:
 
 - **KiCad's DRC is not repeatable on a byte-identical file.** It reports the same number of unconnected items, but it
   names different endpoint pairs for some of them from run to run. These are ties: a pad against the track ending on
@@ -28,16 +28,16 @@ joint-loop attempt still diverged: about 450–500 items differed. The divergenc
   repair rounds and the restart judge all read them. In the twins, the history differed, so the window placer started
   from a different cost, and the boards drifted apart from there.
 
-**Fix** (`kae.route.drc.run`, work mode only):
+**Fix** (`haslam.route.drc.run`, work mode only):
 
 1. DRC runs on a temporary canonical copy of the board: copper in content order, UUIDs derived from content. The
    report's UUIDs are mapped back to the board's, because thermal-via repair and joint feedback find copper by UUID.
 2. The open connections are rebuilt per net as a minimum spanning tree between pcbnew's connected clusters, with ties
    broken by position. This is used whenever its edge count matches KiCad's.
-3. The restart judge does the same in `tools/kaeres/restart.py`, and leaves its report beside the attempt's board.
+3. The restart judge does the same in `tools/haslamres/restart.py`, and leaves its report beside the attempt's board.
 
 Result: twins of the 821-pin attempt came out identical. `tools/research/budget/shuffle.py` writes a copy of a board
-with its copper shuffled and new UUIDs, and `kae/tests/test_det_shuffle.py` runs route, last mile and joint on a board
+with its copper shuffled and new UUIDs, and `haslam/tests/test_det_shuffle.py` runs route, last mile and joint on a board
 and its shuffled copy. On small boards that test passed even before the fix: small boards have too few ties to matter.
 
 **Still not covered:**
@@ -50,7 +50,7 @@ parallel attempts. Four parallel copies of that attempt did not reproduce it.
 
 ## A Freerouting work budget
 
-Before this week, kae could only cap Freerouting's passes and charge passes × pins². That price was off by 1.1–4.4×
+Before this week, haslam could only cap Freerouting's passes and charge passes × pins². That price was off by 1.1–4.4×
 between boards, and the stop depended on wall time. The fork now takes `autorouter.max_work`, a budget in counted work:
 
 | fork PR | adds |
@@ -59,12 +59,12 @@ between boards, and the stop depended on wall time. The fork now takes `autorout
 | freerouting#13 | Optimizer work counts towards `max_work` and is checked before each pass and after each candidate. Pour fill work is counted (`FillWorkMeter`, `work_fill_weight`). Optimizer steps are weighted (`work_optimizer_step_weight`). |
 | freerouting#14 | `max_work` is checked before each item inside a pass, not only between passes. A pass that runs out stops and keeps the best board seen. |
 
-With these settings unset, sessions and boards are byte-identical to the fork's master on three boards. kae
+With these settings unset, sessions and boards are byte-identical to the fork's master on three boards. haslam
 (`route/freerouting.py`) passes the remaining budget as `max_work`, and charges a run by the work it logs plus
-start-up and DSN size. `KAE_FR_WORK_BUDGET=0` turns the hook off for any build, and the run is then charged like
+start-up and DSN size. `HASLAM_FR_WORK_BUDGET=0` turns the hook off for any build, and the run is then charged like
 d137fd1.
 
-The pinned build moved d137fd1 → 9a5512d → f1c41d3 → 37b1a8b (`~/.cache/kaebench/kae-freerouting.pin`; each old
+The pinned build moved d137fd1 → 9a5512d → f1c41d3 → 37b1a8b (`~/.cache/haslambench/haslam-freerouting.pin`; each old
 pin is kept as `.bak`). The control is now fork master plus the work budget. Runs on d137fd1 are not comparable with
 runs on these builds.
 
@@ -98,15 +98,15 @@ can be well off this.
 ## Where work ran unbudgeted
 
 Each one of these was found from a run that overran its budget or hit the 4× wall ceiling. The gap reporter
-(`KAE_BUDGET_PROFILE=1 KAE_BUDGET_GAP=S`) names the call site of any uncharged stretch over S seconds.
+(`HASLAM_BUDGET_PROFILE=1 HASLAM_BUDGET_GAP=S`) names the call site of any uncharged stretch over S seconds.
 
 | what | symptom | fix |
 |---|---|---|
 | Freerouting's optimizer on partly routed boards (fork master) | First route ran 9,858 s against ~290 s charged, then timed out | freerouting#13 |
 | Pour fill recomputation inside Freerouting | 51 % of routing time and 79 % of optimizer time on a pour-heavy board, uncounted | freerouting#13 |
-| A single Freerouting pass | One pass cost 17× `max_work` on a large FPGA board (budget checked only between passes) | freerouting#14; kae #114 sets Freerouting's own timeout to 4× its budget |
+| A single Freerouting pass | One pass cost 17× `max_work` on a large FPGA board (budget checked only between passes) | freerouting#14; haslam #114 sets Freerouting's own timeout to 4× its budget |
 | Exact checks (`findings_at`) | A flat 5e-3 s per poll; real cost 7.5e-3 s per neighbour pair | per-pair charge |
-| Greedy legaliser scans | `kae place` ran at 4.06× its charge, near the ceiling | legaliser charges (#102): 0.84× after |
+| Greedy legaliser scans | `haslam place` ran at 4.06× its charge, near the ceiling | legaliser charges (#102): 0.84× after |
 | Closed-loop diagnoses (`exact.close_loop`) | Unbounded when the caller gave no deadline: 465 s after a 42 s repair at `--time 150` | defaults to `time_s` (#103) |
 | KiCad Python calls and DRC zone refills | 270 s over 202 calls uncharged; DRC 2.3× under | per-call, per-MB and per-zone-layer charges (#110) |
 
@@ -117,11 +117,11 @@ work: give each code version a warm `NUMBA_CACHE_DIR`.
 
 Switching the pin from d137fd1 to the work-budget builds added about 20 KiCad `starved_thermal` errors per board on
 pour-heavy boards. These are pads joined to a pour by fewer spokes than the zone requires. Every other error type
-stayed the same. The fork was not the cause: with the same placement and kae code, both builds came out the same.
+stayed the same. The fork was not the cause: with the same placement and haslam code, both builds came out the same.
 
-The cause was kae's own budget:
+The cause was haslam's own budget:
 
-- After the first route, kae's repair round 1 draws short spoke tracks into the pour for starved pads. That normally
+- After the first route, haslam's repair round 1 draws short spoke tracks into the pour for starved pads. That normally
   clears the 14–21 starved reliefs the first route leaves.
 - Round 1 only runs if enough time is left after routing.
 - d137fd1 couldn't take `max_work`, stopped at its pass cap, and left time for it. The work-budget builds spend the
@@ -163,4 +163,4 @@ spread is fixed.
 
 ## Sources
 
-kae PRs #97 (repeatability, recalibration), #101 and #105 (Freerouting rates), #102 and #103 (placer charges), #110 (KiCad Python and DRC charges), #113 (starved thermals), #114 (Freerouting's own timeout); freerouting PRs #12, #13, #14. Loop-win smokes 3, 6 and 8 (`kaeres exp report loop-win-smoke8`).
+haslam PRs #97 (repeatability, recalibration), #101 and #105 (Freerouting rates), #102 and #103 (placer charges), #110 (KiCad Python and DRC charges), #113 (starved thermals), #114 (Freerouting's own timeout); freerouting PRs #12, #13, #14. Loop-win smokes 3, 6 and 8 (`haslamres exp report loop-win-smoke8`).

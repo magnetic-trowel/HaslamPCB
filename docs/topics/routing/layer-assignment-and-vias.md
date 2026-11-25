@@ -26,7 +26,7 @@ Keys: via minimization, CVM, topological via minimization, layer assignment, max
 - Largest reported via reductions come from topology-first and SAT approaches: MonoSAT 4 → 3 layers; TopoR vendor 15–45% fewer vias [V]; pin equivalence 67 → 17 vias. Via count alone is not quality: humans use more vias than Freerouting on PCBWorld.
 - PCBWorld D3-A vias per board: reference 1.18, Freerouting 0.74 (routability 0.91, so some connections missing), KRT 3.69, PPO 0.92, GRPO 9.39 (D3-B: reference 6.70, Freerouting 3.48 at routability 1.00) → [PCBWorld](pcbworld.md#results-table-21-5); DeepPCB vendor 0.50–0.59× reference [V]; ModuPlace placement cut vias 40.51% vs SA-PCB → [LLM-guided placement](../placement/llm-guided-placement.md); DATE'23 MCTS router had worse via counts than FreeRouting/DeepPCB.
 
-## Vias in kae
+## Vias in haslam
 
 [I]
 - Expose via cost, layer directions and a via-vs-length knob (K_v) per net class; the LLM sets via technology and layer budget from stackup/fab constraints.

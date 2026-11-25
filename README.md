@@ -1,4 +1,4 @@
-# kicad-auto-everything
+# HaslamPCB
 helper systems for LLMing KiCad
 
 ## Research
