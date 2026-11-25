@@ -32,6 +32,61 @@ def test_parts_follow_kicads_joins(tmp_path):
     assert len(ps) == 2 and {n.item.owner for n in ps[0] if n.kind == "pad"} == {("Y1", "1"), ("U2", "2")}
 
 
+
+class _Sp:
+    """The Space attributes lastmile.parts reads."""
+    def __init__(self, pads=(), tracks=(), vias=()):
+        self.pads, self.existing, self.routed = list(pads), list(tracks) + list(vias), []
+
+
+def _pad(x, y, w=1.0, net="N", layer="F.Cu"):
+    from shapely.geometry import box
+    from kae.route.critical_space import Item
+    it = Item("pad", net, [layer], box(x - w / 2, y - w / 2, x + w / 2, y + w / 2))
+    it.uuid = f"pad{x},{y}"
+    return it
+
+
+def _track(a, b, w=0.4, net="N", layer="F.Cu"):
+    from shapely.geometry import LineString
+    from kae.route.critical_space import Item
+    it = Item("track", net, [layer], LineString([a, b]), w / 2)
+    it.uuid = f"t{a}{b}"
+    return it
+
+
+def _groups(ps):
+    return sorted(sorted(n.item.uuid for n in p if n.kind != "fill") for p in ps)
+
+
+def test_a_track_crossing_a_fill_joins_it_as_kicad_does():
+    """KiCad 10 joins a track to a fill of its net wherever the track crosses it, also with both ends
+    outside (pcbnew copper_items --clusters; test_route_kicad.py checks it on a real refill)."""
+    from shapely.geometry import box
+    fill = {"N": {"F.Cu": [box(10, 0, 20, 10)]}}
+    a, b = _pad(2, 5), _pad(15, 8)
+    sp = _Sp([a, b], [_track((2, 5), (28, 5))])
+    assert len(LM.parts(sp, fill, "N")) == 1
+    # a fill on another layer joins nothing; a track ending 0.3 mm short of the fill (cap 0.1 short) neither
+    assert len(LM.parts(sp, {"N": {"B.Cu": [box(10, 0, 20, 10)]}}, "N")) == 3
+    sp = _Sp([a, b], [_track((2, 5), (9.7, 5))])
+    assert len(LM.parts(sp, fill, "N")) == 2
+
+
+def test_tracks_and_pads_join_where_their_copper_touches():
+    """Two tracks crossing in an X, a track passing over a pad, a track whose end cap only reaches a
+    pad (its end 0.05 mm outside it: solar-small's U101.1): one part each, as in KiCad."""
+    x = _Sp([_pad(2, 2), _pad(2, 8)], [_track((2, 2), (12, 8)), _track((2, 8), (12, 2))])
+    assert len(LM.parts(x, {}, "N")) == 1
+    over = _Sp([_pad(2, 5), _pad(8, 5)], [_track((2, 5), (14, 5))])
+    assert len(LM.parts(over, {}, "N")) == 1
+    cap = _Sp([_pad(2, 5), _pad(15, 5)], [_track((2, 5), (14.55, 5))])
+    assert len(LM.parts(cap, {}, "N")) == 1
+    gap = _Sp([_pad(2, 5), _pad(15, 5)], [_track((2, 5), (14.2, 5))])
+    assert _groups(LM.parts(gap, {}, "N")) == [["pad15,5"], ["pad2,5", "t(2, 5)(14.2, 5)"]]
+    other = _Sp([_pad(2, 5), _pad(8, 5, net="M")], [_track((2, 5), (14, 5))])
+    assert len(LM.parts(other, {}, "N")) == 1 and len(LM.parts(other, {}, "M")) == 1
+
 def test_close_joins_every_part_legally(tmp_path):
     p = F.write_board(tmp_path)
     info = F.synth_info(load(p))
