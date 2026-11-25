@@ -335,12 +335,19 @@ def build(board, *, use_sheets: bool = True) -> dict:
         'caps_over_rating': caps_over_rating(nl, roles, ids),
         'runtime_s': round(time.perf_counter() - t0, 3),
     }
-    return {'schema': SCHEMA, 'board': {'path': str(getattr(board, 'path', '') or ''), 'footprints': len(nl.parts),
-                                        'nets': len(nl.nets)},
-            'generator': {'module': 'kae.circuit', 'inputs': 'names, values, footprints, lib ids, pin functions and types, '
-                                                             'fields, net classes, zones (net only), schematic sheet names; no positions'},
-            'nets': nets, 'parts': parts, 'structures': structures, 'diff_pairs': pairs,
-            'placement_order': placement_order, 'summary': summary}
+    out = {'schema': SCHEMA, 'board': {'path': str(getattr(board, 'path', '') or ''), 'footprints': len(nl.parts),
+                                       'nets': len(nl.nets)},
+           'generator': {'module': 'kae.circuit', 'inputs': 'names, values, footprints, lib ids, pin functions and types, '
+                                                            'fields, net classes, zones (net only), schematic sheet names; no positions'},
+           'nets': nets, 'parts': parts, 'structures': structures, 'diff_pairs': pairs,
+           'placement_order': placement_order, 'summary': summary}
+    # the board's own intent file (<stem>.kae_intent.json beside it): its placement relations, which every
+    # placer stage compiles (kae.place.relations.from_brief); a brief without them has no such key
+    from kae.intent.relations import for_brief
+    rel = for_brief(getattr(board, 'path', None))
+    if rel:
+        out['relations'] = rel
+    return out
 
 
 # the rail-voltage sources _rail_voltage reads that are an assumption, not a statement of the board

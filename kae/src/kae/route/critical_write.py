@@ -245,7 +245,7 @@ def stage(board, dst_dir, name="board"):
     out = d / f"{name}.kicad_pcb"
     if src.resolve() != out.resolve():
         shutil.copy2(src, out)
-    for ext in (".kicad_pro", ".kicad_dru", ".kicad_prl"):
+    for ext in (".kicad_pro", ".kicad_dru", ".kicad_prl", ".kae_intent.json"):
         s = src.with_suffix(ext)
         t = d / f"{name}{ext}"
         if not s.exists():

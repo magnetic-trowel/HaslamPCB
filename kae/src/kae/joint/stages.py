@@ -56,7 +56,7 @@ class Layout:
 
 def _project(src_board, dst_board):
     """Copy the project files of src_board beside dst_board (same stem)."""
-    for ext in (".kicad_pro", ".kicad_dru", ".kicad_prl"):
+    for ext in (".kicad_pro", ".kicad_dru", ".kicad_prl", ".kae_intent.json"):
         s = Path(src_board).with_suffix(ext)
         t = Path(dst_board).with_suffix(ext)
         if s.exists() and s.resolve() != t.resolve():

@@ -123,8 +123,10 @@ def test_compile_maps_each_kind_onto_a_hook_and_says_which_are_measured_only(boa
                 _rel(id="m", kind="near", a="U1", b="U2"),
                 _rel(id="f", kind="near", a="Y1", b="U3"))
     enf = {x.id: x.enforced for x in b.rels}
+    # near between movable parts and group: the relation term (measured only before relations-unified)
     assert enf == dict(h="hard", e="hard", es="soft", o="hard", r="soft", k="soft", q="strong rule",
-                       g="measured only", m="measured only", f="soft")
+                       g="soft", m="soft", f="soft")
+    assert [x.id for x in b.terms] == ["g", "m"]
     u = {fp.ref: fp.uuid for fp in board.footprints}
     assert set(b.hold) == {u["U3"]} and set(b.pins) == {u["J1"]}
     assert b.rotations == {u["U2"]: [0.0, 180.0]}
@@ -272,7 +274,8 @@ def test_place_with_an_intent_obeys_hard_relations_and_reports_every_row(tmp_pat
     assert set(rows) == {"hold", "rot", "east", "sw", "top", "grp"}
     assert rows["hold"]["met"] and rows["rot"]["met"] and rows["east"]["met"], rows
     assert rows["top"]["met"] is False and rows["top"]["proof"] == "precheck"
-    assert rows["grp"]["enforced"] == "measured only" and rows["grp"]["met"] in (True, False)
+    assert rows["grp"]["enforced"] == "soft" and rows["grp"]["met"] in (True, False)
+    assert rep["relations_applied"]["term"]["rules"] == 1                 # the group's star: U2 toward U1
     o = {f.ref: f for f in kicad_file.load(out).footprints}
     i = {f.ref: f for f in board.footprints}
     assert (o["U3"].x, o["U3"].y) == pytest.approx((i["U3"].x, i["U3"].y))

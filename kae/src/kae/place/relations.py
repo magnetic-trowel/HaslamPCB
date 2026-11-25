@@ -17,11 +17,21 @@ Compiled today (phase 1), each onto a hook the placer already had:
     orient allowed      the part's rotation set (Problem.build part_rotations)            hard
     region              label-term pull of the courtyard box into the region              soft
     near                one side fixed (a label, a locked or held part): label-term pull  soft
+    near                between movable parts: the relation term (`rules`, priced in      soft
+                        both annealers and the joint loop's windows)
+    group               the relation term, each member toward the first (a star)          soft
     keep_away           soft-overlap class: a's courtyard grown by the distance vs b's    soft
     order               protection-order rules (annealer term, fix_order, OrderGuard)     strong
 
-Measured but not optimized yet (the row says so): near between two movable parts, group, row,
-region exclusive, orient pins_toward, side (kae never flips: a part on the other side is a proven
+The joint loop's repair windows have no label term or soft-overlap grid: there every pairwise relation
+between parts and pins (near, group, keep_away) is the relation term (`rules(P, scope="window")`).
+
+The relation term (from the intent-relations design) is w * excess / S0, excess the mm a rule misses
+by: pad to pad (`pad` metric) as the oracle measures it, or for a courtyard-gap relation the pads'
+distance that gap means here (target + both sides' pad insets, `rule_mm`).
+
+Measured but not optimized yet (the row says so): near with a section or net on a side, row, region
+exclusive, orient pins_toward, side (kae never flips: a part on the other side is a proven
 conflict). Required region, near and keep_away are placed soft at the required weight; when unmet
 they are reported, never dropped silently.
 
@@ -33,6 +43,7 @@ from __future__ import annotations
 import fnmatch
 import math
 import re
+from collections import namedtuple
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -52,6 +63,40 @@ EDGES = ("north", "south", "east", "west", "nearest")
 NORMAL = {"north": (0.0, -1.0), "south": (0.0, 1.0), "east": (1.0, 0.0), "west": (-1.0, 0.0)}   # y down
 ROTSETS = {"right_angles": (0.0, 90.0, 180.0, 270.0), "x_axis": (0.0, 180.0), "y_axis": (90.0, 270.0)}
 DECAP = re.compile(r"^C\d+$")
+GROUND = re.compile(r"(^|[/_.-])(A|D|P|S|C)?(GND|VSS|GROUND)", re.I)
+
+# the relation term (intent-relations): one rule per pairwise relation, priced by both annealers
+# (kae.place.anneal, the compiled kae.place.engine) and the joint loop's windows
+KIND = {"near": 1, "keep_away": 2, "edge": 3}
+EDGE_CODE = {"west": 0, "east": 1, "north": 2, "south": 3}
+RULE_W = 0.3       # the term's weight per unit of rel_w_<strength>: medium (1) prices 0.3, as verified on
+                   # solar-small (intent-relations); strong 0.9, required 3, weak 0.09
+# kind: KIND code; sides: ((part index, [pad idx]), ...) one (edge) or two; d: mm; w: weight;
+# edge: EDGE_CODE (edge rules); at: the edge's coordinate, mm (edge rules)
+Rule = namedtuple("Rule", ["id", "kind", "sides", "d", "w", "edge", "at"])
+
+
+def excess(rule, pts):
+    """How far a rule is from met, mm (0 when met), from its sides' pad points [[(x, y)], ...]."""
+    if rule.kind == KIND["edge"]:
+        xs = [p[0] for p in pts[0]]
+        ys = [p[1] for p in pts[0]]
+        m = (min(xs) - rule.at, rule.at - max(xs), min(ys) - rule.at, rule.at - max(ys))[rule.edge]
+        return max(0.0, m - rule.d)
+    d = min(math.hypot(p[0] - q[0], p[1] - q[1]) for p in pts[0] for q in pts[1])
+    return max(0.0, d - rule.d) if rule.kind == KIND["near"] else max(0.0, rule.d - d)
+
+
+def rules_report(st, rs):
+    """{rules, met, rows: [{id, excess_mm}]} of every rule at the state's poses."""
+    rows = []
+    for r in rs:
+        pts = []
+        for i, pads in r.sides:
+            xy = st.pins_xy(i)
+            pts.append([(float(xy[q][0]), float(xy[q][1])) for q in pads])
+        rows.append(dict(id=r.id, excess_mm=round(excess(r, pts), 3)))
+    return dict(rules=len(rs), met=sum(1 for x in rows if x["excess_mm"] <= 1e-6), rows=rows)
 
 
 def _ierr(msg):
@@ -324,6 +369,7 @@ class Bundle:
         self.rels = []
         self.defaults_off = list(intent.get("defaults_off") or [])
         self.hold, self.rotations, self.pins, self.anchors, self.keep, self.order = {}, {}, {}, [], [], []
+        self.terms = []             # relations priced by the relation term (near between movables, group)
         self.applied = {}           # rid -> what the placer did (pipeline notes)
         self.precheck = []          # proven conflicts before placing
         self.input = {fp.uuid: (fp.x, fp.y, fp.rot, fp.side) for fp in board.footprints}
@@ -490,7 +536,8 @@ class Bundle:
                     self.pins[u] = (x.place.geom, x.spec.get("facing", "out"), x.id, x.place.edge)
                     x.enforced, x.how = "hard", f"pinned on edge:{x.place.edge}, facing {x.spec.get('facing', 'out')}"
                 elif x.place.edge != "nearest":
-                    self.anchors.append((x.id, u, ("band", x.place.edge), self.weight(x.strength, [u])))
+                    self.anchors.append((x.id, u, ("band", x.place.edge, self.edge_mm(x)),
+                                         self.weight(x.strength, [u])))
                     x.enforced, x.how = "soft", f"pulled into the {x.place.edge} edge band (label term)"
                 else:
                     x.enforced, x.how = "measured only", "a soft on_edge to the nearest edge is not optimized"
@@ -510,10 +557,12 @@ class Bundle:
                 if fixed_b and len(mov_a) == 1:
                     self.anchors.append((x.id, mov_a[0], ("near", x), self.weight(x.strength, mov_a)))
                     x.enforced, x.how = "soft", "label-term pull toward " + x.b.name
+                elif len(x.a.parts) == 1 and len(x.b.parts) == 1 and x.b.kind in ("part", "pins") and mov_a + [
+                        u for u in x.b.parts if not by[u].locked and u not in self.hold]:
+                    self.terms.append(x)
+                    x.enforced, x.how = "soft", f"relation term ({self.metric(x)} metric)"
                 else:
-                    x.enforced, x.how = "measured only", ("near between movable parts is not optimized yet "
-                                                          "(phase 2)" if not fixed_b else
-                                                          "a section is pulled only member by member (phase 2)")
+                    x.enforced, x.how = "measured only", "a section or net is pulled only member by member (phase 2)"
             elif x.kind == "keep_away":
                 if x.b.kind == "area":
                     x.enforced, x.how = "measured only", "keep_away from a rule area is not optimized yet"
@@ -523,6 +572,10 @@ class Bundle:
             elif x.kind == "order":
                 self.order.append(x)
                 x.enforced, x.how = "strong rule", "protection-order rules (annealer, fix_order, repair guard)"
+            elif x.kind == "group" and len(x.members) >= 2 and any(
+                    not by[u].locked and u not in self.hold for u in x.members):
+                self.terms.append(x)
+                x.enforced, x.how = "soft", "relation term: each member toward the first, a star of radius rule_mm"
             elif x.kind in ("group", "row"):
                 x.enforced, x.how = "measured only", f"{x.kind} is not optimized yet (phase 2)"
         self.rotations = {u: list(v[0]) for u, v in rots_by.items()}
@@ -620,7 +673,7 @@ class Bundle:
         if spec[0] in ("box", "band"):
             if spec[0] == "band":
                 x0, y0, x1, y1 = P.outline.bounds
-                ext = max(max(r.own[2] - r.own[0], r.own[3] - r.own[1]) for r in p.rots) + EDGE_TOL
+                ext = max(max(r.own[2] - r.own[0], r.own[3] - r.own[1]) for r in p.rots) + spec[2]
                 bx = {"north": (x0, y0, x1, y0 + ext), "south": (x0, y1 - ext, x1, y1),
                       "west": (x0, y0, x0 + ext, y1), "east": (x1 - ext, y0, x1, y1)}[spec[1]]
             else:
@@ -659,8 +712,8 @@ class Bundle:
             hy.append((r.own[3] - r.own[1]) / 2)
         # the dead zone is a box around the target: for an edge gap, centres may sit both halves apart
         # plus the gap (its diagonal share); for a centre distance, the box inside the circle of d
-        ha = (0.0, 0.0) if (ks or self.metric(x) == "centre" or x.b.kind == "label") else (min(hx), min(hy))
-        if self.metric(x) == "centre":
+        ha = (0.0, 0.0) if (ks or self.metric(x) == "pad" or x.b.kind == "label") else (min(hx), min(hy))
+        if self.metric(x) == "pad":
             hb = (0.0, 0.0)
         rx = ha[0] + hb[0] + d / math.sqrt(2)
         ry = ha[1] + hb[1] + d / math.sqrt(2)
@@ -764,7 +817,105 @@ class Bundle:
             return float(self.set[f"rel_{v}_decap"])
         s = self._s(x)
         out = float(self.set[f"rel_{v}_scale"]) * s
-        return max(float(self.set["rel_gap_min"]), out) if v == "tight" else out
+        out = max(float(self.set["rel_gap_min"]), out) if v == "tight" else out
+        if self.metric(x) == "pad":
+            # a size-scaled gap, as the pads' distance: plus how deep each side's pads sit in its courtyard
+            out += sum(self._inset(u, ks) for u, ks in self.pad_sides(x))
+        return out
+
+    def edge_mm(self, x):
+        """How far an on_edge relation lets the courtyard sit from the edge, mm (a length mag, else EDGE_TOL)."""
+        return x.mag[1] if (x.mag and x.mag[0] == "mm") else EDGE_TOL
+
+    def _inset(self, u, ks):
+        """The least distance from a selected pad's centre to its own courtyard's boundary, mm (input pose)."""
+        fp = self.R.by_uuid[u]
+        b = cy(fp).boundary
+        pts = [(pd.x, pd.y) for k, pd in enumerate(fp.pads) if ks is None or k in ks] or [(fp.x, fp.y)]
+        return float(min(b.distance(Point(*q)) for q in pts))
+
+    def _ground(self, net):
+        role = (((self.brief or {}).get("nets") or {}).get(net) or {}).get("role")
+        return role == "ground" or bool(GROUND.search(net or ""))
+
+    def pad_sides(self, x, board=None):
+        """[(uuid, pad indices), (uuid, pad indices)] of a pad-metric relation (intent-relations' choice): a
+        named pin is that pad; a bare part is its pads on a net of the other side (two bare parts: the nets
+        they share other than ground, a decap's rail at any size, as the corpus priors measure), else all."""
+        fps = {fp.uuid: fp for fp in (board.footprints if board is not None else self.R.board.footprints)}
+        ua, ub = x.a.parts[0], x.b.parts[0]
+        ka, kb = (x.a.pads or {}).get(ua), (x.b.pads or {}).get(ub)
+        fa, fb = fps[ua], fps[ub]
+
+        def nets(fp, ks):
+            return {fp.pads[k].net for k in (ks if ks is not None else range(len(fp.pads))) if fp.pads[k].net}
+
+        def side(fp, ks, other):
+            if ks is not None:
+                return list(ks)
+            shared = [k for k, pd in enumerate(fp.pads) if pd.net and pd.net in other]
+            return shared or list(range(len(fp.pads)))
+        if ka is None and kb is None:
+            tie = {n for n in nets(fa, None) & nets(fb, None) if not self._ground(n)}
+            return [(ua, side(fa, None, tie)), (ub, side(fb, None, tie))]
+        sa = side(fa, ka, nets(fb, kb))
+        sb = side(fb, kb, {fa.pads[k].net for k in sa if fa.pads[k].net})
+        return [(ua, sa), (ub, sb)]
+
+    def rule_mm(self, x):
+        """The pad-to-pad distance the relation term asks: the target (pad metric), or a courtyard gap's
+        target plus both sides' pad insets (the pads' distance that gap means; a group: the star's radius,
+        half the side of the bbox its ratio allows, or half its span)."""
+        if x.kind == "group":
+            if x.mag[0] == "mm":
+                return 0.5 * x.mag[1]
+            area = sum(cy(self.R.by_uuid[u]).area for u in x.members)
+            return 0.5 * math.sqrt(GROUP_RATIO[x.mag[1]] * area)
+        t = self.target_mm(x)
+        if self.metric(x) == "pad":
+            return t
+        return t + self._inset(x.a.parts[0], None) + self._inset(x.b.parts[0], None)
+
+    def rules(self, P, scope="place"):
+        """[Rule] of the relation term on problem P. scope 'place': the relations compiled onto it (near
+        between movable parts, group); 'window' (the joint loop's windows, which have no label term or
+        soft-overlap grid): every near, group and keep_away between single parts or pins. A rule whose
+        parts are all fixed prices nothing (the oracle still measures it)."""
+        by = {p.uuid: p for p in P.parts}
+        if scope == "place":
+            xs = list(self.terms)
+        else:
+            xs = [x for x in self.rels if (x.kind in ("near", "keep_away") and x.b.kind in ("part", "pins")
+                                           and x.a.kind in ("part", "pins") and len(x.a.parts) == 1
+                                           and len(x.b.parts) == 1)
+                  or (x.kind == "group" and len(x.members) >= 2)]
+        out = []
+        for x in xs:
+            pairs = []
+            if x.kind == "group":
+                a0 = x.members[0]
+                for u in x.members[1:]:
+                    pairs.append((f"{x.id}/{self._ref(u)}", "near",
+                                  [(u, list(range(len(self.R.by_uuid[u].pads)))),
+                                   (a0, list(range(len(self.R.by_uuid[a0].pads))))]))
+            else:
+                sides = self.pad_sides(x) if self.metric(x) == "pad" else \
+                    [(x.a.parts[0], list(range(len(self.R.by_uuid[x.a.parts[0]].pads)))),
+                     (x.b.parts[0], list(range(len(self.R.by_uuid[x.b.parts[0]].pads))))]
+                pairs.append((x.id, x.kind, sides))
+            d = self.rule_mm(x)
+            n = 0
+            for rid, kind, sides in pairs:
+                ps = [(by[u], ks) for u, ks in sides if u in by]
+                if len(ps) != len(sides) or not any(p.movable for p, _ in ps) or not all(ks for _, ks in ps):
+                    continue
+                w = RULE_W * self.weight(x.strength, [u for u, _ in sides])
+                out.append(Rule(rid, KIND[kind], tuple((p.i, list(ks)) for p, ks in ps), float(d), float(w), -1, 0.0))
+                n += 1
+            if n:
+                self.applied.setdefault(x.id, []).append(f"relation term ({scope}): {n} rule(s), "
+                                                         f"{d:.2f} mm pad to pad")
+        return out
 
     def _decap_pair(self, x):
         if x.kind != "near" or x.b.kind == "label":
@@ -783,10 +934,11 @@ class Bundle:
         return min(vals) if vals else 1.0
 
     def metric(self, x):
-        """'centre' (named pins, or a 0402 decap) or 'gap' (courtyard edges; label: to pad copper)."""
-        if x.kind == "near" and x.b.kind != "label" and (x.a.kind == "pins" or x.b.kind == "pins" or
-                                                          self._decap_pair(x)):
-            return "centre"
+        """'pad' (named pins, or a 0402 decap: pad centre to pad centre over `pad_sides`) or 'gap'
+        (courtyard edges; label: to pad copper)."""
+        if x.kind in ("near", "keep_away") and x.b.kind != "label" and len(x.a.parts) == 1 and \
+                len(x.b.parts) == 1 and (x.a.kind == "pins" or x.b.kind == "pins" or self._decap_pair(x)):
+            return "pad"
         return "gap"
 
     # -------------------------------------------------------------- the oracle
@@ -844,9 +996,10 @@ class Bundle:
                 f = self._facing(by[u], NORMAL[x.place.edge])
             fac = x.spec.get("facing", "out")
             ok_f = f is None or fac == "any" or (f >= FACE_MIN if fac == "out" else abs(f) <= FACE_MIN)
-            return d <= EDGE_TOL + 1e-6 and ok_f, dict(
+            tol = self.edge_mm(x)
+            return d <= tol + 1e-6 and ok_f, dict(
                 measured=f"{d:.2f} mm from edge:{x.place.edge}" + (f", facing cos {f:.2f}" if f is not None else ""),
-                target=f"<= {EDGE_TOL} mm, facing {fac}", margin=round(EDGE_TOL - d, 2), distance_mm=round(d, 3),
+                target=f"<= {tol} mm, facing {fac}", margin=round(tol - d, 2), distance_mm=round(d, 3),
                 facing=None if f is None else round(f, 2))
         if x.kind == "region":
             tot = out_a = 0.0
@@ -970,9 +1123,11 @@ class Bundle:
         if x.b.kind == "label":
             from .labels import distance as ldist
             return min(ldist(x.b.geom, by[u], (x.a.pads or {}).get(u), edge=True) for u in x.a.parts), "to pad copper"
-        if metric == "centre":
-            return float(np.hypot(*(np.asarray(self._point(x.a, board, (0, 0))) -
-                                    np.asarray(self._point(x.b, board, (0, 0)))))), "centre to centre"
+        if metric == "pad":
+            (ua, ka), (ub, kb) = self.pad_sides(x, board)
+            pa = [(by[ua].pads[k].x, by[ua].pads[k].y) for k in ka]
+            pb = [(by[ub].pads[k].x, by[ub].pads[k].y) for k in kb]
+            return min(math.hypot(p[0] - q[0], p[1] - q[1]) for p in pa for q in pb), "pad to pad"
         ga = unary_union([cy(by[u]) for u in x.a.parts if u in by])
         gb = x.b.geom if x.b.kind == "area" else unary_union([cy(by[u]) for u in x.b.parts if u in by])
         return float(ga.distance(gb)), "courtyard gap"
@@ -1184,6 +1339,21 @@ def compile_intent(intent, board, brief=None, board_path=None, opts=None):
     if not it.get("relations") and not it.get("defaults_off"):
         return None
     return Bundle(it, board, brief, board_path, opts).resolve().compile()
+
+
+def from_brief(board, brief, board_path=None, opts=None):
+    """(Bundle or None, error or None) of the relations the brief carries from the board's own intent file
+    (kae.intent.relations.for_brief): compiled on `board` as `kae place --intent` does. A file that does
+    not load or names what the board lacks is an error string; the caller places without it."""
+    r = (brief or {}).get("relations") or {}
+    if r.get("error"):
+        return None, f"{r.get('origin')}: {r['error']}"
+    if not r.get("intent"):
+        return None, None
+    try:
+        return compile_intent(r["intent"], board, brief, board_path, opts), None
+    except ValueError as e:
+        return None, f"{r.get('origin')}: {e}"
 
 
 def filter_defaults(bundle, items, rid_of):

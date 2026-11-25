@@ -39,7 +39,7 @@ No source counts coverage [S]; the 76% comes from one LLM's designs.
 No coordinates and no millimetres, except datasheet distances with a `source` ([open questions](#open-questions)).
 
 **Magnitudes** `tight | close | loose` resolve on the solver side:
-- 0402 decaps use the corpus priors ([measured priors](../data/measured-priors.md#decoupling-distance-priors)): tight ≤ 2.5 mm (median), close ≤ 4.9 mm (p90), loose ≤ 15 mm, centre to centre.
+- 0402 decaps use the corpus priors ([measured priors](../data/measured-priors.md#decoupling-distance-priors)): tight ≤ 2.5 mm (median), close ≤ 4.9 mm (p90), loose ≤ 15 mm, pad to pad (the cap's pad on the rail to the pin, as the priors measure; [relations-unified](relations-unified.md#aspect-by-aspect)).
 - Other parts scale with s = √(courtyard area of the smaller member): tight gap ≤ max(0.5 mm, 0.5·s), close ≤ 2·s, loose ≤ 6·s.
 - Overridable as `KAE_REL_<MAG>_<CLASS>` [I].
 
@@ -47,7 +47,7 @@ No coordinates and no millimetres, except datasheet distances with a `source` ([
 
 | Kind | Arguments | Measured by the oracle | Default |
 |---|---|---|---|
-| `near` | a, b (part, pin, section, label), mag | named pins: centre distance; parts: courtyard gap | medium |
+| `near` | a, b (part, pin, section, label), mag | named pins and 0402 decaps: shortest pad to pad (a bare part's pads on the pin's net); parts: courtyard gap | medium |
 | `group` | members or section, mag, `exclusive` | bbox area ÷ Σ courtyard area ≤ 1.5 / 2.5 / 4 (tight / close / loose); exclusive: no other courtyard in the hull | medium |
 | `region` | members, region (`area:`, `region:`, `edge:`), `exclusive` | member courtyard area outside the region; exclusive: other parts' area inside it | strong |
 | `on_edge` | part, edge, `facing: out|along|any` | courtyard ≤ 1 mm from that edge; body faces out (cos ≥ 0.3) | required |

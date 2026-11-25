@@ -591,7 +591,7 @@ class Session:
                        tracks=[(t.net, t.layer, t.width, t.start, t.end, t.uuid, t.locked, t.mid) for t in tracks],
                        vias=[(v.net, v.x, v.y, v.size, v.drill, v.uuid, v.locked) for v in vias],
                        zones=list(guards))
-        for ext in (".kicad_pro", ".kicad_dru", ".kicad_prl"):
+        for ext in (".kicad_pro", ".kicad_dru", ".kicad_prl", ".kae_intent.json"):
             s = self.path.with_suffix(ext)
             t = Path(dst).with_suffix(ext)
             if s.exists() and s.resolve() != t.resolve():
@@ -795,7 +795,7 @@ def write_joint(src, dst, poses, copper, hazards=None):
     vias = [c for c in copper if isinstance(c, Via)]
     W.append_items(dst, dst, tracks=[(t.net, t.layer, t.width, t.start, t.end, t.uuid, t.locked, t.mid) for t in tracks],
                    vias=[(v.net, v.x, v.y, v.size, v.drill, v.uuid, v.locked) for v in vias])
-    for ext in (".kicad_pro", ".kicad_dru", ".kicad_prl"):
+    for ext in (".kicad_pro", ".kicad_dru", ".kicad_prl", ".kae_intent.json"):
         s = src.with_suffix(ext)
         t = dst.with_suffix(ext)
         if s.exists() and s.resolve() != t.resolve():

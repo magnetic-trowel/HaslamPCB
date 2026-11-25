@@ -6,6 +6,8 @@ observations (python -m kae.excite.evaluate BOARD -o EVAL.json) are re-scored in
     python -m kae.intent catalog EVAL.json                 what kae measures on this board, and its sections
     python -m kae.intent status EVAL.json [--intent I.json] [--detailed] [-o STATUS.json]
     python -m kae.intent compare EVAL_A.json EVAL_B.json ... [--intent I.json]
+    python -m kae.intent relations BOARD [--intent I.json] [--input IN] [-o REL.json]
+                                                           the placement relations measured on BOARD
 """
 from __future__ import annotations
 
@@ -89,6 +91,30 @@ def text(st, detailed=False):
     return "\n".join(out)
 
 
+def relations(board_path, intent=None, input_path=None):
+    """kae.relations-status/1 of a board (kae.place.relations.Bundle.status, the oracle `kae place` runs on
+    its output): the intent (default: the board's own <stem>.kae_intent.json) compiled on the input board
+    (default: the board itself; `hold` measures against it) and measured on `board_path`."""
+    from kae.board.kicad_file import load
+    from kae.place.relations import compile_intent
+    from kae.place.stubs import make_brief
+    from .relations import sidecar
+    src = input_path or board_path
+    if intent is None:
+        p = sidecar(src)
+        if not p.is_file():
+            raise OB.IntentError(f"no --intent and no intent file {p.name} beside {src}")
+        intent = str(p)
+    b_in = load(src)
+    brief, _ = make_brief(b_in)
+    bun = compile_intent(intent, b_in, brief, src)
+    if bun is None:
+        raise OB.IntentError(f"{intent}: no relations")
+    st = bun.status(load(board_path))
+    st["board"] = str(board_path)
+    return st
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="kae.intent")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -102,9 +128,24 @@ def main(argv=None):
     m = sub.add_parser("compare")
     m.add_argument("evals", nargs="+")
     m.add_argument("--intent")
+    r = sub.add_parser("relations")
+    r.add_argument("board")
+    r.add_argument("--intent", help="kae.intent/1 file (default: the board's own <stem>.kae_intent.json)")
+    r.add_argument("--input", help="the board the relations are compiled on (default: BOARD)")
+    r.add_argument("-o")
     a = ap.parse_args(argv)
     try:
-        if a.cmd == "catalog":
+        if a.cmd == "relations":
+            st = relations(a.board, a.intent, a.input)
+            for x in st["rows"]:
+                print(f"  {x['id']:26s} {x['kind']:9s} {x['strength']:8s} {str(x.get('measured')):34s} "
+                      f"target {str(x.get('target')):22s} {'met' if x['met'] else 'NOT MET' if x['met'] is False else '-'}"
+                      f"  [{x['enforced']}]")
+            sm = st["summary"]
+            print(f"{sm['met']}/{sm['n']} met; conflicts {sm['conflicts']}; measured only {sm['measured_only']}")
+            if a.o:
+                json.dump(st, open(a.o, "w"), indent=1, default=str)
+        elif a.cmd == "catalog":
             ev = json.load(open(a.eval))
             print(json.dumps(catalog(ev, _brief(ev)), indent=1))
         elif a.cmd == "status":

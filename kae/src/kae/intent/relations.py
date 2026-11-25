@@ -13,13 +13,23 @@ that lists what exists. Every relation needs a unique `id` and a `why` or a `sou
 Magnitudes are ordinal (tight | close | loose) and resolve on the solver side. A length ("2 mm") is
 allowed only for a datasheet distance (open question 1, proposed answer): with a `source` it is taken
 as given; without one it is still used but marked `assumed` in the status. The relations_mm setting
-"forbid" rejects lengths outright (RAC's rule).
+"forbid" rejects lengths outright (RAC's rule). `on_edge` takes a length too: how far its courtyard may
+sit from the edge (default EDGE_TOL, 1 mm).
+
+The intent-relations spelling (kaesynth's first emitter) is read for a transition (`normalize`, a note on
+the row says so): `within_mm: 5` / `min_mm: 5` is `mag: "5 mm"`, and `{"kind": "edge", "edge": "west"}` is
+`{"kind": "on_edge", "edge": "edge:west", "facing": "any", "strength": "medium"}` (a soft pull: that
+spelling never pinned a part). docs/topics/placement/relations-unified.md compares the two designs.
 """
 from __future__ import annotations
 
 import fnmatch
+import json
+from pathlib import Path
 
 from . import units as U
+
+INTENT_EXT = ".kae_intent.json"     # a board's own intent file, a project file beside it like the .kicad_dru
 
 STRENGTHS = ("required", "strong", "medium", "weak")      # Cassowary order: each dominates the next
 MAGS = ("tight", "close", "loose")
@@ -29,7 +39,7 @@ KINDS = {
     "near": (("a", "b"), ("mag",), "medium"),
     "group": (("members",), ("mag", "exclusive"), "medium"),
     "region": (("members", "region"), ("exclusive",), "strong"),
-    "on_edge": (("part", "edge"), ("facing",), "required"),
+    "on_edge": (("part", "edge"), ("facing", "mag"), "required"),
     "keep_away": (("a", "b"), ("mag",), "medium"),
     "row": (("members",), ("axis", "from", "pitch", "beside"), "strong"),
     "order": (("path",), (), "strong"),
@@ -71,6 +81,44 @@ def magnitude(v, rid, mm_policy="sourced"):
     return "mm", val * 1e3
 
 
+# the intent-relations spelling, read for a transition (normalize)
+ALIAS_MM = {"within_mm": ("near", "group", "edge", "on_edge"), "min_mm": ("keep_away",)}
+
+
+def normalize(r):
+    """A relation in the intent-relations spelling rewritten in this one, with a note saying so; any other
+    relation as it is. Raises IntentError on a spelling that is neither."""
+    if not isinstance(r, dict):
+        return r
+    rid = r.get("id")
+    old = [k for k in ALIAS_MM if k in r]
+    if not old and r.get("kind") != "edge":
+        return r
+    out = dict(r)
+    notes = []
+    for k in old:
+        v = out.pop(k)
+        if r.get("kind") not in ALIAS_MM[k]:
+            raise _err(f"relation {rid}: {k} is for {list(ALIAS_MM[k])}; write mag \"<length> mm\" instead")
+        if "mag" in r:
+            raise _err(f"relation {rid}: both mag and {k}; keep mag")
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or v < 0:
+            raise _err(f"relation {rid}: {k} is a distance in mm (a number >= 0), not {v!r}")
+        out["mag"] = f"{float(v):g} mm"
+        notes.append(f"{k}: {v:g} read as mag '{out['mag']}'")
+    if r.get("kind") == "edge":
+        e = str(out.get("edge", ""))
+        out["kind"] = "on_edge"
+        out["edge"] = e if e.startswith("edge:") else f"edge:{e}"
+        out.setdefault("facing", "any")
+        out.setdefault("strength", "medium")
+        out.setdefault("mag", "5 mm")              # the old spelling's default distance from the edge
+        notes.append(f"kind edge read as on_edge {out['edge']}, facing {out['facing']}, {out['strength']}")
+    note = "intent-relations spelling: " + "; ".join(notes)
+    out["note"] = f"{r['note']}; {note}" if r.get("note") else note
+    return out
+
+
 def _names(v, rid, key, single=False):
     if isinstance(v, str) and v:
         return
@@ -96,6 +144,7 @@ def check(rels, mm_policy="sourced", defaults_off=None):
     for r in rels:
         if not isinstance(r, dict):
             raise _err(f"relation {r!r}: every relation is an object with 'id' and 'kind'")
+        r = normalize(r)
         rid = r.get("id")
         if not rid or not isinstance(rid, str) or rid in seen:
             raise _err(f"relation {r}: every relation needs a unique 'id'")
@@ -127,7 +176,10 @@ def check(rels, mm_policy="sourced", defaults_off=None):
                                f"waits on open question 6 ('like the human did') of llm-relations-input.md")
                 raise _err(f"relation {rid}: {k} {r[k]!r} unknown; use one of {list(vals)}")
         if "mag" in r:
-            magnitude(r["mag"], rid, mm_policy)
+            mk, _ = magnitude(r["mag"], rid, mm_policy)
+            if kind == "on_edge" and mk != "mm":
+                raise _err(f"relation {rid}: an on_edge mag is a length (how far its courtyard may sit from "
+                           f"the edge, e.g. '3 mm'), not {r['mag']!r}")
         for k in ("a", "b", "part", "region", "edge", "from"):
             if k in r:
                 _names(r[k], rid, k, single=True)
@@ -148,7 +200,8 @@ def check(rels, mm_policy="sourced", defaults_off=None):
         if kind == "region" and not (r["region"].startswith(("region:", "area:", "edge:"))):
             raise _err(f"relation {rid}: region {r['region']!r}: name a compass cell (region:nw ... region:se, "
                        f"region:c), a rule area (area:<name>) or an edge band (edge:north ...)")
-        if kind == "on_edge" and not r["edge"].startswith("edge:"):
+        if kind == "on_edge" and not (r["edge"].startswith("edge:")
+                                      and r["edge"][5:] in ("north", "south", "east", "west", "nearest")):
             raise _err(f"relation {rid}: edge {r['edge']!r}: use edge:north|south|east|west|nearest")
         if kind == "row" and "beside" in r and r["beside"] != "labels":
             raise _err(f"relation {rid}: row beside {r['beside']!r}: only 'labels'")
@@ -159,3 +212,28 @@ def check(rels, mm_policy="sourced", defaults_off=None):
 def defaults_on(rid, defaults_off):
     """Is default row `rid` (D-...) on, given the intent's defaults_off globs?"""
     return not any(fnmatch.fnmatch(rid, g) for g in (defaults_off or ()))
+
+
+def sidecar(board_path):
+    """The intent file beside a board (it need not exist)."""
+    return Path(board_path).with_suffix(INTENT_EXT)
+
+
+def for_brief(board_path):
+    """The relations part of the board's own intent file, for the brief (kae.circuit.brief.build):
+    {origin, intent: {relations, defaults_off, sections, terms, generation}}, or {origin, error} when the file
+    does not load; None without a file or without relations. Never raises: the brief has many readers."""
+    if not board_path:
+        return None
+    p = sidecar(board_path)
+    if not p.is_file():
+        return None
+    from .objective import IntentError, load
+    try:
+        it = load(json.loads(p.read_text()))
+    except (IntentError, ValueError, OSError) as e:
+        return dict(origin=p.name, error=f"{type(e).__name__}: {e}")
+    if not it.get("relations") and not it.get("defaults_off"):
+        return None
+    return dict(origin=p.name, intent={k: it[k] for k in ("schema", "relations", "defaults_off", "sections", "terms",
+                                                          "generation") if k in it})

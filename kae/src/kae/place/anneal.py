@@ -78,7 +78,7 @@ class Annealer:
                  w_cong=30.0, w_esc=0.3, lam0=1.0, lam1=40.0, wl_slack=0.15, wl_barrier=20.0, log=None,
                  cong_args=None, order=(), w_order=1.0, order_margin=0.5, subset=None, window=None,
                  cong_history=None, labels=None, w_label=0.0, silk=None, w_silk=0.0, zones=None, w_zone=0.0,
-                 w_xing=0.0, xing_from=0.25, hard_fixed=False):
+                 w_xing=0.0, xing_from=0.25, hard_fixed=False, relations=(), w_rel=1.0):
         self.P = P
         # hard_fixed: a move may not add overlap with fixed obstacles or cells outside the
         # outline (only the part itself can undo that; pi-w-controller's 28 mm module ended the
@@ -233,6 +233,16 @@ class Annealer:
         if w_xing > 0:
             from .crossings import Crossings
             self.xing = Crossings(P, self)
+        # ---- the intent's placement relations (kae.place.relations.Rule): steep like the order rules
+        self.rel = list(relations or ())
+        self.rel_of = {}
+        for j, rule in enumerate(self.rel):
+            for (i, _) in rule.sides:
+                self.rel_of.setdefault(i, []).append(j)
+        self.rel_open = [self._rel_pen(j) for j in range(len(self.rel))]
+        self.rel_total = sum(self.rel_open)
+        if self.rel:
+            self.w["rel"] = w_rel
         self.cong_args = cong_args
         # routability as a soft budget: free trade up to (1 + slack) x the seed HPWL, steep beyond
         self.wl_slack, self.wl_barrier = wl_slack, wl_barrier
@@ -416,6 +426,16 @@ class Annealer:
         over = d_ct + self.order_margin - d_i
         return over / self.S0 if over > 0 else 0.0
 
+    def _rel_pen(self, j):
+        from .relations import excess
+        r = self.rel[j]
+        pts = [[self._pin_xy(i, k) for k in pads] for (i, pads) in r.sides]
+        return r.w * excess(r, pts) / self.S0
+
+    def rel_unmet(self):
+        """Relations not met (any excess)."""
+        return sum(1 for v in self.rel_open if v > 1e-9)
+
     def order_violations(self):
         """Rules broken outright (no margin): the protected part is nearer the connector than
         the protection is, or nearer the protection than the connector is."""
@@ -537,6 +557,11 @@ class Annealer:
         rules = {j for i in S for j in self.order_of.get(i, ())}
         newo = {j: self._order_pen(j) for j in rules}
         d_order = sum(newo[j] - self.open[j] for j in rules)
+        d_rel = 0.0
+        if self.rel:
+            rr = {j for i in S for j in self.rel_of.get(i, ())}
+            newr = {j: self._rel_pen(j) for j in rr}
+            d_rel = sum(newr[j] - self.rel_open[j] for j in rr)
         d_phys = 0.0
         moved_u = [self.uuid[i] for i in S if self.uuid[i] in self.tparts]
         if moved_u:
@@ -553,7 +578,8 @@ class Annealer:
                  + w["phys"] * d_phys / self.nstruct
                  + w["cong"] * d_cong
                  + w["order"] * d_order
-                 + w["wl"] * w["xing"] * d_xing / self.W0)
+                 + w["wl"] * w["xing"] * d_xing / self.W0
+                 + w.get("rel", 0.0) * d_rel)
         if fix_new > fix_old:
             delta += HARD
         st = self.stats
@@ -568,6 +594,10 @@ class Annealer:
             for j, v in newo.items():
                 self.open[j] = v
             self.order_total += d_order
+            if self.rel:
+                for j, v in newr.items():
+                    self.rel_open[j] = v
+                self.rel_total += d_rel
             if self.cong is not None:
                 self.cong.commit()
             if xing_on:
@@ -711,7 +741,8 @@ class Annealer:
         xing = w["xing"] * w["wl"] * self.xing.total / self.W0 if self.xing is not None else 0.0
         return (xing + w["wl"] * self._wl_cost(self.wl) + lam * self.leg_total / self.A0 + w["disp"] * disp
                 + w["phys"] * self.phys / self.nstruct + w["cong"] * c + w["order"] * self.order_total
-                + w["label"] * lab + w["silk"] * silk + w["zone"] * self._zone(self.mov))
+                + w["label"] * lab + w["silk"] * silk + w["zone"] * self._zone(self.mov)
+                + w.get("rel", 0.0) * self.rel_total)
 
     def evaluate(self, st):
         """Full cost of another state with this annealer's weights and normalization (seed
@@ -722,9 +753,13 @@ class Annealer:
                      order=self.order, w_order=self.w["order"], order_margin=self.order_margin,
                      labels=self.labels, w_label=self.w["label"], silk=self.silk, w_silk=self.w["silk"],
                      zones=self.zones, w_zone=self.w["zone"], cong_history=self._cong_history_fn,
-                     w_xing=self.w["xing"], xing_from=self.xing_from)
+                     w_xing=self.w["xing"], xing_from=self.xing_from,
+                     relations=self.rel, w_rel=self.w.get("rel", 1.0))
         o.W0, o.A0, o.S0, o.nstruct = self.W0, self.A0, self.S0, self.nstruct
         o.Xs, o.Ys = self.Xs, self.Ys
+        if o.rel:            # priced on this annealer's part size
+            o.rel_open = [o._rel_pen(j) for j in range(len(o.rel))]
+            o.rel_total = sum(o.rel_open)
         return o.cost(self.lam1), o.terms_report()
 
     def terms_report(self):
@@ -744,6 +779,8 @@ class Annealer:
             out.update(zone=round(self._zone(self.mov), 5))
         if self.xing is not None:
             out.update(xing=int(self.xing.total))
+        if self.rel:
+            out.update(rel=round(self.rel_total, 5), rel_rules=len(self.rel), rel_unmet=self.rel_unmet())
         return out
 
     def labels_off(self):
