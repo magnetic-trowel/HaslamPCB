@@ -416,14 +416,17 @@ def board(d):
 
 def placement(d):
     pl = d.place
-    pl.edge(d.find_part("J101"), "west")
-    pl.edge(d.find_part("J201"), "east")
-    pl.edge(d.find_part("J202"), "east")
-    pl.edge(d.find_part("J301"), "north")
+    # no edge relations for the connectors: board.json fixes J101, J201, J202 and J301 from the mechanical layout
+    # (mating faces and wire entries at their edges), so the placer cannot move them. Edge relations at kae's 5 mm
+    # asked J101/J201/J202 for what their fixed positions (5.2, 10.5, 6.0 mm from the edge) never give
+    # (kaesynth layout.check_relations now reports that as an error)
     u = d.find_part("U101")
     pl.hot_loop([u["PVIN"], d.find_part("C102")["1"], d.find_part("C102")["2"], u["GND"]])
     pl.hot_loop([u["VOUT"], d.find_part("C114")["1"], d.find_part("C114")["2"], u["GND"]])
-    pl.near(d.find_part("L101"), u, "tight")
+    # L101 at the switch pins (SW1/SW2: the switched-current loop); kae measures the nearest L101 pad to U101.3 or
+    # U101.16, and the two footprints' courtyards allow 1.5 mm (kaesynth layout.check_relations), so 3 mm is
+    # reachable: the 4.5-6.9 mm placements of intent-relations R1 are the placer's trade-off, not geometry
+    pl.near(d.find_part("L101"), u, "tight", note="inductor at the SW1/SW2 pins: short switch nodes")
     pl.near(d.find_part("R201"), d.find_part("U201"), "close")
     pl.near(d.find_part("U302"), u, "close")
     # feedback nodes are MOhm nodes: their copper short, every divider part at its FB pin (5 mm is our
