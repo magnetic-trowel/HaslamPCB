@@ -243,6 +243,8 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
         (outdir / f"{d.slug}.haslam_intent.json").write_text(json.dumps(doc, indent=1) + "\n")
         for prob in problems:
             findings.append(Finding("haslam_intent.invalid", "error", prob))
+        for chk, msg, objs in d.haslam.warnings():
+            findings.append(Finding(chk, "warning", msg, list(objs)))
         unused = {}
         for r, why in d.haslam.relations()[1]:
             unused.setdefault((r["kind"], why), []).append(r)
