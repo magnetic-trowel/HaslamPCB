@@ -216,6 +216,10 @@ def build(board, *, use_sheets: bool = True, facts=None) -> dict:
     if facts is None:
         doc, path = F.for_board(getattr(board, 'path', None))
         facts, origin = F.facts_of(doc), (f"intent file {Path(path).name}" if path else "intent")
+        if doc:
+            # the intent's terms the placer prices with its own physics (haslam.intent.uses), and who reads the rest
+            from haslam.intent import uses as IU
+            b['intent_use'] = IU.table(doc, IU.placer_budgets(b, doc))
     if not facts:
         return b
     F.apply(b, F.facts_of(facts), origin=origin)

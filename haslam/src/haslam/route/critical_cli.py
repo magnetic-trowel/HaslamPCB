@@ -148,6 +148,7 @@ def main(argv=None):
         doc = load_intent(a.intent) if a.intent else for_board(a.input)[0]
         if doc:
             opts.update(critical.intent_opts(doc))
+            opts["intent_source"] = "--intent" if a.intent else "board"
         rep = critical.run(a.input, a.output, seed=a.seed, time_s=a.time, opts=opts, rounds=a.rounds,
                            workdir=a.workdir, bridge=not a.no_bridge,
                            bridge_opts=dict(_bridge_opts(a.bridge_opt), planes=a.planes, pad_shapes=a.pad_shapes))

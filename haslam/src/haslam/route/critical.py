@@ -103,13 +103,21 @@ DEFAULTS = dict(
 def intent_opts(intent):
     """Session opts from an intent's requirements (as haslam.excite.dc.plan reads them), so the
     critical router sizes copper against the limits the evaluator scores: dT_max_K and
-    drop_share. Takes the facts dict or a haslam.intent/1 document (its facts); {} without one."""
+    drop_share, and from a haslam.intent/1 document's terms and knobs (haslam.intent.uses.router_opts):
+    per-net heat.track and drop.rail bounds, which replace the default on their nets (and a stated
+    requirement where they are tighter), and per-net width knobs. Takes the facts dict or a haslam.intent/1 document; {} without one."""
     if not intent:
         return {}
+    from haslam.intent.uses import router_opts
+    out = router_opts(intent)            # a haslam.intent/1 document's heat.track / drop.rail bounds and width knobs
     if intent.get("schema") == "haslam.intent/1":
         intent = intent.get("facts") or {}
     req = intent.get("requirements") or {}
-    return {k: float(req[k]) for k in ("dT_max_K", "drop_share") if req.get(k) is not None}
+    stated = {k: float(req[k]) for k in ("dT_max_K", "drop_share") if req.get(k) is not None}
+    out.update(stated)
+    if stated and (out.get("intent_heat") or out.get("intent_drop")):
+        out["intent_req"] = stated       # a term's bound on a net is taken only where it is the tighter
+    return out
 
 
 def _log(msg):
@@ -124,6 +132,13 @@ class Session:
         t0 = clock_now()
         self.path = Path(board_path).resolve()
         self.opts = {**DEFAULTS, **(opts or {})}
+        if "intent_source" not in self.opts:
+            # the board's own intent file, as critical_cli reads it: every caller (the joint loop's module
+            # stage too) sizes copper by the same stated requirements, bounds and knobs; given opts win
+            from haslam.intent.facts import for_board
+            doc = for_board(self.path)[0]
+            if doc:
+                self.opts = {**DEFAULTS, **intent_opts(doc), **(opts or {}), "intent_source": "board"}
         self.log = log
         self.board = board or load(self.path)
         if brief is None:
