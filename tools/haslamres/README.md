@@ -88,6 +88,7 @@ $K method add "haslam bridge" --command "{py:haslam} -m haslam.route.cli route {
 $K method list
 $K exp create NAME --method "freerouting 2.5.0" --method "fr-fork master" [--boards @ids.txt] [--tier ladder] --description "..."
 $K exp submit NAME [--limit 20]       # one haslamq job per board that lacks a run; re-submitting resumes
+$K sprint NAME --base bridge|staged --commit SHA [--set K=V]   # a sprint experiment in one command (below)
 $K exp status NAME; $K exp report NAME [--baseline METHOD]; $K exp install-timer NAME   # report + index hourly
 $K board BOARD_ID                     # every method's run of this board, with its scores
 $K rerun ~/haslam-baselines/boards/ID/runs/RUN [--submit]   # the code, binary and command; queue a reproduction
@@ -110,6 +111,12 @@ nothing in that experiment.
 - **`sprint`** (default): at most 40 CPU-h, and no board whose history is over 0.5 CPU-h per method-run.
 - **`--tier ladder`, `--tier canary`**: no limits. The tier is recorded in `experiment.json`; `exp submit NAME --tier T`
   changes it. An experiment created before the tiers counts as `sprint` when it is submitted again.
+- **`sprint NAME --base bridge|staged --commit SHA [--set K=V ...]`** is the one-command path
+  ([procedure](../../bench/suites/README.md)). It needs `experiments/NAME/PLAN.md`; registers the arm as the stored
+  control's recipe of that base (`--control`, default `control-w47`) with `haslam` at SHA and the settings appended, the
+  harness and evaluators at the control's tag; creates the experiment on the two sprint suites with the control's
+  seeds and `--reuse-runs`, so only the new arm runs; submits at haslamq priority 5 (`exp submit --prio`); prints the
+  verdict command. With `--reuse-runs`, `exp create` estimates only the runs still to make.
 - Without `index.sqlite` nothing is estimated or checked. `tools/haslamres/suites.py` builds the tiers' board lists.
 
 ## Running an experiment without wasting it

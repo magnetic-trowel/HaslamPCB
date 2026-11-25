@@ -18,6 +18,7 @@ exists for a method on a board is reused by every later experiment.
   haslamres exp create NAME --method NAME_OR_ID [...] [--boards @FILE] [--harness REF] [--haslam REF] [--tier TIER]
   haslamres exp submit NAME [--limit N] [--only ids|@FILE]    # queue one haslamq job per board that lacks runs
   haslamres exp status NAME | report NAME | install-timer NAME
+  haslamres sprint NAME --base bridge|staged --commit REF [--set K=V]   # one arm against the tag's stored control
   haslamres board ID                                          # every run and score of one board
   haslamres rerun RUN_DIR [--submit]                          # how to reproduce a run (or queue it again)
   haslamres index                                             # index.sqlite over every run and evaluation
@@ -340,7 +341,7 @@ def cmd_method_add(a):
     if path.exists():
         m = read_json(path)
         print(f"already registered: {mid} {m['name']!r}")
-        return
+        return mid
     m = dict(schema=SCHEMA, id=mid, name=a.name, slug=slugify(a.name), description=a.description or "",
              created=now(), recipe=recipe, code=comps, build=a.build)
     if runner["type"] == "haslambench-adapter":  # keep a copy of the exact binary, so the method can run again later
@@ -369,6 +370,7 @@ def cmd_method_add(a):
     write_json(path, m)
     print(f"registered {mid} {a.name!r}")
     print(json.dumps(m, indent=1))
+    return mid
 
 
 def cmd_method_list(a):
@@ -729,8 +731,11 @@ def cmd_exp_create(a):
         raise SystemExit(f"methods prepared with a harness of another task spec than {harness[:7]}'s ({want}): "
                          + "; ".join(f"{n} {i} (spec {s})" for n, i, s in off)
                          + ". Register them again with --harness at this experiment's harness.")
-    n_runs = a.attempts * sum(m["recipe"]["runner"]["type"] != "reference" for m in ms)
-    tier_guard(a.tier, {b: n_runs for b in boards}, f"experiment {a.name}")
+    todo = [(m["id"], k) for m in ms if m["recipe"]["runner"]["type"] != "reference" for k in range(a.attempts)]
+
+    def have(b):  # with --reuse-runs, the stored runs (a stored control) are not made again
+        return {(r["method_id"], r["attempt"]) for _, r in board_runs(b)} if a.reuse_runs and board_dir(b).exists() else ()
+    tier_guard(a.tier, {b: len(set(todo) - set(have(b))) for b in boards}, f"experiment {a.name}")
     # runs made at another time are not comparable: on this shared host the same code, seeds and time
     # budget left 13.9 % more open connections a few days later (zone-keepout-ab2 against zone-ab's base
     # runs, 47 boards, p < 0.001), more than the effects the A/Bs measure; so an experiment makes all of
@@ -758,7 +763,7 @@ def cmd_exp_create(a):
              haslam=dict(commit=haslam, link=github_link("https://github.com/magnetic-trowel/HaslamPCB", haslam)),
              kicad=kicad, evaluators=evs, corpus=str(CORPUS), corpus_manifest_sha256=sha256_file(CORPUS / "manifest.jsonl"),
              boards=len(boards), **({"env": exp_env(a)} if a.env else {}))
-    d.mkdir(parents=True)
+    d.mkdir(parents=True, exist_ok=True)  # it may hold the experiment's PLAN.md already
     (d / "boards.txt").write_text("\n".join(boards) + "\n")
     write_json(d / "experiment.json", e)
     write_json(STORE / "config.json", dict(read_json(STORE / "config.json", {}), repo=repo))
@@ -837,7 +842,8 @@ def cmd_exp_submit(a):
             jobs.append(dict(cmd=f"{py} {script} job --experiment {a.name} --board {bid}{sel}",
                              name=f"{a.name}:{bid}" + (f":{i}" if len(chunks) > 1 else ""),
                              cpus=max([2] + [method_cpus(ms[m]) for m, _ in ch]),
-                             mem=est["mem"], disk=est["disk"], timeout=est["timeout"], size_mb=est["size_mb"]))
+                             mem=est["mem"], disk=est["disk"], timeout=est["timeout"], size_mb=est["size_mb"],
+                             **({} if getattr(a, "prio", None) is None else {"prio": a.prio})))
         if a.limit and len(jobs) >= a.limit:
             break
     tier = a.tier or e.get("tier") or "sprint"  # an experiment from before the tiers is a sprint until told otherwise
@@ -852,6 +858,43 @@ def cmd_exp_submit(a):
         # benchmark runs: methods' results depend on the time they get, so never paused (haslamq class timed)
         subprocess.run(["haslamq", "submit", "--jobs", str(f), "--owner", f"exp-{a.name}", "--tag", a.name, "--live",
                         "--class", "timed", "--cwd", str(code_dir(e["harness"]["commit"])), "--retries", "1"], check=True)
+
+
+# ------------------------------------------------------------------ sprint: one command for a sprint experiment
+SPRINT_BASES = {"bridge": "route", "staged": "joint-fixed"}  # base -> the kind of the stored control's method
+SPRINT_SUITES = ("sprint-frontier.txt", "sprint-quality.txt")
+
+
+def cmd_sprint(a):
+    """A sprint experiment in one command (bench/suites/README.md): the new arm is the stored control's
+    recipe of `--base` at `--commit` with `--set` settings; it runs on the sprint suites with the
+    control's seeds, against the control's stored runs (not run again), tier sprint, queue priority 5."""
+    d = exp_dir(a.name)
+    if not (d / "PLAN.md").exists():
+        raise SystemExit(f"refused: no {d / 'PLAN.md'} (the question, the one change, what will decide it).\n"
+                         "Do this: write it, then run the same command again.")
+    c = load_exp(a.control)
+    ctl = next(m for m in (find_method(m["id"]) for m in c["methods"]) if m["recipe"]["kind"] == SPRINT_BASES[a.base])
+    tag, repo = c["harness"]["commit"], main_repo()
+    commit = git(repo, "rev-parse", f"{a.commit}^{{commit}}")
+    sets = "".join(f" --set {kv}" for kv in a.set or [])
+    if commit == tag and not sets:
+        raise SystemExit(f"refused: at {tag[:7]} without --set the arm is the control itself.\n"
+                         "Do this: give --commit (the tag plus one change, pushed) or --set KEY=VALUE.")
+    # the control's recipe, with a numba cache of its own checkout (a cache serves only the code that made it)
+    template = ctl["recipe"]["runner"]["template"].replace(f"numba-default-{tag[:7]}", f"numba-default-{commit[:7]}") + sets
+    mid = cmd_method_add(argparse.Namespace(
+        name=f"{a.name} {a.base} {commit[:7]}{sets}", description=f"sprint arm of {a.name}: {ctl['name']!r} at {commit[:7]}{sets}",
+        reference=False, adapter=None, binary=None, command=template, kind=ctl["recipe"]["kind"], code=[f"haslam={repo}@{commit}"],
+        harness=tag, param=[f"{k}={v}" for k, v in ctl["recipe"]["params"].items()], timeout=900,
+        kicad_threads=ctl["recipe"]["environment"]["kicad_threads"], build=None, allow_dirty=False))
+    boards = [b for f in SPRINT_SUITES for b in (HERE.parents[1] / "bench" / "suites" / f).read_text().split()]
+    cmd_exp_create(argparse.Namespace(
+        name=a.name, description=f"sprint: {ctl['name']!r} against itself at {commit[:7]}{sets}; control runs of {a.control} reused",
+        method=[ctl["id"], mid], boards=",".join(boards), attempts=c["attempts"], harness=tag, haslam=tag, env=None,
+        reuse_runs=True, tier="sprint"))
+    cmd_exp_submit(argparse.Namespace(name=a.name, only=None, limit=None, redo=False, dry_run=a.dry_run, tier=None, prio=5))
+    print(f"verdict, once the jobs are done:\n  haslamres exp report {a.name} && haslamres quality {a.name} --control '{ctl['name']}'")
 
 
 # ------------------------------------------------------------------ the per-board job
@@ -2936,6 +2979,7 @@ def main():
     s.add_argument("name"), s.add_argument("--only"), s.add_argument("--limit", type=int)
     s.add_argument("--redo", action="store_true", help="also retry boards whose prepare failed")
     s.add_argument("--tier", choices=sorted(TIERS), help="change the experiment's tier (default: the one it was created with)")
+    s.add_argument("--prio", type=int, help="haslamq priority of the jobs (higher runs first; sprint campaigns: 5)")
     s.add_argument("--dry-run", action="store_true")
     s.set_defaults(f=cmd_exp_submit)
     for n, f in (("status", cmd_exp_status), ("report", cmd_exp_report), ("install-timer", cmd_exp_timer)):
@@ -2945,6 +2989,14 @@ def main():
             s.add_argument("--baseline", help="method name the others are paired against (default: the experiment's first)")
             s.add_argument("--intent", metavar="DIR", help="also report external intent evaluations from DIR/<board>/<run>.status.json (tools/research/physics/eval_intent.sh)")
         s.set_defaults(f=f)
+    s = sub.add_parser("sprint", help="a sprint experiment in one command: one arm against the tag's stored control")
+    s.add_argument("name", help="experiment name; its folder must hold a PLAN.md")
+    s.add_argument("--base", choices=sorted(SPRINT_BASES), required=True, help="which control recipe the arm is: bridge | staged")
+    s.add_argument("--commit", required=True, help="pushed commit with the change (the baseline tag plus one change)")
+    s.add_argument("--set", action="append", metavar="KEY=VALUE", help="haslam setting of the arm (repeatable)")
+    s.add_argument("--control", default="control-w47", help="the tag's stored control experiment")
+    s.add_argument("--dry-run", action="store_true", help="register and create, write the job file, submit nothing")
+    s.set_defaults(f=cmd_sprint)
     s = sub.add_parser("job", help="one board (what each queued job runs)")
     s.add_argument("--experiment"), s.add_argument("--board", required=True)
     s.add_argument("--method", action="append", help="run these methods (default: the experiment's missing ones)")
