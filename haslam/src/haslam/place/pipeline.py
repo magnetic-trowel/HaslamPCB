@@ -69,6 +69,7 @@ class Result:
     order: list = field(default_factory=list)    # the protection-order rules
     brief: dict | None = None    # the circuit brief placement used (haslam.hazards: net voltages)
     verified: dict | None = None  # place(verify=...): what the caller's check said of the board as written
+    relations: object = None     # the compiled relations placement applied (haslam.place.relations.Bundle)
 
 
 SA_U_SAT = 3.0   # see place(): utilization saturates beyond this in the annealer's terms
@@ -695,6 +696,14 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     # mechanical interface): fixed obstacles like locked parts, their nets still pulling
     fixed = set(fixed or ())
     rel = relations
+    if rel is None and (brief or {}).get("relations"):
+        # the board's own intent file (<stem>.haslam_intent.json, read into the brief): its relations, compiled
+        # here as `haslam place --intent` does; a name it gets wrong is reported, and placement goes on without
+        from .relations import from_brief
+        rel, err = from_brief(board, brief, board_path, opts)
+        if err:
+            rep["relations_error"] = err
+            log(f"intent file relations not applied: {err}")
     if rel is not None:
         rel.applied, rel.struct_parts = {}, {}
         fixed |= set(rel.hold)
@@ -1127,6 +1136,12 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             kw["zones"] = zone_tab
             rep["zone_term"] = dict(zone_tab.info, w_zone=kw["w_zone"])
         kw.setdefault("hard_fixed", float(setting_env("place_anneal_hard_fixed", board_path, opts)) > 0)
+        # the relation term (haslam.place.relations.rules): near between movable parts and groups
+        rel_rules = rel.rules(P) if rel is not None else []
+        if rel_rules:
+            kw["relations"] = rel_rules
+            kw.setdefault("w_rel", 1.0)
+            rep["relations_applied"]["term"] = dict(rules=len(rel_rules), w_rel=kw["w_rel"])
         ann = make_annealer(P, st.copy(), terms=terms, macros=[m for m in macros if not m.anchored], seed=seed,
                             log=log, **kw)
         if anneal_args:
@@ -1296,8 +1311,14 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     poses.update(mated)          # held fixed here, but movable in the file: write them too
     poses.update(pinned)
     res.poses = poses
+    res.relations = rel
     if rel is not None:
         rep["relations_applied"]["notes"] = {k: v[:6] for k, v in rel.applied.items()}
+        if (rep["relations_applied"].get("term") or {}).get("rules"):
+            from .relations import rules_report
+            r_ = rules_report(st, rel.rules(P))
+            rep["relations_applied"]["term"].update(met=r_["met"], unmet=[x["id"] for x in r_["rows"]
+                                                                        if x["excess_mm"] > 1e-6][:20])
     if edge_mode >= 1:
         edge_hazards(rep, board, poses)
     return res
