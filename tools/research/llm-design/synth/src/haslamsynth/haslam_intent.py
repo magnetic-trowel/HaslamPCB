@@ -64,6 +64,20 @@ def _iv(v):
     return float(v)
 
 
+def _volts(v):
+    """A term bound such as "27.5 V" or "450 mV" in volts, else None (another unit, or not a voltage)."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    parts = str(v or "").split()
+    if len(parts) != 2:
+        return None
+    try:
+        x = float(parts[0])
+    except ValueError:
+        return None
+    return {"V": x, "mV": x * 1e-3, "kV": x * 1e3}.get(parts[1])
+
+
 class HaslamIntent:
     def __init__(self, design):
         self.d = design
@@ -95,6 +109,34 @@ class HaslamIntent:
 
     def knob(self, key, value):
         self.knobs[key] = value
+
+    # -- checks ---------------------------------------------------------------------------------
+    def warnings(self):
+        """[(check, message, objects)] for terms that cannot bind. An overshoot.peak term bounds the ring above
+        the switch's bus (haslam.excite.harm: the observation is the peak minus V_bus), not the switch node's
+        absolute voltage; with max equal to (or above) a switch's rating, v_sw_max_V, it never binds: the
+        rating already reaches haslam from the facts (the evaluator's overshoot criterion, the placer's hot-loop
+        budget). Restate it as a ring limit, V_abs - V_bus,max less a margin, or drop it."""
+        _, dp = self.defaults()
+        parts = {r: {**dp.get(r, {}), **self.parts.get(r, {})} for r in set(dp) | set(self.parts)}
+        out = []
+        for t in self.terms:
+            mx = _volts(t.get("max"))
+            if t.get("obs") != "overshoot.peak" or mx is None:
+                continue
+            w = t.get("where") or {}
+            ref = w.get("part") or (str(w["cell"]).split(":")[-1] if w.get("cell") else None)
+            if ref and "*" not in ref:
+                rs = [_iv(parts.get(ref, {}).get("v_sw_max_V"))] + \
+                     [_iv(c.get("v_sw_max_V")) for cid, c in self.cells.items() if cid.endswith(f":{ref}")]
+                rs = [min(r) if isinstance(r, list) else r for r in rs if r is not None]
+                if rs and mx >= min(rs) - 1e-9:
+                    out.append(("haslam_intent.overshoot_at_rating",
+                                f"{t['id']}: overshoot.peak max {mx:g} V is {ref}'s switch rating (v_sw_max_V "
+                                f"{min(rs):g} V): the term bounds the ring above the bus, so it never binds, and the "
+                                f"rating already reaches haslam from the facts. Restate it as the ring limit V_abs - "
+                                f"V_bus,max less a margin, or drop it", [ref]))
+        return out
 
     # -- emit -----------------------------------------------------------------------------------
     def _net(self, name, problems, what):
