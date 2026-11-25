@@ -33,7 +33,7 @@ DAC63002 setpoint injection, LTC2959 coulomb counter, FireBeetle ESP32-C6. Fab o
 
 ## haslam changes: status
 
-Ready (verdict better; PR branches `pr-w48/*` off main, bodies in MERGE-READY.md; merge order there; **PRs not opened:
+Ready (verdict better; PR branches `pr-w48/*` off main, bodies in MERGE-READY.md; merge order there; **PRs opened 2026-11-25: #154 clock, #155 pnr-soft, #156 netrules, #157 stitch+kconn, #158 em-topology, #159 dc-model-2, #160 advisor (after #159), #161 haslamq, #162 mechscreen. (Earlier note:
 GitHub API was blocked from the host — open from `https://github.com/magnetic-trowel/HaslamPCB/compare/main...pr-w48/<name>`**):
 
 | Change | Branch | Evidence |
@@ -67,7 +67,7 @@ breaks completeness; option: keep unstated exports at 1 % of rating, measure sep
 
 ## Decisions waiting on the user
 
-1. Open the PRs (or allow GitHub API / install `gh`), then merge in MERGE-READY.md's order.
+1. Review and merge PRs #154-#162 in MERGE-READY.md's order.
 2. gfix-dc-loads rule B: drop, or the 1 % option.
 3. Relations vs physics: #141 lets physics win (relation weighted weak where place terms price the parts); keep or give stated
    relations full weight.
