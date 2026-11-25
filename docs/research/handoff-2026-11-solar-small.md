@@ -67,7 +67,7 @@ breaks completeness; option: keep unstated exports at 1 % of rating, measure sep
 
 ## Decisions waiting on the user
 
-1. Review and merge PRs #154-#162 in MERGE-READY.md's order.
+1. DONE 2026-11-25: PRs #154-#162 merged to main (bed8db80). Still to do: run tools/haslamq/install.sh (shared queue; tell other sessions) and re-score haslam.excite evaluations (scorer changes #158, #159) in MERGE-READY.md's order.
 2. gfix-dc-loads rule B: drop, or the 1 % option.
 3. Relations vs physics: #141 lets physics win (relation weighted weak where place terms price the parts); keep or give stated
    relations full weight.
