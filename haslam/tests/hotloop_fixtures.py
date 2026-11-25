@@ -161,8 +161,8 @@ INV_VIAS = {"ground": [(117.0, 108.0), (132.0, 108.0), (129.0, 108.5)],
 NEG_POUR = (112.0, 106.0, 136.0, 116.0)        # a -5V pour on B.Cu under the cell (over the ground pour)
 
 
-def _neg_pour():
-    x0, y0, x1, y1 = NEG_POUR
+def _neg_pour(region=None):
+    x0, y0, x1, y1 = region or NEG_POUR
     return (f'\t(zone\n\t\t(net "-5V")\n\t\t(layer "B.Cu")\n\t\t(uuid "00000000-0000-4000-a000-000000000001")\n'
             f'\t\t(name "neg_pour")\n\t\t(hatch edge 0.5)\n\t\t(priority 1)\n\t\t(connect_pads\n\t\t\t(clearance 0.3)\n\t\t)\n'
             f'\t\t(min_thickness 0.25)\n\t\t(fill\n\t\t\t(thermal_gap 0.5)\n\t\t\t(thermal_bridge_width 0.5)\n\t\t)\n'
@@ -202,7 +202,7 @@ def write_inverting_board(d, variant="ground", routed=True, neg_pour=False, load
         text = _four_layers(text)
         p.write_text(text)
     if neg_pour:
-        text = text[:-len(tail)] + _neg_pour() + tail
+        text = text[:-len(tail)] + _neg_pour(neg_pour if isinstance(neg_pour, tuple) else None) + tail
         p.write_text(text)
     if not routed:
         return p
