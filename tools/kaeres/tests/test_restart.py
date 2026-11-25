@@ -593,3 +593,30 @@ def test_completion_first_keeps_phase_one_board_when_a_later_phase_is_killed(tmp
             "--open-alt", "kill -9 $PPID", "--", "echo '(kicad_pcb OPEN=3 first)' > @OUT@"]
     subprocess.run(args, cwd=work, env=env, capture_output=True, text=True, timeout=300)
     assert out.exists() and "first" in out.read_text()
+
+
+def test_canonical_copper_order_reads_a_net_name_with_an_unbalanced_parenthesis(tmp_path):
+    """A routed board whose copper names a net 'Net-(U2-PA13(JTMS)' (KiCad writes net names into segments): the
+    block scan counted the quoted parenthesis, never closed the block and ran off the end of the file (IndexError
+    in mecsem's hvdc runs, both arms, no output). Both copies of the rule (this stdlib one and kae.route.drc's)
+    read the block and keep every line."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[3]
+    spec = importlib.util.spec_from_file_location("restart_mod", root / "tools/kaeres/restart.py")
+    R = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(R)
+    sys.path.insert(0, str(root / "kae/src"))
+    from kae.route import drc as D
+    seg = ('\t(segment\n\t\t(start 1 1)\n\t\t(end 2 2)\n\t\t(width 0.2)\n\t\t(layer "F.Cu")\n'
+           '\t\t(net "Net-(U2-PA13(JTMS)")\n\t\t(uuid "{u}")\n\t)\n')
+    text = ('(kicad_pcb\n\t(version 20250114)\n' + seg.format(u="00000000-0000-4000-8000-000000000002")
+            + seg.format(u="00000000-0000-4000-8000-000000000001").replace("(start 1 1)", "(start 0 0)") + ')\n')
+    for fn in (R.canonical_copper_order, D.canonical_copper_order):
+        p = tmp_path / "b.kicad_pcb"
+        p.write_text(text)
+        fn(p)
+        out = p.read_text()
+        assert out.count("(segment") == 2 and out.count('Net-(U2-PA13(JTMS)') == 2 and out.rstrip().endswith(")")
+        assert out.index("(start 0 0)") < out.index("(start 1 1)")         # sorted by content
