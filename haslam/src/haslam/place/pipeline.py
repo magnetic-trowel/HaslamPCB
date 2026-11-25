@@ -241,7 +241,7 @@ def hot_loop_hazards(rows):
                                     f"voltage)" if info.get("V_in_prior") else "")),
                         objects=list(r.get("members") or [])[:8],
                         evidence=dict(L_nH=round(L, 3), L_abs_nH=round(la, 3), V_in=info.get("V_in"),
-                                      V_abs=info.get("V_abs"), V_abs_source="part" if known else "prior",
+                                      V_abs=info.get("V_abs"), V_abs_source=info.get("V_abs_source") or ("part" if known else "prior"),
                                       V_in_source="prior" if info.get("V_in_prior") else "board",
                                       limit_source="haslam.physics.criteria: peak <= V_abs (derate 1)"),
                         fix="place the input capacitor beside the switch and its ground pin, same side, with the "

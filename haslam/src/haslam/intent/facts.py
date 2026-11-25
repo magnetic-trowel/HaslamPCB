@@ -194,6 +194,9 @@ def apply(brief, facts, origin="intent"):
                                        interval=[lo * scale, hi * scale]))
             ex[field] = typ * scale
             ex.setdefault("interval", {})[field] = [lo * scale, hi * scale]
+            if field == "V_abs":             # a stated rating: the hot-loop budgets take it (priors.budget_v_abs)
+                ex["V_abs_source"] = "intent"
+                basis[:] = [x for x in basis if not x.startswith("V_abs = ")]
             basis.append(f"{field} = {typ * scale:g} [{lo * scale:g}, {hi * scale:g}] from the {origin}")
         if "V_V" not in merged:                  # the cell's own V_V stands; else the volts of its bus
             _cell_bus_volts(s, nets, stated, rec, origin)
