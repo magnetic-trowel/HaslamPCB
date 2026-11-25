@@ -395,10 +395,16 @@ def operating(d):
     k.term("T-SHUNT", "report", "pickup.peak", where={"part": "R201"}, max="10 uV",
            why="LTC2959 offset is <= 10 uV (DS Rev. A); the coulomb counter integrates, so HF pickup averages out "
                "unless rectified: reported, not priced", source="LTC2959 DS VOS")
-    k.term("T-OS101", "hard", "overshoot.peak", where={"part": "U101"}, max="27.5 V",
-           source="LTC3130 DS p.2 abs max", why="switch rating")
-    k.term("T-OS301", "hard", "overshoot.peak", where={"part": "U301"}, max="32 V",
-           source="TPS62933 DS 6.1 abs max", why="switch rating")
+    # overshoot.peak is the ring above the switch's bus; the switches' absolute maxima themselves reach kae as
+    # facts (v_sw_max_V above: the evaluator's overshoot criterion and the placer's hot-loop budget), so these
+    # bound the ring: V_abs - V_bus,max, less 0.5 V for the ring estimate's spread
+    k.term("T-OS101", "hard", "overshoot.peak", where={"part": "U101"}, max="2 V",
+           source="LTC3130 DS p.2 abs max 27.5 V; PV_IN <= 25 V (panel, kae.net PV_IN)",
+           why="ring limit: 27.5 V abs max - 25 V panel maximum on the buck leg's bus - 0.5 V margin (the boost "
+               "leg's SYS <= 15 V leaves 12 V)")
+    k.term("T-OS301", "hard", "overshoot.peak", where={"part": "U301"}, max="16.5 V",
+           source="TPS62933 DS 6.1 abs max 32 V; SYS <= 15 V (kae.net SYS)",
+           why="ring limit: 32 V abs max - 15 V SYS maximum - 0.5 V margin")
     k.term("T-TJ", "hard", "temp.junction", where={"part": "U*"}, max="125 C",
            source="LTC3130, TPS62933 DS: TJ max 125 C", why="junction rating")
 
