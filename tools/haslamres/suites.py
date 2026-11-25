@@ -11,6 +11,11 @@ Writes four id lists (docs/topics/verification/experiment-tiers.md) and prints t
   ladder           human-clean boards stratified by footprints and layers
   canary           the big boards: merit boards over 1,000 pads, human-clean boards over 400 footprints
 
+  python3 tools/haslamres/suites.py --tags DIR --freeze control-w47     # after the tag's control has run
+drops from the two sprint lists the boards that failed to prepare or run under a control arm, writes
+sprint-manifest.csv (per board: owner, size, mechanism tags, each control arm's open connections, clean and CPU-h
+per seed) and prints how many boards are inert between seeds and how many each arm leaves open.
+
 Inputs, all read-only:
   --index   haslamres' index.sqlite (default $HASLAM_RESULTS/index.sqlite): runs, their CPU and their scores
   --tags    the board-tag folder: suites/<tag>.txt, structural/usability.jsonl, structural/features.jsonl
@@ -20,12 +25,14 @@ The same inputs and seed give the same lists. A board's owner is the account of 
 first path part of the manifest's `repo`): one board per owner, so that boards are independent.
 """
 import argparse
+import csv
 import json
 import math
 import os
 import random
 import sqlite3
 import statistics
+import sys
 from collections import defaultdict
 from pathlib import Path
 from urllib.parse import urlparse
@@ -46,6 +53,9 @@ CANARY_PADS, CANARY_FOOTPRINTS = 1000, 400
 HISTORY_BANDS = (20, 50, 100, 150, 200, 400)  # footprint band edges for boards without history
 PLACING = ("place", "place-fixed", "joint", "joint-fixed")
 SIZES = dict(frontier=60, quality=80, ladder=300)
+SPRINT = ("sprint-frontier", "sprint-quality")
+MECHANISM_TAGS = QUALITY_TAGS + ("bga", "qfn_dfn_leadless", "diffpair_nets", "parallel_bus", "power_pours", "inner_planes", "rf_any")
+ARMS = {"route": "bridge"}   # a control method's kind -> its arm's name; every placing kind is "staged"
 
 
 # ------------------------------------------------------------------ the results index
@@ -279,6 +289,64 @@ def summary(inp, suites, n_random):
     return "\n".join(lines)
 
 
+# ------------------------------------------------------------------ freezing the sprint suites on a stored control
+def freeze(rows, arms, seeds, suites, board):
+    """The sprint suites with only the boards every control arm ran on every seed, their manifest rows and
+    a report. rows: the control's runs (haslamres.exp_rows: board, method_id, attempt, status, unconnected,
+    clean, cpu_s); arms: method id -> arm name; suites: name -> ids; board: id -> dict(owner, layers,
+    footprints, tags)."""
+    run = {(r["board"], arms[r["method_id"]], r["attempt"]): r for r in rows
+           if r["method_id"] in arms and r["status"] == "ok" and r["unconnected"] is not None}
+    cells = [(arm, k) for arm in sorted(set(arms.values())) for k in range(seeds)]
+    kept = {name: [b for b in ids if all((b, arm, k) in run for arm, k in cells)] for name, ids in suites.items()}
+    out, manifest = [], []
+    for name, ids in suites.items():
+        gone = [b for b in ids if b not in kept[name]]
+        out.append(f"{name}: {len(kept[name])} of {len(ids)} boards kept" + (f"; dropped (a control arm did not prepare or run): {', '.join(gone)}" if gone else ""))
+        for b in kept[name]:
+            row = dict(board=b, suite=name, **board[b])
+            for arm, k in cells:
+                r = run[(b, arm, k)]
+                row.update({f"{arm}_opens_s{k}": r["unconnected"], f"{arm}_clean_s{k}": int(bool(r["clean"])),
+                            f"{arm}_cpu_h_s{k}": round((r["cpu_s"] or 0) / 3600, 3)})
+            manifest.append(row)
+    n = len(manifest)
+    for arm in sorted(set(arms.values())):
+        opens = [[m[f"{arm}_opens_s{k}"] for k in range(seeds)] for m in manifest]
+        clean = [[m[f"{arm}_clean_s{k}"] for k in range(seeds)] for m in manifest]
+        out.append(f"{arm}: open connections left on {sum(min(o) > 0 for o in opens)} of {n} boards on every seed, on "
+                   f"{sum(max(o) > 0 for o in opens)} on some seed; clean on every seed {sum(min(c) for c in clean)}; inert between "
+                   f"seeds (same open connections and clean) {sum(len(set(o)) == 1 and len(set(c)) == 1 for o, c in zip(opens, clean))}; "
+                   f"{sum(m[f'{arm}_cpu_h_s{k}'] for m in manifest for k in range(seeds)):.1f} CPU-h in all, "
+                   f"{statistics.fmean(m[f'{arm}_cpu_h_s{k}'] for m in manifest for k in range(seeds)) if n else 0:.2f} per run")
+    inert = sum(all(len({m[f"{arm}_opens_s{k}"] for k in range(seeds)}) == 1 and len({m[f"{arm}_clean_s{k}"] for k in range(seeds)}) == 1
+                    for arm in set(arms.values())) for m in manifest)
+    out.append(f"inert between seeds under every arm: {inert} of {n} boards")
+    return kept, manifest, "\n".join(out)
+
+
+def main_freeze(a):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import haslamres
+    e = haslamres.load_exp(a.freeze)
+    arms = {m["id"]: ARMS.get(haslamres.find_method(m["id"])["recipe"]["kind"], "staged") for m in e["methods"]}
+    rows = haslamres.exp_rows(e)[0]
+    tags = {t: set(read_ids(Path(a.tags) / "suites" / f"{t}.txt")) for t in MECHANISM_TAGS}
+    board = {r["id"]: dict(owner=owner_of(r.get("repo") or r["id"]), layers=r.get("layers"), footprints=r.get("footprints"),
+                           tags=";".join(t for t in MECHANISM_TAGS if r["id"] in tags[t]))
+             for r in jsonl(Path(a.corpus) / "manifest.jsonl")}
+    suites = {name: read_ids(Path(a.out) / f"{name}.txt") for name in SPRINT}
+    kept, manifest, report = freeze(rows, arms, e["attempts"], suites, board)
+    if not a.dry_run:
+        for name, ids in kept.items():
+            (Path(a.out) / f"{name}.txt").write_text("\n".join(ids) + "\n")
+        with open(Path(a.out) / "sprint-manifest.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(manifest[0]), lineterminator="\n")
+            w.writeheader()
+            w.writerows(manifest)
+    print(report)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--tags", required=True, help="board-tag folder (suites/, structural/usability.jsonl, structural/features.jsonl)")
@@ -288,7 +356,10 @@ def main():
     ap.add_argument("--out", default=str(REPO / "bench" / "suites"))
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--dry-run", action="store_true", help="print the summary, write nothing")
+    ap.add_argument("--freeze", metavar="EXPERIMENT", help="the stored control: keep the sprint boards it ran, write sprint-manifest.csv")
     a = ap.parse_args()
+    if a.freeze:
+        return main_freeze(a)
     inp = Inputs(a.index, a.tags, a.corpus, a.merit)
     suites, n_random = build(inp, a.seed)
     if not a.dry_run:
