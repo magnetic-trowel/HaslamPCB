@@ -5438,7 +5438,7 @@ Use: `grep -i '<term>' docs/SUBJECTS.md`. The first link is the likeliest main d
 - --stop-when-routed: [research/joint/engine#anytime-output-anytimepy-2026-10-27](research/joint/engine.md#anytime-output-anytimepy-2026-10-27)
 - STOP_AT_PASS_MODULO: [research/routing/freerouting-ripupmemory#what-the-oscillation-in-the-logs-is](research/routing/freerouting-ripupmemory.md#what-the-oscillation-in-the-logs-is)
 - StopReason: [research/routing/haslam-freerouting-bridge#hardened-runner-freeroutingpy](research/routing/haslam-freerouting-bridge.md#hardened-runner-freeroutingpy); [research/routing/haslam-restart-portfolio#idea-and-how-it-works](research/routing/haslam-restart-portfolio.md#idea-and-how-it-works)
-- stored control: [verification/experiment-tiers#weekly-tag-and-stored-control](topics/verification/experiment-tiers.md#weekly-tag-and-stored-control)
+- stored control: [verification/experiment-tiers#tiers](topics/verification/experiment-tiers.md#tiers)
 - strain: [ideas/physics-first/thermal-hv-mfg#d-fabrication-processes](ideas/physics-first/thermal-hv-mfg.md#d-fabrication-processes)
 - stray capacitance: [rules/crystals-clocks](topics/rules/crystals-clocks.md)
 - stray-capacitance uncertainty: [physics/physics-ir-examples](topics/physics/physics-ir-examples.md)

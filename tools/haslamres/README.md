@@ -108,15 +108,27 @@ nothing in that experiment.
   human reference not counted) times each board's mean CPU-h per method-run in `index.sqlite` (`suites.history`:
   runs an experiment asked for, corpus sweeps left out). A board without history costs the mean of its footprint
   band. The history mixes methods, so a restart-wrapped haslam method costs several times the estimate.
-- **`sprint`** (default): at most 40 CPU-h, and no board whose history is over 0.5 CPU-h per method-run.
+- **`sprint`** (default): at most 40 CPU-h per treatment arm, and no board over 0.5 CPU-h per method-run. A sprint prices
+  a board from the stored control's own runs of the same base recipe (`cost_from` in `experiment.json`), and from the
+  index's history only when the control has not run on it: the history mixes restart-wrapped runs and moves while the
+  index rebuilds.
 - **`--tier ladder`, `--tier canary`**: no limits. The tier is recorded in `experiment.json`; `exp submit NAME --tier T`
   changes it. An experiment created before the tiers counts as `sprint` when it is submitted again.
-- **`sprint NAME --base bridge|staged --commit SHA [--set K=V ...]`** is the one-command path
+- **`sprint NAME --base bridge|staged --commit SHA [--set K=V ...] [--arm NAME:K=V,K=V ...] [--suite S]`** is the one-command path
   ([procedure](../../bench/suites/README.md)). It needs `experiments/NAME/PLAN.md`; registers the arm as the stored
   control's recipe of that base (`--control`, default `control-w47`) with `haslam` at SHA and the settings appended, the
   harness and evaluators at the control's tag; creates the experiment on the two sprint suites with the control's
   seeds and `--reuse-runs`, so only the new arm runs; submits at haslamq priority 5 (`exp submit --prio`); prints the
   verdict command. With `--reuse-runs`, `exp create` estimates only the runs still to make.
+  - `--suite S`: one suite, a file in `bench/suites/` or `bench/suites/mech/` (recorded as `suite`). Default: both
+    sprint suites, refused when they do not fit the limits.
+  - `--arm NAME:K=V,...` (repeatable): several treatment arms in one campaign; `--set` applies to all of them.
+  - Boards of the suite with no stored control run on the seeds used get the control run in the same campaign; they are
+    listed as `control_fill` and in `experiments/<control>/control-fill.jsonl`, and later sprints reuse those runs.
+  - `--skip-over-cap` leaves out the boards over the per-board limit (`skipped_over_cap`). `--allow-over-cap "REASON"`
+    keeps them because the question needs them; reason and boards go to `over_cap`. Without either, the guard refuses.
+  - `--attempts N`: seeds 0..N-1 only. `--smoke N`: queue N cheap boards (one needing the control if any does); the
+    rest later with `exp submit NAME --prio 5`.
 - Without `index.sqlite` nothing is estimated or checked. `tools/haslamres/suites.py` builds the tiers' board lists.
 
 ## Running an experiment without wasting it

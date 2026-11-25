@@ -16,7 +16,7 @@ Measured on 45 two-arm A/Bs (5,087 board pairs):
 | Tier | Boards | Limits | Used for |
 |---|---|---|---|
 | **puzzles** | windows cut from human-clean boards, the human routing as known solution (not built yet) | seconds each | does the mechanism work at all; every change |
-| **sprint** | `sprint-frontier.txt` (60: cheap boards that responded in past A/Bs, a fifth random) and `sprint-quality.txt` (80: small human-clean boards with a converter, rich decoupling or a crystal) | 40 CPU-h per campaign; no board whose history is over 0.5 CPU-h per method-run; queue priority 5 or higher | every experiment |
+| **sprint** | `sprint-frontier.txt` (60: cheap boards that responded in past A/Bs, a fifth random) and `sprint-quality.txt` (80: small human-clean boards with a converter, rich decoupling or a crystal) | 40 CPU-h per treatment arm; no board over 0.5 CPU-h per method-run (priced from the stored control's own runs), unless the plan states why the question needs it (`--allow-over-cap`); queue priority 5 or higher | every experiment |
 | **ladder** | `ladder.txt` (300 human-clean boards by footprints and layers, up to 400 footprints) | `--tier ladder`; needs a sprint result | confirming what passed sprint |
 | **canary** | `canary.txt` (28: merit boards over 1,000 pads, human-clean boards over 400 footprints) | `--tier canary`; weekly, one deep run per board | scaling regressions, router-engine work |
 
