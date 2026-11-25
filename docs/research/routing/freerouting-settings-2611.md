@@ -5,7 +5,7 @@
 Scope: two pre-registered A/Bs of Freerouting settings on 40 congested boards: bridge-level options (`fr-settings-ab`) and a seven-factor search-cost sweep of the standalone fork (`e09-sweep`, `e09-swap`). Not here: RipupMemory -> [freerouting-ripupmemory](freerouting-ripupmemory.md); `plane_as_obstacle` -> [freerouting-pour-truth](freerouting-pour-truth.md#3-plane_as_obstacle-ab-did-not-work); the fork's own fixes -> [kae-freerouting-bridge](kae-freerouting-bridge.md).
 Keys: fr-settings-ab, e09-sweep, e09-swap, E09, fanout, fallback ladder, no-neck, continue-fine-neck, pad_shapes outside, neckdown, fr_cycle, cost cycle, repair_passes, via cost, rip-up cost, SMD via factor, undesired direction, pull-tight accuracy, plane via cost, fractional factorial, job confound, R16, R18, R19, R43, R57, R59, J71
 
-**Status:** did not work: no setting moves a default (decided 2026-11-14 and 2026-11-15).
+**Status:** undecided: every arm's interval includes no change, so no setting moves a default (decided 2026-11-14 and 2026-11-15).
 **Branch:** `fr-settings-ab`, plans pre-registered 2026-11-09 ([b1696ae](https://github.com/magnetic-trowel/kicad-auto-everything/commit/b1696ae9), [49d9f6a](https://github.com/magnetic-trowel/kicad-auto-everything/commit/49d9f6a4)); addenda [4c9a4a4](https://github.com/magnetic-trowel/kicad-auto-everything/commit/4c9a4a4a) (e09 job confound) and [db2d2f5](https://github.com/magnetic-trowel/kicad-auto-everything/commit/db2d2f5548e85ac4706ef0530dff5194f089f652) (manipulation check), both before any arm effect was read. Plans: [fr-settings-ab/PLAN.md](https://github.com/magnetic-trowel/kicad-auto-everything/blob/db2d2f5548e85ac4706ef0530dff5194f089f652/tools/kaeres/experiments/fr-settings-ab/PLAN.md), [e09-sweep/PLAN.md](https://github.com/magnetic-trowel/kicad-auto-everything/blob/db2d2f5548e85ac4706ef0530dff5194f089f652/tools/kaeres/experiments/e09-sweep/PLAN.md). The bridge options already exist in `kae.route.cli`; no code was added.
 
 ## Boards
@@ -51,7 +51,7 @@ Standalone fork 2e1125a (no bridge), no `-mp` cap, 900 s, 1 thread, harness 7f17
 - Control (defaults) 8,331 opens vs 8,816 for the average design point; cp1 0 in every arm.
 
 ## Verdict
-- **Did not work.** No bridge option reaches the 10 % bar (best outside+neck −7.4 %, CI to +0.7 %; no sign test below p 0.5), and no cost factor does (A and B pass p but are 1.8 % and 2.4 %). Not extended: effects under the 2× twin band (2.6 %) cannot reach 10 % at any size.
+- **Undecided** (re-labelled 2026-11-20, [audit-2611b](../audit-2611b.md#corrected-beliefs)). No bridge option reaches the 10 % bar (best outside+neck −7.4 %, CI to +0.7 %; no sign test below p 0.5), and no cost factor does (A and B pass p but are 1.8 % and 2.4 %). Not extended: effects under the 2× twin band (2.6 %) cannot reach 10 % at any size.
 - Repair-pass caps act and move nothing: uncapped repair passes are not what leaves opens [C].
 - Fanout is the only effect near the bar (−8.7 %, p 0.056, more CPU and timeouts); a fanout test needs its own A/B through the bridge on pin d137fd1.
 - Sources: kaeres experiments `fr-settings-ab`, `e09-sweep`, `e09-swap` (`kaeres exp report`); one run per board per arm (Freerouting is deterministic; cross-job noise is the twin's SD 0.21 in log1p opens).

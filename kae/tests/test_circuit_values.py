@@ -9,6 +9,7 @@ from kae.circuit import values as V
 @pytest.mark.parametrize('text,farads', [
     ('100nF', 100e-9), ('0.1uF/16V', 0.1e-6), ('4u7', 4.7e-6), ('22p', 22e-12), ('1µF', 1e-6), ('0.1', 0.1e-6),
     ('10uF 25V X5R', 10e-6), ('CC0402_100NF_50V_10%_X7R', 100e-9), ('470µF', 470e-6), ('', None), ('100', None),
+    ('.1uF', 0.1e-6), ('.01u', 0.01e-6), ('.1uF/50V', 0.1e-6), ('1.5uF', 1.5e-6),
 ])
 def test_capacitance(text, farads):
     got = V.capacitance(text)
@@ -18,6 +19,7 @@ def test_capacitance(text, farads):
 @pytest.mark.parametrize('text,ohms', [
     ('10k', 10e3), ('4K7', 4.7e3), ('0R05', 0.05), ('R050', 0.05), ('50m', 0.05), ('2.2 kOhm', 2.2e3), ('0', 0.0),
     ('1M', 1e6), ('120R', 120.0), ('10k/R0402', 10e3), ('R0402', None), ('5.1K 1%', 5.1e3),
+    ('.5', 0.5), ('.47R', 0.47), ('.25W', None),
 ])
 def test_resistance_ignores_package_codes(text, ohms):
     """'R0402' is a package code, not 0.0402 ohm (suite run failure mode)."""
@@ -27,14 +29,21 @@ def test_resistance_ignores_package_codes(text, ohms):
 
 @pytest.mark.parametrize('text,henries', [
     ('10uH', 10e-6), ('4.7 uH', 4.7e-6), ('2u2', 2.2e-6), ('33n', 33e-9), ('IND_2.2UH_20%_BOURNS', 2.2e-6), ('10uH 3A', 10e-6),
+    ('.33uH', 0.33e-6), ('.1u', 0.1e-6),
 ])
 def test_inductance(text, henries):
     assert V.inductance(text) == pytest.approx(henries)
 
 
-@pytest.mark.parametrize('text,hz', [('8MHz', 8e6), ('32.768kHz', 32768.0), ('32768Hz', 32768.0), ('32k768', 32768.0), ('12M', 12e6)])
+@pytest.mark.parametrize('text,hz', [('8MHz', 8e6), ('32.768kHz', 32768.0), ('32768Hz', 32768.0), ('32k768', 32768.0), ('12M', 12e6),
+                                         ('.5MHz', 0.5e6)])      # was read as 5 MHz
 def test_frequency(text, hz):
     assert V.frequency(text) == pytest.approx(hz)
+
+
+@pytest.mark.parametrize('text,volts', [('10uF 25V', 25.0), ('6V3', 6.3), ('.1uF 16V', 16.0), ('.5V', 0.5)])
+def test_rated_voltage(text, volts):
+    assert V.rated_voltage(text) == pytest.approx(volts)
 
 
 @pytest.mark.parametrize('name,volts', [

@@ -208,6 +208,13 @@ def test_kicad_zone_error_keeps_the_part_off_the_whole_zone():
     assert fb["constraints"] == 1
     (g, why), = P.feedback["avoid"][i.i]
     assert g.contains(sbox(x - 5.9, y - 5.9, x + 5.9, y + 5.9))
+    # a malformed courtyard reported with the zone it touches is the footprint's, not the zone's
+    mal = {"violations": [{"type": "malformed_courtyard", "severity": "error",
+                           "description": "Footprint has malformed courtyard (not a closed shape)", "items": [
+        {"description": f"Footprint {i.ref}", "pos": {"x": x, "y": y}},
+        {"description": "Zone [Z] on F.Cu, priority 0", "pos": {"x": x + 5, "y": y}}]}]}
+    fb = exact.kicad_feedback(P, st, mal)
+    assert fb["fixed_only"] == 1 and fb["constraints"] == 0 and fb["placer_by_type"] == {}
 
 
 def test_exact_rules_follow_kicad_on_copperless_pads_roundrects_and_custom_rules():
@@ -515,6 +522,23 @@ def test_kicad_loop_writes_the_best_judged_placement_back(monkeypatch):
     st.X[i7], st.Y[i7], st.K[i7] = start
     res, (clean, _) = run_loop([3, 0], 2)             # clean: written as it is
     assert clean and res.report["kicad_written_round"] == 1
+    st.X[i7], st.Y[i7], st.K[i7] = start
+    calls = []
+    monkeypatch.setattr(exact, "repair", lambda P, st, time_s, log=None: calls.append(1) or dict(start=2, moved=[], findings=[]))
+    monkeypatch.setattr(kdrc, "run", lambda staged, path, timeout: calls.append("drc") or {"n": 3})
+    res = Result(poses=st.poses(), report={}, state=st, problem=P)
+    a = SimpleNamespace(drc="on", drc_rounds=6, time=600.0, output="o", input="i", writer="sexpr")
+    n_written = len(written)
+    clean, _ = cli._kicad_loop(a, res, time.monotonic(), write)   # a repair that moves nothing: one verdict, stop
+    assert calls == ["drc", 1] and res.report["kicad_drc"][0]["repair"]["unchanged"]
+    assert res.report["kicad_written_round"] == 0 and len(written) == n_written
+    calls.clear()                                     # no findings for the exact model: the rounds go on
+    monkeypatch.setattr(exact, "repair", lambda P, st, time_s, log=None: calls.append(1) or dict(start=0, moved=[], findings=[]))
+    cli._kicad_loop(a, Result(poses=st.poses(), report={}, state=st, problem=P), time.monotonic(), write)
+    assert calls.count("drc") == 7
+    res, (clean, _) = run_loop([1, 1, 1], 2)          # no repair helped: the least-moved round 0 back
+    assert clean is False and res.report["kicad_written_round"] == 0
+    assert (int(st.X[i7]), int(st.Y[i7]), int(st.K[i7])) == start and written[-1] == res.poses
 
 
 def test_mask_only_aperture_across_two_zone_fills_is_a_bridge(monkeypatch):
@@ -769,6 +793,31 @@ def test_intrinsic_footprint_violations_are_not_the_placers():
     assert _own_cutout(rn) and not _own_cutout(dict(type="clearance", items=rn["items"][:1]))
 
 
+
+def test_own_keepout_is_intrinsic():
+    """KiCad names a footprint keepout's owner only in the description, with one item: a pad of
+    the same footprint inside it is the footprint's design (freetronics-kitten REG1, a 78xx whose
+    B.Cu keepout covers its own mounting hole); another part's pad, or a board keepout, is not."""
+    from kae.place.exact import _intrinsic
+    def v(desc, item):
+        return dict(type="items_not_allowed", description=desc, items=[dict(description=item)])
+    assert _intrinsic(v("Items not allowed (keepout area of REG1)", "NPTH pad of REG1"))
+    assert _intrinsic(v("Items not allowed (keepout area of FID2)", "Pad 1 [<no net>] of FID2 on F.Cu"))
+    assert _intrinsic(v("Items not allowed (keepout area 'TOP' of J1)", "Pad 3 [GND] of J1 on F.Cu"))
+    assert not _intrinsic(v("Items not allowed (keepout area of REG1)", "Pad 1 [VIN] of C2 on F.Cu"))
+    assert not _intrinsic(v("Items not allowed (keepout area of J1)", "Via [GND] on F.Cu - B.Cu"))
+    assert not _intrinsic(v("Items not allowed (keepout area)", "Pad [<no net>] of CH1 on F.Cu"))
+    assert not _intrinsic(v("Items not allowed (keepout area 'Left')", "Pad 1 [GND] of SW3 on F.Cu"))
+    # through the DRC report reader, as the KiCad loop sees it (it once dropped the description)
+    from kae.place.legalize import kicad_violations
+    rep = dict(violations=[dict(type="items_not_allowed", severity="error",
+                                description="Items not allowed (keepout area of REG1)",
+                                items=[dict(description="NPTH pad of REG1", pos=dict(x=59.5, y=-35.96))])])
+    assert [_intrinsic(x) for x in kicad_violations(rep)] == [True]
+    # a courtyard that does not close is the footprint's (bkw777 wp2-feather U1)
+    assert _intrinsic(dict(type="malformed_courtyard", description="Footprint has malformed courtyard (not a closed shape)",
+                           items=[dict(description="Footprint U1")]))
+
 def test_anchor_fixes_only_parts_with_no_spot(monkeypatch):
     """place.pipeline._anchor_tight_parts: a part the grid gives no spot free of the fixed
     geometry is fixed at an exactly clean spot (the check runs on the fixture's real geometry;
@@ -905,11 +954,169 @@ def test_ripup_scan_counts_every_fit_test_of_a_full_board():
     pad, D = 4, 30
     full = sat(np.ones((P.ncx + 2 * pad, P.ncy + 2 * pad), dtype=np.int32))
     empty = sat(np.zeros((P.ncx + 2 * pad, P.ncy + 2 * pad), dtype=np.int32))
-    c, _, _, _, n = FL.ripup_spot(full, full, empty, empty, P.sat_out, P.ncx, P.ncy, pad, 0, P.ncx // 2,
-                                  P.ncy // 2, 0, 1.0, 4.0, own, own_n, opp, opp_n, brd, brd_n, D)
+    E, E0, EB = FL.evict_arrays([])
+    c, _, _, _, n, _ = FL.ripup_spot(full, full, empty, empty, P.sat_out, P.ncx, P.ncy, pad, 0, P.ncx // 2,
+                                     P.ncy // 2, 0, 1.0, own, own_n, opp, opp_n, brd, brd_n, E, E0, EB, D)
     assert c < 0 and n == len(ks) * (2 * D * (D + 1) + 1)
     c, _, _, _, n = FL.nearest_spot(full, full, P.sat_out, P.ncx, P.ncy, pad, 0, P.ncx // 2, P.ncy // 2, 0, 1.0,
                                     own, own_n, opp, opp_n, brd, brd_n, D)
     assert c < 0 and n == len(ks) * (2 * D * (D + 1) + 1)
     S = sat(np.zeros((5, 5), dtype=np.int32))
     assert FL.sat_add_rect(S, 1, 3, 2, 4, 1) == 4 * 3 and S[-1, -1] == 4    # the cells after the corner
+
+
+def _alone(P, st, keep):
+    """Only the parts in `keep` are movable; the rest leave the board model (not obstacles)."""
+    P.mov = [i for i in P.mov if i in keep]
+    for i in keep:
+        st.X[i], st.Y[i], st.K[i] = P.ncx // 2, P.ncy // 2, 0
+
+
+def test_window_reaches_the_nearest_pose_clear_of_fixed_geometry():
+    """A part dropped in the middle of a keepout wider than itself must travel further than the
+    window's margin around it (pi-w-controller: a 28 mm module on a locked 40-pin header, 30 mm
+    from the nearest clear pose). The window used to stay around the part, fail every round
+    and leave it to the greedy fallback; it now covers the escape pose and solves it."""
+    from kae.place.problem import Obstacle
+    P, st = _pile()
+    i = P.mov[0]
+    _alone(P, st, {i})
+    cx, cy = P.ncx // 2, P.ncy // 2
+    g = (cx - 120, cx + 120, cy - 100, cy + 100)        # 24 x 20 mm, part ~4 x 3.4 mm
+    for side in (0, 1):
+        P.obstacles.append(Obstacle(side=side, rect=None, g=g, why="test keepout"))
+    assert ("obstacle", "test keepout") in grid_violations(st)[i]
+    rep = legalize(P, st, time_s=20.0, workers=1, seed=0)
+    assert rep["end_violators"] == 0 and not grid_violations(st)
+    assert rep["solved"] >= 1 and "greedy" not in rep, rep
+
+
+def test_rigid_group_keeps_its_offsets_where_single_parts_split():
+    """A decap whose courtyard meets a fixed obstacle: alone, the displacement minimum moves only
+    the cap, off its IC; as a rigid group the IC and cap move together and keep their offsets."""
+    from kae.place.problem import Obstacle
+    out = {}
+    for rigid in (False, True):
+        P, st = _pile()
+        a, b = P.mov[0], P.mov[1]                     # "IC" and "cap", both front
+        _alone(P, st, {a, b})
+        ra = [r for _, r, _ in st.grid_rects(a)]
+        rb = [r for _, r, _ in st.grid_rects(b)]
+        st.X[b] += max(r[1] for r in ra) - min(r[0] for r in rb) + 2      # cap just right of the IC
+        rb = [r for _, r, _ in st.grid_rects(b)]
+        top = min(r[2] for r in rb)
+        g = (min(r[0] for r in rb), max(r[1] for r in rb), top - 60, top + 5)   # 0.5 mm into the cap
+        P.obstacles.append(Obstacle(side=0, rect=None, g=g, why="test wall"))
+        v = grid_violations(st)
+        assert b in v and a not in v
+        off0 = (st.X[b] - st.X[a], st.Y[b] - st.Y[a], st.K[a], st.K[b])
+        rep = legalize(P, st, time_s=20.0, workers=1, seed=0, rigid=[[a, b]] if rigid else ())
+        assert rep["end_violators"] == 0 and not grid_violations(st)
+        out[rigid] = (st.X[b] - st.X[a], st.Y[b] - st.Y[a], st.K[a], st.K[b]) == off0
+        if rigid:
+            assert rep.get("rigid_solved", 0) >= 1, rep
+    assert out == {False: False, True: True}
+
+
+def test_rigid_group_that_overlaps_itself_moves_as_single_parts():
+    """A group whose own members overlap cannot be repaired as a block: its parts go single."""
+    P, st = _pile()
+    a, b = P.mov[0], P.mov[1]
+    _alone(P, st, {a, b})
+    rep = legalize(P, st, time_s=20.0, workers=1, seed=0, rigid=[[a, b]])
+    assert rep["end_violators"] == 0 and not grid_violations(st)
+    assert not rep.get("rigid_solved")
+
+
+def test_physics_breaks_ties_between_equal_displacement_repairs():
+    """A part centred on a wall it must leave can go left or right at the same displacement;
+    the solver used to pick one arbitrarily (tinkerforge temperature: decap Σu 1.46 or 2.40 by
+    seed). With `phys`, the window compares its optima and keeps the lowest; displacement stays
+    the objective."""
+    from kae.place.problem import Obstacle
+    side = {}
+    for sign in (1, -1):
+        P, st = _pile()
+        i = P.mov[0]
+        _alone(P, st, {i})
+        (a, b, c, d) = [r for _, r, _ in st.grid_rects(i)][0]
+        x0 = (a + b) // 2 - (1 - (a + b) % 2)      # a thin wall through the middle: x0 + x1 = a + b
+        P.obstacles.append(Obstacle(side=0, rect=None, g=(x0, a + b - x0, 0, P.ncy), why="test wall"))
+        X0 = int(st.X[i])
+        rep = legalize(P, st, time_s=20.0, workers=1, seed=0, phys=lambda s, i=i, sign=sign: sign * float(s.X[i]))
+        assert rep["end_violators"] == 0 and not grid_violations(st)
+        assert abs(int(st.Y[i]) - P.ncy // 2) == 0 and int(st.K[i]) == 0
+        side[sign] = int(np.sign(int(st.X[i]) - X0))
+    assert side == {1: -1, -1: 1}
+
+
+def _strip(g, mover_x):
+    """A 45 x 9 mm board at grid pitch g: a row of 1 x 1 mm parts at y 4-5 mm, 4 mm apart up to
+    x = 17 mm and 7 mm apart after, so an 8 x 8 mm part fits nowhere without covering one of
+    them, and near x = 5-13 mm only by covering two. Returns (P, st, mover index)."""
+    from types import SimpleNamespace as NS
+    from kae.place.problem import sat
+    from kae.place.state import State
+
+    def c(v):
+        return int(round(v / g))
+
+    def part(i, ref, w, h):
+        own = (0, c(w), 0, c(h))
+        r = NS(g_own=own, g_own_rects=(own,), g_opp=(), g_board=own, g_boards=(own,))
+        return NS(i=i, ref=ref, movable=True, area=w * h, s=1.0, rots=[r], n_ortho=1)
+    xs = [1, 5, 9, 13, 17, 24, 31, 38]
+    parts = [part(n, f"R{n}", 1.0, 1.0) for n in range(len(xs))] + [part(len(xs), "M", 8.0, 8.0)]
+    P = NS(g=g, ncx=c(45), ncy=c(9), obstacles=[], parts=parts, mov=list(range(len(parts))))
+    P.sat_out = sat(np.zeros((P.ncx, P.ncy), dtype=bool))
+    st = NS(P=P, X=np.zeros(len(parts), np.int64), Y=np.zeros(len(parts), np.int64), K=np.zeros(len(parts), np.int64))
+    st.grid_rects = lambda i: State.grid_rects(st, i)
+    for n, x in enumerate(xs):
+        st.X[n], st.Y[n] = c(x), c(4)
+    m = len(xs)
+    st.X[m], st.Y[m] = c(mover_x), c(0.5)
+    return P, st, m
+
+
+def test_ripup_prices_evictions_by_distance_the_same_at_any_grid_pitch():
+    """The rip-up charges each evicted part the push that clears it, a length like the mover's
+    own travel. It used to charge 4 per covered cell, an area: at 0.1 and 0.25 mm the 8 mm part
+    travelled 9 mm to cover one 1 mm part instead of pushing two aside where it was, at 0.5 mm
+    it stayed, so the grid pitch decided the placement."""
+    from kae.place.legalize import greedy
+    for compiled in (True, False):
+        got = {}
+        for g in (0.1, 0.25, 0.5):
+            P, st, m = _strip(g, 5.0)
+            rep = greedy(P, st, [m], compiled=compiled)
+            assert rep["ripups"] >= 1 and not rep["unplaced"], rep
+            rs = [r for i in P.mov for _, r, _ in st.grid_rects(i)]
+            assert not any(a[1] > b[0] and b[1] > a[0] and a[3] > b[2] and b[3] > a[2]
+                           for n, a in enumerate(rs) for b in rs[n + 1:])
+            assert all(0 <= r[0] and r[1] <= P.ncx and 0 <= r[2] and r[3] <= P.ncy for r in rs)
+            got[g] = (st.X[m] * g, rep["moved_mm"])
+        xs = [x for x, _ in got.values()]
+        # the mover stays within a few mm (the near pair is cheaper than a 13 mm trip) ...
+        assert all(abs(x - 5.0) < 4.0 for x in xs), (compiled, got)
+        # ... at the same place, whatever the pitch (to within the coarsest cell)
+        assert max(xs) - min(xs) <= 0.5 + 1e-9, (compiled, got)
+
+
+def test_evict_push_is_the_shortest_straight_push():
+    from types import SimpleNamespace as NS
+    from kae.place import _fastlegal as FL
+    from kae.place.legalize import _evict_push
+    own = (0, 80, 0, 80)
+    r = NS(g_own=own, g_own_rects=(own,), g_opp=((30, 50, 30, 50),))
+    ks_own, own_n, opp, opp_n, _, _ = FL.part_arrays(NS(rots=[NS(g_own=own, g_own_rects=(own,),
+                                                                 g_opp=((30, 50, 30, 50),), g_board=own, g_boards=(own,))]))
+    cases = [([(0, (5, 15, 40, 50))], 15),         # 15 cells to the left edge
+             ([(0, (70, 90, 0, 10))], 10),         # 10 up / 10 left: pushed out the shorter way
+             ([(0, (100, 110, 0, 10))], 0),        # clear of it
+             ([(1, (35, 45, 0, 100))], 15),        # the back rectangle meets a back part: 15 sideways
+             ([(1, (5, 15, 40, 50))], 0)]          # a back part under the front piece only: no overlap
+    for ev, want in cases:
+        X, Y = np.array([0]), np.array([0])
+        assert int(_evict_push(r, X, Y, 0, ev)[0]) == want, ev
+        E, E0, _ = FL.evict_arrays([ev])
+        assert FL.evict_push(0, 0, 0, 0, ks_own, own_n, opp, opp_n, E, E0, 0) == want, ev

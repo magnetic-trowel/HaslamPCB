@@ -311,6 +311,8 @@ def derive(report):
                         evidence=dict(exact_findings=len(ex) if isinstance(ex, list) else ex),
                         fix="Give the placer more time, enlarge the board, fix parts in place, or remove parts."))
     fin = report.get("final") if isinstance(report, dict) else None
+    if isinstance(report, dict) and not (isinstance(fin, dict) and fin.get("modules")):
+        out += placement_physics_hazards(report.get("scorecard"), report.get("scorecard_pre_drc"))
     if isinstance(fin, dict) and isinstance(fin.get("checked"), dict):
         missed = sorted(k for k, v in fin["checked"].items() if v is False)
         if missed:
@@ -352,6 +354,36 @@ def physics_hazards(modules, source=None, u_warn=U_WARN):
                             "(a loop, decoupling path or trace worse than its budget).", objects=[mid],
                             evidence=ev, fix="Tighten that module's placement or copper (kae joint, critical "
                                              "routing), or confirm its budget.", **({"source": source} if source else {})))
+    return out
+
+
+def placement_physics_hazards(card, pre=None, u_warn=U_WARN):
+    """Hazards for structures of a placement's physics scorecard (kae.physics.place_terms:
+    {breakdown: [{id, kind, util, value, unit, members}]}) over their allocation, before any
+    routing: a decap too far from its pin, a crystal loop too long. `pre`: the scorecard before
+    the KiCad repair moved parts (cli._kicad_loop); a structure it pushed over is named so
+    (freetronics-kitten: REG1's input decap 0.44x -> 6.9x, chasing an error no pose fixes).
+    A routed board's own physics_hazards supersede these."""
+    out = []
+    if not isinstance(card, dict):
+        return out
+    before = {b.get("id"): b.get("util") for b in (pre or {}).get("breakdown") or [] if isinstance(b, dict)}
+    for b in card.get("breakdown") or []:
+        if not isinstance(b, dict) or b.get("util") is None or float(b["util"]) <= u_warn:
+            continue
+        sid, kind, u = str(b.get("id")), b.get("kind") or str(b.get("id")).split(":")[0], float(b["util"])
+        ev = dict(u=round(u, 3), threshold=u_warn)
+        ev.update({k: b[k] for k in ("value", "unit") if b.get(k) is not None})
+        msg = (f"Placement structure {sid} ({', '.join(map(str, b.get('members') or []))}) uses {u:.2f}x its "
+               "physics allocation (a decap far from its pin, a long crystal or switching loop).")
+        u0 = before.get(b.get("id"))
+        if u0 is not None and float(u0) <= u_warn:
+            ev["u_before_kicad_repair"] = round(float(u0), 3)
+            msg += f" It was {float(u0):.2f}x before the KiCad repair moved parts."
+        out.append(make("placement_physics_over_budget", "warn", _PHYS_CAT.get(kind, "electrical"), msg,
+                        objects=[sid] + [str(m) for m in b.get("members") or []], evidence=ev,
+                        fix="Move the members closer (kae place with the part fixed nearer, or kae joint), "
+                            "or confirm the structure's budget."))
     return out
 
 

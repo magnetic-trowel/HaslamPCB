@@ -7,7 +7,8 @@
   Footprint.ref, value, lib_id, uuid, attrs, fields, pads;
   Pad.number, net, kind, pinfunction, pintype;
   Net.name, netclass.
-Positions (x, y, rot, side), courtyards, tracks and vias are never read: comprehension
+Also the board outline's bounding-box size and the stackup (kae.circuit.edges: how long a route can
+get, and how fast it propagates). Positions (x, y, rot, side), courtyards, tracks and vias are never read: comprehension
 must not depend on where parts sit, so the same brief serves the place task (parts off the
 board) and the routed reference. The only extra read is a footprint's schematic sheet (kae.board's
 `Footprint.sheet`, else its symbol `path`), which comes from the .kicad_pcb, not the schematic.
@@ -65,6 +66,17 @@ def _sheet_of(fp) -> str | None:
         if flds.get(k):
             return str(flds[k])
     return None
+
+
+def _extent(board) -> tuple | None:
+    """(w, h) mm of the bounding box of the board outline (Edge.Cuts), or None: the board's size, which
+    bounds how long a route can be (kae.circuit.edges); no part position is read."""
+    bs = [g.bounds for g in _items(getattr(board, 'outline', None)) if hasattr(g, 'bounds') and not g.is_empty]
+    if not bs:
+        return None
+    w = max(b[2] for b in bs) - min(b[0] for b in bs)
+    h = max(b[3] for b in bs) - min(b[1] for b in bs)
+    return (round(w, 3), round(h, 3)) if w > 0 and h > 0 else None
 
 
 @dataclass(frozen=True)
@@ -180,11 +192,14 @@ class NetView:
 class Netlist:
     """Parts, nets and pins, with the indexes the inference rules need."""
 
-    def __init__(self, parts: dict, nets: dict, zone_layers: dict | None = None, path: str = ''):
+    def __init__(self, parts: dict, nets: dict, zone_layers: dict | None = None, path: str = '',
+                 extent_mm: tuple | None = None, stackup=None):
         self.parts = parts
         self.nets = nets
         self.zone_layers = zone_layers or {}
         self.path = path
+        self.extent_mm = extent_mm      # (w, h) of the board outline's bounding box, or None
+        self.stackup = stackup          # kae.board.model.Stackup, or None
 
     # ------------------------------------------------------------ construction
     @classmethod
@@ -232,7 +247,8 @@ class Netlist:
             if nm:
                 lys = getattr(z, 'layers', None) or [getattr(z, 'layer', None)]
                 zl[nm] += max(1, len([x for x in lys if x]))
-        return cls(parts, nets, dict(zl), str(getattr(board, 'path', '') or ''))
+        return cls(parts, nets, dict(zl), str(getattr(board, 'path', '') or ''), extent_mm=_extent(board),
+                   stackup=getattr(board, 'stackup', None))
 
     # ------------------------------------------------------------ queries
     def pins(self, net: str) -> list:

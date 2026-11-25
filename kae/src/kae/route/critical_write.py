@@ -76,6 +76,36 @@ def new_uuid():
     return str(_uuid.uuid4())
 
 
+# Soft copper: locked tracks and vias that a router laid for physics (kae.em.pnr --lock) and that the
+# completion's last mile may still rip, as its last tier and only under the physics guard
+# (repair._last_mile; critical.soft_marked). The mark is the uuid itself, so it travels with the item
+# through KiCad, Freerouting's session import (locked items are kept as they are) and every copy of the
+# board, and an item laid again (a new uuid) is no longer soft: an RFC 9562 version-8 uuid whose first
+# 32 bits spell "kaes".
+SOFT_TAG = "6b616573"
+
+
+def soft_uuid():
+    """A new uuid that marks its item as soft copper (random but for the tag, version and variant)."""
+    b = bytearray(_uuid.uuid4().bytes)
+    b[0:4] = bytes.fromhex(SOFT_TAG)
+    b[6] = (b[6] & 0x0F) | 0x80          # version 8 (vendor-specific)
+    b[8] = (b[8] & 0x3F) | 0x80          # RFC 9562 variant
+    return str(_uuid.UUID(bytes=bytes(b)))
+
+
+def is_soft(uid):
+    """Whether a routing item's uuid marks it as soft copper (soft_uuid)."""
+    u = str(uid or "").lower()
+    return len(u) == 36 and u.startswith(SOFT_TAG + "-") and u[14] == "8"
+
+
+def soft_items(path_or_text):
+    """uuids of a board's locked routing items marked soft (soft_uuid). An unlocked item is not
+    soft copper: nothing keeps it from being ripped in the first place."""
+    return sorted(r["uuid"] for r in routing(path_or_text) if r.get("locked") and is_soft(r["uuid"]))
+
+
 def track_sexpr(net, layer, width, a, b, uid=None, locked=True):
     lk = "\t\t(locked yes)\n" if locked else ""
     return (f"\t(segment\n\t\t(start {fmt(a[0])} {fmt(a[1])})\n\t\t(end {fmt(b[0])} {fmt(b[1])})\n"
@@ -90,17 +120,21 @@ def via_sexpr(net, x, y, size, drill, layers=("F.Cu", "B.Cu"), uid=None, locked=
             f"\t\t(layers {ls})\n{lk}\t\t(net {q(net)})\n\t\t(uuid {q(uid or new_uuid())})\n\t)\n")
 
 
-def zone_sexpr(net, layer, rings, name, uid=None, clearance=0.0, min_thickness=0.1, priority=0):
-    """A copper zone (solid pad connection, no thermals) of `net` on `layer` over the
-    polygon `rings` ([outer, holes...]); KiCad fills it on the next refill."""
+def zone_sexpr(net, layer, rings, name, uid=None, clearance=0.0, min_thickness=0.1, priority=0, connect="solid",
+               thermal_gap=0.5, spoke_width=0.5):
+    """A copper zone of `net` on `layer` over the polygon `rings` ([outer, holes...]); KiCad fills it on
+    the next refill. `connect`: the pad connection, "solid" (default), "thermal", "thru_hole_only" or
+    "none" (a keep-out guard copies the plane it guards, so starved thermals still show in its DRC)."""
     def pts(r):
         return " ".join(f"(xy {fmt(x)} {fmt(y)})" for x, y in r)
     outer = rings[0]
+    head = {"solid": "(connect_pads yes", "thermal": "(connect_pads", "none": "(connect_pads no",
+            "thru_hole_only": "(connect_pads thru_hole_only"}.get(connect, "(connect_pads yes")
     return (f"\t(zone\n\t\t(net {q(net)})\n\t\t(layer {q(layer)})\n\t\t(uuid {q(uid or new_uuid())})\n"
             f"\t\t(name {q(name)})\n\t\t(hatch edge 0.5)\n\t\t(priority {int(priority)})\n"
-            f"\t\t(connect_pads yes\n\t\t\t(clearance {fmt(clearance)})\n\t\t)\n"
+            f"\t\t{head}\n\t\t\t(clearance {fmt(clearance)})\n\t\t)\n"
             f"\t\t(min_thickness {fmt(min_thickness)})\n\t\t(filled_areas_thickness no)\n"
-            f"\t\t(fill\n\t\t\t(thermal_gap 0.5)\n\t\t\t(thermal_bridge_width 0.5)\n\t\t)\n"
+            f"\t\t(fill\n\t\t\t(thermal_gap {fmt(thermal_gap)})\n\t\t\t(thermal_bridge_width {fmt(spoke_width)})\n\t\t)\n"
             f"\t\t(polygon\n\t\t\t(pts {pts(outer)})\n\t\t)\n\t)\n")
 
 
@@ -147,7 +181,7 @@ def _insert(text, chunks):
 def append_items(src, dst, tracks=(), vias=(), zones=()):
     """dst = src plus tracks [(net, layer, width, a, b, uuid[, locked[, mid]])] (an arc when
     mid is given), vias [(net, x, y, size, drill, uuid[, locked])] (locked unless the 7th field
-    says otherwise) and zones [(net, layer, rings, name[, priority])]."""
+    says otherwise) and zones [(net, layer, rings, name[, priority[, min_thickness[, {connect, thermal_gap, spoke_width}]]])]."""
     text = Path(src).read_text(encoding="utf-8")
     require_kicad10(text, src)
     chunks = []
@@ -159,7 +193,9 @@ def append_items(src, dst, tracks=(), vias=(), zones=()):
         else:
             chunks.append(track_sexpr(*t[:6], locked=lk))
     chunks += [via_sexpr(*v[:5], uid=v[5], locked=v[6] if len(v) > 6 else True) for v in vias]
-    chunks += [zone_sexpr(z[0], z[1], z[2], z[3], priority=z[4] if len(z) > 4 else 0) for z in zones]
+    chunks += [zone_sexpr(z[0], z[1], z[2], z[3], priority=z[4] if len(z) > 4 else 0,
+                          **({"min_thickness": z[5]} if len(z) > 5 and z[5] else {}),
+                          **(z[6] if len(z) > 6 and z[6] else {})) for z in zones]
     Path(dst).write_text(_insert(text, chunks), encoding="utf-8")
 
 

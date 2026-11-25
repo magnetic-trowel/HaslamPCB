@@ -97,6 +97,23 @@ def cmd_place(a):
         except ValueError as e:
             raise SystemExit(str(e))
         _log(f"fixed at their input pose: {len(kw['fixed'])} parts ({','.join(fix_classes) or 'by reference'})")
+    bundle = None
+    if getattr(a, "intent", None):
+        # the intent's placement relations (kae.place.relations): names resolved and pre-checked before
+        # anything is placed; an unknown name or a malformed relation stops here with what exists
+        from kae.place.relations import compile_intent
+        from kae.place.stubs import make_brief
+        brief, bsrc = make_brief(board)
+        try:
+            bundle = compile_intent(a.intent, board, brief, a.input, kw["opts"])
+        except ValueError as e:
+            print(json.dumps(dict(error=str(e), intent=a.intent, intent_error=True)), flush=True)
+            _log(f"intent: {e}")
+            return 2
+        kw["brief"] = brief
+        if bundle is not None:
+            kw["relations"] = bundle
+            _log(f"intent: {len(bundle.rels)} relations, {len(bundle.precheck)} conflicts proven before placing")
     on_disk = []           # the severity ladder's rungs, in the order their poses were written
 
     def verify(r, end):
@@ -149,6 +166,19 @@ def cmd_place(a):
     res.report["total_s"] = round(clock_now() - t0, 2)
     legal = not res.report.get("exact") and not res.report.get("outline_incomplete") and kicad_clean is not False
     res.report["legal"] = bool(legal)
+    if bundle is not None:
+        # the oracle: every relation measured on the board as written, re-read from the file
+        try:
+            st = bundle.status(load(a.output), defaults=(res.report.get("relations_applied") or {}).get("defaults"))
+            res.report.setdefault("hazards", []).extend(st.pop("hazards"))
+            res.report["relations"] = st
+            sm = st["summary"]
+            _log(f"relations: {sm['met']} of {sm['n']} met; unmet {sm['unmet'][:8]}; conflicts {sm['conflicts'][:8]}")
+        except Exception as e:      # noqa: BLE001 - a report section; never lose the placement
+            res.report.setdefault("hazards", []).append(dict(
+                code="relation_check_failed", severity="warn", category="data",
+                message=f"the relations could not be measured on the written board ({type(e).__name__}: {e})",
+                objects=[], fix="report it; the placement itself is written"))
     _hazards(res.report, a, "place", t0, brief=getattr(res, "brief", None), board=board)
     text = json.dumps(res.report, default=str)
     print(text, flush=True)          # last line of stdout: what kaebench keeps (adapter.log)
@@ -171,8 +201,9 @@ _DRC_SIGNAL = __import__("re").compile(r"rc=-\d+")
 def _kicad_loop(a, res, t0, write, end=None):
     """KiCad's DRC on the written placement, fed back until it is clean (kae.place.exact:
     kicad_feedback -> repair -> write again), within the caller's time. The best placement
-    KiCad has judged (clean, else fewest placement errors) is kept: when the loop ends on a
-    worse verdict, or on a repair KiCad has not judged (time, a DRC failure), that one is
+    KiCad has judged (clean, else fewest placement errors, the earliest of equals) is kept: when
+    the loop ends on a worse or merely equal verdict, or on a repair KiCad has not judged (time, a
+    DRC failure), that one is
     written again (report: kicad_written_round). `end` (monotonic seconds): when the loop's
     share of the time ends (a rung of the severity ladder), else t0 + a.time. Report:
     kicad_verdict, the placer's errors by type on the board as written. Returns (clean or None
@@ -216,7 +247,7 @@ def _kicad_loop(a, res, t0, write, end=None):
             left = limit - clock_now()
             try:
                 report = kdrc.run(staged, Path(staged).parent / "drc.json",
-                                  timeout=max(10.0, min(600.0, (left - 5.0) if it == 0 else 0.5 * left)))
+                                  timeout=max(10.0, (left - 5.0) if it == 0 else 0.5 * left))
                 err = None
                 break
             except kdrc.DrcError as e:
@@ -242,9 +273,19 @@ def _kicad_loop(a, res, t0, write, end=None):
         if clean or it == a.drc_rounds:
             break
         left = limit - clock_now()
+        pre_repair = st.poses()
         rounds[-1]["repair"] = X.repair(P, st, time_s=max(3.0, min(120.0, 0.4 * left)), log=_log)
         rounds[-1]["repair"].pop("findings", None)
         rep_r = rounds[-1]["repair"]
+        if rep_r.get("start") and st.poses() == pre_repair:
+            # the repair had findings and left every pose as it was (each reseed rejected): KiCad
+            # would judge the same board again, and the next round's grown constraints only make it
+            # harder (hanqaqa, terjeio, zynthian: 6 such rounds, ~560 s, no change). With no
+            # findings (start 0: KiCad objects, the exact model does not yet) the loop goes on: the
+            # constraints grow each round until the model sees it (kotbenek's LCD1 moved in round 2)
+            rep_r["unchanged"] = True
+            _log(f"KiCad DRC: round {it}'s repair changed nothing; stopping")
+            break
         if X.silk_on(P) and (rep_r.get("moved") or rep_r.get("evicted") or rep_r.get("reseeds")):
             # the repair re-placed parts without the silkscreen: the silk pass again (pic-
             # programmer with its interface fixed: 40 parts evicted, 18 silk errors after)
@@ -259,8 +300,12 @@ def _kicad_loop(a, res, t0, write, end=None):
         wrep = write(a.input, a.output, res.poses, mode=a.writer, log=_log)
         judged = None
     written = None if judged is None else rounds[-1]["round"] if "errors" in rounds[-1] else None
-    if not clean and best is not None and (judged is None or judged > best[0]):
-        # the loop ended worse than a placement KiCad already judged: write that one again
+    if not clean and best is not None and (judged is None or judged > best[0]
+                                           or (judged == best[0] and written != best[1])):
+        # the loop ended worse than a placement KiCad already judged, or no better than an
+        # earlier one: write that one again. On a tie the earliest round wins, the one least
+        # moved from the annealed placement (freetronics-kitten: 1 error every round, and the
+        # last round's REG1 sat 40 mm from its input caps, decap loop 3.0 -> 17.0)
         _, written, X0, Y0, K0, poses0, judged_types = best
         judged = best[0]
         st.X[:], st.Y[:], st.K[:] = X0, Y0, K0
@@ -339,7 +384,7 @@ def _probe_select(a, board, kw, t0, write):
                 # count the routed board's opens with kicad-cli instead
                 d = c["out"].parent / "drc"
                 staged = kdrc.stage_board(str(routed), a.input, str(d))
-                unc = kdrc.summary(kdrc.run(staged, d / "drc.json", timeout=300))["unconnected"]
+                unc = kdrc.summary(kdrc.run(staged, d / "drc.json"))["unconnected"]
             return unc
         except Exception as e:      # noqa: BLE001 - a probe that fails leaves the candidate unranked
             _log(f"probe of seed {c['seed']} failed: {type(e).__name__}: {e}")
@@ -455,6 +500,10 @@ def main(argv=None):
                     help="parts without a courtyard: 'off' (default) keeps their bodies as obstacles; 'escalate' "
                          "frees them to their pads when legalization fails; 'auto' also up front on a board over "
                          "95%% full (the old behaviour). Relaxed parts are hazards in the report")
+    sp.add_argument("--intent", default=None, metavar="FILE",
+                    help="kae.intent/1 file whose 'relations' steer placement (near, region, on_edge, keep_away, "
+                         "order, orient, hold, side, group, row; kae.place.relations); every relation is measured "
+                         "on the written board and reported under 'relations', with conflicts and relaxations")
     sp.add_argument("--fix-class", default="", metavar="CLASS[,CLASS...]",
                     help="keep every part of these classes at its input pose: connectors, mounting, user "
                          "(kae.place.fixed.classify)")

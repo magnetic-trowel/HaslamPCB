@@ -1,0 +1,101 @@
+{
+ "adafruit-adafruit-1-3in-color-tft-bonnet-pcb-adafruit-1-3in-color-tft-bonnet": [
+  [
+   "IC1",
+   "3",
+   "C1"
+  ]
+ ],
+ "adafruit-adafruit-circuit-playground-bluefruit-pcb-adafruit-circuit-playground-bluefruit": [
+  [
+   "U4",
+   "P$AD2",
+   "C19"
+  ]
+ ],
+ "adafruit-adafruit-fona808-shield-pcb-adafruit-sim808-shield": [
+  [
+   "U2",
+   "4",
+   "C1"
+  ]
+ ],
+ "adafruit-adafruit-powerboost-500-charger-pcb-adafruit-powerboost-500c": [
+  [
+   "U2",
+   "3",
+   "C1"
+  ],
+  [
+   "U2",
+   "4",
+   "C6"
+  ]
+ ],
+ "adafruit-adafruit-servo-hat-bonnet-pcb-servo-bonnet-rev-b": [
+  [
+   "U2",
+   "28",
+   "C1"
+  ]
+ ],
+ "adafruit-adafruit-tft-gizmo-pcb-adafruit-circuit-playground-tft-gizmo": [
+  [
+   "IC4",
+   "3",
+   "C2"
+  ]
+ ],
+ "bybzmt-practise-tas5805m": [
+  [
+   "U2",
+   "2",
+   "C12"
+  ],
+  [
+   "U2",
+   "3",
+   "C9"
+  ]
+ ],
+ "glydrfreak-vspeed-vario-adafruit-feather-zero-ble-rev-b": [
+  [
+   "U2",
+   "1",
+   "C6"
+  ],
+  [
+   "U3",
+   "3",
+   "C3"
+  ]
+ ],
+ "meo98-picostack-dimmer4": [
+  [
+   "U90",
+   "3",
+   "C91"
+  ]
+ ],
+ "adafruit-adafruit-sgp30-pcb-sgp30-rev-d": [
+  [
+   "U1",
+   "5",
+   "C5"
+  ]
+ ],
+ "adafruit-adafruit-led-backpacks-adafruit-bicolor-8x8": [
+  [
+   "U2",
+   "P$28",
+   "C1"
+  ]
+ ],
+ "adafruit-adafruit-oled-featherwing-pcb-adafruit-oled-featherwing": [
+  [
+   "IC5",
+   "3",
+   "C4"
+  ]
+ ]
+}

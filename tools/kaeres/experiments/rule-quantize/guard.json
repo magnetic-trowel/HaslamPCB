@@ -1,0 +1,1544 @@
+{
+ "seeed-studio-oshw-recamera-series-recamera-b101-v1-2": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.108966",
+   "100R.diff_pair_width=0.108966",
+   "90R.diff_pair_width=0.141986"
+  ]
+ },
+ "tinkerforge-stepper-brick-stepper": {
+  "hard": true,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "tinkerforge-dc-brick-dc": {
+  "hard": true,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "olimex-nb-iot-nb-iot-devkit-rev-d": {
+  "hard": true,
+  "why": [
+   "Differential_Z=90.trace_width=0.15748"
+  ]
+ },
+ "dpicken-atari-hw-sbc-av": {
+  "hard": true,
+  "why": [
+   "USB_D.track_width=0.20574"
+  ]
+ },
+ "jlywxy-slimarm-ublaster-jtag": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.170434",
+   "USB.track_width=0.170434",
+   "USB.diff_pair_width=0.170434"
+  ]
+ },
+ "bitmerse-wiser-wiser-usb": {
+  "hard": true,
+  "why": [
+   "RF.track_width=0.29337",
+   "USB Data.track_width=0.261112",
+   "USB Data.diff_pair_width=0.261112"
+  ]
+ },
+ "mossmann-hackrf-lna915": {
+  "hard": true,
+  "why": [
+   "Default.trace_width=0.29337"
+  ]
+ },
+ "tornyol-lesonar2-lesonar2-beamforming-rx-hardware": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.13335",
+   "GND.diff_pair_width=0.13335",
+   "MIC DATA.diff_pair_width=0.13335",
+   "Power.diff_pair_width=0.13335"
+  ]
+ },
+ "olimex-usb-glink-usb-glink-rev-d": {
+  "hard": true,
+  "why": [
+   "Differential_Z=90R.diff_pair_width=0.15748",
+   "Differential_Z=90R.trace_width=0.15748"
+  ]
+ },
+ "jamesb-wood-uniqhw-uq-phone-2": {
+  "hard": true,
+  "why": [
+   "Audio.track_width=0.21082"
+  ]
+ },
+ "divisionind-hackquad-hackquad": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.261112",
+   "proper_via.diff_pair_width=0.261112"
+  ]
+ },
+ "imike78-home-mini-v1-drop-in-pcb-home-mini-v1-drop-in-pcb": {
+  "hard": true,
+  "why": [
+   "Default.track_width=0.156464",
+   "90_ohm.diff_pair_width=0.141986"
+  ]
+ },
+ "seeed-studio-oshw-recamera-series-recamera-2002-s4-gc2053-sensor-board-v1-0-sch-pcb-250905": {
+  "hard": true,
+  "why": [
+   "100R.diff_pair_width=0.108966",
+   "90R.diff_pair_width=0.141986"
+  ]
+ },
+ "sparkfun-sparkfun-xrp-controller-sparkfun-xrp-controller": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.13716",
+   "USB.diff_pair_width=0.13716"
+  ]
+ },
+ "byrantech-laptop-power": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.121666"
+  ]
+ },
+ "atrivatech-munico-nico-ch32v003-v1": {
+  "hard": true,
+  "why": [
+   "USB .track_width=0.349504"
+  ]
+ },
+ "sci-bots-dropbot-40-channel-hv-switching-board-kicad-40-channel-hv-switching-board": {
+  "hard": true,
+  "why": [
+   "PWR.trace_width=0.39878"
+  ]
+ },
+ "husqvarnagroup-smart-garden-testing-hardware-dongle": {
+  "hard": true,
+  "why": [
+   "USB Data.diff_pair_width=0.228854"
+  ]
+ },
+ "seeed-studio-oshw-recamera-series-recamera-s101-v1-0": {
+  "hard": true,
+  "why": [
+   "100R.diff_pair_width=0.108966",
+   "90R.diff_pair_width=0.141986"
+  ]
+ },
+ "tinkerforge-barometer-v2-bricklet-barometer-v2": {
+  "hard": true,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "librem5-dvk-mx8m-bsb-dvk-mx8m-bsb": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.13462",
+   "Default.trace_width=0.13462",
+   "100Ohm_Diff_Pair.diff_pair_width=0.089154",
+   "100Ohm_Diff_Pair.trace_width=0.089154",
+   "90Ohm_Diff_Inner.diff_pair_width=0.106934",
+   "90Ohm_Diff_Inner.trace_width=0.106934",
+   "90Ohm_Diff_Pair.diff_pair_width=0.114554",
+   "90Ohm_Diff_Pair.trace_width=0.114554"
+  ]
+ },
+ "jdunmire-tlphnodev2-tlphnodev2": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.14478",
+   "Default.trace_width=0.14478"
+  ]
+ },
+ "librespacefoundation-pq9ish-pq9ish-comms-vu-hw-pq9ish-main-hw": {
+  "hard": true,
+  "why": [
+   "RF.track_width=0.368482"
+  ]
+ },
+ "jlywxy-slimarm-slimarm-almond-b": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.170434",
+   "USB.track_width=0.170434",
+   "USB.diff_pair_width=0.170434"
+  ]
+ },
+ "4ms-swn-swn": {
+  "hard": true,
+  "why": [
+   "Audio.trace_width=0.24892"
+  ]
+ },
+ "greatscottgadgets-urti-mainboard-mainboard": {
+  "hard": true,
+  "why": [
+   "RF50.track_width=0.36576"
+  ]
+ },
+ "tinkerforge-servo-brick-servo": {
+  "hard": true,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "greatscottgadgets-misc-passives": {
+  "hard": true,
+  "why": [
+   "Default.track_width=0.29337"
+  ]
+ },
+ "openinput-fw-russian-woodpecker-russian-woodpecker": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.228854"
+  ]
+ },
+ "sierra-lobo-mainboard-hardware-mainboard": {
+  "hard": true,
+  "why": [
+   "50ohm.track_width=0.15875",
+   "90ohm diff.track_width=0.16256",
+   "90ohm diff.diff_pair_width=0.16256"
+  ]
+ },
+ "circuitdojo-nrf9151-feather-nrf9151-feather": {
+  "hard": true,
+  "why": [
+   "Antenna.track_width=0.258891",
+   "USB.diff_pair_width=0.253672"
+  ]
+ },
+ "matgla-mspc-gpu-dvi-card": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.175006",
+   "Power.diff_pair_width=0.175006",
+   "Signal 50Ohm.track_width=0.156464",
+   "Signal 50Ohm.diff_pair_width=0.175006",
+   "TDMS.track_width=0.123952",
+   "TDMS.diff_pair_width=0.123952"
+  ]
+ },
+ "jlywxy-slimarm-slimarm-carambola": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.10922"
+  ]
+ },
+ "bitmerse-wiser-wiser-ttl": {
+  "hard": true,
+  "why": [
+   "RF.track_width=0.29337",
+   "USB Data.track_width=0.261112",
+   "USB Data.diff_pair_width=0.261112"
+  ]
+ },
+ "olimex-imx8mp-som-imx8mplus-som-rev-b": {
+  "hard": true,
+  "why": [
+   "Default.trace_width=0.08128",
+   "MS_Zdiff=100.diff_pair_width=0.10668",
+   "MS_Zdiff=100.trace_width=0.08128",
+   "MS_Zdiff_85.trace_width=0.08128",
+   "SL_Zdiff=100.trace_width=0.08128",
+   "SL_Zdiff_85.trace_width=0.08128"
+  ]
+ },
+ "logitiles-hexberry-v-20q100-0-91-hexberry-v-20q100": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.13684",
+   "Power.diff_pair_width=0.13684"
+  ]
+ },
+ "tessel-t2-hardware-tessel-v2": {
+  "hard": true,
+  "why": [
+   "RF_DIFF.trace_width=0.21336",
+   "USB.trace_width=0.21336"
+  ]
+ },
+ "qfreiman-qsbc-zero-qsbc-zero": {
+  "hard": true,
+  "why": [
+   "50R.diff_pair_width=0.11049"
+  ]
+ },
+ "matgla-mspc-fpga-extension": {
+  "hard": true,
+  "why": [
+   "50 Ohm.track_width=0.156464",
+   "50 Ohm.diff_pair_width=0.123952"
+  ]
+ },
+ "matgla-mspc-gpu-vga-extension": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.175006",
+   "Power.diff_pair_width=0.175006",
+   "Signal 50Ohm.diff_pair_width=0.175006",
+   "TDMS.diff_pair_width=0.203454",
+   "VGA 75Ohm.track_width=0.12319",
+   "VGA 75Ohm.diff_pair_width=0.175006"
+  ]
+ },
+ "controlpaths-cp-som-one-som-fpga": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.13335",
+   "Power.diff_pair_width=0.13335"
+  ]
+ },
+ "greatscottgadgets-misc-limiters": {
+  "hard": true,
+  "why": [
+   "Default.track_width=0.36576"
+  ]
+ },
+ "greatscottgadgets-lna1109-lna1109": {
+  "hard": true,
+  "why": [
+   "Default.trace_width=0.29337"
+  ]
+ },
+ "olimex-esp32-poe-iso-esp32-poe-iso-rev-o": {
+  "hard": true,
+  "why": [
+   "Zdiff=90R.track_width=0.15748",
+   "Zdiff=90R.diff_pair_width=0.15748"
+  ]
+ },
+ "tinkerforge-imu-v2-brick-imu-2": {
+  "hard": true,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "seeed-studio-oshw-recamera-series-recamera-2002-poe-board": {
+  "hard": true,
+  "why": [
+   "Default.track_width=0.156464",
+   "Default.diff_pair_width=0.108966",
+   "100R.diff_pair_width=0.108966",
+   "90R.diff_pair_width=0.141986"
+  ]
+ },
+ "groupgets-kimchi-micro-kimchi-micro": {
+  "hard": true,
+  "why": [
+   "Default.track_width=0.121666",
+   "CSI/DSI.track_width=0.121666",
+   "CSI/DSI.diff_pair_width=0.086106",
+   "DRAM.track_width=0.121666",
+   "DRAM.diff_pair_width=0.126746",
+   "PCIE.track_width=0.121666",
+   "PCIE.diff_pair_width=0.126746",
+   "USB.track_width=0.121666",
+   "USB.diff_pair_width=0.101346"
+  ]
+ },
+ "vinaebizs-fst-01-fst-01": {
+  "hard": true,
+  "why": [
+   "Default.trace_width=0.20066",
+   "GND.trace_width=0.59944",
+   "VBUS.trace_width=0.59944",
+   "VDD.trace_width=0.59944"
+  ]
+ },
+ "apotheotech-aper-oculus-apt-kria-fmc": {
+  "hard": true,
+  "why": [
+   "ZDIFF=100.track_width=0.10668",
+   "ZDIFF=100.diff_pair_width=0.10668",
+   "ZSINGLE=50.track_width=0.13208",
+   "ZSINGLE=50.diff_pair_width=0.13208"
+  ]
+ },
+ "tigard-tools-tigard-tigard": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.205232"
+  ]
+ },
+ "olimex-esp32-poe-esp32-poe-rev-m2": {
+  "hard": true,
+  "why": [
+   "90R.diff_pair_width=0.20066"
+  ]
+ },
+ "greatscottgadgets-misc-filters": {
+  "hard": true,
+  "why": [
+   "Default.track_width=0.36576"
+  ]
+ },
+ "beagleboard-beaglebone-ai-beaglebone-ai-rev-a2": {
+  "hard": true,
+  "why": [
+   "100OHM_DIFF.track_width=0.09398",
+   "100OHM_DIFF.diff_pair_width=0.09398",
+   "90OHM_DIFF.track_width=0.10922",
+   "90OHM_DIFF.diff_pair_width=0.10922",
+   "BGA.5MM.track_width=0.09398",
+   "BGA.5MM.diff_pair_width=0.09398",
+   "DDR.track_width=0.10008",
+   "DDR.diff_pair_width=0.10008",
+   "EMMC.track_width=0.08128",
+   "EMMC.diff_pair_width=0.08128"
+  ]
+ },
+ "jlywxy-slimarm-slimarm-hypericum": {
+  "hard": true,
+  "why": [
+   "Default.diff_pair_width=0.10922"
+  ]
+ },
+ "mchck-mchck-board-mchck": {
+  "hard": true,
+  "why": [
+   "Power.trace_width=0.29972"
+  ]
+ },
+ "olimex-s3-olinuxino-s3-olinuxino-rev-a": {
+  "hard": true,
+  "why": [
+   "Zdiff=90Ohm.diff_pair_width=0.15748",
+   "Zdiff=90Ohm.trace_width=0.15748"
+  ]
+ },
+ "librem-key-libremkey-hardware-cryptostick": {
+  "hard": true,
+  "why": [
+   "GND.trace_width=0.20066",
+   "VBUS.trace_width=0.20066"
+  ]
+ },
+ "machdyne-noir-noir": {
+  "hard": true,
+  "why": [
+   "DDMI.track_width=0.14622",
+   "DDMI.diff_pair_width=0.14622"
+  ]
+ },
+ "matthuszagh-fmcw-fmcw-2": {
+  "hard": true,
+  "why": [
+   "RF_50.diff_pair_width=0.379984",
+   "RF_50.trace_width=0.379984"
+  ]
+ },
+ "greatscottgadgets-lna3030-lna3030": {
+  "hard": true,
+  "why": [
+   "Default.trace_width=0.29337"
+  ]
+ },
+ "tinkerforge-master-brick-master": {
+  "hard": true,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "imike78-nest-mini-drop-in-pcb-nest-mini-v2-drop-in-pcb": {
+  "hard": true,
+  "why": [
+   "Default.track_width=0.156464"
+  ]
+ },
+ "dpicken-atari-hw-sbc": {
+  "hard": true,
+  "why": [
+   "USB_D.track_width=0.20574"
+  ]
+ },
+ "seeed-studio-oshw-recamera-series-recamera-b101-b4-gyro-v0-1": {
+  "hard": true,
+  "why": [
+   "100R.diff_pair_width=0.108966",
+   "90R.diff_pair_width=0.141986"
+  ]
+ },
+ "kevinbot-robotics-stm32h743-can-hs-dev-stm32h743-can-hs": {
+  "hard": true,
+  "why": [
+   "ULPI.track_width=0.18379",
+   "ULPI.diff_pair_width=0.18379",
+   "USB_HS.track_width=0.212317",
+   "USB_HS.diff_pair_width=0.212317"
+  ]
+ },
+ "seeed-studio-oshw-recamera-series-recamera-gimbal": {
+  "hard": true,
+  "why": [
+   "Default.track_width=0.156464",
+   "Default.diff_pair_width=0.182626"
+  ]
+ },
+ "diodes-delight-piunora-hardware-piunora": {
+  "hard": true,
+  "why": [
+   "50ohm.track_width=0.146812",
+   "90ohm.track_width=0.117346"
+  ]
+ },
+ "cmcquinn-replicookie-replicookie": {
+  "hard": false,
+  "why": [
+   "50 Ohm.track_width=0.146812",
+   "50 Ohm Inner Layer.track_width=0.131318",
+   "90 Ohm DP.diff_pair_width=0.131318"
+  ]
+ },
+ "plane-watch-hardware-planewatcher": {
+  "hard": false,
+  "why": [
+   "RF_50\u03a9.track_width=0.34544"
+  ]
+ },
+ "genoswitch-software-tools-judging-genoswitch-rp2040": {
+  "hard": false,
+  "why": [
+   "Power (1A).track_width=0.295656"
+  ]
+ },
+ "kcores-kcores-flexiblelom-adapter-kcores-flexiblelom-adapter": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.20828"
+  ]
+ },
+ "dpicken-atari-hw-sbc-sd": {
+  "hard": false,
+  "why": [
+   "USB_D.track_width=0.20574"
+  ]
+ },
+ "tinkerforge-industrial-counter-bricklet-industrial-counter": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "tinkerforge-rotary-encoder-bricklet-rotary-encoder": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "intechstudio-grid-hardware-fp-octv": {
+  "hard": false,
+  "why": [
+   "USB2.0.diff_pair_width=0.191516"
+  ]
+ },
+ "tinkerforge-lcd-20x4-bricklet-lcd-20x4": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "matthuszagh-fmcw-antenna-switch": {
+  "hard": false,
+  "why": [
+   "RF_50.diff_pair_width=0.379984",
+   "RF_50.trace_width=0.379984"
+  ]
+ },
+ "gnb-uam-uamsense-uamsense": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.19812",
+   "Default.trace_width=0.19812"
+  ]
+ },
+ "ai03-2725-jp65-jp65": {
+  "hard": false,
+  "why": [
+   "USB.diff_pair_width=0.261112",
+   "USB.trace_width=0.261112"
+  ]
+ },
+ "pete4radio-samwise-1-2-hw-training-batteryboard": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.27178",
+   "Default.diff_pair_width=0.27178"
+  ]
+ },
+ "tinkerforge-joystick-v2-bricklet-joystick-v2": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "bluepylons-open-switch-curve-meter-main-pcb": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.249936",
+   "Default.diff_pair_width=0.199898"
+  ]
+ },
+ "neggles-mpcie-lea-m8t-mpcie-gnss": {
+  "hard": false,
+  "why": [
+   "RF_ANT.trace_width=0.29337"
+  ]
+ },
+ "skiselev-isa8-eth-isa8-ethernet": {
+  "hard": false,
+  "why": [
+   "Power.trace_width=0.63246"
+  ]
+ },
+ "tinkerforge-industrial-digital-in-4-v2-bricklet-industrial-digital-in-4-v2": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.14986"
+  ]
+ },
+ "mstrocketdesignteam-avionics-pyro-charge-controller-pcb-charges-kicad-project": {
+  "hard": false,
+  "why": [
+   "USB_Diff.track_width=0.228854",
+   "USB_Diff.diff_pair_width=0.261112"
+  ]
+ },
+ "imseanconroy-macro-keyboard-1x4": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.16764",
+   "Power.diff_pair_width=0.16764"
+  ]
+ },
+ "tinkerforge-led-strip-bricklet-led-strip": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "miata-bot-can-link-rgb-controller": {
+  "hard": false,
+  "why": [
+   "RF.track_width=0.29337"
+  ]
+ },
+ "embeddedalpha-pcb-design-roprop": {
+  "hard": false,
+  "why": [
+   "POWER.trace_width=0.386274"
+  ]
+ },
+ "tinkerforge-dual-button-bricklet-dual-button": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "tinkerforge-nfc-rfid-bricklet-nfc-rfid": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "tinkerforge-industrial-ptc-bricklet-industrial-ptc": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.29972"
+  ]
+ },
+ "tinkerforge-industrial-dual-0-20ma-v2-bricklet-industrial-dual-0-20ma-v2": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.14986"
+  ]
+ },
+ "itsebuka-pcb-design-core-smart-nrp-makerspace": {
+  "hard": false,
+  "why": [
+   "USB.track_width=0.204407",
+   "USB.diff_pair_width=0.204407"
+  ]
+ },
+ "arjenhiemstra-ithowifi-hardware-ithowifi-4l": {
+  "hard": false,
+  "why": [
+   "50ohm strip.track_width=0.37084"
+  ]
+ },
+ "tinkerforge-joystick-bricklet-joystick": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "cl3m3nt0n1-bridge-canyon-on-hardware-carrier-board": {
+  "hard": false,
+  "why": [
+   "Power.track_width=1.36703"
+  ]
+ },
+ "tinkerforge-thermocouple-v2-bricklet-thermocouple-v2": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.29972"
+  ]
+ },
+ "tinkerforge-io4-bricklet-io4": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "ribbit-network-ribbit-network-frog-hardware-solar-ribbit": {
+  "hard": false,
+  "why": [
+   "D90.diff_pair_width=0.10414"
+  ]
+ },
+ "tinkerforge-temperature-bricklet-temperature": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "charlieh0tel-ee-stuff-ddf-big-array-antterm": {
+  "hard": false,
+  "why": [
+   "50Z.track_width=0.29337"
+  ]
+ },
+ "tinkerforge-line-bricklet-line": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "intechstudio-grid-hardware-fp-bu16-midigrade": {
+  "hard": false,
+  "why": [
+   "USB2.0.diff_pair_width=0.191516"
+  ]
+ },
+ "fpv-drone-stm32f411-dronecontroller-dronecontroller": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.146812"
+  ]
+ },
+ "tinkerforge-distance-us-bricklet-distance-us-2": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "bluepylons-open-switch-curve-meter-main-board-arduinonano": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.249936",
+   "Default.diff_pair_width=0.199898"
+  ]
+ },
+ "tinkerforge-dual-button-v2-bricklet-dual-button-v2": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "tinkerforge-sound-intensity-bricklet-sound-intensity": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "karlcswanson-catpatch-tscbreakoutboard": {
+  "hard": false,
+  "why": [
+   "Audio.trace_width=0.64008"
+  ]
+ },
+ "bluepylons-open-switch-curve-meter-main-board-featherrp2040": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.249936",
+   "Default.diff_pair_width=0.199898"
+  ]
+ },
+ "tinkerforge-rs485-extension-rs485-extension": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "greatscottgadgets-misc-rf-switch-dpdt": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.29337"
+  ]
+ },
+ "cmgeldenhuys-kleinvoet-kleinvoet": {
+  "hard": false,
+  "why": [
+   "ADC.diff_pair_width=0.205232",
+   "USB.diff_pair_width=0.261112"
+  ]
+ },
+ "tinkerforge-industrial-quad-relay-bricklet-industrial-quad-relay": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "charlieh0tel-ee-stuff-lora-nicerf-hat": {
+  "hard": false,
+  "why": [
+   "POWER.track_width=0.156464"
+  ]
+ },
+ "tinkerforge-temperature-ir-bricklet-temperature-ir": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.24892"
+  ]
+ },
+ "tinkerforge-remote-switch-bricklet-remote-switch": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "imseanconroy-macro-keyboard-3x3": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.16764",
+   "Power.diff_pair_width=0.16764"
+  ]
+ },
+ "tinkerforge-dual-relay-bricklet-dual-relay": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.24892"
+  ]
+ },
+ "intechstudio-grid-hardware-fp-pbf4-dj": {
+  "hard": false,
+  "why": [
+   "USB2.0.diff_pair_width=0.191516"
+  ]
+ },
+ "hatlabs-sh-esp32-hardware-sh-esp32-hat-proto": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.261112"
+  ]
+ },
+ "tinkerforge-accelerometer-bricklet-accelerometer": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "tinkerforge-ptc-bricklet-ptc": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "tinkerforge-io4-v2-bricklet-io4-v2": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.29972"
+  ]
+ },
+ "alxklso-isp-cubesat-mainboard": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.23495",
+   "Default.diff_pair_width=0.27178",
+   "50ohm.track_width=0.29337",
+   "50ohm.diff_pair_width=0.27178"
+  ]
+ },
+ "tinkerforge-load-cell-v2-bricklet-load-cell-v2": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.14986"
+  ]
+ },
+ "plane-watch-hardware-adsboost": {
+  "hard": false,
+  "why": [
+   "RF_50\u03a9.track_width=0.34544"
+  ]
+ },
+ "neggles-cfxsx-cfxsx": {
+  "hard": false,
+  "why": [
+   "JLC2313-84R-CLR.diff_pair_width=0.15635",
+   "JLC2313-84R-CLR.trace_width=0.15635",
+   "JLC2313-84R-PCIe.diff_pair_width=0.15635",
+   "JLC2313-84R-PCIe.trace_width=0.15635",
+   "JLC2313-90R-CLR.diff_pair_width=0.13422",
+   "JLC2313-90R-CLR.trace_width=0.13422",
+   "JLC2313-90R-RefClk.diff_pair_width=0.13422",
+   "JLC2313-90R-RefClk.trace_width=0.13422"
+  ]
+ },
+ "peetz0r-why2025-badge-hardware-badgecarriercard": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.179578",
+   "Power.diff_pair_width=0.179578",
+   "Power_High_A.diff_pair_width=0.179578"
+  ]
+ },
+ "netlist-studio-dut-hub-hw-dut-hub": {
+  "hard": false,
+  "why": [
+   "RS485.diff_pair_width=0.205232"
+  ]
+ },
+ "tinkerforge-voltage-current-v2-bricklet-voltage-current-v2": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "system76-thelio-io-hardware-thelio-io": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.131318",
+   "+12V.diff_pair_width=0.131318"
+  ]
+ },
+ "tinkerforge-industrial-digital-out-4-bricklet-industrial-digital-out-4": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "dpicken-atari-hw-gtia-interposer": {
+  "hard": false,
+  "why": [
+   "USB_D.track_width=0.20574"
+  ]
+ },
+ "benvonhandorf-minstro-minstro-combined-board": {
+  "hard": false,
+  "why": [
+   "50ohm.track_width=0.34925"
+  ]
+ },
+ "yamanseyravan-undercontrol-hardware-design-undercontrol-v6": {
+  "hard": false,
+  "why": [
+   "50OHM.track_width=0.29337",
+   "Diff Data.diff_pair_width=0.26111"
+  ]
+ },
+ "openshock-hardware-core-v2": {
+  "hard": false,
+  "why": [
+   "50OHM.track_width=0.719836",
+   "USB_D.track_width=0.24511",
+   "USB_D.diff_pair_width=0.24511"
+  ]
+ },
+ "tinkerforge-io16-bricklet-io16": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.24892"
+  ]
+ },
+ "anthony-bernaert-ftdi-jtag-programmer-jtagprogrammer": {
+  "hard": false,
+  "why": [
+   "USB_DIFF_PAIR.diff_pair_width=0.158242"
+  ]
+ },
+ "tobycm-skibidi-usb-c-hub-skibidi-usb-c-hub": {
+  "hard": false,
+  "why": [
+   "USB 2.0.track_width=0.255524",
+   "USB 2.0.diff_pair_width=0.255524"
+  ]
+ },
+ "hatlabs-sh-esp32-hardware-sh-esp32-blank": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.261112"
+  ]
+ },
+ "tinkerforge-analog-out-v2-bricklet-analog-out-v2": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "sini6a-internet-radio-speaker-internet-radio-speaker": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.242062"
+  ]
+ },
+ "atulravi-picuno-v3": {
+  "hard": false,
+  "why": [
+   "USB .track_width=0.349504"
+  ]
+ },
+ "tinkerforge-remote-switch-v2-bricklet-remote-switch-v2": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.29972"
+  ]
+ },
+ "nvntlabs-switch2-sdex2m2-sdex2m2-microsd-express-to-sd-express-adapter": {
+  "hard": false,
+  "why": [
+   "PCIe.diff_pair_width=0.205232"
+  ]
+ },
+ "tinkerforge-tilt-bricklet-tilt": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "dpicken-atari-hw-pokey-interposer": {
+  "hard": false,
+  "why": [
+   "USB_D.track_width=0.20574"
+  ]
+ },
+ "tinkerforge-industrial-digital-out-4-v2-bricklet-industrial-digital-out-4-v2": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.14986"
+  ]
+ },
+ "nvntlabs-switch2-sdex2m2-microsd-express-sniffer": {
+  "hard": false,
+  "why": [
+   "PCIe.diff_pair_width=0.205232"
+  ]
+ },
+ "tinkerforge-distance-ir-bricklet-distance-ir": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "salicylic-acid3-pcb-data-j67g": {
+  "hard": false,
+  "why": [
+   "USB.track_width=0.261112",
+   "USB.diff_pair_width=0.261112"
+  ]
+ },
+ "tinkerforge-voltage-current-bricklet-voltage-current": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "tinkerforge-outdoor-weather-bricklet-outdoor-weather": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "4ms-qplfo-v22-qplfo-v22": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.18034"
+  ]
+ },
+ "tinkerforge-industrial-digital-in-4-bricklet-industrial-digital-in-4": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "bitfieldaudio-otto-hardware-otto-beta-aux": {
+  "hard": false,
+  "why": [
+   "USB.track_width=0.261112",
+   "USB.diff_pair_width=0.261112",
+   "USB.diff_pair_width=0.261112",
+   "USB.trace_width=0.261112"
+  ]
+ },
+ "tinkerforge-analog-out-v3-bricklet-analog-out-v3": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "tinkerforge-thermocouple-bricklet-thermocouple": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "atrivatech-munico-bb-adaptor-v1": {
+  "hard": false,
+  "why": [
+   "USB .track_width=0.349504"
+  ]
+ },
+ "tinkerforge-wifi-v2-extension-wifi-extension": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.20066"
+  ]
+ },
+ "intechstudio-grid-hardware-fp-tek2-hack": {
+  "hard": false,
+  "why": [
+   "USB2.0.diff_pair_width=0.191516"
+  ]
+ },
+ "pinguinoide-pinguino-cad-pinguino26j50": {
+  "hard": false,
+  "why": [
+   "imprelec.trace_width=0.50038",
+   "regis.trace_width=1.00076"
+  ]
+ },
+ "greatscottgadgets-misc-rf-switch-spdt": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.36576"
+  ]
+ },
+ "matgla-mspc-mainboard": {
+  "hard": false,
+  "why": [
+   "Signal 50Ohm.track_width=0.155448",
+   "USB 90Ohm.track_width=0.155448",
+   "USB 90Ohm.diff_pair_width=0.155448"
+  ]
+ },
+ "hatlabs-sh-wg-hardware-sh-wg": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.261112"
+  ]
+ },
+ "russeree-nyan-keys-hardware-project": {
+  "hard": false,
+  "why": [
+   "D+.track_width=1.00584",
+   "D+.diff_pair_width=1.00584"
+  ]
+ },
+ "tobycm-skibidi-thinkbook-14-hub-skibidi-thinkbook-14-hub": {
+  "hard": false,
+  "why": [
+   "Ethernet.track_width=0.116078",
+   "Ethernet.diff_pair_width=0.116078",
+   "USB 2.0.track_width=0.170434",
+   "USB 2.0.diff_pair_width=0.170434",
+   "USB 3.0.track_width=0.170434",
+   "USB 3.0.diff_pair_width=0.170434"
+  ]
+ },
+ "greatscottgadgets-misc-rf-switch-sp4t": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.36576"
+  ]
+ },
+ "tobycm-smol-audio-pad-smol-audio-pad": {
+  "hard": false,
+  "why": [
+   "USB 2.0.track_width=0.211074",
+   "USB 2.0.diff_pair_width=0.211074"
+  ]
+ },
+ "johnnygox17-4ch-rf-fe-4ch-rf-fe-kicad": {
+  "hard": false,
+  "why": [
+   "50Ohm_SE_microstrip.trace_width=0.35052",
+   "50Ohm_SE_stripline.trace_width=0.30734"
+  ]
+ },
+ "tinkerforge-linear-poti-bricklet-linear-poti": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "larus-breeze-hw-sensor-vario": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.261112"
+  ]
+ },
+ "nvntlabs-switch2-sdex2m2-sdex2m2-m-2-nvme-ssd-breakout-board": {
+  "hard": false,
+  "why": [
+   "PCIe.diff_pair_width=0.205232"
+  ]
+ },
+ "nvntlabs-switch2-sdex2m2-sdex2m2-breakout-board": {
+  "hard": false,
+  "why": [
+   "PCIe.diff_pair_width=0.205232"
+  ]
+ },
+ "desertshedstudio-dss-ssr4e-dss-ssr4e": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.19812"
+  ]
+ },
+ "tinkerforge-io16-v2-bricklet-io16-v2": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.24892"
+  ]
+ },
+ "tinkerforge-motion-detector-bricklet-motion-detector": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "tinkerforge-industrial-dual-ac-relay-bricklet-industrial-dual-ac-relay": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.14986"
+  ]
+ },
+ "bitfieldaudio-otto-hardware-otto-beta-main": {
+  "hard": false,
+  "why": [
+   "USB.track_width=0.261112",
+   "USB.diff_pair_width=0.261112"
+  ]
+ },
+ "pycubed-hardware-batteryboard": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.27178",
+   "Default.trace_width=0.27178"
+  ]
+ },
+ "hdlguy-kicad-zmod": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.19558"
+  ]
+ },
+ "tinkerforge-laser-range-finder-bricklet-laser-range-finder": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.24892"
+  ]
+ },
+ "charlieh0tel-ee-stuff-ddf-big-array-antsw": {
+  "hard": false,
+  "why": [
+   "50Z.track_width=0.29337"
+  ]
+ },
+ "spyopensource-esp32-pcb-solar": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.14986",
+   "Power.track_width=2.49936",
+   "big via.track_width=0.14986"
+  ]
+ },
+ "tobycm-skibidi-usb-audio-dongle-skibidi-usb-audio-dongle": {
+  "hard": false,
+  "why": [
+   "USB 2.0.track_width=0.255524",
+   "USB 2.0.diff_pair_width=0.255524"
+  ]
+ },
+ "tobycm-skibidi-usb-charger-hub-skibidi-usb-charger-hub": {
+  "hard": false,
+  "why": [
+   "USB 2.0.track_width=0.211074",
+   "USB 2.0.diff_pair_width=0.211074"
+  ]
+ },
+ "tinkerforge-motion-detector-v2-bricklet-motion-detector-v2": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "alxklso-isp-cubesat-batteryboard": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.27178",
+   "Default.diff_pair_width=0.27178"
+  ]
+ },
+ "regymm-pcie-dma-ddr3-accelerator-tentalab": {
+  "hard": false,
+  "why": [
+   "PCIe.diff_pair_width=0.201168",
+   "USB3.diff_pair_width=0.167132"
+  ]
+ },
+ "tinkerforge-industrial-dual-relay-bricklet-industrial-dual-relay": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.24892"
+  ]
+ },
+ "fedekau-butia-i2c-sensor-ir": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.80264"
+  ]
+ },
+ "intechstudio-grid-hardware-fp-ef44": {
+  "hard": false,
+  "why": [
+   "USB2.0.diff_pair_width=0.191516"
+  ]
+ },
+ "hatlabs-sh-esp32-hardware-sh-esp32": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.261112"
+  ]
+ },
+ "icl-rocketry-ricardo-ricardoclassic-mainboard": {
+  "hard": false,
+  "why": [
+   "rf1.track_width=0.33559",
+   "rf1.trace_width=0.33559"
+  ]
+ },
+ "tinkerforge-industrial-dual-0-20ma-bricklet-industrial-dual-0-20ma": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "pycubed-hardware-mainboard": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.27178",
+   "Default.trace_width=0.23495",
+   "50ohm.diff_pair_width=0.27178",
+   "50ohm.trace_width=0.29337"
+  ]
+ },
+ "tinkerforge-segment-display-4x7-bricklet-segment-display-4x7": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "acliad-nifty-numpad-nifty-numpad": {
+  "hard": false,
+  "why": [
+   "90Ohm Diff.track_width=0.242824",
+   "90Ohm Diff.diff_pair_width=0.242824"
+  ]
+ },
+ "tobycm-pr-clock-pr-clock": {
+  "hard": false,
+  "why": [
+   "USB 2.0.track_width=0.255524",
+   "USB 2.0.diff_pair_width=0.255524"
+  ]
+ },
+ "ckoern-sojournerst-hardware-sojournerst": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.175006"
+  ]
+ },
+ "tobycm-the-usb-c-audio-dongle-the-usb-c-audio-dongle": {
+  "hard": false,
+  "why": [
+   "USB 2.0.track_width=0.149352",
+   "USB 2.0.diff_pair_width=0.149352"
+  ]
+ },
+ "tinkerforge-piezo-speaker-bricklet-piezo-speaker": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "cnes-argos-demo-board-argos-demo": {
+  "hard": false,
+  "why": [
+   "50\u03a9.track_width=0.342392",
+   "90\u03a9.track_width=0.267208",
+   "90\u03a9.diff_pair_width=0.267208"
+  ]
+ },
+ "fifty-nine-wavegen-rev3": {
+  "hard": false,
+  "why": [
+   "50ohm.trace_width=0.36195"
+  ]
+ },
+ "nvntlabs-switch2-sdex2m2-microsd-express-to-fpc": {
+  "hard": false,
+  "why": [
+   "PCIe.diff_pair_width=0.205232"
+  ]
+ },
+ "tinkerforge-industrial-quad-relay-v2-bricklet-industrial-quad-relay-v2": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.14986"
+  ]
+ },
+ "intechstudio-grid-hardware-fp-tek2-classic": {
+  "hard": false,
+  "why": [
+   "USB2.0.diff_pair_width=0.191516"
+  ]
+ },
+ "adrienkohlbecker-bb816-breakout": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.146812"
+  ]
+ },
+ "wifixcort-relay-mod-relay-mod": {
+  "hard": false,
+  "why": [
+   "pwr.trace_width=2.88774"
+  ]
+ },
+ "tinkerforge-rotary-encoder-v2-bricklet-rotary-encoder-v2": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.29972"
+  ]
+ },
+ "tinkerforge-ptc-v2-bricklet-ptc-v2": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "greatscottgadgets-misc-leds": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.36576"
+  ]
+ },
+ "tinkerforge-load-cell-bricklet-load-cell": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.14986"
+  ]
+ },
+ "giorossi91-livello-serbatoio-livello-serbatoio-definitiva-2": {
+  "hard": false,
+  "why": [
+   "USB.diff_pair_width=0.20584"
+  ]
+ },
+ "karlcswanson-catpatch-tscsnakedi": {
+  "hard": false,
+  "why": [
+   "Audio.trace_width=0.64008"
+  ]
+ },
+ "tinkerforge-solid-state-relay-bricklet-solid-state-relay": {
+  "hard": false,
+  "why": [
+   "Default.trace_width=0.29972"
+  ]
+ },
+ "bluepylons-open-switch-curve-meter-adc-board-hx711": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.249936",
+   "Default.diff_pair_width=0.199898"
+  ]
+ },
+ "imseanconroy-macro-keyboard-1x2": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.16764",
+   "Power.diff_pair_width=0.16764"
+  ]
+ },
+ "artixzhang-rock-module-rock-screen": {
+  "hard": false,
+  "why": [
+   "MIPI.track_width=0.121666",
+   "MIPI.diff_pair_width=0.121666"
+  ]
+ },
+ "intechstudio-grid-hardware-fp-pbf4-classic": {
+  "hard": false,
+  "why": [
+   "USB2.0.diff_pair_width=0.191516"
+  ]
+ },
+ "controlpaths-hackbat-hackbat": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.13335",
+   "Power.diff_pair_width=0.13335"
+  ]
+ },
+ "intechstudio-grid-hardware-fp-vsn1-r": {
+  "hard": false,
+  "why": [
+   "USB2.0.diff_pair_width=0.191516"
+  ]
+ },
+ "hdlguy-kicad-custom-carrier": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.19558"
+  ]
+ },
+ "greatscottgadgets-misc-rf-switch-sp3t": {
+  "hard": false,
+  "why": [
+   "Default.track_width=0.36576"
+  ]
+ },
+ "openflexure-sangaboard-sangaboard-rp2040-alt-sangaboard": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.218186"
+  ]
+ },
+ "connaxio-espoir-espoir": {
+  "hard": false,
+  "why": [
+   "dPair_90.track_width=0.131318",
+   "dPair_90.diff_pair_width=0.131318"
+  ]
+ },
+ "polpo-picogus-picogus-chipdown": {
+  "hard": false,
+  "why": [
+   "Default.diff_pair_width=0.267208",
+   "USB.track_width=0.267208",
+   "USB.diff_pair_width=0.267208"
+  ]
+ }
+}

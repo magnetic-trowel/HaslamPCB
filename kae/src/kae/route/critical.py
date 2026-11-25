@@ -57,6 +57,13 @@ DEFAULTS = dict(
     chain_tail=False,      # also route (and lock) a chain's hops after the protector (no surge physics)
     rail_light=False,      # also route rail branches that only need the class width (no drop physics)
     trim_tol=0.05,         # loop hops narrowed to the narrowest width within this of the wide loop (0: off)
+    cell_price="L",        # what a commutation cell's copper is priced by: "L" (loop nH) or "W" (loss.loop +
+                           # loss.loop_ac at the cell's I, f_sw, D: critical_modules.cell_operating; trim_tol,
+                           # return vias and pad entries then judge watts, so R counts; kae-hot-loops R2)
+    cell_via_array=False,  # return-via arrays at the cell's ground terminals (critical_modules._via_array, R4)
+    via_array_max=8,       # with cell_via_array: vias per ground terminal at most
+    cell_widest_fit=False, # a cell hop with no room at its IPC / intent width: the widest that fits, down to the
+                           # class minimum, instead of leaving it to the bridge at the class width (kae.route.hotloop)
     complete_mm=8.0,       # join a critical net's pads within this distance of its critical copper (benchmark
                            # run crit-v3: A+B cp1 0.636 with joins vs 0.515 without; oasis 9 -> 1 unconnected)
     island_mm=20.0,        # and its islands of critical copper to each other within this distance
@@ -212,7 +219,7 @@ class Session:
         from .critical_modules import Module
         with tempfile.TemporaryDirectory(prefix="kae-spokes-") as d:
             staged = drc.stage_board(self.path, self.path, Path(d))
-            rep = drc.run(staged, Path(d) / "drc.json", timeout=600)
+            rep = drc.run(staged, Path(d) / "drc.json")
             starved = [v for v in drc.errors(rep) if v.get("type") == "starved_thermal"]
             if not starved:
                 return []
@@ -396,7 +403,7 @@ class Session:
         self.tightened = tighten(self, fills=fills, opts=opts, log=self.log)
         return self.tightened
 
-    def tighten_gate(self, workdir, rounds=3, timeout=900):
+    def tighten_gate(self, workdir, rounds=3, timeout=None):
         """KiCad's DRC on the tightened copper (the stage boundary's gate, routing-stages.md
         P5): every error that names tightened copper restores that copper's groups
         (critical_taut's refuse, which settles the physics guard again); repeated while
@@ -756,19 +763,59 @@ def soft_critical(s, slack=0.10):
     modules' u) at most `slack` of the incumbent's total worse per connection gained)."""
     tracks, vias = s.copper()
     uuids = sorted({t.uuid for t in tracks} | {v.uuid for v in vias})
+    return dict(soft_fixed=uuids, physics_guard=_physics_guard(lambda: (s.brief, s.terms), slack))
 
+
+def soft_marked(board_path, uuids, slack=0.10):
+    """Bridge options for the soft copper a board carries itself (critical_write.soft_uuid: the
+    locked copper kae.em.pnr --lock lays): `soft_fixed` = `uuids`, and soft_critical's
+    `physics_guard`, priced with the brief and place terms of `board_path` (built once, when the
+    last mile first re-lays soft copper). Freerouting still routes around that copper; only the
+    last mile's last tier may rip it, and its board is kept only when routed physics holds."""
+    ctx = {}
+
+    def brief_terms():
+        if not ctx:
+            from kae.circuit.brief import build
+            from .critical_modules import place_terms
+            b = load(board_path)
+            ctx["brief"] = build(b)
+            ctx["terms"] = place_terms(b, ctx["brief"])
+        return ctx["brief"], ctx["terms"]
+    return dict(soft_fixed=sorted(uuids), physics_guard=_physics_guard(brief_terms, slack))
+
+
+def _physics_guard(brief_terms, slack):
+    """guard(before, before_summary, after, after_summary) -> (keep, why): kae.joint.scorecard.
+    physics_guard on the two boards' routed physics (critical_recheck.board_physics, the modules'
+    u), with the (brief, place terms) that `brief_terms()` returns."""
     def card(board, summary):
         from kae.joint.scorecard import Scorecard
         from .critical_recheck import board_physics
-        ph = board_physics(board, brief=s.brief, terms=s.terms)
+        brief, terms = brief_terms()
+        ph = board_physics(board, brief=brief, terms=terms)
         c = Scorecard(unconnected=summary["unconnected"], errors=summary["errors"])
         c.modules = {k: v.get("u") for k, v in ph.items() if not k.startswith("_") and isinstance(v, dict)}
+        c.open_hops = {k: v.get("open_hops") for k, v in ph.items() if not k.startswith("_") and isinstance(v, dict)}
         return c
 
     def guard(before, before_summary, after, after_summary):
         from kae.joint.scorecard import physics_guard
-        return physics_guard(card(before, before_summary), card(after, after_summary), phys_slack=slack)
-    return dict(soft_fixed=uuids, physics_guard=guard)
+        c0, c1 = card(before, before_summary), card(after, after_summary)
+        opened = loops_opened(c0.open_hops, c1.open_hops)
+        if opened:
+            # a module with a hop open is priced on the copper it has, so it reads cheaper than the
+            # closed loop it was: never a gain (ut8ifg ptt-usb-cable: the soft round cut the +5V decap
+            # loop open, u 2.79 -> 2.69 "better"; the next round closed it at u 5.39)
+            return False, f"priced loops opened ({', '.join(opened)})"
+        return physics_guard(c0, c1, phys_slack=slack)
+    return guard
+
+
+def loops_opened(before, after):
+    """Modules (ids) measured on both boards whose open hops rose (critical_recheck.board_physics'
+    `open_hops`; None counts as 0)."""
+    return sorted(k for k in set(before) & set(after) if (after[k] or 0) > (before[k] or 0))
 
 
 def write_joint(src, dst, poses, copper, hazards=None):

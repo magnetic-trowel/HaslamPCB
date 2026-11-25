@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 
 from . import values as V
 from .evidence import MODERATE, STRONG, WEAK, confidence, ev, softmax_pick
+from .mcu_pins import adc_channel
 from .netlist import Netlist, Part
 
 # =============================================================================== keyword tables
@@ -175,7 +176,8 @@ TEXT_RULES = [
                                    r'\bMOC\d{4}|\bGAQY|\bEL817|\bPS2501|\bVTL5C|\bLTV-?\d|\bSFH\d{3}|\bACPL|\bHCPL|\bVO\d{3,4}')),
     ('module', None, 3.0, rx(r'\bmodule\b|\bWROOM|\bWROVER|\bESP32-[A-Z0-9]+-MINI|\bMINI-1|\bESP-\d{2}|\bXIAO|\bRPi_Pico|^Pico\w*$|\bArduino|'
                               r'\bWeMos|\bDevKit|breakout|\bXBEE|\bXB24|\bNORA-|\bBL54L|\bRFM9\d|\bSIM\d{3,4}|\bProMicro|\bRP2040-Zero|'
-                              r'\bDFPlayer|\bMini360|\bSC14CVMDECT|\bmikoto|\bSAMD21_breakout|SUPERMINI|\bHC-0\d|\bnRF52\d{2}-\w*module')),
+                              r'\bDFPlayer|\bMini360|\bSC14CVMDECT|\bmikoto|\bSAMD21_breakout|SUPERMINI|\bHC-0\d|\bnRF52\d{2}-\w*module|'
+                              r'\bTeensy|\bDaisy.?Seed')),
     ('graphic', None, 2.5, rx(r'\blogo\b|\bOSHW\b|\bWEEE\b|\bROHS\b|\bkibuzzard|\bQRCode|\bgraphic|\bSign_|\bLONGTHING|\bart\b|\bCreative_Commons')),
     ('mechanical', None, 1.5, rx(r'\bMECHANICAL\b|\bPCM_kikit:Board|\bpanel|\bmouse.?bite|\bcutout')),
 ]
@@ -221,7 +223,7 @@ LIB_RULES = [
     ('potentiometer', 3.0, rx(0, r'Potentiometer|TRIM_|Trimmer|RV2X4')),
     ('optocoupler', 2.5, rx(0, r'OptoDevice|Opto')),
     ('module', 3.5, rx(0, r'(^|:)Module|RF_Module|ESP32-|WROOM|XIAO|RPi_Pico|Arduino|WeMos|DevKit|Breakout|XBEE|NORA-|RFM9\d|BL54L|SC14CVMDECT|'
-                       r'ProMicro|RP2040.Zero|DFPlayer|Mini360|SUPERMINI|wemos|nice_nano|nano_|_nano|xiao')),
+                       r'ProMicro|RP2040.Zero|DFPlayer|Mini360|SUPERMINI|wemos|nice_nano|nano_|_nano|xiao|Teensy|Daisy.?Seed')),
     ('graphic', 3.0, rx(0, r'Logo|LOGO|logo|(^|:)Symbol|kibuzzard|Graphic|GRAPHIC|OSHW|oshw|QRCode|Sign_|Panelization|w_logo|Aesthetic|LONGTHING|bongo|Bongo')),
     ('mechanical', 2.0, rx(0, r'(^|:)Board$|kikit|MECHANICAL|Mechanical|mikoto|Cutout|PanelHole|Mech_')),
 ]
@@ -551,6 +553,35 @@ class Roles:
 
 
 # =============================================================================== helpers
+# radios and GNSS receivers by part number, value, library or footprint name (a part that transmits or receives
+# over the air: the board's EMI priority, intent-driven-objectives.md "standing priorities"); first match wins
+RADIO_RULES = [
+    ('gnss', rx(r'\bNEO-?[5-9M]\w*|\bMAX-?M\d|\bMAX-[678]|\bZOE-?M\d|\b[SC]AM-?M\d|\bu-?blox.?(M8|M9|M10|NEO|MAX)|\bL(26|76|80|86|89)\b|'
+                r'\bLC76|\bLC86|\bMT333\d|\bATGM33\d|\bORG14\d\d|\bSIM(28|33|68)\w*|\bA2235|\bFGPMMOPA|\bPA6[CH]|\bVenus6\d\d|'
+                r'\bTESEO|\bSL869|\bGNSS|\bGPS(?!IO|DO)')),
+    ('cellular', rx(r'\bSIM(800|808|868|900|7\d{3}|5\d{3})\w*|\bQuectel|\bBG9[56]|\bEG9[15]|\bEC2[015]\b|\bM95\b|\bUC20|\bSARA-|'
+                    r'\bLARA-|\bTOBY-|\bnRF91|\bLTE.?(M|CAT)')),
+    ('subghz', rx(r'\bSX12\d\d|\bSX127\d|\bSX126\d|\bLR11\d\d|\bRFM[69]\d|\bCC1101|\bCC11\d\d|\bCC12\d\d|\bSi44\d\d|\bLoRa|'
+                  r'\bRAK\d{4}|\bE(22|32)-|\bRN2[49]03|\bnRF24|\bAT86RF|\bXBEE|\bXB24|\bA7105|\bSC14CVMDECT|\bDECT\b|\bRFX\d{4}')),
+    ('wifi_bt', rx(r'\bESP32(?!-P4)|\bESP8266|\bESP-\d\d|\bESP-WROOM|\bWROOM|\bWROVER|\bnRF5[1-4]|\bCC2[56]\d\d|\bCC13\d\d|'
+                   r'\bCC2[45]\d\d|\bEFR32|\bBGM\d|\bMGM\d|\bBL6\d\d|\bBL54L|\bHC-0[56]|\bRN4[0-9]\d\d|\bBM7\d|\bCYW43|\bATWINC|'
+                   r'\bWINC15|\bRTL87\d\d|\bW600|\bPico.?W\b|\bDA1458\d|\bNORA-|\bANNA-|\bBLE\b|\bBluetooth|\bWi-?Fi\b|\bSTM32WB|\bSTM32WL')),
+]
+RADIO_SUB = ('rf',)       # an IC subtype that is a radio whatever its part number (kae.circuit.roles IC_RULES)
+
+
+def radio_kind(text: str, kind: str | None = None, subtype: str | None = None) -> str | None:
+    """'gnss', 'cellular', 'subghz', 'wifi_bt' or 'rf' for a radio or GNSS part (its value, library and footprint
+    text), else None. Only active parts (ICs and modules) count: an antenna or an RF connector is the radio's
+    load, not a radio."""
+    if kind not in ('ic', 'module', 'unknown', None):
+        return None
+    for k, pat in RADIO_RULES:
+        if pat.search(text or ''):
+            return k
+    return 'rf' if subtype in RADIO_SUB else None
+
+
 def _text(part: Part) -> str:
     return part.text()
 
@@ -813,8 +844,35 @@ def infer_roles(nl: Netlist) -> Roles:
     _rail_sources(nl, roles)
     _pairs(nl, roles)
     _signal_roles(nl, roles)
+    _edge_roles(nl, roles)
     _part_roles(nl, roles)
     return roles
+
+
+EDGE_ROLES = ('signal', 'clock', 'high_speed', 'reset', 'boot', 'analog', 'rf')
+
+
+def _edge_roles(nl: Netlist, roles: Roles):
+    """'Is this net fast?' as a computation (docs/topics/llm/net-role-classification.md, kae.circuit.edges): every
+    signal net gets its driver's edge in attrs['edge']; a plain signal net whose driver's edge would ring on an
+    unterminated route this board is long enough for (t_r/2 shorter than the outline's w + h) becomes high_speed
+    ('fast_edge'), so placement keeps it short and power copper keeps away from it. A slow driver on a big board,
+    or any driver on a board too small to ring, leaves the net as it is."""
+    from . import edges as E
+    t_pd = E.board_t_pd(nl)
+    for net, nr in roles.nets.items():
+        if nr.role not in EDGE_ROLES:
+            continue
+        d = E.net_edge(nl, roles, net, t_pd)
+        nr.attrs['edge'] = d
+        if nr.role == 'signal' and d.get('can_ring'):
+            why = ev('derived', f"driver {d['driver']} ({d['family']}, t_r {d['t_r_ns']:g} ns{', assumed' if d['assumed'] else ''}): "
+                                f"an unterminated route over {d['terminate_mm']:.0f} mm rings (t_r/2), and this board spans "
+                                f"{d['board_span_mm']:.0f} mm (w + h)", MODERATE)
+            evs = [why] + [e for e in nr.evidence if e.kind != 'derived']
+            c = confidence(evs, -0.5)
+            nr.tags = dict(nr.tags or {}, signal=round(nr.confidence, 3))
+            nr.role, nr.subrole, nr.confidence, nr.evidence = 'high_speed', 'fast_edge', c, evs
 
 
 # ------------------------------------------------------------------------------- grounds
@@ -2040,12 +2098,20 @@ def _signal_roles(nl: Netlist, roles: Roles):
         # a converter's or charger's programming pin (LTC4054 PROG: its voltage reads the charge current; ISET, ILIM, RSET
         # take a resistor that sets a current): an analog node, not the MCU boot pin of the same name
         prog = [p for p in pins if PROG_PIN.match(p.fn) and roles.parts[p.ref].kind == 'ic' and roles.parts[p.ref].subtype in PROG_SUBS]
+        # an MCU pin whose symbol names only its GPIO ('IO35' on an ESP32) but that the vendor's pin table lists as an ADC
+        # input (kae.circuit.mcu_pins): the same weight as a named analog alternate, so an analog name on it (ADC_BAT)
+        # has the second fact, and the pin alone (IO32 as I2C) does not make a net analog
+        adc = [(p, ch) for p in pins if roles.parts[p.ref].kind in ('ic', 'module') and roles.parts[p.ref].subtype not in no_ana
+               for ch in [adc_channel(nl.parts[p.ref].text(), p.fn)] if ch]
         if ap:
             evs.append(ev('pinfunction', f"analog pin {ap[0].label}", MODERATE))
         elif prog:
             evs.append(ev('pinfunction', f"current-setting pin {prog[0].label} of {roles.parts[prog[0].ref].subtype} {prog[0].ref}", MODERATE))
         elif alt:
             evs.append(ev('pinfunction', f"pin with an analog alternate function {alt[0].label}", WEAK))
+        elif adc:
+            (p, (ch, src)), = adc[:1]
+            evs.append(ev('table', f"{p.label} of {nl.parts[p.ref].value} is ADC input {ch} ({src.split(' http')[0]})", WEAK))
         if net in opamp_in:
             ref, p = opamp_in[net]
             evs.append(ev('topology', f"input of {roles.parts[ref].subtype} {ref} ({p.label})", STRONG))
@@ -2127,8 +2193,12 @@ def _signal_roles(nl: Netlist, roles: Roles):
 # 2020: a 10 uF and a 0.1 uF MLCC in one body have "exactly the same high frequency impedance"; Archambeault 2009:
 # 0402 < 0603 < 0805 connection inductance at every via depth); larger bodies, through-hole and unknown packages
 # fall back to the value classes. 'value': the value classes alone (<= 1 uF HF, >= 4.7 uF bulk), as before.
+# 0805 is in: at equal mounting it costs 0.3 nH over an 0402 (Archambeault's 10 mil row: 1.2 vs 0.9 nH), less than a
+# 50 mil pad-to-via trace adds (+0.5 nH) or 10 mil more via depth; KYOCERA AVX measures 0.1 uF at 0.87 / 1.05 / 1.20 nH
+# for 0603 / 0805 / 1206 with ESL independent of value within +-10 %; AMD UG483 calls its 4.7 uF 0805 the "PCB
+# high-frequency" capacitor (ESL <= 0.5 nH, Table 2-5). 1206 and larger stay with the value classes.
 CAP_CLASS = 'package'
-HF_CHIP_SIZES = ('01005', '0201', '0402', '0603')
+HF_CHIP_SIZES = ('01005', '0201', '0402', '0603', '0805')
 
 
 def cap_class(part: Part, mode: str | None = None) -> tuple[str, float | None, list]:

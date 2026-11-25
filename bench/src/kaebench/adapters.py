@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import stopping, tools
+from .deadline import deadline_env
 from .boardfiles import (board_path, clamp_dsn_widths, copy_board, fix_dsn_unsized_vias, quote_ses_net_names,
                          ses_complete, strip_ses_placement, unblock_all_power_dsn)
 
@@ -193,7 +194,7 @@ class Freerouting(Adapter):
         passes = self.passes or self.PASS_SCHEDULE[attempt % len(self.PASS_SCHEDULE)]
         rule_args, dsn_fixes = self._apply_board_rules(input_dir, dsn)
         result = w / "result.json"
-        remaining = max(10.0, timeout - (time.monotonic() - t0))
+        remaining = deadline_env(None, max(10.0, timeout - (time.monotonic() - t0)))[1]
         # Freerouting's own deadline, inside ours: it then stops between items and still writes
         # what it has routed (it overran by 20-40 s in tests), so a board that runs out of time
         # is scored on its partial routing instead of returning nothing.
@@ -213,7 +214,8 @@ class Freerouting(Adapter):
         artifacts = [dsn, ses, result]
         rc, timed_out = None, False
         try:
-            r = tools.run_measured(cmd, timeout=remaining, cwd=w, env=env)
+            env, limit = deadline_env(env, remaining)
+            r = tools.run_measured(cmd, timeout=limit, cwd=w, env=env)
             log, rc = r.stdout + r.stderr, r.returncode
         except subprocess.TimeoutExpired as e:
             # On big boards Freerouting often writes its session file at its own deadline and
@@ -316,7 +318,9 @@ class Command(Adapter):
         argv = self.sandbox.wrap(["sh", "-c", cmd], w)
         try:
             # method.log: its output as it comes, so a killed job leaves it; restart.py's progress lines go to stdout
-            r = tools.run_measured(stopping.tee_argv(argv, w / "method.log"), timeout=timeout, cwd=w)
+            # {timeout} stays the method's budget; the kill and the method's KAE_DEADLINE obey the job's deadline
+            env, limit = deadline_env(None, timeout)
+            r = tools.run_measured(stopping.tee_argv(argv, w / "method.log"), timeout=limit, cwd=w, env=env)
             log = r.stdout + r.stderr
         except subprocess.TimeoutExpired as e:
             # Like Freerouting's partial session: what the method wrote by the deadline is its output

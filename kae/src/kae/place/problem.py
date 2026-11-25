@@ -558,6 +558,11 @@ class Obstacle:
     why: str
 
 
+def margin_for_util(util):
+    """The auto margin for a utilization: about 1 mm on an empty board, nothing above 70 %."""
+    return float(min(1.0, max(0.0, 2.0 * (0.7 - util))))
+
+
 class Problem:
     """Everything the seed, annealer and legalizer need, derived once from a Board."""
 
@@ -580,7 +585,8 @@ class Problem:
 
     # ------------------------------------------------------------------ construction
     @classmethod
-    def build(cls, board, grid=None, net_kinds=None, rotations=ROTS, held=(), angle_step=None, severity=None):
+    def build(cls, board, grid=None, net_kinds=None, rotations=ROTS, held=(), angle_step=None, severity=None,
+              part_rotations=None):
         """net_kinds: optional {net name: 'ground'|'power'|'signal'|role} (from the brief).
         held: footprint uuids kept where they are and left out of the nets (e.g. staged parts
         that carry Edge.Cuts, whose place on the board the task does not tell).
@@ -591,7 +597,9 @@ class Problem:
         everywhere), 'board' (the project's severities) or 'strict_then_level_c' (here the same
         as 'level_c'; the ladder is kae.place.pipeline.place's); None: the project's
         KAE_PLACE_SEVERITY text variable, else the KAE_PLACE_SEVERITY environment variable,
-        else PLACE_SEVERITY."""
+        else PLACE_SEVERITY.
+        part_rotations: {uuid: [angles]} the only rotations of those movable parts (an intent's orient
+        relation, kae.place.relations; no angle_step extras for them)."""
         P = cls()
         P.board = board
         P.held = set(held)
@@ -609,8 +617,9 @@ class Problem:
                     P._owned_keepouts.setdefault(ko.footprint, []).append(ko)
         P._domain(board, grid)
         name_to_net = P._nets(board, net_kinds)
+        own_rots = part_rotations or {}
         for i, fp in enumerate(board.footprints):
-            P.parts.append(P._part(i, fp, name_to_net, rotations))
+            P.parts.append(P._part(i, fp, name_to_net, own_rots.get(fp.uuid, rotations), own=fp.uuid in own_rots))
         P._fit_check()
         P._grid_shapes()
         P._fixed_obstacles(board)
@@ -804,7 +813,7 @@ class Problem:
             self.nets.append(net)
         return name_to_net
 
-    def _part(self, i, fp, name_to_net, rotations):
+    def _part(self, i, fp, name_to_net, rotations, own=False):
         s = transform.side_sign(fp.side)
         has_cy = bool(fp.courtyard)
         fcy, fcy_back = self._courtyards(fp)
@@ -949,14 +958,16 @@ class Problem:
                          own_pads_pieces=(pad_pieces + ([cut] if cut is not None else []) + ko_own) or [POINT])
         rots = list(rotations) if movable else [fp.rot]
         part.n_ortho = len(rots)
-        if movable and self.angle_step and not right_angles_only(fp):
+        if movable and self.angle_step and not own and not right_angles_only(fp):
             step = float(self.angle_step)
             rots += [a for a in np.arange(0.0, 360.0, step).tolist() if a % 90.0 > 1e-9]
         for rot in rots:
             part.rots.append(self._rot(part, rot, local, lib_board_full))
         part.turn, part.ring = _turn_tables([r.rot for r in part.rots])
+        # the rotation set too: equal parts swap poses by rotation index (an intent's orient relation
+        # can give one of them fewer rotations)
         part.shape_key = (fp.lib_id, fp.side, tuple(np.round(local.ravel(), 4)),
-                          tuple(round(v, 4) for v in lib_own))
+                          tuple(round(v, 4) for v in lib_own), tuple(round(r.rot, 4) for r in part.rots))
         return part
 
     def _courtyards(self, fp):
@@ -1211,12 +1222,12 @@ class Problem:
         """Routing room between movable parts, from how full the board is: about 1 mm on an
         empty board, nothing above 70% utilization (part rectangles are mutually exclusive
         inflated by half the margin each)."""
-        util = max(self.utilization())
-        return float(min(1.0, max(0.0, 2.0 * (0.7 - util))))
+        return margin_for_util(max(self.utilization()))
 
     def set_margin(self, m):
         """Grow every movable part's occupancy and board rectangles by m/2 on each side (0
         restores the exact rectangles): routing room between parts and towards the board edge.
+        A part in self.margin_cap ({part index: mm}) gets at most its cap.
         Parts with many pins get more (escape space: m * min(0.8, 0.1 sqrt(pins)) extra, so a
         32-pin QFN on an empty board keeps about 0.6 mm more around it than a resistor).
         Legality does not need any of it; routability does."""
@@ -1227,15 +1238,17 @@ class Problem:
         # far as the board's slack allows: Freerouting narrows tracks it squeezes in there
         r = self.board.rules
         track = (r.track_min if r and r.track_min else 0.2)
-        edge_room = min(1.0, m / 0.5) * (track + self.clr_min) if m > 0 else 0.0
+        cap = getattr(self, "margin_cap", None) or {}
         bands = getattr(self, "escape", {}) if getattr(self, "escape_on", False) else {}
         fan = getattr(self, "fanout", {}) if getattr(self, "escape_on", False) else {}
         for p in self.parts:
             if not p.movable:
                 continue
-            esc = m * min(0.8, 0.1 * math.sqrt(len(p.fp.pads))) if m > 0 else 0.0
-            k = (int(round((m + esc) / 2 / g)) if m > 0 else 0) + extra.get(p.i, 0)
-            kb = int(round((m / 2 + edge_room) / g)) if m > 0 else 0
+            mp = min(m, cap.get(p.i, m))      # a region's own room (kae.place.margin_gate.caps)
+            er = min(1.0, mp / 0.5) * (track + self.clr_min) if mp > 0 else 0.0
+            esc = mp * min(0.8, 0.1 * math.sqrt(len(p.fp.pads))) if mp > 0 else 0.0
+            k = (int(round((mp + esc) / 2 / g)) if mp > 0 else 0) + extra.get(p.i, 0)
+            kb = int(round((mp / 2 + er) / g)) if mp > 0 else 0
             for r in p.rots:
                 kl, kt, kr, kd = self._band_cells(p, r) if p.i in bands else (0, 0, 0, 0)
                 a, b, c, d = r.g_own_exact

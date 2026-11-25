@@ -171,7 +171,7 @@ def prior_of(brief, sid):
     if s is None or s.get("kind") != "commutation_cell":
         return None
     ex = s.get("excite") or {}
-    v = ex.get("V") or ((brief.get("nets") or {}).get(s.get("rail")) or {}).get("volts") or PR.V_IN_UNKNOWN.value
+    v, _ = PR.cell_v_in(ex, ((brief.get("nets") or {}).get(s.get("rail")) or {}).get("volts"))
     return PR.hot_loop_budget(s.get("class") or "unknown", v, t_sw_ns=ex.get("t_sw_ns"), v_abs=PR.budget_v_abs(ex)).value
 
 

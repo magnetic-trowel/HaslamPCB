@@ -170,12 +170,15 @@ def facing(fp, outline, pose=None):
     return (bx * ox + by * oy) / (nb * no)
 
 
-def pin_poses(P, st, parts, tol=EDGE_TOL, limit=3000, log=None):
+def pin_poses(P, st, parts, tol=EDGE_TOL, limit=3000, log=None, spec=None):
     """Edge poses for the movable parts `parts` (indices into P.parts) of a seed state `st`:
     for each, the grid-free spot nearest its seed position (clear of the fixed parts and of
     the parts pinned before it) whose courtyard is within `tol` of the outer edge and whose
-    body faces out (FACE_MIN, when the footprint shows a direction). Returns ({uuid: (x, y, rot,
-    side)}, {ref: why} for the parts with no such spot)."""
+    body faces out (FACE_MIN, when the footprint shows a direction). `spec`: {index: (edge lines
+    or None, facing, outward normal[, (x, y) target])} for parts an intent pins on a named edge
+    (kae.place.relations.edge_lines; None: any outer edge) facing 'out', 'along' (|cos| <= FACE_MIN)
+    or 'any'; with a target (another relation's pull on the part) the spot nearest it wins. Returns ({uuid: (x,
+    y, rot, side)}, {ref: why} for the parts with no such spot)."""
     from shapely.geometry import box
 
     from . import exact
@@ -193,20 +196,37 @@ def pin_poses(P, st, parts, tol=EDGE_TOL, limit=3000, log=None):
         S, pad = exact._tables(P, st, mov - pinned)
         n_ortho = getattr(p, "n_ortho", len(p.rots))
         cands = exact._candidates(P, st, i, S, pad, list(range(n_ortho)), 0.0, limit)
-        cands.sort(key=lambda c: c[0])
+        lines, face, normal = (spec or {}).get(i, (None, "out", None))[:3]
+        toward = (spec or {}).get(i, (None, None, None, None))[3:4]
+        toward = toward[0] if toward else None
+        if toward is not None:
+            # another relation pulls this part (a label beside it, a region): the edge spot nearest that
+            # target, not the seed position
+            tx, ty = toward
+            cands.sort(key=lambda c: (lambda q: abs(q[0] - tx) + abs(q[1] - ty))(P.xy(c[1], c[2])))
+        else:
+            cands.sort(key=lambda c: c[0])
         hit = None
         for _, X, Y, k in cands:
             x, y = P.xy(X, Y)
             r = p.rots[k]
             x0, y0, x1, y1 = r.own
             bb = box(x + x0, y + y0, x + x1, y + y1)
-            if min(pp.exterior.distance(bb) for pp in ext_parts) > tol + 0.5:
-                continue
-            pose = (float(x), float(y), r.rot, p.side)
-            if distance(p.fp, outline, pose) > tol:
-                continue
-            f = facing(p.fp, outline, pose)
-            if f is not None and f < FACE_MIN:
+            if lines is not None:
+                if lines.distance(bb) > tol + 0.5:
+                    continue
+                pose = (float(x), float(y), r.rot, p.side)
+                if _courtyard(p.fp, pose).distance(lines) > tol:
+                    continue
+                f = _facing_dir(p.fp, pose, normal)
+            else:
+                if min(pp.exterior.distance(bb) for pp in ext_parts) > tol + 0.5:
+                    continue
+                pose = (float(x), float(y), r.rot, p.side)
+                if distance(p.fp, outline, pose) > tol:
+                    continue
+                f = facing(p.fp, outline, pose)
+            if f is not None and ((face == "out" and f < FACE_MIN) or (face == "along" and abs(f) > FACE_MIN)):
                 continue
             hit = (X, Y, k, pose)
             break
@@ -221,18 +241,73 @@ def pin_poses(P, st, parts, tol=EDGE_TOL, limit=3000, log=None):
     return poses, failed
 
 
-def with_poses(board, poses):
-    """A copy of the board model with footprints moved to `poses` ({uuid: (x, y, rot, side)};
-    the side must be the footprint's own) and marked on the board."""
-    import dataclasses
+def _courtyard(fp, pose):
+    from shapely.geometry import box as _box
+    from shapely.ops import unary_union
 
     from kae.board import transform
-    fps = []
+    cy = transform.courtyard(fp, *pose, which="extent")
+    if cy:
+        return unary_union(cy)
+    xy = transform.fp_pads_xy(fp, *pose)
+    return _box(float(xy[:, 0].min()), float(xy[:, 1].min()), float(xy[:, 0].max()), float(xy[:, 1].max()))
+
+
+def _facing_dir(fp, pose, normal):
+    """cos between the part's body direction (pads -> courtyard centroid) and an outward normal."""
+    import math
+
+    from shapely.ops import unary_union
+
+    from kae.board import transform
+    cy = transform.courtyard(fp, *pose, which="extent")
+    if not cy or not fp.pads:
+        return None
+    c = unary_union(cy).centroid
+    xy = transform.fp_pads_xy(fp, *pose)
+    bx, by = c.x - float(xy[:, 0].mean()), c.y - float(xy[:, 1].mean())
+    nb = math.hypot(bx, by)
+    if nb < 0.3:
+        return None
+    return (bx * normal[0] + by * normal[1]) / nb
+
+
+def with_poses(board, poses):
+    """A copy of the board model with footprints moved to `poses` ({uuid: (x, y, rot, side)};
+    the side must be the footprint's own) and marked on the board. Rule areas and zones the
+    footprint owns move with it: they are in board coordinates, and a pinned module whose antenna
+    keepout stayed at its staged pose let the placer put other parts into it (relations-p1-ab)."""
+    import dataclasses
+
+    from shapely import ops as sops
+
+    from kae.board import transform
+    fps, old = [], {}
     for fp in board.footprints:
         if fp.uuid in poses:
             x, y, rot, side = poses[fp.uuid]
+            old[fp.uuid] = ((fp.x, fp.y, fp.rot, fp.side), (x, y, rot, side))
             pads = [dataclasses.replace(pd, **dict(zip(("x", "y"), map(float, transform.pad_xy(fp, pd, x, y, rot, side)))))
                     for pd in fp.pads]
             fp = dataclasses.replace(fp, x=x, y=y, rot=rot, pads=pads, on_board=True)
         fps.append(fp)
-    return dataclasses.replace(board, footprints=fps)
+
+    def moved(items):
+        out = []
+        for it in items or []:
+            if getattr(it, "footprint", "") in old and getattr(it, "outline", None) is not None:
+                a, b = old[it.footprint]
+
+                def f(px, py, a=a, b=b):
+                    lx, ly = transform.to_local(px, py, *a)
+                    return transform.to_board(lx, ly, *b)
+                it = dataclasses.replace(it, outline=sops.transform(lambda xs, ys, z=None: tuple(
+                    zip(*[f(px, py) for px, py in zip(xs, ys)])), it.outline))
+            out.append(it)
+        return out
+    extra = {}
+    if old and getattr(board, "keepouts", None):
+        extra["keepouts"] = moved(board.keepouts)
+    if old and getattr(board, "zones", None):
+        extra["zones"] = moved(board.zones)
+    return dataclasses.replace(board, footprints=fps, **extra)

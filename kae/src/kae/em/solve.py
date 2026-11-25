@@ -26,6 +26,7 @@ import scipy.fft as sfft
 import scipy.sparse as sp
 import scipy.sparse.linalg as sla
 
+from . import blas as BL
 from . import kernels as KN
 from .mesh import MM, Network
 
@@ -34,6 +35,11 @@ import os
 # threads of the FFTs and the compiled kernels: a shared host's other users come first (numba otherwise
 # starts one thread per core); KAE_EM_THREADS overrides
 WORKERS = int(os.environ.get("KAE_EM_THREADS", "8"))
+# BLAS on one thread: a threaded OpenBLAS sums in an order set by its thread count, and the iterative solves grow
+# that to ~1e-9 of the result, so the same board gave other numbers on another machine (kae.em.blas); the FFTs and
+# kernels above carry the parallel work and sum alike at any count
+BLAS_THREADS = int(os.environ.get("KAE_EM_BLAS_THREADS", "1"))
+BLAS_SET = BL.set_threads(BLAS_THREADS)
 
 try:
     import numba
@@ -56,9 +62,46 @@ try:
                         for m in range(m0, m1):
                             Y[c, r, m] += Kh[r, q, m] * X[c, q, m]
         return Y
+
+    @numba.njit(parallel=True, cache=True)
+    def _csr_mm(indptr, indices, data, X):
+        """A CSR matrix times the columns of X, complex: scipy's csr_matvecs (each row's terms in
+        stored order, every column alike), so the result is the same to the bit, on WORKERS threads
+        (scipy's runs on one)."""
+        n, P = indptr.size - 1, X.shape[1]
+        Y = np.zeros((n, P), np.complex128)
+        for i in numba.prange(n):
+            for jj in range(indptr[i], indptr[i + 1]):
+                a = data[jj]
+                c = indices[jj]
+                for k in range(P):
+                    Y[i, k] += a * X[c, k]
+        return Y
 except ImportError:                                   # pragma: no cover
+    _csr_mm = None
+
     def _kmul(Kh, X):
         return np.einsum("rsm,csm->crm", Kh, X)
+
+
+def irfft2_rows(Y, Ny, Nx, rows):
+    """sfft.irfft2(Y, s=(Ny, Nx))[..., :rows, :], to the bit, at about half the cost: the inverse runs
+    along the rows' axis first, so only the first `rows` rows need the second, real pass (the
+    circulant embedding's other rows are wrap-around that L_apply never reads). The scaling is
+    applied last, as irfft2 applies it. Y is overwritten."""
+    Z = sfft.ifft(Y, axis=-2, norm="forward", workers=WORKERS, overwrite_x=True)[..., :rows, :]
+    Z = sfft.irfft(Z, n=Nx, axis=-1, norm="forward", workers=WORKERS)
+    Z *= 1.0 / (Ny * Nx)
+    return Z
+
+
+def spmm(M, X):
+    """M @ X for a CSR matrix M with complex entries: _csr_mm for complex column blocks X (n, P),
+    scipy otherwise. Same result to the bit."""
+    if (_csr_mm is not None and X.ndim == 2 and X.dtype == np.complex128 and M.dtype == np.complex128
+            and M.format == "csr"):
+        return _csr_mm(M.indptr, M.indices, M.data, np.ascontiguousarray(X))
+    return M @ X
 
 # relative residual of the iterative solves: port quantities are variational (their error is second
 # order), so 1e-5 gives them to ~3e-7 in about two thirds of the iterations 1e-8 takes
@@ -166,7 +209,7 @@ class Operator:
             X = sfft.rfft2(G, workers=WORKERS)                       # (2P, S, Ny, Nx/2+1)
             sh = X.shape
             Y = _kmul(Kh, np.ascontiguousarray(X.reshape(2 * P, S, -1))).reshape(sh)
-            Y = sfft.irfft2(Y, s=(self.Ny, self.Nx), workers=WORKERS).reshape(P, 2, S, self.Ny, self.Nx)
+            Y = irfft2_rows(Y, self.Ny, self.Nx, self.ny).reshape(P, 2, S, self.ny, self.Nx)
             out[a0:a0 + n] = (Y[:, 0, slot, f["j"], f["i"]] + 1j * Y[:, 1, slot, f["j"], f["i"]]).T
         nv = len(net.vseg)
         if nv:
@@ -285,16 +328,25 @@ class System:
         LI = self.op.L_apply(I)
         if self.net.Lc_off is not None:
             LI = LI + self.net.Lc_off @ I
-        top = self.kap * (zd * I + 1j * self.w * LI) - self.D @ phi
-        bot = -(self.DT @ I)
+        D, DT = self._incidence()
+        top = self.kap * (zd * I + 1j * self.w * LI) - spmm(D, phi)
+        bot = -spmm(DT, I)
         return np.concatenate([top, bot])
 
     def psolve(self, r):
         nb = self.net.n_br
         r1, r2 = r[:nb], r[nb:]
-        b = self.lu.solve(np.ascontiguousarray(-r2 - self.DT @ (self.Zn_inv @ r1)))
-        a = self.Zn_inv @ (r1 + self.D @ b)
+        D, DT = self._incidence()
+        b = self.lu.solve(np.ascontiguousarray(-r2 - spmm(DT, spmm(self.Zn_inv, r1))))
+        a = spmm(self.Zn_inv, r1 + spmm(D, b))
         return np.concatenate([a, b])
+
+    def _incidence(self):
+        """D and D^T with complex entries, for spmm: scipy casts them so for every product with a
+        complex vector, so the products are the same to the bit (made once, on first use)."""
+        if getattr(self, "_Dc", None) is None:
+            self._Dc = (self.D.astype(np.complex128), self.DT.astype(np.complex128))
+        return self._Dc
 
     def warm(self, prev):
         """An initial guess (n, P) from earlier solutions `prev` = list of (state) from `state_of`, mapped
@@ -456,6 +508,23 @@ def solve(mesh, freqs, tol=1e-8, maxiter=400):
                 stats=net.stats(), network=net, currents=cur)
 
 
+def stored_inductance(net, op, I):
+    """I^H L I (H per A^2 of the source that drove I): twice the magnetic energy the branch currents I store in the
+    copper, over its filaments and vias (L_p and the narrow bars' corrections) and the lumped parts given by R, L, C
+    (a thin track's bridge, at its L). Parts lumped as a circuit model (zf: the board's capacitors, inductors and
+    packages) are not copper and are left out. L is a symmetric positive semi-definite inductance matrix, so this is
+    never negative at any frequency, whatever the parts around the copper do (unlike the port's reactance, which a
+    capacitor network's resonance can turn negative)."""
+    I = np.asarray(I)
+    nl = net.off["l"]
+    LI = op.L_apply(I) + net.Lc_apply(I)
+    E = float(np.vdot(I[:nl], LI[:nl]).real)
+    for k, (_, _, q) in enumerate(net.lump):
+        if q.zf is None:
+            E += abs(I[nl + k]) ** 2 * q.L
+    return E
+
+
 def potentials(mesh, injections, f, read=None, tol=TOL, net=None, op=None):
     """Terminal potentials (V) for currents injected at terminals ({terminal: A}, summing to zero on
     each connected island), at frequency f. A terminal on an island without injection reads nan:
@@ -503,7 +572,7 @@ def open_islands(net, injections, open_):
 
 
 def potentials_many(mesh, inj_list, f, read=None, tol=TOL, net=None, op=None, warm=None, light=False, system=None,
-                    x0=None):
+                    x0=None, leak=1e-3):
     """potentials() for several injection sets at once (one batched COCG). Returns a list of
     ({terminal: V}, info) in the order given; an unbalanced set returns (None, info). light: the infos keep
     only the system's diagonal (info["sys"].zdiag), not the system with its factorization, and no warm-start
@@ -511,18 +580,21 @@ def potentials_many(mesh, inj_list, f, read=None, tol=TOL, net=None, op=None, wa
     factorization (about 1 GB each on a mid-size board) to the end. system: a System(op, f) built already
     (two callers solving the same frequency on the same network share one factorization). x0: per injection set,
     a starting solution on this same network (or None), e.g. the same source solved at another frequency.
-    Each info's `converged` is False where the solve stopped at its iteration limit above tol."""
+    Each info's `converged` is False where the solve stopped at its iteration limit above tol. leak: an island whose
+    injections do not balance by more than this share of the largest injection is open; a smaller imbalance is taken
+    from the island's largest injection (a window that cut off a pad carrying less). One value, or one per injection set."""
     net = net or Network(mesh)
     op = op or Operator(net)
     sysm = system if system is not None else System(op, f)
     cols, infos = [], []
-    for injections in inj_list:
+    leaks = list(leak) if isinstance(leak, (list, tuple)) else [leak] * len(inj_list)
+    for injections, leak_ in zip(inj_list, leaks):
         bal = {}
         for t, cur in injections.items():
             c = net.comp[net.term_node[t]]
             bal[c] = bal.get(c, 0) + cur
         big = max((abs(c) for c in injections.values()), default=1.0) or 1.0
-        open_ = [c for c, b in bal.items() if abs(b) > 1e-3 * big]
+        open_ = [c for c, b in bal.items() if abs(b) > leak_ * big]
         inj = dict(injections)
         for c, b in bal.items():
             if c not in open_ and b != 0:

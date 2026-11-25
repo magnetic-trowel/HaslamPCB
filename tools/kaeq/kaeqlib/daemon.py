@@ -54,6 +54,7 @@ class Daemon:
         self.c = db()
         self.popen = {}          # id -> Popen (to reap zombies)
         self.dying = {}          # id -> thread stopping a killed job (stop_job): SIGTERM, grace, SIGKILL, salvage
+        self.staging = {}        # id -> {key, done, err}: a snapshot being checked out in the background
         self.others_ema = 0.0
         self.runq_ema = 0.0
         self.runq_hist, self.runq_q, self.runq_q_ts, self.runq_stats = [], None, time.time(), (0.0, 0.0)
@@ -87,6 +88,7 @@ class Daemon:
         self.cpuj = {}           # job id -> CPU samples every 10 s: {t, cpu, some, full, rates: [(t, cores)], ...}
         self.timed_wait = 0.0    # share of time timed jobs had a thread waiting for a CPU (smoothed, ~30 s)
         self.admit_why = None    # why the next job did not start at the last admission (kaeqtop shows it)
+        self.tick_s = 0.0        # how long the last tick took
         self.cpu_freeze_ts, self.calm_since = 0.0, 0.0
         self.runq_class, self.runq_class_ts = {}, 0.0
         self.cpu_learn, self.cpu_learn_ts = {}, 0.0
@@ -272,7 +274,7 @@ class Daemon:
                         runq_qv=quantile([r for t, r, _ in self.runq_hist if t >= now - cfg["runq_window_s"]],
                                          self.runq_q or cfg["runq_q"]),
                         runq_over=self.runq_stats[0], runq_idle=self.runq_stats[1], runq_class=self.runq_class,
-                        admit=self.admit_why, timed_wait=round(self.timed_wait, 3),
+                        admit=self.admit_why, timed_wait=round(self.timed_wait, 3), tick_s=round(self.tick_s, 1),
                         pool_rho={o: [round(r, 2), n] for o, (r, n) in self.rho.items()},
                         mem_ratio={o: round(q, 3) for o, q in self.ratios.items()},
                         mem_mode=mode, mem_rise=self.rise, mem_single=single, mem_warm=warm_need,
@@ -971,7 +973,32 @@ class Daemon:
                 out.add(owner)
         return out
 
+    def snapshot_ready(self, j, cfg):
+        """Whether job j's snapshot worktree is checked out. If not, check it out on a background thread (a whole
+        tree onto the network home took ~15 s, and the tick waited: 20-40 s ticks, and starts only that often) and
+        say no; the job starts on a later tick, other jobs meanwhile. At most snapshot_staging at once. A failed
+        checkout fails the job."""
+        key = (j["id"], j["attempt"], j["preempts"])
+        st = self.staging.get(j["id"])
+        if st is not None and st["key"] != key:          # an older attempt's staging: start over
+            st = None
+        if st is None:
+            if sum(1 for v in self.staging.values() if not v["done"].is_set()) >= cfg["snapshot_staging"]:
+                return False
+            st = self.staging[j["id"]] = {"key": key, "done": threading.Event(), "err": None}
+            threading.Thread(target=stage_snapshot, args=(dict(j), st), name=f"stage-{j['id']}", daemon=True).start()
+            st["done"].wait(cfg["snapshot_wait_s"])      # a quick checkout (local disk, small tree) starts now
+        if not st["done"].is_set():
+            return False
+        del self.staging[j["id"]]
+        if st["err"]:
+            self.finish_fail(j, "failed", f"snapshot checkout failed: {st['err']}")
+            return False
+        return True
+
     def start(self, j, cfg):
+        if j["sha"] and not self.snapshot_ready(j, cfg):
+            return False
         t = self.dying.pop(j["id"], None)
         if t is not None:      # a requeued job's last attempt is still being stopped: its scratch is in use
             t.join()
@@ -987,7 +1014,11 @@ class Daemon:
         drop_scratch(cfg, j["id"])  # left over from a preempted or lost run
         os.makedirs(scratch, exist_ok=True)
         env.update(KAEQ_JOB=str(j["id"]), KAEQ_CPUS=n, OMP_NUM_THREADS=n, MKL_NUM_THREADS=n,
-                   OPENBLAS_NUM_THREADS=n, GOMAXPROCS=n, KAEQ_SCRATCH=scratch, TMPDIR=scratch)
+                   OPENBLAS_NUM_THREADS=n, GOMAXPROCS=n, KAEQ_SCRATCH=scratch, TMPDIR=scratch,
+                   # the job's wall deadline (epoch s), less a margin to finish in: every layer inside (kaeres,
+                   # kaebench, restart, kae and its tools) ends no later (kae.proc). Frozen time is not counted
+                   # here, so a job frozen for memory ends early rather than being killed with nothing written
+                   KAE_DEADLINE=f"{time.time() + j['timeout_s'] - min(300.0, 0.05 * j['timeout_s']):.0f}")
         wrap = 'bash -c "$1"; echo $? > "$2"'
         argv = ["bash", "-c", wrap, "_", j["cmd"], rc]
         timed = (j["qos"] or "timed") == "timed"
@@ -1033,20 +1064,8 @@ class Daemon:
                 pass
 
         cwd = j["cwd"]
-        if j["sha"]:  # run a frozen copy of the submitter's tree, not whatever is checked out now
-            src = os.path.join(d, "src")
-            drop_worktree(j)
-            try:
-                git(j["root"], "worktree", "add", "--detach", "--force", src, j["sha"])
-                for p in json.loads(j["links"] or "[]"):  # git-ignored inputs (data, venvs) shared by symlink
-                    t = os.path.join(j["root"], p)
-                    if os.path.exists(t) and not os.path.lexists(os.path.join(src, p)):
-                        os.makedirs(os.path.dirname(os.path.join(src, p)), exist_ok=True)
-                        os.symlink(t, os.path.join(src, p))
-            except (RuntimeError, OSError) as e:
-                self.finish_fail(j, "failed", f"snapshot checkout failed: {e}")
-                return False
-            cwd = os.path.normpath(os.path.join(src, j["rel"] or "."))
+        if j["sha"]:  # run a frozen copy of the submitter's tree (checked out by stage_snapshot)
+            cwd = os.path.normpath(os.path.join(d, "src", j["rel"] or "."))
         if not os.path.isdir(cwd or ""):
             self.finish_fail(j, "failed", f"cwd missing on daemon host: {j['cwd']}")
             return False
@@ -1208,7 +1227,7 @@ class Daemon:
             hist = json.dumps(mem_hist(tr, peak)) if seen >= 0.5 and len(tr) >= 6 and peak > 0 else None
             self.c.execute("UPDATE jobs SET state='ok',rc=0,finished=?,pid=NULL,mem_hist=? WHERE id=?",
                            (time.time(), hist, j["id"]))
-            drop_worktree(j)
+            drop_worktree(j, wait=False)
             drop_scratch(config(), j["id"])
             return
         note = "daemon lost the job's process" if lost else f"rc={rc}" + (" (SIGKILL: likely memory-cgroup OOM, raise --mem)" if rc == 137 else "")
@@ -1229,7 +1248,7 @@ class Daemon:
         c.execute("UPDATE jobs SET state=?,rc=?,finished=?,pid=NULL,peak_mb=?,note=? WHERE id=?",
                   (state, rc if rc is not None else -1, time.time(), peak, note, j["id"]))
         if not dying:
-            drop_worktree(j)
+            drop_worktree(j, wait=False)
         r = c.execute("SELECT * FROM jobs WHERE id=?", (j["id"],)).fetchone()
         head = f"#{j['id']} {state.upper()} {note} | {j['name'] or j['cmd'][:60]} | {ref(j)} | {times(r)} peak {fgb(peak)}/{fgb(j['mem_mb'])} attempt {j['attempt']}"
         salvage = [f"  salvage (once stopped, within {fdur(config()['kill_grace_s'])}): "
@@ -1251,11 +1270,33 @@ class Daemon:
         # running jobs from a previous daemon are adopted: check() handles alive / finished / lost
         signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
         while True:
+            t0 = time.time()
             try:
                 self.tick()
             except sqlite3.OperationalError:
                 pass
+            self.tick_s = time.time() - t0      # a slow tick delays every start (shown by kaeqtop, logged)
+            if self.tick_s > 10:
+                dlog(f"slow tick: {self.tick_s:.0f}s")
             time.sleep(TICK)
+
+
+def stage_snapshot(j, st):
+    """Check out job j's snapshot into jobs/<id>/src (a background thread of the daemon; see snapshot_ready)."""
+    src = os.path.join(jobdir(j["id"]), "src")
+    try:
+        os.makedirs(jobdir(j["id"]), exist_ok=True)
+        drop_worktree(j)          # a leftover from an earlier attempt (waits for a queued removal of it)
+        git(j["root"], "worktree", "add", "--detach", "--force", src, j["sha"])
+        for p in json.loads(j["links"] or "[]"):  # git-ignored inputs (data, venvs) shared by symlink
+            t = os.path.join(j["root"], p)
+            if os.path.exists(t) and not os.path.lexists(os.path.join(src, p)):
+                os.makedirs(os.path.dirname(os.path.join(src, p)), exist_ok=True)
+                os.symlink(t, os.path.join(src, p))
+    except (RuntimeError, OSError) as e:
+        st["err"] = str(e)
+    finally:
+        st["done"].set()
 
 
 def take_lock():

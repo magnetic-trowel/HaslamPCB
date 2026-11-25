@@ -262,19 +262,20 @@ def test_relax_bodies_off_skips_the_step_and_relaxed_overlaps_are_hazards():
     assert j[0]["code"] in ("body_overlap", "body_relaxed")
 def test_congestion_weight_and_margin_are_settings_and_physics_is_traced():
     """Audit P5/P10: place_w_cong and place_margin (kae.route.constraints.DEFAULTS, so --set
-    and KAE_ text variables reach them) default to off (0) since placement-decide-staged found
-    0 / 10 / 30 and auto / 0 equal; the old behaviour (30, auto) is still reachable as settings.
+    and KAE_ text variables reach them): place_w_cong defaults to off (0); place_margin defaults to
+    auto (-1), gated to dense boards (margin-gate-m6); 0 still turns it off.
     P6: the report traces physics per stage."""
     from kae.place.pipeline import place
     from kae.route.constraints import DEFAULTS
-    assert DEFAULTS["place_w_cong"] == 0.0 and DEFAULTS["place_margin"] == 0.0
+    assert DEFAULTS["place_w_cong"] == 0.0 and DEFAULTS["place_margin"] == -1.0
+    assert DEFAULTS["place_margin_gate"] == 4.0 and DEFAULTS["place_margin_regions"] == 1
     b = kicad_file.load(FIXTURE)
-    off = place(b, seed=0, time_s=10, physics=True, workers=1).report
+    off = place(b, seed=0, time_s=10, physics=True, workers=1, opts=dict(place_margin=0)).report
     assert off["margin_set"] == 0.0 and off["margin_mm"] == 0.0 and off["w_cong"] == 0.0
     stages = [t["stage"] for t in off.get("physics_trace", [])]
     assert stages[:2] == ["seed", "anneal"] and all("total_linear" in t for t in off["physics_trace"])
     on = place(kicad_file.load(FIXTURE), seed=0, time_s=10, physics=True, workers=1,
-               opts=dict(place_w_cong=30, place_margin=-1)).report
+               opts=dict(place_w_cong=30, place_margin=-1, place_margin_gate=0)).report
     assert "margin_set" not in on and on["w_cong"] == 30.0
 
 
@@ -496,3 +497,25 @@ def test_close_loop_without_a_deadline_diagnoses_only_within_its_time(monkeypatc
     monkeypatch.setattr(exact, "diagnose", lambda *a, **k: called.append(1) or dict(reason="unknown"))
     rep = exact.close_loop(P, st, time_s=0.0)
     assert called == [] and len(rep.get("diagnosis_skipped") or []) == min(3, len(P.mov))
+
+
+def test_placement_does_not_depend_on_what_the_process_placed_before(monkeypatch):
+    """Counted work: place() reads the work clock from zero (kae.budget.frame), so a board placed after
+    other work in the same process (a pool worker's second board) gets the poses it gets alone. Before,
+    the clock's absolute value changed the low bits of every deadline difference, CP-SAT's
+    deterministic-time limits among them, and with them the placement (bfit-equiv, 2 of 47 boards)."""
+    from kae import budget
+    from kae.place import pipeline
+    seen = []
+    real = pipeline._place
+    monkeypatch.setattr(pipeline, "_place", lambda *a, **k: seen.append(budget.clock().spent) or real(*a, **k))
+    budget.set_mode("work")
+    try:
+        alone = pipeline.place(kicad_file.load(FIXTURE), seed=0, time_s=10, workers=1).poses
+        budget.charge("seconds", 26.36125)          # what another board's placement might have charged
+        second = pipeline.place(kicad_file.load(FIXTURE), seed=0, time_s=10, workers=1).poses
+        third = pipeline.place(kicad_file.load(FIXTURE), seed=0, time_s=10, workers=1).poses
+    finally:
+        budget.set_mode("time")
+    assert seen[0] == seen[1] == seen[2] == 0.0
+    assert alone and second == alone and third == alone

@@ -71,7 +71,8 @@ ACTIVE = ("queued", "running")
 PROBLEM = ("failed", "timeout", "oom", "lost")
 
 
-ENV_KEEP = ("PATH", "VIRTUAL_ENV", "PYTHONPATH", "LD_LIBRARY_PATH", "HOME", "LANG")
+ENV_KEEP = ("PATH", "VIRTUAL_ENV", "PYTHONPATH", "LD_LIBRARY_PATH", "HOME", "LANG",
+            "KAE_KICAD_WRAP", "KAE_HOME")   # a shell that loaded the KiCad environment passes it on
 
 
 DEFAULTS = {
@@ -234,6 +235,8 @@ DEFAULTS = {
     "lease_buffer_ticks": 3.0,  # this many times the fleet's largest growth within one tick over the last 10 minutes    # lease: a job stalled this long for memory that nothing frees requeues the newest other job
     "mem_budget_gb": 0,      # cap on what all jobs together may use and hold (0: none beyond the reserve)
     "starts_per_tick": 1,
+    "snapshot_staging": 4,       # snapshot checkouts running in the background at once (daemon.snapshot_ready)
+    "snapshot_wait_s": 2.0,      # how long a tick waits for a checkout before leaving it to the background
     # CPU admission of batch jobs: not the run queue of the moment but its runq_q quantile over the last
     # runq_window_s (a dip must last), plus jobs started in the last 60 s that have not ramped up yet. runq_q adapts
     # every runq_adapt_s: more than runq_over_target of the samples oversubscribed (more runnable threads than CPUs
@@ -252,6 +255,7 @@ DEFAULTS = {
     "backfill_short_s": 1800,  # an owner whose recent jobs (p90) end within this may still backfill; 0 = never
     "cgroup": "auto",        # auto|on|off: wrap jobs in `systemd-run --user --scope`
     "slice": "kaeq.slice",   # systemd user slice for job scopes (install-service caps its memory); "" = none
+    "kicad_env": "~/.cache/kaebench/env.sh",  # `submit --kicad` sources this in the job (sets KAE_KICAD_WRAP)
     "scratch_dir": "",       # per-job scratch dirs ($KAEQ_SCRATCH), deleted when the job ends; "" = /var/tmp/$USER/kaeq-scratch
     "scratch_gb": 100,       # scratch disk budget over all jobs
     "disk_overrun": 3.0,     # kill a job whose scratch exceeds declared * this (+5 GB)

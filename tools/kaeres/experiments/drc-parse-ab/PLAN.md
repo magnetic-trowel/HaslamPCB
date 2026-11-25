@@ -1,0 +1,113 @@
+<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
+# drc-parse-ab: one DRC item parser (pre-registered plan)
+
+Written 2026-11-16, before any run.
+
+## The change (P, `simp-drc-parse` d19411e5, stacked on `simp-drc-items` 084cc07c)
+`kae.drc_items.item_kind / item_nets / item_ref / open_nets / board_nets` replace five regexes in seven places:
+`joint.feedback.parse_item`, `place.legalize.violation_parts` and `place.exact`, `board_hazards._objects`,
+`route.repair`, `route.lastmile.open_nets` (also used by `route.blocked`), and `restart.overlaps`.
+- An item names at most one net. Its first bracket opens the net, and the net closes at the bracket followed by
+  " of ", " on " or the end of the description.
+- A part's reference may hold spaces.
+- "Footprint text of U3 (...)" names U3, not "text".
+- Board text names neither a net nor a part.
+
+## Where the mechanism exists
+Old against new on 6,000 random corpus DRC reports (all items: `parsediff.py`):
+- `lastmile.open_nets` differs on 38 reports. The old parser cut a net at its first "]", so "/MDI[0]+" became
+  "/MDI[0". That name matches no board net, so the last mile never joined the net.
+- `repair`'s net lists differ on 1,556 of 1.96 M items. The causes are bracketed nets, and layer names in
+  brackets ("Via [GND] on L1 [TOP] - L4 [BOT]" read nets TOP and BOT).
+- `restart.overlaps` misses 272 of 46,658 pad and footprint items on layers whose names hold a space ("Bottom
+  Layer").
+- The joint spots' and the hazards' part references differ on about 1.6 % of items, mostly "Footprint text of".
+
+There are 49 `usable_route_test` boards (49 repo families) where the pinned fork's own output leaves at least one
+open connection on a bracketed net, 723 such nets in all (`bracketboards.py`). Many are RP2040 boards
+(QSPI_DATA[n]), bus designs (cpu_a[n], RAM_ADDR[n]) and Ethernet MDI pairs. These boards are `boards.txt`. The
+route kind exercises only the routing sites (last mile, repair, blocked). The placement and restart sites
+change only on boards with such names, and only in what they report or which part they blame.
+
+## Arms (`setup.sh`)
+C is the bridge at `simp-drc-items` (output-identical to main ca98570e on 4 runs). P is the bridge at
+`simp-drc-parse`. Both run `kae.route.cli route --time 900` under counted work (`KAE_BUDGET=work
+PYTHONHASHSEED=0 KAE_WORKERS=1`) with Freerouting fork d137fd1 set explicitly. The harness is main ca98570e and the
+wall timeout is 3,600 s (4x). Each board's job runs both arms side by side (`replicate=dpab`), attempts 0 and 1
+(seeds 0 and 1).
+
+## Outcomes and decision rules
+These are read from the scorer's final DRC (`evals/*.drc.json.gz` and the score), on boards where both arms
+finished every attempt.
+- **Primary:** open connections on bracketed nets, meaning unconnected items whose net (by `item_nets`) contains
+  "[" or "]". Sum over the two attempts per board. **P fixes it** when the pooled total under P is lower than
+  under C and a one-sided sign test over boards that differ gives p < 0.05.
+- **Guards** (both must hold to adopt): total open connections pooled under P are at most 1.03 x C's; DRC errors
+  pooled under P are at most 1.03 x C's (the A/A spread is about 3.4 %); and no error type rises by more than
+  10 % pooled where C has at least 20 of it.
+- **Undecided** (the primary falls short of p < 0.05 but its direction favours P): report it, keep the parser
+  anyway if the guards hold, since it is a parse fix with no tuning. Extend with a third attempt only if a guard
+  is borderline.
+- **Verdict against P:** a guard fails beyond noise. Then find which site caused it before deciding anything.
+
+Expected cost: 49 boards x 2 arms x 2 attempts x about 15-40 min wall (counted 900 s) is about 50-130 CPU-h at
+1-2 CPUs per job. Profile one smoke board per arm first (py-spy on the python process).
+
+## Addendum 2026-11-17, before any run on the new build: current components
+Project rule (2026-11-17): every experiment runs on current main and the current Freerouting pin; results from older
+builds decide nothing on their own.
+- **Code.** `simp-drc-parse` is rebased onto main c81770e1 as `simp-drc-parse-m2` (no conflict; the original branch is
+  left as it was). `simp-drc-items` is in main, so C is the bridge at main c81770e1 and P the bridge at 24b9ed0a (was
+  d19411e5: the same three parser commits). Harness c81770e1. The touched sites' tests pass on the rebased branch.
+- **Freerouting:** the pinned fork 9a5512d, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work, `--time
+  900`, wall timeout 3,600 s as before.
+- **New experiment `drc-parse-ab-m`** (owner `exp-drc-parse-ab-m`), new method ids, each board's job running both arms
+  side by side as this plan says (the first submission had split them by arm). The runs of `drc-parse-ab` (old build, 36
+  jobs done) are excluded from the decision; its queued jobs are cancelled.
+- The 49 boards were chosen from the old pinned fork's outputs (open bracketed nets); kept as they are, since the parser
+  sites are reached on any board whose open nets carry brackets. Arms, k = 2, outcomes and decision rules unchanged.
+- **Still worth running:** the parser change is not in main; this is its guard before a PR, about 60 CPU-h.
+
+## Addendum 2026-11-17 (m3), before any run on this build: main 22ff779a and Freerouting f1c41d3
+Main (kae #105) and the pin moved after `drc-parse-ab-m` was submitted: the fork now counts the optimizer's search steps and
+pour fills inside `autorouter.max_work`, and kae stops charging optimizer passes on top of that and sets the new
+weights. Checked before deciding: on a small board where no budget binds the bridge's copper came out item for item
+the same on both builds, but the charged clock did not (53.3 s against 39.1 s). Its arms run the bridge under counted work on boards where the repair and last-mile budgets bind (open nets, hard boards), and those budgets follow the charged clock. So its outputs change
+on the new build.
+- Migrated: branch `simp-drc-parse-m3` (rebased on main 22ff779a, no conflict; the -m2 branch is left as it
+  was). Arms: C = bridge at main 22ff779a, P = bridge at 4676027d; harness 22ff779a. Freerouting fork f1c41d3, set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `drc-parse-ab-m3` (owner `exp-drc-parse-ab-m3`), new method ids. The runs of `drc-parse-ab-m` (9 jobs done) are on the
+  previous build and excluded from the decision; its jobs are cancelled.
+- Boards, arms, attempts, primary, guards, looks and the earlier trims unchanged.
+- 2026-11-17 (main 9e54baed, #106 + #108): kept as registered. #108 changes only kae.joint.scorecard.accept, which the joint loop calls for windows, the finishing stage and its last-mile close; these arms never reach it (staged chassis `--max-iters 0` has no finishing stage, or bridge/placement only), the module stage's re-laid-copper guard keeps the old rule unchanged (physics_guard), and restart.py's judge returns the same key. #106 is harness-only.
+
+## Addendum 2026-11-17 (trim)
+Approved by the user 2026-11-17 after the analysis of finished rows from older builds (explore-2611 results); written before any result of this build is read. Eight boards are dropped: identical copper on every pair in every build where they ran, or no output in both arms: adafruit pybadge (no open bracketed net), adafruit pygamer, adafruit rp2040 prop-maker feather, adafruit fruit-jam, owon-lilliput scopefun v2, groupgets kimchi-micro, oro-os link, antmicro artix-dc-scm. `drc-parse-ab-m3` continues on the other 41 boards at k = 2; primary, guards and decision rules unchanged. Boards like alphaonex86 socket7 (many open bus nets, a large last-mile backlog) are read apart. If its last-mile regression recurs, the verdict is "fix last-mile ordering, then keep the parser", not a rejection of the parser.
+
+## Addendum 2026-11-19 (m5), before any run on this build: main 4c9e5293 (last-mile fix, #112)
+Main moved after `drc-parse-ab-m3` was submitted. PR #112 changes the last mile's algorithm: `lastmile.close` re-queues a net
+only when its open count falls below its lowest so far, or once after a no-progress turn, and `repair._last_mile`
+rounds start with the nets no earlier round reached. (Its connectivity charge, PR #113's spoke tracks in the last
+mile's first round and the KiCad-call charges came in the same range.) Its bridge runs reach both changed paths: in the finished logs of the bridge and joint experiments that keep them, 20-60 % of boards hit the changed paths (drc-parse-ab-m3 4 of 20, rule-quantize-guard-m4 6 of 33, chan-gated-m3 12 of 20, xing-ext-m3 3 of 6 boards: a net given a turn after two turns without progress, or a round's deadline leaving later-named nets that the next round skipped). So outputs change on the new
+main, and by the project rule (algorithm changes migrate) the experiment moves.
+- Migrated: branch `simp-drc-parse-m5` (rebased on main 4c9e5293; the earlier branch is left as it
+  was). One conflict in lastmile.py: main's caller-name map now uses this branch's drc_items.board_nets (same mapping). Arms: C = bridge at main 4c9e5293, P = bridge at e0920182; harness 4c9e5293. Freerouting fork f1c41d3 (the pin, unchanged), counted work as before.
+- New experiment `drc-parse-ab-m5` (owner `exp-drc-parse-ab-m5`), new method ids. The runs of `drc-parse-ab-m3` (20 jobs done) are on the
+  previous main and excluded from the decision; its jobs are cancelled.
+- Boards (after the trims already recorded above), arms, attempts, primary, guards and looks unchanged.
+
+## Addendum 2026-11-19 (cutoff)
+User decision 2026-11-19, written before any result of this build is read: boards over 16 CPU-h per board (all of a board's runs; measured on earlier builds of this experiment, else the per-experiment fit of CPU on footprints) leave the A/B tests; a big-board canary set (board-tags suites/canary-big.txt) checks them before merges. No board of this stage is over the cutoff (estimated); nothing changes.
+
+## Addendum 2026-11-19 (m6), before any run on this build: Freerouting 37b1a8b (freerouting#14) and main 6d726340
+The pin moved to kae-freerouting-fork-37b1a8b: `autorouter.max_work` is checked before each item instead of each pass,
+and a run stopped there keeps its best board. Outputs change only for Freerouting calls whose work budget runs out
+inside a pass (or that time out). Main 6d726340 also makes a Freerouting call's job timeout 4x its own budget (#114).
+Its runs record only the first Freerouting call's stop reason (no budget stop on the 20 boards with runs), but its repair rounds' calls run on what is left of the counted budget, and in the restart experiments, where every call is logged, about half of the calls after the first stopped on the budget inside a pass; affected boards are therefore expected to be common. So the experiment moves as a whole (no run of `drc-parse-ab-m5` on an affected board can be told apart from the
+rest beforehand, and the changed calls are common).
+- Migrated: branch `simp-drc-parse-m6` (rebased on main 6d726340; the earlier branch is left as it
+  was). Arms: C = bridge at main 6d726340, P = bridge at e4e79806; harness 6d726340. Freerouting fork 37b1a8b set as `KAE_FREEROUTING` and `KAE_BRIDGE_FREEROUTING`; counted work as before.
+- New experiment `drc-parse-ab-m6` (owner `exp-drc-parse-ab-m6`), new method ids. The runs of `drc-parse-ab-m5` (1 jobs done) are excluded
+  from the decision; its jobs are cancelled.
+- Boards (after the trims and the 16 CPU-h cutoff recorded above), arms, attempts, primary, guards and looks unchanged.

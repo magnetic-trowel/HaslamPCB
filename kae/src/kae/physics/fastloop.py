@@ -57,8 +57,10 @@ _STRIP = {}
 
 
 def strip_consts(w, h):
-    """(a, d_eff) of a strip of width w at height h (cached)."""
-    key = (round(w, 4), round(h, 4) if h != INF else INF)
+    """(a, d_eff) of a strip of width w at height h (cached by the exact w and h: a key rounded to
+    0.1 um kept the value of the first w and h that rounded to it, so a process's earlier boards
+    decided a later board's value)."""
+    key = (float(w), float(h))
     v = _STRIP.get(key)
     if v is None:
         a = gmd_rect(w)

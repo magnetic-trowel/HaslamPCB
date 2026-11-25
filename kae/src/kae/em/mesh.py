@@ -107,6 +107,8 @@ class Mesh:
         self.lab = np.full((len(self.layers), self.ny, self.nx), -1, np.int32)
         self.thin = {}          # (layer, orientation, j, i) -> (width mm, length scale): sub-cell tracks
         self.bridges = []       # thin tracks' skipped cells: (layer, net, cell a, cell b, length mm, width mm)
+        self.ends = []          # thin tracks' ends: (layer, net, point, chain cell | None, other point | None,
+        #                         length mm from the point to the cell (or to the other point), width mm)
         self.cov = np.zeros(self.lab.shape)    # copper coverage of each cell (0..1), for edge cells
 
     @classmethod
@@ -126,41 +128,73 @@ class Mesh:
         ys = self.y0 + (np.arange(self.ny) + 0.5) * self.pitch
         return np.meshgrid(xs, ys)
 
+    def _window(self, geom, ring=0):
+        """(j0, j1, i0, i1): the cells under geom's bounds and `ring` more on each side, clipped to the grid."""
+        p = self.pitch
+        gx0, gy0, gx1, gy1 = geom.bounds
+        i0, j0 = max(int(np.floor((gx0 - self.x0) / p)) - ring, 0), max(int(np.floor((gy0 - self.y0) / p)) - ring, 0)
+        i1 = min(int(np.floor((gx1 - self.x0) / p)) + 1 + ring, self.nx)
+        j1 = min(int(np.floor((gy1 - self.y0) / p)) + 1 + ring, self.ny)
+        return j0, j1, i0, i1
+
     def cells_in(self, geom):
         """Boolean (ny, nx): cell centres inside a shapely geometry (mm)."""
         import shapely
-        X, Y = self.centres()
+        out = np.zeros((self.ny, self.nx), bool)
+        if geom is None or geom.is_empty:
+            return out
+        j0, j1, i0, i1 = self._window(geom, 1)
+        if j0 >= j1 or i0 >= i1:
+            return out
+        p = self.pitch
+        X, Y = np.meshgrid(self.x0 + (np.arange(i0, i1) + 0.5) * p, self.y0 + (np.arange(j0, j1) + 0.5) * p)
         shapely.prepare(geom)
-        return shapely.contains_xy(geom, X, Y)
+        out[j0:j1, i0:i1] = shapely.contains_xy(geom, X, Y)
+        return out
 
     SUB = 4                # sub-samples per cell side for the coverage of edge cells
     MIN_COV = 0.25         # a cell less covered than this stays empty
 
     def coverage(self, geom=None, rect=None):
         """(ny, nx) fraction of each cell covered by the copper: exact 0/1 away from its edge, sampled
-        on SUB x SUB points per cell along it."""
+        on SUB x SUB points per cell along it. Every cell the copper reaches is sampled, also where no
+        cell centre lies inside it (a 0.25 mm pad between two rows of centres at 0.25 mm pitch, whose
+        edges fall on the centres: it covers half of each row, not nothing)."""
         from scipy import ndimage
-        X, Y = self.centres()
         if rect is not None:
+            X, Y = self.centres()
             x0, y0, x1, y1 = rect
             p = self.pitch
             fx = np.clip((np.minimum(X + p / 2, x1) - np.maximum(X - p / 2, x0)) / p, 0, 1)
             fy = np.clip((np.minimum(Y + p / 2, y1) - np.maximum(Y - p / 2, y0)) / p, 0, 1)
             return fx * fy
         import shapely
+        cov = np.zeros((self.ny, self.nx))
+        if geom is None or geom.is_empty:
+            return cov
+        # only the cells under the geometry's bounds (and a ring around them) are looked at
+        p = self.pitch
+        j0, j1, i0, i1 = self._window(geom, 2)
+        if i0 >= i1 or j0 >= j1:
+            return cov
+        X, Y = np.meshgrid(self.x0 + (np.arange(i0, i1) + 0.5) * p, self.y0 + (np.arange(j0, j1) + 0.5) * p)
         shapely.prepare(geom)
         inside = shapely.contains_xy(geom, X, Y)
-        cov = inside.astype(float)
-        edge = ndimage.binary_dilation(inside) & ~ndimage.binary_erosion(inside)
-        edge |= ndimage.binary_dilation(edge)
+        # a cell the copper reaches has its centre within half a cell diagonal of it
+        reach = geom.buffer(p * 0.7072, join_style="mitre")
+        shapely.prepare(reach)
+        near = shapely.contains_xy(reach, X, Y)
+        sub = inside.astype(float)
+        edge = near & ~ndimage.binary_erosion(inside, structure=np.ones((3, 3), bool))
         jj, ii = np.nonzero(edge)
         if len(jj):
             n = self.SUB
             off = (np.arange(n) + 0.5) / n - 0.5
             ox, oy = np.meshgrid(off, off)
-            px = X[jj, ii][:, None] + ox.ravel()[None] * self.pitch
-            py = Y[jj, ii][:, None] + oy.ravel()[None] * self.pitch
-            cov[jj, ii] = shapely.contains_xy(geom, px, py).mean(axis=1)
+            px = X[jj, ii][:, None] + ox.ravel()[None] * p
+            py = Y[jj, ii][:, None] + oy.ravel()[None] * p
+            sub[jj, ii] = shapely.contains_xy(geom, px, py).mean(axis=1)
+        cov[j0:j1, i0:i1] = sub
         return cov
 
     def paint(self, layer, net, geom=None, mask=None, cov=None):
@@ -207,11 +241,15 @@ class Mesh:
     def paint_line(self, layer, net, pts, width):
         """A track narrower than a few cells: a 4-connected chain of cells along its centre line, so it
         conducts at any pitch. Its bars carry the track's true width and length (Network applies them to
-        R and to the self inductance), unless the cells were copper of the net already (a pour)."""
+        R and to the self inductance), unless the cells were copper of the net already (a pour).
+        A track of zero width is no copper (nothing is etched), so it paints nothing."""
+        if not width or width <= 0:
+            return
         k = self.net_id(net)
         lab = self.lab[layer]
         p = self.pitch
         carry, gap = None, 0.0               # the last cell of the net's chain, and the skipped length since
+        lead, total = None, 0.0              # the chain's first cell and the skipped length before it; the length
         for (xa, ya), (xb, yb) in zip(pts[:-1], pts[1:]):
             seg = float(np.hypot(xb - xa, yb - ya))
             n = max(2, int(np.ceil(seg / (p / 4))) + 1)
@@ -233,6 +271,12 @@ class Mesh:
                 for j, i in cells:
                     if lab[j, i] < 0 or lab[j, i] == k:
                         lab[j, i] = k
+                        if carry is None:
+                            lead = ((j, i), total)
+                        carry, gap = (j, i), 0.0
+                total += seg
+                if carry is not None and not (cells and carry == cells[-1]):
+                    gap += seg
                 continue
             scale = seg / ((len(cells) - 1) * p)
             pre = {c: lab[c] == k for c in cells}
@@ -240,10 +284,14 @@ class Mesh:
             # the chain skips it and the cells either side are joined by a bridge (bridge_gaps)
             mine = [lab[c] < 0 or lab[c] == k for c in cells]
             for q, c in enumerate(cells):
-                if q > 0 and carry is not None:
-                    gap += p * scale
+                if q > 0:
+                    total += p * scale
+                    if carry is not None:
+                        gap += p * scale
                 if not mine[q]:
                     continue
+                if carry is None:
+                    lead = (c, total)
                 if carry is not None and carry != c and gap > p * scale * 1.5:
                     self.bridges.append((layer, net, carry, c, gap, width))
                 carry, gap = c, 0.0
@@ -261,6 +309,14 @@ class Mesh:
                 if mine[q]:
                     lab[j, i] = k
                     self.cov[layer][j, i] = 1.0
+        # the track's ends as its chain reached them: a chain that starts or stops short of its end point (the
+        # cells there are another net's) is joined to the copper at that point by bridge_gaps; a track with no
+        # cell of its own joins its two end points
+        if carry is None:
+            self.ends.append((layer, net, tuple(pts[0]), None, tuple(pts[-1]), total, width))
+        else:
+            self.ends.append((layer, net, tuple(pts[0]), lead[0], None, lead[1], width))
+            self.ends.append((layer, net, tuple(pts[-1]), carry, None, gap, width))
 
     RHO_CU_OHM_MM = MAT.RHO_CU_OHM_MM
     THIN_L_H_PER_MM = 1.0e-9          # a thin track's partial self inductance, about 1 nH/mm
@@ -282,13 +338,120 @@ class Mesh:
             R = self.RHO_CU_OHM_MM * length / (max(width, 1e-3) * self.layers[l].t)
             self.part(ta, tb, R=R, L=self.THIN_L_H_PER_MM * length, name=f"bridge:{net}")
             n += 1
+        for l, net, ca, cb, length, width in self._end_bridges():
+            ma = np.zeros((self.ny, self.nx), bool)
+            mb = np.zeros((self.ny, self.nx), bool)
+            ma[ca], mb[cb] = True, True
+            ta = self.terminal(f"bridge:e{n}:a", l, net=net, mask=ma)
+            tb = self.terminal(f"bridge:e{n}:b", l, net=net, mask=mb)
+            R = self.RHO_CU_OHM_MM * length / (max(width, 1e-3) * self.layers[l].t)
+            self.part(ta, tb, R=R, L=self.THIN_L_H_PER_MM * length, name=f"bridge:{net}")
+            n += 1
         return n
+
+    def _end_bridges(self):
+        """[(layer, net, cell a, cell b, length mm, width mm)]: thin tracks whose chains stop short of their end
+        points (paint_line) joined at those points, to each other and to the net's copper under the point: per
+        point (and the points a track without cells joins), every chain end that stopped short is bridged to the
+        one that reached the point (or came nearest), over the length skipped on both sides."""
+        import heapq
+        groups = {}
+        for e in self.ends:
+            groups.setdefault((e[0], e[1]), []).append(e)
+        out = []
+        p = self.pitch
+        for (l, net), es in groups.items():
+            if not any(e[3] is None or e[5] > 0 for e in es):
+                continue                              # every chain reached its ends
+            k = self.nets.index(net)
+            lab = self.lab[l]
+            key = lambda xy: (round(xy[0], 3), round(xy[1], 3))
+            att, adj, width = {}, {}, {}
+            for pt, cell, other, d, w in ((e[2], e[3], e[4], e[5], e[6]) for e in es):
+                P = key(pt)
+                width[P] = max(width.get(P, 0.0), w)
+                if cell is not None:
+                    att.setdefault(P, []).append((d, cell))
+                else:
+                    Q = key(other)
+                    adj.setdefault(P, []).append((Q, d))
+                    adj.setdefault(Q, []).append((P, d))
+                    width[Q] = max(width.get(Q, 0.0), w)
+            # the net's copper under each point (a pad, a pour, another chain): the nearest own cell within one cell
+            for P in set(att) | set(adj):
+                j, i = self.cell(*P)
+                best = None
+                for dj in (-1, 0, 1):
+                    for di in (-1, 0, 1):
+                        jj, ii = j + dj, i + di
+                        if 0 <= jj < self.ny and 0 <= ii < self.nx and lab[jj, ii] == k:
+                            cx, cy = self.x0 + (ii + 0.5) * p, self.y0 + (jj + 0.5) * p
+                            d = 0.0 if (dj, di) == (0, 0) else float(np.hypot(cx - P[0], cy - P[1]))
+                            if best is None or d < best[0]:
+                                best = (d, (jj, ii))
+                if best is not None:
+                    att.setdefault(P, []).append(best)
+            seen = set()
+            for P0 in list(att) + list(adj):
+                if P0 in seen:
+                    continue
+                # the points joined through cell-less tracks, with their distance from P0
+                dist, heap = {P0: 0.0}, [(0.0, P0)]
+                while heap:
+                    d, P = heapq.heappop(heap)
+                    if d > dist.get(P, np.inf):
+                        continue
+                    for Q, w in adj.get(P, ()):
+                        if d + w < dist.get(Q, np.inf):
+                            dist[Q] = d + w
+                            heapq.heappush(heap, (d + w, Q))
+                seen |= set(dist)
+                cand = [(d0 + dist[P], cell, P) for P in dist for d0, cell in att.get(P, ())]
+                if len(cand) < 2:
+                    continue
+                cand.sort()
+                d_hub, hub, _ = cand[0]
+                done = {hub}
+                for d, cell, P in cand[1:]:
+                    if cell in done or abs(cell[0] - hub[0]) + abs(cell[1] - hub[1]) <= 1:
+                        continue
+                    done.add(cell)
+                    length = max(d + d_hub, p)
+                    out.append((l, net, hub, cell, length, width.get(P, 0.1)))
+        return out
 
     def rect(self, layer, net, x0, y0, x1, y1):
         return self.paint(layer, net, cov=self.coverage(rect=(x0, y0, x1, y1)))
 
     def via(self, x, y, layers, net, drill=0.3, plating=PLATING):
+        if not drill > 0:       # a barrel of no radius: its self inductance is NaN, and every solve with it
+            raise ValueError(f"via at ({x}, {y}) on {net}: drill {drill} mm; a barrel needs a positive drill")
         self.vias.append(Via(x, y, list(layers), self.net_id(net), drill, plating))
+
+    def via_landing(self, v):
+        """[(layer, [(layer, j, i) cells])]: a via's own-net cells within its barrel (radius + p/2) on each layer it
+        joins that has them (the cell under its centre when no cell centre is that close)."""
+        p = self.pitch
+        rr = v.drill / 2 + p / 2
+        i0 = max(int(np.floor((v.x - rr - self.x0) / p)) - 1, 0)
+        j0 = max(int(np.floor((v.y - rr - self.y0) / p)) - 1, 0)
+        i1 = min(int(np.floor((v.x + rr - self.x0) / p)) + 2, self.nx)
+        j1 = min(int(np.floor((v.y + rr - self.y0) / p)) + 2, self.ny)
+        disk = np.zeros((max(j1 - j0, 0), max(i1 - i0, 0)), bool)
+        if disk.size:
+            X, Y = np.meshgrid(self.x0 + (np.arange(i0, i1) + 0.5) * p, self.y0 + (np.arange(j0, j1) + 0.5) * p)
+            disk = (X - v.x) ** 2 + (Y - v.y) ** 2 <= rr * rr
+        if not disk.any():
+            j, i = self.cell(v.x, v.y)
+            if not (0 <= j < self.ny and 0 <= i < self.nx):
+                return []
+            j0, i0, disk = j, i, np.ones((1, 1), bool)
+        out = []
+        for l in v.layers:
+            jj, ii = np.nonzero(disk & (self.lab[l, j0:j0 + disk.shape[0], i0:i0 + disk.shape[1]] == v.net))
+            if len(jj):
+                out.append((l, [(l, int(j0 + j), int(i0 + i)) for j, i in zip(jj, ii)]))
+        return out
 
     def cell(self, x, y):
         return (int(np.floor((y - self.y0) / self.pitch)), int(np.floor((x - self.x0) / self.pitch)))
@@ -298,20 +461,39 @@ class Mesh:
         xy, or mask) on `layer` (index, or a list of indices for a through-hole pad)."""
         cells = []
         for l in (layer if isinstance(layer, (list, tuple)) else [layer]):
-            if xy is not None:
-                j, i = self.cell(*xy)
-                m = np.zeros((self.ny, self.nx), bool)
-                if 0 <= j < self.ny and 0 <= i < self.nx:
-                    m[j, i] = True
+            if xy is None and mask is None:
+                m = self.cells_under(l, geom, net)
             else:
-                m = self.cells_in(geom) if mask is None else mask
-            lab = self.lab[l]
-            m = m & ((lab >= 0) if net is None else (lab == self.net_id(net)))
+                if xy is not None:
+                    j, i = self.cell(*xy)
+                    mask = np.zeros((self.ny, self.nx), bool)
+                    if 0 <= j < self.ny and 0 <= i < self.nx:
+                        mask[j, i] = True
+                lab = self.lab[l]
+                m = mask & ((lab >= 0) if net is None else (lab == self.net_id(net)))
             cells += [(l, int(j), int(i)) for j, i in zip(*np.nonzero(m))]
         if not cells:
             raise ValueError(f"terminal {name}: no copper under it")
+        labs = {int(self.lab[c]) for c in cells}
+        if len(labs) > 1:
+            # a terminal is one node: contracting two nets' cells would short them
+            raise ValueError(f"terminal {name}: its cells hold copper of nets {sorted(self.nets[k] for k in labs)}")
         self.terminals.setdefault(name, []).extend(cells)
         return name
+
+    def cells_under(self, layer, geom, net=None):
+        """(ny, nx) bool: the cells of `net` (any copper if None) on `layer` whose centres lie in geom; where no
+        centre does (a pad no wider than a cell, between two rows of centres), the cells it covers most."""
+        lab = self.lab[layer]
+        if net is not None and net not in self.nets:
+            return np.zeros(lab.shape, bool)
+        own = (lab >= 0) if net is None else (lab == self.nets.index(net))
+        m = self.cells_in(geom) & own
+        if not m.any():
+            cov = self.coverage(geom) * own
+            if cov.max() > 0:
+                m = cov >= min(self.MIN_COV, cov.max())
+        return m
 
     def internal_node(self, name):
         """A node inside a part (an IC's die node): lumped parts connect it to the copper; it has none."""
@@ -327,6 +509,45 @@ class Mesh:
 
     def port(self, name, plus, minus):
         self.ports.append((name, plus, minus))
+
+    def copper_components(self, groups=()):
+        """(L, ny, nx) int array: the connected piece of copper each cell belongs to (-1: no copper), through what
+        the conductor network joins: same-net neighbours on a layer (bars), via and through-hole barrels (their
+        landings), terminals (contracted), the raster's bridges (lumped parts named 'bridge:'), and `groups`, extra
+        lists of (layer, j, i) cells taken as one node each (pads not yet made terminals). No other lumped part
+        counts: this is the copper alone. Cells of two nets never share a piece (a bar joins one net's cells)."""
+        import scipy.sparse as sp
+        from scipy.sparse.csgraph import connected_components
+        L, ny, nx = self.lab.shape
+        idx = np.arange(L * ny * nx).reshape(L, ny, nx)
+        rows, cols = [], []
+        for dj, di in ((0, 1), (1, 0)):
+            a = self.lab[:, : ny - dj, : nx - di]
+            b = self.lab[:, dj:, di:]
+            same = (a >= 0) & (a == b)
+            rows.append(idx[:, : ny - dj, : nx - di][same])
+            cols.append(idx[:, dj:, di:][same])
+
+        def chain(cells):
+            if len(cells) > 1:
+                k = np.array([idx[c] for c in cells])
+                rows.append(k[:-1])
+                cols.append(k[1:])
+        for v in self.vias:                       # a barrel joins its landings on every layer
+            chain([c for _, cs in self.via_landing(v) for c in cs])
+        for cells in self.terminals.values():
+            chain(cells)
+        for g in groups:
+            chain(list(g))
+        for q in self.lumped:
+            if q.name.startswith("bridge:") and q.a in self.terminals and q.b in self.terminals:
+                chain([self.terminals[q.a][0], self.terminals[q.b][0]])
+        r, c = np.concatenate(rows), np.concatenate(cols)
+        n = L * ny * nx
+        g = sp.coo_matrix((np.ones(len(r), np.int8), (r, c)), shape=(n, n))
+        _, comp = connected_components(g, directed=False)
+        comp = comp.reshape(L, ny, nx)
+        return np.where(self.lab >= 0, comp, -1)
 
     def thin_cells(self, layer):
         """(ny, nx) bool: copper cells of `layer` in features of their own net narrower than 3 cells (the cells a
@@ -429,22 +650,12 @@ class Network:
         for q in shorts:
             union([m.terminals[q.a][0], m.terminals[q.b][0]])
         # via landings: the via's own-net cells within the barrel (radius + p/2) on each layer
-        X, Y = m.centres()
         self.via_nodes = []
         for v in m.vias:
-            rr = v.drill / 2 + m.pitch / 2
-            disk = (X - v.x) ** 2 + (Y - v.y) ** 2 <= rr * rr
-            if not disk.any():
-                j, i = m.cell(v.x, v.y)
-                disk = np.zeros_like(disk)
-                if 0 <= j < ny and 0 <= i < nx:
-                    disk[j, i] = True
             land = []
-            for l in v.layers:
-                cs = [(l, int(j), int(i)) for j, i in zip(*np.nonzero(disk & (m.lab[l] == v.net)))]
-                if cs:
-                    union(cs)
-                    land.append((l, cs[0]))
+            for l, cs in m.via_landing(v):
+                union(cs)
+                land.append((l, cs[0]))
             self.via_nodes.append(land)
         roots = np.array([find(a) for a in range(n)], np.int64)
         uniq, node_of = np.unique(roots, return_inverse=True)

@@ -1,0 +1,12 @@
+lichen-community-systems-lichen-eurorack-hardware-lichen-crustose-control-board
+demarco-dmh-dual-vca-mk2-dmh-dual-vca-mk2-pcb-1
+balazsbencs-ardor-ardor-io
+guavtek-m2idi-tangle-hw-midi-tangle
+hbend63-mesknecht23-btmessbox
+alloyed-kitsblips-4gates
+alloyed-kitsblips-csfilter
+matthewataylor-modular-synth-hardware-skvcf
+beagleboard-pocketbeagle-pocketbeagle
+bread-modular-bread-modular-imix
+eldartarighat-ecg-sensor-pcb-ecg
+leicht-io-beogram-4002-riaa-riaa

@@ -589,21 +589,22 @@ def _listing(d):
     return out
 
 
-def run(step, argv, *, inputs, outputs, wd, timeout, tool, cwd=None):
+def run(step, argv, *, inputs, outputs, wd, timeout, tool, cwd=None, runner=subprocess.run):
     """subprocess.run(argv, capture_output, text, timeout) through the cache. `inputs`: files the
     command reads (missing ones count as absent); `outputs` {name: path}: files it must write
     (all of them, or it is not stored); `wd`: the directory whose path is normalised, whose
     other new or changed files (side effects, e.g. KiCad's .kicad_prl) are stored and replayed
     too; `tool`: the program's identity. A hit needs its recorded duration within `timeout`
     (the uncached run would have finished too) and is charged that duration. Raises
-    subprocess.TimeoutExpired like subprocess.run."""
+    subprocess.TimeoutExpired like subprocess.run. `runner`: subprocess.run or one like it (kae passes
+    kae.proc's, which kills the whole process group; this file stays stdlib-only for restart.py)."""
     wd = Path(wd).resolve()
     parts = dict(argv=norm_argv(argv, wd), tool=tool,
                  inputs={norm_argv([p], wd)[0]: (file_sha(p, wd) if Path(p).exists() else None) for p in map(str, inputs)})
     key = make_key(step, parts)
     t0 = _real_monotonic()
     with reading(key) as meta:
-        if meta is not None and meta.get("seconds", 0) <= timeout:
+        if meta is not None and (timeout is None or meta.get("seconds", 0) <= timeout):
             side = {n: wd / n for n in meta.get("side", [])}
             try:
                 restore(meta, {**outputs, **{f"side:{n}": p for n, p in side.items()}}, wd)
@@ -615,7 +616,7 @@ def run(step, argv, *, inputs, outputs, wd, timeout, tool, cwd=None):
     before = _listing(wd)
     t1 = _real_monotonic()
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=cwd, errors="replace")
+        r = runner(argv, capture_output=True, text=True, timeout=timeout, cwd=cwd, errors="replace")
     except subprocess.TimeoutExpired:
         charge(step, False, _real_monotonic() - t1, _real_monotonic() - t1, key, cacheable=False)
         raise

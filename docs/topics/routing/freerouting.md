@@ -50,6 +50,7 @@ PCBench suite, 1,157 boards, v2.4.1 → v2.5.0 ([release](https://github.com/fre
 | 2.6.0-RC4 | 979 (tiers A+B only) | 92.4% | 92.5% |
 
 - RC4 has no Tier C/D rows (979 = 452 + 527); tiers A+B alone: 2.5.0 80.4%, RC3 92.0%.
+- **These fixtures had no zones.** Upstream restored zones and keepouts to the 1,142 fixtures on 2026-11-19: clean 2.5.0 63.5% (725), 2.6.0-RC16 58.8% (671) with 16 timeouts and 2.6× the run time ([PR 1184](https://github.com/freerouting/freerouting/pull/1184)) [P]. The rise to 87.7% does not hold on boards with pours.
 - Job time budgets: 360 min (1.9.0), 1–30 min (2.4.1), 5–45 min (2.5.0, RC1), 360–480 min (RC2–RC4).
 - Tiers: A (452 two-layer canaries) 100% clean from RC1; B (527, 2–4 layers) 86.0% at RC4; C (141 dense/6+ layers) 69.5% at RC3 (49.6% → 69.5% when the budget grew to 360 min); D (22 stress boards) 13.6–18.2% (RC2/RC3; 2.5.0: 9.1%).
 - Fixtures: PCBench-derived DSNs (the 2026-10-20 report lists all 1,142 under its PCBench group); notes also name DAC2020 bm01–bm11 and KiCad 10 demos.
@@ -64,7 +65,7 @@ PCBench suite, 1,157 boards, v2.4.1 → v2.5.0 ([release](https://github.com/fre
 
 ## Use in kae
 
-- Pin v2.5.0 (latest release, 2026-10-05; 2.6.x only RCs) until 2.6.0 is released, as bulk router, fallback and routability judge; re-score outputs with KiCad DRC; record version/flags in every benchmark [I].
+- Pin a tested build as bulk router, fallback and routability judge; kae's control is the pinned fork ([RC10 vs fork](../../research/routing/freerouting-rc10-vs-fork-2611.md)). Do not wait for 2.6.0: on zoned fixtures RC16 is worse than 2.5.0 and slower ([PR 1184](https://github.com/freerouting/freerouting/pull/1184)) [P]; re-score outputs with KiCad DRC; record version/flags in every benchmark [I].
 - Final runs `-mt 1`: every run prints "Multi-threaded route optimization is broken and it is known to generate clearance violations" (POA sets `num_threads = 1`; KMS forces `-mt 1` in best-of-N → [integration pitfalls](../kicad/specctra-freerouting-integration.md#pitfalls-documented-by-the-four-mcp-codebases)) [P]. Fidelity knobs (`-mp`, `-mt 0` = optimizer off, improvement threshold) for fast probes only; budget minutes–hours on large boards; run as a JVM process [I].
 - Freerouting is deterministic in DSN item order: the same DSN gives the same result; diversity comes from permuting item order (`--seed`) → [restart portfolio](../../research/routing/kae-restart-portfolio.md).
 - Pre-route and lock SI-critical classes (pairs, matched groups, escape) before bulk; compensate weaknesses with LLM-set order hints, via costs, layer directions [I].

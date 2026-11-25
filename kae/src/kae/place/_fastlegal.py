@@ -137,15 +137,59 @@ def nearest_spot(S0, S1, SO, ncx, ncy, pad, si, X0, Y0, K0, w_rot, own, own_n, o
 
 
 @_jit
-def ripup_spot(H0, H1, C0, C1, SO, ncx, ncy, pad, si, X0, Y0, K0, w_rot, w_cost, own, own_n, opp, opp_n, brd,
-               brd_n, max_d):
-    """Origin minimizing L1 + turning + w_cost x cells of evictable parts (tables C) the
-    own rectangle covers, among origins free in the hard tables H: (cost, X, Y, k, checks), -1
-    when none within max_d; checks = origin-and-rotation fit tests made (the counted work)."""
+def evict_push(X, Y, k, si, own, own_n, opp, opp_n, ev, ev_start, j):
+    """Grid cells evictable part j (rectangles ev[ev_start[j]:ev_start[j + 1]], rows side, i0,
+    i1, j0, j1) must travel to clear the mover at origin (X, Y), rotation k (own pieces on
+    side si, opp rectangles on the other): the shortest straight push, right, left, up or
+    down, clearing every overlap on the same side; 0 when they do not overlap. A lower bound
+    on its displacement (it may land on something else, or turn)."""
+    need_r = need_l = need_u = need_d = 0
+    hit = False
+    for e in range(ev_start[j], ev_start[j + 1]):
+        s = ev[e, 0]
+        for m in range(own_n[k] + opp_n[k]):
+            if m < own_n[k]:
+                if s != si:
+                    continue
+                a = X + own[k, m, 0]
+                b = X + own[k, m, 1]
+                c = Y + own[k, m, 2]
+                d = Y + own[k, m, 3]
+            else:
+                if s == si:
+                    continue
+                q = m - own_n[k]
+                a = X + opp[k, q, 0]
+                b = X + opp[k, q, 1]
+                c = Y + opp[k, q, 2]
+                d = Y + opp[k, q, 3]
+            if b <= ev[e, 1] or ev[e, 2] <= a or d <= ev[e, 3] or ev[e, 4] <= c:
+                continue
+            hit = True
+            need_r = max(need_r, b - ev[e, 1])
+            need_l = max(need_l, ev[e, 2] - a)
+            need_u = max(need_u, d - ev[e, 3])
+            need_d = max(need_d, ev[e, 4] - c)
+    if not hit:
+        return 0
+    return min(min(need_r, need_l), min(need_u, need_d))
+
+
+@_jit
+def ripup_spot(H0, H1, C0, C1, SO, ncx, ncy, pad, si, X0, Y0, K0, w_rot, own, own_n, opp, opp_n, brd,
+               brd_n, ev, ev_start, ev_box, max_d):
+    """Origin minimizing the displacement of all it moves, among origins free in the hard
+    tables H: the mover's L1 + turning, plus for each evictable part it covers (tables C:
+    their cells; ev / ev_start: their rectangles, ev_box: their bounding boxes i0, i1, j0, j1)
+    the push that clears it (evict_push). All are lengths in grid cells, so the trade is the
+    same at any grid pitch. (cost, X, Y, k, checks, pairs), cost -1 when none within max_d;
+    checks = origin-and-rotation fit tests, pairs = evictable-part tests (the counted work)."""
     nk = own.shape[0]
+    n_ev = ev_start.shape[0] - 1
     best_c = -1.0
     bx = by = bk = 0
     n = 0
+    npair = 0
     for d in range(max_d + 1):
         if best_c >= 0 and d > best_c:
             break
@@ -164,18 +208,66 @@ def ripup_spot(H0, H1, C0, C1, SO, ncx, ncy, pad, si, X0, Y0, K0, w_rot, w_cost,
                     n += 1
                     if not _fits(H0, H1, SO, ncx, ncy, pad, si, X, Y, k, own, own_n, opp, opp_n, brd, brd_n):
                         continue
-                    C = C0 if si == 0 else C1
+                    # covers nothing evictable: the cheap summed-area test first
                     cov = 0
+                    Cs = C0 if si == 0 else C1
+                    Co = C1 if si == 0 else C0
                     for m in range(own_n[k]):
-                        cov += _q(C, X + own[k, m, 0] + pad, X + own[k, m, 1] + pad, Y + own[k, m, 2] + pad,
+                        cov += _q(Cs, X + own[k, m, 0] + pad, X + own[k, m, 1] + pad, Y + own[k, m, 2] + pad,
                                   Y + own[k, m, 3] + pad)
-                    c = c0 + w_cost * cov
+                    for m in range(opp_n[k]):
+                        cov += _q(Co, X + opp[k, m, 0] + pad, X + opp[k, m, 1] + pad, Y + opp[k, m, 2] + pad,
+                                  Y + opp[k, m, 3] + pad)
+                    c = c0
+                    if cov > 0:
+                        # the mover's bounding box at this origin
+                        ma = mb = mc = md = 0
+                        first = True
+                        for m in range(own_n[k] + opp_n[k]):
+                            if m < own_n[k]:
+                                r0, r1, r2, r3 = own[k, m, 0], own[k, m, 1], own[k, m, 2], own[k, m, 3]
+                            else:
+                                q = m - own_n[k]
+                                r0, r1, r2, r3 = opp[k, q, 0], opp[k, q, 1], opp[k, q, 2], opp[k, q, 3]
+                            if first or X + r0 < ma:
+                                ma = X + r0
+                            if first or X + r1 > mb:
+                                mb = X + r1
+                            if first or Y + r2 < mc:
+                                mc = Y + r2
+                            if first or Y + r3 > md:
+                                md = Y + r3
+                            first = False
+                        for j in range(n_ev):
+                            npair += 1
+                            if ev_box[j, 0] >= mb or ma >= ev_box[j, 1] or ev_box[j, 2] >= md or mc >= ev_box[j, 3]:
+                                continue
+                            c += evict_push(X, Y, k, si, own, own_n, opp, opp_n, ev, ev_start, j)
+                            if best_c >= 0 and c >= best_c:
+                                break
                     if best_c < 0 or c < best_c:
                         best_c = c
                         bx = X
                         by = Y
                         bk = k
-    return best_c, bx, by, bk, n
+    return best_c, bx, by, bk, n, npair
+
+
+def evict_arrays(rects_by_part):
+    """(ev (m, 5), ev_start (np + 1,), ev_box (np, 4)) int64 arrays for ripup_spot from
+    [[(side, (i0, i1, j0, j1)), ...] per evictable part] (absolute grid rectangles)."""
+    rows, start, box = [], [0], []
+    for rs in rects_by_part:
+        for side, (a, b, c, d) in rs:
+            rows.append((side, a, b, c, d))
+        start.append(len(rows))
+        if rs:
+            box.append((min(r[0] for _, r in rs), max(r[1] for _, r in rs), min(r[2] for _, r in rs),
+                        max(r[3] for _, r in rs)))
+        else:
+            box.append((0, 0, 0, 0))
+    ev = np.array(rows, np.int64).reshape(-1, 5)
+    return ev, np.array(start, np.int64), np.array(box, np.int64).reshape(-1, 4)
 
 
 def rotations_for_fit(p, k_now):

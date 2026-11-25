@@ -43,6 +43,7 @@ import numpy as np
 from .cost import Congestion
 
 BIG_NET = 40   # ground/power nets with more pins are frozen in the annealer
+HARD = 1e18    # delta of a move that adds overlap with fixed geometry under hard_fixed
 
 
 def turn_move(p, k0, rng):
@@ -76,8 +77,13 @@ class Annealer:
     def __init__(self, P, st, terms=None, macros=(), seed=0, w_wl=1.0, w_phys=1.0, w_disp=0.05,
                  w_cong=30.0, w_esc=0.3, lam0=1.0, lam1=40.0, wl_slack=0.15, wl_barrier=20.0, log=None,
                  cong_args=None, order=(), w_order=1.0, order_margin=0.5, subset=None, window=None,
-                 cong_history=None, labels=None, w_label=0.0, silk=None, w_silk=0.0, zones=None, w_zone=0.0):
+                 cong_history=None, labels=None, w_label=0.0, silk=None, w_silk=0.0, zones=None, w_zone=0.0,
+                 w_xing=0.0, xing_from=0.25, hard_fixed=False):
         self.P = P
+        # hard_fixed: a move may not add overlap with fixed obstacles or cells outside the
+        # outline (only the part itself can undo that; pi-w-controller's 28 mm module ended the
+        # anneal on the locked 40-pin header, 30 mm from any clear pose)
+        self.hard_fixed = bool(hard_fixed)
         self.st = st
         self.rng = random.Random(seed)
         self.log = log or (lambda *a, **k: None)
@@ -217,7 +223,16 @@ class Annealer:
         # the zones at its pose (the weights are in the table; w_zone scales it)
         self.zones = zones if (zones is not None and w_zone > 0) else None
         self.w = dict(wl=w_wl, phys=w_phys, disp=w_disp, cong=w_cong, esc=w_esc, order=w_order, label=w_label,
-                      silk=w_silk, zone=w_zone if self.zones is not None else 0.0)
+                      silk=w_silk, zone=w_zone if self.zones is not None else 0.0, xing=w_xing)
+        # ratsnest crossings (kae.place.crossings): `w_xing` mm of weighted HPWL per crossing, from
+        # the `xing_from` fraction of the schedule on (above that temperature parts are still
+        # wandering and the count means little; the trees are rebuilt when it starts)
+        self.xing_from = xing_from
+        self.xing_on = False
+        self.xing = None
+        if w_xing > 0:
+            from .crossings import Crossings
+            self.xing = Crossings(P, self)
         self.cong_args = cong_args
         # routability as a soft budget: free trade up to (1 + slack) x the seed HPWL, steep beyond
         self.wl_slack, self.wl_barrier = wl_slack, wl_barrier
@@ -317,6 +332,29 @@ class Annealer:
                 if dx > 0 and dy > 0:
                     tot += dx * dy
         return tot
+
+    def _fixed_part(self, i):
+        """Overlap (cells^2) of part i with fixed obstacles plus its cells outside the outline."""
+        tot = 0
+        bks = self.buckets
+        r_box, r_owner = self.r_box, self.r_owner
+        for rid in self.part_rects[i]:
+            i0, i1, j0, j1 = r_box[rid]
+            sp = self.r_span[rid]
+            bk = bks[self.r_side[rid]]
+            seen = set()
+            for bi in range(sp[0], sp[1] + 1):
+                for bj in range(sp[2], sp[3] + 1):
+                    for o in bk.get((bi, bj)) or ():
+                        if o in seen or r_owner[o] >= 0:
+                            continue
+                        seen.add(o)
+                        a0, a1, b0, b1 = r_box[o]
+                        dx = min(i1, a1) - max(i0, a0)
+                        dy = min(j1, b1) - max(j0, b0)
+                        if dx > 0 and dy > 0:
+                            tot += dx * dy
+        return tot + self._outline(i)
 
     def _outline(self, i):
         return self.P.outside_cells_all(self.X[i], self.Y[i], self.brds[i][self.K[i]])
@@ -476,15 +514,18 @@ class Annealer:
             nets.update(self.part_nets[i])
         wl_old = sum(self.ncost[j] for j in nets)
         leg_old = self._leg(S)
+        fix_old = sum(self._fixed_part(i) for i in S) if self.hard_fixed else 0
         disp_old = self._disp(S)
         lab_old = self._lab(S)
         silk_old = self._silk(S)
         zone_old = self._zone(S)
         cong_old = self.cong.local_cost(nets) if self.cong is not None else 0.0
+        xing_on = self.xing is not None and self.xing_on
         old = self._apply(S, newpos)
         newc = {j: self._net_cost(j) for j in nets}
         wl_new = sum(newc.values())
         leg_new = self._leg(S)
+        fix_new = sum(self._fixed_part(i) for i in S) if self.hard_fixed else 0
         disp_new = self._disp(S)
         lab_new = self._lab(S)
         silk_new = self._silk(S)
@@ -492,6 +533,7 @@ class Annealer:
         d_cong = 0.0
         if self.cong is not None:
             d_cong = self.cong.trial(nets, list(zip(S, old))) - cong_old
+        d_xing = self.xing.trial(nets) if xing_on else 0
         rules = {j for i in S for j in self.order_of.get(i, ())}
         newo = {j: self._order_pen(j) for j in rules}
         d_order = sum(newo[j] - self.open[j] for j in rules)
@@ -510,7 +552,10 @@ class Annealer:
                  + w["zone"] * (zone_new - zone_old)
                  + w["phys"] * d_phys / self.nstruct
                  + w["cong"] * d_cong
-                 + w["order"] * d_order)
+                 + w["order"] * d_order
+                 + w["wl"] * w["xing"] * d_xing / self.W0)
+        if fix_new > fix_old:
+            delta += HARD
         st = self.stats
         st["moves"] += 1
         bm = st["by_move"].setdefault(kind, [0, 0])
@@ -525,6 +570,8 @@ class Annealer:
             self.order_total += d_order
             if self.cong is not None:
                 self.cong.commit()
+            if xing_on:
+                self.xing.commit()
             for i in S:
                 self.poses[self.uuid[i]] = self._pose_of(i)
             st["accepted"] += 1
@@ -534,6 +581,8 @@ class Annealer:
         self._apply(S, old)
         if self.cong is not None:
             self.cong.revert()
+        if xing_on:
+            self.xing.revert()
         return False, delta
 
     # ------------------------------------------------------------------ moves
@@ -659,7 +708,8 @@ class Annealer:
         c = self.cong.total() if self.cong is not None else 0.0
         lab = self._lab(self.mov) * self.g / (len(self.mov) * self.S0)
         silk = self.silk_total() / self.A0 if self.silk else 0.0
-        return (w["wl"] * self._wl_cost(self.wl) + lam * self.leg_total / self.A0 + w["disp"] * disp
+        xing = w["xing"] * w["wl"] * self.xing.total / self.W0 if self.xing is not None else 0.0
+        return (xing + w["wl"] * self._wl_cost(self.wl) + lam * self.leg_total / self.A0 + w["disp"] * disp
                 + w["phys"] * self.phys / self.nstruct + w["cong"] * c + w["order"] * self.order_total
                 + w["label"] * lab + w["silk"] * silk + w["zone"] * self._zone(self.mov))
 
@@ -671,7 +721,8 @@ class Annealer:
                      wl_slack=self.wl_slack, wl_barrier=self.wl_barrier, cong_args=self.cong_args,
                      order=self.order, w_order=self.w["order"], order_margin=self.order_margin,
                      labels=self.labels, w_label=self.w["label"], silk=self.silk, w_silk=self.w["silk"],
-                     zones=self.zones, w_zone=self.w["zone"], cong_history=self._cong_history_fn)
+                     zones=self.zones, w_zone=self.w["zone"], cong_history=self._cong_history_fn,
+                     w_xing=self.w["xing"], xing_from=self.xing_from)
         o.W0, o.A0, o.S0, o.nstruct = self.W0, self.A0, self.S0, self.nstruct
         o.Xs, o.Ys = self.Xs, self.Ys
         return o.cost(self.lam1), o.terms_report()
@@ -691,6 +742,8 @@ class Annealer:
             out.update(silk=round(self.silk_total() / self.A0, 5))
         if self.zones is not None:
             out.update(zone=round(self._zone(self.mov), 5))
+        if self.xing is not None:
+            out.update(xing=int(self.xing.total))
         return out
 
     def labels_off(self):
@@ -715,7 +768,7 @@ class Annealer:
                 continue
             S, newpos, kind = mv
             _, d = self.try_move(S, newpos, 1e-12, self.lam0, kind)
-            if d > 0:
+            if 0 < d < HARD:
                 ups.append(d)
         ups.sort()
         T0 = ups[len(ups) // 2] / math.log(1 / 0.3) if ups else 1e-3
@@ -746,6 +799,10 @@ class Annealer:
             self.T_last = T
             lam = self.lam0 * (self.lam1 / self.lam0) ** frac
             r = max(1, int(r0 * (T / T0) ** 0.5))
+            if self.xing is not None and not self.xing_on and frac >= self.xing_from:
+                from .crossings import Crossings
+                self.xing = Crossings(self.P, self)    # the term starts here: trees of the current pins
+                self.xing_on = True
             for _ in range(batch):
                 mv = self.propose(r)
                 if mv is None:
@@ -774,6 +831,34 @@ class Annealer:
         self.final_lam = self.lam0 * (self.lam1 / self.lam0) ** min(1.0, done / N)
         self.best_legal = best
         return self.report(cpu_now() - t0, planned=N, done=done)
+
+    def quench(self, moves, factors=(10, 100, 1000), r_mm=1.0):
+        """engine.FastAnnealer.quench on this annealer: legality weight lam1 x each factor at the
+        final temperature, only parts in violation move, until legal or `moves` are spent."""
+        from .state import State, grid_violations
+        rep = dict(leg_start=self.leg_total, moves=0)
+        if self.leg_total == 0 or moves <= 0:
+            return rep
+        T = float(getattr(self, "T_last", 1e-6))
+        r = max(1, int(round(r_mm / self.g)))
+        per = max(1, int(moves) // len(factors))
+        for f in factors:
+            lam = self.lam1 * f
+            k = 0
+            while k < per and self.leg_total > 0:
+                viol = sorted(grid_violations(State(self.P, self.X, self.Y, self.K), parts=self.active))
+                for i in viol:
+                    X, Y = self._clamp(i, self.X[i] + self.rng.randint(-r, r), self.Y[i] + self.rng.randint(-r, r),
+                                       self.K[i])
+                    self.try_move([i], [(X, Y, self.K[i])], T, lam, "quench")
+                charge("anneal_move_py", len(viol))
+                k += max(1, len(viol))
+                rep["moves"] += len(viol)
+            rep[f"leg_after_x{f}"] = self.leg_total
+            if self.leg_total == 0:
+                break
+        rep["leg_end"] = self.leg_total
+        return rep
 
     def report(self, cpu, planned=0, done=0):
         return dict(cpu_s=round(cpu, 2), planned_moves=planned, moves=done,

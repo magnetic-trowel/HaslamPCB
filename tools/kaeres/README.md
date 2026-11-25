@@ -155,6 +155,56 @@ Lessons from the decide-ab campaign (2026-11, 17 experiments; plan and analysis 
 - **kaeq's CPU column counts the job's own process.** A restart-wrapped job can show hours of wall
   time and seconds of CPU while its children work; check `ps` of the children before calling it hung.
 
+## Re-scoring stored runs
+
+After a scoring change (a new DRC evaluator), an experiment's stored runs can be scored again without running any
+method:
+
+```bash
+$K rescore submit NAME --harness <pushed commit> [--only ids|@file] [--limit N] [--human] [--prio P] [--dry-run]
+```
+
+- **What runs.** One kaeq job per board with runs still unscored by that harness's scorer (`rescore-job`). Each run's
+  stored `output.kicad_pcb.gz` is scored by `tools/kaeres/rescore_runs.py`, with `kaebench.runner._score`, the
+  job's own scoring code. It is scored on the task the run was made on, prepared again by the harness that prepared
+  it (from the task cache when it can).
+- **What is written.** A new `evals/<eid>.json` (`rescored: true`, `rescored_with`, `task_prepared_by`,
+  `score_version`), beside the old one, never in its place. A place run keeps its old probe, labelled `probe_from`.
+- **Reports.** The experiment's `evaluators.drc_current` points at the new scorer, and `drc_history` lists both.
+  Reports read the current scorer and fall back to the older evaluation for runs not yet re-scored (flagged
+  `foreign_evaluator`).
+- **DRC reports kept.** Every job keeps the scorer's DRC reports beside the evaluation (`keep_drc_reports`):
+  `<eid>.drc.json.gz` for route and place tasks, `<eid>.placement-drc.json.gz` and `<eid>.routing-drc.json.gz` for
+  joint tasks. A later change to how a report is judged (not to the DRC itself) can then be applied to these files
+  without KiCad.
+
+## Screening a mechanism before choosing a suite
+
+A suite picked by a broad tag can barely contain the situation a change acts on: gfix-thermal-ring ran on
+`mech/pours.txt` and 113 of 116 board-seed pairs came out identical (undecided, CPU spent for nothing).
+`mechscreen.py` counts, per board, how often a candidate change's situation occurs, statically, from the
+prepared route input (no routing; about a second per board), so the suite is chosen by measurement:
+
+```bash
+PY=<the tag's kae venv python>; export PYTHONPATH=kae/src; source ~/.cache/kaebench/env.sh
+$PY tools/kaeres/mechscreen.py --list
+$PY tools/kaeres/mechscreen.py --screen thermal-ring --screen netrules --boards @ids.txt \
+    --out screen.jsonl --info-cache DIR            # resumable; DIR keeps KiCad's export for later screens
+$PY tools/kaeres/mechscreen.py --top screen.jsonl --screen thermal-ring -n 40   # boards by count
+```
+
+- Input: the route task's input from the local task cache (`$KAERES_TASK_CACHE`), else a copy of the corpus
+  board. One line per board and screen: `{board, screen, count, examples, source, s, ...}`; `count` 0 means
+  the change cannot act there.
+- A screen is a function of the board (`ctx.info`: KiCad's export without probes; `ctx.dru`: the custom rules)
+  registered with `@screen(name, doc)`. To compare the tag's code with a candidate commit, load the
+  candidate's module with `variant_module(commit, path, name)`: it is read from git, never put on the path.
+- Screens: `thermal-ring` (other nets' pads that the tag's thermal-spoke corridors cover by 10 % or more and
+  gfix-thermal-ring 3eb6a72f's do not), `netrules` (pad pairs near enough that a net-conditioned `.kicad_dru`
+  clearance rule, evaluated with gfix-place-netrules' `kae.board.dru_cond`, is stricter than their net classes).
+- Pick the suite from the boards with the highest counts that fit the tier, and say in the plan how many
+  boards of the pool have the mechanism at all.
+
 ## Profiling a smoke
 
 Profile one smoke board per arm before a full run: the queue is shared, and an hour saved per job is

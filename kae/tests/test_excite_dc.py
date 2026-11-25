@@ -196,6 +196,33 @@ def test_copper_loss_budget_and_drop_share_the_unknown_rail_fallback():
     assert HA.phi(-0.5) == 0.0 and HA.phi(0.5) == 0.5
 
 
+def test_a_ground_shift_is_no_negative_drop():
+    """A load whose ground sits below its source's (here: another rail's return current lifts the LDO's ground pin)
+    sees more than the source's voltage. Its drop.rail is 0, never negative, and the signed rail plus ground
+    difference stays readable in drops_signed. A real drop is unchanged."""
+    from types import SimpleNamespace
+
+    import numpy as np
+    pl = _plan()
+    pl.loss_share, pl.drop_share, pl.dT_max = DC.LOSS_SHARE, DC.DROP_SHARE, DC.DT_MAX
+    cv = {("dc:U2", "I_A"): 0.2, "cell:c": {"I_A": 1.0, "D": 0.6}}
+    info = dict(net=SimpleNamespace(off={"l": 0}, n_br=0), x=np.zeros(0), sys=SimpleNamespace(zdiag=np.zeros(0)))
+    # 3V3: 1 mV lost along the rail, the LDO's ground 4 mV above the load's: signed -3 mV
+    V = {t: 0.0 for t in DC.injections(pl, cv)}
+    V.update({"U1.2": 3.300, "U2.1": 3.299, "U1.3": 0.004, "U2.2": 0.0})
+    ob = DC.observe(pl, cv, V, info)
+    d = {(r, rl): (u, dv) for r, rl, u, dv, _ in ob["drops"]}
+    sd = {(r, rl): dv for r, rl, dv in ob["drops_signed"]}
+    assert d[("U2", "3V3")] == (0.0, 0.0)
+    assert sd[("U2", "3V3")] == pytest.approx(-0.003)
+    # the same rail with the load's ground 2 mV above the LDO's: a 3 mV drop, as before
+    V.update({"U1.3": 0.0, "U2.2": 0.002})
+    ob = DC.observe(pl, cv, V, info)
+    (u, dv), = [(u, dv) for r, rl, u, dv, _ in ob["drops"] if r == "U2"]
+    assert dv == pytest.approx(0.003) and u == pytest.approx(0.003 / (DC.DROP_SHARE * 3.3))
+    assert [x for x in ob["drops_signed"] if x[0] == "U2"][0][2] == pytest.approx(0.003)
+
+
 def test_dc_currents_left_out_of_the_copper_void_the_score():
     """Load and source currents at pads outside the copper model were dropped with a note while the
     total stayed 'complete'; that note now voids the DC band (evaluate/wideband mark it uncomputed)."""
@@ -287,3 +314,353 @@ def test_track_heating_in_a_pour_is_steady_under_sub_cell_shifts(angle):
     for off in OFFSETS:
         I, weff, _ = _track_reading(angle, off, w=1.0)
         assert I == pytest.approx(1.0, abs=1e-6) and weff == pytest.approx(1.0)
+
+
+# A KiCad 5 board in the format of 2015-2020 pcbnew: a via is written without a (drill) when it has its net
+# class's drill. VBUS (class Power, via drill 0.35) runs J1 -> F.Cu -> via -> B.Cu -> via -> F.Cu -> U2; GND
+# (class Default, 0.4) the same way back; one VBUS via names its own drill.
+KICAD5_DEFAULT_DRILLS = """(kicad_pcb (version 20171130) (host pcbnew 5.1.9)
+  (general (thickness 1.6))
+  (page A4)
+  (layers
+    (0 F.Cu signal)
+    (31 B.Cu signal)
+    (44 Edge.Cuts user)
+  )
+  (setup (via_size 0.8) (via_drill 0.4) (uvia_size 0.3) (uvia_drill 0.1))
+  (net 0 "")
+  (net 1 GND)
+  (net 2 VBUS)
+  (net_class Default "default"
+    (clearance 0.2) (trace_width 0.25) (via_dia 0.8) (via_drill 0.4) (uvia_dia 0.3) (uvia_drill 0.1)
+    (add_net GND)
+  )
+  (net_class Power ""
+    (clearance 0.2) (trace_width 0.5) (via_dia 0.7) (via_drill 0.35) (uvia_dia 0.3) (uvia_drill 0.1)
+    (add_net VBUS)
+  )
+  (module Test:Conn (layer F.Cu) (tedit 0) (tstamp 5A000001)
+    (at 7 10)
+    (fp_text reference J1 (at 0 -3) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))
+    (fp_text value Conn (at 0 3) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))
+    (pad 1 smd rect (at 0 -1) (size 1 1) (layers F.Cu F.Mask) (net 2 VBUS))
+    (pad 2 smd rect (at 0 1) (size 1 1) (layers F.Cu F.Mask) (net 1 GND))
+  )
+  (module Test:Load (layer F.Cu) (tedit 0) (tstamp 5A000002)
+    (at 23 10)
+    (fp_text reference U2 (at 0 -3) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))
+    (fp_text value Load (at 0 3) (layer F.SilkS) (effects (font (size 1 1) (thickness 0.15))))
+    (pad 1 smd rect (at 0 -1) (size 1 1) (layers F.Cu F.Mask) (net 2 VBUS))
+    (pad 2 smd rect (at 0 1) (size 1 1) (layers F.Cu F.Mask) (net 1 GND))
+  )
+  (gr_line (start 5 5) (end 25 5) (layer Edge.Cuts) (width 0.1))
+  (gr_line (start 25 5) (end 25 15) (layer Edge.Cuts) (width 0.1))
+  (gr_line (start 25 15) (end 5 15) (layer Edge.Cuts) (width 0.1))
+  (gr_line (start 5 15) (end 5 5) (layer Edge.Cuts) (width 0.1))
+  (segment (start 7 9) (end 10 9) (width 0.5) (layer F.Cu) (net 2))
+  (via (at 10 9) (size 0.7) (layers F.Cu B.Cu) (net 2))
+  (segment (start 10 9) (end 20 9) (width 0.5) (layer B.Cu) (net 2))
+  (via (at 20 9) (size 0.7) (drill 0.3) (layers F.Cu B.Cu) (net 2))
+  (segment (start 20 9) (end 23 9) (width 0.5) (layer F.Cu) (net 2))
+  (segment (start 7 11) (end 10 11) (width 0.5) (layer F.Cu) (net 1))
+  (via (at 10 11) (size 0.8) (layers F.Cu B.Cu) (net 1))
+  (segment (start 10 11) (end 20 11) (width 0.5) (layer B.Cu) (net 1))
+  (via (at 20 11) (size 0.8) (layers F.Cu B.Cu) (net 1))
+  (segment (start 20 11) (end 23 11) (width 0.5) (layer F.Cu) (net 1))
+)
+"""
+
+
+def _default_drill_board(tmp_path):
+    from kae.board.kicad_file import load
+    p = tmp_path / "board.kicad_pcb"
+    p.write_text(KICAD5_DEFAULT_DRILLS)
+    return load(p)
+
+
+def test_a_via_written_without_a_drill_has_its_net_class_drill(tmp_path):
+    """KiCad 5 writes a via's drill only when it is not its net class's, and pcbnew drills it with the class's
+    (VIA::GetDrillValue). Read as 0 mm, every such via was a barrel of no radius."""
+    b = _default_drill_board(tmp_path)
+    assert sorted((v.x, v.y, v.drill) for v in b.vias) == [(10.0, 9.0, 0.35), (10.0, 11.0, 0.4), (20.0, 9.0, 0.3),
+                                                           (20.0, 11.0, 0.4)]
+
+
+def test_a_zero_drill_barrel_is_refused_by_the_mesh():
+    """A barrel of no radius has no partial inductance (NaN), which made the DC band's factor 'exactly singular'."""
+    from kae.em.mesh import Layer, Mesh
+    m = Mesh.over(0, 0, 2, 2, 0.25, [Layer("F", 1.6, 0.035, 1), Layer("B", 0, 0.035, 1)])
+    with pytest.raises(ValueError, match="drill"):
+        m.via(1.0, 1.0, [0, 1], "A", drill=0.0)
+
+
+def test_a_board_whose_vias_have_their_default_drill_solves_at_dc(tmp_path):
+    """The DC band of a KiCad 5 board whose rail and ground change layers through default-drill vias (hwstar's
+    battery monitor): the DC factor failed as exactly singular. Its potentials are finite and the band observes
+    the copper loss and the load's rail drop."""
+    import numpy as np
+
+    from kae.em import solve as ES
+    from kae.em.kicad import BoardMesh
+    from kae.excite import evaluate as E
+    from kae.excite.beliefs import Param
+    b = _default_drill_board(tmp_path)
+    bm = BoardMesh(None, (5.0, 5.0, 25.0, 15.0), 0.25, b=b, fills={})
+    for t in ("J1.1", "J1.2", "U2.1", "U2.2"):
+        bm.pad(t)
+    net = ES.Network(bm.m)
+    op = ES.Operator(net)
+    holder = {"sys": ES.System(op, 0.0)}           # the DC factor: 'Factor is exactly singular' with 0 mm drills
+    assert len(net.vseg) == 4 and np.isfinite(np.diag(op.Lv)).all()
+    pl = DC.Plan()
+    pl.grounds = {"GND"}
+    pl.pads = {"J1": [("1", "VBUS", "", ""), ("2", "GND", "", "")],
+               "U2": [("1", "VBUS", "power_in", "VDD"), ("2", "GND", "", "GND")]}
+    pl.volts = {"VBUS": 5.0}
+    pl.loss_share, pl.drop_share, pl.dT_max = DC.LOSS_SHARE, DC.DROP_SHARE, DC.DT_MAX
+    pl.feeds = {"VBUS": dict(kind="external", ref="J1", out=["J1.1"], gnd=["J1.2"], rating=3.0)}
+    pl.loads = [dict(ref="U2", rail="VBUS", sup=["U2.1"], gnd=["U2.2"], key=("dc:U2", "I_A"))]
+    pl.params = [Param("dc:U2", "I_A", 1.0, 0.5, 2.0, "A", "test", "test")]
+    notes, obs = [], []
+    rows = E._dc_harms(pl, bm, b, net, op, {}, [], 1, 0, [0.0] * 4, notes, lambda *a: None, obs_out=obs,
+                       system=holder)
+    assert rows, notes
+    (V, info), = ES.potentials_many(bm.m, [{"J1.1": 1.0, "U2.1": -1.0, "U2.2": 1.0, "J1.2": -1.0}], 0.0, net=net,
+                                    op=op, system=holder["sys"])
+    assert all(np.isfinite(complex(v)) for v in V.values())
+    got = {o["id"]: o for o in obs}
+    assert {"loss.copper", "drop.rail"} <= set(got)
+    for o in got.values():
+        assert np.isfinite(o["values"]).all()
+    # 1 A typical through ~2 x 13 mm of 0.5 mm, 35 um copper and four barrels: milliohms, so the drop is mV, not 0
+    assert 1e-4 < got["drop.rail"]["values"][0] < 0.05
+    assert got["loss.copper"]["values"][0] > 0
+
+
+def _buckboost_plan(eta=None, fed=True):
+    """PV (J1) -> PV_IN; a 4-switch buck-boost (controller U1, inductor L1 between SW1 and SW2) PV_IN -> SYS
+    with load U2 (the LTC3130 of solar-small)."""
+    from kae.excite.beliefs import Param
+    pl = DC.Plan()
+    pl.grounds = {"GND"}
+    pl.pads = {
+        "J1": [("1", "PV_IN", "", ""), ("2", "GND", "", "")],
+        "U1": [("3", "SW1", "passive", "SW1"), ("4", "PV_IN", "power_in", "PVIN"), ("14", "SYS", "power_out", "VOUT"),
+               ("16", "SW2", "passive", "SW2"), ("17", "GND", "power_in", "GND")],
+        "U2": [("1", "SYS", "power_in", "VDD"), ("2", "GND", "", "GND")],
+    }
+    pl.volts = {"PV_IN": 18.0, "SYS": 13.5}
+    cells = {"b": dict(id="b", cls="buck", src="cell:b", vin="PV_IN", vout="SYS", sw="SW1", ctrl="U1", rect=None,
+                       ind="L1", parts={"U1", "L1"}),
+             "o": dict(id="o", cls="boost", src="cell:o", vin="PV_IN", vout="SYS", sw="SW2", ctrl="U1", rect=None,
+                       ind="L1", parts={"U1", "L1"})}
+    DC.merge_buckboost(cells)
+    cell = cells["b"]
+    pl.feeds = {"SYS": dict(kind="cell", cell=cell, ref="U1")}
+    if fed:
+        pl.feeds["PV_IN"] = dict(kind="external", ref="J1", out=["J1.1"], gnd=["J1.2"], rating=3.0)
+    if eta:
+        pl.feeds["SYS"]["eta"] = Param("dc:U1", "eta", sum(eta) / 2, eta[0], eta[1], "", "intent", "test")
+    pl.loads = [dict(ref="U2", rail="SYS", sup=["U2.1"], gnd=["U2.2"], share=1.0, cell=cell)]
+    return pl, cells
+
+
+@pytest.mark.parametrize("fed", [True, False])
+def test_a_4_switch_buck_boost_is_one_converter_whose_flow_closes(fed):
+    """The buck and boost cells of one controller and one inductor (SW1 - L1 - SW2) are one converter: I_L leaves
+    at SW1, comes back at SW2 and the output current leaves at the controller's VOUT. As two cells, the buck's
+    current entered SW1 with no way out and solar-small's DC band was not computed. With no feed on its input
+    the flow enters at the controller (its ground), as for a regulator."""
+    pl, cells = _buckboost_plan(eta=(0.8, 0.9), fed=fed)
+    assert list(cells) == ["b"] and cells["b"]["cls"] == "buckboost" and cells["b"]["sw2"] == "SW2"
+    cv = {("dc:U1", "eta"): 0.85, "cell:b": {"I_A": 0.6, "D": 0.75}}
+    inj = DC.injections(pl, cv)
+    sums = _net_sums(pl, inj, [{"SW1", "SW2"}])            # the inductor joins the two switch nodes
+    assert all(abs(v) < 1e-12 for v in sums.values()), sums
+    x = 0.6                                                # bucking: I_L is the output current
+    assert inj["U2.1"] == pytest.approx(-x)
+    assert inj["U1.3"] == pytest.approx(x) and inj["U1.16"] == pytest.approx(-x) and inj["U1.14"] == pytest.approx(x)
+    xin = x * 13.5 / (0.85 * 18.0)                         # P_in = P_out / eta
+    if fed:
+        assert inj["J1.1"] == pytest.approx(xin)
+    else:
+        assert "J1.1" not in inj and abs(inj.get("U1.4", 0.0)) < 1e-12
+
+
+def test_a_cells_input_current_follows_the_facts_efficiency():
+    """With the facts' eta the boost takes P_out / (eta V_in) from its input; without it the lossless duty."""
+    from kae.excite.beliefs import Param
+    pl = _plan(rect=None)
+    cv = {("dc:U2", "I_A"): 0.2, "cell:c": {"I_A": 1.0, "D": 0.6}}
+    x = DC.load_currents(pl, cv)[1]
+    assert DC.injections(pl, cv)["J1.1"] == pytest.approx(x / (1 - 0.6) + 0.2)
+    pl.feeds["5V"]["eta"] = Param("dc:U3", "eta", 0.9, 0.9, 0.9, "", "intent", "test")
+    cv[("dc:U3", "eta")] = 0.9
+    inj = DC.injections(pl, cv)
+    assert inj["J1.1"] == pytest.approx(x * 12.0 / (0.9 * 5.0) + 0.2)
+    assert all(abs(v) < 1e-12 for v in _net_sums(pl, inj, [{"VBUS", "SW"}]).values())
+
+
+def test_a_buck_whose_input_has_no_feed_enters_at_its_controller():
+    """A buck cell whose input rail has no feed: its input current came from nowhere (an open island, or a path
+    through the input's resistor dividers to ground); the flow now enters at the controller's ground."""
+    pl = DC.Plan()
+    pl.grounds = {"GND"}
+    pl.pads = {"U1": [("1", "VIN", "power_in", "VIN"), ("2", "SW", "", "SW"), ("3", "GND", "", "GND")],
+               "U2": [("1", "3V3", "power_in", "VDD"), ("2", "GND", "", "GND")]}
+    pl.volts = {"VIN": 12.0, "3V3": 3.3}
+    cell = dict(id="c", cls="buck", src="cell:c", vin="VIN", vout="3V3", sw="SW", ctrl="U1", rect=None, parts=set())
+    pl.feeds = {"3V3": dict(kind="cell", cell=cell, ref="U1")}
+    pl.loads = [dict(ref="U2", rail="3V3", sup=["U2.1"], gnd=["U2.2"], share=1.0, cell=cell)]
+    inj = DC.injections(pl, {"cell:c": {"I_A": 0.5, "D": 0.275}})
+    assert abs(inj.get("U1.1", 0.0)) < 1e-12
+    assert all(abs(v) < 1e-12 for v in _net_sums(pl, inj, [{"SW", "3V3"}]).values())
+
+
+def test_switching_loss_charges_the_switch_node_at_the_current_the_cell_carries():
+    """The t_v interval spans C_sw V / I over the whole current range; a corner's light-load t_v (microseconds)
+    times a rail's sustained current read watts in a small buck (1573 C). The switch node's charge is C_sw V^2 f
+    whatever the current; the commutation V I_L t_i f."""
+    from kae.excite import heat as H
+    v = {"f_sw_Hz": 5e5, "t_i_s": 3e-9, "t_v_s": 9.75e-6, "C_sw_F": 1.3e-9}
+    assert H.switching_loss(15.0, 0.36, v) == pytest.approx(15 * 0.36 * 3e-9 * 5e5 + 1.3e-9 * 15 ** 2 * 5e5)
+    v.pop("C_sw_F")
+    assert H.switching_loss(15.0, 0.36, v) == pytest.approx(15 * 0.36 * (3e-9 + 9.75e-6) * 5e5)
+
+
+def test_a_buck_boost_heats_its_controller_with_two_switches_in_the_inductors_path():
+    from types import SimpleNamespace
+
+    from kae.excite import heat as H
+    pl, cells = _buckboost_plan()
+    bd = SimpleNamespace(part_kind={"U2": ("ic", "mcu", "mcu")})
+    cv = {"cell:b": {"I_A": 0.6, "D": 0.75, "V_V": 18.0, "t_i_s": 0.0, "C_sw_F": 0.0}}
+    heat = H.part_heat(bd, pl, cv, {("heat:U1", "R_on_ohm"): 0.1}, {})
+    assert heat["U1"] == pytest.approx(2 * 0.6 ** 2 * 0.1)
+
+
+def test_a_cell_with_the_facts_efficiency_loses_what_it_states():
+    """With the facts' eta the converter's loss is (1/eta - 1) P_out (as its input current is P_out / eta), not
+    the class priors' R_on and C_sw (which read 1 W in a 1.4 W buck-boost of 80-93 %)."""
+    from types import SimpleNamespace
+
+    from kae.excite import heat as H
+    pl, _ = _buckboost_plan(eta=(0.8, 0.9))
+    bd = SimpleNamespace(part_kind={"U2": ("ic", "mcu", "mcu")})
+    cv = {("dc:U1", "eta"): 0.85, "cell:b": {"I_A": 0.1, "D": 0.75, "V_V": 25.0, "t_i_s": 1e-8, "C_sw_F": 1.3e-9,
+                                             "f_sw_Hz": 1.2e6}}
+    heat = H.part_heat(bd, pl, cv, {("heat:U1", "R_on_ohm"): 0.3}, {})
+    assert heat["U1"] == pytest.approx((1 / 0.85 - 1) * 13.5 * 0.1)
+
+
+def test_a_cells_prior_loss_stays_within_a_working_converters():
+    """Without the facts' eta, the class priors' corners (C_sw 1.3 nF, a guessed 48 V bus, 2 MHz) read 6 W in a
+    3.3 V, 0.35 A buck (solar-small's TPS62933 at 1332 C); the loss is held to the switching-regulator efficiency
+    prior's low end, (1/0.75 - 1) P_out."""
+    from types import SimpleNamespace
+
+    from kae.excite import heat as H
+    cell = dict(id="c", cls="buck", src="cell:c", vin="VIN", vout="OUT", sw="SW", ctrl="U1", rect="", parts=set())
+    pl = DC.Plan()
+    pl.volts = {"VIN": 13.5, "OUT": 3.3}
+    pl.feeds = {"OUT": dict(kind="cell", cell=cell, ref="U1")}
+    pl.loads = []
+    cv = {"cell:c": {"I_A": 0.35, "D": 0.25, "V_V": 48.0, "t_i_s": 1e-8, "C_sw_F": 1.3e-9, "f_sw_Hz": 2e6}}
+    heat = H.part_heat(SimpleNamespace(part_kind={}), pl, cv, {("heat:U1", "R_on_ohm"): 0.3}, {})
+    assert heat["U1"] == pytest.approx((1 / DC.ETA[0] - 1) * 3.3 * 0.35)
+
+
+def _board_plan(intent, dnp=False, rev=False):
+    """A board fed by connector J1 on VIN (no source part; with `rev`, through a reverse-polarity P-FET Q2 from
+    VRAW), LDO U1 VIN -> 3V3, P-FET Q1 3V3 -> 3V3_SW, an MCU U2 on 3V3 and a sensor header J2 on 3V3_SW
+    (do-not-populate when `dnp`), through kae.excite.dc.plan."""
+    from types import SimpleNamespace as NS
+    pads = {"J1": [("1", "VIN", "passive", ""), ("2", "GND", "passive", "")],
+            "U1": [("1", "VIN", "power_in", "VIN"), ("2", "3V3", "power_out", "VOUT"), ("3", "GND", "power_in", "GND")],
+            "Q1": [("1", "EN", "", "G"), ("2", "3V3", "", "S"), ("3", "3V3_SW", "", "D")],
+            "U2": [("1", "3V3", "power_in", "VDD"), ("2", "GND", "power_in", "GND"), ("3", "EN", "", "PA0")],
+            "J2": [("1", "3V3_SW", "passive", ""), ("2", "GND", "passive", "")]}
+    kind = {"J1": ("connector", "power"), "U1": ("ic", "regulator_linear"), "Q1": ("transistor", "pmos"),
+            "U2": ("ic", "mcu"), "J2": ("connector", "header")}
+    if rev:
+        pads["J1"] = [("1", "VRAW", "passive", ""), ("2", "GND", "passive", "")]
+        pads["Q2"] = [("1", "GATE", "", "G"), ("2", "VIN", "", "D"), ("3", "VRAW", "", "S")]
+        kind["Q2"] = ("transistor", "pmos")
+    fps = [NS(ref=r, uuid=f"u{r}", attrs=["dnp"] if dnp and r == "J2" else [], value="X", lib_id="", fields={},
+              pads=[NS(number=n, net=net, pintype=pt, pinfunction=fn, drill=0.0) for n, net, pt, fn in pp]) for r, pp in pads.items()]
+    board = NS(footprints=fps)
+    parts = {f"u{r}": dict(ref=r, kind=k, subtype=s, **({"dnp": True} if dnp and r == "J2" else {})) for r, (k, s) in kind.items()}
+    brief = dict(parts=parts, nets={"VIN": dict(role="rail", volts=5.0), "3V3": dict(role="rail", volts=3.3,
+                                                                                   source=dict(part="uU1")),
+                                    "3V3_SW": dict(role="rail", volts=3.3), "GND": dict(role="ground"), "EN": {}},
+                 structures=[])
+    return DC.plan(board, brief, NS(grounds={"GND"}, circuit=NS(elems=[])), {}, [], intent)
+
+
+def test_facts_route_a_switched_rail_through_its_switch_and_feed_a_voltage_rail_at_its_connector():
+    """solar-small: +3V3_SW through Q301 (facts: linear from +3V3) was taken as an external source, so its loads
+    never loaded +3V3; PV_IN (facts: a voltage, no source part) carried no DC, the panel arriving on J101."""
+    facts = {"nets": {"VIN": {"V_V": 5.0}, "3V3_SW": {"source": "Q1", "from": "3V3", "kind": "linear"}}}
+    pl = _board_plan(facts)
+    assert pl.feeds["3V3_SW"]["kind"] == "linear" and pl.feeds["3V3_SW"]["rin"] == "3V3"
+    assert pl.feeds["3V3_SW"]["out"] == ["Q1.3"] and pl.feeds["3V3_SW"]["inp"] == ["Q1.2"]
+    assert pl.feeds["VIN"] == dict(pl.feeds["VIN"], kind="external", ref="J1", out=["J1.1"], gnd=["J1.2"])
+    assert not pl.feeds["3V3"].get("flow_external")              # the LDO's input now has a feed
+    j2 = next(ld for ld in pl.loads if ld["ref"] == "J2")
+    cv = {(p.subject, p.name): p.typ for p in pl.params}
+    inj = DC.injections(pl, cv)
+    x = cv[j2["key"]]
+    assert inj["Q1.3"] == pytest.approx(x) and inj["Q1.2"] == pytest.approx(-x)
+    # the switched rail's export reaches the connector through the LDO: J1 delivers every load's current
+    u2 = next(ld for ld in pl.loads if ld["ref"] == "U2")
+    assert inj["J1.1"] == pytest.approx(x + cv[u2["key"]])
+    assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
+    # without `from` and VIN's voltage in the facts: the switch is an external source, VIN has no feed (as before)
+    pl0 = _board_plan({"nets": {"3V3_SW": {"source": "Q1"}}})
+    assert "VIN" not in pl0.feeds and pl0.feeds["3V3_SW"]["kind"] == "external"
+
+
+def test_a_voltage_rail_behind_a_reverse_polarity_switch_is_fed_through_it():
+    """solar-small's panel: J101 -> PV_RAW -> Q101 (P-FET) -> PV_IN."""
+    pl = _board_plan({"nets": {"VIN": {"range_V": [0, 25]}}}, rev=True)
+    assert pl.feeds["VRAW"] == dict(pl.feeds["VRAW"], kind="external", ref="J1", out=["J1.1"], gnd=["J1.2"])
+    assert pl.feeds["VIN"] == dict(pl.feeds["VIN"], kind="linear", ref="Q2", rin="VRAW", out=["Q2.2"], inp=["Q2.3"])
+    assert pl.volts["VRAW"] == pl.volts["VIN"] == 5.0
+    cv = {(p.subject, p.name): p.typ for p in pl.params}
+    inj = DC.injections(pl, cv)
+    assert inj["J1.1"] == pytest.approx(-inj["Q2.3"]) and inj["J1.1"] == pytest.approx(inj["Q2.2"]) and inj["J1.1"] > 0
+    assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_a_do_not_populate_part_neither_loads_nor_heats():
+    """solar-small's J301 (dnp, value 'DNP') was loaded as a 0.3 A connector export and heated as a load to 213 C."""
+    from types import SimpleNamespace as NS
+
+    from kae.excite import heat as H
+    facts = {"nets": {"VIN": {"V_V": 5.0}, "3V3_SW": {"source": "Q1", "from": "3V3", "kind": "linear"}}}
+    pl = _board_plan(facts, dnp=True)
+    assert "J2" not in {ld["ref"] for ld in pl.loads} and "J2" not in pl.pads
+    assert all(not t.startswith("J2.") for f in pl.feeds.values() for k in ("out", "gnd", "inp") for t in f.get(k) or [])
+    cv = {(p.subject, p.name): p.typ for p in pl.params}
+    inj = DC.injections(pl, cv)
+    bd = NS(part_kind={"Q1": ("transistor", "pmos"), "U1": ("ic", "regulator_linear"), "U2": ("ic", "mcu")})
+    heat = H.part_heat(bd, pl, cv, {}, inj)
+    assert "J2" not in heat and "Q1" not in heat                # nothing flows through the switch
+
+
+def test_a_load_switch_transistor_heats_by_its_on_resistance():
+    """A switch's drop is I R_on, not the difference of the facts' rounded rail voltages."""
+    from types import SimpleNamespace as NS
+
+    from kae.excite import heat as H
+    facts = {"nets": {"VIN": {"V_V": 5.0}, "3V3_SW": {"source": "Q1", "from": "3V3", "kind": "linear"}}}
+    pl = _board_plan(facts)
+    cv = {(p.subject, p.name): p.typ for p in pl.params}
+    j2 = next(ld for ld in pl.loads if ld["ref"] == "J2")
+    cv[j2["key"]] = 0.5
+    bd = NS(part_kind={"Q1": ("transistor", "pmos"), "U1": ("ic", "regulator_linear"), "U2": ("ic", "mcu"),
+                       "J1": ("connector", "power"), "J2": ("connector", "header")})
+    inj = DC.injections(pl, cv)
+    heat = H.part_heat(bd, pl, cv, {("heat:Q1", "R_on_ohm"): 0.06}, inj)
+    I = inj["Q1.3"]                                     # the export, held to what the feeds can deliver
+    assert I > 0.1 and heat["Q1"] == pytest.approx(I ** 2 * 0.06)    # not (3.3 - 3.3) V I

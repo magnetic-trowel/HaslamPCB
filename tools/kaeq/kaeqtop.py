@@ -91,7 +91,10 @@ def frame(c, cfg, sampler, args, width):
             beat = json.load(f)
         bsys, bage = beat.get("sys", {}), now - beat.get("ts", 0)
         dep = bsys.get("deployed") or {}
-        dstate = (f"daemon pid {beat.get('pid')}, last tick {dur(bage)} ago" + ("  << NOT TICKING" if bage > 30 else "")
+        took = bsys.get("tick_s")
+        dstate = (f"daemon pid {beat.get('pid')}, last tick {dur(bage)} ago"
+                  + (f" (took {took:.0f}s{'  << SLOW: starts wait for it' if took > 10 else ''})" if took is not None else "")
+                  + ("  << NOT TICKING" if bage > 30 + (took or 0) else "")
                   + (f", kaeq {dep.get('sha', '?')[:7]} ({dep.get('branch')}"
                      f"{', local changes' if dep.get('dirty') else ''}{'' if dep.get('in_main') else ', NOT in main'})"
                      if dep else ""))

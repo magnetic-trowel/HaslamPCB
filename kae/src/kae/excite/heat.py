@@ -6,11 +6,15 @@ Heat, per corner of the ledger (the DC band's operating point, kae.excite.dc):
 
     copper       I^2 R of every bar of the DC flow, half to each of its two cells; a lumped part's own
                  DC loss (an inductor's winding) at its pads
-    linear feed  (V_in - V_out) I at the regulator's pads (LDO, charger, load switch, series diode)
+    linear feed  (V_in - V_out) I at the regulator's pads (LDO, charger, load switch IC, series diode);
+                 a transistor the facts give as a rail's switch: I^2 R_on
     switching    (1/eta - 1) P_out at the regulator's pads (no cell model)
-    cell         switch conduction I_L^2 R_on D, switching V I_L (t_i + t_v) f_sw at the controller's
+    cell         switch conduction I_L^2 R_on D, switching (V I_L t_i + C_sw V^2) f_sw at the controller's
                  pads; the rectifier's V_f I_out at its pads, or, synchronous (no rectifier part), its
-                 conduction I_L^2 R_on (1 - D) at the controller's pads too (one R_on for both switches)
+                 conduction I_L^2 R_on (1 - D) at the controller's pads too (one R_on for both switches);
+                 a 4-switch buck-boost: 2 I_L^2 R_on, and the switching of the leg that switches;
+                 with the facts' efficiency (nets.<rail>.eta): (1/eta - 1) P_out instead; without it,
+                 at most (1/0.75 - 1) P_out (kae.excite.dc.ETA's low end: a working converter)
     load         V I of every load at its pads (an export through a connector leaves the board)
     ac           each part's loss from the switching harmonics (kae.excite.spectrum), when given
 
@@ -23,6 +27,7 @@ from __future__ import annotations
 import numpy as np
 
 from kae import materials as MAT
+from kae.physics import converter as CV
 
 from .beliefs import Param, corners, intent_value
 
@@ -116,6 +121,7 @@ def params(bd, dcp, P, intent=None):
             out.append(Param(f"heat:sink{k}", "h_W_m2K", *_rng(hs["h_W_m2K"]), "W/m^2/K", "intent",
                              f"extra surface cooling over a region of the {hs.get('side', 'top')} face ({why})"))
     hot = {ld["ref"] for ld in dcp.loads if bd.part_kind.get(ld["ref"], ("",))[0] != "connector"}
+    hot |= {sl["ref"] for sl in getattr(dcp, "self_loads", [])}
     for f in dcp.feeds.values():
         hot |= {f["cell"]["ctrl"], f["cell"]["rect"]} if f["kind"] == "cell" else ({f["ref"]} if f["kind"] in ("linear", "switching") else set())
     for ref in sorted(r for r in hot if r):
@@ -129,6 +135,11 @@ def params(bd, dcp, P, intent=None):
         out.append(Param(f"heat:{ref}", "theta_jb", typ, lo, hi, "K/W", "prior",
                          f"junction to board by package size ({npins} pins; class range), no datasheet value"))
     for f in dcp.feeds.values():
+        if f["kind"] == "linear" and bd.part_kind.get(f["ref"], ("",))[0] == "transistor":
+            iv = intent_value(intent, "parts", f["ref"], "R_on_ohm")
+            out.append(Param(f"heat:{f['ref']}", "R_on_ohm", *iv, "ohm", "intent", "the intent file") if iv else
+                       Param(f"heat:{f['ref']}", "R_on_ohm", R_ON[1], R_ON[0], R_ON[2], "ohm", "prior",
+                             "load switch on-resistance (switch class range); no datasheet value"))
         if f["kind"] != "cell":
             continue
         c = f["cell"]
@@ -140,6 +151,18 @@ def params(bd, dcp, P, intent=None):
                    Param(f"heat:{c['ctrl']}", "R_on_ohm", R_ON[1], R_ON[0], R_ON[2], "ohm", "prior",
                          "switch on-resistance (integrated switch class range); no datasheet value"))
     return out
+
+
+def switching_loss(V, IL, v):
+    """A hard-switched cell's switching loss (W): V I_L t_i f_sw for the current's commutation, plus the switch
+    node's charge, V I_L t_v f_sw with t_v = C_sw V / I_L (kae.excite.params' law), i.e. C_sw V^2 f_sw, at the
+    current the cell carries here. The ledger's t_v interval spans C_sw V / I over the whole current interval,
+    sampled apart from I; the heat band then sets I_L to the rail's sustained demand, so a corner's light-load
+    t_v (microseconds) times that current read watts in a small buck (solar-small's TPS62933: 1573 C)."""
+    f = v.get("f_sw_Hz", 1e6)
+    C = v.get("C_sw_F")
+    edge = C * V * V if C is not None else V * IL * v.get("t_v_s", 1e-9)
+    return V * IL * v.get("t_i_s", 3e-9) * f + edge * f
 
 
 def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
@@ -158,20 +181,55 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
     for ld, x in zip(dcp.loads, xs):
         pk = bd.part_kind.get(ld["ref"], ("", None))
         if pk[0] != "connector" and (pk[1] if len(pk) > 1 else None) not in PASS_ON:
-            add(ld["ref"], x * (dcp.volts.get(ld["rail"]) or 0.0), loss=False)
+            # a rail of unknown voltage at the DC band's 3.3 V (kae.excite.dc.observe): at 0 V its loads made no heat
+            add(ld["ref"], x * (dcp.volts.get(ld["rail"]) or 3.3), loss=False)
+    for sl in getattr(dcp, "self_loads", []):
+        # a part powered from off the board (its own USB): its own draw at its rail's voltage, all heat
+        add(sl["ref"], cv.get(sl["key"], 0.0) * (dcp.volts.get(sl["rail"]) or 3.3), loss=False)
     for r, f in dcp.feeds.items():
         if f["kind"] == "cell":
             c = f["cell"]
             v = cv.get(c["src"]) or {}
             IL, D, V = v.get("I_A", 1.0), min(max(v.get("D", 0.5), 0.02), 0.98), v.get("V_V", dcp.volts.get(r) or 5.0)
-            I_out = IL * (1 - D) if c["cls"] == "boost" else IL
             ron = val.get((f"heat:{c['ctrl']}", "R_on_ohm"), R_ON[1])
             # the switch conducts I_L for D; with no rectifier part the synchronous one inside the
             # controller conducts it for the rest (1 - D), as the DC flow injects it (kae.excite.dc)
             cond = IL ** 2 * ron * (D if c["rect"] else 1.0)
-            add(c["ctrl"], cond + V * IL * (v.get("t_i_s", 3e-9) + v.get("t_v_s", 1e-9)) * v.get("f_sw_Hz", 1e6))
-            if c["rect"]:
-                add(c["rect"], val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * (I_out if c["cls"] == "boost" else IL * (1 - D)))
+            top = c.get("top") or c["cls"]
+            I_out = CV.output_from_inductor(top, IL, D)
+            vo = dcp.volts.get(r)
+            if f.get("eta") and vo:
+                # the facts state the converter's efficiency: its loss is (1/eta - 1) P_out (the DC flow's input
+                # current is P_out / eta, kae.excite.dc), the rectifier's V_f I share of it at the rectifier;
+                # the class priors (R_on, C_sw up to 1.3 nF) read a 1 W loss in a 1.4 W converter of 80-93 %
+                eta = cv.get((f["eta"].subject, "eta"), f["eta"].typ)
+                if c["cls"] == "buckboost":
+                    I_out = IL / max(1.0, DC._ratio(dcp, r, cv))
+                loss = max(1 / eta - 1, 0.0) * vo * I_out
+                rw = 0.0
+                if c["rect"]:
+                    rw = min(loss, val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * CV.rectifier_current(top, IL, D))
+                    add(c["rect"], rw)
+                add(c["ctrl"], loss - rw)
+                continue
+            if c["cls"] == "buckboost":
+                # a 4-switch buck-boost: one switch of each leg is on at any time (two R_on in the inductor's path);
+                # the leg that switches is the input one bucking, the output one boosting (its own cell's values)
+                vo, vi = dcp.volts.get(r), dcp.volts.get(c["vin"])
+                cond = 2 * IL ** 2 * ron
+                if vo and vi and vi < vo and c.get("src2"):
+                    v = dict(cv.get(c["src2"]) or {}, I_A=IL)
+                    V = v.get("V_V", vo)
+                I_out = IL / max(1.0, DC._ratio(dcp, r, cv))
+            w_c = cond + switching_loss(V, IL, v)
+            w_r = val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * CV.rectifier_current(top, IL, D) if c["rect"] else 0.0
+            # a working converter: no more loss than the efficiency prior of a switching regulator without a cell
+            # model allows (kae.excite.dc.ETA, its low end). The class priors' corners alone (C_sw 1.3 nF, a 48 V bus
+            # guessed for a 13.5 V input, 2 MHz) read 6 W in a 3.3 V, 0.35 A buck: 1332 C at its junction
+            cap = (1 / DC.ETA[0] - 1) * vo * I_out if vo and I_out > 0 else None
+            k = min(1.0, cap / (w_c + w_r)) if cap is not None and w_c + w_r > 0 else 1.0
+            add(c["ctrl"], k * w_c)
+            add(c["rect"], k * w_r)
             continue
         I_out = sum(inj.get(q, 0.0) for q in f.get("out") or [])
         if I_out <= 0:
@@ -180,6 +238,9 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             vi, vo = dcp.volts.get(f["rin"]) or 0.0, dcp.volts.get(r) or 0.0
             kind = bd.part_kind.get(f["ref"], ("",))[0]
             drop = val.get((f"heat:{f['ref']}", "V_f_V"), V_F[1]) if kind == "diode" else max(vi - vo, 0.0)
+            if kind == "transistor":
+                # a load switch's channel: I^2 R_on (the facts' rail voltages are rounded, not its drop)
+                drop = I_out * val.get((f"heat:{f['ref']}", "R_on_ohm"), R_ON[1])
             if kind not in ("inductor", "ferrite", "resistor"):       # those dissipate in the DC copper model
                 add(f["ref"], drop * I_out)
         elif f["kind"] == "switching":
@@ -341,6 +402,8 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
     for f in dcp.feeds.values():
         if f["kind"] == "cell":
             cell_out[f["cell"]["src"]] = (f["cell"], rail_demand(dcp, f["cell"]["vout"], load_amps))
+            if f["cell"].get("src2"):          # a buck-boost's output leg carries the same inductor current
+                cell_out[f["cell"]["src2"]] = cell_out[f["cell"]["src"]]
     cvs, ac_scale = [], {}
     for c in range(ncp):
         cv = dict(own[c])
@@ -353,7 +416,10 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
                     continue
                 if demand > 0:
                     D = min(max(cv[s.name].get("D", 0.5), 0.02), 0.98)
-                    il = demand / (1 - D) if cell["cls"] == "boost" else demand
+                    if cell["cls"] == "buckboost":
+                        il = demand * max(1.0, DC._ratio(dcp, cell["vout"], cv)) if cell["vout"] in dcp.feeds else demand
+                    else:
+                        il = CV.inductor_from_output(cell.get("top") or cell["cls"], demand, D)
                 else:
                     pi = next((p for p in (P.get(s.name) or {}).values() if getattr(p, "name", "") == "I_A"), None)
                     il = pi.lo if pi is not None else il0
@@ -367,9 +433,13 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
     injs = [{q: a for q, a in DC.injections(dcp, cv).items() if q in m.terminals} for cv in cvs]
     from .evaluate import _solver_line, _solver_row
     t_band = time.time()
-    res = ES.potentials_many(m, injs, 0.0, net=net_dc, op=op_dc, light=True,
-                             system=system.pop("sys", None) if isinstance(system, dict) else system)
-    log("solver: " + _solver_line(_solver_row(0.0, res, time.time() - t_band, band="heat")))
+    if any(injs):
+        res = ES.potentials_many(m, injs, 0.0, net=net_dc, op=op_dc, light=True,
+                                 system=system.pop("sys", None) if isinstance(system, dict) else system)
+        log("solver: " + _solver_line(_solver_row(0.0, res, time.time() - t_band, band="heat")))
+    else:
+        # no DC flow in the copper (only self-powered parts dissipate): no copper heat, nothing to factor
+        res = [({}, dict(net=net_dc, x=np.zeros(net_dc.n_br)))] * len(injs)
     if any(V is None for V, _ in res):
         notes.append("thermal: the DC flow does not close in the copper; temperatures not computed")
         return []

@@ -4,7 +4,7 @@
 observations (python -m kae.excite.evaluate BOARD -o EVAL.json) are re-scored in seconds.
 
     python -m kae.intent catalog EVAL.json                 what kae measures on this board, and its sections
-    python -m kae.intent status EVAL.json [--intent I.json] [--detailed] [-o STATUS.json]
+    python -m kae.intent status EVAL.json [--intent I.json] [--detailed] [--no-advice] [-o STATUS.json]
     python -m kae.intent compare EVAL_A.json EVAL_B.json ... [--intent I.json]
 """
 from __future__ import annotations
@@ -19,8 +19,11 @@ from . import sections as SE
 
 def _brief(ev):
     from kae.board.kicad_file import load
+    from kae.board import pinfacts as PF
     from kae.circuit import brief as B
-    return B.build(load(ev["board"]))
+    b = load(ev["board"])
+    PF.apply(b, ev.get("pins"))         # the pin facts the evaluator used (operating facts `pins`)
+    return B.build(b)
 
 
 def catalog(ev, brief):
@@ -72,11 +75,70 @@ def text(st, detailed=False):
             ref = f" (reference {u['reference']}, x{u['ratio']:g})" if u.get("reference") else ""
             out.append(f"    {u['obs']:16s} {u['worst']:>12s}{ref}  {u['label']}"
                        + (f"  IMPLAUSIBLE: {u['implausible']}" if u.get("implausible") else ""))
+    if st.get("cells"):
+        from kae.excite.hotloop import summary
+        for line in summary(st["cells"]):
+            out.append(f"  cell {line}")
+    for oc in st.get("open_cells") or []:
+        out.append(f"  OPEN hot loop {oc['source']}: priced at its caps in {', '.join(oc['priced']) or '(no term)'}: "
+                   f"{oc['why']}")
     for im in st.get("implausible") or []:
         out.append(f"  priced at its cap ({im['capped_at']:.3g} V): {im['label']}: {im['why']}")
     for q in st["questions"][: (99 if detailed else 4)]:
         out.append(f"  question {q['id']}: {q['ask']}")
+    adv = st.get("advice") or []
+    if adv:
+        out.append("  advice (what-ifs re-priced through this intent; kae applies none of them):")
+    for a in adv[: (len(adv) if detailed else 5)]:
+        out += advice_lines(a, st.get("currency", ""), detailed)
     return "\n".join(out)
+
+
+def advice_lines(a, cur, detailed=False):
+    """One advice entry as text: what, by how much, how sure, what the commander decides."""
+    est = a.get("estimate") or {}
+    head = f"  {a['id']:3s} {a.get('kind', '')}: {a.get('remedy', '')}"
+    if a.get("decided"):
+        return [head + f" [{a['decided']}]"]
+    if not est:
+        b = a.get("bound") or {}
+        out = [head] + ([f"        not estimated ({(a.get('confidence') or {}).get('level')}): at most "
+                         f"{b['max_gain']:.4g} {cur} ({b.get('basis', '')})"] if b else [])
+        if a.get("mechanism") and a.get("kind") != "none":
+            out.append(f"        why: {a['mechanism']}")
+        dec = a.get("decide") or {}
+        if dec.get("question"):
+            out.append(f"        decide ({dec.get('by', 'llm')}): {dec['question']}")
+        for n in dec.get("needs") or []:
+            out.append(f"        needs {n['field']}" + (f" = {n['known']} (facts)" if "known" in n else f": {n['ask']}"))
+        for r in (a.get("risks") or []) if detailed else []:
+            out.append(f"        unpriced: {r}")
+        return out
+    terms = ", ".join(f"{t['term']} {t['before']} -> {t['after']}" + (" (met)" if t.get("met_after") else "")
+                      for t in est.get("terms") or [])
+    out = [head, f"        total {est['total_before']:.4g} -> {est['total_after']:.4g} {cur} "
+                 f"(delta {est['delta']:+.4g}{'; ' + est['note'] if est.get('note') else ''})"
+                 + (f"; {terms}" if terms else "")]
+    for u in est.get("unpriced") or []:
+        out.append(f"        unpriced flag {u['label'][:60]}: {u['before']:.4g} -> {u['after']:.4g}")
+    if a.get("mechanism"):
+        out.append(f"        why: {a['mechanism']}")
+    if a.get("return_note"):
+        out.append(f"        {a['return_note']}")
+    dec = a.get("decide") or {}
+    if dec.get("question"):
+        tr = dec.get("tradeoff")
+        out.append(f"        decide ({dec.get('by', 'llm')}): {dec['question']}" + (f" {tr}" if tr and detailed else ""))
+    for n in dec.get("needs") or []:
+        out.append(f"        needs {n['field']}" + (f" = {n['known']} (facts)" if "known" in n else f": {n['ask']}"))
+    conf = a.get("confidence") or {}
+    if detailed and conf:
+        out.append(f"        confidence {conf.get('level')}: {conf.get('basis')}")
+    for r in (a.get("risks") or []) if detailed else []:
+        out.append(f"        unpriced: {r}")
+    if detailed and a.get("verify"):
+        out.append(f"        verify: {a['verify']}")
+    return out
 
 
 def main(argv=None):
@@ -88,6 +150,7 @@ def main(argv=None):
     s.add_argument("eval")
     s.add_argument("--intent")
     s.add_argument("--detailed", action="store_true")
+    s.add_argument("--no-advice", action="store_true", help="skip the physics advisor (kae.intent.advise)")
     s.add_argument("-o")
     m = sub.add_parser("compare")
     m.add_argument("evals", nargs="+")
@@ -99,7 +162,12 @@ def main(argv=None):
             print(json.dumps(catalog(ev, _brief(ev)), indent=1))
         elif a.cmd == "status":
             ev = json.load(open(a.eval))
-            st = OB.evaluate(ev, a.intent, _brief(ev))
+            brief = _brief(ev)
+            st = OB.evaluate(ev, a.intent, brief)
+            if not a.no_advice:
+                from kae.board.kicad_file import load
+                from . import advise as AD
+                st["advice"] = AD.advise(ev, a.intent, brief, board=load(ev["board"]))
             print(text(st, a.detailed))
             if a.o:
                 json.dump(st, open(a.o, "w"), indent=1, default=str)

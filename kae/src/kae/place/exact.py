@@ -22,6 +22,13 @@ placement is exactly legal or the time is up; what it could not fix is reported 
 with the reason (`diagnose`: no room for it even with every movable part gone, the board
 side too full, or a crowded region).
 
+Custom .kicad_dru clearance rules apply per pad pair, the last matching rule in the file
+winning over earlier ones and over the net-class clearance, as KiCad evaluates them: rules
+naming one footprint, library or rule area (`_custom_clearances`) and rules conditioned on
+nets (NetName, NetClass, hasNetclass, optionally with footprint selectors and Type
+qualifiers: `_net_clearances`, evaluated by kae.board.dru_cond). Conditions neither reads are
+not applied.
+
 KiCad's own DRC closes the loop where this model is blind (a footprint's solder-mask
 aperture drawn beyond its courtyard, custom rules): `kicad_feedback(P, st, report)` turns
 every placement error into a constraint kept on P (`P.feedback`: a pair of parts keeps a
@@ -103,7 +110,8 @@ def _custom_clearances(P):
     """Parsable .kicad_dru clearance rules for pads: [(order, kind, pattern, min)], kind
     'ref' | 'lib' | 'area'. A condition is a selector (A.memberOfFootprint('ref or lib:glob'),
     A.intersectsArea('name'), A.Reference == 'glob') with optional Type/zone qualifiers that
-    do not exclude pads; anything else (track widths, nets, layers) is not applied."""
+    do not exclude pads; rules conditioned on nets are `_net_clearances`; anything else (track
+    widths, layers) is not applied."""
     import re
     out = []
     rules = getattr(P.board, "rules", None)
@@ -140,6 +148,40 @@ def _custom_clearances(P):
     return out
 
 
+def _rule_sides(layer):
+    """Copper sides (0 front, 1 back) a rule's (layer ...) clause leaves it on; empty when it
+    names only inner or unknown layers (pads are checked on the outer sides here)."""
+    layer = (layer or "").strip()
+    if layer in ("", "outer"):
+        return frozenset((0, 1))
+    return frozenset({"F.Cu": (0,), "B.Cu": (1,)}.get(layer, ()))
+
+
+def _net_clearances(P):
+    """.kicad_dru clearance rules whose condition names nets (A.NetName == 'x', NetClass,
+    hasNetclass; in any &&, ||, ! combination with footprint selectors and Type qualifiers,
+    kae.board.dru_cond): [(order, condition tree, min, sides, names parts)]. They apply per pad
+    pair, in either A/B order (functional spacing between two nets: solar-small's 0.6 mm
+    between /CHG/SW1 and PV_IN). Conditions dru_cond cannot evaluate are not applied."""
+    from kae.board import dru_cond
+    out = []
+    rules = getattr(P.board, "rules", None)
+    for n, rule in enumerate(getattr(rules, "custom", None) or []):
+        vals = [c["min"] for c in rule.get("constraints", []) if c.get("type") == "clearance"
+                and isinstance(c.get("min"), (int, float))]
+        if not vals:
+            continue
+        ast = dru_cond.parse(rule.get("condition") or "")
+        if ast is None:
+            continue
+        used = dru_cond.kinds(ast)
+        sides = _rule_sides(rule.get("layer"))
+        if not (used & dru_cond.NET_KINDS) or not sides:
+            continue
+        out.append((n, ast, float(vals[0]), sides, bool(used & dru_cond.PART_KINDS)))
+    return out
+
+
 def _local_clr(pd):
     """A pad's local clearance override (pad or footprint level, KiCad's 'clearance'), 0 when
     the board model does not carry one."""
@@ -161,7 +203,16 @@ class ExactModel:
         loc = [max([_local_clr(pd) for pd in q.fp.pads] or [0.0]) for q in P.parts]
         mm = [2 * max([mask_margin(P, pd) for pd in q.fp.pads] or [0.0]) for q in P.parts]
         web = float(getattr(rules, "mask_min_width", 0.0) or 0.0) if rules else 0.0
-        self.reach = max([P.clr_max, P.edge_clearance] + holes + loc + [m + web for m in mm] +
+        # custom clearance rules (see below) may exceed every net class: pads that far apart
+        # are still neighbours, and the pad prefilter in _pair reaches that far. A net rule
+        # widens only the envelopes of parts with a pad it can name (net_reach), so a 7.5 mm
+        # mains rule does not make every 0402 a neighbour of every other.
+        self.rules_clr = _custom_clearances(P)
+        self.net_rules = _net_clearances(P)
+        self._net_rule_of = {}
+        self._net_rule_by_part = any(r[4] for r in self.net_rules)
+        self.clr_reach = max([P.clr_max] + [r[-1] for r in self.rules_clr])
+        self.reach = max([self.clr_reach, P.edge_clearance] + holes + loc + [m + web for m in mm] +
                          list(fbs.values())) + 0.05
         self._copper_sides = _copper_sides
         owner_of = {p.uuid: p.i for p in P.parts}
@@ -187,8 +238,8 @@ class ExactModel:
                    for p in P.parts}
         # custom clearance rules of the .kicad_dru for one footprint, library or rule area
         # (pingdevkit: 0.17 mm for its 0201s, 0.1 mm in the 'BGA' area): they replace the
-        # netclass clearance for the parts they name
-        self.rules_clr = _custom_clearances(P)
+        # netclass clearance for the parts they name (self.rules_clr, set above); rules
+        # conditioned on nets apply to the pad pairs they name (self.net_rules)
         self.areas = {ko.name: ko.outline for ko in (P.board.keepouts or []) if ko.name}
         # net-tie footprints: their copper graphics may touch pads of the tie's nets
         self.tie_nets = {p.i: {pd.net for pd in p.fp.pads if pd.net} for p in P.parts
@@ -239,6 +290,8 @@ class ExactModel:
         self.sep = fb.get("sep", {})          # (i, j) i < j -> min distance (mm), from KiCad
         self.avoid = fb.get("avoid", {})      # i -> [(geometry, why)], from KiCad
         self.edge_extra = fb.get("edge", {})  # i -> mm added to its copper-to-edge clearance
+        self.net_reach = self._net_reach() if self.net_rules else {}
+        self.reach_of = {p.i: max(self.reach, self.net_reach.get(p.i, 0.0) + 0.05) for p in P.parts}
         n = len(P.parts)
         self.env = np.zeros((n, 4))
         self.sh = [None] * n
@@ -282,8 +335,8 @@ class ExactModel:
             [g for d in gfx.values() for v in d.values() for g in v] + [g for v in silk["silk"].values() for g in v]
         if geoms:
             b = np.array([g.bounds for g in geoms])
-            env = (b[:, 0].min() - self.reach, b[:, 1].min() - self.reach, b[:, 2].max() + self.reach,
-                   b[:, 3].max() + self.reach)
+            r = self.reach_of[i]
+            env = (b[:, 0].min() - r, b[:, 1].min() - r, b[:, 2].max() + r, b[:, 3].max() + r)
         else:
             env = (x, y, x, y)
         return dict(cy=cy, pads=pads, holes=holes, side=si, cuts=cuts, kos=kos, gfx=gfx, env=env, silk=silk)
@@ -594,7 +647,7 @@ class ExactModel:
                     if ha.distance(hb) < hh - self.tol:
                         add("hole_to_hole", [i, j], "holes")
         csi, csj = self.cs[i], self.cs[j]
-        rule = self._rule_clr(i, A, j, B)
+        rule = self._rule_best(i, A, j, B)
         for side in (0, 1):
             pa = [(g, k, pd) for g, k, pd in A["pads"] if side in csi[k]]
             pb = [(g, k, pd) for g, k, pd in B["pads"] if side in csj[k]]
@@ -602,12 +655,20 @@ class ExactModel:
                 continue
             ga = np.array([g for g, _, _ in pa], dtype=object)
             gb = np.array([g for g, _, _ in pb], dtype=object)
-            near = shapely.dwithin(ga[:, None], gb[None, :], max([P.clr_max] + [_local_clr(q) for _, _, q in pa + pb]))
+            # a net rule names both pads of a pair it applies to, so both parts reach that far
+            nreach = min(self.net_reach.get(i, 0.0), self.net_reach.get(j, 0.0))
+            near = shapely.dwithin(ga[:, None], gb[None, :],
+                                   max([self.clr_reach, nreach] + [_local_clr(q) for _, _, q in pa + pb]))
             for a, b in zip(*np.nonzero(near)):
                 da, db = pa[a][2], pb[b][2]
                 if da.net and da.net == db.net:
                     continue
-                base = rule if rule is not None else max(self._net_clr(da.net), self._net_clr(db.net))
+                r = rule
+                if self.net_rules:
+                    nr = self._net_rule(i, da, j, db, side)
+                    if nr is not None and (r is None or nr[0] > r[0]):
+                        r = nr
+                base = r[1] if r is not None else max(self._net_clr(da.net), self._net_clr(db.net))
                 need = max(base, _local_clr(da), _local_clr(db))
                 d = ga[a].distance(gb[b])
                 if d < need - self.tol:
@@ -677,12 +738,59 @@ class ExactModel:
     def _rule_clr(self, i, A, j, B):
         """The custom clearance rule for a pair (the last matching rule in the file, as KiCad
         evaluates them), or None for the netclass clearance."""
+        best = self._rule_best(i, A, j, B)
+        return None if best is None else best[1]
+
+    def _rule_best(self, i, A, j, B):
+        """(order, clearance) of the last footprint/library/area rule matching the pair, or None."""
         best = None
         for order, kind, pat, value in self.rules_clr:
             if self._matches(i, A, kind, pat) or self._matches(j, B, kind, pat):
                 if best is None or order > best[0]:
                     best = (order, value)
-        return None if best is None else best[1]
+        return best
+
+    def _net_rule(self, i, da, j, db, side):
+        """(order, clearance) of the last net-conditioned rule matching pads da (part i) and db
+        (part j) on a side, in either A/B order, or None. Cached per net pair (and per part
+        pair when a rule also names footprints)."""
+        key = (i, da.net, j, db.net, side) if self._net_rule_by_part else (da.net, db.net, side)
+        if key in self._net_rule_of:
+            return self._net_rule_of[key]
+        from kae.board import dru_cond
+        a, b = self._item(i, da), self._item(j, db)
+        out = None
+        for order, ast, value, sides, _ in reversed(self.net_rules):
+            if side in sides and dru_cond.pair_matches(ast, a, b):
+                out = (order, value)
+                break
+        self._net_rule_of[key] = out
+        return out
+
+    def _net_reach(self):
+        """part -> the largest net-rule clearance that can apply to one of its copper pads
+        (dru_cond.could_match with the other item unknown); parts no rule can name are left out."""
+        from kae.board import dru_cond
+        out = {}
+        for p in self.P.parts:
+            v = None
+            for k, pd in enumerate(p.fp.pads):
+                if not self.cs[p.i][k]:
+                    continue
+                it = self._item(p.i, pd)
+                for _, ast, value, _, _ in self.net_rules:
+                    if (v is None or value > v) and dru_cond.could_match(ast, it):
+                        v = value
+            if v is not None:
+                out[p.i] = v
+        return out
+
+    def _item(self, q, pd):
+        from kae.board import dru_cond
+        p = self.P.parts[q]
+        n = self.P.board.nets.get(pd.net) if pd.net else None
+        return dru_cond.Item(net=pd.net or "", netclass=(n.netclass if n is not None else "") or "Default",
+                             ref=p.ref, lib=p.fp.lib_id or "")
 
     def _matches(self, q, Q, kind, pat):
         import fnmatch
@@ -1511,14 +1619,19 @@ def kicad_feedback(P, st, report, step=0.3):
     time KiCad still objects); a part an error names alone (against a zone, a graphic, a
     track) keeps off the error's positions by `step`. Returns {errors, by_type, constraints,
     fixed_only, placer_by_type}: errors between fixed items only cannot be repaired by placement;
-    placer_by_type counts the others (the placer's) by type."""
-    from .legalize import _OF_REF, kicad_violations, violation_parts
+    placer_by_type counts the others (the placer's) by type. Parts the placer itself fixed
+    (P.kae_placed: edge pins, anchored tight parts) are not the caller's fixed items: an error
+    among them stays the placer's (counted, not fixed_only), though no repair moves them."""
+    from kae.drc_items import item_ref
+
+    from .legalize import kicad_violations, violation_parts
     viols = kicad_violations(report)
     fb = getattr(P, "feedback", None)
     if fb is None:
         fb = P.feedback = {"sep": {}, "avoid": {}}
     E = ExactModel(P, st)
     out = dict(errors=len(viols), by_type={}, constraints=0, fixed_only=0)
+    placed = getattr(P, "kae_placed", None) or set()
     import re
     zre = re.compile(r"^Zone \[([^\]]*)\] on (\S+?),?(\s|$)")
     tre = re.compile(r"^PCB text '.*' on \S+", re.S)
@@ -1527,6 +1640,12 @@ def kicad_feedback(P, st, report, step=0.3):
     for v in viols:
         marks.append(out["fixed_only"])
         out["by_type"][v["type"]] = out["by_type"].get(v["type"], 0) + 1
+        if _intrinsic(v):
+            # the footprint's own design, whatever else the violation names: a malformed courtyard
+            # is reported with the zone it touches (cmnybo chip-lcd-dip: P1 and a GND zone), and the
+            # zone branch below made it a keep-off-the-zone constraint for 7 rounds
+            out["fixed_only"] += 1
+            continue
         # board text on copper (a grid obstacle only; the exact model has no text): the parts
         # the error names keep their hulls off the text's box, by `step` more each time KiCad
         # still objects. The text item names no part: matched by position it would blame
@@ -1537,9 +1656,11 @@ def kicad_feedback(P, st, report, step=0.3):
                 from .problem import board_texts
                 texts = board_texts(P.board)
             v = dict(v, items=[it for it in v.get("items", []) if it not in tx])
-            mv = [i for i in sorted(violation_parts(P, st, v)) if P.parts[i].movable]
+            ps = sorted(violation_parts(P, st, v))
+            mv = [i for i in ps if P.parts[i].movable]
             if not mv:
-                out["fixed_only"] += 1
+                if not placed.intersection(ps):
+                    out["fixed_only"] += 1
                 continue
             tr = fb.setdefault("text_rounds", {})
             for it in tx:
@@ -1572,22 +1693,14 @@ def kicad_feedback(P, st, report, step=0.3):
                     fb["avoid"].setdefault(i, []).append((g, f"{v['type']} with zone {zones[0].net} (KiCad DRC)"))
                     out["constraints"] += 1
             continue
-        if _intrinsic(v):
-            # every item belongs to one footprint: its own Edge.Cuts against its own copper (a
-            # reverse-mount LED in its switch cut-out, 0xcb-dev-sl-060 and battoota), pads of a
-            # resistor array closer than the clearance (a4092-terminator), a hot-swap socket's
-            # MX and Choc pads: the footprint's design, the same at any pose. No move fixes it,
-            # so it is not the placer's (KiCad reports them where the strict profile promotes
-            # a check the project had waived)
-            out["fixed_only"] += 1
-            continue
         ps = sorted(violation_parts(P, st, v))
         mv = [i for i in ps if P.parts[i].movable]
         if not mv:
-            out["fixed_only"] += 1
+            if not placed.intersection(ps):
+                out["fixed_only"] += 1      # the caller's fixed items only: not the placement's error
             continue
         if v["type"] == "copper_edge_clearance" and any(
-                "Edge.Cuts" in it.get("description", "") and not _OF_REF.search(it.get("description", ""))
+                "Edge.Cuts" in it.get("description", "") and item_ref(it.get("description", "")) is None
                 for it in v.get("items", [])):
             # against the board edge: the named parts' copper keeps EDGE_STEP more from it each
             # time KiCad still objects (the model's own edge check is EDGE_TOL lenient for
@@ -1622,12 +1735,29 @@ def kicad_feedback(P, st, report, step=0.3):
     return out
 
 
+_OWN_AREA = __import__("re").compile(r"\((?:keepout|rule) area(?: '[^']*')? of (\S+)\)\s*$")
+
+
 def _intrinsic(v):
     """A violation whose items all belong to the same footprint R ('Arc of D68 on Edge.Cuts'
-    and 'Pad 1 [..] of D68 on B.Cu'; 'Pad 2 [A] of RN2' and 'Pad 1 [B] of RN2')."""
+    and 'Pad 1 [..] of D68 on B.Cu'; 'Pad 2 [A] of RN2' and 'Pad 1 [B] of RN2'), or an
+    items_not_allowed whose one item lies in a keepout of its own footprint ('Items not allowed
+    (keepout area of REG1)' on 'NPTH pad of REG1': freetronics-kitten's 78xx, whose B.Cu keepout
+    covers its own mounting hole; mcp4728's four mounting pads; fiducials). KiCad names the
+    area's owner only in the description, so the single-item check missed it, and the KiCad
+    loop moved REG1 six rounds, 40 mm from its input caps, for an error no pose removes."""
     import re
     refs = set()
     items = v.get("items", [])
+    if v.get("type") == "malformed_courtyard":
+        # the footprint's courtyard does not close (a library defect, the same on the human board:
+        # bkw777 wp2-feather, glydrfreak vspeed): no pose closes it. kae's own model still keeps the
+        # part clear, with the gaps bridged as KiCad bridges them (board.geom); the recheck warns
+        return True
+    if len(items) == 1 and v.get("type") == "items_not_allowed":
+        own = _OWN_AREA.search(v.get("description", ""))
+        m = re.search(r"\bof (\S+)", items[0].get("description", ""))
+        return bool(own and m and m.group(1) == own.group(1))
     if len(items) < 2:
         return False
     for it in items:

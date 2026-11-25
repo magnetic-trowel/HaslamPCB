@@ -34,6 +34,7 @@ from pathlib import Path
 
 from kae import budget
 from kae import hazards as H
+from kae.drc_items import item_nets, item_ref
 
 # DRC check -> (hazard severity, category, what it means for the board, fix). block: the board
 # would not work or cannot be built as drawn. Sources: KiCad 10.0 drc_item.cpp (the keys),
@@ -379,20 +380,14 @@ def forced_project(pro):
     return pro
 
 
-_NET = re.compile(r"\[([^\]]+)\]")
-_REF = re.compile(r"(?:\bof |^Footprint )(\S+)")
-
-
 def _objects(items):
     nets, refs = [], []
     for it in items or []:
         d = it.get("description") or ""
-        for m in _NET.finditer(d):
-            if m.group(1) not in nets and m.group(1) != "<no net>":
-                nets.append(m.group(1))
-        for m in _REF.finditer(d):
-            if m.group(1) not in refs:
-                refs.append(m.group(1))
+        nets += [n for n in item_nets(d) if n not in nets]
+        r = item_ref(d)
+        if r and r not in refs:
+            refs.append(r)
     return refs + nets
 
 
@@ -440,7 +435,7 @@ def drc_hazards(report, severities=None, unconnected=None):
     return out
 
 
-def recheck(output, project_board=None, timeout=900, workdir=None, log=None):
+def recheck(output, project_board=None, timeout=None, workdir=None, log=None):
     """(hazards, meta): one kicad-cli DRC of `output` with `project_board`'s project files
     (default: the ones beside `output`), forced to the safety severities. meta records what
     ran: seconds, forced checks, or why it was skipped (no KiCad, a DRC failure: then a
@@ -490,7 +485,7 @@ def recheck(output, project_board=None, timeout=900, workdir=None, log=None):
     return hz, meta
 
 
-def board_hazards(output, project_board=None, brief=None, board=None, drc=True, timeout=900, log=None):
+def board_hazards(output, project_board=None, brief=None, board=None, drc=True, timeout=None, log=None):
     """(hazards, meta) for a board kae wrote: static_hazards of the project, plus recheck."""
     project_board = project_board or output
     out = []
@@ -503,6 +498,19 @@ def board_hazards(output, project_board=None, brief=None, board=None, drc=True, 
         hz, meta = recheck(output, project_board, timeout=timeout, log=log)
         out += hz
     return out, meta
+
+
+def edge_hazards(board, brief=None):
+    """kae.circuit.edges.long_net_hazards on a written board: nets whose driver-to-load delay is over t_r/6 (info)
+    or t_r/2 (warn). The brief is built from the board when the caller has none (or an older one without edges)."""
+    try:
+        from kae.circuit import edges as E
+        if not brief or not any(isinstance(d, dict) and 'edge' in d for d in (brief.get("nets") or {}).values()):
+            from kae.circuit.brief import build
+            brief = build(board)
+        return E.long_net_hazards(brief, board)
+    except Exception as e:      # noqa: BLE001 - a report is always written
+        return [H.make("edge_check_failed", "info", "data", f"Edge-rate lengths not checked: {e}"[:200])]
 
 
 def final_summary(report):
@@ -585,7 +593,7 @@ def finish(report, output=None, project_board=None, kind="route", mode="auto", d
                                     fix="Run again with --recheck on, or run kicad-cli pcb drc with the checks set "
                                         "to error."))
             else:
-                timeout = 900.0 if left is None else max(MIN_RECHECK_S, min(900.0, budget.wall_timeout(left - 5.0)))
+                timeout = budget.wall_timeout(None if left is None else max(MIN_RECHECK_S, left - 5.0))
                 hz, meta = recheck(output, project_board, timeout=timeout, log=log)
                 skip = {f"drc_{t}" for t in SKIP_BY_KIND.get(kind, ())}
                 extra += [h for h in hz if h["code"] not in skip]
@@ -593,12 +601,20 @@ def finish(report, output=None, project_board=None, kind="route", mode="auto", d
         meta = dict(ran=False, error=f"{type(e).__name__}: {e}"[:200])
     if not meta.get("ran"):
         extra += summary_hazards(report, skip=SKIP_BY_KIND.get(kind, ()))
-    if kind == "route" and output and Path(output).exists():
+    out_board = None
+    if output and Path(output).exists():
         try:
             from kae.board.kicad_file import load as load_board
+            out_board = load_board(output)
+        except Exception as e:      # noqa: BLE001 - a report is always written
+            extra.append(H.make("output_load_failed", "info", "data", f"Output board not read back: {e}"[:200]))
+    if kind == "route" and out_board is not None:
+        try:
             from kae.route.pairs import hazards as pair_hazards
-            extra += pair_hazards(load_board(output))
+            extra += pair_hazards(out_board)
         except Exception as e:      # noqa: BLE001 - a report is always written
             extra.append(H.make("pair_check_failed", "info", "data", f"Pair coupling not checked: {e}"[:200]))
+    if out_board is not None:
+        extra += edge_hazards(out_board, brief)
     report["recheck"] = meta
     return H.finalize(report, extra=extra)

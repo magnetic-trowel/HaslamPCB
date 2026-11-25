@@ -14,8 +14,8 @@ What is left is of two kinds:
   sees these as open).
 
 `close` reads the board as KiCad sees it (the routed board's tracks and vias, every zone's
-refilled copper), finds each open net's connected parts (copper touching on a layer, a
-track joined only at its ends, as KiCad joins them) and joins each smaller part to the
+refilled copper), finds each open net's connected parts (copper of the net touching on a
+shared layer, as KiCad 10's connectivity joins it: see parts) and joins each smaller part to the
 rest: a grid route (GridRouter.connect, every segment and via checked exactly against the
 bridge's rules) from the part's copper to the other parts' copper within a growing window,
 first around everything, then with the window's unlocked tracks and vias of other nets
@@ -39,7 +39,7 @@ from kae.budget import charge
 from kae.budget import now as clock_now
 import numpy as np
 from shapely import STRtree
-from shapely.geometry import Point, Polygon, box
+from shapely.geometry import Polygon, box
 from shapely.ops import unary_union
 
 from kae.board.kicad_file import load
@@ -47,6 +47,7 @@ from kae.board.kicad_file import load
 from . import critical_write as W
 from .critical_grid import Anchor, GridRouter
 from .critical_space import Space
+from .quantize import fit
 
 MARGINS = (1.0, 3.0, 8.0)       # mm around a part and the nearest other part: search windows
 WIDE = 15.0                     # mm around a part: the last window, before any rip-up
@@ -83,16 +84,23 @@ def _fill_polys(fills):
 
 
 class _Node:
-    __slots__ = ("kind", "item", "layers", "copper", "ends", "layer")
+    __slots__ = ("kind", "item", "layers", "copper", "layer")
 
-    def __init__(self, kind, item, layers, copper, ends=(), layer=None):
-        self.kind, self.item, self.layers, self.copper, self.ends, self.layer = kind, item, set(layers), copper, ends, layer
+    def __init__(self, kind, item, layers, copper, layer=None):
+        self.kind, self.item, self.layers, self.copper, self.layer = kind, item, set(layers), copper, layer
 
 
 def parts(space, fills, net):
     """The connected parts of `net` as KiCad joins its copper: [[_Node]], largest first
-    (by pads, then fill area). A track joins other copper only where one of its ends lies
-    on it; pads, vias and fills join what they overlap on a shared layer."""
+    (by pads, then fill area). Pads, tracks, vias and fill pieces of the net join wherever
+    their copper touches on a layer they share. KiCad 10.0.7 joins a track to a fill, a pad
+    or another track anywhere along its body, not only at its ends: a track crossing a fill
+    of its net with both ends outside it, two tracks crossing in an X, a track passing over
+    a pad are all one cluster in pcbnew's connectivity (copper_items --clusters on a
+    synthetic board, kae/tests/test_route_lastmile.py). The old ends-only rule split parts
+    KiCad sees joined (solar-small: GND's U101.1, its track ending 0.05 mm short of the pad,
+    a part of its own), and the last mile spent its joins on those while KiCad's one gap,
+    an exposed pad's fill island, stayed open. repair.net_clusters joins by the same rule."""
     nodes = []
     for it in space.pads:
         if it.net == net and it.kind == "pad":
@@ -101,9 +109,7 @@ def parts(space, fills, net):
         if it.net != net:
             continue
         if it.kind == "track":
-            c = list(it.geom.coords)
-            nodes.append(_Node("track", it, it.layers, it.geom.buffer(it.r), ends=(Point(c[0]), Point(c[-1])),
-                               layer=next(iter(it.layers))))
+            nodes.append(_Node("track", it, it.layers, it.geom.buffer(it.r), layer=next(iter(it.layers))))
         elif it.kind == "via":
             nodes.append(_Node("via", it, it.layers, it.geom.buffer(it.r)))
     for layer, polys in (fills.get(net) or {}).items():
@@ -130,19 +136,7 @@ def parts(space, fills, net):
             if j <= i:
                 continue
             b = nodes[j]
-            shared = a.layers & b.layers
-            if not shared:
-                continue
-            if a.kind == "track" or b.kind == "track":
-                t, o = (a, b) if a.kind == "track" else (b, a)
-                if o.kind == "track":
-                    hit = any(o.copper.distance(e) <= eps for e in t.ends) or any(
-                        t.copper.distance(e) <= eps for e in o.ends)
-                else:
-                    hit = any(o.copper.distance(e) <= eps for e in t.ends)
-            else:
-                hit = a.copper.distance(b.copper) <= eps
-            if hit:
+            if a.layers & b.layers and a.copper.distance(b.copper) <= eps:
                 join(i, j)
     # the connectivity pass is work a budget must see: a net whose joins kept adding copper made
     # each later pass dearer (atrivatech ch32v003: D+ re-joined 205 times, 50 s a turn uncharged)
@@ -273,9 +267,13 @@ def _width_ok(sp, net, layer, w):
     return w >= (mn or 0.0) - 1e-6 and (mx is None or w <= mx + 1e-6)
 
 
-def widths_of(sp, net):
-    """The track widths to try for `net`, widest first: each layer's opt and min."""
-    ws = {round(w, 4) for l in sp.cu for w in sp.width_limits(net, l)[:2] if w and w > 0}
+def widths_of(sp, net, layers=None):
+    """The track widths to try for `net`, widest first: each layer's opt and min (of `layers`,
+    default all), in whole nm inside that layer's [min, max]."""
+    ws = set()
+    for l in layers or sp.cu:
+        mn, opt, mx = sp.width_limits(net, l)
+        ws.update(fit(w, mn, mx) or w for w in (opt, mn) if w and w > 0)
     return sorted(ws, reverse=True) or [0.2]
 
 
@@ -370,28 +368,8 @@ def _join(gr, sp, net, src, others, widths, fixed, hist=None, soft=(), rip=True)
     return None
 
 
-# KiCad escapes these characters in net names in the board file and shows them unescaped in
-# its DRC report (EscapeString / UnescapeString)
-_ESCAPES = {"{slash}": "/", "{backslash}": "\\", "{lt}": "<", "{gt}": ">", "{colon}": ":", "{dblquote}": '"',
-            "{quote}": "'", "{space}": " ", "{tab}": "\t", "{return}": "\n", "{brace}": "{", "{comma}": ","}
-
-
-def unescape(name):
-    """A board net name as KiCad's DRC report writes it."""
-    for k, v in _ESCAPES.items():
-        name = name.replace(k, v)
-    return name
-
-
-def open_nets(report):
-    """Nets of the unconnected items of a KiCad DRC report (the name in brackets)."""
-    out = set()
-    for u in report.get("unconnected_items") or []:
-        for it in u.get("items") or []:
-            d = it.get("description") or ""
-            if "[" in d and "]" in d:
-                out.add(d[d.index("[") + 1:d.index("]")])
-    return sorted(out)
+# the DRC report shows net names unescaped ("A/B" for the board's "A{slash}B")
+from kae.drc_items import board_nets, open_nets, unescape  # noqa: E402,F401
 
 
 def round_robin(nets, reached):
@@ -435,8 +413,7 @@ def close(board, info, plan, fills, out, nets=None, sev=None, fixed=(), log=prin
         given = {}
     else:
         # the DRC report names nets unescaped ("A/B" for the board's "A{slash}B")
-        by_shown = {unescape(n): n for n in known}
-        given = {(n if n in known else by_shown.get(n, n)): n for n in nets}     # board name -> caller's
+        given = dict(zip(board_nets(nets, known), nets))     # board name -> caller's
         nets = list(given)
     queue = [net for net in nets if len([p for p in parts(sp, fp, net) if _relevant(p)]) > 1]
     # a net goes back on the queue only after progress: when its open count falls below the
@@ -710,8 +687,7 @@ def plane_escapes(board, info, plan, fills, out, sev=None, log=print, deadline=N
             break
         if not any(it.net == net and it.kind == "pad" for it in sp.pads):
             continue
-        mn, opt, _mx = sp.width_limits(net, sp.cu[0])
-        widths = sorted({round(w, 4) for w in (opt, mn) if w and w > 0}, reverse=True) or [0.2]
+        widths = widths_of(sp, net, sp.cu[:1])
         st = rep["nets"].setdefault(net, [0, 0])
         ps = parts(sp, fp, net)
         planes = [p for p in ps if any(n.kind == "fill" for n in p)]
