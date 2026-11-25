@@ -32,7 +32,7 @@ def _plan(rect="D1"):
                 "3V3": dict(kind="linear", ref="U1", rin="VBUS", out=["U1.2"], inp=["U1.1"], gnd=["U1.3"], rating=0.5),
                 "5V": dict(kind="cell", cell=cell, ref="U3")}
     pl.loads = [dict(ref="U2", rail="3V3", sup=["U2.1"], gnd=["U2.2"], key=("dc:U2", "I_A")),
-                dict(ref="J2", rail="5V", sup=["J2.1"], gnd=["J2.2"], share=1.0, cell=cell)]
+                dict(ref="J2", rail="5V", sup=["J2.1"], gnd=["J2.2"], key=("dc:J2", "I_A"))]
     return pl
 
 
@@ -49,7 +49,7 @@ def _net_sums(pl, inj, lumped):
 
 def test_power_flow_balances_through_ldo_and_boost():
     pl = _plan()
-    cv = {("dc:U2", "I_A"): 0.2, "cell:c": {"I_A": 1.0, "D": 0.6}}
+    cv = {("dc:U2", "I_A"): 0.2, ("dc:J2", "I_A"): 0.4, "cell:c": {"I_A": 1.0, "D": 0.6}}
     inj = DC.injections(pl, cv)
     # the inductor (VBUS-SW) and the rectifier (SW-5V) conduct: one island with the rails they join
     sums = _net_sums(pl, inj, [{"VBUS", "SW", "5V"}])
@@ -229,8 +229,9 @@ def test_dc_currents_left_out_of_the_copper_void_the_score():
     from types import SimpleNamespace
 
     from kae.excite import evaluate as E
+    from kae.excite.beliefs import Param
     pl = _plan()
-    pl.params = []
+    pl.params = [Param("dc:J2", "I_A", 0.4, 0.4, 0.4, "A", "prior", "test")]
     notes = []
     bm = SimpleNamespace(m=SimpleNamespace(terminals={}))
     b = SimpleNamespace(footprints=[], tracks=[])
@@ -461,7 +462,7 @@ def _buckboost_plan(eta=None, fed=True):
         pl.feeds["PV_IN"] = dict(kind="external", ref="J1", out=["J1.1"], gnd=["J1.2"], rating=3.0)
     if eta:
         pl.feeds["SYS"]["eta"] = Param("dc:U1", "eta", sum(eta) / 2, eta[0], eta[1], "", "intent", "test")
-    pl.loads = [dict(ref="U2", rail="SYS", sup=["U2.1"], gnd=["U2.2"], share=1.0, cell=cell)]
+    pl.loads = [dict(ref="U2", rail="SYS", sup=["U2.1"], gnd=["U2.2"], key=("dc:U2", "I_A"))]
     return pl, cells
 
 
@@ -473,7 +474,7 @@ def test_a_4_switch_buck_boost_is_one_converter_whose_flow_closes(fed):
     the flow enters at the controller (its ground), as for a regulator."""
     pl, cells = _buckboost_plan(eta=(0.8, 0.9), fed=fed)
     assert list(cells) == ["b"] and cells["b"]["cls"] == "buckboost" and cells["b"]["sw2"] == "SW2"
-    cv = {("dc:U1", "eta"): 0.85, "cell:b": {"I_A": 0.6, "D": 0.75}}
+    cv = {("dc:U1", "eta"): 0.85, ("dc:U2", "I_A"): 0.6, "cell:b": {"I_A": 0.6, "D": 0.75}}
     inj = DC.injections(pl, cv)
     sums = _net_sums(pl, inj, [{"SW1", "SW2"}])            # the inductor joins the two switch nodes
     assert all(abs(v) < 1e-12 for v in sums.values()), sums
@@ -491,8 +492,9 @@ def test_a_cells_input_current_follows_the_facts_efficiency():
     """With the facts' eta the boost takes P_out / (eta V_in) from its input; without it the lossless duty."""
     from kae.excite.beliefs import Param
     pl = _plan(rect=None)
-    cv = {("dc:U2", "I_A"): 0.2, "cell:c": {"I_A": 1.0, "D": 0.6}}
+    cv = {("dc:U2", "I_A"): 0.2, ("dc:J2", "I_A"): 0.4, "cell:c": {"I_A": 1.0, "D": 0.6}}
     x = DC.load_currents(pl, cv)[1]
+    assert x == pytest.approx(0.4)
     assert DC.injections(pl, cv)["J1.1"] == pytest.approx(x / (1 - 0.6) + 0.2)
     pl.feeds["5V"]["eta"] = Param("dc:U3", "eta", 0.9, 0.9, 0.9, "", "intent", "test")
     cv[("dc:U3", "eta")] = 0.9
@@ -511,8 +513,8 @@ def test_a_buck_whose_input_has_no_feed_enters_at_its_controller():
     pl.volts = {"VIN": 12.0, "3V3": 3.3}
     cell = dict(id="c", cls="buck", src="cell:c", vin="VIN", vout="3V3", sw="SW", ctrl="U1", rect=None, parts=set())
     pl.feeds = {"3V3": dict(kind="cell", cell=cell, ref="U1")}
-    pl.loads = [dict(ref="U2", rail="3V3", sup=["U2.1"], gnd=["U2.2"], share=1.0, cell=cell)]
-    inj = DC.injections(pl, {"cell:c": {"I_A": 0.5, "D": 0.275}})
+    pl.loads = [dict(ref="U2", rail="3V3", sup=["U2.1"], gnd=["U2.2"], key=("dc:U2", "I_A"))]
+    inj = DC.injections(pl, {("dc:U2", "I_A"): 0.5, "cell:c": {"I_A": 0.5, "D": 0.275}})
     assert abs(inj.get("U1.1", 0.0)) < 1e-12
     assert all(abs(v) < 1e-12 for v in _net_sums(pl, inj, [{"SW", "3V3"}]).values())
 
@@ -600,7 +602,8 @@ def _board_plan(intent, dnp=False, rev=False):
 def test_facts_route_a_switched_rail_through_its_switch_and_feed_a_voltage_rail_at_its_connector():
     """solar-small: +3V3_SW through Q301 (facts: linear from +3V3) was taken as an external source, so its loads
     never loaded +3V3; PV_IN (facts: a voltage, no source part) carried no DC, the panel arriving on J101."""
-    facts = {"nets": {"VIN": {"V_V": 5.0}, "3V3_SW": {"source": "Q1", "from": "3V3", "kind": "linear"}}}
+    facts = {"nets": {"VIN": {"V_V": 5.0}, "3V3_SW": {"source": "Q1", "from": "3V3", "kind": "linear"}},
+             "parts": {"J2": {"I_A": [0.01, 0.1]}}}
     pl = _board_plan(facts)
     assert pl.feeds["3V3_SW"]["kind"] == "linear" and pl.feeds["3V3_SW"]["rin"] == "3V3"
     assert pl.feeds["3V3_SW"]["out"] == ["Q1.3"] and pl.feeds["3V3_SW"]["inp"] == ["Q1.2"]
@@ -653,7 +656,8 @@ def test_a_load_switch_transistor_heats_by_its_on_resistance():
     from types import SimpleNamespace as NS
 
     from kae.excite import heat as H
-    facts = {"nets": {"VIN": {"V_V": 5.0}, "3V3_SW": {"source": "Q1", "from": "3V3", "kind": "linear"}}}
+    facts = {"nets": {"VIN": {"V_V": 5.0}, "3V3_SW": {"source": "Q1", "from": "3V3", "kind": "linear"}},
+             "parts": {"J2": {"I_A": [0.1, 0.5]}}}
     pl = _board_plan(facts)
     cv = {(p.subject, p.name): p.typ for p in pl.params}
     j2 = next(ld for ld in pl.loads if ld["ref"] == "J2")
@@ -664,3 +668,77 @@ def test_a_load_switch_transistor_heats_by_its_on_resistance():
     heat = H.part_heat(bd, pl, cv, {("heat:Q1", "R_on_ohm"): 0.06}, inj)
     I = inj["Q1.3"]                                     # the export, held to what the feeds can deliver
     assert I > 0.1 and heat["Q1"] == pytest.approx(I ** 2 * 0.06)    # not (3.3 - 3.3) V I
+
+
+def _cell_board_plan(intent=None):
+    """12 V at connector J1 (VIN) -> buck cell (controller U1, inductor L1) -> 3V3 with an MCU U2, a sensor IC U3
+    and a header J2 on 3V3, through kae.excite.dc.plan; the cell's ledger current I_A 1 A [0.1, 2] A."""
+    from types import SimpleNamespace as NS
+
+    from kae.excite.beliefs import Param
+    pads = {"J1": [("1", "VIN", "passive", ""), ("2", "GND", "passive", "")],
+            "U1": [("1", "VIN", "power_in", "VIN"), ("2", "SW", "power_out", "SW"), ("3", "GND", "power_in", "GND"),
+                   ("4", "3V3", "input", "FB")],
+            "L1": [("1", "SW", "passive", ""), ("2", "3V3", "passive", "")],
+            "U2": [("1", "3V3", "power_in", "VDD"), ("2", "GND", "power_in", "GND")],
+            "U3": [("1", "3V3", "power_in", "VDD"), ("2", "GND", "power_in", "GND")],
+            "J2": [("1", "3V3", "passive", ""), ("2", "GND", "passive", "")]}
+    kind = {"J1": ("connector", "power"), "U1": ("ic", "regulator_switching"), "L1": ("inductor", None),
+            "U2": ("ic", "mcu"), "U3": ("ic", "sensor"), "J2": ("connector", "header")}
+    fps = [NS(ref=r, uuid=f"u{r}", attrs=[], value="X", lib_id="", fields={},
+              pads=[NS(number=n, net=net, pintype=pt, pinfunction=fn, drill=0.0) for n, net, pt, fn in pp])
+           for r, pp in pads.items()]
+    board = NS(footprints=fps)
+    parts = {f"u{r}": dict(ref=r, kind=k, subtype=s) for r, (k, s) in kind.items()}
+    brief = dict(parts=parts, nets={"VIN": dict(role="rail", volts=12.0), "3V3": dict(role="rail", volts=3.3),
+                                    "GND": dict(role="ground"), "SW": {}},
+                 structures=[dict(kind="commutation_cell", id="c1", **{"class": "buck"}, controller="uU1",
+                                  inductor="uL1", vin="VIN", vout="3V3", sw="SW", switches={}, loop=[], caps=[])])
+    srcs = [NS(name="cell:c1", kind="cell", meta={"cell": "c1", "eta": 0.9})]
+    P = {"cell:c1": {"I": Param("cell:c1", "I_A", 1.0, 0.1, 2.0, "A", "prior", "test")}}
+    facts = {"nets": {"VIN": {"V_V": 12.0}}}
+    facts.update(intent or {})
+    return DC.plan(board, brief, NS(grounds={"GND"}, circuit=NS(elems=[])), P, srcs, facts)
+
+
+def test_a_cells_loads_draw_their_own_currents_not_its_output_shared_out():
+    """solar-small: the LTC2959 coulomb counter (< 1 uA) was the only direct load on the LTC3130's output rail and
+    took the whole cell current (1.5 W, 213 C). Each load now draws its own current; the cell's I_A only bounds the
+    rail's total from above."""
+    from types import SimpleNamespace as NS
+
+    from kae.excite import heat as H
+    pl = _cell_board_plan()
+    assert pl.feeds["3V3"]["kind"] == "cell" and pl.feeds["3V3"]["I_hi"] == 2.0
+    by = {ld["ref"]: ld for ld in pl.loads}
+    assert set(by) == {"U2", "U3", "J2"}
+    ps = {(p.subject, p.name): p for p in pl.params}
+    sens = ps[by["U3"]["key"]]
+    assert (sens.lo, sens.hi, sens.source) == (1e-6, 1e-2, "prior") and sens.typ == pytest.approx(1e-4)
+    cv = {k: p.typ for k, p in ps.items()}
+    xs = {}
+    for IL in (0.2, 1.0, 2.0):                                 # whatever the cell's operating point
+        cv["cell:c1"] = {"I_A": IL, "D": 3.3 / 12.0}
+        inj = DC.injections(pl, cv)
+        xs[IL] = (inj["U2.1"], inj["U3.1"], inj["J2.1"])
+        assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
+    assert len(set(xs.values())) == 1
+    assert xs[1.0] == (pytest.approx(-cv[by["U2"]["key"]]), pytest.approx(-sens.typ), pytest.approx(-cv[by["J2"]["key"]]))
+    bd = NS(part_kind={"U2": ("ic", "mcu"), "U3": ("ic", "sensor")})
+    heat = H.part_heat(bd, pl, cv, {}, inj)
+    assert heat["U3"] == pytest.approx(sens.typ * 3.3) and heat["U3"] < 1e-3
+    # the cell's top current caps what its loads draw (the converter current-limits)
+    cv[by["U2"]["key"]] = 5.0
+    x = DC.load_currents(pl, cv)
+    assert sum(x) == pytest.approx(2.0)
+
+
+def test_a_part_table_supply_current_is_a_loads_current():
+    orig = DC.lookup_part
+    try:
+        DC.lookup_part = lambda text: {"I_supply_A": (5e-5, 3e-5, 8e-5, "a datasheet")}
+        pl = _cell_board_plan()
+    finally:
+        DC.lookup_part = orig
+    p = next(p for p in pl.params if p.subject == "dc:U3@3V3")
+    assert (p.typ, p.source, p.basis) == (5e-5, "part_table", "a datasheet")
