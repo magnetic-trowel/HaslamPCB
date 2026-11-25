@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Write a copy of a .kicad_pcb whose copper is the same but whose file order and UUIDs are not.
 
@@ -7,7 +7,7 @@ The top-level (segment), (arc) and (via) blocks are put in a seeded random order
 (seeded) UUIDs; everything else stays byte-identical. The board's project files (.kicad_pro,
 .kicad_dru, .kicad_prl) are copied beside the output under its name. KiCad breaks ties (ratsnest
 pairs, DRC endpoints, list order) by load order and UUIDs, so a flow whose decisions depend on
-them gives another board from this copy: counted-budget runs (KAE_BUDGET=work) must not.
+them gives another board from this copy: counted-budget runs (HASLAM_BUDGET=work) must not.
 
     shuffle.py IN.kicad_pcb OUT.kicad_pcb [--seed N]
 """

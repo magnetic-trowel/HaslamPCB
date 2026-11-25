@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Red-team tests: cheating methods must come out invalid, be blocked, or gain nothing.
 
@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from kaebench import adapters, prepare, report, runner, tools
-from kaebench.boardfiles import board_path
+from haslambench import adapters, prepare, report, runner, tools
+from haslambench.boardfiles import board_path
 
 HERE = Path(__file__).parent
 FIXTURE = HERE / "fixtures" / "redteam.kicad_pcb"

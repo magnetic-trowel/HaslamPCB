@@ -1,9 +1,9 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Physics-driven design: what is built and how well it holds
 
-Scope: built pieces of [physics-driven-design](physics-driven-design.md) on branch `physics-functional-eval` (`kae.em` tier-2 field solver; `kae.excite` circuit and prices W; `kae.em.t1`/`kae.em.pnr` router prices and router), their checks, first routing A/Bs. Not here: problem, tiers, gates G1–G5 (still the acceptance criteria) -> [physics-driven-design](physics-driven-design.md); spectral prices -> [physics-frequency-coverage](physics-frequency-coverage.md); later results -> [field-solver-routing-and-intent](../../research/physics/field-solver-routing-and-intent.md).
-Keys: kae.em, kae.excite, kae.em.t1, kae.em.pnr, kae.em.cprice, em.solve, FastHenry, Hoer–Love, COCG, flux term, crossing term, transfer term, capacitive prices E3, boost board, acarpm-chesslab-powerboard, MT3608, Σφ(u), lump_into, `--verify`, `--no-capacitive`
+Scope: built pieces of [physics-driven-design](physics-driven-design.md) on branch `physics-functional-eval` (`haslam.em` tier-2 field solver; `haslam.excite` circuit and prices W; `haslam.em.t1`/`haslam.em.pnr` router prices and router), their checks, first routing A/Bs. Not here: problem, tiers, gates G1–G5 (still the acceptance criteria) -> [physics-driven-design](physics-driven-design.md); spectral prices -> [physics-frequency-coverage](physics-frequency-coverage.md); later results -> [field-solver-routing-and-intent](../../research/physics/field-solver-routing-and-intent.md).
+Keys: haslam.em, haslam.excite, haslam.em.t1, haslam.em.pnr, haslam.em.cprice, em.solve, FastHenry, Hoer–Love, COCG, flux term, crossing term, transfer term, capacitive prices E3, boost board, acarpm-chesslab-powerboard, MT3608, Σφ(u), lump_into, `--verify`, `--no-capacitive`
 
 All numbers model against model [C]. All A/Bs re-route priced nets inside the human layout (other nets' human copper kept): re-routing, not routing a board ([validity caveat](../../research/physics/field-solver-routing-and-intent.md)).
 
@@ -21,7 +21,7 @@ All numbers model against model [C]. All A/Bs re-route priced nets inside the hu
 
 ## 2. Checks of the field solver
 
-Closed forms ([test_em](../../../kae/tests/test_em.py)):
+Closed forms ([test_em](../../../haslam/tests/test_em.py)):
 - Strip DC resistance: exact.
 - Isolated strip HF L: 1.7–2.5% below uniform-current value (edge crowding, right sign).
 - Microstrip vs Hammerstad–Jensen, from above: +6.2% at 4 cells across, +4.2% at 8 (~2 points of it internal inductance HJ omits).
@@ -74,7 +74,7 @@ One-plane model misses that the upper plane's return share cannot close under th
 
 ## 3b. Capacitive prices (stage E3)
 
-[`kae.em.cprice`](../../../kae/src/kae/em/cprice.py): electric-field analogue of §3. Pair = victim observer (feedback, analog, crystal, reset, ...) × aggressor net (switch node, clock).
+[`haslam.em.cprice`](../../../haslam/src/haslam/em/cprice.py): electric-field analogue of §3. Pair = victim observer (feedback, analog, crystal, reset, ...) × aggressor net (switch node, clock).
 
 - **Harm** (voltage-forced): swing V in t_v drives C_m V/t_v into R (circuit's) ∥ C_node (circuit's at the edge band + own copper): v = C_m (V/t_v) R (1 − e^(−t_v/(R C_node))), linear in C_m at every ledger corner. Boost FB node (28.6 kΩ, 5.5–5.9 pF, 0.2–8 ns edges) acts as divider C_m V / C_node: u = 2.6 at the human 17.9 fF (bound 6 mV). The evaluator's circuit reads those 18 fF as u = 1.0: its cell is a current source with the rectifier conducting, so the switch node moves by the loop's ring, not the commutation swing.
 - **Price**: φ_a = static potential, aggressor 1 V, other copper 0 V. Victim piece adds ΔC_m = C′(x) φ_a(x) dl (C′ = its capacitance per length to everything); reciprocally an aggressor piece adds C′ φ_victim dl. A* self term gains C′ Σ W φ_other per mm (W = robust objective's derivative per farad). C′ = microstrip over nearest copper above and below + coplanar share fitted to raster solves, scaled to the raster's own strip C.
@@ -104,7 +104,7 @@ Boost FB tracks removed and re-added hop by hop:
 
 Pins dominate C_m (15.6 fF of 17.9; FB two pins from SW on the SOT-23). The stub raises u from 2.4 to 8.0. Re-meshing from scratch reproduces hop-by-hop C_m exactly. KiCad-refilled zones: switch-node route +35.3 fF vs +28.0 predicted (refill also drops slivers and islands of the cut plane).
 
-**Smoke route**: boost, `kae.em.pnr` without `--verify`, 7 priced nets, vs `--no-capacitive`; measured by fresh static solve, KiCad-refilled zones:
+**Smoke route**: boost, `haslam.em.pnr` without `--verify`, 7 priced nets, vs `--no-capacitive`; measured by fresh static solve, KiCad-refilled zones:
 
 | | C_m SW–FB (fF) | u feedback, typical (here / `wideband`) | `wideband` total, robust | `evaluate` total, robust | Route time |
 |---|---|---|---|---|---|
@@ -126,7 +126,7 @@ acarpm-chesslab-powerboard (MT3608 boost, TP4056 charger, LDO; 2 layers):
 
 ## 5. First routing A/B
 
-§4 board; six priced nets (+5V, VBAT, VBUS, switch node, FB, PROG) re-routed in the human layout; scored by `kae.excite.evaluate` at 0.25 mm, never the router's prices.
+§4 board; six priced nets (+5V, VBAT, VBUS, switch node, FB, PROG) re-routed in the human layout; scored by `haslam.excite.evaluate` at 0.25 mm, never the router's prices.
 
 | | Human | Physics, refresh every 4 nets |
 |---|---|---|
@@ -142,7 +142,7 @@ Shorts are between untouched nets (the human board's own). Plain router (same ne
 
 ## 5a. Co-simulation and the fixes it forced
 
-- Two-pad parts are copper-model branches (`kae.excite.circuit.lump_into`); only active parts' pads injected, so geometry decides which capacitor closes a loop or carries a plane transition. Harm = solve − same parts with ideal copper (without it a crystal pin "saw" its load C as −6.9 µH of coupling).
+- Two-pad parts are copper-model branches (`haslam.excite.circuit.lump_into`); only active parts' pads injected, so geometry decides which capacitor closes a loop or carries a plane transition. Harm = solve − same parts with ideal copper (without it a crystal pin "saw" its load C as −6.9 µH of coupling).
 - Through vias land on every layer between their ends (before: end layers only; every multilayer board cut into islands).
 - Return reference = return-net copper only (grounds, decoupled rails); differencing other nets' islands (unrelated potentials) sent the first A/B's switch-node hop on a 19 mm detour (12.4 mm plain) chasing bogus crossing gains.
 - Fractional cell coverage: a 0.3 mm trace at 0.1 mm pitch had been meshed 2 cells wide (−33%), putting one coupled-pair case 22% off FastHenry.

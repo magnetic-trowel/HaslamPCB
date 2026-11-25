@@ -3,7 +3,7 @@
 Scope: verdict and headline per tested idea, one row each; mechanisms in [joint-pnr ideas](joint-pnr.md) and [layer-collapse](layer-collapse.md); numbers, conditions and provenance on the linked [research/joint](../../research/joint/README.md) pages. Not here: experiment log -> [joint-pnr-experiments](../../topics/placement/joint-pnr-experiments.md).
 Keys: scorecard, verdict, merit, partial, no merit, jc, combo, beam, anneal, repair, negotiate, grad, slime, cpsat, llm, xf_minplus, xf_physmap, xf_pour, harmonic, learn_value, qd, jc2, obst, cplace, assign, pour
 
-Conditions: 33 qualified A/B boards; KiCad DRC, kae.physics fast (place terms) and routed physics; 120 CPU-s per board; "vs seq" = place by HPWL, then route. Eras (v5 mostly 1 seed, v7, xf3) → [eras](../../research/joint/README.md#eras-and-caveats).
+Conditions: 33 qualified A/B boards; KiCad DRC, haslam.physics fast (place terms) and routed physics; 120 CPU-s per board; "vs seq" = place by HPWL, then route. Eras (v5 mostly 1 seed, v7, xf3) → [eras](../../research/joint/README.md#eras-and-caveats).
 Verdicts: **Merit** beat its control on DRC or physics; **Partial** helps in some setting or as a component; **No merit** did not beat a simple control; **Not tested** idea only.
 
 ## Methods (place + route)
@@ -11,8 +11,8 @@ Verdicts: **Merit** beat its control on DRC or physics; **Partial** helps in som
 | # | Idea | Source domain | Tested as | Verdict | Headline | Page |
 |---|---|---|---|---|---|---|
 | — | Own grid router (halo clearance, negotiated congestion) | FPGA PathFinder | `route_only` | **Merit** (substrate) | human placements clean 0.85 (A) / 0.50 (B) vs tuned Freerouting 0.62 / 0.35 | [engine](../../research/joint/engine.md#results) |
-| 43 | Physics place terms in the objective | kae.physics | `seq_phys`, `anneal_phys`, `combo` vs length+vias twins | **Merit** | fast physics 4.05× → 1.52× human (seq); routability unchanged | [physics-objective](../../research/joint/physics-objective.md#results) |
-| — | Full routed physics at stage gates | kae routed recheck | `combo_full`, `jc_full` | **Partial** (promising) | jc_full routed 0.80× human (open hops flatter it); combo_full unfinished | [jc](../../research/joint/jc.md#jc), [combo](../../research/joint/combo.md#verdict) |
+| 43 | Physics place terms in the objective | haslam.physics | `seq_phys`, `anneal_phys`, `combo` vs length+vias twins | **Merit** | fast physics 4.05× → 1.52× human (seq); routability unchanged | [physics-objective](../../research/joint/physics-objective.md#results) |
+| — | Full routed physics at stage gates | haslam routed recheck | `combo_full`, `jc_full` | **Partial** (promising) | jc_full routed 0.80× human (open hops flatter it); combo_full unfinished | [jc](../../research/joint/jc.md#jc), [combo](../../research/joint/combo.md#verdict) |
 | L | **Joint layer collapse by continuation**: everything lifted, one coupling β | homotopy, deterministic annealing | `jc` | **Merit (best)** | best legal and clean in v5 and v7; +70% vias vs combo (v5) | [jc](../../research/joint/jc.md#jc) |
 | L | Same, parts frozen after the lift | ablation | `jc_frozen` | Control | joint 0.52× copper on 24/24 boards: placement and routing not separable | [jc](../../research/joint/jc.md#jc) |
 | 7 | Beam search over place-one-route-it | search | `beam` | **Merit** | completion 0.891 vs 0.868 greedy at equal CPU | [tree-search](../../research/joint/tree-search.md#results) |

@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # PCB cooling: placement, heat sinks, trace heating, algorithms
 

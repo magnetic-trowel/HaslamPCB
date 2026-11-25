@@ -40,13 +40,13 @@ LLM as MAPF/negotiation meta-controller [I]: (1) net priorities/ordering for pri
 [S]
 - Numberlink in EDA: Tanaka–Takahashi (DA Symposium 2014) island-in-cavity routing with CHORD-LAST order and area division; faster topological solver (IEICE VLD 2015); ZDD enumeration of all Numberlink/Slitherlink solutions (Algorithms 2012); SAT encodings (Permanganate; Leiden thesis with cycle prevention); zig-zag Numberlink NP-complete.
 - Factorio-SAT: tiles as booleans (direction, underground, splitter side, colour), no-crossing and colour clauses; returns a layout or proves none exists for a hand-chosen topology; verifier checks 64×64 balancers in <1 s. Factorio frameworks: SMT (Z3/CVC5/Yices) + A* + MAPF for belts, SA for assembler placement; "logistic belt optimization" with parallel SA vs evolutionary RL. Stack shape "SAT/SMT for local exact layout + MAPF for routing + annealing for placement" [I].
-- Zachtronics: solving needs only correct output; optimization afterward against histograms of other players' cost, cycles and area; aesthetics unscored. kae UX: after each run show histograms of area, vias, length, worst decap distance, crossings vs prior boards or a QD archive [I].
+- Zachtronics: solving needs only correct output; optimization afterward against histograms of other players' cost, cycles and area; aesthetics unscored. haslam UX: after each run show histograms of area, vias, length, worst decap distance, crossings vs prior boards or a QD archive [I].
 - Use SAT/CP-SAT/ZDD for small escape/fan-out windows with vias as bridges; ZDD can enumerate all solutions for the LLM to choose between [I].
 
 ## Other physical-design domains
 
 [S]
-| Domain | Methods | kae subroutine [I] |
+| Domain | Methods | haslam subroutine [I] |
 |---|---|---|
 | Microfluidics | PACOR (DME Steiner + min-cost-flow escape + bounded-length detours; 100% completion); McDaniel negotiated escape on a biochip PCB; RABER control-port sharing | DME + MCF length matching for DDR-style buses |
 | Photonics | APR curvy A* + adaptive crossing insertion (~14% lower insertion loss); Apollo bending-aware wirelength GPU placement (routability 94.79% vs DREAMPlace 50.85%, Cypress 51.38%); LiDAR 2.0 | Bend/via-aware costs for RF/high-speed |

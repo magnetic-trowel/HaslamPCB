@@ -1,10 +1,10 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Gate R2 of docs/topics/architecture/physics-frequency-coverage.md: the reduced model against direct
 solves.
 
-The board's whole circuit goes into its copper (kae.excite.circuit.lump_all); every commutation cell's
-source and every observer is a fixed port. kae.em.reduce builds the model greedily up to 300 MHz with
+The board's whole circuit goes into its copper (haslam.excite.circuit.lump_all); every commutation cell's
+source and every observer is a fixed port. haslam.em.reduce builds the model greedily up to 300 MHz with
 errors relative to each pair's layout share (the solve minus the circuit with ideal copper). Then at
 ten seeded random frequencies (log-uniform, 10 Hz .. 300 MHz, none a snapshot) every source-to-observer
 layout share from the model is compared with a direct solve, and the model's port impedance matrix is
@@ -17,16 +17,16 @@ import time
 
 import numpy as np
 
-from kae.board import transform
-from kae.board.kicad_file import load
-from kae.circuit import brief as B
-from kae.em import reduce as RD
-from kae.em import solve as ES
-from kae.em.kicad import BoardMesh
-from kae.excite import models as M
-from kae.excite import observe as O
-from kae.excite import sources as S
-from kae.excite.circuit import lump_all, port
+from haslam.board import transform
+from haslam.board.kicad_file import load
+from haslam.circuit import brief as B
+from haslam.em import reduce as RD
+from haslam.em import solve as ES
+from haslam.em.kicad import BoardMesh
+from haslam.excite import models as M
+from haslam.excite import observe as O
+from haslam.excite import sources as S
+from haslam.excite.circuit import lump_all, port
 
 
 def ports_of(bd, srcs, obs, term):

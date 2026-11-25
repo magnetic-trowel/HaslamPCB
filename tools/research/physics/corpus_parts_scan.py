@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Corpus scan of crystals and capacitors: what designs actually use.
 
@@ -10,8 +10,8 @@ Per board, a light regex read of the .kicad_pcb (no KiCad):
   (their values): the designer's load caps, from which C_L = C1 C2 / (C1 + C2) + C_stray;
 - capacitors: value, footprint, a voltage rating in the value or properties, and the nominal voltage of
   the non-ground net (from its name): the DC bias each MLCC sits at, relative to its rating.
-Feeds the C_L prior of kae.physics.priors.crystal_budget and the bias statistics behind
-kae.excite.models' MLCC derating (docs/topics/rules/crystals-clocks.md, decoupling-pdn.md).
+Feeds the C_L prior of haslam.physics.priors.crystal_budget and the bias statistics behind
+haslam.excite.models' MLCC derating (docs/topics/rules/crystals-clocks.md, decoupling-pdn.md).
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ import re
 import sys
 from concurrent.futures import ProcessPoolExecutor
 
-from kae.circuit import values as V
+from haslam.circuit import values as V
 
 FP_START = re.compile(r'^\s*\((footprint|module)\s+"?([^"\s)]+)"?', re.M)
 REF5 = re.compile(r'\(fp_text\s+reference\s+"?([^"\s)]+)"?')

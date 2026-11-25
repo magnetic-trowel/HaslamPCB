@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Run tools/research/pnr_phys/physics_score.py against $XF_WORK, for any seed.
 
@@ -7,7 +7,7 @@
 physics_score.py fixes its work directory at the path of the host it was written on and
 reads attempt-0 only. This wrapper changes only where it looks, never how it scores:
 
-- ROOT/WORK point at this worktree and $XF_WORK (default kae-work2);
+- ROOT/WORK point at this worktree and $XF_WORK (default haslam-work2);
 - --attempt N scores attempt-N (seed N) instead of attempt-0. Seeds N > 0 get their own
   cache (WORK/phys-cache-seedN, since physics_score caches one output per run and board),
   pre-filled with the reference boards' briefs and human scores from WORK/phys-cache;
@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(os.environ.get("XF_ROOT") or Path(__file__).resolve().parents[3])
-WORK = Path(os.environ.get("XF_WORK") or ROOT / "kae-work2")
+WORK = Path(os.environ.get("XF_WORK") or ROOT / "haslam-work2")
 spec = importlib.util.spec_from_file_location(
     "physics_score", ROOT / "tools" / "research" / "pnr_phys" / "physics_score.py")
 ps = importlib.util.module_from_spec(spec)

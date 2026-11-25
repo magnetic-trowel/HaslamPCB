@@ -120,7 +120,7 @@ The board is BLDCM-Power from [brenocq/bldc-motor](https://github.com/brenocq/bl
 
 In both higher-inductance cells, a plane that is not part of the loop lies between the cell and its ground plane.
 
-## Consequences for kae
+## Consequences for haslam
 
 1. Passport = reviewer-facing output ([lens-cd](lens-cd.md) CD1, CD13, CD21): per via, pin, track and pour tile its DC and HF shares, exact removal or addition value, leverage, job verb (CD8). Protect from trimming pieces whose role differs between DC and HF, and induced-current conductors (CD20).
 2. Take return terminals from pin semantics: bridge-return pins as return → supply path 8.78 mΩ; all six driver ground pads tied into one terminal → 7.05 mΩ, because the tie shorts the neck of finding 1 [C].

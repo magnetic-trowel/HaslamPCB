@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # xf_minplus: status notes (stopped early, moved to a bigger machine)
 
@@ -10,7 +10,7 @@ This is the T1 min-plus best-response maps experiment
   - `MinPlus`: priced costs min-pooled to a coarse grid (default 0.4 mm). The cell price is (1+hist)(1+β·foreign) and the via price is via_cost(1+Σhist)(1+β·foreign over all layers), as in the router. The net's own copper is not counted as foreign.
   - It runs a numba multi-source Dijkstra per (net, moving part) from that net's pins on the other parts. With `mp_tree`, the sources are also the routed tree minus the paths that end on the moving part's pads.
   - The part map is a sum over nets of the min over that net's pads (and over each pad's copper) of the shifted fields, then bilinear upsampling. Unreachable cells cost a board perimeter.
-- `MPCollapse` subclasses jc's `Collapse` and blends `minplus_w` with the HPWL + tension term. The plug-ins `xf`, `xf_lv`, `xf_h`, `xf_lv_h` and `xf0` (the control, which should equal jc) wrap the frozen `kae-work/jc-snap/jc_v3.py` by swapping its `Collapse` class.
+- `MPCollapse` subclasses jc's `Collapse` and blends `minplus_w` with the HPWL + tension term. The plug-ins `xf`, `xf_lv`, `xf_h`, `xf_lv_h` and `xf0` (the control, which should equal jc) wrap the frozen `haslam-work/jc-snap/jc_v3.py` by swapping its `Collapse` class.
 - `validate.py`: per-move Spearman test. It runs jc's lift and collapse iterations, samples local moves (within 3 mm) and global moves for random parts at the chosen betas, re-routes the part's nets at the current price, and compares the HPWL, jc-term and min-plus predictors against the routed cost and the priced cost.
 
 ## Findings so far (one board only, not trustworthy yet)
@@ -24,4 +24,4 @@ This is the T1 min-plus best-response maps experiment
 
 ## Next steps
 1. Fix or confirm the Dijkstra values with a unit test on a hand-made grid, then rerun `validate.py` on dev6.
-2. Then dev6 and ab33 runs of `xf` and `xf_lv` (120 CPU-s, -k 3) against `jcollapse-jc-ab33-v3` and `pnr-combo-v5`, scored with `kae-work/score_all.sh`.
+2. Then dev6 and ab33 runs of `xf` and `xf_lv` (120 CPU-s, -k 3) against `jcollapse-jc-ab33-v3` and `pnr-combo-v5`, scored with `haslam-work/score_all.sh`.

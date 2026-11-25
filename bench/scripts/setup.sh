@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Set up a kaebench host (Ubuntu 22.04/24.04 x86_64): KiCad 10, Freerouting 2.5.0 (explicit use only), venv.
+# Set up a haslambench host (Ubuntu 22.04/24.04 x86_64): KiCad 10, Freerouting 2.5.0 (explicit use only), venv.
 # Works without sudo: KiCad then runs from the official kicad/kicad image via
-# Apptainer/Singularity (installed rootless into KAE_HOME if absent; needs unprivileged
+# Apptainer/Singularity (installed rootless into HASLAM_HOME if absent; needs unprivileged
 # user namespaces), and the venv comes from uv if python3-venv is missing.
 #
 #   bench/scripts/setup.sh [--kicad auto|apt|container|none] [--no-freerouting] [--venv DIR]
 #
-# Environment: KAE_HOME (default ~/.cache/kaebench) holds Freerouting, the KiCad image
+# Environment: HASLAM_HOME (default ~/.cache/haslambench) holds Freerouting, the KiCad image
 # and env.sh (sourced by the venv's activate script). KICAD_IMAGE_TAG (default 10.0.7).
 set -euo pipefail
 
 BENCH_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-KAE_HOME="${KAE_HOME:-$HOME/.cache/kaebench}"
+HASLAM_HOME="${HASLAM_HOME:-$HOME/.cache/haslambench}"
 VENV="$BENCH_DIR/.venv"
 KICAD_MODE=auto
 DO_FR=1
@@ -35,25 +35,25 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-mkdir -p "$KAE_HOME"
+mkdir -p "$HASLAM_HOME"
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; HAVE_SUDO=1
 elif sudo -n true 2>/dev/null; then SUDO="sudo"; HAVE_SUDO=1
 else SUDO=""; HAVE_SUDO=0
 fi
-ENV_FILE="$KAE_HOME/env.sh"
-ENV_LINES=("export KAE_HOME=\"$KAE_HOME\"")
+ENV_FILE="$HASLAM_HOME/env.sh"
+ENV_LINES=("export HASLAM_HOME=\"$HASLAM_HOME\"")
 
 kicad_major() { kicad-cli version 2>/dev/null | cut -d. -f1; }
 container_tool() {
   command -v apptainer || command -v singularity ||
-    { [ -x "$KAE_HOME/apptainer/bin/apptainer" ] && echo "$KAE_HOME/apptainer/bin/apptainer"; } || true
+    { [ -x "$HASLAM_HOME/apptainer/bin/apptainer" ] && echo "$HASLAM_HOME/apptainer/bin/apptainer"; } || true
 }
 userns_ok() { unshare -Ur true 2>/dev/null; }
 
 install_apptainer_unpriv() {
   # Apptainer's own no-root installer unpacks EL8 RPMs; rpm2cpio and cpio fall back to
   # Python shims when the host lacks them.
-  local dest="$KAE_HOME/apptainer" shims="$KAE_HOME/shims" inst="$KAE_HOME/install-unprivileged.sh"
+  local dest="$HASLAM_HOME/apptainer" shims="$HASLAM_HOME/shims" inst="$HASLAM_HOME/install-unprivileged.sh"
   echo "Installing Apptainer $APPTAINER_VERSION without root into $dest"
   rm -rf "$dest" "$shims"
   mkdir -p "$shims"
@@ -82,27 +82,27 @@ install_kicad_apt() {
 install_kicad_container() {
   local tool dir
   tool="$(container_tool)"
-  dir="$KAE_HOME/kicad-$KICAD_IMAGE_TAG"
+  dir="$HASLAM_HOME/kicad-$KICAD_IMAGE_TAG"
   if [ ! -x "$dir/usr/bin/kicad-cli" ]; then
     rm -rf "$dir"   # a partial unpack from an interrupted run
     echo "Unpacking docker://kicad/kicad:$KICAD_IMAGE_TAG into $dir with $(basename "$tool") (~2.5 GB, no root needed)"
     # an unpacked directory needs neither root nor /dev/fuse at run time
-    APPTAINER_CACHEDIR="${APPTAINER_CACHEDIR:-$KAE_HOME/apptainer-cache}" \
+    APPTAINER_CACHEDIR="${APPTAINER_CACHEDIR:-$HASLAM_HOME/apptainer-cache}" \
       "$tool" build --sandbox "$dir" "docker://kicad/kicad:$KICAD_IMAGE_TAG"
-    [ -n "${APPTAINER_CACHEDIR:-}" ] || rm -rf "$KAE_HOME/apptainer-cache"   # keep a user-set cache
+    [ -n "${APPTAINER_CACHEDIR:-}" ] || rm -rf "$HASLAM_HOME/apptainer-cache"   # keep a user-set cache
   fi
   # kicad-exec sizes KiCad's thread pool to the job's CPUs (see the script); cpus/N is what it shows KiCad
-  install -m 755 "$BENCH_DIR/scripts/kicad-exec" "$KAE_HOME/kicad-exec"
-  mkdir -p "$KAE_HOME/cpus"
+  install -m 755 "$BENCH_DIR/scripts/kicad-exec" "$HASLAM_HOME/kicad-exec"
+  mkdir -p "$HASLAM_HOME/cpus"
   local n
-  for n in $(seq 1 "$(getconf _NPROCESSORS_ONLN)"); do printf '0-%d\n' $((n - 1)) > "$KAE_HOME/cpus/$n"; done
-  ENV_LINES+=("export KAE_KICAD_WRAP=\"$KAE_HOME/kicad-exec $tool $dir\"")
+  for n in $(seq 1 "$(getconf _NPROCESSORS_ONLN)"); do printf '0-%d\n' $((n - 1)) > "$HASLAM_HOME/cpus/$n"; done
+  ENV_LINES+=("export HASLAM_KICAD_WRAP=\"$HASLAM_HOME/kicad-exec $tool $dir\"")
 }
 
 case "$KICAD_MODE" in
   none)  # keep any KiCad wrapper configured by an earlier run
     if [ -f "$ENV_FILE" ]; then
-      while IFS= read -r line; do ENV_LINES+=("$line"); done < <(grep '^export KAE_KICAD_' "$ENV_FILE" || true)
+      while IFS= read -r line; do ENV_LINES+=("$line"); done < <(grep '^export HASLAM_KICAD_' "$ENV_FILE" || true)
     fi ;;
   apt) install_kicad_apt ;;
   container)
@@ -129,8 +129,8 @@ fails, e.g. on Ubuntu 24.04 with kernel.apparmor_restrict_unprivileged_userns=1)
   - ask an admin to run: bench/scripts/setup.sh --kicad apt   (KiCad PPA, no recommends)
   - ask an admin to install apptainer, then re-run this script (KiCad runs from the official image)
   - flatpak --user install flathub org.kicad.KiCad, then set
-      KAE_KICAD_CLI="flatpak run --command=kicad-cli org.kicad.KiCad"
-      KAE_KICAD_PYTHON="flatpak run --command=python3 org.kicad.KiCad"
+      HASLAM_KICAD_CLI="flatpak run --command=kicad-cli org.kicad.KiCad"
+      HASLAM_KICAD_PYTHON="flatpak run --command=python3 org.kicad.KiCad"
 Re-run with --kicad none to install the rest now.
 EOF
       exit 1
@@ -139,21 +139,21 @@ EOF
 esac
 
 if [ "$DO_FR" = 1 ]; then
-  DEST="$KAE_HOME/freerouting-$FR_VERSION-linux-x64"
+  DEST="$HASLAM_HOME/freerouting-$FR_VERSION-linux-x64"
   if [ -x "$DEST/bin/freerouting" ]; then
     echo "Freerouting $FR_VERSION already at $DEST"
   else
-    ZIP="$KAE_HOME/freerouting-$FR_VERSION-linux-x64.zip"
+    ZIP="$HASLAM_HOME/freerouting-$FR_VERSION-linux-x64.zip"
     curl -fsSL -o "$ZIP" \
       "https://github.com/freerouting/freerouting/releases/download/v$FR_VERSION/freerouting-$FR_VERSION-linux-x64.zip"
     echo "$FR_ZIP_SHA256  $ZIP" | sha256sum -c -
-    python3 -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$ZIP" "$KAE_HOME"
+    python3 -c "import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$ZIP" "$HASLAM_HOME"
     chmod +x "$DEST/bin/freerouting" "$DEST/lib/runtime/bin/"* "$DEST/lib/runtime/lib/jspawnhelper" 2>/dev/null || true
     rm -f "$ZIP"
   fi
-  # upstream 2.5.0 is for explicit use only (KAE_FREEROUTING). kaebench and the bridge run the build
-  # pinned in $KAE_HOME/kae-freerouting.pin, the magnetic-trowel fork (the control):
-  if [ ! -s "$KAE_HOME/kae-freerouting.pin" ]; then
+  # upstream 2.5.0 is for explicit use only (HASLAM_FREEROUTING). haslambench and the bridge run the build
+  # pinned in $HASLAM_HOME/haslam-freerouting.pin, the magnetic-trowel fork (the control):
+  if [ ! -s "$HASLAM_HOME/haslam-freerouting.pin" ]; then
     echo "No Freerouting pinned yet: run tools/research/routing/install_freerouting_fork.sh <ref> --pin"
   fi
 fi
@@ -178,6 +178,6 @@ fi
 printf '%s\n' "${ENV_LINES[@]}" > "$ENV_FILE"
 grep -qF "$ENV_FILE" "$VENV/bin/activate" || echo "[ -f \"$ENV_FILE\" ] && . \"$ENV_FILE\"" >> "$VENV/bin/activate"
 echo
-( . "$ENV_FILE" && "$VENV/bin/kaebench" doctor )
+( . "$ENV_FILE" && "$VENV/bin/haslambench" doctor )
 echo
 echo "Activate with: source $VENV/bin/activate"

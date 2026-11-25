@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Red-team check of the round-1 loop-proxy result ('MS2 picks the PEEC-best 96-98%, area 16-66%').
 

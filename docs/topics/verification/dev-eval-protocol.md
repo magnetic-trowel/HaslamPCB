@@ -53,7 +53,7 @@ Tags: [P] primary, [I] inference, [M] measured in this repo.
   - verify the jpackage launcher honours it.
   - Peak heap is 0.4–1.2 GB per board [P].
 - **KiCad DRC threads:** cap with the advanced-config `MaximumThreads` in a harness-private `KICAD_CONFIG_HOME`; verify the name in 10.0.7. Score in a separate pool of ≤ 6 × 4 threads.
-- **Disk:** move the workdir and `KAE_HOME` to local NVMe (`/var/tmp/$USER/kae-work`, `APPTAINER_BIND=/var/tmp/$USER`). Record this in `CLAUDE.local.md`. Every attempt starts about 5 KiCad processes from the 2.5 GB image, which is slow over NFS.
+- **Disk:** move the workdir and `HASLAM_HOME` to local NVMe (`/var/tmp/$USER/haslam-work`, `APPTAINER_BIND=/var/tmp/$USER`). Record this in `CLAUDE.local.md`. Every attempt starts about 5 KiCad processes from the 2.5 GB image, which is slow over NFS.
 - **Concurrency to start** (re-tune after measuring peak RSS on the 10 largest boards):
 
   | Workload | Concurrency |

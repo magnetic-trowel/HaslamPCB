@@ -1,29 +1,29 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Zone-aware placement: fixed copper zones as placement facts
 
 Scope: defensive publication of the placer's fixed-zone terms (pull of power pads onto their own net's fixed zones, keep-out of other nets' pads from zones and board mask openings they would bridge): mechanism, A/Bs, verdict. Not here: the board study that proposed it -> [board studies](../joint/board-studies-2611.md); why reused runs mislead -> [host-load drift](../benchmark-drift-2611.md).
-Keys: zone-aware placement, kae.place.zones, zone_pull, zone_keepout, fixed zones, pads on own zone, solder_mask_bridge, board mask aperture, fixed_mask, zone-ab, zone-keepout-ab2, place-fixed, joint-fixed
+Keys: zone-aware placement, haslam.place.zones, zone_pull, zone_keepout, fixed zones, pads on own zone, solder_mask_bridge, board mask aperture, fixed_mask, zone-ab, zone-keepout-ab2, place-fixed, joint-fixed
 
 **Status:** partial. The keep-out works and stays on: it removes the solder-mask bridges it targets
 (polarfire-som 247 → 38, gecko5 22 → 0 over 3 seeds) with routing unchanged. The pull does what it
 says (about twice as many power pads on their own zone) but does not change open connections, so it is
 off by default (`zone_pull=0`) and stays as an option.
-**First published:** 2026-11-08, branch `place-zone-aware` (term [4e4a7ed](https://github.com/magnetic-trowel/kicad-auto-everything/commit/4e4a7ed15a6735a0f365a5d8539028fde62d920e),
-apertures and defaults [e54a590](https://github.com/magnetic-trowel/kicad-auto-everything/commit/e54a590d812e9ed4fb887b58d250c31c47d1c2bc),
-recipes [0ed5d35](https://github.com/magnetic-trowel/kicad-auto-everything/commit/0ed5d350920d10a601d233bd49809fa3ca818966)).
+**First published:** 2026-11-08, branch `place-zone-aware` (term [4e4a7ed](https://github.com/magnetic-trowel/HaslamPCB/commit/4e4a7ed15a6735a0f365a5d8539028fde62d920e),
+apertures and defaults [e54a590](https://github.com/magnetic-trowel/HaslamPCB/commit/e54a590d812e9ed4fb887b58d250c31c47d1c2bc),
+recipes [0ed5d35](https://github.com/magnetic-trowel/HaslamPCB/commit/0ed5d350920d10a601d233bd49809fa3ca818966)).
 
 ## Why
 
 In the place-fixed and joint-fixed tasks the human's copper zones stay where they were while every part
 moves, and the placer ignored them. The [board study](../joint/board-studies-2611.md) counted power pads
-over their own net's fixed zone: polarfire-som human 404 of 469, kae staged 148–221; gecko5's FPGA left its
+over their own net's fixed zone: polarfire-som human 404 of 469, haslam staged 148–221; gecko5's FPGA left its
 +1V2 island; every staged DRC error on gecko5 was a solder-mask bridge between a moved pad and a fixed
 outer-layer power island. It estimated +60 to +200 open connections a board from this.
 
 ## Mechanism
 
-Two unary annealer terms (`kae.place.zones`), priced on a raster of the zones at ~0.1 mm, read by both
+Two unary annealer terms (`haslam.place.zones`), priced on a raster of the zones at ~0.1 mm, read by both
 the reference and the compiled annealer:
 
 - **Pull** (`zone_pull`): each pad of a movable part whose net owns a fixed zone on a layer the pad
@@ -45,7 +45,7 @@ the reference and the compiled annealer:
 
 ### zone-ab: pull 3 and keep-out 1 against the base placer
 
-48 merit boards with ≥ 10 movable pads on fixed zones, kae staged with the restart wrapper, 3 seeds.
+48 merit boards with ≥ 10 movable pads on fixed zones, haslam staged with the restart wrapper, 3 seeds.
 The base runs on 5 of the boards were reused from an earlier experiment (bga-next-ab), made days apart;
 on this host that alone moves results by ~14 % ([drift](../benchmark-drift-2611.md)), so they are
 reported apart:
@@ -111,7 +111,7 @@ fixed in these tasks, not from placement.
 
 ## Settings
 
-`zone_pull` (default 0; 3 was tested), `zone_keepout` (default 1), both via `--set` or KAE_ text variables
+`zone_pull` (default 0; 3 was tested), `zone_keepout` (default 1), both via `--set` or HASLAM_ text variables
 ([router limits](../routing/README.md)). The joint loop's window re-placements
-(`kae.joint.replace`) read the same settings as the first placement. Recipes: `tools/kaeres/experiments/zone-ab.sh`,
+(`haslam.joint.replace`) read the same settings as the first placement. Recipes: `tools/haslamres/experiments/zone-ab.sh`,
 `zone-keepout-ab.sh` on `place-zone-aware`.

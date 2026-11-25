@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Gate G2 seed: does the router's price field predict coupling as the full field solve does?
 
@@ -18,11 +18,11 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[2] / "kae" / "src"))
+sys.path.insert(0, str(HERE.parents[2] / "haslam" / "src"))
 
-from kae.em import fields as EF  # noqa: E402
-from kae.em import solve as ES  # noqa: E402
-from kae.em.mesh import Layer, Mesh  # noqa: E402
+from haslam.em import fields as EF  # noqa: E402
+from haslam.em import solve as ES  # noqa: E402
+from haslam.em.mesh import Layer, Mesh  # noqa: E402
 
 T, H = 0.035, 0.2
 INF = float("inf")
@@ -155,8 +155,8 @@ def main_read(pitch=0.2):
 
 
 def main_t1(pitch=0.2):
-    """The same comparison through kae.em.t1 (the router's price maps), all three planes."""
-    from kae.em import t1 as T1
+    """The same comparison through haslam.em.t1 (the router's price maps), all three planes."""
+    from haslam.em import t1 as T1
     print(f"{'plane':24s} {'d mm':>5s} {'M exact':>9s} {'t1':>8s} {'ratio':>6s}")
     slots = {"solid": None, "slot under both": (14.5, 4.0, 15.5, 26.0), "slot under victim only": (14.5, 11.0, 15.5, 26.0)}
     for name, slot in slots.items():
@@ -213,7 +213,7 @@ def board4(pitch, d, victim=True, slot_up=None, slot_dn=None, h_dn=0.2, h_up=0.2
 def main_t1_4l(pitch=0.2):
     """The two-sided price model on striplines: solid planes, a slot in the upper plane only, and in
     the lower plane only (both traces cross it)."""
-    from kae.em import t1 as T1
+    from haslam.em import t1 as T1
     print(f"{'planes':22s} {'d mm':>5s} {'M exact':>9s} {'t1':>8s} {'ratio':>6s}")
     slots = {"solid": (None, None), "slot in upper only": ((14.5, 4.0, 15.5, 26.0), None),
              "slot in lower only": (None, (14.5, 4.0, 15.5, 26.0))}
@@ -235,7 +235,7 @@ def main_t1_4l(pitch=0.2):
 def main_transition(pitch=0.2):
     """Plane-transition term: where the victim's return must move between planes (its ends, which
     connect to the lower plane only), its upper-plane share pays the aggressor's U-D voltage there."""
-    from kae.em import t1 as T1
+    from haslam.em import t1 as T1
     print(f"{'planes':22s} {'d':>4s} {'exact':>8s} {'t1':>8s} {'trans':>8s} {'t1+tr':>8s} {'ratio':>6s} {'t1-tr':>8s} {'ratio':>6s}")
     slots = {"solid": (None, None), "slot in upper only": ((14.5, 4.0, 15.5, 26.0), None),
              "slot in lower only": (None, (14.5, 4.0, 15.5, 26.0))}
@@ -415,8 +415,8 @@ def main_hop(pitch=0.2):
 def main_hop_image(pitch=0.2):
     """The same cases with the image (victim) model: microstrip self per length, twice the flux at the
     trace minus the flux at the plane, twice the crossing term; no end transfer."""
-    from kae.em import t1 as T1
-    from kae.em.pnr import strip_L_per_mm
+    from haslam.em import t1 as T1
+    from haslam.em.pnr import strip_L_per_mm
     slots = {"solid": None, "slot across the straight path": (17.0, 6.0, 18.0, 10.6)}
     paths = {
         "straight": [(10, 17.5, 25)] and [[(15.0 + 0.2 * k, 10.0) for k in range(26)]],

@@ -8,7 +8,7 @@ Keys: PathFinder, negotiated congestion, pres_fac, acc_fac, history cost, VPR, V
 2. PathFinder (b_n + h_n)·p_n with the VPR default schedule is a sound start for an in-house router, after normalizing base costs (see below).
 3. Pure lattice PathFinder (OrthoRoute) fails on ordinary boards (PCBWorld CP 0.02, run without board rules); negotiation works best inside a detailed router (FanoutNet MCR) or as a coarse global planner.
 4. Learned schedules (VLSI): CQL 1.56× faster convergence; LSTM variant −92% DRVs. No PCB-specific schedule study exists; transfer is unproven.
-5. kae's one test was a non-standard variant: `lastmile_region.py` (experimental, off) left 8-15 conflicts on fm4dd after 20 rounds, but with present price 2.0 from round 1 ×1.5, per-net history multiplied into the price, every net re-routed each round and a 20-round cap ([kae-closing-open-connections](../../research/routing/kae-closing-open-connections.md)) [C]. The VPR schedule, per-cell history and offender-only reroute are untested on PCBs here.
+5. haslam's one test was a non-standard variant: `lastmile_region.py` (experimental, off) left 8-15 conflicts on fm4dd after 20 rounds, but with present price 2.0 from round 1 ×1.5, per-net history multiplied into the price, every net re-routed each round and a 20-round cap ([haslam-closing-open-connections](../../research/routing/haslam-closing-open-connections.md)) [C]. The VPR schedule, per-cell history and offender-only reroute are untested on PCBs here.
 
 ## PathFinder cost and VPR defaults
 
@@ -65,7 +65,7 @@ for it in range(50):
     pres_fac = 0.5 if it == 0 else min(pres_fac * 1.3, 1000)
 # post: merge collinear, 45° smoothing, neck-down at pads, write via IPC in one commit, kicad-cli drc; repair or fall back to Freerouting
 ```
-Use in kae [I]:
+Use in haslam [I]:
 - Base costs normalized to ~1 per grid step; A* windowed to the net bbox, growing per iteration; reroute only offenders.
 - Schedule (initial conflict cost, growth per pass, history weight, via-cost ramp, bbox factor) as a typed knob set; LLM picks presets per board class (dense 2-layer, BGA 6-layer, RF); later an offline-RL scheduler on logged runs.
 - Conflict-tolerant first pass = seconds-scale feasibility probe (layer count, hotspot map) for placement/stackup revisions → [autorouter skepticism](autorouter-skepticism.md).

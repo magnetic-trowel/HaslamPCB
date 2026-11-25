@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Joint collapse by continuation (docs/ideas/original/layer-collapse.md, "Joint collapse
 by continuation"), on the pnr engine (tools/research/pnr).
@@ -44,7 +44,7 @@ from physics import Phys  # noqa: E402
 from placekit import Clock, Kit, corr  # noqa: E402
 from router import add_hist, vias_of  # noqa: E402
 
-ROOT = Path(os.environ.get("KAE_REPO") or Path(__file__).resolve().parents[3])
+ROOT = Path(os.environ.get("HASLAM_REPO") or Path(__file__).resolve().parents[3])
 
 
 def _corr0(arr, offs):
@@ -54,7 +54,7 @@ def _corr0(arr, offs):
 def _board_id(world):
     parts = Path(world.data.get("path", "board")).parts
     for s in reversed(parts):
-        if (ROOT / "kae-work" / "tasks" / s).is_dir():
+        if (ROOT / "haslam-work" / "tasks" / s).is_dir():
             return s
     return Path(world.data.get("path", "board")).parent.name
 

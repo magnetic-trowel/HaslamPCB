@@ -1,16 +1,16 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Part facts from datasheets (kae.part-facts/1)
+# Part facts from datasheets (haslam.part-facts/1)
 
-kae's evaluator reads numbers, never prose. For each part number it needs (regulators, converter
+haslam's evaluator reads numbers, never prose. For each part number it needs (regulators, converter
 switches and controllers, the larger loads), a model finds the manufacturer's datasheet, keeps the PDF
-in the local datasheet library, and records the values kae uses, each with the page it came from. kae
-then reads these through its part table (kae.excite.parts.json); boards only state what is specific to
+in the local datasheet library, and records the values haslam uses, each with the page it came from. haslam
+then reads these through its part table (haslam.excite.parts.json); boards only state what is specific to
 them (their own load currents, their wiring).
 
 ## Library (on the benchmark host, never committed: datasheets are the manufacturers' copyright)
 
-    $KAE_DATASHEETS (default ~/kae-datasheets)
+    $HASLAM_DATASHEETS (default ~/haslam-datasheets)
       pdf/<slug>.pdf        the datasheet as downloaded (one per part family)
       facts/<slug>.json     this format; one per part number asked for
       text/<slug>.txt       pdftotext -layout output (for searching later)
@@ -31,7 +31,7 @@ them (their own load currents, their wiring).
 ## facts/<slug>.json
 
 ```json
-{"schema": "kae.part-facts/1", "query": "<the value asked for>", "identified": true,
+{"schema": "haslam.part-facts/1", "query": "<the value asked for>", "identified": true,
  "part": "LM7805", "manufacturer": "Texas Instruments", "family": "LM78xx",
  "match": "<a regex matching this part's values in board files, e.g. (?i)^(LM|L|MC)?7805>",
  "kind": "linear_regulator|switching_regulator|charger|load_switch|mosfet|diode|mcu|module|driver|amplifier|other",

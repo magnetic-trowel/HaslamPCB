@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Before/after tables for tracks wider than their land (pad_entry.overhang, necks, land hazards).
 
     python tools/research/routing/pad_wide_summary.py rd   ROOT BASE_TAG NEW_TAG   # pad_reroute
-    python tools/research/routing/pad_wide_summary.py taut ROOT BASE_ROOT          # kae.route.taut
+    python tools/research/routing/pad_wide_summary.py taut ROOT BASE_ROOT          # haslam.route.taut
 
 rd: ROOT/<board>/ holds before.kicad_pcb, BASE_TAG.{json,kicad_pcb} and NEW_TAG.{json,kicad_pcb}
 (pad_edge_smoke.sh rd-TAG) and phys/<tag>.status.json. Entry counts of every version come from
@@ -63,7 +63,7 @@ def _worse(rb, rn):
 
 
 def rd(root, base, new):
-    from kae.route import pad_trim as T
+    from haslam.route import pad_trim as T
     rows, tot = [], {}
     print("| Board | Candidates base/new | Kept base/new | Oblique/acute in / base / new | Overhanging in / base / new "
           "| Necks | Hazards | No target | Track Δ mm base/new | DRC err/unconn new (worse vs base) | Physics base / new |")
@@ -100,7 +100,7 @@ def rd(root, base, new):
 
 
 def taut(root, base_root):
-    from kae.route import taut as TT
+    from haslam.route import taut as TT
     rows, tot = [], {}
     print("| Board | Branches improved base/new | Oblique/acute entries in / base / new | Overhanging in / base / new "
           "| Necks | Overhangs removed | Hazards | Copper m in / base / new | DRC err/unconn new (worse vs base) "

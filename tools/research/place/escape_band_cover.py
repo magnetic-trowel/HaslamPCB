@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Which parts sit in each escape band of a placed board (docs/research/placement/escape-keepouts.md).
 
@@ -8,15 +8,15 @@ decap (<= 3 pads, all on the package's ground/power nets, one power) or other, a
 
     python escape_band_cover.py SCAN.json BOARD_PATTERN OUT.json
 
-BOARD_PATTERN has {bid}, e.g. ~/kae-boards/boards/{bid}/board.kicad_pcb or a kaeres run's output.kicad_pcb.gz.
+BOARD_PATTERN has {bid}, e.g. ~/haslam-boards/boards/{bid}/board.kicad_pcb or a haslamres run's output.kicad_pcb.gz.
 """
 import json, sys
 from shapely.geometry import box
 from shapely.ops import unary_union
-from kae.board.kicad_file import load
-from kae.board.transform import place_geom, courtyard
-from kae.place.problem import Problem
-from kae.place import escape_band as EB
+from haslam.board.kicad_file import load
+from haslam.board.transform import place_geom, courtyard
+from haslam.place.problem import Problem
+from haslam.place import escape_band as EB
 scan = json.load(open(sys.argv[1]))
 out = {}
 for bid, v in scan.items():

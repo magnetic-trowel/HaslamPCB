@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Fit Freerouting's pass-time model for counted budgets (kae.route.freerouting, RATES["fr_work"]):
+"""Fit Freerouting's pass-time model for counted budgets (haslam.route.freerouting, RATES["fr_work"]):
 
     seconds of a pass = r x min(CAP, (pins / 430) ** alpha) x search steps + beta x pins + gamma x unrouted x pins
 
 from the fork's own logs (a build with autorouter.max_work logs, per pass, "Auto-routing pass #N: S
 search steps and W work units so far" and "... completed in T seconds ... (U unrouted ...)"). Logs are
-the runs' raw logs (KAE_FR_RAW_DIR, restart.py's fr-telemetry.tar unpacked: *.log or *.log.gz), each
+the runs' raw logs (HASLAM_FR_RAW_DIR, restart.py's fr-telemetry.tar unpacked: *.log or *.log.gz), each
 next to its result file (*.result.json[.gz], for the board's pin count). A directory's first path part
 below each DIR names the group a ratio is reported for (one board and stage, say).
 
@@ -34,7 +34,7 @@ PASS = re.compile(r"Auto-routing pass #(\d+) on board .* completed in ([\d.]+) s
                   r"\((\d+) unrouted")
 START = re.compile(r"Auto-routing stage started .* for (\d+) unrouted items")
 REF_PINS = 430.0
-CAP = [3.0]                       # kae.route.freerouting FR_SCALE_MAX
+CAP = [3.0]                       # haslam.route.freerouting FR_SCALE_MAX
 
 
 def _open(path):
@@ -66,7 +66,7 @@ def passes(root, src):
                 last = int(m.group(2))
                 continue
             if (m := PASS.search(line)) and last is not None:
-                if last < prev:              # a pass loop counting from zero again (kae-fr-maxwork-9cf145d)
+                if last < prev:              # a pass loop counting from zero again (haslam-fr-maxwork-9cf145d)
                     prev = 0
                 rows.append(dict(src=src, group=group, pins=pins, steps=last - prev, u=u, s=float(m.group(2))))
                 prev, last, u = last, None, int(m.group(3))

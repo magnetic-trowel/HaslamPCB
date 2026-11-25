@@ -1,0 +1,1681 @@
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Escape planning for whole packages (ball grids; fine-pitch pad rings are checked), laid
+before routing with the plane escapes (lastmile.plane_escapes, unlocked). It replaces the
+fixed dog-bone pass.
+
+Every signal ball of a grid gets a layer, a side of the package to leave by (towards its
+net's other end) and, off the ball layer, a dog-bone via in one of the four sites around it;
+every plane ball its dog-bone. The model is Yan & Wong's tile network (DAC'09; Tan Yan's
+thesis ch. 2) on every signal layer (_network):
+
+- on the ball layer the obstacles are the balls and tracks run through the tiles between
+  four balls; on the other layers the obstacles are the vias in the sites and the tiles are
+  centred on the balls;
+- each tile side is a gap node holding O = fit(p - o) tracks (one pitch more per missing
+  corner), each inside tile a centre node of D - 2 floor(O/2) with D = fit(sqrt(2) p - o)
+  and a shortcut of floor(O/2) round each corner, so that any orthogonal cut holds O and any
+  diagonal one D; a via in a ball-layer tile closes its centre (and narrows its shortcuts to
+  what passes beside it); a via site's presence on the other layers is a variable;
+- fit(g) = floor((g - 2 s + c) / (w + c)): the board's own width w and clearance c (Space:
+  net classes, board setup, .kicad_dru), s the obstacle's requirement (c for vias; for balls
+  Space.need: the clearance raised by the solder-mask aperture, expansion + mask-to-copper);
+  a site is offered only where the via and its stub pass Space's exact checks.
+
+Plan (plan_grid): stage 1 is the LP of all layers with one commodity (which ball goes down,
+through which site); its options are rounded greedily, the balls with the fewest legal
+options first and the plane balls last (scarce ones get their paths, flexible ones yield; a
+site holds one via; each ball's options are recorded as its flexibility for later
+negotiation); stage 2 solves
+each layer's integer flow with its vias fixed and one commodity per side (falling back to one
+commodity, a network flow, when sides cost escapes); balls the rounding left out are offered
+to each layer in turn. Outer rings stay on the surface (LAYER_COST), as on the human boards
+and in the vendor guides. Plane layers (translate.plane_layers) carry no escapes unless opts
+escape_plane_layers. The plan is not laid: the bridge lays the fixed dog-bones (dog_bones),
+measured better under Freerouting than any laid plan (gecko5education 54 -> 241-269 open,
+nekoink 91 -> 144-176), and keeps the plan and its certificate for the report. A package whose
+ball field is routed already (a restart resuming from its best board) is not planned.
+
+Certificate (certificate): the LP with every side open, the board's legal minimum widths and
+no plane vias is an upper bound on the balls that can escape; below the demand, no routing
+escapes them all under these rules. The entry names the package, how many balls cannot
+escape, the binding cut (the constraints with the largest LP duals: layer, ring, tracks per
+gap at which width and clearance), and the relaxations that make it feasible, each found by
+solving the bound again with the rule changed (narrower track, smaller clearance, ball-to-
+track clearance, smaller via, plane layers opened to signals, more signal layers), with the
+KiCad edit that writes it back. A site without a via is credited one pitch more room, and a
+gap between two empty sites at least what crosses a pitch with nothing at its ends, so runs
+of empty sites of any length are over-estimated (_caps `sound`). In a void (4-connected empty
+lattice sites) a via may sit anywhere: the bound changes layer anywhere in it without a limit
+(_stage1 `hubs`), so a depopulated field is bounded too; a grid off one square lattice is no
+proof. The cut's rings count from the edge and from open voids (_depths). Where the bound finds
+no obstruction with the smallest legal via but does with the net class's via haslam routes with,
+own_via reports haslam's via choice (hazard escape_blocked_by_own_via), not a rule. Pad rings
+(QFN/QFP rows, ring_certificate): the
+pads a track of the board's minimum width cannot leave between its neighbours.
+
+Buses: `plan_grid(..., order=None)` takes no bus order yet; the interface for it is a list
+of net lists whose escapes should keep their order on one side.
+
+`run(sp, info, opts)` -> {packages (with per-ball escapes: layer, side, via, exit, laid),
+blocked (haslam.route.blocked's format: cause "rule", summary), laid, wanted}.
+"""
+from __future__ import annotations
+
+from haslam.budget import now as clock_now
+import math
+import time
+
+import numpy as np
+from shapely.geometry import LineString, Point
+
+from . import critical_write as W
+from . import quantize as QZ
+
+MIN_BALLS = 16          # a ball grid has at least this many pads
+LATTICE_TOL = 0.1       # pitches: a ball further than this off its lattice site puts the grid off the lattice
+MIN_RING = 12           # a pad ring (QFN, QFP) has at least this many pads
+RING_PITCH = 0.65       # mm: pad rings at most this fine are checked
+SIDES = ("W", "E", "S", "N")   # package-frame sides: -u, +u, -w, +w
+SIDE_COST = (0.0, 30.0, 60.0, 90.0)   # objective cost of a ball's sides, best first
+PLAN_SIDES = 4                 # sides offered per ball, best first (a track turns towards its
+                               # target outside the package)
+LAYER_COST = 100.0             # per layer away from the ball layer (more than a side: the outer rings
+                               # escape on the surface, as on the human boards)
+ESCAPE_GAIN = 1000.0           # objective value of one escaped signal ball
+PLANE_GAIN = 500.0             # of one plane ball's dog-bone
+PAD_COST = 150.0               # a via in the ball's pad (legal in KiCad; filled and capped at the fab):
+                               # only where no dog-bone does
+EDGE_COST = 1.0                # per tile or cell crossed
+MILP_S = 60.0                  # seconds for one package's integer plan
+BIG = 50                       # tracks: no limit, for an open gap
+
+
+def _grid(pts):
+    """(pitch, angle, ring of each point) when `pts` form a square grid, else None."""
+    nn = []
+    for i, a in enumerate(pts):
+        d, v = min((math.dist(a, b), (b[0] - a[0], b[1] - a[1])) for j, b in enumerate(pts) if j != i)
+        nn.append((d, v))
+    pitch, v = sorted(nn)[len(nn) // 2]
+    tol = 0.03 * pitch + 0.005
+    if pitch < 1e-3 or sum(1 for a in pts if sum(abs(math.dist(a, b) - pitch) < tol for b in pts) >= 4) < 4:
+        return None
+    ang = math.atan2(v[1], v[0]) % (math.pi / 2)
+    cx, cy = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+    c, s = math.cos(-ang), math.sin(-ang)
+    loc = [((x - cx) * c - (y - cy) * s, (x - cx) * s + (y - cy) * c) for x, y in pts]
+    hx, hy = max(abs(u) for u, _ in loc), max(abs(w) for _, w in loc)
+    return pitch, ang, loc, [round(min(hx - abs(u), hy - abs(w)) / pitch) for u, w in loc]
+
+
+def has_grid(info):
+    """True when some footprint of the board's pads (pcbnew_io's records) is a ball grid or a
+    fine-pitch pad ring (at most RING_PITCH), as find_packages sees them; cheap, so boards
+    with neither skip the escape stage (its staged copy and Space)."""
+    by = {}
+    for pd in info.get("pads") or []:
+        if pd.get("attr") == "smd" and len(pd.get("layers") or ()) == 1:
+            by.setdefault(pd.get("fp_index", pd.get("ref")), []).append(tuple(pd["pos"]))
+    for pts in by.values():
+        if len(pts) >= MIN_BALLS and _grid(pts) is not None:
+            return True
+        if len(pts) >= MIN_RING:
+            nn = sorted(min(math.dist(a, b) for j, b in enumerate(pts) if j != i) for i, a in enumerate(pts))
+            if nn[len(nn) // 2] <= RING_PITCH + 1e-6:
+                return True
+    return False
+
+
+def _capacity(sp, net, layer, pitch, ball):
+    """Tracks of `net`'s routing width that fit between two balls `ball` mm wide."""
+    mn, opt, _ = sp.width_limits(net, layer)
+    w, clr = opt or mn or 0.1, sp._generic_need(net, "track", layer) or 0.0
+    return max(0, int((pitch - ball - clr + 1e-9) // (w + clr)))
+
+
+def _starves(sp, net, geom, r, layers, zclr):
+    """Copper of `net` (`geom` grown by r) within a zone clearance of another net's thermal-
+    spoke strip: the filler pulls the pour back from it and cuts the spoke's landing
+    (nekoink: decoupling caps under U100)."""
+    return any(it.kind == "corridor" and it.net != net and it.geom.distance(geom) < r + zclr
+               for l in layers for it in sp.query(l, geom.bounds, r + zclr))
+
+
+def fit(gap, w, c, side=None):
+    """Tracks of width `w`, `c` apart, in `gap` mm between two obstacles they keep `side`
+    (default c) from."""
+    side = c if side is None else side
+    return max(0, int((gap - 2 * side + c + 1e-9) // (w + c)))
+
+
+def _median(xs, default):
+    xs = sorted(x for x in xs if x)
+    return xs[len(xs) // 2] if xs else default
+
+
+def _counts(sp):
+    count = {}
+    for it in sp.pads:
+        if it.kind == "pad" and it.net:
+            count[it.net] = count.get(it.net, 0) + 1
+    return count
+
+
+# ----------------------------------------------------------------------------- packages
+def find_packages(sp):
+    """[{ref, kind: 'grid'|'ring', pads, ...}] of the board's ball grids and pad rings."""
+    out = []
+    for pads in sp.pads_by_fp.values():
+        smd = [p for p in pads if p.kind == "pad" and p.smd and len(p.layers) == 1 and p.hole is None]
+        if len(smd) < MIN_RING:
+            continue
+        med = sorted(p.geom.area for p in smd)[len(smd) // 2]
+        balls = [p for p in smd if p.geom.area <= 4 * med]
+        ref = (balls or smd)[0].owner[0]
+        g = _grid([p.pos for p in balls]) if len(balls) >= MIN_BALLS else None
+        if g is not None:
+            pitch, ang, loc, rings = g
+            umin, wmin = min(u for u, _ in loc), min(w for _, w in loc)
+            idx = [(round((u - umin) / pitch), round((w - wmin) / pitch)) for u, w in loc]
+            # on one square lattice: every ball within LATTICE_TOL pitches of its site, no two
+            # on one site (a staggered array is not; its empty sites are not known)
+            lattice = len(set(idx)) == len(idx) and all(
+                abs((u - umin) / pitch - i) <= LATTICE_TOL and abs((w - wmin) / pitch - j) <= LATTICE_TOL
+                for (u, w), (i, j) in zip(loc, idx))
+            cx = sum(p.pos[0] for p in balls) / len(balls)
+            cy = sum(p.pos[1] for p in balls) / len(balls)
+            out.append(dict(ref=ref, kind="grid", pads=balls, pitch=pitch, ang=ang, idx=idx, rings=rings,
+                            layer=next(iter(balls[0].layers)), centre=(cx, cy), umin=umin, wmin=wmin,
+                            lattice=lattice))
+        elif len(balls) >= MIN_RING:
+            out.append(dict(ref=ref, kind="ring", pads=balls, layer=next(iter(balls[0].layers))))
+    return out
+
+
+def _up_via(D, d):
+    """(D, d) on the 0.1 um grid, never below the minimums they come from (rounding to nearest
+    put a 0.24892 mm minimum drill at 0.2489), or None without a drill."""
+    return (QZ.fit(D, D, q=QZ.DSN, side="up"), QZ.fit(d, d, q=QZ.DSN, side="up")) if d > 0 and D > d else None
+
+
+def small_via(sp):
+    """(diameter, drill) of the smallest through via the board setup allows (minimum drill,
+    annular ring and via diameter), or None when it sets no minimum drill. A board-rule
+    choice where room is scarce, not a relaxation."""
+    s = sp.settings
+    d = s.get("min_drill") or 0.0
+    D = max(s.get("min_via") or 0.0, d + 2 * (s.get("min_annular") or 0.0))
+    return _up_via(D, d)
+
+
+def _reps(sp, nets):
+    """One net per routing class of `nets` (two for a class alone): the clearances between
+    signal nets depend only on their classes (Space.need, Space._pair)."""
+    by = {}
+    for n in nets:
+        by.setdefault(sp.rc(n), []).append(n)
+    out = [ns[0] for ns in by.values()]
+    if len(out) == 1 and len(by[sp.rc(out[0])]) > 1:
+        out.append(by[sp.rc(out[0])][1])
+    return out
+
+
+def _min_clearances(sp, nets, layer):
+    """(track-track, track-via) clearance, the smallest between any two of the signal `nets`
+    on `layer` (their classes' representatives), or None where they name none."""
+    reps = _reps(sp, nets)
+    tt, tv = [], []
+    for i, a in enumerate(reps):
+        for b in reps[i + 1:] if len(reps) > 1 else ():
+            c = sp._pair(a, b, layer)
+            if c is not None:
+                tt.append(c.track_track)
+                tv += [c.track_via, c.via_track]
+    tt = tt or [sp._generic_need(n, "track", layer) for n in reps]
+    tv = tv or [sp._generic_need(n, "via", layer) for n in reps] + tt
+    return (min(tt) if tt else None), (min(tv) if tv else None)
+
+
+def rules_of(sp, nets, layers, minimum=False, override=None, floors=None):
+    """Per layer {w, c, c_via, D, drill} for the signal `nets`. Without `minimum`: the median
+    routing width, clearance and via (the planner's typical values). With `minimum` (the
+    certificate's bound, which must over-estimate every capacity): the smallest legal width,
+    the smallest clearance between two of the nets (tracks; tracks and vias) and the smallest
+    via any of them may use, each raised to `floors` (w, c, D: the fab's finest class);
+    `override` replaces values."""
+    out = {}
+    vs = [sp.via_size(n) for n in nets] or [(0.6, 0.3)]
+    fl = floors or {}
+    for l in layers:
+        ws, cs = [], []
+        for n in nets:
+            mn, opt, _mx = sp.width_limits(n, l)
+            # the legal minimum: what the rules impose (0 where they impose none), never a class width
+            ws.append((mn or 0.0) if minimum else (opt or mn))
+            cs.append(sp._generic_need(n, "track", l))
+        if minimum:
+            tt, tv = _min_clearances(sp, [n for n in nets if n] or nets, l)
+            c = min(cs) if tt is None else tt
+            c_via = c if tv is None else min(tv, c)
+            D, drill = min(vs)
+            r = dict(w=max(min(ws) if ws else 0.0, fl.get("w") or 0.0, 0.01), c=max(c, fl.get("c") or 0.0),
+                     c_via=max(c_via, fl.get("c") or 0.0), D=D, drill=drill, c_pad=None)
+            sv = legal_via(sp, fl)
+            if sv and sv[0] < r["D"]:
+                r["D"], r["drill"] = sv          # the bound credits the smallest legal via
+            if fl.get("D") and r["D"] < fl["D"][0]:
+                r["D"], r["drill"] = max(r["D"], fl["D"][0]), max(r["drill"], fl["D"][1])
+        else:
+            c = _median(cs, 0.2)
+            r = dict(w=_median(ws, 0.2), c=c, c_via=c, D=_median([v[0] for v in vs], 0.6),
+                     drill=_median([v[1] for v in vs], 0.3), c_pad=None)
+        ov = dict(override or {})
+        if "c" in ov and "c_via" not in ov:
+            ov["c_via"] = ov["c"]           # a clearance rule sets tracks to vias as well
+        r.update({k: v for k, v in ov.items() if k in r})
+        out[l] = r
+    return out
+
+
+def _extent(pd, ang):
+    """Pad `pd`'s smallest width along the package's axes (rotated by `ang`)."""
+    g = pd.geom
+    pts = list(g.exterior.coords) if hasattr(g, "exterior") else [(g.bounds[0], g.bounds[1]), (g.bounds[2], g.bounds[3])]
+    ca, sa = math.cos(ang), math.sin(ang)
+    us = [x * ca + y * sa for x, y in pts]
+    ws = [-x * sa + y * ca for x, y in pts]
+    return min(max(us) - min(us), max(ws) - min(ws))
+
+
+# ----------------------------------------------------------------------------- model
+class _Model:
+    """A (mixed-integer) linear programme: maximise gain . x subject to rows."""
+
+    def __init__(self):
+        self.n = 0
+        self.gain, self.ub = [], []
+        self.rows = []       # (cols, vals, lo, hi, tag)
+
+    def var(self, gain=0.0, ub=np.inf):
+        self.gain.append(gain)
+        self.ub.append(ub)
+        self.n += 1
+        return self.n - 1
+
+    def row(self, terms, lo, hi, tag=None):
+        terms = [(k, v) for k, v in terms if v]
+        if terms:
+            self.rows.append(([k for k, _ in terms], [v for _, v in terms], lo, hi, tag))
+
+    def _matrix(self, rows):
+        from scipy.sparse import csr_matrix
+        data, ri, ci = [], [], []
+        for r, (cols, vals, *_rest) in enumerate(rows):
+            ri += [r] * len(cols)
+            ci += cols
+            data += vals
+        return csr_matrix((data, (ri, ci)), shape=(len(rows), self.n))
+
+    def solve(self, integer=True, time_limit=MILP_S):
+        """(objective, x, duals {tag: |dual|} for the LP) or (None, None, {})."""
+        from scipy.optimize import Bounds, LinearConstraint, linprog, milp
+        c = -np.asarray(self.gain, float)
+        ub = np.asarray(self.ub, float)
+        if integer:
+            A = self._matrix(self.rows)
+            lo = np.array([r[2] for r in self.rows], float)
+            hi = np.array([r[3] for r in self.rows], float)
+            res = milp(c, constraints=LinearConstraint(A, lo, hi), bounds=Bounds(np.zeros(self.n), ub),
+                       integrality=np.ones(self.n, int),
+                       options=dict(time_limit=float(time_limit), mip_rel_gap=0.01, disp=False))
+            if res.x is None:
+                return None, None, {}
+            return -res.fun, np.round(res.x), {}
+        eq = [r for r in self.rows if r[2] == r[3]]
+        le = [r for r in self.rows if r[2] != r[3]]
+        res = linprog(c, A_ub=self._matrix(le) if le else None, b_ub=[r[3] for r in le] if le else None,
+                      A_eq=self._matrix(eq) if eq else None, b_eq=[r[2] for r in eq] if eq else None,
+                      bounds=list(zip([0.0] * self.n, [None if math.isinf(u) else u for u in ub])), method="highs")
+        if res.status != 0:
+            return None, None, {}
+        duals = {}
+        for r, m in zip(le, res.ineqlin.marginals):
+            if r[4] is not None and abs(m) > 1e-9:
+                duals[r[4]] = duals.get(r[4], 0.0) + abs(m)
+        return -res.fun, res.x, duals
+
+
+def _sides_toward(sp, pkg, net, u, w):
+    """The package's sides ordered by how well they face `net`'s other pads (package frame)."""
+    ca, sa = math.cos(-pkg["ang"]), math.sin(-pkg["ang"])
+    cx, cy = pkg["centre"]
+    own = {id(p) for p in pkg["pads"]}
+    pts = [it.pos for it in sp.pads if it.net == net and it.kind == "pad" and id(it) not in own and it.pos]
+    if pts:
+        tx = sum(p[0] for p in pts) / len(pts) - cx
+        ty = sum(p[1] for p in pts) / len(pts) - cy
+        du, dw = tx * ca - ty * sa - u, tx * sa + ty * ca - w
+    else:
+        du, dw = u, w           # nowhere in particular: straight out
+    score = {"W": -du, "E": du, "S": -dw, "N": dw}
+    return sorted(SIDES, key=lambda s: -score[s])
+
+
+# The network: Yan & Wong's tile network (DAC'09), on every layer. Coordinates are doubled
+# package indices: ball (i, j) sits at (2i, 2j), the dog-bone site between four balls at odd
+# (X, Y). On each layer the obstacles are the corners of a lattice (the balls on the ball
+# layer, the via sites on the others) and tracks run through the tiles between four corners
+# (centred on the sites on the ball layer, on the balls elsewhere). Each tile side is a gap
+# node holding O tracks (one pitch more per missing corner), each inside tile has a centre
+# node C (D - 2 floor(O/2)) and a shortcut round each corner (floor(O/2)): any orthogonal cut
+# holds O tracks and any diagonal one D. A tile outside the array is its side's sink.
+def _setup(sp, pkg, info, opts=None, minimum=False, override=None, extra_layers=0, open_planes=False, floors=None):
+    from .translate import plane_layers
+    opts = opts or {}
+    p, B = pkg["pitch"], pkg["layer"]
+    count = _counts(sp)
+    planes = set() if (open_planes or opts.get("escape_plane_layers")) else set(plane_layers(info))
+    real = [B] + [l for l in sp.cu if l != B and l not in planes]
+    layers = real + [f"extra{k}" for k in range(extra_layers)]
+    zone_on = {(z[0], z[1]) for z in sp.zones}
+    balls = {ij: (pd, r) for pd, ij, r in zip(pkg["pads"], pkg["idx"], pkg["rings"])}
+    nx, ny = max(i for i, _ in balls) + 1, max(j for _, j in balls) + 1
+    sig, pln = [], []
+    for k, (pd, r) in sorted(balls.items()):
+        if not pd.net:
+            continue
+        if any(n == pd.net and l != B for n, l in zone_on):
+            pln.append(k)
+        elif count.get(pd.net, 0) >= 2:
+            sig.append(k)
+    nets = sorted({balls[k][0].net for k in sig})
+    R = rules_of(sp, nets or [""], real, minimum=minimum, override=override, floors=floors)
+    for l in layers[len(real):]:
+        R[l] = dict(R[real[-1]] if len(real) > 1 else R[B])
+    ov = override or {}
+    if minimum:
+        # the bound must over-estimate every gap: the smallest ball (across the grid's axes) and
+        # the smallest ball-to-track requirement of any ball against any signal class
+        d = min(_extent(pd, pkg["ang"]) for pd, _ in balls.values())
+        reps = _reps(sp, nets) if nets else []
+        cps = [v for pd, _ in balls.values() for n in reps if n != pd.net
+               for v in (sp.need(pd, n, "track", B),) if v is not None]
+        cpad = ov.get("c_pad") or max(min(cps) if cps else R[B]["c"], (floors or {}).get("c_pad") or 0.0)
+    else:
+        d = _median([min(b[2] - b[0], b[3] - b[1]) for b in (pd.geom.bounds for pd, _ in balls.values())], 0.4)
+        # a track between two balls keeps the balls' own requirement (the clearance raised by the
+        # solder-mask aperture: expansion + mask-to-copper, Space.need)
+        cps = []
+        for k in sig[:: max(1, len(sig) // 40)]:
+            pd = balls[k][0]
+            other = next((balls[q][0].net for q in sig if balls[q][0].net != pd.net), "")
+            v = sp.need(pd, other, "track", B)
+            if v is not None:
+                cps.append(v)
+        cpad = ov.get("c_pad") or _median(cps, R[B]["c"])
+    R[B]["c_pad"] = cpad
+    ca, sa = math.cos(pkg["ang"]), math.sin(pkg["ang"])
+    cx, cy = pkg["centre"]
+    u0, w0 = pkg["umin"], pkg["wmin"]
+
+    def xy(a, b):
+        """Board point of package index coordinates (a, b) (ball (i, j) at (i, j))."""
+        u, w = u0 + a * p, w0 + b * p
+        return (cx + u * ca - w * sa, cy + u * sa + w * ca)
+    caps = {}
+    for l in layers:
+        caps[l] = _caps(p, d, cpad, R[l], l == B, sound=minimum)
+    ctx = dict(p=p, B=B, layers=layers, real=real, R=R, d=d, cpad=cpad, balls=balls, nx=nx, ny=ny, sig=sig, pln=pln,
+               xy=xy, cap=caps, ref=pkg["ref"], pkg=pkg, voids=[], site_rings=None)
+    if minimum:
+        # the bound's voids (empty lattice sites, 4-connected) and rings from the edge and the
+        # open voids (_depths), the mouths' tracks at the bound's own rules on the ball layer
+        rb = R[B]
+        idx = list(balls)
+        ctx["site_rings"], ctx["voids"], _free = _depths(
+            idx, nx, ny, p, room=lambda g: _fit2(g - d, rb["w"], rb["c"], cpad, cpad),
+            weight=[1 if k in set(sig) else 0 for k in idx])
+    return ctx
+
+
+def _gaps(p, d, cpad, r, ball_layer):
+    """{name: (gap, side, other side)} of a layer's tile model: tracks of width r["w"], r["c"]
+    apart, through `gap` mm between obstacles they keep `side` and `other side` from. On the
+    ball layer the obstacles are balls `d` wide (`cpad` from a track); elsewhere the vias."""
+    w, c, cv, D = r["w"], r["c"], r.get("c_via", r["c"]), r["D"]
+    o, side = (d, cpad) if ball_layer else (D, cv)
+    out = dict(O=(p - o, side, side), D=(math.sqrt(2) * p - o, side, side), two=(2 * p - o, side, side))
+    if ball_layer:
+        # with a via in the tile's centre: what passes between it and a corner ball
+        out["beside_via"] = (math.sqrt(2) * p / 2 - d / 2 - D / 2, cpad, cv)
+    return out
+
+
+def _fit2(gap, w, c, s1, s2):
+    """Tracks of width w, c apart, in `gap` between obstacles kept s1 and s2 from."""
+    return max(0, int((gap - s1 - s2 + c + 1e-9) // (w + c)))
+
+
+def _caps(p, d, cpad, r, ball_layer, sound=False):
+    """A layer's tile capacities (see _network). `missing` is the credit per missing corner:
+    fit(2p - o) - O, the room of a gap whose one corner is empty. With `sound` (the
+    certificate's bound) it is raised so that a gap with both corners empty, a stretch of a
+    run of empty sites of any length, holds at least the floor(p / (w + c)) + 1 tracks that
+    can cross a pitch with no obstacle at either end: the bound then over-estimates every gap
+    whatever the runs, also when a track is wider than the pitch."""
+    w, c = r["w"], r["c"]
+    n = {k: _fit2(g, w, c, s1, s2) for k, (g, s1, s2) in _gaps(p, d, cpad, r, ball_layer).items()}
+    O, Dg = n["O"], n["D"]
+    miss = max(0, n["two"] - O)
+    if sound:
+        miss = max(miss, -(-(int(p / (w + c) + 1e-9) + 1 - O) // 2))
+    cap = dict(O=O, D=Dg, centre=max(0, Dg - 2 * (O // 2)), shortcut=O // 2, missing=miss)
+    if ball_layer:
+        cap["beside_via"] = n["beside_via"]
+    return cap
+
+
+def _depths(idx, nx, ny, pitch, room=None, weight=None):
+    """Each lattice site's escape depth, and the voids. A ball's ring is the Chebyshev lattice
+    distance to the nearest free site, less one: the sites outside the box (the package's
+    edge: exactly the old rings counted from the box) and the empty sites of an open void.
+
+    The void rule. A void is a 4-connected group of empty sites inside the box. Its sites
+    count as free when (1) it is open, i.e. reaches the box's edge: tracks on the ball layer
+    run along it and out past no other ball, as on nekoink U202 (a DDR3 x16: 2 x 3 columns at
+    0.8 mm with a 3.2 mm empty channel open at both short ends), whose human layout escapes 18
+    of the 22 channel-side signal balls on F.Cu into the channel; and (2) as far as its mouths
+    carry the tracks: a mouth, a run of L empty sites on the box's edge, holds room((L + 1)
+    pitch) tracks (`room(g)`: the tracks between two balls g mm apart, centre to centre; none
+    given: no limit), and the void's sites count from its mouths inward (breadth first) while
+    the `weight` (signal balls: 1, others 0) of the balls beside the counted sites (lattice
+    neighbours, diagonals too: the balls the void puts on the surface) that are not on the
+    package's edge already stays within the mouths' tracks. A long channel thus serves the
+    balls near its ends first. A closed void never counts: whatever enters it still has to
+    cross the rings of balls round it, which is what its balls' rings from the edge already
+    measure. Here the rings only label the certificate's binding cut; what the bound credits
+    a void with is its layer change anywhere (_network `hubs`) and the tile network's own gaps,
+    mouths included.
+    -> ({(i, j): ring}, [void dicts], {(i, j): counted void index})"""
+    occ = set(idx)
+    wt = dict(zip(idx, weight)) if weight is not None else dict.fromkeys(idx, 1)
+    empty = {(i, j) for i in range(nx) for j in range(ny)} - occ
+    voids, of = [], {}
+    for s0 in sorted(empty):
+        if s0 in of:
+            continue
+        comp, stack = [], [s0]
+        of[s0] = len(voids)
+        while stack:
+            i, j = stack.pop()
+            comp.append((i, j))
+            for q in ((i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)):
+                if q in empty and q not in of:
+                    of[q] = len(voids)
+                    stack.append(q)
+        voids.append(dict(sites=sorted(comp)))
+
+    def edge(i, j):
+        return min(i, j, nx - 1 - i, ny - 1 - j)
+
+    def beside(q):
+        i, j = q
+        return {b for b in ((i + a, j + c) for a in (-1, 0, 1) for c in (-1, 0, 1)) if b in occ and edge(*b) > 0}
+    free = set()
+    for v in voids:
+        S = set(v["sites"])
+        mouths = sorted(q for q in S if edge(*q) == 0)
+        v["open"] = bool(mouths)
+        v["demand"] = sum(wt.get(b, 0) for b in set().union(*(beside(q) for q in S)))
+        tracks = 0
+        # runs of empty sites along each edge of the box: one mouth each
+        for on, axis in ((lambda i, j: i == 0, 1), (lambda i, j: i == nx - 1, 1),
+                         (lambda i, j: j == 0, 0), (lambda i, j: j == ny - 1, 0)):
+            cs = sorted(q[axis] for q in mouths if on(*q))
+            run = 0
+            for n_, c_ in enumerate(cs):
+                run = run + 1 if n_ and c_ == cs[n_ - 1] + 1 else 1
+                if n_ == len(cs) - 1 or cs[n_ + 1] != c_ + 1:
+                    tracks += room((run + 1) * pitch) if room else BIG
+        v["tracks"] = tracks
+        # from the mouths inward, a whole step at a time (both ends of a channel alike), while
+        # the balls beside fit the mouths' tracks
+        got, seen, used, front = [], set(mouths), set(), list(mouths)
+        while front and tracks > 0:
+            more = set().union(*(beside(q) for q in front)) - used
+            if sum(wt.get(b, 0) for b in used | more) > tracks:
+                break
+            used |= more
+            got += front
+            nxt = []
+            for i, j in front:
+                for r in ((i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)):
+                    if r in S and r not in seen:
+                        seen.add(r)
+                        nxt.append(r)
+            front = sorted(nxt)
+        v["counted"] = len(got)
+        free |= set(got)
+    ring = {}
+    for i in range(nx):
+        for j in range(ny):
+            r = edge(i, j)
+            if free:
+                r = min(r, max(0, min(max(abs(i - a), abs(j - b)) for a, b in free) - 1))
+            ring[(i, j)] = r
+    return ring, voids, {s: of[s] for s in free}
+
+
+def _sites(ctx):
+    """The dog-bone sites (doubled coordinates) inside the array."""
+    return [(2 * a - 1, 2 * b - 1) for a in range(1, ctx["nx"]) for b in range(1, ctx["ny"])]
+
+
+def _ring_at(ctx, X, Y):
+    """Ring of the ball nearest to doubled point (X, Y): the bound's from the edge and the open
+    voids (_depths), the planner's from the edge."""
+    nx, ny = ctx["nx"], ctx["ny"]
+    i, j = min(max(round(X / 2), 0), nx - 1), min(max(round(Y / 2), 0), ny - 1)
+    sr = ctx.get("site_rings")
+    return sr[(i, j)] if sr and (i, j) in sr else min(i, j, nx - 1 - i, ny - 1 - j)
+
+
+def _neighbours(P):
+    X, Y = P
+    return ((X + 1, Y), (X, Y + 1), (X - 1, Y), (X, Y - 1))
+
+
+def _network(M, ctx, l, yvar, kinds, sources, tags=True, yfix=(), hubs=None):
+    """Add layer `l`'s network to model M. `kinds`: commodities ('*', or sides); `ysites`:
+    {site: variable} (vias decided by the model) or {site: 1} (vias fixed); `sources`:
+    {(kind, node): [(variable, coefficient)]} with nodes ('ball', P), ('site', P) or ('pad', P).
+    `hubs` (the bound, one commodity): {void index: [(variable, coefficient)]}, the void's
+    layer change into this layer (+) and out of it (-); its node ('hub', v) joins every tile
+    round the void's empty sites without a limit (see _stage1).
+    Returns {flows: {(kind, a, b): var}, adj: {(kind, a): [b]}}."""
+    B, cap, balls = ctx["B"], ctx["cap"][l], ctx["balls"]
+    nx, ny = ctx["nx"], ctx["ny"]
+    par = 0 if l == B else 1                       # parity of the corners
+    yfix = set(yfix)
+    if l == B:
+        cent = [(2 * a - 1, 2 * b - 1) for a in range(0, nx + 1) for b in range(0, ny + 1)]
+        lo_x, hi_x, lo_y, hi_y = -1, 2 * nx - 1, -1, 2 * ny - 1
+    else:
+        cent = [(2 * i, 2 * j) for i in range(-1, nx + 1) for j in range(-1, ny + 1)]
+        lo_x, hi_x, lo_y, hi_y = -2, 2 * nx, -2, 2 * ny
+    inside, sink = [], {}
+    for (X, Y) in cent:
+        s = [k for k, ok in (("W", X == lo_x), ("E", X == hi_x), ("S", Y == lo_y), ("N", Y == hi_y)) if ok]
+        if s:
+            sink[(X, Y)] = s
+        else:
+            inside.append((X, Y))
+
+    def presence(q):
+        """(constant, [(var, coefficient)]): whether an obstacle sits at corner q."""
+        if l == B:
+            return (1.0 if q[0] % 2 == 0 and q[1] % 2 == 0 and (q[0] // 2, q[1] // 2) in balls else 0.0), []
+        if q in yvar:
+            return 0.0, [(yvar[q], 1.0)]
+        return (1.0 if q in yfix else 0.0), []
+
+    def corners(g):
+        gx, gy = g
+        return ((gx, gy - 1), (gx, gy + 1)) if gx % 2 == par else ((gx - 1, gy), (gx + 1, gy))
+    flows, adj, into = {}, {}, {}
+
+    def arc(k, a_, b_, ub=BIG, cost=-EDGE_COST):
+        v = M.var(cost, ub)
+        flows[(k, a_, b_)] = v
+        adj.setdefault((k, a_), []).append(b_)
+        into.setdefault((k, b_), []).append((v, 1))
+        into.setdefault((k, a_), []).append((v, -1))
+        return v
+    gaps = set()
+    for P in inside:
+        gaps.update(_neighbours(P))
+    for P in inside:
+        X, Y = P
+        sides = _neighbours(P)
+        cnr = [(X + 1, Y + 1), (X - 1, Y + 1), (X - 1, Y - 1), (X + 1, Y - 1)]   # between sides a, a + 1
+        through, short = [], [[] for _ in range(4)]
+        for k in kinds:
+            for g in sides:
+                through.append((arc(k, ("g", g), ("c", P)), 1))
+                arc(k, ("c", P), ("g", g))
+            for a_i in range(4):
+                g1, g2 = sides[a_i], sides[(a_i + 1) % 4]
+                short[a_i] += [(arc(k, ("g", g1), ("g", g2)), 1), (arc(k, ("g", g2), ("g", g1)), 1)]
+        pc = [presence(q) for q in cnr]
+        miss = cap["missing"]
+        cen = cap["centre"] + miss * sum(1 - c for c, _ in pc)
+        vt = [(v, miss * cf) for _, vs in pc for v, cf in vs]
+        tag = ("centre", l, _ring_at(ctx, X, Y), cap["centre"]) if tags else None
+        if P in yvar:          # a via in the centre (a dog-bone site, or a via in a ball's pad) closes it
+            M.row(through + vt + [(yvar[P], cen)], -np.inf, cen, tag=tag)
+        elif P in yfix:
+            M.row(through, -np.inf, 0)
+        else:
+            M.row(through + vt, -np.inf, cen, tag=tag)
+        for a_i in range(4):
+            cq, vq = pc[a_i]
+            sc = cap["shortcut"] + miss * (1 - cq)
+            terms = short[a_i] + [(v, miss * cf) for v, cf in vq]
+            if l == B and sc > cap["beside_via"]:
+                if P in yvar:
+                    terms.append((yvar[P], sc - cap["beside_via"]))
+                elif P in yfix:
+                    sc = cap["beside_via"]
+            M.row(terms, -np.inf, sc, tag=("diagonal", l, _ring_at(ctx, X, Y), cap["D"]) if tags else None)
+    inside_set = set(inside)
+    for v, terms in (hubs or {}).items():
+        # a via anywhere in the void: on the ball layer it is reached through the tiles that
+        # have an empty site for a corner, on the others it sits in the tile centred on one
+        for i, j in ctx["voids"][v]["sites"]:
+            ts = ([(2 * i + 1, 2 * j + 1), (2 * i - 1, 2 * j + 1), (2 * i - 1, 2 * j - 1), (2 * i + 1, 2 * j - 1)]
+                  if l == B else [(2 * i, 2 * j)])
+            for T in ts:
+                if T in inside_set:
+                    for k in kinds:
+                        arc(k, ("hub", v), ("c", T), ub=np.inf)
+                        arc(k, ("c", T), ("hub", v), ub=np.inf)
+        for k in kinds:
+            into[(k, ("hub", v))] = into.get((k, ("hub", v)), []) + list(terms)
+    for P, ss in sink.items():
+        for g in _neighbours(P):
+            if g in gaps:
+                for k in kinds:
+                    for s in ss:
+                        if k in ("*", s):
+                            arc(k, ("g", g), ("sink", s), cost=0.0)
+    for (k, node), terms in sources.items():
+        if node[0] == "pad":
+            # a via in a ball's pad sits in a tile's centre: it leaves through the tile's sides
+            for g in _neighbours(node[1]):
+                if g in gaps:
+                    arc(k, node, ("g", g), ub=1)
+        else:
+            # a ball (or a dog-bone's via) is a corner: its track enters a tile round it without
+            # passing between two other obstacles, so it does not use that tile's centre or
+            # sides until it leaves the tile (Yan & Wong's pin edge)
+            X, Y = node[1]
+            for T in ((X + 1, Y + 1), (X - 1, Y + 1), (X - 1, Y - 1), (X + 1, Y - 1)):
+                if T in inside_set:
+                    arc(k, node, ("c", T), ub=1)
+        # a corner on the array's edge leaves straight into an outside tile (Yan & Wong's pin
+        # edge into a boundary tile), between no two obstacles
+        X, Y = node[1]
+        for T in ((X + 1, Y + 1), (X - 1, Y + 1), (X - 1, Y - 1), (X + 1, Y - 1)):
+            for s in sink.get(T, ()):
+                if k in ("*", s) and (k, node, ("sink", s)) not in flows:
+                    arc(k, node, ("sink", s), ub=1, cost=0.0)
+        into.setdefault((k, node), [])
+        into[(k, node)] = into[(k, node)] + list(terms)
+    for (k, node), terms in into.items():
+        if node[0] != "sink":
+            M.row(terms, 0, 0)
+    gin = {}
+    for (k, a_, b_), v in flows.items():
+        if b_[0] == "g":
+            gin.setdefault(b_[1], []).append((v, 1))
+    for g, terms in gin.items():
+        q1, q2 = corners(g)
+        c1, v1 = presence(q1)
+        c2, v2 = presence(q2)
+        const = cap["O"] + cap["missing"] * (2 - c1 - c2)
+        M.row(terms + [(v, cap["missing"] * cf) for v, cf in v1 + v2], -np.inf, const,
+              tag=("gap", l, min(_ring_at(ctx, *q1), _ring_at(ctx, *q2)), cap["O"]) if tags else None)
+    return dict(flows=flows, adj=adj)
+
+
+def legal_via(sp, floors=None):
+    """(diameter, drill) of the smallest through via the rules allow: the board setup's
+    minimum drill, annular ring and via diameter (a net class's via is only the default size
+    of new vias, not a DRC constraint), raised to the fab's finest via (`floors` D); None
+    when neither sets one."""
+    s = sp.settings
+    fD, fd = (floors or {}).get("D") or (0.0, 0.0)
+    d = max(s.get("min_drill") or 0.0, fd)
+    D = max(s.get("min_via") or 0.0, d + 2 * (s.get("min_annular") or 0.0), fD)
+    return _up_via(D, d)
+
+
+def _site_ok(sp, ctx, override=None, check=True, small=None):
+    """{(ball, site): legal} for every signal and plane ball and its four sites: the via
+    (diameter override D) and its stub pass Space's exact checks. `small` (the bound):
+    dict(w, via): the stub's width and a via also tried, the smallest the rules allow."""
+    out = {}
+    small = small or {}
+    B, xy, balls = ctx["B"], ctx["xy"], ctx["balls"]
+    sites = set(_sites(ctx))
+    dv = (override or {}).get("D")
+    for k in ctx["sig"] + ctx["pln"]:
+        pd = balls[k][0]
+        if check:
+            pk = [dict(size=dv, drill=min(sp.via_size(pd.net)[1], dv - 0.1))] if dv else [{}]
+            if small.get("via") and not dv:
+                pk.append(dict(size=small["via"][0], drill=small["via"][1]))
+            sp.via_in_pad = True      # a via in its own pad: Space otherwise keeps vias out of pads
+            try:
+                out[(k, "pad")] = any(not sp.via_violations(pd.net, *pd.pos, first=True, **kw) for kw in pk)
+            finally:
+                sp.via_in_pad = False
+        else:
+            out[(k, "pad")] = True
+        for t in _neighbours_diag(k):
+            if t not in sites:
+                continue
+            if not check:
+                out[(k, t)] = True
+                continue
+            v = xy(t[0] / 2, t[1] / 2)
+            mn, opt, _ = sp.width_limits(pd.net, B)
+            if sp.track_violations(pd.net, B, small.get("w") or mn or opt or 0.1, pd.pos, v, first=True):
+                out[(k, t)] = False
+                continue
+            sizes = [dict(size=dv, drill=min(sp.via_size(pd.net)[1], dv - 0.1))] if dv else [{}]
+            sv = small.get("via") or legal_via(sp)
+            if sv and not dv:
+                sizes.append(dict(size=sv[0], drill=sv[1]))
+            out[(k, t)] = any(not sp.via_violations(pd.net, *v, first=True, **kw) for kw in sizes)
+    return out
+
+
+def _neighbours_diag(k):
+    i, j = k
+    return ((2 * i + 1, 2 * j + 1), (2 * i - 1, 2 * j + 1), (2 * i - 1, 2 * j - 1), (2 * i + 1, 2 * j - 1))
+
+
+def _stage1(sp, ctx, site_ok, planes=True, pads=False, per_net=False, hubs=False):
+    """All layers, one commodity: layer and dog-bone site per ball, vias as variables.
+    `per_net` (the bound): the gain is per net that leaves the package (ctx["z"]), not per
+    ball. `hubs` (the bound): a layer change anywhere in each void of ctx["voids"], without
+    a limit: a via may sit anywhere in a depopulated part of the field (the eMMC-153s' human
+    vias sit in their empty rings), so the bound joins every layer there; the vias it would
+    put in the void are left out as obstacles (more room, still an upper bound).
+    -> (model, option vars {(ball, layer, site or None): var}, plane vars, nets)."""
+    M = _Model()
+    B, layers = ctx["B"], ctx["layers"]
+    y = {t: M.var(0.0, 1) for t in _sites(ctx)}
+    opt, plane = {}, {}
+    src = {l: {} for l in layers}
+    for k in ctx["sig"]:
+        P = (2 * k[0], 2 * k[1])
+        v = opt[(k, B, None)] = M.var(ESCAPE_GAIN, 1)
+        src[B].setdefault(("*", ("ball", P)), []).append((v, 1))
+        for t in _neighbours_diag(k):
+            if site_ok.get((k, t)):
+                for li, l in enumerate(layers[1:], 1):
+                    v = opt[(k, l, t)] = M.var(ESCAPE_GAIN - LAYER_COST * li, 1)
+                    src[l].setdefault(("*", ("site", t)), []).append((v, 1))
+        if pads and site_ok.get((k, "pad")):
+            for li, l in enumerate(layers[1:], 1):
+                v = opt[(k, l, ("pad", P))] = M.var(ESCAPE_GAIN - LAYER_COST * li - PAD_COST, 1)
+                src[l].setdefault(("*", ("pad", P)), []).append((v, 1))
+    for k in ctx["pln"] if planes else ():
+        for t in _neighbours_diag(k):
+            if site_ok.get((k, t)):
+                plane[(k, t)] = M.var(PLANE_GAIN, 1)
+    per = {}
+    for (k, l, t), v in opt.items():
+        per.setdefault(k, []).append(v)
+    for (k, t), v in plane.items():
+        per.setdefault(k, []).append(v)
+    for vs in per.values():
+        M.row([(v, 1) for v in vs], -np.inf, 1)
+    use = {t: [] for t in y}
+    pad_y, pad_use = {}, {}
+    for (k, l, t), v in opt.items():
+        if t is None:
+            continue
+        if t[0] == "pad":
+            pad_use.setdefault(t[1], []).append(v)
+        else:
+            use[t].append(v)
+    for P, vs in pad_use.items():
+        pad_y[P] = M.var(0.0, 1)
+        M.row([(v, 1) for v in vs] + [(pad_y[P], -1)], 0, 0)
+    for (k, t), v in plane.items():
+        use[t].append(v)
+    for t, yv in y.items():
+        M.row([(v, 1) for v in use[t]] + [(yv, -1)], 0, 0)
+    if per_net:
+        # the bound's demand: one escape per net that has a pad off the package; its other balls
+        # may join it inside (cameranexus U30's four adjacent +SYS balls, an eMMC's paired data
+        # balls), so counting each ball would over-state the demand
+        z = {}
+        for (k, l, t), v in opt.items():
+            M.gain[v] = 0.0
+            n = ctx["balls"][k][0].net
+            if n in ctx["leaving"]:
+                z.setdefault(n, []).append(v)
+        ctx["z"] = {}
+        for n, vs in z.items():
+            zv = ctx["z"][n] = M.var(ESCAPE_GAIN, 1)
+            M.row([(zv, 1)] + [(v, -1) for v in vs], -np.inf, 0)
+    hub = {l: {} for l in layers}
+    for v in range(len(ctx["voids"]) if hubs else 0):
+        moves = []
+        for l in layers:
+            down, up = M.var(0.0), M.var(0.0)          # into layer l at the void, out of it
+            hub[l][v] = [(down, 1), (up, -1)]
+            moves += [(down, 1), (up, -1)]
+        M.row(moves, 0, 0)
+    nets = {l: _network(M, ctx, l, y if l == B else {**y, **pad_y}, ["*"], src[l], hubs=hub[l]) for l in layers}
+    return M, opt, plane, nets
+
+
+def _stage2(sp, ctx, l, assigned, taken, time_limit, single=False):
+    """One layer, vias fixed: each assigned ball leaves by one of its sides (best first), or
+    with `single` by any side (one commodity: a network flow, integral as an LP).
+    `assigned`: [(ball, site or None)] -> {ball: (side, node list)}."""
+    B = ctx["B"]
+    M = _Model()
+    sides_of, src, zs = {}, {}, {}
+    nx, ny = ctx["nx"], ctx["ny"]
+    for k, t in assigned:
+        pd = ctx["balls"][k][0]
+        u, w = ctx["pkg"]["umin"] + k[0] * ctx["p"], ctx["pkg"]["wmin"] + k[1] * ctx["p"]
+        order = _sides_toward(sp, ctx["pkg"], pd.net, u, w)
+        own = min((("W", k[0]), ("E", nx - 1 - k[0]), ("S", k[1]), ("N", ny - 1 - k[1])), key=lambda a: a[1])[0]
+        ss = ["*"] if single else list(dict.fromkeys(order[:PLAN_SIDES] + [own]))
+        sides_of[k] = ss
+        node = _node(k, t)
+        for s in ss:
+            v = zs[(k, s)] = M.var(ESCAPE_GAIN - (0.0 if single else SIDE_COST[order.index(s)]), 1)
+            src.setdefault((s, node), []).append((v, 1))
+        M.row([(zs[(k, s)], 1) for s in ss], -np.inf, 1)
+    kinds = sorted({s for ss in sides_of.values() for s in ss})
+    net = _network(M, ctx, l, {}, kinds, src, tags=False, yfix=taken)
+    obj, x, _ = M.solve(integer=not single, time_limit=time_limit)
+    if x is None:
+        return None
+    out = {}
+    rem = {key: int(round(x[v])) for key, v in net["flows"].items() if x[v] > 0.5}
+    for (k, s), v in zs.items():
+        if x[v] < 0.5:
+            continue
+        node = _node(k, dict(assigned)[k])
+        nodes = [node]
+        for _ in range(8 * (nx + ny) + 16):
+            nxt = next((b_ for b_ in net["adj"].get((s, node), []) if rem.get((s, node, b_), 0) > 0), None)
+            if nxt is None:
+                break
+            rem[(s, node, nxt)] -= 1
+            node = nxt
+            nodes.append(node)
+            if node[0] == "sink":
+                break
+        out[k] = (nodes[-1][1] if nodes[-1][0] == "sink" else s, nodes)
+    return out
+
+
+def _node(k, t):
+    """The source node of ball k's escape: the ball, its dog-bone site, or its pad's via."""
+    if t is None:
+        return ("ball", (2 * k[0], 2 * k[1]))
+    return ("pad", t[1]) if t[0] == "pad" else ("site", t)
+
+
+def _key(t):
+    """What a via occupies (a site, or the ball's position for a via in its pad)."""
+    return t[1] if t[0] == "pad" else t
+
+
+def plan_grid(sp, pkg, info, opts=None, deadline=None, order=None):
+    """The escape plan of a ball grid -> (plan summary, ctx, {ball: path}, plane vias).
+    Stage 1: the LP of all layers (which ball goes down, through which site); its options
+    rounded greedily (sites exclusive); stage 2: each layer's integer flow with the vias
+    fixed and a commodity per side, so that escapes leave towards their nets' other ends.
+    `order`: bus net lists (not used yet)."""
+    t0 = clock_now()
+    ctx = _setup(sp, pkg, info, opts)
+    ok = _site_ok(sp, ctx)
+    M, opt, plane, _ = _stage1(sp, ctx, ok, pads=bool((opts or {}).get("escape_via_in_pad")))
+    obj, x, _ = M.solve(integer=False)
+    plan = dict(ref=pkg["ref"], kind="grid", pitch=round(ctx["p"], 4), balls=len(ctx["balls"]),
+                signal=len(ctx["sig"]), plane=len(ctx["pln"]), layers=ctx["layers"], capacity=ctx["cap"],
+                rules={l: {k: round(v, 4) for k, v in r.items() if v is not None} for l, r in ctx["R"].items()},
+                variables=M.n, rows=len(M.rows))
+    if x is None:
+        plan.update(status="no solution", seconds=round(clock_now() - t0, 1))
+        return plan, ctx, {}, []
+    plan["lp"] = round(float(sum(x[v] for v in opt.values())), 1)
+    # flexibility: a ball's legal options (layer and site); the scarce ones choose first, the
+    # flexible ones (outer rings, plane balls that can stitch anywhere) yield
+    # the surface option counts only for the rings the ball layer can serve (O tracks between
+    # two balls let O + 1 rings out; the rule the human boards follow)
+    surf = ctx["cap"][ctx["B"]]["O"] + 1
+    nopt = {}
+    for (k, l, t) in opt:
+        if t is not None or ctx["balls"][k][1] < surf:
+            nopt[k] = nopt.get(k, 0) + 1
+    alts = {}
+    for (k, l, t), v in opt.items():
+        if x[v] > 0.01:
+            alts[k] = alts.get(k, 0) + 1
+    ctx["flex"] = {k: dict(options=nopt.get(k, 0), lp_alternatives=alts.get(k, 0)) for k in ctx["sig"]}
+    cand = sorted(((x[v], k, l, t) for (k, l, t), v in opt.items() if x[v] > 1e-6),
+                  key=lambda c: (nopt.get(c[1], 0), -c[0]))
+    cand += sorted(((x[v], k, "plane", t) for (k, t), v in plane.items() if x[v] > 1e-6), key=lambda c: -c[0])
+    chosen, taken = {}, set()
+    for val, k, l, t in cand:
+        if k in chosen or (t is not None and _key(t) in taken):
+            continue
+        chosen[k] = (l, t)
+        if t is not None:
+            taken.add(_key(t))
+    plane_vias = [(k, t) for k, (l, t) in chosen.items() if l == "plane"]
+    paths = {}
+
+    def layer_plan(l, assigned):
+        left = 20.0 if deadline is None else max(3.0, min(20.0, deadline - clock_now()))
+        got = _stage2(sp, ctx, l, assigned, taken, left)
+        if got is None or len(got) < len(assigned):
+            # the sides cost escapes (or no integer plan in time): one commodity escapes as
+            # many as the layer can, any side
+            one = _stage2(sp, ctx, l, assigned, taken, left, single=True)
+            if one is not None and (got is None or len(one) > len(got)):
+                got = one
+                plan.setdefault("single_commodity", []).append(l)
+        return got or {}
+    real = [l for l in ctx["layers"] if not l.startswith("extra")]
+    per_layer = {}
+    for l in real:
+        assigned = [(k, t) for k, (ll, t) in chosen.items() if ll == l]
+        if assigned:
+            per_layer[l] = (assigned, layer_plan(l, assigned))
+    # the balls the rounding left out: each layer in turn takes them if it then escapes more
+    for l in real:
+        lost = [k for k in ctx["sig"] if not any(k in got for _a, got in per_layer.values())]
+        if not lost or (deadline is not None and clock_now() > deadline):
+            break
+        add = []
+        for k in lost:
+            if l == ctx["B"]:
+                add.append((k, None))
+            else:
+                t = next((t for t in _neighbours_diag(k) if ok.get((k, t)) and t not in taken), None)
+                if t is not None:
+                    add.append((k, t))
+        if not add:
+            continue
+        old_a, old_g = per_layer.get(l, ([], {}))
+        mine = {k for k, _t in old_a}
+        add = [(k, t) for k, t in add if k not in mine]
+        if not add:
+            continue
+        for k, t in add:
+            if t is not None:
+                taken.add(_key(t))
+        got = layer_plan(l, old_a + add)
+        if len(got) > len(old_g):
+            per_layer[l] = (old_a + add, got)
+            for k, t in add:
+                chosen[k] = (l, t)
+        for k, t in add:
+            if t is not None and k not in got:
+                taken.discard(_key(t))
+    for l, (assigned, got) in per_layer.items():
+        for k, (s, nodes) in got.items():
+            paths[k] = dict(layer=l, side=s, site=dict(assigned)[k], nodes=nodes)
+    plan["planned"] = len(paths)
+    plan["plane_vias"] = len(plane_vias)
+    plan["by_layer"] = {l: sum(1 for q in paths.values() if q["layer"] == l) for l in ctx["layers"]}
+    plan["seconds"] = round(clock_now() - t0, 1)
+    return plan, ctx, paths, plane_vias
+
+
+def bound(sp, pkg, info, opts=None, **kw):
+    """(LP bound on the signal nets that can leave the package, ctx (its "demand": the nets
+    with a pad off the package), duals): one commodity on every layer,
+    the board's smallest legal width, clearances and via (rules_of `minimum`), raised to
+    `floors` (the fab's finest class, fab_floors), and the relaxations in `kw` (override,
+    extra_layers, open_planes)."""
+    pads = kw.pop("pads", False) or bool((opts or {}).get("escape_via_in_pad"))
+    kw["pads"] = pads
+    ctx = _setup(sp, pkg, info, opts, minimum=True, **{k: v for k, v in kw.items() if k != "pads"})
+    lv = legal_via(sp, kw.get("floors"))
+    small = dict(w=ctx["R"][ctx["B"]]["w"], via=lv if lv and lv[0] <= ctx["R"][ctx["B"]]["D"] + 1e-9 else
+                 (ctx["R"][ctx["B"]]["D"], ctx["R"][ctx["B"]]["drill"]))
+    ok = _site_ok(sp, ctx, override=kw.get("override"), small=small)
+    # plane balls' vias left out: the bound only credits the signal balls more room
+    ref = pkg["ref"]
+    out = {it.net for it in sp.pads if it.kind == "pad" and it.net and it.owner and it.owner[0] != ref}
+    ctx["leaving"] = {ctx["balls"][k][0].net for k in ctx["sig"]} & out
+    ctx["demand"] = len(ctx["leaving"])
+    M, opt, plane, _ = _stage1(sp, ctx, ok, planes=False, pads=kw.get("pads", False), per_net=True, hubs=True)
+    obj, x, duals = M.solve(integer=False)
+    if x is None:
+        return None, ctx, {}
+    return float(sum(x[v] for v in ctx["z"].values())), ctx, duals
+
+
+def _fab(sp, opts):
+    """(fab profile, copper layers) for the board (haslam.route.fab)."""
+    from . import fab
+    return fab.profile(opts=opts, board_path=(opts or {}).get("_board")), len(sp.cu)
+
+
+def fab_floors(prof, nlay):
+    """The bound's floors: nothing finer than the fab's finest class (w, c, c_pad, D)."""
+    from . import fab
+    return dict(w=fab.floor(prof, nlay, "track"), c=fab.floor(prof, nlay, "space"),
+                c_pad=fab.floor(prof, nlay, "pad_track"), D=fab.floor(prof, nlay, "via"))
+
+
+# the relaxations searched for an exact threshold: override key -> (rule name, fab parameter)
+THRESHOLDS = (("w", "track width", "track"), ("c", "clearance", "space"),
+              ("c_pad", "ball-to-track clearance (solder-mask aperture: expansion + mask-to-copper)", "pad_track"),
+              ("D", "via diameter", "via"))
+VIA_GRID = 0.005     # mm: via diameters tried besides the closed-form breakpoints (sites' legality has none)
+
+
+def breakpoints(meta, key, lo, hi):
+    """The values of rule `key` (w, c, c_pad, D) in [lo, hi) at which some tile capacity of the
+    bound steps up (closed form: fit(g) = floor((g - s1 - s2 + c) / (w + c)) reaches n where
+    the numerator minus n times the denominator, linear in the rule, crosses zero); each
+    rounded down to whole micrometres, where the step has happened. Largest first."""
+    p, d, cpad, B = meta["p"], meta["d"], meta["cpad"], meta["B"]
+    out = set()
+    for l in meta["real"]:
+        r0 = dict(meta["R"][l])
+
+        def terms(x):
+            r = dict(r0)
+            cp = cpad
+            if key == "c_pad":
+                cp = x
+            elif key == "c":
+                r["c"] = r["c_via"] = x
+            else:
+                r[key] = x
+            return [(g - s1 - s2 + r["c"], r["w"] + r["c"]) for g, s1, s2 in _gaps(p, d, cp, r, l == B).values()]
+        t0, t1 = terms(0.0), terms(1.0)
+        for (a0, b0), (a1, b1) in zip(t0, t1):
+            na, nb = a1 - a0, b1 - b0         # numerator a0 + na x, denominator b0 + nb x
+            n_hi = int(max(a0 + na * lo, a0 + na * hi) // max(1e-6, min(b0 + nb * lo, b0 + nb * hi))) + 1
+            for n in range(1, min(n_hi, BIG) + 1):
+                k = na - n * nb
+                if abs(k) < 1e-12:
+                    continue
+                x = (n * b0 - a0) / k
+                if lo - 1e-9 <= x < hi - 1e-9:
+                    out.add(math.floor(x * 1000 + 1e-6) / 1000)
+    return sorted((v for v in out if v >= lo - 1e-9), reverse=True)
+
+
+def _threshold(oracle, cands):
+    """The largest of `cands` (largest first; the oracle monotone: False above a threshold,
+    True below) where oracle(v) holds, by binary search -> (value, escapable, exact) or
+    (None, escapable at the smallest, True); exact False when time ran out mid-search."""
+    if not cands:
+        return None, None, True
+    e = oracle(cands[-1])
+    if e is None:
+        return None, None, False
+    if not e[0]:
+        return None, e[1], True
+    lo, hi, best = 0, len(cands) - 1, (cands[-1], e[1])   # cands[hi] passes
+    while lo < hi:
+        mid = (lo + hi) // 2
+        e = oracle(cands[mid])
+        if e is None:
+            return best[0], best[1], False
+        if e[0]:
+            hi, best = mid, (cands[mid], e[1])
+        else:
+            lo = mid + 1
+    return best[0], best[1], True
+
+
+def certificate(sp, pkg, info, opts=None, log=print, deadline=None):
+    """None when no obstruction is found (the LP bound reaches the demand); else the blocked
+    entry for the package. The bound over-estimates every capacity (rules_of and _setup with
+    `minimum`: the smallest width, clearances, via, ball and ball-to-track requirement, and
+    nothing finer than the board's fab builds in its finest class, haslam.route.fab), so an entry
+    is a proof under the board's rules and that fab. Vias in the balls' pads are legal under
+    KiCad's rules (a same-net via in a pad), so the bound that proves a package cannot escape
+    allows them (cause "rule"); when only they let it escape, the entry says so (cause "via in
+    pad", a fab choice) with the rule relaxations that would avoid them. Each relaxation is the
+    exact threshold of this model (breakpoints, binary search), clipped at the fab's finest
+    class and labelled with the cheapest class that builds it; one beyond the standard class is
+    a manufacturing hazard. A relaxation that makes the bound reach the demand removes the
+    obstruction this model sees; it does not prove the package routes."""
+    from . import fab
+    prof, nlay = _fab(sp, opts)
+    fl = fab_floors(prof, nlay)
+    esc, meta, duals = bound(sp, pkg, info, opts, pads=True, floors=fl)
+    if esc is None:
+        # the relaxation did not solve (linprog status != 0): nothing is proved either way
+        return None
+    demand = meta["demand"]
+    pads = True
+    if esc is not None and esc >= demand - 0.5:
+        esc, meta, duals = bound(sp, pkg, info, opts, floors=fl)
+        if esc is None or esc >= demand - 0.5:
+            return None
+        pads = False
+    short = demand - int(math.floor(esc + 1e-6))
+    groups = {}
+    for tag, dv in duals.items():
+        groups[tag] = groups.get(tag, 0.0) + dv
+    R = meta["R"]
+    cut = [dict(kind=k, layer=l, ring=ring, tracks=cp, width=round(R[l]["w"], 4), clearance=round(R[l]["c"], 4),
+                between=(f"balls {meta['d']:.3f} mm, {R[l]['c_pad']:.3f} mm from them" if l == meta["layers"][0]
+                         else f"vias {R[l]['D']:.3f} mm"),
+                weight=round(w_, 2))
+           for (k, l, ring, cp), w_ in sorted(groups.items(), key=lambda kv: -kv[1])[:3]]
+    real = meta["real"]
+    relax = []
+
+    def ok(e):
+        return e is not None and e >= demand - 0.5
+
+    def more_time():
+        return deadline is None or clock_now() < deadline
+    cur = dict(w=min(R[l]["w"] for l in real), c=min(R[l]["c"] for l in real), c_pad=meta["cpad"],
+               D=min(R[l]["D"] for l in real))
+    dr = min(R[l]["drill"] for l in real)
+    for key, rule, param in THRESHOLDS:
+        x0 = cur[key]
+        if key == "c_pad" and x0 <= cur["c"] + 1e-6:
+            continue            # the pads' requirement is the clearance's: the clearance covers it
+        if key == "D":
+            lo = fl["D"][0] if fl["D"] else dr + 0.1
+        else:
+            lo = fl[key] if fl[key] is not None else 0.01
+        if x0 <= lo + 1e-6 or not more_time():
+            continue
+        cands = set(breakpoints(meta, key, lo, x0))
+        lims = [lim.get(param) for _c, lim in fab.classes(prof, nlay)]
+        cands |= {(v[0] if key == "D" else v) for v in lims if v is not None}
+        cands.add(lo)
+        if key == "D":
+            k = 1
+            while x0 - k * VIA_GRID > lo:
+                cands.add(round(x0 - k * VIA_GRID, 4))
+                k += 1
+        cands = sorted((v for v in cands if lo - 1e-9 <= v < x0 - 1e-6), reverse=True)
+
+        def oracle(v, key=key):
+            if not more_time():
+                return None
+            e, _m, _d = bound(sp, pkg, info, opts, override={key: v}, pads=pads, floors=fl)
+            return ok(e), e
+        v, e, exact = _threshold(oracle, cands)
+        if v is None and e is None:
+            continue
+        val = v if v is not None else lo
+        r = dict(rule=rule, value=round(val, 4), escapable=round(e or 0, 1), all=v is not None,
+                 exact=exact, model_floor=round(lo, 4))
+        if key == "D":
+            r["drill"] = round(min(dr, val - 0.1), 4)
+            r.update(fab.label(prof, nlay, "via", (val, r["drill"])))
+        else:
+            r.update(fab.label(prof, nlay, param, val))
+        if v is None:
+            # not even the fab's finest class removes the obstruction: shown for the record
+            r["note"] = f"at {prof['name']}'s finest class ({val} mm) the bound still leaves {demand - e:.1f} short"
+        relax.append(r)
+    if not pads:
+        e, _m, _d = bound(sp, pkg, info, opts, pads=True, floors=fl)
+        r = dict(rule="vias in the balls' pads (via-in-pad, filled and capped; haslam: --set escape_via_in_pad=true)",
+                 escapable=round(e or 0, 1), all=ok(e))
+        r.update(fab.label(prof, nlay, "via_in_pad", True))
+        relax.append(r)
+    from .translate import plane_layers
+    pls = sorted(plane_layers(info))
+    if pls and more_time():
+        e, _m, _d = bound(sp, pkg, info, opts, open_planes=True, pads=pads, floors=fl)
+        relax.append(dict(rule="signals on plane layers " + ",".join(pls), escapable=round(e or 0, 1), all=ok(e)))
+    for n in (2, 4):
+        if not more_time():
+            break
+        e, _m, _d = bound(sp, pkg, info, opts, extra_layers=n, pads=pads, floors=fl)
+        relax.append(dict(rule=f"{n} more signal layers", escapable=round(e or 0, 1), all=ok(e)))
+        if ok(e):
+            break
+    ref = pkg["ref"]
+    hazards = []
+    for r in relax:
+        r["kicad"] = _kicad_edit(ref, r, real)
+        if r.get("all") and "fab_class" in r:
+            h = fab.hazard(prof, nlay, r, [ref], f"{ref} escape")
+            if h:
+                h["evidence"].update(escapable=r["escapable"], demand=demand)
+                hazards.append(h)
+    b = cut[0] if cut else None
+    where = (f"the {b['kind']}s of ring {b['ring']} on {b['layer']} hold {b['tracks']} track(s) at "
+             f"{b['width']}/{b['clearance']} mm between {b['between']}") if b else "no single cut"
+
+    def fix(r):
+        s_ = f"{r['rule']} {r['value']} mm" if "value" in r else r["rule"]
+        c = r.get("fab_class")
+        return s_ + (f" ({prof['name']} {c})" if c else (" (no fab class)" if "fab_class" in r else ""))
+    fixes = [fix(r) for r in relax if r.get("all")]
+    head = "" if pads else "without vias in their pads, "
+    # the model puts vias at the dog-bone sites, in the pads and anywhere in a void (a layer
+    # change at every tile round its empty sites, _stage1 hubs), so a depopulated field is
+    # bounded too (the corpus scan of 2026-11: three eMMC-153 packages, routed cleanly by hand,
+    # were 1 net short without the voids' layer changes). Off one square lattice (a staggered
+    # array) the empty sites are not known, so a via may sit where the model has none: no proof
+    voids = meta["voids"]
+    proof = bool(pkg.get("lattice", True))
+    if not proof:
+        head = "the model finds (not a proof: the balls are off one square lattice, so vias may " \
+               "sit off the sites it knows) " + head
+    elif voids:
+        nopen = sum(1 for v in voids if v["open"])
+        head = (f"with a layer change anywhere in its {len(voids)} void(s) ({nopen} open to the edge, "
+                f"{sum(len(v['sites']) for v in voids)} empty ball sites), ") + head
+    summary = (f"{pkg['ref']}: {head}{short} of {demand} signal nets can't leave its ball field on {len(real)} layers "
+               f"({', '.join(real)}; LP bound {esc:.1f}; rules floored at {prof['name']}'s finest class); {where}; "
+               + ("no obstruction found with " + " or ".join(fixes) if fixes else
+                  "none of the relaxations tried, down to the fab's finest class, removes the obstruction"))
+    log("escape certificate " + summary)
+    return dict(package=pkg["ref"], cause="rule" if pads else "via in pad", constraint="escape", demand=demand,
+                escapable=round(esc, 1), via_in_pad_considered=pads, fab=prof["name"], proof=proof,
+                voids=[dict(sites=len(v["sites"]), open=v["open"], mouth_tracks=v["tracks"], counted=v["counted"],
+                            demand=v["demand"]) for v in voids],
+                short=short, layers=real, cut=cut, relaxations=relax, summary=summary, source="board",
+                where=".kicad_pro net classes and board setup, .kicad_dru rules", hazards=hazards)
+
+
+def _kicad_edit(ref, r, layers):
+    """How a relaxation is written back in KiCad (for the caller; haslam never relaxes a rule)."""
+    rule, v = r["rule"], r.get("value")
+    scope = f"(condition \"A.insideCourtyard('{ref}')\")"
+    if rule == "track width":
+        return f".kicad_dru: (rule \"{ref} escape\" {scope} (constraint track_width (min {v}mm)))"
+    if rule == "clearance":
+        return f".kicad_dru: (rule \"{ref} escape\" {scope} (constraint clearance (min {v}mm)))"
+    if rule.startswith("ball-to-track"):
+        return ("board setup: solder mask expansion / mask-to-copper clearance (or the pads' own mask "
+                f"expansion in {ref}) so that a track keeps {v} mm from a ball")
+    if rule == "via diameter":
+        dr = f", drill {r['drill']} mm" if r.get("drill") else ""
+        return f"board setup / net class via diameter {v} mm{dr} (or a via type: micro or blind via, via-in-pad)"
+    if rule.startswith("vias in the balls"):
+        return f"fab: via-in-pad (filled, capped) for {ref}; KiCad's DRC allows a same-net via in a pad"
+    if rule.startswith("signals on plane"):
+        return "route signals on the plane layers (haslam: --set escape_plane_layers=true, --planes allow)"
+    if "more signal layers" in rule:
+        return f"stackup: {rule} (board setup, physical stackup), {len(layers)} now"
+    return ""
+
+
+def own_via(sp, pkg, info, opts=None, log=print, deadline=None):
+    """None, or the finding that haslam's own via, not the rules, blocks the escape: the bound
+    (as `certificate`'s, without vias in the pads unless opts escape_via_in_pad) finds no
+    obstruction with the smallest via the rules allow (legal_via), but does with the via haslam
+    routes with (the net class's via, constraints._via_choice: one per net, everywhere). The
+    fix is haslam's via choice, not a rule. haslam has no option for a smaller via in the escape
+    alone, so the net class's via is the setting that controls it (a capability gap)."""
+    from haslam import hazards as H
+    prof, nlay = _fab(sp, opts)
+    fl = fab_floors(prof, nlay)
+    lv = legal_via(sp, fl)
+    if lv is None or (deadline is not None and clock_now() > deadline):
+        return None
+    ctx = _setup(sp, pkg, info, opts, minimum=True, floors=fl)
+    vias = {n: sp.via_size(n) for n in {ctx["balls"][k][0].net for k in ctx["sig"]}}
+    if not vias:
+        return None
+    own = min(vias.values())       # over-estimates the room haslam's vias leave, as the bound must
+    if own[0] <= lv[0] + 1e-9:
+        return None
+    e_legal, meta, _d = bound(sp, pkg, info, opts, floors=fl)
+    demand = meta["demand"]
+    if e_legal is None or e_legal < demand - 0.5:
+        return None            # an obstruction with the legal via too: the certificate's entry
+    e_own, _m, _d = bound(sp, pkg, info, opts, override=dict(D=own[0]), floors=fl)
+    if e_own is None or e_own >= demand - 0.5:
+        return None
+    short = demand - int(math.floor(e_own + 1e-6))
+    ref = pkg["ref"]
+    classes = sorted({info["nets"].get(n, {}).get("netclass") or "Default" for n, v in vias.items() if v == own})
+    cls = ", ".join(classes)
+    gap = "haslam has no option to use a smaller via in the escape alone: its via is the net class's, for every via of the net"
+    summary = (f"{ref}: no obstruction found with the smallest via the rules allow ({lv[0]} mm, drill {lv[1]} mm), "
+               f"but haslam routes with the net class's {own[0]} mm via (drill {own[1]} mm), with which {short} of "
+               f"{demand} signal nets can't leave its ball field (LP bound {e_own:.1f}). No rule needs relaxing: "
+               f"set the via of net class {cls} to {lv[0]} mm, drill {lv[1]} mm. Capability gap: {gap}")
+    log("escape own via " + summary)
+    h = H.make("escape_blocked_by_own_via", "warn", "data",
+               f"{ref}: the rules allow a {lv[0]} mm via, with which no escape obstruction is found; haslam uses the "
+               f"net class's {own[0]} mm via, with which {short} of {demand} signal nets can't leave the ball field.",
+               objects=[ref] + classes,
+               evidence=dict(legal_via=list(lv), own_via=list(own), demand=demand, escapable_legal=round(e_legal, 1),
+                             escapable_own=round(e_own, 1), short=short, fab=prof["name"], capability_gap=gap),
+               fix=f"No rule needs relaxing: set the via of net class {cls} to {lv[0]} mm, drill {lv[1]} mm "
+                   f"(.kicad_pro net classes); haslam then uses it for every via of those nets.")
+    return dict(package=ref, constraint="escape_own_via", legal_via=list(lv), own_via=list(own), netclasses=classes,
+                demand=demand, escapable_legal=round(e_legal, 1), escapable_own=round(e_own, 1),
+                short_with_own_via=short, capability_gap=gap, summary=summary, hazards=[h])
+
+
+def _across(p, q):
+    """`p`'s width across the row it shares with neighbour `q`."""
+    ang = math.atan2(q.pos[1] - p.pos[1], q.pos[0] - p.pos[0])
+    ux, uy = math.cos(ang), math.sin(ang)
+    g = p.geom
+    pts = list(g.exterior.coords) if hasattr(g, "exterior") else [(g.bounds[0], g.bounds[1]), (g.bounds[2], g.bounds[3])]
+    xs = [(x - p.pos[0]) * ux + (y - p.pos[1]) * uy for x, y in pts]
+    return max(xs) - min(xs)
+
+
+def _exit_gap(p, nbs, pkg, w, ovl):
+    """Clearance a track `w` wide keeps to pad `p`'s row neighbours `nbs` when it leaves `p`
+    outward (away from the package's middle), at its best end point: from the pad centre out to
+    the last point where its copper still overlaps the pad by `ovl` (KiCad connects any overlap;
+    the router's _escapes starts there when the centre is too tight). The track runs outward
+    from its end, so the end is its closest point to the neighbours."""
+    px, py = p.pos
+    mx = sum(q.pos[0] for q in pkg["pads"]) / len(pkg["pads"])
+    my = sum(q.pos[1] for q in pkg["pads"]) / len(pkg["pads"])
+    rx, ry = nbs[0].pos[0] - px, nbs[0].pos[1] - py              # along the row
+    n = math.hypot(rx, ry) or 1.0
+    ux, uy = -ry / n, rx / n                                     # across it
+    if ux * (px - mx) + uy * (py - my) < 0:
+        ux, uy = -ux, -uy                                        # outward
+    best, d = -1.0, 0.0
+    step = 0.005
+    while True:
+        s = Point(px + d * ux, py + d * uy)
+        if d > 0 and p.geom.distance(s) > w / 2 - ovl + 1e-9:
+            break
+        best = max(best, min(q.geom.distance(s) for q in nbs) - w / 2)
+        d += step
+        if d > 5.0:
+            break
+    return best
+
+
+def ring_certificate(sp, pkg, log=print, opts=None):
+    """A fine-pitch pad ring (QFN, QFP): the signal pads a track of the board's minimum width
+    cannot leave between its two neighbours at any end point the router may use (_exit_gap:
+    inside the pad, or just past it while its copper still overlaps the pad by
+    pad_entry_overlap) -> the blocked entry, or None."""
+    from . import fab
+    prof, nlay = _fab(sp, opts)
+    wfab = fab.floor(prof, nlay, "track") or 0.0
+    count = _counts(sp)
+    zoned = {z[0] for z in sp.zones}
+    bad, total, need_w, need_c, detail = 0, 0, [], [], None
+    for p in pkg["pads"]:
+        if not p.net or count.get(p.net, 0) < 2 or p.net in zoned:
+            continue        # no connection to make, or a pour's (it may reach the pad itself)
+        nb = sorted(((math.dist(p.pos, q.pos), id(q), q) for q in pkg["pads"] if q is not p))[:2]
+        if len(nb) < 2:
+            continue
+        pitch = nb[0][0]
+        if pitch > RING_PITCH or abs(nb[1][0] - pitch) > 0.05 * pitch:
+            continue        # coarse, or a row's end (it can leave sideways)
+        if _across(p, nb[0][2]) >= pitch:
+            continue        # not a row: the neighbour lies off the pad's side
+        if any(q.net == p.net for _d, _i, q in nb):
+            continue        # a neighbour of its own net: the track leaves on that side
+        total += 1
+        a = _across(p, nb[0][2])
+        mn, opt, _ = sp.width_limits(p.net, pkg["layer"])
+        w = max(mn or 0.0, wfab)       # the rules' minimum, nothing finer than the fab builds
+        c = sp._generic_need(p.net, "track", pkg["layer"])
+        gap = _exit_gap(p, [q for _d, _i, q in nb], pkg, w, float(getattr(sp, "pad_overlap", 0.0)))
+        if gap < c - 1e-6:
+            bad += 1
+            need_w.append(2 * (pitch - a / 2 - c))
+            need_c.append(gap)
+            detail = dict(pitch=round(pitch, 4), pad=round(a, 4), width=round(w, 4), clearance=round(c, 4),
+                          gap=round(gap, 4))
+    if not bad:
+        return None
+    wmax, cmax = min(need_w), min(need_c)
+    # closed form: the widest track that leaves every blocked pad, and the clearance it then
+    # keeps; rounded down to whole micrometres, clipped at the fab's finest class
+    wmax, cmax = math.floor(wmax * 1000 + 1e-6) / 1000, math.floor(cmax * 1000 + 1e-6) / 1000
+    rel = []
+    if wmax > 0:
+        rel.append(dict(rule="track width", value=round(wmax, 4), **fab.label(prof, nlay, "track", wmax)))
+    rel.append(dict(rule="clearance", value=round(max(cmax, 0.0), 4), **fab.label(prof, nlay, "pad_track", cmax)))
+    hazards = []
+    for r in rel:
+        r["all"] = r["fab_class"] is not None
+        r["kicad"] = _kicad_edit(pkg["ref"], r, [pkg["layer"]])
+        h = fab.hazard(prof, nlay, r, [pkg["ref"]], f"{pkg['ref']} pad exits")
+        if h and r["all"]:
+            hazards.append(h)
+    fixes = [f"{r['rule']} {r['value']:.3f} mm ({prof['name']} {r['fab_class']})" for r in rel if r["all"]]
+    summary = (f"{pkg['ref']}: {bad} of {total} signal pads can't be left by a track: pitch {detail['pitch']} mm, "
+               f"pads {detail['pad']} mm wide, a {detail['width']} mm track keeps {detail['gap']} mm of the "
+               f"{detail['clearance']} mm clearance to the next pad; "
+               + ("no obstruction found with " + " or ".join(fixes) if fixes else
+                  f"no relaxation {prof['name']} builds removes it (track {wmax:.3f}, clearance {cmax:.3f} mm needed)"))
+    log("escape certificate " + summary)
+    return dict(package=pkg["ref"], cause="rule", constraint="escape", demand=total, escapable=total - bad,
+                short=bad, cut=[dict(kind="pad exit", layer=pkg["layer"], **detail)],
+                relaxations=rel, fab=prof["name"], hazards=hazards,
+                summary=summary, source="board", where=".kicad_pro net classes and board setup, .kicad_dru rules")
+
+
+# ----------------------------------------------------------------------------- laying
+def _records(ctx, paths):
+    """The plan per ball, not laid: layer, side, planned via position, flexibility."""
+    xy, balls, flex = ctx["xy"], ctx["balls"], ctx.get("flex", {})
+    recs = []
+    for k, q in sorted(paths.items()):
+        pd = balls[k][0]
+        t = q["site"]
+        via = None
+        if t is not None:
+            via = pd.pos if t[0] == "pad" else xy(t[0] / 2, t[1] / 2)
+            via = [round(via[0], 4), round(via[1], 4)]
+        recs.append(dict(pad=f"{pd.owner[0]}.{pd.owner[1]}", net=pd.net, ring=balls[k][1], layer=q["layer"],
+                         side=q["side"], via=via, in_pad=bool(t is not None and t[0] == "pad"), exit=None,
+                         laid=False, **flex.get(k, {})))
+    return recs
+
+
+def _simplify(pts):
+    """`pts` without repeated and collinear points."""
+    out = []
+    for q in pts:
+        q = (float(q[0]), float(q[1]))
+        if out and math.dist(out[-1], q) < 1e-6:
+            continue
+        if len(out) >= 2:
+            (x0, y0), (x1, y1) = out[-2], out[-1]
+            if abs((x1 - x0) * (q[1] - y0) - (y1 - y0) * (q[0] - x0)) < 1e-9:
+                out[-1] = q
+                continue
+        out.append(q)
+    return out
+
+
+def _routed_inside(sp, pkg):
+    """Tracks and vias of the input inside the package's pad box."""
+    xs = [p.pos[0] for p in pkg["pads"]]
+    ys = [p.pos[1] for p in pkg["pads"]]
+    bb = (min(xs), min(ys), max(xs), max(ys))
+    seen = set()
+    for l in sp.cu:
+        for it in sp.query(l, bb):
+            if it.kind in ("track", "via"):
+                seen.add(id(it))
+    return len(seen)
+
+
+def _cache_key(opts, pkg):
+    """A key for `pkg`'s plan on the input board (opts _board: its path), or None."""
+    import hashlib
+    from pathlib import Path
+    b = (opts or {}).get("_board")
+    if not b or not Path(b).exists():
+        return None
+    h = hashlib.sha1(Path(__file__).read_bytes())      # this code
+    h.update(Path(b).read_bytes())
+    pro = Path(b).with_suffix(".kicad_pro")
+    for p in (pro, Path(b).with_suffix(".kicad_dru")):
+        if p.exists():
+            h.update(p.read_bytes())
+    h.update(repr(sorted((k, v) for k, v in (opts or {}).items() if k.startswith("escape") or k == "planes")).encode())
+    return f"{h.hexdigest()[:16]}-{pkg['ref']}"
+
+
+def _cache_dir():
+    import os
+    import tempfile
+    from pathlib import Path
+    return Path(os.environ.get("HASLAM_ESCAPE_CACHE") or Path(tempfile.gettempdir()) / f"haslam-escape-{os.getuid()}")
+
+
+def _cache_get(key):
+    import pickle
+    if key is None:
+        return None
+    p = _cache_dir() / f"{key}.pkl"
+    try:
+        return pickle.loads(p.read_bytes())
+    except (OSError, EOFError, pickle.UnpicklingError, AttributeError, ValueError):
+        return None
+
+
+def _cache_put(key, value):
+    import os
+    import pickle
+    if key is None:
+        return
+    d = _cache_dir()
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = d / f".{key}.{os.getpid()}"
+        tmp.write_bytes(pickle.dumps(value))
+        os.replace(tmp, d / f"{key}.pkl")
+    except OSError:
+        pass
+
+
+def run(sp, info, opts=None, log=print, deadline=None):
+    """Plan and certify the escapes of every ball grid (not laid); check fine-pitch pad rings.
+    Returns {packages, blocked, laid, wanted} (blocked: haslam.route.blocked entries), and
+    hazards when haslam's own via blocks an escape the rules' smallest via does not (own_via;
+    the package's plan carries the finding as own_via)."""
+    opts = opts or {}
+    out = dict(packages=[], blocked=[], laid=0, wanted=0)
+    for pkg in find_packages(sp):
+        try:
+            if pkg["kind"] == "ring":
+                c = ring_certificate(sp, pkg, log=log, opts=opts)
+                if c:
+                    out["blocked"].append(c)
+                    out["packages"].append(dict(ref=pkg["ref"], kind="ring", certificate=c["summary"]))
+                continue
+            if deadline is not None and clock_now() > deadline:
+                log(f"escape plan {pkg['ref']}: no time left")
+                continue
+            routed = _routed_inside(sp, pkg)
+            if routed > 0.2 * len(pkg["pads"]):
+                # a board that is routed already (a restart resuming from its best board): its
+                # escapes are there; a plan around them would not be laid
+                log(f"escape plan {pkg['ref']}: {routed} tracks and vias already in its ball field; not planned")
+                continue
+            key = _cache_key(opts, pkg)
+            got = _cache_get(key)
+            if got is not None:
+                # the same input planned before (a restart's earlier attempt): plans and
+                # certificates are deterministic
+                plan, paths, plane_vias, flex, cert, ov = got
+                ctx = _setup(sp, pkg, info, opts)
+                ctx["flex"] = flex
+                plan = dict(plan, cached=True)
+            else:
+                plan, ctx, paths, plane_vias = plan_grid(sp, pkg, info, opts, deadline=deadline)
+                try:
+                    cert = certificate(sp, pkg, info, opts, log=log, deadline=deadline)
+                except Exception as e:  # noqa: BLE001 - a failed proof must not throw away the plan
+                    log(f"escape plan {pkg['ref']}: certificate failed: {type(e).__name__}: {e}")
+                    cert = None
+                ov = None
+                if cert is None:
+                    # no obstruction with the legal via: does haslam's own (the net class's) block it?
+                    try:
+                        ov = own_via(sp, pkg, info, opts, log=log, deadline=deadline)
+                    except Exception as e:  # noqa: BLE001 - a failed check must not throw away the plan
+                        log(f"escape plan {pkg['ref']}: own-via check failed: {type(e).__name__}: {e}")
+                _cache_put(key, (plan, paths, plane_vias, ctx.get("flex", {}), cert, ov))
+            if cert:
+                out["blocked"].append(cert)
+                plan["certificate"] = cert["summary"]
+            if ov:
+                plan["own_via"] = {k: v for k, v in ov.items() if k != "hazards"}
+                out.setdefault("hazards", []).extend(ov["hazards"])
+            plan["escapes"] = _records(ctx, paths)
+            plan["laid"] = plan["vias_laid"] = 0
+            out["laid"] += plan["laid"]
+            out["wanted"] += plan.get("planned", 0)
+            log(f"escape plan {pkg['ref']}: pitch {plan['pitch']:.3f}, {plan['signal']} signal and "
+                f"{plan['plane']} plane balls; LP {plan.get('lp')}, planned {plan.get('planned')} {plan.get('by_layer')}, "
+                f"{plan.get('plane_vias')} plane dog-bones; laid {plan['laid']} escapes and {plan['vias_laid']} "
+                f"vias ({plan.get('seconds')} s, {plan['variables']} variables)")
+            out["packages"].append(plan)
+        except Exception as e:  # noqa: BLE001 - a plan that fails leaves the package to the router
+            import traceback
+            log(f"escape plan {pkg['ref']}: failed: {type(e).__name__}: {e} {traceback.format_exc(limit=3)}")
+            out["packages"].append(dict(ref=pkg["ref"], error=f"{type(e).__name__}: {e}"))
+    return out
+def dog_bones(sp, info, log=print):
+    # the fixed pass (rules-bga), the default before routing: rings from the surface capacity + 1
+    # down, the diagonal pointing away from the centre
+    """Lay the ball grids' dog-bones in `sp` (critical_space.Space) -> (laid, wanted)."""
+    count = {}
+    for it in sp.pads:
+        if it.kind == "pad" and it.net:
+            count[it.net] = count.get(it.net, 0) + 1
+    zclr = max([float(z.get("clearance") or 0.0) for z in info.get("zones") or []] + [0.0])
+    laid = wanted = 0
+    for pads in sp.pads_by_fp.values():
+        smd = [p for p in pads if p.kind == "pad" and p.smd and len(p.layers) == 1 and p.hole is None]
+        if len(smd) < MIN_BALLS:
+            continue
+        med = sorted(p.geom.area for p in smd)[len(smd) // 2]
+        balls = [p for p in smd if p.geom.area <= 4 * med]
+        g = _grid([p.pos for p in balls]) if len(balls) >= MIN_BALLS else None
+        if g is None:
+            continue
+        pitch, ang, loc, rings = g
+        layer = next(iter(balls[0].layers))
+        b = balls[0].geom.bounds
+        first = _capacity(sp, balls[0].net or "", layer, pitch, min(b[2] - b[0], b[3] - b[1])) + 1
+        todo = []
+        for p, (u, w), r in zip(balls, loc, rings):
+            plane = p.net and any(z[0] == p.net and z[1] != layer for z in sp.zones)
+            if p.net and (plane or (r >= first and count[p.net] >= 2)):
+                todo.append((-r, str(p.owner), p, u, w))
+        n0 = laid
+        ca, sa = math.cos(ang), math.sin(ang)
+        for _r, _o, p, u, w in sorted(todo, key=lambda t: t[:2]):
+            mn, opt, _ = sp.width_limits(p.net, layer)
+            diags = sorted(((a, c) for a in (1, -1) for c in (1, -1)), key=lambda d: -(d[0] * u + d[1] * w))
+            done = False
+            for du, dw in diags:
+                lu, lw = du * pitch / 2, dw * pitch / 2
+                v = (p.pos[0] + lu * ca - lw * sa, p.pos[1] + lu * sa + lw * ca)
+                if sp.via_violations(p.net, *v, first=True) or \
+                        _starves(sp, p.net, Point(v), sp.via_size(p.net)[0] / 2, sp.cu, zclr):
+                    continue
+                for wd in [x for x in dict.fromkeys([opt, mn]) if x] or [0.1]:
+                    if sp.track_violations(p.net, layer, wd, p.pos, v, first=True) or \
+                            _starves(sp, p.net, LineString([p.pos, v]), wd / 2, [layer], zclr):
+                        continue
+                    sp.add_via(p.net, *v, owner=("escape", ""), uuid=W.new_uuid())
+                    sp.add_track(p.net, layer, wd, p.pos, v, owner=("escape", ""), uuid=W.new_uuid())
+                    done = True
+                    break
+                if done:
+                    break
+            laid += done
+        wanted += len(todo)
+        log(f"dog-bones {balls[0].owner[0]}: pitch {pitch:.3f}, {len(balls)} balls, from ring {first}: "
+            f"{laid - n0} of {len(todo)}")
+    return laid, wanted

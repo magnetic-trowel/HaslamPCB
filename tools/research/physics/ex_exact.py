@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Exact (finer) evaluators of the place-term structures at given poses, on real board
 geometry (docs/topics/physics/exact-physics-options.md).
 
-The place terms (kae.physics.place_terms.Terms) price each structure from straight
+The place terms (haslam.physics.place_terms.Terms) price each structure from straight
 pad-to-pad hops with closed forms. This module evaluates the same structure, at the same
 poses, with the geometry and solvers the validation used as references
 (docs/topics/physics/place-terms.md), so that ex_cost_table.py can time them and
@@ -18,9 +18,9 @@ cannot cross on one layer), on a 0.1 mm grid, in one of two styles:
   manhattan  4-connected Dijkstra with a turn penalty (axis-aligned, so pw_peec can mesh it).
 Hops leave from the terminal pad nearest the next terminal; a part's internal path runs from
 the pad the current arrives at to the pad it leaves from (body strip at the body height with
-vertical ties, as kae.physics.structures.LoopComp); a ground hop over a plane of its own net is
+vertical ties, as haslam.physics.structures.LoopComp); a ground hop over a plane of its own net is
 the routed surface track in parallel with two vias through the plane. Evaluators (mode):
-  cf         closed forms on the any-angle routed pieces (kae.route.critical_physics.Loop:
+  cf         closed forms on the any-angle routed pieces (haslam.route.critical_physics.Loop:
              partial inductances with images, Hammerstad-Jensen strip self terms, energy-
              minimizing split between parallel return paths), i.e. the module stage's model;
   cfm        the same closed forms on the Manhattan route;
@@ -47,7 +47,7 @@ Coupling (inductive part): the aggressor loop's filament currents from PEEC on i
 route, and the EMF they induce along the victim's Manhattan-routed probe path
 (pw_peec.Net.induced); the capacitive part is left to the estimator.
 
-Not a script: imported by the other ex_*.py scripts. Needs kae (kae/.venv).
+Not a script: imported by the other ex_*.py scripts. Needs haslam (haslam/.venv).
 """
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / 'kae' / 'src'))
+sys.path.insert(0, str(ROOT / 'haslam' / 'src'))
 sys.path.insert(0, str(HERE))
 
 import numpy as np  # noqa: E402
@@ -72,10 +72,10 @@ import scipy.sparse.linalg as spla  # noqa: E402
 from scipy.sparse.csgraph import dijkstra  # noqa: E402
 
 import pw_peec as pw  # noqa: E402
-from kae.physics.kernels import cprime_hj, lprime_hj  # noqa: E402
-from kae.physics.structures import (CouplingComp, CrystalComp, EsdComp, LoopComp, NearestLoopComp,  # noqa: E402
+from haslam.physics.kernels import cprime_hj, lprime_hj  # noqa: E402
+from haslam.physics.structures import (CouplingComp, CrystalComp, EsdComp, LoopComp, NearestLoopComp,  # noqa: E402
                                     PlanePairLoop, txy)
-from kae.route.critical_physics import Loop  # noqa: E402
+from haslam.route.critical_physics import Loop  # noqa: E402
 
 INF = float('inf')
 MM = 1e-3
@@ -492,7 +492,7 @@ def closed_form_L(g):
             elif pc[0] == 'vert':
                 lp.vert(pc[1][0], pc[1][1], pc[2], pc[3], pc[4], el)
             elif pc[0] == 'tie':
-                from kae.physics.kernels import gmd_rect
+                from haslam.physics.kernels import gmd_rect
                 lp.vert(pc[1][0], pc[1][1], pc[2], pc[3], gmd_rect(max(pc[4], 0.1)), el)
     if 'lat' in elements and 'via' in elements:
         lp.kcl({'lat': 1.0, 'via': 1.0})
@@ -796,7 +796,7 @@ def eval_coupling(T, comp, router, mode, cache=None):
         return comp.value(st), {}
     v_ind_est = 0.0
     v_cap = comp.value(st)
-    from kae.physics.structures import _mutual
+    from haslam.physics.structures import _mutual
     if comp.al is not None and comp.vl is not None and comp.didt > 0:
         ga = comp.al.geo(st)
         h = bv.h_ref(st.G[comp.al.T[0].i], ga[1][0], ga[1][1])
@@ -866,7 +866,7 @@ def attach_aggressors(T):
 # ---------------------------------------------------------------------------- dispatch
 def struct_value(T, k, router, mode):
     """Exact value of structure k in the given mode, reduced as Terms reduces it."""
-    from kae.physics.place_terms import _red
+    from haslam.physics.place_terms import _red
     s = T.structs[k]
     vals, infos = [], []
     for c in s.comps:
@@ -1032,7 +1032,7 @@ class FVThermal:
 
 
 def thermal_cost(T, rise, mean):
-    from kae.physics import priors as PR
+    from haslam.physics import priors as PR
     b = T.knobs.barrier
     return float(sum(c * PR.phi(max(rise[t] - mean, 0.0) / a.value, b, T.knobs.u_sat)
                      for t, (a, c) in enumerate(zip(T._th_alloc, T._th_conf))))

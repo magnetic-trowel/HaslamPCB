@@ -1,12 +1,12 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Functional evaluator: budgets and loop-measure cross-check (`kae.sim.budget`)
+# Functional evaluator: budgets and loop-measure cross-check (`haslam.sim.budget`)
 
-Scope: loop-inductance budgets from the board's own testbench, and the boost loop's measures cross-checked. Not here: the rest of `kae.sim` -> [functional-evaluator](functional-evaluator.md).
-Keys: kae.sim.budget, `budgets`, board.budgets.json, `Vloop`, cell_body_floor, stand-in, hot loop, pt_mesh_loop, critical_cli route --budgets, power profile
+Scope: loop-inductance budgets from the board's own testbench, and the boost loop's measures cross-checked. Not here: the rest of `haslam.sim` -> [functional-evaluator](functional-evaluator.md).
+Keys: haslam.sim.budget, `budgets`, board.budgets.json, `Vloop`, cell_body_floor, stand-in, hot loop, pt_mesh_loop, critical_cli route --budgets, power profile
 
 **Results**
-- `kae.sim.cli budgets` derives a cell's loop-inductance budget from the board's own testbench; it is applied only from a trusted requirement, when achievable and independent of the stand-in, and only by methods that opt in. On the two smoke boards none passes [M].
+- `haslam.sim.cli budgets` derives a cell's loop-inductance budget from the board's own testbench; it is applied only from a trusted requirement, when achievable and independent of the stand-in, and only by methods that opt in. On the two smoke boards none passes [M].
 - On the boost's routed loop the router's closed form (9.37 nH copper) is within about 5% of a solid-plane mesh reference; the plane slot adds about 1.7 nH it cannot see. The SPICE power-profile extraction reads −38% and must not judge loops [M].
 
 Split from [functional-evaluator](functional-evaluator.md) (§5a there). Tags: [M] measured here, [I] design choice.
@@ -15,7 +15,7 @@ Split from [functional-evaluator](functional-evaluator.md) (§5a there). Tags: [
 
 ### Budgets
 
-The placer and the critical router price every structure as spend over allocation, with the allocation taken from a closed form unless the brief's structure carries a `budget`. `kae.sim.cli budgets` derives that budget from the board's own testbench: for a cell, a series inductance is swept at the cell's loop insertion point (`Vloop`) on the ideal circuit, at every corner. The budget is the loop's ideal inductance plus the largest addition at which the requirement holds at every corner. Budgets are written to `board.budgets.json` and applied only by methods that opt in (`critical_cli route --budgets`). Evaluators never apply them, so a method's budgets cannot change its score.
+The placer and the critical router price every structure as spend over allocation, with the allocation taken from a closed form unless the brief's structure carries a `budget`. `haslam.sim.cli budgets` derives that budget from the board's own testbench: for a cell, a series inductance is swept at the cell's loop insertion point (`Vloop`) on the ideal circuit, at every corner. The budget is the loop's ideal inductance plus the largest addition at which the requirement holds at every corner. Budgets are written to `board.budgets.json` and applied only by methods that opt in (`critical_cli route --budgets`). Evaluators never apply them, so a method's budgets cannot change its score.
 
 A budget is applied only if all three hold; otherwise the closed-form allocation stays, and the file records every reason:
 1. **The requirement comes from a trusted source:** human, board rule, datasheet, board value, schematic or standard. A budget derived from a prior bound is no better than the closed-form allocation, and on the boost below it was worse.
@@ -50,6 +50,6 @@ So the router's loop model is the authority for loop inductance. Its error on th
 
 ## Sources
 
-- Code: [`kae/src/kae/sim/`](../../../kae/src/kae/sim/) (`budget`), [`critical_recheck.py`](../../../kae/src/kae/route/critical_recheck.py) (`cell_body_floor`), [`pt_mesh_loop.py`](../../../tools/research/physics/pt_mesh_loop.py).
+- Code: [`haslam/src/haslam/sim/`](../../../haslam/src/haslam/sim/) (`budget`), [`critical_recheck.py`](../../../haslam/src/haslam/route/critical_recheck.py) (`cell_body_floor`), [`pt_mesh_loop.py`](../../../tools/research/physics/pt_mesh_loop.py).
 
 See also: [functional-evaluator](functional-evaluator.md), [physics-driven-design](physics-driven-design.md), [critical-net-routing](../routing/critical-net-routing.md).

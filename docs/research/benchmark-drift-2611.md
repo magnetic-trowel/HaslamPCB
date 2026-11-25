@@ -1,17 +1,17 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Host-load drift: the same run, days apart, is not the same result (2026-11)
 
 Scope: how much a wall-clock-budgeted benchmark run moves with the shared host's load, which comparisons that invalidates, and the guard and budget change it led to. Not here: the experiments' own verdicts -> [zone-aware placement](placement/zone-aware-placement.md), [BGA window repair](routing/bga-window-repair.md).
-Keys: host load, drift, reproducibility, wall-clock budget, reused runs, replicate, --reuse-runs, kaeres exp create, SMT, work budget, counted budget, zone-keepout-ab2, post-audit baselines
+Keys: host load, drift, reproducibility, wall-clock budget, reused runs, replicate, --reuse-runs, haslamres exp create, SMT, work budget, counted budget, zone-keepout-ab2, post-audit baselines
 
-**Status:** measured; guard in kaeres; counted-work budgets built and accepted on five of six flows
+**Status:** measured; guard in haslamres; counted-work budgets built and accepted on five of six flows
 (section "Fix"), one limit left in KiCad's ratsnest.
 **First published:** 2026-11-08.
 
 ## The measurement
 
-kae staged at 7221e4a (method `c797ddafd9f5`, run in zone-ab on 2026-11-03/04) and the identical recipe
+haslam staged at 7221e4a (method `c797ddafd9f5`, run in zone-ab on 2026-11-03/04) and the identical recipe
 registered again with `--param replicate=b` (`c7c6fd72d6d3`, run in zone-keepout-ab2 on 2026-11-05/07):
 same code, harness, seeds, time budget (900 s × √(footprints/40)), restart wrapper, Freerouting fork, JDK,
 KiCad image and numba cache.
@@ -33,14 +33,14 @@ hardware counters for users (`perf_event_paranoid = 4`), so it was not measured.
 
 ## What it invalidates
 
-kaeres stores one run per method, board and attempt and reused it in every later experiment, so an A/B
+haslamres stores one run per method, board and attempt and reused it in every later experiment, so an A/B
 could silently compare a fresh arm against runs made days before.
 
 - **zone-ab:** 5 of 48 boards' base runs came from bga-next-ab. Those 5 carried the whole apparent loss
   (+9.9 %); the 42 side-by-side boards were even (−3.1 %, p = 1.0). See
   [zone-aware placement](placement/zone-aware-placement.md#zone-ab-pull-3-and-keep-out-1-against-the-base-placer).
 - **zone-keepout-ab (cancelled):** +14 % against zone-ab's base; the fresh replicate pair was +0.4 %.
-- **Post-audit baselines:** kae staged −4.6 % against merge3-ab, a different week
+- **Post-audit baselines:** haslam staged −4.6 % against merge3-ab, a different week
   ([post-audit baselines](routing/post-audit-baselines.md)). Within the drift; not evidence either way.
 - **Unaffected:** experiments whose arms ran in the same jobs: escape-ab3, bga-next-ab,
   region-complete-ab, zone-keepout-ab2.
@@ -50,17 +50,17 @@ the large boards drift; small boards drift too.
 
 ## Guard
 
-`kaeres exp create` refuses methods that already have runs from other experiments on its boards and says
+`haslamres exp create` refuses methods that already have runs from other experiments on its boards and says
 how to register a replicate (same recipe plus `--param replicate=<tag>`); `--reuse-runs` overrides, and
 `exp report` then warns about boards whose methods' runs were made more than 12 h apart. See
-[tools/kaeres/README.md](../../tools/kaeres/README.md#running-an-experiment-without-wasting-it).
+[tools/haslamres/README.md](../../tools/haslamres/README.md#running-an-experiment-without-wasting-it).
 
 ## Fix: budgets in counted work, not seconds
 
 Side-by-side arms only make comparisons fair; each result still depends on the load during the run, so
 numbers from different weeks never compare and seed noise is inflated. Hardware cycle counters are not
-available to users on this host, so budgets count work. `KAE_BUDGET=work` (with `PYTHONHASHSEED=0` and
-`KAE_WORKERS=1`) makes `--time` mean nominal seconds of counted work (`kae.budget`, branch `work-budget`);
+available to users on this host, so budgets count work. `HASLAM_BUDGET=work` (with `PYTHONHASHSEED=0` and
+`HASLAM_WORKERS=1`) makes `--time` mean nominal seconds of counted work (`haslam.budget`, branch `work-budget`);
 the default stays wall time.
 
 | stage | counted | nominal seconds per unit |
@@ -77,7 +77,7 @@ These are the first rates; the current ones, the Freerouting work budget and wha
 Per-pass Freerouting time follows pins² (7–9.8e-5 s per pin²); per MB of `.dsn` it varied 9×.
 
 **The critical router was charged late (2026-11-11).** Until then the critical-copper grid router
-(`kae.route.critical_grid`, the joint module stage's routing) charged nothing. In work mode the module stage
+(`haslam.route.critical_grid`, the joint module stage's routing) charged nothing. In work mode the module stage
 cost no budget, its own deadline never bound, and the stages after it got the time they would have had
 without it. Every work-mode run of a method with a module stage before this fix got that stage for free:
 `module-ablation2` and Stage 2's critical/joint arms. Time-mode runs (`chassis-soft`, J1) paid for it in wall

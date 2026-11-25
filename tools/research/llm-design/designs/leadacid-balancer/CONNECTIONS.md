@@ -1,7 +1,7 @@
 # leadacid-balancer: connections (netlist)
 
 Companion to [DESIGN.md](DESIGN.md). Every part instance, every pin by number and name, and every
-net. The encoded design is [design.py](design.py) with part cards in [parts.py](parts.py); `kaesynth
+net. The encoded design is [design.py](design.py) with part cards in [parts.py](parts.py); `haslamsynth
 build` writes the full pin-by-pin netlist to `out/netlist.json` (KiCad round trip: identical). If this
 file and design.py disagree, design.py is the source and this file is wrong. Evidence tags: [P] pin numbers read in the primary datasheet, [S] secondary or the KiCad
 library only.
@@ -38,7 +38,7 @@ library only.
   plus the exposed pad are KiCad pad 5.
 - Every pin is listed. `NC` means leave it unconnected.
 
-**Domains** are defined in DESIGN.md §6 (the kaesynth voltage model):
+**Domains** are defined in DESIGN.md §6 (the haslamsynth voltage model):
 
 - Bk (k = 1…4) is battery k's domain. It floats on TAP(k−1) and holds TAPk plus every net
   referenced to TAP(k−1). B1 is the root (TAP0). Channel k's "L" side is Bk, its "U" side B(k+1).
@@ -325,7 +325,7 @@ Generated from `out/netlist.json` (the KiCad round trip is identical to it). Pin
 
 ### 3.6 Net membership
 
-The net-by-net member lists are generated: `out/netlist.json` (`nets`) after `kaesynth build`. The
+The net-by-net member lists are generated: `out/netlist.json` (`nets`) after `haslamsynth build`. The
 KiCad round trip checks that the schematic matches it pin for pin. NC pins per channel:
 U101.7, .12, .13; U102.7, .12, .13; U103.13; U104.3, .6, .7; U105.3, .6, .7; U106.4; U107.5; U111.1 (spare
 comparator A); D101.2; D102.2; D105.2.

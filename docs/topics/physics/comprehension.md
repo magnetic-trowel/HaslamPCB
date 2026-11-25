@@ -1,7 +1,7 @@
 # Comprehension: what each part, net and structure is doing
 
-Scope: `kae.circuit`, which reads a `.kicad_pcb` (never positions) and writes the physics brief (roles, structures, confidences); its inference rules and measured accuracy. Not here: schematic simulation -> [schematic-to-physics](schematic-to-physics.md); LLM-side understanding -> [design-understanding-pipeline](../llm/design-understanding-pipeline.md); net-role prior art -> [net-role-classification](../llm/net-role-classification.md).
-Keys: kae.circuit, physics brief, kae.brief/1, net role, part kind, commutation_cell, power_path, decap, rail_group, pin_caps, pairing, caps_p, I_belief, R_on_ohm, placement_order, log-odds evidence, pin semantics, capacitor ownership, weak labels, held-out audit, pin-type robustness
+Scope: `haslam.circuit`, which reads a `.kicad_pcb` (never positions) and writes the physics brief (roles, structures, confidences); its inference rules and measured accuracy. Not here: schematic simulation -> [schematic-to-physics](schematic-to-physics.md); LLM-side understanding -> [design-understanding-pipeline](../llm/design-understanding-pipeline.md); net-role prior art -> [net-role-classification](../llm/net-role-classification.md).
+Keys: haslam.circuit, physics brief, haslam.brief/1, net role, part kind, commutation_cell, power_path, decap, rail_group, pin_caps, pairing, caps_p, I_belief, R_on_ohm, placement_order, log-odds evidence, pin semantics, capacitor ownership, weak labels, held-out audit, pin-type robustness
 
 Corpus: 112 reference boards, 9,227 parts, KiCad 10.0.7 suite; median runtime 0.1 s/board. Held-out failures come from library typing and unparsed names, not the method: weight every structure by confidence; keep low-confidence ownership soft [I].
 
@@ -10,10 +10,10 @@ Tags: [C] from [`cm_comprehension_eval.py`](../../../tools/research/physics/cm_c
 ## 1. Interface
 
 ```python
-from kae.board.kicad_file import load
-from kae.circuit.brief import build, write
-brief = build(load('board.kicad_pcb'))   # JSON-ready dict, schema 'kae.brief/1'
-# python -m kae.circuit.brief BOARD.kicad_pcb [-o brief.json] [--no-sheets]
+from haslam.board.kicad_file import load
+from haslam.circuit.brief import build, write
+brief = build(load('board.kicad_pcb'))   # JSON-ready dict, schema 'haslam.brief/1'
+# python -m haslam.circuit.brief BOARD.kicad_pcb [-o brief.json] [--no-sheets]
 ```
 
 | Key | Content |
@@ -65,8 +65,8 @@ Part kinds from lib ids (`R_Shunt_*_Kelvin`, `Crystal`), part-number families (U
 | Switch node | inductor between an IC switch pin or FET pair and a decoupled rail | FET pair without power-stage evidence = logic gate |
 | Clock | crystal or oscillator terminals | pin name alone (PC14, XTAL_32K on an ESP32-C3 GPIO) |
 | Diff pair | complementary names on a common IC or connector; MIPI on a camera FPC | LED across the pair; crystal XTALP/XTALN |
-| High-speed | an interface name with a second fact (pair, interface pin, connector), a high-speed or diff class; a plain net whose driver's edge rings within this board's size (`fast_edge`, [kae.circuit.edges](../llm/net-role-classification.md#fast-nets-built)) | a name alone (`PCIE_3V3`); sideband words (`HDMI_HPD`, `PERST`) |
-| Analog, reset, boot | amplifier/AFE inputs; charger PROG pins; ADC, sense, reference names (alone where no IC pin is named); RST, BOOT pins; an analog name on an MCU pin the vendor table lists as an ADC input (`kae.circuit.mcu_pins`: ESP32 family, ATmega328/32U4/2560, ATtiny85, STM32 PA0–7/PB0–1/PC0–5) | a bare name beside named pins; control or bus suffixes (`ADC_CS`); `Net-(FB1-Pad1)`; logic and bridge-driver pins; BST nets; an ADC-capable pin alone |
+| High-speed | an interface name with a second fact (pair, interface pin, connector), a high-speed or diff class; a plain net whose driver's edge rings within this board's size (`fast_edge`, [haslam.circuit.edges](../llm/net-role-classification.md#fast-nets-built)) | a name alone (`PCIE_3V3`); sideband words (`HDMI_HPD`, `PERST`) |
+| Analog, reset, boot | amplifier/AFE inputs; charger PROG pins; ADC, sense, reference names (alone where no IC pin is named); RST, BOOT pins; an analog name on an MCU pin the vendor table lists as an ADC input (`haslam.circuit.mcu_pins`: ESP32 family, ATmega328/32U4/2560, ATtiny85, STM32 PA0–7/PB0–1/PC0–5) | a bare name beside named pins; control or bus suffixes (`ADC_CS`); `Net-(FB1-Pad1)`; logic and bridge-driver pins; BST nets; an ADC-capable pin alone |
 
 - **Rail source**, first match: battery, module 3V3 pin, jack supply pin, IC internal output, rectifier, regulator or load-switch output, inductor, series path (fuse, bead, ≤ 1 Ω, closed jumper, diode, shunt), any connector, unknown. A low-side switch's drain diode is a clamp, not a source. Of fused rails naming each other, the connector side wins.
 - **Voltage**, in order: name, regulator part number, USB/battery defaults, core-regulator table, inheritance through series parts (−0.4 V per diode); else the lowest capacitor rating bounds it (no value).
@@ -126,7 +126,7 @@ Allocation is joint per rail over every rail-to-ground capacitor:
 
 ## 4. Measured accuracy
 
-Weak labels from the human placement on 112 boards, manual audit (10 dev + 3 held-out boards), pin-type robustness -> [kae-comprehension-brief](../../research/placement/kae-comprehension-brief.md#measured-accuracy). Summary: hot loops and crystals sit where the brief says; ownership among unlike loads on one rail is the weak part (§5).
+Weak labels from the human placement on 112 boards, manual audit (10 dev + 3 held-out boards), pin-type robustness -> [haslam-comprehension-brief](../../research/placement/haslam-comprehension-brief.md#measured-accuracy). Summary: hot loops and crystals sit where the brief says; ownership among unlike loads on one rail is the weak part (§5).
 
 ## 5. Failure modes that matter for placement
 
@@ -149,11 +149,11 @@ Placer use:
 
 - Schematic order carries ~12 points of ownership accuracy; only a schematic or a datasheet's per-pin recommendation can split one rail's caps between unlike ICs.
 - Hot-loop and path membership come from topology tables; schematic simulation ([schematic-to-physics](schematic-to-physics.md)) would measure them.
-- Held-out recall rests on 6 boards; a blind audit of the `kae-work-v2` suite would tighten cell and sensitive-net figures.
+- Held-out recall rests on 6 boards; a blind audit of the `haslam-work-v2` suite would tighten cell and sensitive-net figures.
 
 ## Sources
 
 - [comprehension_audit.md](../../../research_notes/LLM%20driven%20PCB%20placement%20and%20routing/comprehension_audit.md) (weak labels, variants, audits, pin types, power paths, rail groups, suite table).
-- Code: `kae/src/kae/circuit/`; tests `kae/tests/test_circuit_*.py`; evaluations above.
+- Code: `haslam/src/haslam/circuit/`; tests `haslam/tests/test_circuit_*.py`; evaluations above.
 - Topology tables: [hot-loops](../rules/power/hot-loops.md); interface impedances: `docs/topics/rules/interfaces/`.
 - Related: [suite-physics-results](suite-physics-results.md), [physics-core-v2-api](physics-core-v2-api.md), [pdn-and-commutation](pdn-and-commutation.md).

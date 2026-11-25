@@ -1,6 +1,6 @@
 (kicad_pcb
 	(version 20241229)
-	(generator "kaebench-test")
+	(generator "haslambench-test")
 	(generator_version "10.0")
 	(general
 		(thickness 1.6)

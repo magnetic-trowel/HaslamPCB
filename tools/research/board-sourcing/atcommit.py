@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """atcommit.py REPO COMMIT -> JSON with licence files + README licence lines + kicad files at that exact commit."""
 import json, os, re, subprocess, sys
-S = os.environ.get('KAE_SOURCING_CACHE', os.path.expanduser('~/.cache/kae-sourcing'))
+S = os.environ.get('HASLAM_SOURCING_CACHE', os.path.expanduser('~/.cache/haslam-sourcing'))
 url, sha = sys.argv[1].rstrip('/'), sys.argv[2]
 d = os.path.join(S, 'clones_at', re.sub(r'[^A-Za-z0-9]+', '_', url.split('://')[-1]) + '_' + sha[:10])
 def g(*a, check=True):

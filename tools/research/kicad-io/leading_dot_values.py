@@ -1,14 +1,14 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Survey: parts whose value fields write a leading-dot number ('.1uF', '.33uH', '.5MHz'), and what the
-kae.circuit.values fix changes for them.
+haslam.circuit.values fix changes for them.
 
   python leading_dot_values.py OLD_VALUES_PY OUT.jsonl BOARD...
 
-OLD_VALUES_PY is kae/src/kae/circuit/values.py before the fix (git show origin/main:...). For each board
+OLD_VALUES_PY is haslam/src/haslam/circuit/values.py before the fix (git show origin/main:...). For each board
 whose text has such a field, one JSON line: per part, its ref, value, the parser its refdes calls for
 (capacitance, resistance, inductance, frequency), the value before and after, and for capacitors the
-brief's capacitor class (kae.circuit.roles.cap_class) before and after. Boards without one: a line with
+brief's capacitor class (haslam.circuit.roles.cap_class) before and after. Boards without one: a line with
 parts = [] (so the count of boards scanned is in the output).
 """
 from __future__ import annotations
@@ -24,18 +24,18 @@ PARSER = {"C": "capacitance", "R": "resistance", "L": "inductance", "Y": "freque
 
 
 def _old(path):
-    spec = importlib.util.spec_from_file_location("kae_values_old", path)
+    spec = importlib.util.spec_from_file_location("haslam_values_old", path)
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["kae_values_old"] = mod
+    sys.modules["haslam_values_old"] = mod
     spec.loader.exec_module(mod)
     return mod
 
 
 def scan(old, board_path):
-    from kae.board.kicad_file import load
-    from kae.circuit import roles as RO
-    from kae.circuit import values as NEW
-    from kae.circuit.netlist import Netlist
+    from haslam.board.kicad_file import load
+    from haslam.circuit import roles as RO
+    from haslam.circuit import values as NEW
+    from haslam.circuit.netlist import Netlist
     text = open(board_path, errors="replace").read()
     rec = dict(board=board_path, parts=[])
     if not FIELD.search(text):

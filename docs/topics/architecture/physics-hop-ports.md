@@ -1,11 +1,11 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Pricing a hop through the port of the connection it replaces (stage R4b)
 
 Scope: stage R4b of [physics-frequency-coverage](physics-frequency-coverage.md#6-build-stages-and-their-gates): the router's unrouted connections as series-EMF ports of the reduced model, the first-order coupling formula, checks and cost. Not here: R4 spectral prices -> [physics-frequency-coverage](physics-frequency-coverage.md#r4-spectral-router-prices).
-Keys: hop ports, R4b, `kae.em.hopport`, `kae.em.reduce` `emf=`, series-EMF port, connection opened x_P°, raw flux Φ°, bilinear identity, rank-one compensation κ, stationary return mix β, strip image returns, `em_r4b_check`
+Keys: hop ports, R4b, `haslam.em.hopport`, `haslam.em.reduce` `emf=`, series-EMF port, connection opened x_P°, raw flux Φ°, bilinear identity, rank-one compensation κ, stationary return mix β, strip image returns, `em_r4b_check`
 
-Model: for the net(s) routed before the next refresh, each unrouted connection is a part of negligible impedance along the router's own spanning tree, with a series-EMF port ([`kae.em.hopport`](../../../kae/src/kae/em/hopport.py), `kae.em.reduce` `emf=`). Hop currents are exact: the model's current through the connection, including islands that attach downstream.
+Model: for the net(s) routed before the next refresh, each unrouted connection is a part of negligible impedance along the router's own spanning tree, with a series-EMF port ([`haslam.em.hopport`](../../../haslam/src/haslam/em/hopport.py), `haslam.em.reduce` `emf=`). Hop currents are exact: the model's current through the connection, including islands that attach downstream.
 
 Verdict on routing: better two-band score, worse wideband (2899 vs 806), cable common mode near 72–77 MHz -> [field-solver-routing-and-intent](../../research/physics/field-solver-routing-and-intent.md).
 
@@ -35,11 +35,11 @@ For A*, costs are linear in the path about the straight hop:
 - κ₀ from the straight hop's loop;
 - second-order term linearized: adds Y jω Φ°₀ to each pattern's hop current;
 - weights multiply the basis's raw flux fields;
-- the hop's self cost and split rule stay as in kae.em.pnr.
+- the hop's self cost and split rule stay as in haslam.em.pnr.
 
 ## 3. Checks
 
-[`em_r4b_check`](../../../tools/research/physics/em_r4b_check.py), 0.25 mm; prediction by `kae.em.hopport` on the reduced model of the board before the hop, over the direct change; ring at 130 MHz. On the R4 check geometry ([em_r4_check](../../../tools/research/physics/em_r4_check.py)) the hop-port coupling price is 1.003–1.018 from 1 kHz to 300 MHz, with or without a slot.
+[`em_r4b_check`](../../../tools/research/physics/em_r4b_check.py), 0.25 mm; prediction by `haslam.em.hopport` on the reduced model of the board before the hop, over the direct change; ring at 130 MHz. On the R4 check geometry ([em_r4_check](../../../tools/research/physics/em_r4_check.py)) the hop-port coupling price is 1.003–1.018 from 1 kHz to 300 MHz, with or without a slot.
 
 | Case | 1 kHz – 0.3 MHz | 1 – 100 MHz | Ring | 160 – 300 MHz |
 |---|---|---|---|---|

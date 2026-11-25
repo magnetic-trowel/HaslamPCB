@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Electric-field enhancement at copper corners and foil edges, and what it
 does to the air-breakdown (discharge inception) voltage of a PCB gap.

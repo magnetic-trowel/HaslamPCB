@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Part cards for liion-balancer: one PartDef per distinct part (DESIGN.md section 8).
 
@@ -6,8 +6,8 @@ Every fact typed here says where it was read (source=). Datasheets were download
 October 2026; lifecycle is from Digi-Key/LCSC listings of the same month unless noted.
 Evidence tags as in DESIGN.md: [P] primary source read, [S] secondary, [I] our inference.
 """
-from kaesynth import Isolation, PartDef, PinDef, Ratings, VLimit
-from kaesynth.lib import IC, LED, C, Conn, D, Fuse, MountingHole, R, TestPoint, Thermistor
+from haslamsynth import Isolation, PartDef, PinDef, Ratings, VLimit
+from haslamsynth.lib import IC, LED, C, Conn, D, Fuse, MountingHole, R, TestPoint, Thermistor
 
 LT8584_DS = "https://www.analog.com/media/en/technical-documentation/data-sheets/8584fb.pdf"
 ADBMS_DS = "https://www.analog.com/media/en/technical-documentation/data-sheets/adbms1818.pdf"

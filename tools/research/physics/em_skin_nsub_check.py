@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""How many filaments through the copper does kae.em need? Skin and proximity loss vs nsub.
+"""How many filaments through the copper does haslam.em need? Skin and proximity loss vs nsub.
 
-kae.em splits each bar through its thickness into `nsub` filaments (Chebyshev spacing, kae.em.mesh.Layer).
+haslam.em splits each bar through its thickness into `nsub` filaments (Chebyshev spacing, haslam.em.mesh.Layer).
 The default nsub = 2 gives two equal halves. This script solves three canonical structures at
 nsub = 1, 2, 3, 4, 6, 8 (8 is the reference) and 1-200 MHz, and compares:
 
@@ -37,8 +37,8 @@ import time
 import numpy as np
 from shapely.geometry import Point, box
 
-from kae.em import solve as S
-from kae.em.mesh import SIGMA_CU, Layer, Mesh
+from haslam.em import solve as S
+from haslam.em.mesh import SIGMA_CU, Layer, Mesh
 
 MU0 = 4e-7 * math.pi
 T_CU = 0.035
@@ -58,7 +58,7 @@ def slab_exact(f, t=T_CU * 1e-3):
 
 
 def slab_filaments(f, n, t=T_CU * 1e-3, fine=4000):
-    """R/R_dc of the same slab cut into n Chebyshev filaments (kae.em.mesh.Layer.subs), each carrying a
+    """R/R_dc of the same slab cut into n Chebyshev filaments (haslam.em.mesh.Layer.subs), each carrying a
     uniform current: the partial flux of filament k is the mean over k of the flux between the field-side
     face (z = 0, toward the return) and z, from every filament's uniform current."""
     e = (1 - np.cos(np.pi * np.arange(n + 1) / n)) / 2 * t
@@ -195,7 +195,7 @@ def rank_flips(vals):
     return out
 
 
-R_EXT = 0.05                 # Ohm: the cell stand-in's switch resistance (kae.circuit autotb, functional-evaluator.md)
+R_EXT = 0.05                 # Ohm: the cell stand-in's switch resistance (haslam.circuit autotb, functional-evaluator.md)
 C_OSS = (1e-9, 4e-9)
 
 

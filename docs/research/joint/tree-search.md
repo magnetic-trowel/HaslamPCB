@@ -1,7 +1,7 @@
 # Tree search over place-one-route-it: beam search and MCTS
 
 **Status:** beam search worked (moderate); MCTS did not work at this budget.
-**First published:** 2026-10-24, commit [6e5c658](https://github.com/magnetic-trowel/kicad-auto-everything/commit/6e5c658f0ea7c268fe8d44682160bf7a820b4d4b) on branch `claude/keen-wright-mlkjv6` (results [5dd4957](https://github.com/magnetic-trowel/kicad-auto-everything/commit/5dd495783727e28e0113365507388659f9842df2)).
+**First published:** 2026-10-24, commit [6e5c658](https://github.com/magnetic-trowel/HaslamPCB/commit/6e5c658f0ea7c268fe8d44682160bf7a820b4d4b) on branch `claude/keen-wright-mlkjv6` (results [5dd4957](https://github.com/magnetic-trowel/HaslamPCB/commit/5dd495783727e28e0113365507388659f9842df2)).
 
 Scope: place parts one at a time, routing each before the next, keeping several partial boards alive (ideas 7, 8 of the [catalog](../../ideas/original/joint-pnr.md)). Not here: the greedy step `grow` -> [sequential-controls.md](sequential-controls.md); beam as combo's first stage -> [combo.md](combo.md).
 Keys: beam search, beam, MCTS, UCT, rolling horizon, progressive widening, grow_wide, fastcand, node switching by diffing, partial board, ideas 7 8

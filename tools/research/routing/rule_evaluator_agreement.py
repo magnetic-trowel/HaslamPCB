@@ -1,17 +1,17 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Agreement between kae.route's DRC rule evaluator and KiCad's own DRC engine.
+"""Agreement between haslam.route's DRC rule evaluator and KiCad's own DRC engine.
 
 For every board given (default: every route task with a .kicad_dru under TASKS), KiCad
 exports the board with probe items (a track and a via of every net, see
-kae/src/kae/board/kicad_scripts/pcbnew_bridge.py) whose constraints KiCad's engine resolves:
+haslam/src/haslam/board/kicad_scripts/pcbnew_bridge.py) whose constraints KiCad's engine resolves:
 track width min/opt/max, via diameter and drill, annular width and the own clearance of
-every pad, track and via on every copper layer. kae.route.constraints.validate evaluates
-the same queries with kae.route.rules (the port of KiCad's rule engine) and counts the
+every pad, track and via on every copper layer. haslam.route.constraints.validate evaluates
+the same queries with haslam.route.rules (the port of KiCad's rule engine) and counts the
 answers that differ by more than 1 nm.
 
 Usage: python -I rule_evaluator_agreement.py [--tasks DIR] [--work DIR] [BOARD ...]
-Needs KiCad (pcbnew) as kae.board.pcbnew_io finds it; run with kae's venv python.
+Needs KiCad (pcbnew) as haslam.board.pcbnew_io finds it; run with haslam's venv python.
 Prints one markdown row per board and the totals.
 """
 import argparse
@@ -26,11 +26,11 @@ from pathlib import Path
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("boards", nargs="*")
-    ap.add_argument("--tasks", default="kae-work-v2/tasks")
+    ap.add_argument("--tasks", default="haslam-work-v2/tasks")
     ap.add_argument("--work", help="keep the exported DSN and info JSON here")
     a = ap.parse_args(argv)
-    from kae.board import pcbnew_io
-    from kae.route import constraints
+    from haslam.board import pcbnew_io
+    from haslam.route import constraints
 
     boards = a.boards or [str(Path(p).with_suffix(".kicad_pcb"))
                           for p in sorted(glob.glob(f"{a.tasks}/*/route/input/*.kicad_dru"))]

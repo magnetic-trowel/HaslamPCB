@@ -1,10 +1,10 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Reference loop inductance of real board copper: every conductor meshed, no plane assumed.
 
 The fast models make assumptions a routed board can break: the router's loop
-(kae.route.critical_physics.Loop) runs a pour's current along one strip and takes the
-nearest ground layer as a perfect image plane; the SPICE extraction (kae.sim.extract)
+(haslam.route.critical_physics.Loop) runs a pour's current along one strip and takes the
+nearest ground layer as a perfect image plane; the SPICE extraction (haslam.sim.extract)
 meshes pours but drops mutual inductance between pieces and also assumes an ideal plane.
 This tool checks both against the copper itself: the nets' copper on every layer in a
 window (tracks, pads, filled zones, the ground plane with its slots) is rasterized on a
@@ -170,14 +170,14 @@ def validate(pitch=0.5):
 
 # ----------------------------------------------------------------------------- a board loop
 def board_loop(path, nets, port, shorts, window, pitch, layers=None, layer_pitch=None, solid=None):
-    sys.path.insert(0, str(HERE.parents[2] / "kae" / "src"))
+    sys.path.insert(0, str(HERE.parents[2] / "haslam" / "src"))
     from shapely.geometry import Point, box
     from shapely.ops import unary_union
 
-    from kae.board import transform
-    from kae.board.kicad_file import load
-    from kae.place.legalize import pad_shape
-    from kae.route.critical_recheck import fills_of
+    from haslam.board import transform
+    from haslam.board.kicad_file import load
+    from haslam.place.legalize import pad_shape
+    from haslam.route.critical_recheck import fills_of
     b = load(path)
     fills = fills_of(path)
     cu = list(b.stackup.copper)

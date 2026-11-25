@@ -3,7 +3,7 @@
 Run on the shared benchmark host, 2026-10-23, KiCad 10.0.7, spec-5 place tasks, `csweep.py --split C --time 600
 -j 24 --workers 2`, wall 823 s. Compared with [e171267](2026-10-23-place-split-c-e171267.md) on
 the same tasks. Legal means the placer's exact model and kicad-cli DRC on the written board both
-pass (a kae verdict, not kaebench's scorer).
+pass (a haslam verdict, not haslambench's scorer).
 
 | | e171267 | 34fa56b |
 |---|---|---|

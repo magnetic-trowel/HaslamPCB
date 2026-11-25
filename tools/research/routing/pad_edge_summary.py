@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Summarize pad_edge_smoke.sh results: one row per board directory (before -> after).
 
@@ -10,7 +10,7 @@ post-pass as the CLI runs it: reend.json with its stats, phys/reend.*).
 Columns: DRC errors and unconnected (kicad-cli on the re-opened boards, trim.json), new
 violations of any severity, track length, pad entries at the centre / near the edge, and
 oblique (10-45 deg off the edge normal) and acute (> 45 deg) entries; with --terms, the
-physics terms (kae.intent status) whose contribution changed by more than 0.05 %.
+physics terms (haslam.intent status) whose contribution changed by more than 0.05 %.
 """
 import json
 import sys

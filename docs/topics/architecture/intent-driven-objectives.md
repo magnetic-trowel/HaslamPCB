@@ -1,9 +1,9 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Intent-driven objectives: how the commander tells kae what "better" means
+# Intent-driven objectives: how the commander tells haslam what "better" means
 
-Scope: design of kae's internal objective, set by the commander's declared intent. Not here: router changes, build status and acceptance tests -> [intent-driven-objectives-build](intent-driven-objectives-build.md); operating conditions as a SPICE testbench -> [intent-interchange](intent-interchange.md); geometric constraints and specificity -> [constraint-ir](constraint-ir.md); W × Z decomposition -> [physics-driven-design](physics-driven-design.md); reduced-model frequency range -> [physics-frequency-coverage](physics-frequency-coverage.md).
-Keys: intent, objective, exchange rate, mW_eq, lexicographic tiers, ε-constraint, CVaR20, catalogue, observable, knob, what_if, status, elicitation, neutral/1, sections, boundaries, kae.intent/1, phi(u), PHI_SLOPE_CAP, MCP, CEL, out_of_model
+Scope: design of haslam's internal objective, set by the commander's declared intent. Not here: router changes, build status and acceptance tests -> [intent-driven-objectives-build](intent-driven-objectives-build.md); operating conditions as a SPICE testbench -> [intent-interchange](intent-interchange.md); geometric constraints and specificity -> [constraint-ir](constraint-ir.md); W × Z decomposition -> [physics-driven-design](physics-driven-design.md); reduced-model frequency range -> [physics-frequency-coverage](physics-frequency-coverage.md).
+Keys: intent, objective, exchange rate, mW_eq, lexicographic tiers, ε-constraint, CVaR20, catalogue, observable, knob, what_if, status, elicitation, neutral/1, sections, boundaries, haslam.intent/1, phi(u), PHI_SLOPE_CAP, MCP, CEL, out_of_model
 
 Tags: [P] primary source read, [S] secondary or search summary, [M] measured here, [I] our inference.
 
@@ -47,12 +47,12 @@ No EDA tool found lets intent set an optimizer's objective: constraint managers 
 
 ## Interface: catalogue, intent, status
 
-Design [I]: kae describes itself; the LLM declares intent against the description; kae reconciles toward it and returns a status in the intent's terms. kae runs as a deterministic server (MCP or CLI, same JSON):
+Design [I]: haslam describes itself; the LLM declares intent against the description; haslam reconciles toward it and returns a status in the intent's terms. haslam runs as a deterministic server (MCP or CLI, same JSON):
 
 | Call or resource | Purpose |
 |---|---|
-| `kae://board/<rev>/sections` | the brief's structures as named sections with members and evidence |
-| `kae://catalog`, `describe(id)` | every observable and knob on this board: meaning, unit, scopes, bands, validity, cost, related knobs, written for a model |
+| `haslam://board/<rev>/sections` | the brief's structures as named sections with members and evidence |
+| `haslam://catalog`, `describe(id)` | every observable and knob on this board: meaning, unit, scopes, bands, validity, cost, related knobs, written for a model |
 | `evaluate(intent)` | the [status](#status-what-the-llm-reads), no layout change |
 | `route(intent)`, `place(intent)` | reconcile the layout toward the intent; return the status |
 | `what_if(intent, knobs)` | first-order predicted term changes from current prices |
@@ -82,7 +82,7 @@ Top-level keys: `schema`, `generation`, `currency`, `defaults`, `environment`, `
 
 ```json
 {
- "schema": "kae.intent/1", "generation": 7, "currency": "mW_eq", "defaults": "neutral/1",
+ "schema": "haslam.intent/1", "generation": 7, "currency": "mW_eq", "defaults": "neutral/1",
  "environment": {
    "enclosure": {"kind": "none|plastic|metal_sealed", "why": "handheld, ABS case"},
    "cables": [{"connector": "J1", "length_m": 1.5, "shield": "none"}],
@@ -111,7 +111,7 @@ Rules:
 - Every term says why (`why` or `source`). A bound without a `source` is priced as written but marked `assumed` in its row and in `assumed_limits`. A `limit` needs a `rate`; an unpriced bound is a `report` term (`load` rejects a rate-less limit rather than downgrade it). A `hard` term takes no rate.
 - Temperatures: °C is absolute for `temp.junction`, a rise for `heat.track` (IPC-2221's wording); K is a rise only, rejected against an absolute temperature.
 - Specificity: part-scoped term > section-scoped > board-scoped, as in [constraint-ir](constraint-ir.md#eight-design-rules). Ties are errors, returned with both term ids. Terms compete only within one tier and bound side, so a `min` and a `max` term make a window (`objective.resolve` lists which `where` keys are part or section scope).
-- Exchange rates are explicit and local: "20 mW_eq/dB" = paying 20 mW of loss for 1 dB of GNSS margin is acceptable. kae checks only units and sign. Lacking a rate, the LLM reads each term's marginal cost along the knobs from `evaluate` and answers pairwise ("is 1 dB worth more than 20 mW?"), Keeney–Raiffa style [I].
+- Exchange rates are explicit and local: "20 mW_eq/dB" = paying 20 mW of loss for 1 dB of GNSS margin is acceptable. haslam checks only units and sign. Lacking a rate, the LLM reads each term's marginal cost along the knobs from `evaluate` and answers pairwise ("is 1 dB worth more than 20 mW?"), Keeney–Raiffa style [I].
 
 Defaults when silent (`neutral/1`), each emitted as a synthetic term with id `D*` so it shows in the status like any other term:
 
@@ -162,16 +162,16 @@ minimize lexicographically   ( H_hard,  H_limit,  C )
 ## Locality: sections and boundaries
 
 Intent is local: one board holds a converter, a radio and DDR, each with its own priorities.
-- Section seeds: the brief (`kae/src/kae/circuit/brief.py`: commutation cells, power paths, antennas, crystals, oscillators, decaps, rail groups, victims, chains, heat sources, thermal victims, with members and evidence) and schematic sheet names.
+- Section seeds: the brief (`haslam/src/haslam/circuit/brief.py`: commutation cells, power paths, antennas, crystals, oscillators, decaps, rail groups, victims, chains, heat sources, thermal victims, with members and evidence) and schematic sheet names.
 - The LLM `accept`s, `rename`s, `merge`s and `add`s sections by parts, nets or a region; unresolved members come back as errors.
-- A boundary (`from=A, to=B`, e.g. "buck cell → GNSS LNA input, L1 band") is a first-class scope: the transfer from A's aggressor ports to B's observer ports, the (observer, aggressor) pair kae already computes (`harm.pair_u`, `wideband` `U[(o, s)]`). "Isolate the switcher from the LNA" is one term, not a millimetre rule.
+- A boundary (`from=A, to=B`, e.g. "buck cell → GNSS LNA input, L1 band") is a first-class scope: the transfer from A's aggressor ports to B's observer ports, the (observer, aggressor) pair haslam already computes (`harm.pair_u`, `wideband` `U[(o, s)]`). "Isolate the switcher from the LNA" is one term, not a millimetre rule.
 
-| Section (example) | Terms the LLM would write | kae today |
+| Section (example) | Terms the LLM would write | haslam today |
 |---|---|---|
 | buck / boost cell | `loss.total` cost; `overshoot[switch]` hard vs V_ds rating; `ripple.rail[band=f_sw..10 f_sw]` limit | loss, overshoot, supply peak: yes |
 | GNSS front end | `coupling.band[from=*,to=LNA,band=L1]` limit in dBm/Hz | **no** (>300 MHz) |
 | radio PA supply | `ripple.rail[rail=VPA,band=…]` limit from the PA's spur spec | per-harmonic ripple in `spectrum.totals`; band selection missing |
-| DDR | impedance, skew, crosstalk limits | **no** SI in `kae.excite`; [constraint-ir](constraint-ir.md) constraints |
+| DDR | impedance, skew, crosstalk limits | **no** SI in `haslam.excite`; [constraint-ir](constraint-ir.md) constraints |
 | power stage on a heatsink | `temp.junction` hard; `theta[part→mounting]` cost | junction T yes; heatsink boundary no (`heat.py` has face convection only) |
 | precision ADC | `pickup[victim=ADC_IN,band=0..f_s/2]` in µV from the LSB | peak pickup yes; band and RMS missing |
 | sealed metal box | `emission.*` ignore | — |
@@ -191,7 +191,7 @@ Intent changes only W in the router's W × Z prices, and hard terms stay a lexic
 ## Open questions
 
 - Currency: is mW_eq a good universal currency? Alternatives: dimensionless, or a different currency per board.
-- Rates: always from the LLM, or proposed by kae from pairwise answers?
+- Rates: always from the LLM, or proposed by haslam from pairwise answers?
 - Corners: per-term corners (recommended) are pessimistic for terms that share an operating point. Should `joint` be the default?
 - Above 300 MHz: GNSS, Wi-Fi and cellular need full-wave slices or a calibrated envelope model; until then `out_of_model`. Is an extrapolated, flagged value useful or misleading?
 - Benchmark fairness: methods routing under an intent file must all get the same file ([intent-interchange](intent-interchange.md#open-questions)).
@@ -199,6 +199,6 @@ Intent changes only W in the router's W × Z prices, and hard terms stay a lexic
 
 ## Sources
 
-- In-repo [M]: boost-board evaluation on branch `physics-functional-eval`; `kae/src/kae/excite/`, `kae/src/kae/em/pnr.py`, `kae/src/kae/circuit/brief.py`.
+- In-repo [M]: boost-board evaluation on branch `physics-functional-eval`; `haslam/src/haslam/excite/`, `haslam/src/haslam/em/pnr.py`, `haslam/src/haslam/circuit/brief.py`.
 - Primary and secondary URLs inline. Books and papers: Marler & Arora 2004; Haimes, Lasdon & Wismer 1971; Charnes & Cooper 1961; Keeney & Raiffa 1976.
 - See also: [functional-evaluation](../physics/functional-evaluation.md), [fields-emi-budget](../physics/fields-emi-budget.md), [rf](../rules/rf.md), [thermal](../rules/thermal.md), [decoupling-pdn](../rules/decoupling-pdn.md), [design-rationale-and-intent-record](../ux/design-rationale-and-intent-record.md).

@@ -1,0 +1,289 @@
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Text-level edits of a KiCad 10 board's routing: add locked tracks and vias, list,
+lock, unlock and remove routing items, add and remove guard zones, and transplant a work
+board's routing onto the untouched input.
+
+KiCad 10 files reference nets by name, and pcbnew writes a track as
+
+    (segment (start x y) (end x y) (width w) (locked yes) (layer "F.Cu") (net "GND") (uuid "..."))
+
+(one item per line in the file). Edits here keep every other byte of the file, so a board
+written by `transplant` differs from its input only in routing, which is what a route
+task allows (haslambench's transplant check). Guard zones (`haslam-crit:` names, hard obstacles
+for the bridge) live only on work boards.
+
+The writers (`append_items`, `transplant`, and `edit` when it locks or unlocks; removing
+items is safe in any format) refuse a board stamped 20241229 or lower (KiCad 9 and older)
+with KiCadVersionError: they emit KiCad 10 syntax, and KiCad 9
+rejects a named `(net "GND")` while its own boards say `(net 3)`
+(file-format-and-version-hazards.md). `routing` reads both lock spellings, `(locked yes)`
+(KiCad 8+) and the bare `(segment locked ...)` of KiCad 6/7.
+"""
+from __future__ import annotations
+
+import math
+import re
+import shutil
+import uuid as _uuid
+from pathlib import Path
+
+from haslam.board import sexpr
+from haslam.board.kicad_file import NAMED_NETS_AFTER
+
+ROUTING = ("segment", "arc", "via")
+
+
+class KiCadVersionError(ValueError):
+    """A text writer was asked to edit a board older than KiCad 10."""
+
+
+def stamp(text):
+    """The (version N) format stamp of a board's text, or None."""
+    m = re.search(r"\(version\s+(\d+)\)", text[:512])
+    return int(m.group(1)) if m else None
+
+
+def require_kicad10(text, path=""):
+    """Raise KiCadVersionError unless the board text is stamped above 20241229 (KiCad 10)."""
+    s = stamp(text)
+    if s is None or s <= NAMED_NETS_AFTER:
+        raise KiCadVersionError(
+            f"{path or 'board'}: format stamp {s} is KiCad 9 or older; haslam's text writers emit KiCad 10 "
+            f"syntax (named nets, '(locked yes)'), which KiCad 9 refuses to load. Open and save the "
+            f"board in KiCad 10 first.")
+
+
+def _locked(blk):
+    """`(locked yes)` (KiCad 8+) or a bare `locked` after the head (KiCad 6/7)."""
+    return "(locked yes)" in blk or re.match(r"\s*\((?:segment|arc|via)\s+locked\b", blk) is not None
+
+
+GUARD_PREFIX = "haslam-crit:"
+
+
+def fmt(v):
+    """A length as KiCad writes it: at most 6 decimals (nm), no trailing zeros."""
+    s = f"{float(v):.6f}".rstrip("0").rstrip(".")
+    return "0" if s in ("-0", "") else s
+
+
+def q(s):
+    return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def new_uuid():
+    return str(_uuid.uuid4())
+
+
+# Soft copper: locked tracks and vias that a router laid for physics (haslam.em.pnr --lock) and that the
+# completion's last mile may still rip, as its last tier and only under the physics guard
+# (repair._last_mile; critical.soft_marked). The mark is the uuid itself, so it travels with the item
+# through KiCad, Freerouting's session import (locked items are kept as they are) and every copy of the
+# board, and an item laid again (a new uuid) is no longer soft: an RFC 9562 version-8 uuid whose first
+# 32 bits spell "kaes".
+SOFT_TAG = "6b616573"
+
+
+def soft_uuid():
+    """A new uuid that marks its item as soft copper (random but for the tag, version and variant)."""
+    b = bytearray(_uuid.uuid4().bytes)
+    b[0:4] = bytes.fromhex(SOFT_TAG)
+    b[6] = (b[6] & 0x0F) | 0x80          # version 8 (vendor-specific)
+    b[8] = (b[8] & 0x3F) | 0x80          # RFC 9562 variant
+    return str(_uuid.UUID(bytes=bytes(b)))
+
+
+def is_soft(uid):
+    """Whether a routing item's uuid marks it as soft copper (soft_uuid)."""
+    u = str(uid or "").lower()
+    return len(u) == 36 and u.startswith(SOFT_TAG + "-") and u[14] == "8"
+
+
+def soft_items(path_or_text):
+    """uuids of a board's locked routing items marked soft (soft_uuid). An unlocked item is not
+    soft copper: nothing keeps it from being ripped in the first place."""
+    return sorted(r["uuid"] for r in routing(path_or_text) if r.get("locked") and is_soft(r["uuid"]))
+
+
+def track_sexpr(net, layer, width, a, b, uid=None, locked=True):
+    lk = "\t\t(locked yes)\n" if locked else ""
+    return (f"\t(segment\n\t\t(start {fmt(a[0])} {fmt(a[1])})\n\t\t(end {fmt(b[0])} {fmt(b[1])})\n"
+            f"\t\t(width {fmt(width)})\n{lk}\t\t(layer {q(layer)})\n\t\t(net {q(net)})\n"
+            f"\t\t(uuid {q(uid or new_uuid())})\n\t)\n")
+
+
+def via_sexpr(net, x, y, size, drill, layers=("F.Cu", "B.Cu"), uid=None, locked=True):
+    lk = "\t\t(locked yes)\n" if locked else ""
+    ls = " ".join(q(l) for l in layers)
+    return (f"\t(via\n\t\t(at {fmt(x)} {fmt(y)})\n\t\t(size {fmt(size)})\n\t\t(drill {fmt(drill)})\n"
+            f"\t\t(layers {ls})\n{lk}\t\t(net {q(net)})\n\t\t(uuid {q(uid or new_uuid())})\n\t)\n")
+
+
+def zone_sexpr(net, layer, rings, name, uid=None, clearance=0.0, min_thickness=0.1, priority=0, connect="solid",
+               thermal_gap=0.5, spoke_width=0.5):
+    """A copper zone of `net` on `layer` over the polygon `rings` ([outer, holes...]); KiCad fills it on
+    the next refill. `connect`: the pad connection, "solid" (default), "thermal", "thru_hole_only" or
+    "none" (a keep-out guard copies the plane it guards, so starved thermals still show in its DRC)."""
+    def pts(r):
+        return " ".join(f"(xy {fmt(x)} {fmt(y)})" for x, y in r)
+    outer = rings[0]
+    head = {"solid": "(connect_pads yes", "thermal": "(connect_pads", "none": "(connect_pads no",
+            "thru_hole_only": "(connect_pads thru_hole_only"}.get(connect, "(connect_pads yes")
+    return (f"\t(zone\n\t\t(net {q(net)})\n\t\t(layer {q(layer)})\n\t\t(uuid {q(uid or new_uuid())})\n"
+            f"\t\t(name {q(name)})\n\t\t(hatch edge 0.5)\n\t\t(priority {int(priority)})\n"
+            f"\t\t{head}\n\t\t\t(clearance {fmt(clearance)})\n\t\t)\n"
+            f"\t\t(min_thickness {fmt(min_thickness)})\n\t\t(filled_areas_thickness no)\n"
+            f"\t\t(fill\n\t\t\t(thermal_gap {fmt(thermal_gap)})\n\t\t\t(thermal_bridge_width {fmt(spoke_width)})\n\t\t)\n"
+            f"\t\t(polygon\n\t\t\t(pts {pts(outer)})\n\t\t)\n\t)\n")
+
+
+# ----------------------------------------------------------------------------- reading
+def _blocks(text, heads):
+    """(head, start, end) of top-level blocks with these heads: one level in, a tab (KiCad 8+) or two
+    spaces (KiCad 6/7)."""
+    out = []
+    i = 0
+    pat = re.compile(r"\n(?:\t|  )\((" + "|".join(heads) + r")\b")
+    while True:
+        m = pat.search(text, i)
+        if not m:
+            break
+        a = m.start() + 1
+        b = sexpr.block_end(text, a)
+        out.append((m.group(1), a, b))
+        i = b
+    return out
+
+
+def _uuid_of(block):
+    """The item's id as haslam.board.kicad_file reads it: (uuid "...") or, in KiCad 6/7 files, (tstamp ...)."""
+    m = re.search(r'\((?:uuid|tstamp)\s+"?([^")\s]+)"?\)', block)
+    return m.group(1) if m else None
+
+
+def routing(path_or_text):
+    """[{kind, uuid, locked, start, end}] of a board's routing items, in file order."""
+    text = path_or_text if "\n" in str(path_or_text)[:200] else Path(path_or_text).read_text(encoding="utf-8")
+    out = []
+    for head, a, b in _blocks(text, ROUTING):
+        blk = text[a:b]
+        out.append(dict(kind=head, uuid=_uuid_of(blk), locked=_locked(blk), start=a, end=b))
+    return out
+
+
+# ----------------------------------------------------------------------------- writing
+def _insert(text, chunks):
+    end = text.rstrip().rfind(")")
+    return text[:end] + "".join(chunks) + text[end:]
+
+
+def append_items(src, dst, tracks=(), vias=(), zones=()):
+    """dst = src plus tracks [(net, layer, width, a, b, uuid[, locked[, mid]])] (an arc when
+    mid is given), vias [(net, x, y, size, drill, uuid[, locked])] (locked unless the 7th field
+    says otherwise) and zones [(net, layer, rings, name[, priority[, min_thickness[, {connect, thermal_gap, spoke_width}]]])]."""
+    text = Path(src).read_text(encoding="utf-8")
+    require_kicad10(text, src)
+    chunks = []
+    for t in tracks:
+        lk = t[6] if len(t) > 6 else True
+        if len(t) > 7 and t[7] is not None:
+            from .arcs import arc_sexpr
+            chunks.append(arc_sexpr(t[0], t[1], t[2], t[3], t[7], t[4], uid=t[5], locked=lk))
+        else:
+            chunks.append(track_sexpr(*t[:6], locked=lk))
+    chunks += [via_sexpr(*v[:5], uid=v[5], locked=v[6] if len(v) > 6 else True) for v in vias]
+    chunks += [zone_sexpr(z[0], z[1], z[2], z[3], priority=z[4] if len(z) > 4 else 0,
+                          **({"min_thickness": z[5]} if len(z) > 5 and z[5] else {}),
+                          **(z[6] if len(z) > 6 and z[6] else {})) for z in zones]
+    Path(dst).write_text(_insert(text, chunks), encoding="utf-8")
+
+
+def edit(src, dst, remove=(), lock=None, unlock=None, drop_guards=False):
+    """dst = src with routing items `remove` (uuids) dropped, items `lock` / `unlock`
+    (uuids, or 'all') locked / unlocked, and guard zones dropped."""
+    text = Path(src).read_text(encoding="utf-8")
+    if lock is not None or unlock is not None:   # removing text is safe in any format; writing a lock is not
+        require_kicad10(text, src)
+    remove = set(remove or ())
+    out, pos = [], 0
+    heads = ROUTING + (("zone",) if drop_guards else ())
+    for head, a, b in _blocks(text, heads):
+        blk = text[a:b]
+        if head == "zone":
+            if GUARD_PREFIX in blk:
+                out.append(text[pos:a])
+                pos = _eat_newline(text, b)
+            continue
+        u = _uuid_of(blk)
+        if u in remove:
+            out.append(text[pos:a])
+            pos = _eat_newline(text, b)
+            continue
+        new = blk
+        if lock is not None and (lock == "all" or u in lock) and "(locked yes)" not in blk:
+            new = _set_locked(blk, True)
+        elif unlock is not None and (unlock == "all" or u in unlock) and "(locked yes)" in blk:
+            new = _set_locked(blk, False)
+        if new is not blk:
+            out.append(text[pos:a])
+            out.append(new)
+            pos = b
+    out.append(text[pos:])
+    Path(dst).write_text("".join(out), encoding="utf-8")
+
+
+def _eat_newline(text, b):
+    return b + 1 if b < len(text) and text[b] == "\n" else b
+
+
+def _set_locked(blk, locked):
+    if locked:
+        # after the width/size line, as pcbnew writes it
+        m = re.search(r"\n(\t+)\((width|size) [^)]*\)", blk)
+        if m:
+            k = m.end()
+            return blk[:k] + f"\n{m.group(1)}(locked yes)" + blk[k:]
+        return blk[:-1] + " (locked yes))"
+    return re.sub(r"\n\t+\(locked yes\)", "", blk).replace(" (locked yes)", "")
+
+
+def transplant(work, inp, dst):
+    """dst = inp plus every routing item of `work` (the route task's allowed change)."""
+    wt = Path(work).read_text(encoding="utf-8")
+    it = Path(inp).read_text(encoding="utf-8")
+    require_kicad10(it, inp)
+    require_kicad10(wt, work)
+    have = {_uuid_of(it[a:b]) for _, a, b in _blocks(it, ROUTING)}
+    chunks = []
+    for head, a, b in _blocks(wt, ROUTING):
+        blk = wt[a:b]
+        if _uuid_of(blk) in have:
+            continue
+        chunks.append(blk + "\n")              # blk starts at its own leading tab
+    Path(dst).write_text(_insert(it, chunks), encoding="utf-8")
+    return len(chunks)
+
+
+def stage(board, dst_dir, name="board"):
+    """Copy a board and its project files (.kicad_pro, .kicad_dru, .kicad_prl) into dst_dir
+    as <name>.*, removing any there that the board has none of (a stale rules file from an earlier
+    use of dst_dir would otherwise judge it); returns the new board path."""
+    src = Path(board)
+    d = Path(dst_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    out = d / f"{name}.kicad_pcb"
+    if src.resolve() != out.resolve():
+        shutil.copy2(src, out)
+    for ext in (".kicad_pro", ".kicad_dru", ".kicad_prl"):
+        s = src.with_suffix(ext)
+        t = d / f"{name}{ext}"
+        if not s.exists():
+            t.unlink(missing_ok=True)
+        elif s.resolve() != t.resolve():
+            shutil.copy2(s, t)
+    return out
+
+
+def segment_length(a, b):
+    return math.dist(a, b)

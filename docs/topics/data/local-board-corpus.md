@@ -1,21 +1,21 @@
-# Local board corpus (`kae-boards`)
+# Local board corpus (`haslam-boards`)
 
 Scope: building, laying out and using the local folder of every accepted board (~14,600 open-hardware PCBs; 13,837 in a fresh build). Not here: how boards were found and vetted -> [open-board-sources](open-board-sources.md), [wide-board-corpus](wide-board-corpus.md); method and load-fix mechanism -> [research/data/board-corpus](../../research/data/board-corpus.md).
-Keys: kae-boards, build-corpus.sh, `manifest.jsonl`, `boards/<id>/`, `board.kicad_pcb`, drc.json, copy_board, KAE_KICAD_WRAP, --no-fetch-tag, license_tier, fidelity
+Keys: haslam-boards, build-corpus.sh, `manifest.jsonl`, `boards/<id>/`, `board.kicad_pcb`, drc.json, copy_board, HASLAM_KICAD_WRAP, --no-fetch-tag, license_tier, fidelity
 
 ## Getting the corpus
 
-Facts: never committed (third-party licences); git holds only manifests pinning each board by commit or sha256. Default location `~/kae-boards`; a host keeping it elsewhere says so in its git-ignored `CLAUDE.local.md`. Every board opens in KiCad 10; converted and repaired boards are flagged by tags and notes.
+Facts: never committed (third-party licences); git holds only manifests pinning each board by commit or sha256. Default location `~/haslam-boards`; a host keeping it elsewhere says so in its git-ignored `CLAUDE.local.md`. Every board opens in KiCad 10; converted and repaired boards are flagged by tags and notes.
 
 | Step | Command | Notes |
 |---|---|---|
-| Install KiCad 10.0.7 and the venv | `bench/scripts/setup.sh --no-freerouting` | No sudo: rootless Apptainer + official KiCad image. `kaebench doctor` must pass |
-| Build | `bench/scripts/build-corpus.sh [OUT_DIR] [WORKDIR]` | Defaults `~/kae-boards`, `~/kae-boards-work`. `J=8` for parallel jobs. Resumable: rerun the same command |
-| Check | `wc -l ~/kae-boards/manifest.jsonl` | 13,837 rows on a fresh host; more if the cache already held robots-restricted boards |
+| Install KiCad 10.0.7 and the venv | `bench/scripts/setup.sh --no-freerouting` | No sudo: rootless Apptainer + official KiCad image. `haslambench doctor` must pass |
+| Build | `bench/scripts/build-corpus.sh [OUT_DIR] [WORKDIR]` | Defaults `~/haslam-boards`, `~/haslam-boards-work`. `J=8` for parallel jobs. Resumable: rerun the same command |
+| Check | `wc -l ~/haslam-boards/manifest.jsonl` | 13,837 rows on a fresh host; more if the cache already held robots-restricted boards |
 
 Build = fetch each board at its pinned commit (or sha256 for downloads) → convert Eagle, Altium, Allegro, PADS with `kicad-cli pcb import` → load fixes ([Fidelity](#fidelity-what-differs-from-upstream)) → DRC. Cost: several hours, ≈28 GB corpus + a similar amount in `WORKDIR` (fetch cache, deletable afterwards).
 
-Host etiquette in the fetcher ([fetch.py](../../../bench/src/kaebench/fetch.py)):
+Host etiquette in the fetcher ([fetch.py](../../../bench/src/haslambench/fetch.py)):
 - retries HTTP 429/5xx using Retry-After, holding off the whole host;
 - `J` stays modest: do not raise it against GitHub or GitLab to go faster;
 - rows tagged `host-robots-restricted` never fetched ([below](#hosts-and-robotstxt));
@@ -29,7 +29,7 @@ Inputs = reviewed, committed manifests carrying final licence decisions and sha2
 | `wide-noncommercial` | 843 | [bench/manifests/wide-noncommercial.jsonl](../../../bench/manifests/wide-noncommercial.jsonl) |
 | `candidates` | 297 | [bench/manifests/candidates.jsonl](../../../bench/manifests/candidates.jsonl), the benchmark set |
 
-Builder [corpus.py](../../../tools/research/board-sourcing/corpus.py): add a collection with `name=rows.jsonl@workdir` (any kaebench manifest or enrich results); `--prune` removes folders no longer in the inputs.
+Builder [corpus.py](../../../tools/research/board-sourcing/corpus.py): add a collection with `name=rows.jsonl@workdir` (any haslambench manifest or enrich results); `--prune` removes folders no longer in the inputs.
 
 ### Hosts and robots.txt
 
@@ -52,7 +52,7 @@ Builder [corpus.py](../../../tools/research/board-sourcing/corpus.py): add a col
 ## Layout
 
 ```
-kae-boards/
+haslam-boards/
   manifest.jsonl              one JSON row per board (= boards/<id>/row.json)
   boards/<id>/
     board.kicad_pcb           opens in KiCad 10; converted and load-fixed if needed
@@ -63,7 +63,7 @@ kae-boards/
     row.json                  manifest row
 ```
 
-`board.*` names match the harness layout: `kaebench.boardfiles.copy_board(src_dir, dst_dir)` and `install_rules()` work on a corpus folder directly ([boardfiles.py](../../../bench/src/kaebench/boardfiles.py)).
+`board.*` names match the harness layout: `haslambench.boardfiles.copy_board(src_dir, dst_dir)` and `install_rules()` work on a corpus folder directly ([boardfiles.py](../../../bench/src/haslambench/boardfiles.py)).
 
 ### Manifest fields
 
@@ -85,13 +85,13 @@ kae-boards/
 - Pick boards from the manifest, not by walking folders:
   ```python
   import json
-  rows = [json.loads(l) for l in open("/home/<you>/kae-boards/manifest.jsonl")]
+  rows = [json.loads(l) for l in open("/home/<you>/haslam-boards/manifest.jsonl")]
   small_clean = [r for r in rows if r["layers"] == 2 and "drc-clean" in r["tags"] and r["footprints"] < 60]
   ```
-- Treat the folder as read-only: copy first (`boardfiles.copy_board("~/kae-boards/boards/<id>", workdir)` or `cp -r`); filter on `license_tier` before anything leaves the machine.
-- KiCad: with the venv active, `$KAE_KICAD_WRAP kicad-cli pcb drc ...` runs `kicad-cli`, `$KAE_KICAD_WRAP python3` runs pcbnew (the venv sources `KAE_KICAD_WRAP`). Stats and placement ops: `kaebench.tools.run_ops(...)`. Run KiCad under `ulimit -v 40000000` and a timeout: a few boards are heavy.
-- Read DRC through [tools.summarize_drc](../../../bench/src/kaebench/tools.py): the benchmark's definition; ignores library-only checks. `drc.json` = board **as saved**, no zone refill. Many upstream boards carry DRC errors: compare before/after on the same board; 0 is not the expected state.
-- Benchmark tasks: `kaebench prepare`/`run` on `candidates.jsonl` ([bench/README](../../../bench/README.md)); the corpus does not replace the harness's scoring.
+- Treat the folder as read-only: copy first (`boardfiles.copy_board("~/haslam-boards/boards/<id>", workdir)` or `cp -r`); filter on `license_tier` before anything leaves the machine.
+- KiCad: with the venv active, `$HASLAM_KICAD_WRAP kicad-cli pcb drc ...` runs `kicad-cli`, `$HASLAM_KICAD_WRAP python3` runs pcbnew (the venv sources `HASLAM_KICAD_WRAP`). Stats and placement ops: `haslambench.tools.run_ops(...)`. Run KiCad under `ulimit -v 40000000` and a timeout: a few boards are heavy.
+- Read DRC through [tools.summarize_drc](../../../bench/src/haslambench/tools.py): the benchmark's definition; ignores library-only checks. `drc.json` = board **as saved**, no zone refill. Many upstream boards carry DRC errors: compare before/after on the same board; 0 is not the expected state.
+- Benchmark tasks: `haslambench prepare`/`run` on `candidates.jsonl` ([bench/README](../../../bench/README.md)); the corpus does not replace the harness's scoring.
 
 ## Licensing
 
@@ -107,7 +107,7 @@ Counts: the sourcing host's 14,597 boards. Rules: [licensing-tiers-and-contamina
 ## Fidelity: what differs from upstream
 
 - Load fixes (connectivity-preserving, each tested in `bench/tests`) and import reproducibility (native boards byte-identical; converted boards get new UUIDs, so `clearance`/`shorting_items` may swap or duplicate) -> [board-corpus#import-and-load-fixes](../../research/data/board-corpus.md#import-and-load-fixes).
-- Rules-file fixes: 10 upstream `.kicad_dru` files that KiCad 10 drops silently are repaired (6 minimal edits) or removed (4 that hold no rules) by `tools/research/board-sourcing/dru_fixes.py` (2026-11-02); `row.json`/`manifest.jsonl` carry `dru_fix`, and kaeres gives those boards new task ids. Fr-baseline reruns changed scores on 3 boards (solarlorabox human 211 → 1 DRC errors; petrock human 265 → 122, Freerouting 2.5.0 84 → 141, fork 80 → 103; technikweber Freerouting completion 0.65 → 0.93) [C] -> [why files are dropped](../kicad/drc-rule-language-reference.md#check-every-rules-file-before-use).
+- Rules-file fixes: 10 upstream `.kicad_dru` files that KiCad 10 drops silently are repaired (6 minimal edits) or removed (4 that hold no rules) by `tools/research/board-sourcing/dru_fixes.py` (2026-11-02); `row.json`/`manifest.jsonl` carry `dru_fix`, and haslamres gives those boards new task ids. Fr-baseline reruns changed scores on 3 boards (solarlorabox human 211 → 1 DRC errors; petrock human 265 → 122, Freerouting 2.5.0 84 → 141, fork 80 → 103; technikweber Freerouting completion 0.65 → 0.93) [C] -> [why files are dropped](../kicad/drc-rule-language-reference.md#check-every-rules-file-before-use).
 - 202 boards report 16 layers, mostly Eagle conversions declaring all 16 Eagle copper layers: count tracks per layer before trusting `layers`.
 - Mirror and `.git`-URL duplicates removed by sha256 in the wide manifests ([wide-duplicates.jsonl](../../../bench/manifests/wide-duplicates.jsonl)); near-duplicates removed before enrichment (Jaccard ≥ 0.75 on footprints, values, nets); converted boards compared by exact hash only.
 - Sourcing-host counts: 11,630 2-layer, 2,286 4-layer, 479 with 6+; 11,619 routed; 2,553 `drc-clean`; 2,937 converted (differ from manifest counts because candidates are included).
@@ -120,5 +120,5 @@ Counts: the sourcing host's 14,597 boards. Rules: [licensing-tiers-and-contamina
 ## Sources
 
 - Builder and inputs: [board-sourcing README](../../../tools/research/board-sourcing/README.md), [corpus.py](../../../tools/research/board-sourcing/corpus.py), [build-corpus.sh](../../../bench/scripts/build-corpus.sh)
-- Fetch and fixes: [fetch.py](../../../bench/src/kaebench/fetch.py), [boardfiles.py](../../../bench/src/kaebench/boardfiles.py)
+- Fetch and fixes: [fetch.py](../../../bench/src/haslambench/fetch.py), [boardfiles.py](../../../bench/src/haslambench/boardfiles.py)
 - related: [corpora-and-yield](corpora-and-yield.md), [verification/harness](../verification/harness.md)

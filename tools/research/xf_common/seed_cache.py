@@ -1,13 +1,13 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Seed a kaebench fetch cache from the local board corpus instead of the network.
+"""Seed a haslambench fetch cache from the local board corpus instead of the network.
 
     python seed_cache.py MANIFEST SUITE CORPUS_BOARDS_DIR CACHE_DIR
 
 For each suite id, copies CORPUS/<id>/board.kicad_pcb (and .kicad_pro/.kicad_dru when
 present) to CACHE/<id>/ under the manifest's file names and writes the fetch.json that
-kaebench.fetch.fetch() would write. A board is seeded only when its sha256 equals the
-manifest's pcb_sha256, so `kaebench prepare` then sees exactly the pinned upstream file.
+haslambench.fetch.fetch() would write. A board is seeded only when its sha256 equals the
+manifest's pcb_sha256, so `haslambench prepare` then sees exactly the pinned upstream file.
 """
 import hashlib
 import json

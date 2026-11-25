@@ -1,7 +1,7 @@
 # combo: beam search, then blocker repair, then physics annealing
 
 **Status:** worked.
-**First published:** 2026-10-24, commit [2b7e6f9](https://github.com/magnetic-trowel/kicad-auto-everything/commit/2b7e6f9d03edf76efd31c11fc8a02e60225810be) on branch `claude/keen-wright-mlkjv6` (`combo_lv`, `combo_full`: [46896fe](https://github.com/magnetic-trowel/kicad-auto-everything/commit/46896fe20d1b07b167e9091bdd220876571ded7d)).
+**First published:** 2026-10-24, commit [2b7e6f9](https://github.com/magnetic-trowel/HaslamPCB/commit/2b7e6f9d03edf76efd31c11fc8a02e60225810be) on branch `claude/keen-wright-mlkjv6` (`combo_lv`, `combo_full`: [46896fe](https://github.com/magnetic-trowel/HaslamPCB/commit/46896fe20d1b07b167e9091bdd220876571ded7d)).
 
 Scope: the chain of the three single methods that each beat `seq`; also the canonical v7 baseline table (seq, seq_phys, combo_lv, combo). Not here: v7 physics of these arms -> [physics-objective.md](physics-objective.md#results); `combo_collapse` -> [layer-collapse-analysis.md](layer-collapse-analysis.md#collapse-quantities-as-placement-terms-collapse_cplace).
 Keys: combo, combo_lv, combo_full, `full_w`, beam → repair_phys → anneal_phys, v7 baselines, `RoutedPhys`
@@ -15,7 +15,7 @@ Keys: combo, combo_lv, combo_full, `full_w`, beam → repair_phys → anneal_phy
 
 Variants:
 - `combo_lv`: `phys_w` = 0 (length + vias objective).
-- `combo_full`: split 40 / 20 / 40; state score = routed cost + `full_w` · routed physics (`full_w` = 5) from kae's full recheck on the written board (`RoutedPhys`, ~1.5 s per call); a stage that scores worse is reverted; annealing in 4 slices, each slice end a checkpoint judged by the same score.
+- `combo_full`: split 40 / 20 / 40; state score = routed cost + `full_w` · routed physics (`full_w` = 5) from haslam's full recheck on the written board (`RoutedPhys`, ~1.5 s per call); a stage that scores worse is reverted; annealing in 4 slices, each slice end a checkpoint judged by the same score.
 
 ## What we tried
 
@@ -58,7 +58,7 @@ v7, 28 unchanged boards, 3 seeds (baselines partial, stopped 2026-10-25), mean �
 
 ## Code
 
-[`tools/research/pnr/methods_combo.py`](../../../tools/research/pnr/methods_combo.py): `combo`, `combo_lv`, `combo_full`, `repair_phys`. Needs `pnr_mcts` on the path (done in the module) and kae (`KAE_SRC`). Drivers: [`pnr/scripts/`](../../../tools/research/pnr/scripts/).
+[`tools/research/pnr/methods_combo.py`](../../../tools/research/pnr/methods_combo.py): `combo`, `combo_lv`, `combo_full`, `repair_phys`. Needs `pnr_mcts` on the path (done in the module) and haslam (`HASLAM_SRC`). Drivers: [`pnr/scripts/`](../../../tools/research/pnr/scripts/).
 
 ## Related
 

@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Paired test of free part angles (kae.place `--angles STEP`) from common starting points.
+"""Paired test of free part angles (haslam.place `--angles STEP`) from common starting points.
 
 A full placement run with and without free angles differs mostly by its random trajectory
 (seed-to-seed spread on split B is larger than the effect), so this starts both arms from
@@ -14,7 +14,7 @@ as read (its run relaxed bodies on a crowded board) gets its bodies relaxed firs
     python tools/research/place/anglepolish.py --out OUT.json --step 15 --moves 2000 \\
         --seeds 0,1 START_DIR/<id>/board.kicad_pcb ...
 
-Imports kae from PYTHONPATH (a snapshot or the source tree); never writes boards.
+Imports haslam from PYTHONPATH (a snapshot or the source tree); never writes boards.
 """
 from __future__ import annotations
 
@@ -28,15 +28,15 @@ from pathlib import Path
 
 import numpy as np
 
-from kae.board.kicad_file import load
-from kae.place import clusters
-from kae.place.anneal import make_annealer
-from kae.place.engine import I_OVERFLOW, run_batch, sample_uphill
-from kae.place.legalize import exact_check
-from kae.place.pipeline import SA_U_SAT, _net_kinds, physics_summary
-from kae.place.problem import Problem
-from kae.place.state import State, grid_violations
-from kae.place.stubs import make_brief, make_terms
+from haslam.board.kicad_file import load
+from haslam.place import clusters
+from haslam.place.anneal import make_annealer
+from haslam.place.engine import I_OVERFLOW, run_batch, sample_uphill
+from haslam.place.legalize import exact_check
+from haslam.place.pipeline import SA_U_SAT, _net_kinds, physics_summary
+from haslam.place.problem import Problem
+from haslam.place.state import State, grid_violations
+from haslam.place.stubs import make_brief, make_terms
 
 
 def state_from_board(P):

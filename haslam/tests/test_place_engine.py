@@ -1,0 +1,269 @@
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""haslam.place.engine: the compiled annealer keeps its incremental terms exact, prices like the
+reference annealer, repeats with its seed, and re-places a subset inside a window."""
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from haslam.board.kicad_file import load
+from haslam.place.anneal import Annealer
+from haslam.place.legalize import legalize
+from haslam.place.problem import Problem
+from haslam.place.state import State, grid_violations
+from haslam.place.stubs import StubTerms, stub_brief
+
+engine = pytest.importorskip("haslam.place.engine")
+if not engine.HAVE_NUMBA:
+    pytest.skip("numba not installed (haslam[fast])", allow_module_level=True)
+
+FIXTURE = Path(__file__).parent / "data" / "board" / "fixture.kicad_pcb"
+
+
+def _legal_state(seed=0):
+    b = load(FIXTURE)
+    P = Problem.build(b)
+    st = State(P)
+    rng = np.random.default_rng(seed)
+    for i in P.mov:
+        st.X[i] = rng.integers(P.ncx // 4, 3 * P.ncx // 4)
+        st.Y[i] = rng.integers(P.ncy // 4, 3 * P.ncy // 4)
+    legalize(P, st, time_s=30.0, workers=2, seed=seed)
+    assert not grid_violations(st)
+    return b, P, st
+
+
+def test_engine_totals_stay_exact_and_match_the_reference():
+    b, P, st = _legal_state()
+    terms = StubTerms(b, stub_brief(b))
+    fa = engine.FastAnnealer(P, st.copy(), terms=terms, seed=4)
+    ref0 = Annealer(P, st.copy(), terms=terms, seed=4)
+    assert abs(fa.cost(fa.lam1) - ref0.cost(ref0.lam1)) < 1e-9       # same cost to start with
+    fa.run(cpu_s=60.0, max_moves=20000)
+    fa.write_back()
+    ref = Annealer(P, fa.st.copy(), terms=terms, seed=0)
+    E = fa.E
+    live = [j for j in range(len(P.nets)) if j not in ref.frozen]
+    assert abs(sum(E.nc[j] for j in live) - sum(ref.ncost[j] for j in live)) < 1e-6
+    assert int(E.tot[engine.T_LEG]) == ref.total_leg()
+    assert abs(fa.phys - ref.phys) < 1e-6 * max(1.0, abs(ref.phys))
+    assert np.allclose(E.Dp, ref.cong.Dp)
+    # RUDY demand equals a rebuild from the engine's own net boxes
+    Dn = E.Dn.copy()
+    E.Dn[:] = 0.0
+    wx, wy = np.zeros(E.Dn.shape[0] + 2), np.zeros(E.Dn.shape[1] + 2)
+    for j in range(len(P.nets)):
+        if E.has_box[j]:
+            engine._net_box_apply(E, j, 1.0, *E.net_box[j], E.net_dens[j], wx, wy)
+    assert np.allclose(E.Dn, Dn, atol=1e-9)
+
+
+def test_engine_repeats_with_its_seed():
+    b, P, st = _legal_state(seed=2)
+    out = []
+    for _ in range(2):
+        fa = engine.FastAnnealer(P, st.copy(), terms=None, seed=7, w_phys=0.0)
+        fa.run(cpu_s=60.0, max_moves=5000)
+        out.append((fa.X.tolist(), fa.Y.tolist(), fa.K.tolist()))
+    assert out[0] == out[1]
+
+
+@pytest.mark.parametrize("cls", ["engine", "reference"])
+def test_subset_moves_inside_its_window_only(cls):
+    b, P, st = _legal_state(seed=3)
+    sub = list(P.mov)[:4]
+    xs = [st.X[i] for i in sub]
+    ys = [st.Y[i] for i in sub]
+    pad = 40
+    window = (int(min(xs)) - pad, int(max(xs)) + pad, int(min(ys)) - pad, int(max(ys)) + pad)
+    kw = dict(terms=None, seed=1, w_phys=0.0, subset=sub, window=window)
+    ann = engine.FastAnnealer(P, st.copy(), **kw) if cls == "engine" else Annealer(P, st.copy(), **kw)
+    ann.run(cpu_s=60.0, max_moves=4000)
+    ann.write_back()
+    moved = [i for i in P.mov if (ann.st.X[i], ann.st.Y[i], ann.st.K[i]) != (st.X[i], st.Y[i], st.K[i])]
+    assert moved and set(moved) <= set(sub)
+    for i in sub:
+        for side, (a, bb, c, d), kind in ann.st.grid_rects(i):
+            if kind == "own":
+                assert window[0] <= a and bb <= window[1] and window[2] <= c and d <= window[3]
+
+
+@pytest.mark.parametrize("cls", ["engine", "reference"])
+def test_a_run_cut_short_by_its_budget_still_ends_cold(cls):
+    """Regression (koron, bms-c1 at v7c): a run whose budget ran out at half its planned moves
+    stopped hot and returned a near-random state; the schedule now cools on time as well."""
+    b, P, st = _legal_state(seed=5)
+    kw = dict(terms=None, seed=2, w_phys=0.0)
+    ann = engine.FastAnnealer(P, st.copy(), **kw) if cls == "engine" else Annealer(P, st.copy(), **kw)
+    ann.run(cpu_s=1.0, max_moves=10 ** 9)
+    assert ann.T_last <= ann.T0 * 1e-3
+
+
+def test_engine_macro_moves_stay_exact():
+    """Macro members without physics move singly in the compiled loop and as a macro from
+    Python; the totals stay exact either way."""
+    from haslam.place import clusters
+    b, P, st = _legal_state(seed=6)
+    ref = {p.ref: p.i for p in P.parts}
+    a, c = ref["U1"], ref["U2"]
+    lay = clusters._layout(P, {a: (0, 0, 0), c: (40, 0, 0)}, 0.0)
+    mac = clusters.Macro(members=[a, c], anchor=a, layouts=[lay], structs=[])
+    fa = engine.FastAnnealer(P, st.copy(), terms=None, macros=[mac], seed=3, w_phys=0.0)
+    assert a in fa.mac_np and c in fa.mac_np and a in set(fa.fast.tolist())
+    rep = fa.run(cpu_s=60.0, max_moves=20000)
+    assert any(k.startswith("macro") for k in rep["by_move"])
+    fa.write_back()
+    fresh = Annealer(P, fa.st.copy(), terms=None, seed=0, w_phys=0.0)
+    live = [j for j in range(len(P.nets)) if j not in fresh.frozen]
+    assert abs(sum(fa.E.nc[j] for j in live) - sum(fresh.ncost[j] for j in live)) < 1e-6
+    assert int(fa.E.tot[engine.T_LEG]) == fresh.total_leg()
+
+
+def test_engine_rebuild_keeps_totals_exact():
+    """Regression (joint loop): after a hash-overflow rebuild the engine's running totals
+    went stale (wirelength 65.76 vs 18.77, Dp off by 6): build() took them from the Python
+    annealer's start state. A rebuild now carries the running state over."""
+    b, P, st = _legal_state()
+    terms = StubTerms(b, stub_brief(b))
+    fa = engine.FastAnnealer(P, st.copy(), terms=terms, seed=4)
+    fa.run(cpu_s=60.0, max_moves=8000)
+    fa._rebuild()
+    fa.run(cpu_s=60.0, max_moves=4000)
+    fa.write_back()
+    ref = Annealer(P, fa.st.copy(), terms=terms, seed=0)
+    E = fa.E
+    live = [j for j in range(len(P.nets)) if j not in ref.frozen]
+    assert abs(sum(E.nc[j] for j in live) - sum(ref.ncost[j] for j in live)) < 1e-6
+    assert abs(E.tot[engine.T_WL] - ref.wl) < 1e-6 * max(1.0, ref.wl)
+    assert int(E.tot[engine.T_LEG]) == ref.total_leg()
+    assert np.allclose(E.Dp, ref.cong.Dp)
+    assert abs(fa.wl - ref.wl) < 1e-6 * max(1.0, ref.wl)
+
+
+def test_engine_rebuild_recounts_legality_after_an_overflow():
+    """A full hash bucket drops a rectangle (I_OVERFLOW), so the moves priced since undercount
+    overlap. _rebuild copied that stale legality total over; it now counts it again. And a
+    Python-side move that overflows rebuilds too (a run with no fast parts never ran the
+    rebuild after a compiled batch)."""
+    b, P, st = _legal_state()
+    fa = engine.FastAnnealer(P, st.copy(), terms=None, seed=4, w_phys=0.0)
+    fa.run(cpu_s=60.0, max_moves=4000)
+    fa.E.tot[engine.T_LEG] += 12345                 # what a dropped rectangle leaves behind
+    fa._rebuild()
+    fa.write_back()
+    assert int(fa.E.tot[engine.T_LEG]) == Annealer(P, fa.st.copy(), terms=None, seed=0).total_leg()
+    fa.E = engine.build(fa.ann, hash_cap=1)         # every bucket full
+    assert fa.E.ip[engine.I_OVERFLOW]
+    i = fa.mov[0]
+    fa._try_python([i], [(int(fa.E.X[i]) + 1, int(fa.E.Y[i]), int(fa.E.K[i]))], 1e-9, fa.lam1, "shift")
+    assert not fa.E.ip[engine.I_OVERFLOW]
+    fa.write_back()
+    assert int(fa.E.tot[engine.T_LEG]) == Annealer(P, fa.st.copy(), terms=None, seed=0).total_leg()
+
+
+def test_congestion_history_hook_is_exact_in_both_engines():
+    """cong_history (haslam.joint's routing feedback) is static congestion demand: the compiled
+    engine and the reference annealer price it the same, before and after a run."""
+    b, P, st = _legal_state()
+
+    def hist(x0, y0, bsz, nbx, nby):
+        a = np.zeros((nbx, nby))
+        a[: nbx // 2, :] = 3.0
+        return a
+    fa = engine.FastAnnealer(P, st.copy(), terms=None, seed=1, w_phys=0.0, cong_history=hist)
+    ref0 = Annealer(P, st.copy(), terms=None, seed=1, w_phys=0.0, cong_history=hist)
+    assert np.allclose(fa.E.Dp, ref0.cong.Dp) and ref0.cong_history["bins"] > 0
+    assert abs(fa.cost(fa.lam1) - ref0.cost(ref0.lam1)) < 1e-9
+    fa.run(cpu_s=60.0, max_moves=4000)
+    fa.write_back()
+    ref = Annealer(P, fa.st.copy(), terms=None, seed=0, w_phys=0.0, cong_history=hist)
+    assert np.allclose(fa.E.Dp, ref.cong.Dp)
+    assert abs(fa.E.tot[engine.T_CONG] - ref.cong.total()) < 1e-6 * max(1.0, ref.cong.total())
+
+
+def _anneal_with_crossings(w_xing=2.0, seed=2):
+    b, P, st = _legal_state(seed)
+    ann = engine.FastAnnealer(P, st, seed=seed, w_cong=0.0, w_xing=w_xing, xing_from=0.0)
+    return ann, P
+
+
+def test_engine_crossing_total_stays_exact():
+    from haslam.place.crossings import Crossings
+    ann, P = _anneal_with_crossings()
+    ann.run(cpu_s=30.0, moves_per_part=300)
+    ann.write_back()
+    # the engine's running total against a fresh count on the Python side
+    view = ann.ann
+    for i in view.mov:
+        view.X[i], view.Y[i], view.K[i] = int(ann.E.X[i]), int(ann.E.Y[i]), int(ann.E.K[i])
+        view._update_pins(i)
+    count = Crossings(P, view).total
+    assert int(ann.E.tot[engine.T_XING]) == count
+    assert ann.terms_report()["xing"] == count
+
+
+def test_crossing_term_lowers_crossings_at_equal_budget():
+    from haslam.place.crossings import Crossings
+    base, P = _anneal_with_crossings(w_xing=0.0)
+    term, _ = _anneal_with_crossings(w_xing=20.0)
+    base.run(cpu_s=30.0, moves_per_part=2000)
+    term.run(cpu_s=30.0, moves_per_part=2000)
+    def count(a):
+        v = a.ann
+        for i in v.mov:
+            v.X[i], v.Y[i], v.K[i] = int(a.E.X[i]), int(a.E.Y[i]), int(a.E.K[i])
+            v._update_pins(i)
+        return Crossings(P, v).total
+    assert count(term) <= count(base)
+
+
+def _fixed_overlap(P, st):
+    """Cells of every movable part over fixed obstacles or outside the outline."""
+    tot = 0
+    for i in P.mov:
+        for side, (a, b, c, d), _ in st.grid_rects(i):
+            for ob in P.obstacles:
+                if ob.side == side:
+                    dx = min(b, ob.g[1]) - max(a, ob.g[0])
+                    dy = min(d, ob.g[3]) - max(c, ob.g[2])
+                    tot += max(0, dx) * max(0, dy)
+        tot += P.outside_cells_all(int(st.X[i]), int(st.Y[i]), P.parts[i].rots[st.K[i]].g_boards)
+    return tot
+
+
+@pytest.mark.parametrize("cls", ["engine", "reference"])
+def test_hard_fixed_anneal_never_moves_a_part_onto_fixed_geometry(cls):
+    """pi-w-controller: a 28 mm module annealed onto the locked 40-pin header, 30 mm from any clear
+    pose, and no window of the legalizer could reach it. With hard_fixed a move that adds overlap
+    with fixed obstacles or the outside of the outline is rejected at any temperature, and the
+    uphill sample that sets the temperature ignores those moves."""
+    b, P, st = _legal_state(seed=4)
+    assert _fixed_overlap(P, st) == 0
+    for hard in (False, True):
+        kw = dict(terms=None, seed=3, w_phys=0.0, lam0=1e-6, lam1=1e-6, hard_fixed=hard)   # legality nearly free
+        ann = engine.FastAnnealer(P, st.copy(), **kw) if cls == "engine" else Annealer(P, st.copy(), **kw)
+        ann.run(cpu_s=60.0, max_moves=6000)
+        ann.write_back()
+        if hard:
+            assert _fixed_overlap(P, ann.st) == 0
+            assert ann.T0 < 1e10
+        else:
+            assert _fixed_overlap(P, ann.st) > 0       # the soft penalty lets parts onto it
+
+
+@pytest.mark.parametrize("cls", ["engine", "reference"])
+def test_quench_ends_an_overlapping_anneal_legal(cls):
+    """An anneal that ends with two parts overlapping goes on at its final temperature with the
+    legality weight raised, moving only the parts in violation, until it is legal."""
+    b, P, st = _legal_state(seed=6)
+    i, j = P.mov[0], P.mov[1]
+    st.X[j], st.Y[j], st.K[j] = st.X[i] + 5, st.Y[i] + 3, st.K[i]     # j mostly on top of i
+    kw = dict(terms=None, seed=1, w_phys=0.0)
+    ann = engine.FastAnnealer(P, st.copy(), **kw) if cls == "engine" else Annealer(P, st.copy(), **kw)
+    ann.T_last = 1e-6
+    assert ann.leg_total > 0
+    rep = ann.quench(20000)
+    assert rep["leg_end"] == 0 and ann.leg_total == 0
+    ann.write_back()
+    assert not grid_violations(ann.st)

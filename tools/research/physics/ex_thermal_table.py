@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Exact thermal at lookup speed: a precomputed finite-volume Green's table
 (docs/topics/physics/exact-physics-options.md, placement-invariant operators).
@@ -20,8 +20,8 @@ translations, rotations; drawn the same way here when the board has no record ye
 error and the decision flips between the two among materially different pairs. Reports the
 table's build time, memory and lookup time (numpy prototype).
 
-Usage:  python tools/research/physics/ex_thermal_table.py --flips kae-work/physics/exact-options/flips
-        [--only id1,id2] [--pitch 1.0] [--out kae-work/physics/exact-options/thermal-table]
+Usage:  python tools/research/physics/ex_thermal_table.py --flips haslam-work/physics/exact-options/flips
+        [--only id1,id2] [--pitch 1.0] [--out haslam-work/physics/exact-options/thermal-table]
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / 'kae' / 'src'))
+sys.path.insert(0, str(ROOT / 'haslam' / 'src'))
 sys.path.insert(0, str(HERE))
 
 import numpy as np  # noqa: E402
@@ -157,11 +157,11 @@ def own_candidates(T, bid, n_parts=6, seed=1):
 
 def run(bid, flips_dir, pitch):
     import ex_exact as X
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
-    from kae.physics.place_terms import Terms
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
+    from haslam.physics.place_terms import Terms
     import ex_decision_flips as D
-    b = load(str(ROOT / 'kae-work-v2' / 'tasks' / bid / 'reference' / 'board.kicad_pcb'))
+    b = load(str(ROOT / 'haslam-work-v2' / 'tasks' / bid / 'reference' / 'board.kicad_pcb'))
     T = Terms(b, build(b))
     T.total(T.bv.pose0())
     fp = os.path.join(flips_dir, bid + '.json')
@@ -209,8 +209,8 @@ def run(bid, flips_dir, pitch):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('--flips', default=str(ROOT / 'kae-work' / 'physics' / 'exact-options' / 'flips'))
-    ap.add_argument('--out', default=str(ROOT / 'kae-work' / 'physics' / 'exact-options' / 'thermal-table'))
+    ap.add_argument('--flips', default=str(ROOT / 'haslam-work' / 'physics' / 'exact-options' / 'flips'))
+    ap.add_argument('--out', default=str(ROOT / 'haslam-work' / 'physics' / 'exact-options' / 'thermal-table'))
     ap.add_argument('--only', default='')
     ap.add_argument('--pitch', type=float, default=1.0)
     a = ap.parse_args(argv)

@@ -1,12 +1,12 @@
-# kaesynth: from a product brief to a checked KiCad schematic and placement intent
+# haslamsynth: from a product brief to a checked KiCad schematic and placement intent
 
-`kaesynth` is the front of the pipeline. A person describes a product, an LLM writes
-`designs/<slug>/design.py`, and `kaesynth build` turns it into:
+`haslamsynth` is the front of the pipeline. A person describes a product, an LLM writes
+`designs/<slug>/design.py`, and `haslamsynth build` turns it into:
 
 | Output (`designs/<slug>/out/`) | What it is |
 |---|---|
 | `<slug>.kicad_pro`, `<slug>.kicad_sch`, `<block>.kicad_sch` | KiCad 10 project: a root sheet plus one hierarchical sheet per block, net classes, lib tables |
-| `kaesynth.kicad_sym` | Project symbols: generated IC symbols and renumbered transistor symbols |
+| `haslamsynth.kicad_sym` | Project symbols: generated IC symbols and renumbered transistor symbols |
 | `<slug>.kicad_dru` | Custom DRC rules: clearance and creepage between isolation domains |
 | `intent.yaml` | `pcb-intent/0.2` placement intent for the placer/router: board, domains, barriers, net classes, relations |
 | `netlist.json` | The IR netlist, every pin with its net |
@@ -24,16 +24,16 @@ Research behind the design: [schematic-generation-landscape](../../../../docs/to
 ```bash
 bench/scripts/setup.sh --no-freerouting   # KiCad 10 (+ apt install kicad-symbols kicad-footprints if missing)
 cd tools/research/llm-design/synth && uv venv .venv && . .venv/bin/activate && uv pip install -e '.[test]'
-kaesynth build ../designs/<slug>/design.py -v      # checks + KiCad files + ERC + parity
-kaesynth sym 'Relay:.*G5LE'                        # search symbols; `kaesynth sym Lib:Name` prints pins
-kaesynth fp 'TerminalBlock_Phoenix:.*5.08'         # search footprints; `kaesynth fp Lib:Name` prints pads
+haslamsynth build ../designs/<slug>/design.py -v      # checks + KiCad files + ERC + parity
+haslamsynth sym 'Relay:.*G5LE'                        # search symbols; `haslamsynth sym Lib:Name` prints pins
+haslamsynth fp 'TerminalBlock_Phoenix:.*5.08'         # search footprints; `haslamsynth fp Lib:Name` prints pads
 pytest tests                                        # KiCad tests skip without kicad-cli
 ```
 
 With KiCad from the container image (`bench/scripts/setup.sh`), `kicad-cli` runs through
-`KAE_KICAD_WRAP`; point `KICAD10_SYMBOL_DIR` and `KICAD10_FOOTPRINT_DIR` at the image's
-`usr/share/kicad/{symbols,footprints}`. The rules check imports `kae.board.dru_check` (put
-`kae/src` on `PYTHONPATH`); without it, the build runs kaesynth's own lint only and says so.
+`HASLAM_KICAD_WRAP`; point `KICAD10_SYMBOL_DIR` and `KICAD10_FOOTPRINT_DIR` at the image's
+`usr/share/kicad/{symbols,footprints}`. The rules check imports `haslam.board.dru_check` (put
+`haslam/src` on `PYTHONPATH`); without it, the build runs haslamsynth's own lint only and says so.
 
 `build` exits non-zero while any unwaived error remains. Iterate until it is clean, then read
 `report.md`: warnings are things a reviewer will ask about.
@@ -47,8 +47,8 @@ With KiCad from the container image (`bench/scripts/setup.sh`), `kicad-cli` runs
 4. **Circuit.** Nets with domain, voltage range, current, kind. Every pin connected or `nc_pins(..., reason=)`.
 5. **Checks** (deterministic, pin-level messages; table below).
 6. **Emit + KiCad gates:** `kicad-cli sch erc` and a **netlist round trip** — the schematic KiCad
-   reads must be pin-for-pin identical to the IR. Then the `.kicad_dru` check: kaesynth's lint
-   (net-class names), then `kae dru-check`'s static and KiCad passes (kicad-cli 10.0.7 drops a
+   reads must be pin-for-pin identical to the IR. Then the `.kicad_dru` check: haslamsynth's lint
+   (net-class names), then `haslam dru-check`'s static and KiCad passes (kicad-cli 10.0.7 drops a
    bad file silently and exits 0, so a plain DRC run proves nothing;
    [kicad-cli.md](../../../../docs/topics/kicad/kicad-cli.md)).
 
@@ -58,8 +58,8 @@ the design-level checks and an independent review are what catch wrong designs.
 ## Writing `design.py`
 
 ```python
-from kaesynth import Design, Hole, Isolation, PinDef, Ratings, VLimit
-from kaesynth.lib import C, IC, LED, NMOS, R, Conn, Fuse, PINMAP_SOT23_FET
+from haslamsynth import Design, Hole, Isolation, PinDef, Ratings, VLimit
+from haslamsynth.lib import C, IC, LED, NMOS, R, Conn, Fuse, PINMAP_SOT23_FET
 
 def build():
     d = Design("my-board", title="...", brief="<the user's words>")
@@ -111,7 +111,7 @@ def build():
 ### Parts
 
 - **Library symbol** (`symbol="Lib:Name"`): pins come from KiCad. Prefer this for passives,
-  connectors, relays and anything KiCad has. Check pins with `kaesynth sym Lib:Name`.
+  connectors, relays and anything KiCad has. Check pins with `haslamsynth sym Lib:Name`.
 - **Generated symbol** (`IC(mpn, pins=[PinDef(number, name, type, side=None), ...], footprint=...)`):
   for ICs; pin numbers and names from the datasheet pin table. Types: `input output bidirectional
   tri_state passive power_in power_out open_collector open_emitter no_connect free`.

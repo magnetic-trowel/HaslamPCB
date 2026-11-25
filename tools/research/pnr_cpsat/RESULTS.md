@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Exact CP-SAT window place-and-route as LNS (tag `cpsat`)
 
@@ -26,7 +26,7 @@ idea here: free a window of 2–6 parts and solve it exactly.
   Numberlink path (degree 1 at its two endpoints, 0 or 2 elsewhere). Cells are exclusive per
   net, and a via clears its 8 neighbours.
 - **Objective:** 3000 per missed connection, plus length, plus 2 mm per via, plus exit
-  cost, plus 2 × the kae physics delta of each pose.
+  cost, plus 2 × the haslam physics delta of each pose.
 - **Solve:** first route with the current poses fixed (as assumptions), which gives a
   complete hint, then free the poses. CP-SAT runs with 1 worker, no LP, no presolve, and
   3 deterministic s.

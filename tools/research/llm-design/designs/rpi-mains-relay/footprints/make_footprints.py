@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Write the custom footprints of rpi-mains-relay into custom.pretty/ (run: python make_footprints.py).
 
@@ -18,7 +18,7 @@ from pathlib import Path
 OUT = Path(__file__).with_name("custom.pretty")
 HDR = """(footprint "{name}"
 	(version 20260206)
-	(generator "kaesynth-design")
+	(generator "haslamsynth-design")
 	(layer "F.Cu")
 	(descr "{descr}")
 	(tags "{tags}")

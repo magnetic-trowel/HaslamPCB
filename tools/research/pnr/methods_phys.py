@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Physics-aware variants: kae.physics place terms (physics.Phys) inside the objective.
+"""Physics-aware variants: haslam.physics place terms (physics.Phys) inside the objective.
 
 Plug-in methods for run.py (`run.py .../methods_phys.py:anneal_phys ...`):
   seq_phys     HPWL placement, then descent on HPWL + w * physics, then route

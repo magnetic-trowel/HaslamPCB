@@ -667,11 +667,11 @@ academany-fabacademy-2019-labs-irbid-students-tarek-asfour-jelllyschematic
 academany-fabacademy-2019-labs-irbid-students-tarek-asfour-ledoutput
 academany-fabacademy-2019-labs-irbid-students-tarek-asfour-manooveboard
 academany-fabacademy-2019-labs-irbid-students-tarek-asfour-wifi-board
-academany-fabacademy-2019-labs-kamakura-students-kae-nagano-bmxbrd-s
-academany-fabacademy-2019-labs-kamakura-students-kae-nagano-hello
-academany-fabacademy-2019-labs-kamakura-students-kae-nagano-light3
-academany-fabacademy-2019-labs-kamakura-students-kae-nagano-light3-nw
-academany-fabacademy-2019-labs-kamakura-students-kae-nagano-steppermotor
+academany-fabacademy-2019-labs-kamakura-students-haslam-nagano-bmxbrd-s
+academany-fabacademy-2019-labs-kamakura-students-haslam-nagano-hello
+academany-fabacademy-2019-labs-kamakura-students-haslam-nagano-light3
+academany-fabacademy-2019-labs-kamakura-students-haslam-nagano-light3-nw
+academany-fabacademy-2019-labs-kamakura-students-haslam-nagano-steppermotor
 academany-fabacademy-2019-labs-kamakura-students-phanuwit-kanthatham-accelerometer
 academany-fabacademy-2019-labs-kamakura-students-phanuwit-kanthatham-accelgyro
 academany-fabacademy-2019-labs-kamakura-students-phanuwit-kanthatham-adafruit-neopixel-8-stick-v2

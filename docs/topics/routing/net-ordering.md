@@ -42,7 +42,7 @@ Keys: net ordering, net order, priority tiers, Abel 1972, easiest first, pairwis
 - OrderPlace (LLM-evolved macro order, −34% HPWL) suggests evolving routing order heuristics → [LLM-evolved heuristics](../solvers/llm-evolved-heuristics.md) [I].
 - LLM as MAPF meta-controller (priorities for prioritized planning / PIBT) → [cross-domain routing](cross-domain-routing-transplants.md).
 
-## Ordering in kae
+## Ordering in haslam
 
 [I]
 - LLM sets priority tiers (power, high-speed, critical analog first) and the first nets explicitly; negotiation protects aggregate completion.

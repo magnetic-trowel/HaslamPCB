@@ -77,7 +77,7 @@ One engine for every idea, so they compare fairly:
 
 ## Physics in the objective (added after the first results)
 
-43. **Physics place terms in every objective** [T: merit]. kae.physics `Terms.delta` (~50 µs) added to placement and annealing costs; no completion cost. HPWL alone makes boards that route well and are electrically wrong. Numbers: [physics-objective](../../research/joint/physics-objective.md#results).
+43. **Physics place terms in every objective** [T: merit]. haslam.physics `Terms.delta` (~50 µs) added to placement and annealing costs; no completion cost. HPWL alone makes boards that route well and are electrically wrong. Numbers: [physics-objective](../../research/joint/physics-objective.md#results).
 
 ## What gets tested first, and why
 

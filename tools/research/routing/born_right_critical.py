@@ -1,15 +1,15 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Critical copper with the old pad entry against born-right rule D (routing-stages.md stage 2).
 
     python born_right_critical.py BOARD.kicad_pcb OUTDIR [--modes centre,centreline]
 
-For each mode, kae.route.critical.route_critical on a copy of BOARD (an unrouted, placed board
+For each mode, haslam.route.critical.route_critical on a copy of BOARD (an unrouted, placed board
 with its .kicad_pro) with pad_entry=<mode>, then KiCad's DRC on the output. Writes
 OUTDIR/<mode>/board.kicad_pcb and OUTDIR/<mode>.json: route time, the router's entries by kind,
 necks and goal retries, pad-entry counts of the critical copper (pad_trim.stats: perpendicular /
 oblique / acute, on the centre line, overhanging), track length, and DRC by type (errors and
-unconnected, input and output). Run it under ulimit -v and the queue (tools/kaeq)."""
+unconnected, input and output). Run it under ulimit -v and the queue (tools/haslamq)."""
 import argparse
 import json
 import shutil
@@ -50,8 +50,8 @@ def main(argv=None):
     ap.add_argument("out")
     ap.add_argument("--modes", default="centre,centreline")
     a = ap.parse_args(argv)
-    from kae.route import critical, drc
-    from kae.route import pad_trim as PT
+    from haslam.route import critical, drc
+    from haslam.route import pad_trim as PT
     src = Path(a.board).resolve()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

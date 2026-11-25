@@ -1,10 +1,10 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 import shutil
 
 import pytest
 
-from kaesynth.kicadlib import footprint_dir, symbol_dir
+from haslamsynth.kicadlib import footprint_dir, symbol_dir
 
 HAVE_LIBS = symbol_dir() is not None and footprint_dir() is not None
 HAVE_KICAD = HAVE_LIBS and shutil.which("kicad-cli") is not None

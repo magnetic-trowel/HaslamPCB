@@ -1,0 +1,338 @@
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Closed-form physics kernels for the placement terms (docs/topics/physics/place-terms.md).
+
+Units throughout: lengths in mm, inductance in nH, capacitance in pF, time in ns,
+temperature in K, power in W. With lengths in mm, mu0/(4 pi) = 0.1 nH/mm.
+
+Kernels (each cites the exact reference it is validated against in
+tools/research/physics/pt_validate_kernels.py):
+
+* `lprime_hj(w, h)`: per-unit-length inductance of a strip of width w at height h over
+  an ideal plane, Z0_air / c0 from Hammerstad-Jensen (fringing included, any w/h).
+* `cprime_hj(w, h, er)`: per-unit-length capacitance of the same microstrip,
+  sqrt(eps_eff) / (c0 Z0), Hammerstad-Jensen eps_eff.
+* `m_par`: Grover's exact mutual inductance of two parallel filaments.
+* `loop_L(segments, plane)`: loop inductance of a closed chain of straight 3-D segments
+  over an ideal plane at z = 0 by partial inductances with images
+  (L = sum_ij M(s_i, s_j) + M(s_i, image(s_j)); the image of a segment mirrors z and
+  reverses it, which reverses horizontal and keeps vertical currents, as for a PEC).
+  Horizontal strips use the Hammerstad-Jensen per-length term in place of the thin-filament
+  one (the current spreads across a wide strip); parallel pairs are exact (Grover),
+  perpendicular pairs vanish, oblique pairs use Gauss-Legendre quadrature.
+* `mutual_polylines`: Neumann mutual between two open or closed polylines with images
+  (aggressor-victim coupling).
+* `patch_coupling`: mutual capacitance between small copper patches on a grounded dielectric
+  slab (microstrip) from potential coefficients, with the slab's image series (`slab_g`); with
+  parallel-plate self capacitances the far field is eps0 A_a A_v / (2 pi r^3) at any eps_r
+  (lens SY, D1).
+* `fin_kernel`: steady temperature rise of a convectively cooled board (thin fin),
+  P K0(r/lambda) / (2 pi G_s), plus adiabatic-edge images for a rectangular board.
+"""
+from __future__ import annotations
+
+import math
+
+import numpy as np
+
+from haslam import materials as MAT
+
+MU0_4PI = MAT.MU0_4PI_NH_MM          # nH/mm
+MU0_2PI = 0.2          # nH/mm
+EPS0 = 8.8541878e-3    # pF/mm
+C0 = 299.792458        # mm/ns
+ETA0 = 376.730313      # ohm
+T_CU = MAT.CU_1OZ_MM   # mm, default copper thickness
+
+# ----------------------------------------------------------------------------- lines
+
+
+def z0_air_hj(w, h):
+    """Air-filled microstrip Z0 (ohm), Hammerstad-Jensen; scalar."""
+    u = max(w, 1e-6) / max(h, 1e-6)
+    f = 6.0 + (2.0 * math.pi - 6.0) * math.exp(-((30.666 / u) ** 0.7528))
+    return ETA0 / (2.0 * math.pi) * math.log(f / u + math.sqrt(1.0 + (2.0 / u) ** 2))
+
+
+def lprime_hj(w, h):
+    """Per-unit-length inductance (nH/mm) of a strip of width w (mm) at height h over a plane."""
+    return z0_air_hj(w, h) / C0
+
+
+def eps_eff_hj(w, h, er):
+    """Hammerstad-Jensen effective permittivity of a microstrip (zero thickness)."""
+    u = max(w, 1e-6) / max(h, 1e-6)
+    a = 1.0 + math.log((u ** 4 + (u / 52.0) ** 2) / (u ** 4 + 0.432)) / 49.0 \
+        + math.log(1.0 + (u / 18.1) ** 3) / 18.7
+    b = 0.564 * ((er - 0.9) / (er + 3.0)) ** 0.053
+    return (er + 1.0) / 2.0 + (er - 1.0) / 2.0 * (1.0 + 10.0 / u) ** (-a * b)
+
+
+def cprime_hj(w, h, er):
+    """Per-unit-length capacitance to the plane (pF/mm) of a microstrip."""
+    ee = eps_eff_hj(w, h, er)
+    z0 = z0_air_hj(w, h) / math.sqrt(ee)
+    return math.sqrt(ee) / (C0 * z0) * 1e3     # (1/(mm/ns * ohm)) = nF/mm... -> pF/mm
+
+
+def gmd_rect(w, t=T_CU):
+    """Geometric mean distance of a rectangular cross-section (Grover): 0.2235 (w + t)."""
+    return 0.2235 * (w + t)
+
+
+# ----------------------------------------------------------------------------- filaments
+
+
+def _G(u, d):
+    return u * math.asinh(u / d) - math.sqrt(u * u + d * d)
+
+
+def m_par(l1, l2, s, d):
+    """Mutual (nH) of two parallel co-directed filaments (mm): 1 spans [0, l1], 2 spans
+    [s, s + l2] along the same axis, perpendicular distance d (Grover)."""
+    d = max(d, 1e-9)
+    return MU0_4PI * (_G(s + l2, d) - _G(s + l2 - l1, d) - _G(s, d) + _G(s - l1, d))
+
+
+_GL = {n: np.polynomial.legendre.leggauss(n) for n in (2, 3, 4, 6, 8, 12, 16)}
+
+
+def m_quad(p0, p1, q0, q1, n=8):
+    """Neumann mutual (nH) of two straight filaments p0->p1 and q0->q1 (3-D, mm) by
+    n x n Gauss-Legendre quadrature (any relative orientation; not for touching ends)."""
+    x, wq = _GL[n]
+    t = 0.5 * (x + 1.0)
+    p0 = np.asarray(p0, float)
+    q0 = np.asarray(q0, float)
+    dp = np.asarray(p1, float) - p0
+    dq = np.asarray(q1, float) - q0
+    P = p0[None, :] + t[:, None] * dp[None, :]
+    Q = q0[None, :] + t[:, None] * dq[None, :]
+    R = np.sqrt(((P[:, None, :] - Q[None, :, :]) ** 2).sum(-1))
+    R = np.maximum(R, 1e-9)
+    W = 0.25 * wq[:, None] * wq[None, :]
+    return MU0_4PI * float(np.dot(dp, dq)) * float((W / R).sum())
+
+
+def m_seg(p0, p1, q0, q1, gmd=None):
+    """Signed Neumann mutual (nH) between straight segments p0->p1 and q0->q1 (3-D, mm).
+
+    Parallel (or anti-parallel) segments: exact Grover form (gmd as the distance when the
+    segments coincide, i.e. a self term). Perpendicular: 0. Oblique: quadrature, refined
+    when the segments are close compared with their lengths."""
+    p0 = np.asarray(p0, float)
+    p1 = np.asarray(p1, float)
+    q0 = np.asarray(q0, float)
+    q1 = np.asarray(q1, float)
+    dp = p1 - p0
+    dq = q1 - q0
+    lp = float(np.linalg.norm(dp))
+    lq = float(np.linalg.norm(dq))
+    if lp < 1e-12 or lq < 1e-12:
+        return 0.0
+    up = dp / lp
+    uq = dq / lq
+    c = float(np.dot(up, uq))
+    if abs(c) < 1e-9:
+        return 0.0
+    if abs(abs(c) - 1.0) < 1e-9:
+        # parallel: coordinates along up
+        a0 = 0.0
+        b0 = float(np.dot(q0 - p0, up))
+        b1 = float(np.dot(q1 - p0, up))
+        perp = (q0 - p0) - b0 * up
+        d = float(np.linalg.norm(perp))
+        if d < 1e-9 and gmd is not None:
+            d = gmd
+        lo, hi = (b0, b1) if b1 > b0 else (b1, b0)
+        m = m_par(lp, hi - lo, lo - a0, max(d, 1e-9))
+        return m if c > 0 else -m
+    # oblique
+    dist = _seg_dist(p0, p1, q0, q1)
+    n = 8 if dist > 0.25 * max(lp, lq) else 16
+    return m_quad(p0, p1, q0, q1, n=n)
+
+
+def _seg_dist(p0, p1, q0, q1):
+    """Minimum distance between two 3-D segments (coarse: sampled)."""
+    t = np.linspace(0.0, 1.0, 9)
+    P = p0[None, :] + t[:, None] * (p1 - p0)[None, :]
+    Q = q0[None, :] + t[:, None] * (q1 - q0)[None, :]
+    return float(np.sqrt(((P[:, None, :] - Q[None, :, :]) ** 2).sum(-1)).min())
+
+
+def image(seg):
+    """PEC image of a segment for a plane at z = 0: mirror z, reverse direction."""
+    (x0, y0, z0), (x1, y1, z1) = seg[0], seg[1]
+    return ((x1, y1, -z1), (x0, y0, -z0))
+
+
+def loop_L(segments, plane=True, t=T_CU):
+    """Loop inductance (nH) of a closed chain of straight 3-D segments (mm).
+
+    segments: list of dicts {p0, p1, w (strip width) or r (via/tube radius)}; strips must be
+    horizontal (constant z), vias vertical. plane: ideal plane at z = 0 (all z > 0) or none.
+
+    L = sum_ij [M(s_i, s_j) + M(s_i, image(s_j))]. Self terms use the GMD; horizontal
+    strips over the plane replace the thin-filament per-length term 0.2 ln(2h/a) by the
+    Hammerstad-Jensen L'(w, h) (current spreading across wide strips), keeping the
+    finite-length image terms of the filament model."""
+    n = len(segments)
+    L = 0.0
+    S = [(np.asarray(s['p0'], float), np.asarray(s['p1'], float)) for s in segments]
+    gm = []
+    for s in segments:
+        if 'r' in s and s['r']:
+            gm.append(float(s['r']))
+        else:
+            gm.append(gmd_rect(float(s.get('w', 0.2)), t))
+    for i in range(n):
+        p0, p1 = S[i]
+        strip = plane and abs(p0[2] - p1[2]) < 1e-12 and not segments[i].get('r')
+        for j in range(n):
+            q0, q1 = S[j]
+            if i == j:
+                if strip:
+                    L += strip_self(float(np.linalg.norm(p1 - p0)), float(segments[i].get('w', 0.2)),
+                                    float(p0[2]), t)
+                    continue
+                L += m_seg(p0, p1, q0, q1, gmd=gm[i])
+            elif j > i:
+                L += 2.0 * m_seg(p0, p1, q0, q1)
+            if plane:
+                i0, i1 = image((q0, q1))
+                L += m_seg(p0, p1, np.asarray(i0), np.asarray(i1))
+    return float(L)
+
+
+def strip_self(ln, w, h, t=T_CU):
+    """Self inductance (nH) of a straight strip segment of length ln, width w at height h
+    over a plane, including its own image: M(ln, a) - M(ln, d_eff), the thin-filament form
+    with the GMD a = 0.2235 (w + t) and an effective image distance d_eff = a exp(L'/0.2)
+    chosen so that the per-length term is Hammerstad-Jensen's L'(w, h). For narrow strips
+    d_eff -> 2h (filament with image); for wide strips the end terms cancel."""
+    a = gmd_rect(w, t)
+    d_eff = a * math.exp(lprime_hj(w, h) / MU0_2PI)
+    return m_par(ln, ln, 0.0, a) - m_par(ln, ln, 0.0, d_eff)
+
+
+# ----------------------------------------------------------------------------- coupling
+
+
+def gauss_points(polyline, n=4, closed=False):
+    """Gauss points (P, dl) of a 3-D polyline: P (k, 3) positions, dl (k, 3) weighted
+    tangent vectors (sum of dl over a segment = the segment vector)."""
+    pts = np.asarray(polyline, float)
+    if closed:
+        pts = np.vstack([pts, pts[:1]])
+    x, wq = _GL[n]
+    t = 0.5 * (x + 1.0)
+    a = pts[:-1]
+    d = pts[1:] - pts[:-1]
+    P = (a[:, None, :] + t[None, :, None] * d[:, None, :]).reshape(-1, 3)
+    dl = (0.5 * wq[None, :, None] * d[:, None, :]).reshape(-1, 3)
+    return P, dl
+
+
+def mutual_polylines(pa, pv, plane=True, n=4, closed_a=False, closed_v=False):
+    """Neumann mutual (nH) between an aggressor and a victim polyline (3-D, mm), with the
+    aggressor imaged in a plane at z = 0 (the victim's own image does not change the flux
+    through it). Quadrature; for separate structures (distance > segment length / 4)."""
+    Pa, dla = gauss_points(pa, n, closed_a)
+    Pv, dlv = gauss_points(pv, n, closed_v)
+    R = np.sqrt(((Pa[:, None, :] - Pv[None, :, :]) ** 2).sum(-1))
+    m = ((dla @ dlv.T) / np.maximum(R, 1e-9)).sum()
+    if plane:
+        Pi = Pa.copy()
+        Pi[:, 2] = -Pi[:, 2]
+        dli = -dla.copy()
+        dli[:, 2] = -dli[:, 2]     # mirror z of the tangent, then reverse: (-dx, -dy, +dz)
+        R2 = np.sqrt(((Pi[:, None, :] - Pv[None, :, :]) ** 2).sum(-1))
+        m += ((dli @ dlv.T) / np.maximum(R2, 1e-9)).sum()
+    return MU0_4PI * float(m)
+
+
+def slab_g(r, h, eps_r=1.0, rel=1e-6):
+    """4 pi eps0 times the potential (1/mm) at the surface of a grounded dielectric slab (thickness h,
+    permittivity eps_r, air above) at distance r from a unit point charge on that surface:
+
+        g = 2/(eps_r + 1) sum_k (-K)^k [1/sqrt(r^2 + (2kh)^2) - 1/sqrt(r^2 + (2(k+1)h)^2)],
+        K = (eps_r - 1)/(eps_r + 1)
+
+    (the static image series of the slab's spectral Green's function 1/(eps0 k (1 + eps_r coth kh))).
+    Near the charge (r << h) g -> 1/(eps_eff r) with eps_eff = (eps_r + 1)/2, the mean of the two half
+    spaces; far from it (r >> h) the field runs down through the slab and g -> 2 h^2/(eps_r^2 r^3).
+    At eps_r = 1 it is the single plane image, 1/r - 1/sqrt(r^2 + 4h^2). r may be an array."""
+    r = np.maximum(np.asarray(r, float), 1e-6)
+    K = (eps_r - 1.0) / (eps_r + 1.0)
+    n = 1 if abs(K) < 1e-12 else min(2000, int(math.ceil(math.log(rel) / math.log(abs(K)))) + 1)
+    out = np.zeros_like(r)
+    for k in range(n):
+        out += (-K) ** k * (1.0 / np.hypot(r, 2 * k * h) - 1.0 / np.hypot(r, 2 * (k + 1) * h))
+    out *= 2.0 / (eps_r + 1.0)
+    return float(out) if out.ndim == 0 else out
+
+
+def patch_coupling(Aa, Av, r, ha, hv, Ca=None, Cv=None, eps_r=1.0):
+    """Mutual capacitance (pF) between two small patches of areas Aa, Av (mm^2) on a grounded dielectric
+    slab (permittivity eps_r, air above; microstrip), heights ha, hv over the plane, centre distance
+    r (mm; may be an array).
+
+    First order in the potential coefficients:
+        p_av = slab_g(r, (ha + hv)/2, eps_r) / (4 pi eps0),  C_av ~ C_a C_v p_av
+    with C_a, C_v the patches' own capacitances to the plane (default the parallel plate
+    eps0 eps_r A / h; pass the fringing-inclusive one, e.g. cprime_hj(w, h, eps_r) x length, for strips
+    narrower than a few h, where the plate alone is 2-3x low).
+
+    The dielectric: the coupling field runs partly through air and partly through the slab, so p_av
+    takes the slab's own Green's function, not 1/eps0 eps_r. Near (r << h) that is an effective
+    permittivity (eps_r + 1)/2; far (r >> h) p_av ~ h^2/(2 pi eps0 eps_r^2 r^3), so with plate C_a, C_v
+    the far field is eps0 A_a A_v / (2 pi r^3), independent of eps_r and h (lens SY D1). A single
+    effective permittivity eps_eff in p_av instead reads the far field eps_r^2/eps_eff too high (7x at
+    FR-4). An earlier version took 1/(4 pi eps0) in p_av: C grew as eps_r^2 (1.8x high at eps_r 4.5).
+
+    Accuracy as haslam.sim.extract uses it (patches no longer than the lines' spacing, C_a from cprime_hj,
+    a two-conductor correction), against the layered BEM haslam.em.static for two parallel strips 5-10 mm
+    long at eps_r 1 and 4.5 (haslam/tests/test_sim.py checks h = 0.2 mm, w = 0.2 mm):
+    - edge gaps of 3 h and more, w/h 1-1.5: within 6 %;
+    - gaps of h/2 to 2 h: 5-25 % low, the closer the lower: there the first-order (weak coupling) and
+      point-patch approximations break down (not fitted: the regime is left as it reads);
+    - thin strips high over the plane (w/h 0.17, h = 1.5 mm): 7-22 % low at every gap, the strips' end
+      fringing, which a per-length C_a omits.
+    Inner layers (stripline) are outside the model.
+    """
+    eps = EPS0 * eps_r
+    Ca = eps * Aa / max(ha, 1e-6) if Ca is None else Ca
+    Cv = eps * Av / max(hv, 1e-6) if Cv is None else Cv
+    p = slab_g(r, 0.5 * (ha + hv), eps_r) / (4.0 * math.pi * EPS0)
+    return Ca * Cv * p
+
+
+# ----------------------------------------------------------------------------- thermal
+
+
+def fin_params(cu_thickness_mm, cu_fill, fr4_mm, k_cu=MAT.K_CU, k_fr4=MAT.K_FR4_IN, h_top=MAT.H_AIR, h_bot=MAT.H_AIR):
+    """Sheet conductance G_s (W/K) and spreading length lambda (mm) of a board fin.
+
+    G_s = sum_layers k_cu t_i f_i + k_fr4 t_fr4 (W/K per square); lambda = sqrt(G_s / h_tot)."""
+    gs = sum(k_cu * t * 1e-3 * f for t, f in zip(cu_thickness_mm, cu_fill)) + k_fr4 * fr4_mm * 1e-3
+    htot = h_top + h_bot
+    lam = math.sqrt(gs / htot) * 1e3
+    return gs, lam
+
+
+def fin_point(r_mm, gs, lam):
+    """Temperature rise (K per W) at distance r from a point source in an infinite fin."""
+    from scipy.special import k0
+    return k0(np.maximum(r_mm, 1e-6) / lam) / (2.0 * math.pi * gs)
+
+
+# ----------------------------------------------------------------------------- spectra
+
+
+def trapezoid_envelope(A, f, period_ns, t_rise_ns, duty=0.5):
+    """Upper envelope of a trapezoid's harmonic amplitude at frequency f (GHz):
+    min(2 A d, 2 A/(pi f T), 2 A/(pi^2 f^2 T t_r))."""
+    T = period_ns
+    return min(2.0 * A * duty, 2.0 * A / (math.pi * f * T),
+               2.0 * A / (math.pi ** 2 * f * f * T * max(t_rise_ns, 1e-3)))

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Per-move validation of the min-plus map (plan 5.1 diagnostic).
 
@@ -26,7 +26,7 @@ from scipy.stats import spearmanr
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 ROOT = HERE.parents[2]
-WORK = Path(os.environ.get("XF_WORK", ROOT / "kae-work2"))
+WORK = Path(os.environ.get("XF_WORK", ROOT / "haslam-work2"))
 sys.path.insert(0, str(ROOT / "tools" / "research" / "pnr"))
 
 import minplus as MPm  # noqa: E402

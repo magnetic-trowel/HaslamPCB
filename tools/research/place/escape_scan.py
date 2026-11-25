@@ -1,13 +1,13 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Escape bands (kae.place.escape_band.bands) on each board of a list, with the placer's own net kinds.
+"""Escape bands (haslam.place.escape_band.bands) on each board of a list, with the placer's own net kinds.
 
     python escape_scan.py BOARDS.txt CORPUS_DIR OUT.json      (CORPUS_DIR/<id>/board.kicad_pcb)
 """
 import json, sys
-from kae.board.kicad_file import load
-from kae.place.problem import Problem
-from kae.place import escape_band as EB
+from haslam.board.kicad_file import load
+from haslam.place.problem import Problem
+from haslam.place import escape_band as EB
 out = {}
 for bid in open(sys.argv[1]).read().split():
     try:

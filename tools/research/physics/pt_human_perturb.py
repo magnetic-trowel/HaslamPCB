@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Place terms vs the human placement on the kaebench suite (docs/topics/physics/place-terms.md).
+"""Place terms vs the human placement on the haslambench suite (docs/topics/physics/place-terms.md).
 
-For every reference board (kae-work/tasks/*/reference/board.kicad_pcb) this builds the
-physics brief (kae.circuit.brief) and the place terms (kae.physics.place_terms) and asks,
+For every reference board (haslam-work/tasks/*/reference/board.kicad_pcb) this builds the
+physics brief (haslam.circuit.brief) and the place terms (haslam.physics.place_terms) and asks,
 per term kind, whether the human placement scores better than its own perturbations:
 
   local    each involved (unlocked) part, one at a time: translate 1-5 mm in a random
@@ -33,10 +33,10 @@ human placement is classified:
   (loop kinds whose hop has no single-layer route, e.g. BGA escapes, are 'unroutable'.)
 
 Usage:
-  python tools/research/physics/pt_human_perturb.py --out kae-work/physics/place-terms/<run> [-j 2]
+  python tools/research/physics/pt_human_perturb.py --out haslam-work/physics/place-terms/<run> [-j 2]
          [--only id1,id2] [--seed 1] [--local-parts 40] [--shuffles 20]
   python tools/research/physics/pt_human_perturb.py --out DIR --aggregate-only
-Needs kae (kae/.venv). Deterministic for a given seed and brief.
+Needs haslam (haslam/.venv). Deterministic for a given seed and brief.
 """
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_v, "1")
 
 ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / 'kae' / 'src'))
+sys.path.insert(0, str(ROOT / 'haslam' / 'src'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np  # noqa: E402
@@ -77,7 +77,7 @@ class Legal:
     """Courtyard overlap and outline checks against the human placement."""
 
     def __init__(self, T):
-        from kae.board.transform import place_geom
+        from haslam.board.transform import place_geom
         self.place = place_geom
         self.T = T
         bv = T.bv
@@ -163,7 +163,7 @@ def net_hpwl(T, poses, i):
 def kind_values(T, ks, i=None, q=None):
     """Values of structures ks, with part i at pose q when given (direct component
     evaluation; the state is restored)."""
-    from kae.physics.place_terms import _red
+    from haslam.physics.place_terms import _red
     st = T.st
     saved = None
     if i is not None:
@@ -217,7 +217,7 @@ def material_du(T, kind, i, q):
 
 
 def _nearest_pad(bv, st, t, toward):
-    from kae.physics.structures import txy
+    from haslam.physics.structures import txy
     if not t.ks:
         return txy(st, t)
     best = None
@@ -234,8 +234,8 @@ def hop_detour_nH(T, R, pads, comp):
     other nets' pads: sum of L'(w, h) x (routed - straight length) over the hops (a ground
     hop returned through its own plane is not routed). 0 for components without board hops;
     None when a hop has no single-layer route."""
-    from kae.physics.kernels import lprime_hj
-    from kae.physics.structures import DecapLoop, EsdComp, LoopComp, NearestLoopComp, txy
+    from haslam.physics.kernels import lprime_hj
+    from haslam.physics.structures import DecapLoop, EsdComp, LoopComp, NearestLoopComp, txy
     st, bv = T.st, T.bv
     hops = []
     if isinstance(comp, NearestLoopComp):
@@ -282,7 +282,7 @@ def hop_detour_nH(T, R, pads, comp):
 def _straight(T, ks):
     """The structures' components with the expected-detour stretch switched off (their
     straight-hop values), for adding routed detours instead: [(component, saved detour)]."""
-    from kae.physics.structures import CrystalComp, DecapLoop, EsdComp, LoopComp, NearestLoopComp
+    from haslam.physics.structures import CrystalComp, DecapLoop, EsdComp, LoopComp, NearestLoopComp
     out = []
     for k in ks:
         for c in T.structs[k].comps:
@@ -297,7 +297,7 @@ def _straight(T, ks):
 def routed_cost(T, R, ks, i=None, q=None):
     """Cost of structures ks with route detours added to every loop component's straight
     hops (part i at pose q when given), or None when some hop is unroutable."""
-    from kae.physics.place_terms import _red
+    from haslam.physics.place_terms import _red
     st = T.st
     saved = None
     if i is not None:
@@ -340,7 +340,7 @@ def credible(T, s):
     hops (straight, pad to pad) within FAR_MM. A loop the human spread over the board is
     more likely a misidentified structure (wrong cap, wrong owner) than a placement the
     physics should rank."""
-    from kae.physics.structures import DecapLoop, EsdComp, LoopComp, NearestLoopComp, PlanePairLoop, txy
+    from haslam.physics.structures import DecapLoop, EsdComp, LoopComp, NearestLoopComp, PlanePairLoop, txy
     st = T.st
     for c in s.comps:
         if isinstance(c, NearestLoopComp):
@@ -366,9 +366,9 @@ def credible(T, s):
 
 # ============================================================================ per board
 def run_board(path, out_dir, seed, n_local, n_shuffle):
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
-    from kae.physics.place_terms import Terms
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
+    from haslam.physics.place_terms import Terms
     from pt_grid_route import HopRouter
     bid = Path(path).parents[1].name
     rng = random.Random(f'{seed}:{bid}')
@@ -635,7 +635,7 @@ def aggregate(out_dir):
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', required=True)
-    ap.add_argument('--tasks', default=str(ROOT / 'kae-work' / 'tasks'))
+    ap.add_argument('--tasks', default=str(ROOT / 'haslam-work' / 'tasks'))
     ap.add_argument('-j', type=int, default=2)
     ap.add_argument('--only', default='')
     ap.add_argument('--seed', type=int, default=1)

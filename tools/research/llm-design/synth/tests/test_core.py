@@ -1,12 +1,12 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """IR and check behaviour that does not need KiCad (all parts use generated symbols)."""
 import pytest
 
-from kaesynth import Design, DesignError, Isolation, PinDef, Ratings, VLimit
-from kaesynth.checks import Checker
-from kaesynth.ir import PartDef
-from kaesynth import sexpr
+from haslamsynth import Design, DesignError, Isolation, PinDef, Ratings, VLimit
+from haslamsynth.checks import Checker
+from haslamsynth.ir import PartDef
+from haslamsynth import sexpr
 
 
 def two_pin(name, v_max=None, cat="resistor", p_max=None, value="1k"):
@@ -169,7 +169,7 @@ def test_duplicate_fixed_refdes_rejected():
 
 
 def test_dru_lint():
-    from kaesynth import dru
+    from haslamsynth import dru
     good = "(version 1)\n(rule \"a\" (condition \"A.hasNetclass('X') && B.hasNetclass('Y')\")\n" \
            "  (constraint clearance (min 3mm)) (constraint creepage (min 5mm)))\n"
     assert dru.lint(good, {"X", "Y"}) == []
@@ -197,7 +197,7 @@ def mains_with_outputs():
 
 
 def test_dru_nested_domains_direct_rules_win():
-    from kaesynth.emit.project import NetClasses, dru_text
+    from haslamsynth.emit.project import NetClasses, dru_text
     d = mains_with_outputs()
     b = d.block("x")
     for net in ("L", "N", "L_SW1", "GND"):
@@ -229,7 +229,7 @@ def test_relation_names_resolve():
 
 
 def test_i_through_and_one_hop_protector():
-    from kaesynth.lib import D, Fuse
+    from haslamsynth.lib import D, Fuse
     d = Design("prot")
     d.domain("D", ref="GND")
     d.net("GND", domain="D", v=0, kind="ground")
@@ -246,7 +246,7 @@ def test_i_through_and_one_hop_protector():
 
 
 def test_stack_spacing_is_per_domain_pair():
-    from kaesynth.emit.project import NetClasses, dru_text
+    from haslamsynth.emit.project import NetClasses, dru_text
     d = stack(n=16, v=(2.5, 4.2))
     b = d.block("mon")
     # a monitor IC touching every tap: adjacent pins are one cell apart
@@ -295,7 +295,7 @@ def test_notes_are_not_object_names():
 def test_inherited_barriers_strictest_wins():
     """Repro from the lead-acid encoding: barriers (B1,B4,1.5 mm) then (B1,B2,0.6 mm); a domain
     floating on B1 is covered by both inherited rules and must keep 1.5 mm to B4."""
-    from kaesynth.emit.project import NetClasses, dru_text
+    from haslamsynth.emit.project import NetClasses, dru_text
     d = stack(n=4)
     d.domain("X", ref="T1")
     d.net("XN", domain="X", v=(0, 5))
@@ -313,7 +313,7 @@ def test_inherited_barriers_strictest_wins():
 def test_functional_rule_not_skipped_by_netclass_clearance():
     """Repro from the Li-ion encoding: a looser inherited barrier must not beat IPC spacing
     just because a net class already had the IPC clearance."""
-    from kaesynth.emit.project import NetClasses, dru_text
+    from haslamsynth.emit.project import NetClasses, dru_text
     d = stack(n=4)                       # T4 - GND up to 60 V
     d.domain("SW", ref="T2")
     d.net("SWN", domain="SW", v=(-30, 30))
@@ -361,7 +361,7 @@ def test_unused_waiver_reported():
 
 def test_fuse_does_not_protect_loads_ahead_of_it():
     """Repro from the relay board: a supply fuse on the line input made the whole input look fused."""
-    from kaesynth.lib import Fuse
+    from haslamsynth.lib import Fuse
     d = Design("ahead")
     d.domain("M", ref="N")
     d.net("N", domain="M", v=0, kind="mains")
@@ -382,10 +382,10 @@ def test_fixed_position_needs_source():
         d.place.fixed("J1", 10, 10)
 
 
-def test_dru_verdict_uses_kae_dru_check():
-    """kae's static pass catches what kaesynth's own lint does not (KiCad drops such a file)."""
-    pytest.importorskip("kae.board.dru_check")
-    from kaesynth.build import dru_verdict
+def test_dru_verdict_uses_haslam_dru_check():
+    """haslam's static pass catches what haslamsynth's own lint does not (KiCad drops such a file)."""
+    pytest.importorskip("haslam.board.dru_check")
+    from haslamsynth.build import dru_verdict
     good = "(version 1)\n(rule a (constraint clearance (min 0.2mm)) (condition \"A.hasNetclass('X')\"))\n"
     bad = good.replace("A.hasNetclass('X')", "A.NetClas == 'X'")
     assert dru_verdict(good, None, {"X", "Default"}) == "ok (static checks only; KiCad's parser was not asked)"
@@ -393,7 +393,7 @@ def test_dru_verdict_uses_kae_dru_check():
     assert v.startswith("FAIL: ") and "NetClas" in v
 
 
-def test_dru_verdict_kaesynth_lint_first():
-    from kaesynth.build import dru_verdict
+def test_dru_verdict_haslamsynth_lint_first():
+    from haslamsynth.build import dru_verdict
     v = dru_verdict("(version 1)\n(rule a (constraint clearance (min 0.2um)))\n", None, {"Default"})
     assert v.startswith("FAIL: ") and "um" in v

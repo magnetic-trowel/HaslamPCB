@@ -1,11 +1,11 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""kae.excite.pdn (the PDN impedance screener) against published cases and ngspice.
+"""haslam.excite.pdn (the PDN impedance screener) against published cases and ngspice.
 
   python pdn_validate.py cases              published Z(f) cases (Novak, AMD UG583, a parallel RLC)
-  python pdn_validate.py corpus OUT.jsonl BOARD...   the screen on human boards as placed (as kae place reports it)
+  python pdn_validate.py corpus OUT.jsonl BOARD...   the screen on human boards as placed (as haslam place reports it)
   python pdn_validate.py spice BOARD [RAIL]  one rail of a real board: the screen's sweep vs an ngspice AC
-                                             sweep of the same lumped elements (kae.sim.ngspice; the KiCad
+                                             sweep of the same lumped elements (haslam.sim.ngspice; the KiCad
                                              container ships ngspice)
 
 Cases:
@@ -25,8 +25,8 @@ from pathlib import Path
 
 import numpy as np
 
-from kae.excite import pdn
-from kae.excite.circuit import Circuit
+from haslam.excite import pdn
+from haslam.excite.circuit import Circuit
 
 
 def novak(r2=0.015):
@@ -79,10 +79,10 @@ def _spice_value(e, w0=2 * math.pi * 1e6):
 
 
 def spice(board_path, rail=None):
-    from kae.board.kicad_file import load
-    from kae.circuit import brief as B
-    from kae.excite import models as M
-    from kae.sim import ngspice
+    from haslam.board.kicad_file import load
+    from haslam.circuit import brief as B
+    from haslam.excite import models as M
+    from haslam.sim import ngspice
 
     b = load(board_path)
     br = B.build(b)
@@ -93,7 +93,7 @@ def spice(board_path, rail=None):
     # the rail's series-RLC elements to ground (capacitors, regulator, ports); the screen's own circuit
     # reduced to them, swept both ways
     sub = Circuit(bd.ground)
-    lines = ["* kae.excite.pdn rail " + rail, "I1 0 nr AC 1"]
+    lines = ["* haslam.excite.pdn rail " + rail, "I1 0 nr AC 1"]
     k = 0
     for e in c.elems:
         if rail not in (e.a, e.b) or bd.ground not in (e.a, e.b):
@@ -121,20 +121,20 @@ def spice(board_path, rail=None):
     zs = np.array([r[1] for r in rows])
     zi = np.interp(np.log(fs), np.log(f), np.log(zk))
     err = np.abs(np.exp(zi) / zs - 1)
-    print(f"{board_path}: rail {rail}, {k} elements; |Z| kae vs ngspice: median {np.median(err):.2e}, "
+    print(f"{board_path}: rail {rail}, {k} elements; |Z| haslam vs ngspice: median {np.median(err):.2e}, "
           f"max {err.max():.2e} over {len(fs)} points")
 
 
 def corpus(out_path, *board_paths):
     """The screen on human boards as placed (the place terms' decap loops at the board's own poses), one JSON
-    line per board: what kae place's report would carry for that placement."""
+    line per board: what haslam place's report would carry for that placement."""
     import json
     import time
 
-    from kae.board.kicad_file import load
-    from kae.circuit import brief as B
-    from kae.physics.place_terms import Terms
-    from kae.place.pipeline import pdn_report
+    from haslam.board.kicad_file import load
+    from haslam.circuit import brief as B
+    from haslam.physics.place_terms import Terms
+    from haslam.place.pipeline import pdn_report
 
     with open(out_path, "a") as fo:
         for bp in board_paths:

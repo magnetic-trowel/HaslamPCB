@@ -52,8 +52,8 @@ Mosaic floorplans are counted by Baxter numbers, slicing by Schröder numbers; t
 - **No rotation search since 7.0**: commit d649b288 (2021-12-24) removed the 6.0-era 90/180/270 trials and `OrientationPenalty` sliders ([commit](https://gitlab.com/kicad/code/kicad/-/commit/d649b288a62aac5c31489bc41ab22149d7339014) [P]); old 5.x docs still describe rotation.
 - UI: Place ▸ Auto-Place (off-board or selected); needs Edge.Cuts; skips locked parts; one undo step. A developer called it "terrible" in 2016 [S].
 
-## Use in kae
-- Global placement: Cypress-style analytical engine or SA; never a monolithic exact model above ~100 parts: our monolithic CP-SAT stays feasible to ~200 parts but has competitive HPWL only to ~100 (single synthetic solver-bench instance, 4 workers) [C/I]. kae's production model, with macros and sliced rectangles, is capped at 40 items ([kae-placer](../../research/placement/kae-placer.md)).
+## Use in haslam
+- Global placement: Cypress-style analytical engine or SA; never a monolithic exact model above ~100 parts: our monolithic CP-SAT stays feasible to ~200 parts but has competitive HPWL only to ~100 (single synthetic solver-bench instance, 4 workers) [C/I]. haslam's production model, with macros and sliced rectangles, is capped at 40 items ([haslam-placer](../../research/placement/haslam-placer.md)).
 - Keep SA (Rust, incremental cost) as baseline and detailed placer; compare against SA-PCB and tuned SA before claiming wins [I].
 - Use sequence pair as the bridge from LLM pairwise relations to non-overlapping packings (cyclic relation sets have no completion; outline, keep-out and fixed-part legality still needs the legalizer), and ALIGN-style constraint-preserving moves for small module floorplans ([transplants](packing-and-graph-drawing-transplants.md), [analog](analog-constraint-placement.md)) [I].
 - Use clustering (netlist "IC + satellites", schematic sheets) to create hierarchy; KiCad autoplacer (greedy 1 mm grid, no rotation since 7.0) only as fallback seed [I].

@@ -1,6 +1,6 @@
 # Double-sided, thermal, EMC/power-loop and reuse-aware placement
 
-Scope: double-sided, thermal-, EMC/power-loop- and reuse-aware placement. Not here: kae's own physics terms -> [physics terms](../../research/placement/kae-physics-terms.md).
+Scope: double-sided, thermal-, EMC/power-loop- and reuse-aware placement. Not here: haslam's own physics terms -> [physics terms](../../research/placement/haslam-physics-terms.md).
 Keys: side assignment, double-sided, thermal-aware placement, TRouter, thermal surrogate, EMC, loop inductance, power-loop anchors, power module layout, Pareto GA, parasitic extraction, reuse, D2BS, subgraph matching, PCB-Migrator, offset constraint graph
 
 ## Methods and results
@@ -37,7 +37,7 @@ Keys: side assignment, double-sided, thermal-aware placement, TRouter, thermal s
 - **PCB-Migrator** (Han et al., DATE'26): offset constraint graph + routing-path graph matching ([DOI](https://doi.org/10.23919/DATE69613.2026.11539307) [S]); closely related to RAC relation re-solve (89.5% pass after resizes) ([LLM routing evidence](../routing/llm-routing-evidence.md)).
 - MAGE (VLSI): place one reference per family of identical groups, then transform-and-merge ([LLM-guided](llm-guided-placement.md)).
 
-## Use in kae
+## Use in haslam
 - **LLM assigns sides explicitly**: decaps/small passives under BGAs/QFNs on bottom; tall, THT and user-facing parts on top; then two-sided density + PA-ICM-style "bottom pins under the IC" clustering [I].
 - Thermal: fast surrogate (RBF/CNN) as differentiable penalty or SA cost, or Σ PᵢPⱼ/(d²+ε) spreading term; offer a Pareto (wire length vs thermal spread) view [I].
 - Power converters: hot-loop area term (input cap, switch, diode/inductor) + anchors; `away_from` constraints between aggressors and victims ([analytical](../solvers/analytical-differentiable.md)) [I].

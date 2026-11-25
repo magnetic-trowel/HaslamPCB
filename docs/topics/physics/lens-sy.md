@@ -108,7 +108,7 @@ Per band, each body gets a symmetry passport ([lens-cd](lens-cd.md)):
 5. **Group:** its pair, bridge or paralleled set, and antisymmetric residual.
 6. **Gauge:** its voltage means something only with its measuring loop.
 
-## Use in kae
+## Use in haslam
 
 1. Symmetry declarations (permutations on the physics graph) with residual critics; duality map (P2) as a rule generator. Merge Bal into Vcm ([rule-basis-set](rule-basis-set.md)) as "mode conversion" with a level index (SY13–SY15); conversion happens at changes of χ, not by accumulation along the route (FE35).
 2. Split the solver API into `adjoint(J)` (circuit, LTI or periodic) and `lead_field(port)` (field); flag rectifying and threshold victims (SY1–SY4).

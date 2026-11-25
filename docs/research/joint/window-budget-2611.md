@@ -1,17 +1,17 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # The joint loop's windows at a real budget (loop-window-bench, 2026-11-10)
 
-Scope: what `kae.joint`'s window stage gains as its budget grows, and the window fixes J2, J4, J5, J14 (J3: [window-outcomes-2611](window-outcomes-2611.md)). Not here: the chassis verdict (J1).
+Scope: what `haslam.joint`'s window stage gains as its budget grows, and the window fixes J2, J4, J5, J14 (J3: [window-outcomes-2611](window-outcomes-2611.md)). Not here: the chassis verdict (J1).
 Keys: joint loop, windows, window_budget_factor, budget curve, min_iter_s, route_share, first_last_mile, legal_time, revert_illegal, J2, J4, J5, J14, J15
 
 **Status:** windows work, but only with time beyond today's budget. With two budgets of window time open connections fall 16 % (27 boards better, 10 worse, p 0.033) at 2.8 times the CPU. A third and fourth budget add little. No fix to how the budget is split or to the legalizer passed. At equal compute, restarts beat windows as a replacement, but windows as polish on the board restarts kept (the last 30 % of the allowance) remove 9.6 % of the opens left (129 boards, p 0.0003; [polish](#windows-as-polish-after-restarts-loop-polish-2026-11-11)).
-**First published:** 2026-11-10, branch `loop-exp`, experiment `loop-window-bench-v2` (plan `tools/kaeres/experiments/loop-window-bench/PLAN.md`, pre-registered), commit f2f4151.
+**First published:** 2026-11-10, branch `loop-exp`, experiment `loop-window-bench-v2` (plan `tools/haslamres/experiments/loop-window-bench/PLAN.md`, pre-registered), commit f2f4151.
 
-**Branch:** `loop-exp`, first commit [20e1ed6](https://github.com/magnetic-trowel/kicad-auto-everything/commit/20e1ed6e95484e0020fc8b76090ebee0ea7036fe) (2026-11-08), last [62d600f](https://github.com/magnetic-trowel/kicad-auto-everything/commit/62d600f317e41e95a8842a5ad62c71abe10b6c1c) (2026-11-11). The code, plans and scripts named here are at [62d600f](https://github.com/magnetic-trowel/kicad-auto-everything/tree/62d600f317e41e95a8842a5ad62c71abe10b6c1c), not on main.
+**Branch:** `loop-exp`, first commit [20e1ed6](https://github.com/magnetic-trowel/HaslamPCB/commit/20e1ed6e95484e0020fc8b76090ebee0ea7036fe) (2026-11-08), last [62d600f](https://github.com/magnetic-trowel/HaslamPCB/commit/62d600f317e41e95a8842a5ad62c71abe10b6c1c) (2026-11-11). The code, plans and scripts named here are at [62d600f](https://github.com/magnetic-trowel/HaslamPCB/tree/62d600f317e41e95a8842a5ad62c71abe10b6c1c), not on main.
 
 ## Setup
-40 boards where joint leaves open connections (from `placement-decide-joint`), one per repo family, 10 per footprint quartile. One run of `kae.joint.cli` each, seed 0, no restart wrapper. B = 900 s x sqrt(fp/40). Arms ran interleaved, and KiCad scored all 400 runs. Physics is not reported: no board was fully routed in both arms of any pair (the boards were chosen for leaving opens), so the J21 floor cannot be applied.
+40 boards where joint leaves open connections (from `placement-decide-joint`), one per repo family, 10 per footprint quartile. One run of `haslam.joint.cli` each, seed 0, no restart wrapper. B = 900 s x sqrt(fp/40). Arms ran interleaved, and KiCad scored all 400 runs. Physics is not reported: no board was fully routed in both arms of any pair (the boards were chosen for leaving opens), so the J21 floor cannot be applied.
 
 ## Per arm (40 boards)
 
@@ -63,7 +63,7 @@ Doubling from 1 to 2 B removes 4.5 more opens per board (median). From 2 to 4 B 
 - The gain is real but bought with compute: w2 is 2.8 times ctl's CPU. Inside the same budget, re-splitting the time (j2, j5) gains nothing. So the default stays, and the open question is compute-matched: does 3 B of joint with windows beat 3 B of restarts of the staged pipeline, which is how the merit runs spend extra time?
 - J4 fails, so the legalizer was not the limit. More time and the incumbent fallback leave a third of windows illegal: the windows ask for moves that have no legal spot.
 - J14 (`first_last_mile=1`) passes on the pre-registered extension (below). It is the one change that pays at today's budget.
-- What would change this: a window choice that does not repeat (J15) or that targets blocked corridors (`kae.route.blocked`), measured on the same boards.
+- What would change this: a window choice that does not repeat (J15) or that targets blocked corridors (`haslam.route.blocked`), measured on the same boards.
 
 ## J14 extension (`loop-j14-ext`, 2026-11-10)
 Same two arms (`ctl`, `j14`) on the extension's 29 boards, pooled with the first 40 as pre-registered (addendum 3):
@@ -74,7 +74,7 @@ Same two arms (`ctl`, `j14`) on the extension's 29 boards, pooled with the first
 - Default changed in PR #54 (branch `joint-first-last-mile`).
 
 ## Compute-matched: windows against restarts (`loop-compute-matched`, 2026-11-10)
-Plan: `tools/kaeres/experiments/loop-compute-matched/PLAN.md` (pre-registered, with an addendum after the smoke). Commit f2f4151. 69 boards: the 40 above and the 29 of the extension.
+Plan: `tools/haslamres/experiments/loop-compute-matched/PLAN.md` (pre-registered, with an addendum after the smoke). Commit f2f4151. 69 boards: the 40 above and the 29 of the extension.
 - **W, joint plus two budgets of windows:** the bench's `w2 ctl` recipe, run again.
 - **R, staged plus restarts:** J1's staged arm under `restart.py --parallel 1`.
 - Both arms get the same timeout (3.15 B) on one process lane and ran interleaved; KiCad scored all 138 runs.
@@ -103,7 +103,7 @@ Physics cannot be judged: only 2 boards were fully routed in both arms.
 The case left for the joint loop is physics: the module stage and the windows' physics acceptance. These boards could not measure it. Window-choice work (`window-choice-proposal-2611.md`) would now have to beat restarts, not the current windows.
 
 ## Physics at equal compute on boards that route (`loop-physics-matched`, 2026-11-11)
-Plan: `tools/kaeres/experiments/loop-physics-matched/PLAN.md` (pre-registered). Same W and R as `loop-compute-matched`. 160 boards tagged `physics_inputs_ok` with easy or moderate route demand, one per repo family; KiCad and the physics evaluator scored all 320 runs.
+Plan: `tools/haslamres/experiments/loop-physics-matched/PLAN.md` (pre-registered). Same W and R as `loop-compute-matched`. 160 boards tagged `physics_inputs_ok` with easy or moderate route demand, one per repo family; KiCad and the physics evaluator scored all 320 runs.
 
 | | W joint + windows | R staged + restarts |
 |---|---|---|
@@ -132,7 +132,7 @@ The physics win is the joint chassis's (the module stage places and routes criti
 **What it means for the default:** the integrated loop buys physics at the price of completion, and restarts buy completion. A method that wants both needs the module stage's physics without its cost in open connections. Candidates are the module stage under the restart wrapper (J1's arm b), or modules with `finish_release` on every restart. That is a different question from the windows'.
 
 ## Windows as polish after restarts (`loop-polish`, 2026-11-11)
-Plan: `tools/kaeres/experiments/loop-polish/PLAN.md` (pre-registered, with a smoke addendum and a first-batch read). Commit f2f4151. 129 boards: `loop-compute-matched`'s 69 and the first 60 of the extension list (`loop-polish-ext1`), pooled as the plan says. Analysis: `tools/kaeres/experiments/loop-polish/analyze.py`.
+Plan: `tools/haslamres/experiments/loop-polish/PLAN.md` (pre-registered, with a smoke addendum and a first-batch read). Commit f2f4151. 129 boards: `loop-compute-matched`'s 69 and the first 60 of the extension list (`loop-polish-ext1`), pooled as the plan says. Analysis: `tools/haslamres/experiments/loop-polish/analyze.py`.
 - **R, restarts alone:** `loop-compute-matched`'s R, run again in the same jobs.
 - **P-late:** R for 70 % of the allowance, then the joint loop on the kept board for the rest (`restart.py --finish`, `--no-modules`). The loop locks everything on the kept board, joins what is open, then runs windows and its finishing stage.
 - **P-half:** the same with 50 % for the loop.

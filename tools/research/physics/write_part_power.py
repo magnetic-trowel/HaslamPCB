@@ -1,11 +1,11 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Each part's sustained dissipation, from an evaluation of the board, into its operating facts: the placer's
 pull towards cooling reads parts.<ref>.P_sustained_W and does not recompute rail voltages.
 
     python write_part_power.py EV.json OPERATING.json [-o OUT.json] [--min-W 0.001]
 
-EV.json is kae.excite.evaluate's output (part_power_W: W at the typical point: a converter's or regulator's
+EV.json is haslam.excite.evaluate's output (part_power_W: W at the typical point: a converter's or regulator's
 loss, a load's sustained draw turned into heat, a lumped part's DC loss). Dissipation barely depends on the
 layout, so the human layout's evaluation serves every placement of the board.
 """
@@ -29,7 +29,7 @@ def main(argv=None):
     for ref, w in sorted(power.items()):
         if w >= a.min_W:
             op.setdefault("parts", {}).setdefault(ref, {})["P_sustained_W"] = round(w, 4)
-            why[f"parts.{ref}.P_sustained_W"] = f"kae.excite.evaluate at the typical point on {ev.get('board')}"
+            why[f"parts.{ref}.P_sustained_W"] = f"haslam.excite.evaluate at the typical point on {ev.get('board')}"
             n += 1
     json.dump(op, open(a.out or a.operating, "w"), indent=1)
     print(f"{n} parts with P_sustained_W (of {len(power)} dissipating) -> {a.out or a.operating}")

@@ -56,7 +56,7 @@ Keys: PNS, push-and-shove, PNS::ROUTER, ROUTER_IFACE, NODE, Branch, line placer,
 - Determinism: items ordered by geometry with UUID tie-break; shove/walkaround bounded by iteration limits, not wall-clock; seedable KIID. DRC: uncapped per-type counts; R-tree leak fixed.
 - Runs as a child process over a Unix socket ("never combined into one distributable" with the BSD env). Maintenance cost across KiCad 10/11 unknown.
 
-## PNS in kae
+## PNS in haslam
 
 [I]
 - PNS (PCBWorld-Engine-style binding, vendored under GPL-3.0-or-later) as realizer + repair + smoothing: planner supplies waypoints, layer switches, order; then `optimize_all_lines`.

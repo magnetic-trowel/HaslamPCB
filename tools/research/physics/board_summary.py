@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A compact description of one board for whoever writes its intent (kae.intent): what the board is
+"""A compact description of one board for whoever writes its intent (haslam.intent): what the board is
 (repo, path), its parts, rails, connectors and the brief's sections, with the exact ids an intent's
 `where` clauses can name. No physics runs; about a second per board.
 
@@ -15,9 +15,9 @@ PASSIVE = {"resistor", "capacitor", "inductor", "ferrite", "fuse"}
 
 
 def summarize(path, row=None, pintypes=None):
-    from kae.board.kicad_file import load
-    from kae.circuit import brief as BR
-    from kae.intent import sections as SE
+    from haslam.board.kicad_file import load
+    from haslam.circuit import brief as BR
+    from haslam.intent import sections as SE
     b = load(path)
     if pintypes:
         refs = pintypes.get("refs") or {}
@@ -50,7 +50,7 @@ def summarize(path, row=None, pintypes=None):
              if v.get("role") in ("power", "rail", "supply") or v.get("volts")}
     secs = SE.from_brief(br)
     sections = [dict(id=s.id, kind=s.kind, parts=sorted(s.parts)[:10], nets=sorted(s.nets)[:6]) for s in secs.values()]
-    out = dict(schema="kae.board-summary/1", board=os.path.abspath(path),
+    out = dict(schema="haslam.board-summary/1", board=os.path.abspath(path),
                source={k: (row or {}).get(k) for k in ("id", "repo", "pcb_path", "license", "tags")},
                layers=len([l for l in getattr(b, "layers", []) if str(l).endswith(".Cu")]) or None,
                footprints=len(b.footprints), parts=sorted(parts, key=lambda p: p["ref"]),

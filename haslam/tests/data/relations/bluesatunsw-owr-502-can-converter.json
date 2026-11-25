@@ -1,0 +1,12 @@
+{"schema": "haslam.intent/1", "generation": 1,
+ "note": "hand-written from the netlist and silk legends only (no part positions read); can-mcu-c is a natural infeasible ask (a 9 mm LQFP in the middle third of a 17 mm tall board)",
+ "relations": [
+  {"id": "usb-west", "kind": "on_edge", "part": "X1", "edge": "edge:west", "facing": "out", "why": "the USB-C plug enters at one end of the converter"},
+  {"id": "can-east", "kind": "on_edge", "part": "J1", "edge": "edge:east", "facing": "out", "strength": "strong", "why": "the CAN cable leaves at the other end"},
+  {"id": "led-tx", "kind": "near", "a": "D1", "b": "label:\"TX\"", "mag": "tight", "why": "the TX legend names the LED on LED_TX"},
+  {"id": "led-rx", "kind": "near", "a": "D2", "b": "label:\"RX\"", "mag": "tight", "why": "the RX legend names the LED on LED_RX"},
+  {"id": "led-pwr", "kind": "near", "a": "D3", "b": "label:\"PWR\"", "mag": "tight", "why": "the PWR legend names the power LED"},
+  {"id": "can-chain", "kind": "order", "path": ["J1", "U2", "U1"], "why": "bus connector, transceiver, then MCU: short CAN_H/CAN_L stubs"},
+  {"id": "ldo-xtal", "kind": "keep_away", "a": "PS1", "b": "Y1", "mag": "close", "why": "the LDO's heat drifts the crystal"},
+  {"id": "can-mcu-c", "kind": "region", "members": ["U1"], "region": "region:c", "strength": "medium", "why": "MCU central, fanning out to both ends"}
+ ]}

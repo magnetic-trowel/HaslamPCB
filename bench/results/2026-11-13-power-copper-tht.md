@@ -1,13 +1,13 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Power copper: necks at through-hole pads (THT), before and after
 
-Rule, sources and exceptions: [kae-power-copper](../../docs/research/routing/kae-power-copper.md#necks-at-through-hole-pads-2026-11-13). Branch `power-copper-tht` (off `physics-determinism`).
+Rule, sources and exceptions: [haslam-power-copper](../../docs/research/routing/haslam-power-copper.md#necks-at-through-hole-pads-2026-11-13). Branch `power-copper-tht` (off `physics-determinism`).
 
 **Set-up.**
 - **Boards.** The 12 boards: the 9 of [2026-11-08-finish-overhang](2026-11-08-finish-overhang.md), plus the 3 with the most THT overhang in route-finish-ab stage 2's C arm (pekaso fortitude60, computergeek1507 pi-w-controller, nhatminh2h shvrimps).
-- **Runs.** Input: stage 2's arm A board (method a7157c78c659). `kae.route.cli finish` (1,200 s, the corpus board's rules, the stage's operating facts) ran once with the base code (`physics-determinism` 321762db, no THT neck) and once with this branch.
-- **Measures.** `overhang_diag.py`, `kae.route.taut stats` and the deterministic physics evaluator (`eval_intent.sh`, KAE_EM_TOL 1e-4, intents compiled-9867d0b; base code for both). Summary: `tools/research/routing/pc_tht_summary.py`.
+- **Runs.** Input: stage 2's arm A board (method a7157c78c659). `haslam.route.cli finish` (1,200 s, the corpus board's rules, the stage's operating facts) ran once with the base code (`physics-determinism` 321762db, no THT neck) and once with this branch.
+- **Measures.** `overhang_diag.py`, `haslam.route.taut stats` and the deterministic physics evaluator (`eval_intent.sh`, HASLAM_EM_TOL 1e-4, intents compiled-9867d0b; base code for both). Summary: `tools/research/routing/pc_tht_summary.py`.
 - **Repeats and gaps.** One run per board and arm (finish and the evaluator are deterministic). Endstop, gos2022 and pumpbot have no DC terms in either arm (the evaluator reports their copper open for DC).
 
 ## Totals (final rule)
@@ -46,7 +46,7 @@ Rule, sources and exceptions: [kae-power-copper](../../docs/research/routing/kae
 |---|---|---|---|
 | v1 | current: the part's own, or the net's for a part with none; neck on every same-net track within neck_len | 182 | 1.164 (9/9) |
 | v2 | + rails through the regulator chain; theta marks a part hot | 212 | 1.164 (9/9) |
-| v3 | current from the evaluator's DC plan (`kae.excite.dc.planned_injections`) and a resistive solve of the routed copper (`branch_currents`); neck only on tracks ending in the pad, a 0.25 mm gap for passing tracks | partial run (stopped for v4) | 1.164 (5/5 measured) |
+| v3 | current from the evaluator's DC plan (`haslam.excite.dc.planned_injections`) and a resistive solve of the routed copper (`branch_currents`); neck only on tracks ending in the pad, a 0.25 mm gap for passing tracks | partial run (stopped for v4) | 1.164 (5/5 measured) |
 | v4 | + a loss budget: a net's necks add at most 0.2 % of its routed copper loss under the plan | 806 | 1.000 (4/9; zx2-backplane +8.9 %) |
 | v5 | + a track that runs through a pad enters it (the zx /5V bus runs straight through a row of 2 A connector pins) | 850 | 1.000 (3/9) |
 | v6 | + the budget shared by I² (all loaded pads of a net one width) and heat paths (pads within a hot part's fin radius, 10 K; λ for parts with theta only) | 1,460 | 1.000 (0/9) |
@@ -58,4 +58,4 @@ Rule, sources and exceptions: [kae-power-copper](../../docs/research/routing/kae
 - **fortitude60 in v7** (+1.1 %): every necked pad was idle on the routed copper, but the grown 3 mm Vcc rail merges into neighbouring same-net resistor pads, which then carry current; v8 counts a loaded track's current for pads its grown copper reaches (113.4 vs 113.6 mW).
 - **zx2-backplane drop +1.1 %** remains: the one necked /5V pin (J1.31, the end of the bus) carries 0.3 A at 0.25 mm within the budget, and the drop to that connector is what the term measures.
 - **Profile** (py-spy, pumpbot, v1): power copper's THT code was under 0.3 % of the finish; the DC plan and solve added 5 s over the 12 boards in v5.
-- **Open.** The budget sees the routed copper and the reach of grown copper, not the grown copper itself; a solve after widening would be exact. `tht_pad_kept_wide` puts each pad left wide (no plan, loss, heat path) to the commanding LLM (`KAE_THT_NARROW`).
+- **Open.** The budget sees the routed copper and the reach of grown copper, not the grown copper itself; a solve after widening would be exact. `tht_pad_kept_wide` puts each pad left wide (no plan, loss, heat path) to the commanding LLM (`HASLAM_THT_NARROW`).

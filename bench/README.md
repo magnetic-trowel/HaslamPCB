@@ -1,4 +1,4 @@
-# kaebench
+# haslambench
 
 Benchmark harness for automated and LLM-driven KiCad placement and routing. It
 fetches real boards from a manifest, turns them into route and place tasks, runs a
@@ -9,37 +9,37 @@ the saved board with `kicad-cli` under the board's own rules. Design rationale:
 ## Setup (Ubuntu 22.04/24.04)
 
 ```bash
-git clone https://github.com/magnetic-trowel/kicad-auto-everything
-cd kicad-auto-everything
+git clone https://github.com/magnetic-trowel/HaslamPCB
+cd HaslamPCB
 bench/scripts/setup.sh          # KiCad 10 (PPA, no recommends), bench/.venv (and upstream Freerouting 2.5.0, explicit use only)
 tools/research/routing/install_freerouting_fork.sh <ref> --pin   # the Freerouting fork, pinned: the control
 source bench/.venv/bin/activate
-kaebench doctor
+haslambench doctor
 ```
 
 **Without sudo** the same script still works:
-- KiCad runs from the official `kicad/kicad:10.0.7` image, unpacked into `~/.cache/kaebench` (~2.5 GB). It needs no root and no `/dev/fuse`.
-- It uses an installed Apptainer or Singularity. Without one, it installs Apptainer 1.5.4 rootless into `~/.cache/kaebench/apptainer` (~160 MB) with Apptainer's own `install-unprivileged.sh`, which unpacks EL8 RPMs. Python stand-ins replace `rpm2cpio` and `cpio` if they are missing.
+- KiCad runs from the official `kicad/kicad:10.0.7` image, unpacked into `~/.cache/haslambench` (~2.5 GB). It needs no root and no `/dev/fuse`.
+- It uses an installed Apptainer or Singularity. Without one, it installs Apptainer 1.5.4 rootless into `~/.cache/haslambench/apptainer` (~160 MB) with Apptainer's own `install-unprivileged.sh`, which unpacks EL8 RPMs. Python stand-ins replace `rpm2cpio` and `cpio` if they are missing.
 - The rootless install needs x86_64 and unprivileged user namespaces. Check with `unshare -Ur true && echo ok`. Ubuntu 22.04 allows them by default; 24.04 blocks them unless an admin relaxes `kernel.apparmor_restrict_unprivileged_userns`.
 - If `python3-venv` is missing, the venv comes from `uv`.
-- Freerouting, the venv and `env.sh` all live in your home directory. Set `KAE_HOME` to put the large files on another disk.
+- Freerouting, the venv and `env.sh` all live in your home directory. Set `HASLAM_HOME` to put the large files on another disk.
 - `source bench/.venv/bin/activate` picks up the KiCad wrapper. Force this route with `--kicad container`.
 - The container sees `$HOME`, `/tmp` and the current directory. For a `--workdir` elsewhere, export `APPTAINER_BIND=/that/path`.
 
-Other OSes or setups: point `KAE_KICAD_CLI` / `KAE_KICAD_PYTHON` at KiCad 10. Both accept a command with a wrapper, e.g. `flatpak run --command=kicad-cli org.kicad.KiCad`, or use `KAE_KICAD_WRAP` as a prefix for both. The container set-up points `KAE_KICAD_WRAP` at `kicad-exec`, which shows KiCad only the CPUs a job may use (`KAE_KICAD_THREADS`, else the queue's `KAEQ_CPUS`, else `nproc`; `KAE_KICAD_THREADS=0` turns the cap off): KiCad otherwise starts one thread per CPU on the machine. The Python must be able to `import pcbnew`. Freerouting is the build named by `KAE_FREEROUTING` (a binary or JAR; the JAR needs Java 25), else the one pinned in `$KAE_HOME/kae-freerouting.pin` (the magnetic-trowel fork, the same pin the bridge uses); with neither, runs stop with an error. Nothing picks the newest install. Run `pytest bench/tests` to check the install.
+Other OSes or setups: point `HASLAM_KICAD_CLI` / `HASLAM_KICAD_PYTHON` at KiCad 10. Both accept a command with a wrapper, e.g. `flatpak run --command=kicad-cli org.kicad.KiCad`, or use `HASLAM_KICAD_WRAP` as a prefix for both. The container set-up points `HASLAM_KICAD_WRAP` at `kicad-exec`, which shows KiCad only the CPUs a job may use (`HASLAM_KICAD_THREADS`, else the queue's `HASLAMQ_CPUS`, else `nproc`; `HASLAM_KICAD_THREADS=0` turns the cap off): KiCad otherwise starts one thread per CPU on the machine. The Python must be able to `import pcbnew`. Freerouting is the build named by `HASLAM_FREEROUTING` (a binary or JAR; the JAR needs Java 25), else the one pinned in `$HASLAM_HOME/haslam-freerouting.pin` (the magnetic-trowel fork, the same pin the bridge uses); with neither, runs stop with an error. Nothing picks the newest install. Run `pytest bench/tests` to check the install.
 
 ## Usage
 
 ```bash
 M=bench/manifests/candidates.jsonl
-kaebench fetch   -m $M -j 8                 # download boards at pinned commits (verifies sha256)
-kaebench prepare -m $M -j 8                 # convert to KiCad 10, qualify, build route/place tasks
-kaebench run --adapter reference --kinds route,place --probe freerouting -j 8 --name human
-kaebench run --adapter freerouting -k 1 --timeout 900 -j 8 --name fr-fork      # the pinned fork; deterministic: one attempt
-kaebench report kae-work/results/human kae-work/results/fr-fork
+haslambench fetch   -m $M -j 8                 # download boards at pinned commits (verifies sha256)
+haslambench prepare -m $M -j 8                 # convert to KiCad 10, qualify, build route/place tasks
+haslambench run --adapter reference --kinds route,place --probe freerouting -j 8 --name human
+haslambench run --adapter freerouting -k 1 --timeout 900 -j 8 --name fr-fork      # the pinned fork; deterministic: one attempt
+haslambench report haslam-work/results/human haslam-work/results/fr-fork
 ```
 
-Everything lives under `--workdir` (default `./kae-work`): `cache/` (fetched files),
+Everything lives under `--workdir` (default `./haslam-work`): `cache/` (fetched files),
 `tasks/<id>/{reference,route,place,place-fixed}/` and `results/<run>/<adapter>/<kind>/<id>/attempt-N/`.
 Runs resume: re-running with the same `--name` skips finished attempts.
 
@@ -50,7 +50,7 @@ boards whose human layout is not clean.
 ## Suites
 
 `bench/suites/*.txt` are board-id lists for `--only @FILE`:
-- `kaebench tasks --write-suite FILE` writes the boards that qualified on your KiCad version.
+- `haslambench tasks --write-suite FILE` writes the boards that qualified on your KiCad version.
 - `qualified-kicad-10.0.7.txt`: the 112 manifest boards that qualified on KiCad 10.0.7.
 - `pcbworld-d3{a,b,c}-test.txt` are PCBWorld's D3 eval splits (99 / 10 / 10).
 
@@ -63,9 +63,9 @@ PCBWorld's D3 boards are PCBench boards run through PCBWorld's own chain: KiCad 
 export PCBWORLD_DATA_ROOT=$PWD/var/datasets
 bash tools/quickstart/prepare_pcbench.sh --workers 16
 # back in this repo
-kaebench --workdir kae-d3 prepare-dir --dir $PCBWORLD_DATA_ROOT/pcbench/exacad_sorted \
+haslambench --workdir haslam-d3 prepare-dir --dir $PCBWORLD_DATA_ROOT/pcbench/exacad_sorted \
   --board-glob processed_v9_guide_v3.kicad_pcb --only @bench/suites/pcbworld-d3a-test.txt --kinds route -j 16
-KAE_FREEROUTING=<a Freerouting release> kaebench --workdir kae-d3 run --adapter freerouting --passes 10 -k 5 -j 16 --name fr-release-mp10
+HASLAM_FREEROUTING=<a Freerouting release> haslambench --workdir haslam-d3 run --adapter freerouting --passes 10 -k 5 -j 16 --name fr-release-mp10
 ```
 
 PCBWorld published Freerouting 2.1.0 `-mp 10` at 0.80 (D3-A) and 0.78 (D3-B) clean-pass @5. Our scoring re-saves boards with KiCad 10 and uses each board's own severities. Expect close but not identical numbers; report both.
@@ -80,14 +80,14 @@ PCBWorld published Freerouting 2.1.0 `-mp 10` at 0.80 (D3-A) and 0.78 (D3-B) cle
 | `freerouting-stock` | Same round trip with Freerouting's default settings; for explicit, deliberate use only (stock 2.5.0 is no longer a control) |
 | any name + `--command` | External tool; template placeholders `{input} {output} {workdir} {kind} {attempt} {timeout}` |
 
-Example external router: `kaebench run --adapter myrouter --command "python my_router.py {input} {output}"`.
+Example external router: `haslambench run --adapter myrouter --command "python my_router.py {input} {output}"`.
 The tool reads `{input}` (a `.kicad_pcb` with its project files beside it) and writes `{output}`.
 
 **Sandbox.** `--command` methods run under bubblewrap (`bwrap`):
 - no network;
 - a private `/tmp` and `/var/tmp`;
-- a home directory that shows only the kaebench tool cache (`KAE_HOME`), the current directory and any `--sandbox-ro PATH`;
-- the workdir's tasks and results hidden, plus anything in `KAE_SANDBOX_HIDE` (colon-separated);
+- a home directory that shows only the haslambench tool cache (`HASLAM_HOME`), the current directory and any `--sandbox-ro PATH`;
+- the workdir's tasks and results hidden, plus anything in `HASLAM_SANDBOX_HIDE` (colon-separated);
 - only the attempt's own work directory writable.
 
 A method can't read the human layout it is scored against, download it, or touch other attempts. On timeout the whole sandbox is killed. `--sandbox-net` allows network access, for LLM methods. `--no-sandbox` turns the sandbox off; the report then marks those attempts as unsandboxed.
@@ -102,7 +102,7 @@ A method can't read the human layout it is scored against, download it, or touch
   - Teardrops, groups and tuning patterns are part of the routing. They are stripped from task inputs and are not transplanted or scored.
 - **Integrity (`valid`).** Anything else the method changed is still detected, by comparing KiCad re-saves of output and input with the allowed changes normalized away (`foreign` lists them). Such a result is invalid.
   - Route results must keep placement, pad nets and every other board object, and route only on the board's copper layers and nets.
-  - **Added zones** (route, joint and joint-fixed tasks, score v10). A method may pour copper. Each added zone must be a copper zone (no rule area or keepout) on the board's enabled copper layers, on a net the task has (no new nets, no net-less zones), inside the board's outer outline (10 µm slack for arcs), clear of rule areas that forbid pours on its layers, at a priority different from every zone it overlaps on a shared layer (KiCad 10.0.7's filler deadlocks on overlapping zones of different nets tied on priority and uuid), and with a unique uuid. Violations make the result invalid (`integrity.zones`, reasons in `zone_problems`). The task's own zones must stay exactly as given. These checks look at zone outlines; DRC checks the refilled copper (clearances, edge clearance, `items_not_allowed` in keepouts). Fills a method writes are ignored: DRC refills every zone, and the uncapped unconnected count fills them too, at start and end alike. Give new zones explicit pad-connection settings (clearance, thermal gap, spoke width) rather than relying on board defaults. No count or area cap; refilling many zones counts against `KAE_DRC_TIMEOUT` like anything else. In joint tasks the placement half ignores added zones and pads' zone connection (placement legality is judged on the placement alone); the routing half transplants and checks them onto that placement as in a route task.
+  - **Added zones** (route, joint and joint-fixed tasks, score v10). A method may pour copper. Each added zone must be a copper zone (no rule area or keepout) on the board's enabled copper layers, on a net the task has (no new nets, no net-less zones), inside the board's outer outline (10 µm slack for arcs), clear of rule areas that forbid pours on its layers, at a priority different from every zone it overlaps on a shared layer (KiCad 10.0.7's filler deadlocks on overlapping zones of different nets tied on priority and uuid), and with a unique uuid. Violations make the result invalid (`integrity.zones`, reasons in `zone_problems`). The task's own zones must stay exactly as given. These checks look at zone outlines; DRC checks the refilled copper (clearances, edge clearance, `items_not_allowed` in keepouts). Fills a method writes are ignored: DRC refills every zone, and the uncapped unconnected count fills them too, at start and end alike. Give new zones explicit pad-connection settings (clearance, thermal gap, spoke width) rather than relying on board defaults. No count or area cap; refilling many zones counts against `HASLAM_DRC_TIMEOUT` like anything else. In joint tasks the placement half ignores added zones and pads' zone connection (placement legality is judged on the placement alone); the routing half transplants and checks them onto that placement as in a route task.
   - Place results must keep pad nets and every non-pose property, leave anchored footprints where they are (locked ones, and ones carrying Edge.Cuts, which are part of the board outline), and not add or remove footprints or copper.
 - **Copy check.** `copy` reports how much of the output reproduces the human layout exactly: tracks to 1 µm, or poses to 1 µm and 0.01°; and `copy.zones`, added zones whose outline overlaps a human zone on the same net and a shared layer with IoU ≥ 0.8. `suspect_copy` flags at least 20 tracks and 60% matching, at least 5 parts and 50%, or any copied zone. It is report-only until calibrated on real methods. The sandbox is the enforcement.
 - **Route metrics.**
@@ -122,13 +122,13 @@ A method can't read the human layout it is scored against, download it, or touch
 - **Place-fixed tasks** (`--kinds place-fixed`, and `joint-fixed` for place and route from its input). A place task frees every unlocked footprint, the connectors and mounting holes too, so a placer can beat the human on wire length with a board that no longer fits its enclosure or cables. Place-fixed keeps the board's mechanical interface at the human pose, locked in the input, so it is scored exactly like a locked footprint (`locked_moved`); everything else is placed. Scoring and baselines are those of `place` and `joint`.
   - Fixed: connectors (USB, pin headers and sockets, JST/Molex/FPC/FFC, terminal blocks, barrel and audio jacks, RF, SD/SIM and card-edge slots, wire pads); mounting (screw holes, standoffs, fiducials, all-NPTH footprints); user-facing parts (switches, keyboard key switches such as Cherry MX, Kailh/Choc and Gateron, buttons, panel pots and encoders, displays, through-hole, light-pipe and LED-bar indicators, buzzers and speakers).
   - Free (the user's choices on borderline parts): programming and debug headers (JTAG, SWD, ISP/ICSP, PDI/UPDI, Tag-Connect, debug or prog in the name, value, description or reference, or a small header whose signal nets are one such interface), SMD LEDs, test points, jumpers and solder bridges (also pin headers with a jumper value), batteries and battery holders, trimmers, IC sockets; also net ties, heatsinks and plug-in modules. UART and display headers stay fixed.
-  - The rules follow the placement research classifier (`kae.place.fixed`); on the 112 qualified boards the two fix the same parts on 99 boards.
+  - The rules follow the placement research classifier (`haslam.place.fixed`); on the 112 qualified boards the two fix the same parts on 99 boards.
   - Rules, first match wins (`kicad_scripts/mech_rules.py` documents each, `rules_version` is recorded): exclusions; KiCad library (`Connector*`, `TerminalBlock*`, `MountingHole*`, `Fiducial*`, `Button_Switch*`, `Potentiometer*`, `Rotary_Encoder*`, `Display*`, `Buzzer_Beeper*`, `LED_THT`, connector makers); all pads NPTH; a THT LED name; a passive/diode/IC library, package name or reference (R, C, D, Q, ...) stops the rest; footprint-name patterns; KiCad symbol names as values (`Conn_01x04`, `SW_Push`); reference prefixes (J, P, H, MH, FID, SW, RV, ...) when the footprint fits. A connector that is a programming or debug header is then freed.
   - The task record lists every fixed part with its class and rule (`tasks["place-fixed"].fixed_mech`) and `movable`. `prepare --fixed-overrides FILE` takes `{"<board id>": {"fix": [refs], "free": [refs]}}` and records what it applied. Designer-locked parts and parts carrying Edge.Cuts stay anchored either way.
   - The human placement must also pass the place-fixed round trip. A board that fails it keeps its other tasks; runs skip only its place-fixed and joint-fixed tasks.
 - **Degenerate place tasks.** Each place task records `movable`, the number of footprints a placer may move. A board whose parts are nearly all locked is trivially legal. `run --min-movable N` skips place, joint, place-fixed and joint-fixed tasks with fewer than N movable footprints (default 0: none are skipped).
 - **Best-of-k** picks the attempt by clean, then completion, errors, track length (PCBWorld's best-potential @k). The report shows `cp1` (attempt 0) and `cpk`.
-- **Rescoring.** After a scoring fix, `kaebench rescore RUN_DIR -j N` scores a run's saved outputs (and saved probe routes) again with the current scorer, without re-running the method. Each attempt records the version it was rescored from.
+- **Rescoring.** After a scoring fix, `haslambench rescore RUN_DIR -j N` scores a run's saved outputs (and saved probe routes) again with the current scorer, without re-running the method. Each attempt records the version it was rescored from.
 - **Versions.** Every attempt records `score_version` (now 10; v10 lets route and joint methods add zones and set pads' zone connection, and scores outputs without either exactly as v9). Tasks need task spec 5: locked footprints and footprints carrying Edge.Cuts stay in place, teardrops are stripped, repeated footprint uuids are made unique, and the human layout must pass the round trip. Place-fixed and joint-fixed need task spec 8 (classifier rules 4). From task spec 11 every task is limited to the copper layers the board uses (`kicad_scripts/layer_plan.py`); tasks of older specs must be prepared again. Re-run `prepare --force` on older task folders.
 - **Red-team tests.** `bench/tests/test_redteam.py` runs cheating methods (move parts, delete a keepout, grow the outline, add a layer, shrink pads, swap nets, ship own rules, read or overwrite the reference, use the network) and requires each to be invalid, blocked or ineffective. Add a case for every new cheat found.
 

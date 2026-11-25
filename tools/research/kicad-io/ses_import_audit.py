@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Re-import real repair-round sessions with kae.route.bridge.import_session and report
+"""Re-import real repair-round sessions with haslam.route.bridge.import_session and report
 what the checks find: session vs landed counts, pre-existing items KiCad's import moved to
-another net (kae restores them), and the post-write check.
+another net (haslam restores them), and the post-write check.
 
     python ses_import_audit.py PAIRS OUTDIR > rows.jsonl
 
@@ -13,7 +13,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from kae.route.bridge import import_session
+from haslam.route.bridge import import_session
 
 
 def main(pairs, outdir):

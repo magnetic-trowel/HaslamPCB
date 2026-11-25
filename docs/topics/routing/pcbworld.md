@@ -29,7 +29,7 @@ API groups: configuration (routing/corner mode, track width, via diameter/drill)
 
 - Φ = −f_drv − 0.002·WL − 0.1·vias; f_drv = 3·ln(1+x/2) + Σᵢ ln(1+xᵢ/2) (x = dirty nets, xᵢ = violations on net i). 38 checks = 35 stock error checks + DANGLING_VIA, DANGLING_TRACK, NET_CONFLICT. Terminal reward Φ(s_T) − Φ(s_0). Shipped repo uses a newer potential (−unconnected, completion bonus, step penalty).
 - Clean Pass = full connectivity and 0 error DRVs on the best-potential of 5 rollouts (@5); boards can pass with the 3 promoted warnings.
-- kaebench `cpk` = any-clean@k, so it can only be ≥ PCBWorld's Φ-selected CP@5: compare with matched @1/@5, seed means, stated router settings and potential.
+- haslambench `cpk` = any-clean@k, so it can only be ≥ PCBWorld's Φ-selected CP@5: compare with matched @1/@5, seed means, stated router settings and potential.
 
 ## Datasets
 
@@ -42,7 +42,7 @@ API groups: configuration (routing/corner mode, track width, via diameter/drill)
 | D3-C (large challenge split; unevaluated in the paper, since evaluated by two parties on 10 boards, see below the table) | 292 | 6–451 | 101–2,103 | 2–8 (VP) |
 
 - D3 = "679 boards derived from PCBench's open-source PCB corpus": survivors of PCBench's 1,182-board `PCBs_version_9` pool converted to KiCad 9 (VP #7). The compatibility pass edited only `.kicad_pro` (some checks set to ignore, some rule floors zeroed; board files byte-identical), so design rules were not simply kept. A board was kept only if still fully connected and DRV-free after that pass; each keeps its original routing as the reference.
-- D3-C, 10 boards, clean pass: human reference 0.90, Freerouting 0.30, KRT 0.00, PPO 0.00, PCBRouteAgent 0.10 (Haiku) / 0.40 (Opus) ([arXiv 2611.08175](https://arxiv.org/html/2611.08175v2)) [P]; TraceMaker 0.90, Freerouting 2.2.4 0.30 ([PUNKFAB](https://punkfab.com/blog/tracemaker-router/), the author's own run) [V]. kae has not run D3-C (suite `bench/suites/pcbworld-d3c-test.txt`).
+- D3-C, 10 boards, clean pass: human reference 0.90, Freerouting 0.30, KRT 0.00, PPO 0.00, PCBRouteAgent 0.10 (Haiku) / 0.40 (Opus) ([arXiv 2611.08175](https://arxiv.org/html/2611.08175v2)) [P]; TraceMaker 0.90, Freerouting 2.2.4 0.30 ([PUNKFAB](https://punkfab.com/blog/tracemaker-router/), the author's own run) [V]. haslam has not run D3-C (suite `bench/suites/pcbworld-d3c-test.txt`).
 - Evaluations use 99 D3-A boards and 10 D3-B boards (2-layer, one per pad-count quantile; VP #8). Freerouting/RL rows are 4-seed means; LLM rows a single best-of-5 run (so D3-B values on 10 boards are not multiples of 0.1).
 Rule: mine D3 human boards for relation/offset priors and ordinal-magnitude calibration only outside the 99 D3-A + 10 D3-B evaluation boards; never mine, fit or calibrate on those (per-board licences apply) [I].
 

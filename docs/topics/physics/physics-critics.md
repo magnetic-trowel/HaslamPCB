@@ -1,6 +1,6 @@
 # Physics critics: measuring "physically right" next to DRC
 
-Scope: what DRC cannot see, the critic suite architecture, the physics scorecard, how it sits beside kaebench without touching the score, the DRC-clean mutation benchmark and router audit, prototype results on four boards. Not here: the 41 critic definitions -> [physics-critics-catalog](physics-critics-catalog.md); calibration and gaming guards -> [physics-critics-validation](physics-critics-validation.md); functional (circuit) tests -> [functional-evaluation](functional-evaluation.md).
+Scope: what DRC cannot see, the critic suite architecture, the physics scorecard, how it sits beside haslambench without touching the score, the DRC-clean mutation benchmark and router audit, prototype results on four boards. Not here: the 41 critic definitions -> [physics-critics-catalog](physics-critics-catalog.md); calibration and gaming guards -> [physics-critics-validation](physics-critics-validation.md); functional (circuit) tests -> [functional-evaluation](functional-evaluation.md).
 Keys: physics critics, physics scorecard, board physics model BPM, critic contract, markers drc.v1, budget rows, I1 ledger, coverage, mutation benchmark, M-SLOT, M-TRACE-IN-PLANE, M-DEL-RETURN-VIA, M-SWAP-REF, benign twins, router audit, router-induced findings, plane perforation, PC44, cpk-phys, pc_refplane.py, DRC-clean but physically wrong
 
 **Results:**
@@ -67,12 +67,12 @@ role model + budgets (frozen per task) ─┐
 
 Unbudgeted quantities show "unbudgeted" rather than invented limits (many budgets, e.g. hot-loop area caps and decap distances, have no primary source; [checkers-power](../rules/checkers-power.md)).
 
-## 4. Fitting it into kaebench without touching the score
+## 4. Fitting it into haslambench without touching the score
 
 Physics never enters `score.py`, `potential()` or cp1/cpk (CLAUDE.md).
-- **Separate tool first** (later `kaebench physics`, own commit): walks `kae-work/results/<run>/<adapter>/<kind>/<id>/attempt-N/`, reads `attempt.json` (skipping invalid attempts) and `output/board.kicad_pcb`; copies the board with the reference `.kicad_pro`/`.kicad_dru` into `attempt-N/physics/`, refills and saves zones there, runs critics, writes `ledger.json` (observed values, spend, markers) and `scorecard.json` (critic version, BPM hash, coverage).
+- **Separate tool first** (later `haslambench physics`, own commit): walks `haslam-work/results/<run>/<adapter>/<kind>/<id>/attempt-N/`, reads `attempt.json` (skipping invalid attempts) and `output/board.kicad_pcb`; copies the board with the reference `.kicad_pro`/`.kicad_dru` into `attempt-N/physics/`, refills and saves zones there, runs critics, writes `ledger.json` (observed values, spend, markers) and `scorecard.json` (critic version, BPM hash, coverage).
 - **Must refill itself:** route tasks start with zones unfilled and the scorer refills inside `kicad-cli` without saving; neither `output/` nor `score/` holds the fills ([harness](../verification/harness.md)).
-- **Roles and budgets per task:** `kae-work/tasks/<id>/physics/intent.yaml`, generated from reference board, schematic, datasheets; human-confirmed; frozen.
+- **Roles and budgets per task:** `haslam-work/tasks/<id>/physics/intent.yaml`, generated from reference board, schematic, datasheets; human-confirmed; frozen.
 - **Human reference:** the `reference` adapter scored once per task and cached, so reports show regressions vs human copper.
 - **Report:** `physics-report <run> <baseline>` prints per adapter and split: cp1 and cpk (copied unchanged from `results.jsonl`), completion, error counts, then hard-budget pass@1, median margin, critic coverage, new findings vs human, PLANE-PERF foreign length on declared planes, RET-COV void crossings, RET-VIA findings. Optional "cpk-phys" (best clean attempt by physics) is a separate column, never replacing cpk.
 - **Comparisons:** same KiCad version, manifest, suite; same critic version and role files.

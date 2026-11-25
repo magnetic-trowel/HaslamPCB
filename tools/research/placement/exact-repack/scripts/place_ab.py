@@ -1,16 +1,16 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 # place_ab.py BOARD_DIR ARM SEED [TIME_FACTOR] [DUMP]: one placement-only run of the exact-repack A/B; prints one
-# JSON line. Arms: control, repack (opts exact_repack=1). Same harness as crowded-ab2 (KaeStages.place, budget
+# JSON line. Arms: control, repack (opts exact_repack=1). Same harness as crowded-ab2 (HaslamStages.place, budget
 # 900 s * sqrt(n / 40), place time 0.3 of it), plus the placer's own report (exact findings by type, repack
 # report). DUMP: pickle the final (Problem, State) there, for offline study.
 import collections, hashlib, json, math, os, pickle, re, subprocess, sys, tempfile, time, shutil
 from pathlib import Path
-from kae import budget
-from kae.board.kicad_file import load
-from kae.joint.stages import KaeStages
-from kae.joint.loop import derive_seed
-import kae.place.pipeline as pl
+from haslam import budget
+from haslam.board.kicad_file import load
+from haslam.joint.stages import HaslamStages
+from haslam.joint.loop import derive_seed
+import haslam.place.pipeline as pl
 
 ARMS = {"control": {}, "repack": {"exact_repack": 1}}
 bd, arm, seed = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
@@ -20,7 +20,7 @@ inp = bd / "board.kicad_pcb"
 b0 = load(str(inp))
 locked = {f.uuid for f in b0.footprints if f.locked}
 bud = factor * 900 * math.sqrt(max(1, len(b0.footprints)) / 40)
-wd = Path(tempfile.mkdtemp(prefix=f"xr-{arm}{seed}-", dir=os.environ.get("KAEQ_SCRATCH", "/var/tmp")))
+wd = Path(tempfile.mkdtemp(prefix=f"xr-{arm}{seed}-", dir=os.environ.get("HASLAMQ_SCRATCH", "/var/tmp")))
 got, depth = [], [0]
 _place = pl.place
 
@@ -50,7 +50,7 @@ def _unplaced(rep):
     return None
 t0 = time.time()
 c0 = budget.now()
-st = KaeStages(inp, wd, opts=dict(ARMS[arm], budget_s=bud, no_modules=True), log=lambda m: None)
+st = HaslamStages(inp, wd, opts=dict(ARMS[arm], budget_s=bud, no_modules=True), log=lambda m: None)
 lay = st.place(derive_seed(seed, 0), time_s=max(20.0, 0.30 * bud))
 charged = budget.now() - c0
 info = lay.info["place"]
@@ -88,11 +88,11 @@ if os.environ.get("XR_KEEP"):
 PT = ("courtyards_overlap", "copper_edge_clearance", "clearance", "hole_clearance", "hole_to_hole", "holes_co_located",
       "items_not_allowed", "malformed_courtyard", "npth_inside_courtyard", "pth_inside_courtyard", "shorting_items",
       "solder_mask_bridge")
-r = subprocess.run(os.environ["KAE_KICAD_WRAP"].split() + ["kicad-cli", "pcb", "drc", "--format", "json", "--severity-error",
+r = subprocess.run(os.environ["HASLAM_KICAD_WRAP"].split() + ["kicad-cli", "pcb", "drc", "--format", "json", "--severity-error",
                    "-o", str(dd / "drc.json"), str(dd / "board.kicad_pcb")], capture_output=True, text=True, timeout=1800)
 try:
     d = json.load(open(dd / "drc.json"))
-    from kae.place.exact import _intrinsic
+    from haslam.place.exact import _intrinsic
     pe, inside, sh = collections.Counter(), collections.Counter(), 0
     for v in d.get("violations", []):
         if v.get("type") not in PT:

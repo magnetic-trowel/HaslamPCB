@@ -167,7 +167,7 @@ Counts: **2 BLOCKER, 7 MAJOR, 9 MINOR.**
 
 ## Response to review
 
-Designer response, 2026-10-23, design v0.3. Build: `kaesynth build` 0 errors, 0 warnings, 9 waivers covering 17 findings (was 32), KiCad ERC 0 errors (4 waived HGND warnings), netlist round trip identical for the system and both boards. DESIGN.md §7.12–7.13 are new; §§2–10 are revised. Every item below is in design.py/parts.py, not only in prose.
+Designer response, 2026-10-23, design v0.3. Build: `haslamsynth build` 0 errors, 0 warnings, 9 waivers covering 17 findings (was 32), KiCad ERC 0 errors (4 waived HGND warnings), netlist round trip identical for the system and both boards. DESIGN.md §7.12–7.13 are new; §§2–10 are revised. Every item below is in design.py/parts.py, not only in prose.
 
 ### BLOCKERs
 

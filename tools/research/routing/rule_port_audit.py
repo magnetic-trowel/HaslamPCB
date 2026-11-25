@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Audit the rule port: Space's required clearance from pads against KiCad's DRC, with test copper.
 
@@ -11,7 +11,7 @@ board at the requirement minus 10 um ("strict" run). KiCad's DRC on each board i
 a lax-run violation between a test track and its pad means Space allows less than KiCad needs
 (the port is too lax); no violation in the strict run means Space asks for more than KiCad.
 Writes the pairs and KiCad's descriptions (with the rule it names) to OUT.json. Run it under
-the queue (tools/kaeq) with KiCad available."""
+the queue (tools/haslamq) with KiCad available."""
 import argparse
 import json
 import math
@@ -26,7 +26,7 @@ BATCH = 40
 
 def _tracks(sp, plan, pads, gap_delta, nets=()):
     from shapely.geometry import LineString
-    from kae.route import critical_write as W
+    from haslam.route import critical_write as W
     out, meta, placed = [], {}, []
     want_net = set(nets)
     cu = sp.cu
@@ -91,12 +91,12 @@ def main(argv=None):
     ap.add_argument("--keep-routing", action="store_true", help="test on the board as it is (default: tracks and vias removed)")
     ap.add_argument("--nets", default="", help="test-copper nets besides each class's representative")
     a = ap.parse_args(argv)
-    from kae.board import pcbnew_io
-    from kae.board.kicad_file import load
-    from kae.route import critical_write as W
-    from kae.route import drc
-    from kae.route.bridge import severities
-    from kae.route.critical_space import Space
+    from haslam.board import pcbnew_io
+    from haslam.board.kicad_file import load
+    from haslam.route import critical_write as W
+    from haslam.route import drc
+    from haslam.route.bridge import severities
+    from haslam.route.critical_space import Space
     src = Path(a.board).resolve()
     if not a.keep_routing:
         # test copper among the board's own tracks meets them first (KiCad then reports the short,

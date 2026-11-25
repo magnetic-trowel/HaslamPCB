@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Pour resistance of run outputs (collapse_pour/netcond.py on the KiCad-refilled board).
 
-    python pour_score.py OUT.json RUN [RUN ...] [--suite kae-work/ab33.txt] [-j 8]
+    python pour_score.py OUT.json RUN [RUN ...] [--suite haslam-work/ab33.txt] [-j 8]
     python pour_score.py --table OUT.json BASE_RUN RUN [...]
 
 For every board of the suite whose reference has zones, every seed's output board (and
@@ -25,7 +25,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 CP = ROOT / "tools" / "research" / "collapse_pour"
-XF_WORK = Path(os.environ.get("XF_WORK", ROOT / "kae-work2"))
+XF_WORK = Path(os.environ.get("XF_WORK", ROOT / "haslam-work2"))
 RES = XF_WORK / "results"
 TASKS = XF_WORK / "tasks"
 
@@ -69,7 +69,7 @@ def job(args):
     except ImportError:
         _stub_plotting()
     from netcond import net_resistance
-    kpy = os.environ.get("KAE_KICAD_PYTHON", "/usr/bin/python3")
+    kpy = os.environ.get("HASLAM_KICAD_PYTHON", "/usr/bin/python3")
     with tempfile.TemporaryDirectory(dir=str(XF_WORK / "xf_pour")) as td:
         dj = Path(td) / "dump.json"
         r = subprocess.run([kpy, str(CP / "kicad_dump.py"), "dump", str(path), str(dj), "--refill"],

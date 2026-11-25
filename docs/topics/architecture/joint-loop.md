@@ -1,7 +1,7 @@
 # The joint loop: routing feedback into local re-placement
 
-Scope: design of `kae.joint`: place and route the whole board once, then repair **windows** (a few parts and the nets touching them) where routing failed, DRC complained or a module's routed physics shifted; parameters, feedback, windows, congestion penalty, rip-up, acceptance rule, budgets. Not here: measured numbers and the evidence behind each design rule -> [kae-joint-loop](../../research/joint/kae-joint-loop.md); theory -> [joint-place-route](../physics/joint-place-route.md); the month-plan precursor -> [month-plan](month-plan.md#the-joint-loop-modules-routed-physics-re-tweak).
-Keys: `kae.joint`, `kae.route.incremental`, `joint_stops.py`, windows, feedback spots, `CongestionHistory`, RUDY, `cong_history`, shortfall bump, rip-up, guard pours, `route_open`, `lastmile.close`, kept-board last mile, `kae.route.blocked`, hazards, `eff_tiebreak`, lexicographic acceptance, per-item physics slack, finishing stage, `--route-parallel`, `freerouting._Slot`, Starfish
+Scope: design of `haslam.joint`: place and route the whole board once, then repair **windows** (a few parts and the nets touching them) where routing failed, DRC complained or a module's routed physics shifted; parameters, feedback, windows, congestion penalty, rip-up, acceptance rule, budgets. Not here: measured numbers and the evidence behind each design rule -> [haslam-joint-loop](../../research/joint/haslam-joint-loop.md); theory -> [joint-place-route](../physics/joint-place-route.md); the month-plan precursor -> [month-plan](month-plan.md#the-joint-loop-modules-routed-physics-re-tweak).
+Keys: `haslam.joint`, `haslam.route.incremental`, `joint_stops.py`, windows, feedback spots, `CongestionHistory`, RUDY, `cong_history`, shortfall bump, rip-up, guard pours, `route_open`, `lastmile.close`, kept-board last mile, `haslam.route.blocked`, hazards, `eff_tiebreak`, lexicographic acceptance, per-item physics slack, finishing stage, `--route-parallel`, `freerouting._Slot`, Starfish
 
 ## Why a loop, and why windows
 
@@ -9,20 +9,20 @@ The placer cannot see where the router will fail; the router cannot move a part.
 
 ## The loop
 
-`python -m kae.joint.cli run IN OUT --time S --seed N` ([loop.py](../../../kae/src/kae/joint/loop.py), [stages.py](../../../kae/src/kae/joint/stages.py)):
+`python -m haslam.joint.cli run IN OUT --time S --seed N` ([loop.py](../../../haslam/src/haslam/joint/loop.py), [stages.py](../../../haslam/src/haslam/joint/stages.py)):
 
 | Step | What | Module |
 |---|---|---|
-| 0. Place | `kae.place.pipeline.place` (brief macros, seed, compiled annealer, legalize), written by `kae.place.writer` | kae.place |
-| 0. Modules | `optimize_modules`: module parts and critical copper together, locked; guard pours (`kae-crit:`) per module | kae.route.critical |
-| 0. Route | the bridge around all locked copper and the guards; afterwards non-critical copper unlocked, guards dropped | kae.route |
-| 0. Judge | kicad-cli DRC (zones refilled) and `critical_recheck.recheck` against the module-stage values | kae.route |
-| 1. Feedback | spots from unrouted items, DRC errors, flagged modules; corridors into the congestion history | [feedback.py](../../../kae/src/kae/joint/feedback.py) |
+| 0. Place | `haslam.place.pipeline.place` (brief macros, seed, compiled annealer, legalize), written by `haslam.place.writer` | haslam.place |
+| 0. Modules | `optimize_modules`: module parts and critical copper together, locked; guard pours (`haslam-crit:`) per module | haslam.route.critical |
+| 0. Route | the bridge around all locked copper and the guards; afterwards non-critical copper unlocked, guards dropped | haslam.route |
+| 0. Judge | kicad-cli DRC (zones refilled) and `critical_recheck.recheck` against the module-stage values | haslam.route |
+| 1. Feedback | spots from unrouted items, DRC errors, flagged modules; corridors into the congestion history | [feedback.py](../../../haslam/src/haslam/joint/feedback.py) |
 | 2. Window | spots clustered into windows; the least-tried, highest-priority one is repaired | feedback.plan_windows |
-| 3. Re-place | window parts re-annealed, rest fixed, history as RUDY demand | [replace.py](../../../kae/src/kae/joint/replace.py), [penalty.py](../../../kae/src/kae/joint/penalty.py) |
-| 4. Rip up | only nets touching the window; modules in the window redone | [ripup.py](../../../kae/src/kae/joint/ripup.py) |
-| 5. Re-route | open connections only, everything else locked; then `lastmile.close` (`kae.route.lastmile`) on the window's nets | [incremental.py](../../../kae/src/kae/route/incremental.py) |
-| 6. Judge | DRC + recheck; accept or revert | [scorecard.py](../../../kae/src/kae/joint/scorecard.py) |
+| 3. Re-place | window parts re-annealed, rest fixed, history as RUDY demand | [replace.py](../../../haslam/src/haslam/joint/replace.py), [penalty.py](../../../haslam/src/haslam/joint/penalty.py) |
+| 4. Rip up | only nets touching the window; modules in the window redone | [ripup.py](../../../haslam/src/haslam/joint/ripup.py) |
+| 5. Re-route | open connections only, everything else locked; then `lastmile.close` (`haslam.route.lastmile`) on the window's nets | [incremental.py](../../../haslam/src/haslam/route/incremental.py) |
+| 6. Judge | DRC + recheck; accept or revert | [scorecard.py](../../../haslam/src/haslam/joint/scorecard.py) |
 | 7. Finish | full bridge (repair rounds `auto`, then the last mile) over the whole board, critical copper locked; judged the same way | stages.route(finish=True) |
 
 **Stopping (time-driven, no iteration cap).** Steps 1–6 repeat until the board is clean with no module flagged, or the time left for windows is below what a window has been taking. Reserves set aside up front: finishing stage max(120 s, 20 %), final write max(25 s, 4 %). When every window is exhausted, a new cycle samples them again with new seeds and the history so far. End the loop after two consecutive cycles that keep nothing ("no improvement (cycle k)") or a cycle in which nothing could be routed (< 5 s).
@@ -35,20 +35,20 @@ The placer cannot see where the router will fail; the router cannot move a part.
 
 **Scaling with budget.** Tries per window = 2 + one per 30 min; module-stage time = 5 % of the budget. Window router budget starts at 60 s, doubles after each window whose router ran out of time (cap 5 % of the budget), halves back after a fast one.
 
-**Report** (`kae.joint.cli`, JSON). `final.blocked` is [`kae.route.blocked`](../../../kae/src/kae/route/blocked.py)'s diagnosis of the final board's open connections, from the finishing bridge or run at the end (≤ 30 s), with the BGA escape certificates; iteration 0 skips it when a finish follows. A check that did not run reads `null` (`checked`, `note` say why). An error after OUTPUT was written gives status `partial`. The report closes with `hazards` and `hazard_summary` ([hazards](hazards.md)): nested flags, unchecked steps, modules over allocation, writer checks, and a recheck of OUTPUT with safety checks forced on (`--recheck`).
+**Report** (`haslam.joint.cli`, JSON). `final.blocked` is [`haslam.route.blocked`](../../../haslam/src/haslam/route/blocked.py)'s diagnosis of the final board's open connections, from the finishing bridge or run at the end (≤ 30 s), with the BGA escape certificates; iteration 0 skips it when a finish follows. A check that did not run reads `null` (`checked`, `note` say why). An error after OUTPUT was written gives status `partial`. The report closes with `hazards` and `hazard_summary` ([hazards](hazards.md)): nested flags, unchecked steps, modules over allocation, writer checks, and a recheck of OUTPUT with safety checks forced on (`--recheck`).
 
-**`--route-parallel P`** (default 1 = all of the above). With P > 1 the finishing stage is [`kae.route.portfolio`](../../../kae/src/kae/route/portfolio.py): the current placement, the loop's routing removed, routed by P parallel, growing, differently seeded restarts of `critical_cli --last-mile-soft` (listed first, so its clean board is preferred) and the bridge; judged on the incumbent's modules; no release try. A window left with ≤ 8 open connections, and not stopped by its clock, gets two more seeded `route_open` runs at once, keeping the one with the fewest open.
+**`--route-parallel P`** (default 1 = all of the above). With P > 1 the finishing stage is [`haslam.route.portfolio`](../../../haslam/src/haslam/route/portfolio.py): the current placement, the loop's routing removed, routed by P parallel, growing, differently seeded restarts of `critical_cli --last-mile-soft` (listed first, so its clean board is preferred) and the bridge; judged on the incumbent's modules; no release try. A window left with ≤ 8 open connections, and not stopped by its clock, gets two more seeded `route_open` runs at once, keeping the one with the fewest open.
 
 ## Feedback: from KiCad's report to parts
 
 - **Unrouted connections.** Each `unconnected_items` entry names two items with positions. A pad's description ends in "of *ref*", naming the part whose pose decides the corridor. Corridor = segment between the two items, width = length/5 (the router's detour room), clamped to 1–4 mm.
-- **DRC errors.** Each error-level violation is attributed to the parts its pads belong to and the routing items (by uuid) involved. A placement-type error (kaebench's list: courtyards, clearance, hole clearance, edge, keepouts) whose items are only pads and footprints belongs to the placement; its spot carries KiCad's shortfall (required − actual clearance). The window's re-anneal bumps those parts by shortfall + 0.15 mm, kept even when the routing bumps are dropped (a fixed 0.15 mm bump failed on olimex: [evidence](../../research/joint/kae-joint-loop.md#results)).
+- **DRC errors.** Each error-level violation is attributed to the parts its pads belong to and the routing items (by uuid) involved. A placement-type error (haslambench's list: courtyards, clearance, hole clearance, edge, keepouts) whose items are only pads and footprints belongs to the placement; its spot carries KiCad's shortfall (required − actual clearance). The window's re-anneal bumps those parts by shortfall + 0.15 mm, kept even when the routing bumps are dropped (a fixed 0.15 mm bump failed on olimex: [evidence](../../research/joint/haslam-joint-loop.md#results)).
 - **Physics shifts.** The recheck flags a module whose routed utilization rose > 15 % over its module-stage value, crossed 1, or lost > 0.10 of plane cover; its spot sits at its parts.
 
 Spot weights (match the acceptance order): placement 4, unrouted 3, other errors 2, physics 1 + rise + cover loss.
 
 **Windows.**
-- Content: the spot's own unlocked parts + unlocked parts whose centres lie within a 2 mm margin of the region they and the spot's points span, nearest first; ≤ 6 parts and ≤ 35 % of the board's movable parts (≥ 3). (Cap reason: a 12-part window on a 15-part board was a global re-place, [evidence](../../research/joint/kae-joint-loop.md#results).)
+- Content: the spot's own unlocked parts + unlocked parts whose centres lie within a 2 mm margin of the region they and the spot's points span, nearest first; ≤ 6 parts and ≤ 35 % of the board's movable parts (≥ 3). (Cap reason: a 12-part window on a 15-part board was a global re-place, [evidence](../../research/joint/haslam-joint-loop.md#results).)
 - Never move: locked parts, parts carrying Edge.Cuts, staged parts. On a first attempt parts with > 12 connected pads stay fixed too, unless nothing smaller can move (moving an MCU rips up every net it has).
 - Overlapping windows merge while the union stays within the part cap.
 - **Re-route window:** a spot with no movable part within reach: no part moves; nets touching the region are ripped up and the bridge routes them in a new order. Its retry is a normal, larger window.
@@ -58,12 +58,12 @@ Spot weights (match the acceptance order): placement 4, unrouted 3, other errors
 
 - `CongestionHistory` = PathFinder's history cost on a 1 mm grid: every routed evaluation, accepted or not, adds 1 (unit: a bin's routing supply) along each failed connection's corridor, so a failed region stays expensive after one re-placement. Rejected candidates' failures still enter it.
 - RUDY marks how crowded the failed region is: the placer's RUDY map of the routed placement adds 0.5·max(0, u − 0.5) to history bins within 3 mm of a failure. RUDY alone never opens a window: on PCBs it ranks routability near chance.
-- Placer congestion model (`kae.place.cost.Congestion`): RUDY + pin-escape demand priced as Σ max(0, u − 0.5)². The history, resampled to the annealer's bins and limited to the window plus two bins, enters through the `cong_history` hook (`make_annealer`) as static demand:
+- Placer congestion model (`haslam.place.cost.Congestion`): RUDY + pin-escape demand priced as Σ max(0, u − 0.5)². The history, resampled to the annealer's bins and limited to the window plus two bins, enters through the `cong_history` hook (`make_annealer`) as static demand:
 
   `u_b = (D_nets + D_escape + h_b·S_b) / S_b`
 
   The extra demand never moves with a part, so both engines (reference `Annealer`, compiled `FastAnnealer`) stay exactly incremental.
-- In a window: congestion weight doubled (30 → 60); parts named by an unrouted connection bumped 0.25 mm (`Problem.bump`, more occupancy on every side); routing margin 0.3 mm. Both bumps dropped if they make the window illegal. Why this is not bloat, and its A/B: [kae-joint-loop](../../research/joint/kae-joint-loop.md).
+- In a window: congestion weight doubled (30 → 60); parts named by an unrouted connection bumped 0.25 mm (`Problem.bump`, more occupancy on every side); routing margin 0.3 mm. Both bumps dropped if they make the window illegal. Why this is not bloat, and its A/B: [haslam-joint-loop](../../research/joint/haslam-joint-loop.md).
 - The re-anneal also carries the placer's physics terms and protection-order rules; nets of the window's unrouted connections weigh 2× (`replace_window(net_mult=…)`).
 - Legality stays hard and closes with the placer's own loop: KiCad placement errors → exact constraints (`exact.kicad_feedback`) → grid legality → greedy legalizer → exact check repaired by `exact.repair(allowed=window parts)`. The rip-up region grows to cover wherever that repair moved a part. An illegal window is discarded before any routing.
 - Annealer runs a fixed move count (6,000 per part), so a window is reproducible whenever its time budget does not bind.
@@ -81,10 +81,10 @@ Spot weights (match the acceptance order): placement 4, unrouted 3, other errors
 Sequence after rip-up:
 1. Window modules re-optimized with `optimize_modules(modules=…)`, every part outside the window locked; their guard pours recomputed, other modules' guards stay.
 2. Every remaining item locked; guards in place.
-3. Re-route by **`kae.route.incremental.route_open`**: the bridge's constraint translation, but cheap: only open connections; up to 3 autorouter passes in one run (the fork's `autorouter.max_passes`), > 1 only while connections are open; optimizer off (`optimizer.enabled=false`); item order from the seed (`autorouter.item_order_seed`); no repair rounds; the loop's evaluation is the single DRC.
+3. Re-route by **`haslam.route.incremental.route_open`**: the bridge's constraint translation, but cheap: only open connections; up to 3 autorouter passes in one run (the fork's `autorouter.max_passes`), > 1 only while connections are open; optimizer off (`optimizer.enabled=false`); item order from the seed (`autorouter.item_order_seed`); no repair rounds; the loop's evaluation is the single DRC.
 4. Everything except critical copper unlocked; `lastmile.close` joins what is still split on the window's nets (grid router with negotiated rip-up of unlocked tracks, critical copper fixed).
 
-Because `route_open`'s cost grows with open connections (Freerouting ≈ 1–2 CPU s per open connection, [evidence](../../research/joint/kae-joint-loop.md#results)), the window's rip-up is local: every net loses only the items inside the window and at the moved pads; none is ripped whole. `--set window_router=bridge` restores the full bridge for windows. The first route skips the bridge's last mile (on by default since c9c49d6) when a finishing stage follows, because there it only took the windows' time; the staged baseline keeps it.
+Because `route_open`'s cost grows with open connections (Freerouting ≈ 1–2 CPU s per open connection, [evidence](../../research/joint/haslam-joint-loop.md#results)), the window's rip-up is local: every net loses only the items inside the window and at the moved pads; none is ripped whole. `--set window_router=bridge` restores the full bridge for windows. The first route skips the bridge's last mile (on by default since c9c49d6) when a finishing stage follows, because there it only took the windows' time; the staged baseline keeps it.
 
 ## Acceptance
 
@@ -94,20 +94,20 @@ Because `route_open`'s cost grows with open connections (Freerouting ≈ 1–2 C
 | 2 | completion and DRC: unconnected + errors, then unconnected | neither may rise; a board that becomes clean is kept; another strict gain is kept if physics rises ≤ 10 % per item gained |
 | 3 | routed physics: Σ_modules min(u, 5), a module without a value counted as 3 | with equal completion and DRC, must fall by > 0.5 % |
 
-Thresholds scale by max(1, Σu); copper length and vias are reported, a tie-break only with `--set eff_tiebreak=1` ([why](../../research/joint/kae-joint-loop.md#idea-and-how-it-works)). Otherwise the candidate is reverted (dropped). The clean rule and per-item slack are the user's decision (confirmed after the first A/B) and the default; a flat 10 % slack reverted a board-cleaning window on ch552g ([evidence](../../research/joint/kae-joint-loop.md#results)).
+Thresholds scale by max(1, Σu); copper length and vias are reported, a tie-break only with `--set eff_tiebreak=1` ([why](../../research/joint/haslam-joint-loop.md#idea-and-how-it-works)). Otherwise the candidate is reverted (dropped). The clean rule and per-item slack are the user's decision (confirmed after the first A/B) and the default; a flat 10 % slack reverted a board-cleaning window on ch552g ([evidence](../../research/joint/haslam-joint-loop.md#results)).
 
 ## Determinism and budgets
 
 - Stage seeds derive from the run's seed and the iteration (`derive_seed`); windows ordered by priority then position; Freerouting is deterministic for an item order; window anneal uses a fixed move count. So a seed repeats whenever no time budget binds; on a loaded host the clocks can bind.
 - Budget = wall seconds: 30 % placer, 60 % of the rest for the first route, then windows, the finishing reserve and the write reserve.
-- A Freerouting slot wait (`freerouting._Slot`) is subtracted from the budget; after the budget the router runs without a slot (`slot_gave_up`). Reason: outside the kaebench sandbox, where slot locks are shared with other jobs, a finishing bridge once ran past its budget waiting for one.
+- A Freerouting slot wait (`freerouting._Slot`) is subtracted from the budget; after the budget the router runs without a slot (`slot_gave_up`). Reason: outside the haslambench sandbox, where slot locks are shared with other jobs, a finishing bridge once ran past its budget waiting for one.
 
 ## Measured
 
-→ [kae-joint-loop#results](../../research/joint/kae-joint-loop.md#results) (A+B 4814e11, split C a28bd84, last-mile local, `--route-parallel 2`).
+→ [haslam-joint-loop#results](../../research/joint/haslam-joint-loop.md#results) (A+B 4814e11, split C a28bd84, last-mile local, `--route-parallel 2`).
 
 ## Open questions
 
-- PMW3610 boards have no room to move into (5–8-part windows cannot spread the cluster), split C clock-bound, portfolio finish routing from scratch, clean boards with a flagged module running to the clock, placement errors left by the placer: → [kae-joint-loop#open-questions](../../research/joint/kae-joint-loop.md#open-questions).
+- PMW3610 boards have no room to move into (5–8-part windows cannot spread the cluster), split C clock-bound, portfolio finish routing from scratch, clean boards with a flagged module running to the clock, placement errors left by the placer: → [haslam-joint-loop#open-questions](../../research/joint/haslam-joint-loop.md#open-questions).
 
 Related: [critical-net-routing](../routing/critical-net-routing.md), [freerouting-constraint-bridge](../routing/freerouting-constraint-bridge.md), [pathfinder-negotiated-congestion](../routing/pathfinder-negotiated-congestion.md).

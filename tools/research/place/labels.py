@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Board-level silk labels and the parts they name: inference from the place task's input
 alone, validated on the human placement.
@@ -10,7 +10,7 @@ that belongs next to it (noisecard: D1-D10 beside their printed "dB" labels). Th
 each label's part from the input board only, then measures on the reference board how close
 the human put that part to the label, and how that compares with the other parts.
 
-Inference (kae.place.labels.infer):
+Inference (haslam.place.labels.infer):
   ref      a token equal to a part's reference (D3, U2).
   pin      a token equal to a connector-like part's pad pin function or its net's last name
            component (SDA, GND, 3V3, ~{RST}); a net on several such pads names them all.
@@ -20,7 +20,7 @@ Inference (kae.place.labels.infer):
            unlabelled LEDs, switches or connectors with consecutive reference numbers:
            matched in numeric order.
 
-    python tools/research/place/labels.py --tasks kae-work-v3/tasks [--split A] [--ids a,b] [--out FILE]
+    python tools/research/place/labels.py --tasks haslam-work-v3/tasks [--split A] [--ids a,b] [--out FILE]
 
 Prints per split: boards with labels, labels, labels with an inferred part, and for those
 the human distance (label box to the part's nearest pad), the share within 3 and 5 mm, and
@@ -38,8 +38,8 @@ from pathlib import Path
 
 
 def check_task(tdir):
-    from kae.board.kicad_file import load
-    from kae.place import labels
+    from haslam.board.kicad_file import load
+    from haslam.place import labels
     t = json.loads((tdir / "task.json").read_text())
     inp = load(tdir / "place" / "input" / "board.kicad_pcb")
     ref = load(tdir / "reference" / "board.kicad_pcb")
@@ -101,7 +101,7 @@ def summarize(results):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--tasks", default="kae-work-v3/tasks")
+    ap.add_argument("--tasks", default="haslam-work-v3/tasks")
     ap.add_argument("--split")
     ap.add_argument("--ids")
     ap.add_argument("--out")

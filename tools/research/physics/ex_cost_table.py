@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """What does exact physics cost per evaluation and per placement move, on real boards?
 (docs/topics/physics/exact-physics-options.md, cost table)
 
-For each board (kae-work-v2/tasks/<id>/reference/board.kicad_pcb, human placement) this
+For each board (haslam-work-v2/tasks/<id>/reference/board.kicad_pcb, human placement) this
 times, on one core (CPU seconds, time.process_time; wall time beside it):
 
   fast     Terms construction, a cold `total`, and `delta` for random 1-5 mm moves and
@@ -19,7 +19,7 @@ times, on one core (CPU seconds, time.process_time; wall time beside it):
            A'+A), LU fill and memory, one solve; and the fin kernel's cost for the same targets.
 
 Usage:
-  python tools/research/physics/ex_cost_table.py --out kae-work/physics/exact-options/costs [--only id1,id2]
+  python tools/research/physics/ex_cost_table.py --out haslam-work/physics/exact-options/costs [--only id1,id2]
          [--moves 200] [--exact-moves 30]
 Deterministic (seeded). Prints one line per board and writes <out>/<id>.json and summary.md.
 """
@@ -42,7 +42,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / 'kae' / 'src'))
+sys.path.insert(0, str(ROOT / 'haslam' / 'src'))
 sys.path.insert(0, str(HERE))
 
 import numpy as np  # noqa: E402
@@ -75,10 +75,10 @@ def stats(v):
 
 def run_board(bid, out_dir, n_moves, n_exact, seed):
     import ex_exact as X
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
-    from kae.physics.place_terms import Terms
-    path = ROOT / 'kae-work-v2' / 'tasks' / bid / 'reference' / 'board.kicad_pcb'
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
+    from haslam.physics.place_terms import Terms
+    path = ROOT / 'haslam-work-v2' / 'tasks' / bid / 'reference' / 'board.kicad_pcb'
     rng = random.Random(f'{seed}:{bid}')
     rec = dict(id=bid)
     task = json.load(open(path.parents[1] / 'task.json'))

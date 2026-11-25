@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Place terms' straight hops vs the human boards' routed copper (docs/topics/physics/place-terms.md).
 
 Phase 1 (--routed, slow: KiCad zone refill): for every board, the routed-copper value of each
-module (kae.route.critical_recheck.board_physics, the routed estimator the critical router
+module (haslam.route.critical_recheck.board_physics, the routed estimator the critical router
 scores with) and, per board hop of the place terms' loops, the straight length and the
 length of the least-L' copper path on the routed board:
 
@@ -21,7 +21,7 @@ terms (median, p10, p90, geometric mean) and, per hop class, routed / straight l
 Usage:
   python tools/research/physics/pt_routed_calib.py --routed --out DIR [-j 2] [--only id1,id2]
   python tools/research/physics/pt_routed_calib.py --out DIR [--variants base,cal]
-Needs kae (kae/.venv) and, for --routed, KiCad (kae.board.pcbnew_io).
+Needs haslam (haslam/.venv) and, for --routed, KiCad (haslam.board.pcbnew_io).
 """
 from __future__ import annotations
 
@@ -40,8 +40,8 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_v, "1")
 
 ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / 'kae' / 'src'))
-TASKS = ROOT / 'kae-work-v2' / 'tasks'
+sys.path.insert(0, str(ROOT / 'haslam' / 'src'))
+TASKS = ROOT / 'haslam-work-v2' / 'tasks'
 DEFAULT_IDS = ('olimex-dcdc-50-5-12-dcdc-50-5-12-rev-a1,pcbcorpus-badjeff-paw3222-pcb-paw3222,'
                'pcbcorpus-badjeff-paw3395-pcb-paw3395,pcbcorpus-badjeff-pmw3610-pcb-pmw3610-pcb,'
                'pcbcorpus-blueokiris-ch552g-dev-board-ch552g-dev-board,'
@@ -55,8 +55,8 @@ DEFAULT_IDS = ('olimex-dcdc-50-5-12-dcdc-50-5-12-rev-a1,pcbcorpus-badjeff-paw322
 
 
 def _boards(tid):
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
     T = TASKS / tid
     b = load(str(T / 'reference' / 'board.kicad_pcb'))
     brief = build(load(str(T / 'route' / 'input' / 'board.kicad_pcb')))
@@ -87,7 +87,7 @@ def _hop(CR, rb, net, ta, tb, gl):
 
 
 def _decap_hops(CR, rb, s):
-    from kae.route.critical_modules import GND_RE
+    from haslam.route.critical_modules import GND_RE
     ic, rail = s.get('ic'), s.get('rail')
     caps = s.get('hf_caps') or s.get('caps') or []
     pins = [str(p) for p in s.get('power_pins') or []]
@@ -191,8 +191,8 @@ def _crystal_hops(CR, rb, s):
 
 
 def routed_board(tid):
-    from kae.route import critical_recheck as CR
-    from kae.route.critical_modules import modules_from_brief
+    from haslam.route import critical_recheck as CR
+    from haslam.route.critical_modules import modules_from_brief
     b, brief = _boards(tid)
     fills = CR.fills_of(b.path)
     ph = CR.board_physics(b, brief=brief, fills=fills)
@@ -222,8 +222,8 @@ VARIANTS = {
 
 
 def terms_board(tid, routed_rows, variants):
-    from kae.physics import priors as PR
-    from kae.physics.place_terms import Terms
+    from haslam.physics import priors as PR
+    from haslam.physics.place_terms import Terms
     b, brief = _boards(tid)
     out = []
     by_mod = {r['module']: r for r in routed_rows}
@@ -235,7 +235,7 @@ def terms_board(tid, routed_rows, variants):
         modes = {}
         first = {}
         vias = {}
-        import kae.physics.fastloop as FL
+        import haslam.physics.fastloop as FL
         th = t.bv.thickness
         lv_full = FL.m_self(th, 0.15) + FL._collinear(th, th, 0.0)
         for k, s in enumerate(t.structs):

@@ -18,7 +18,7 @@ Keys: FunSearch, AlphaEvolve, OpenEvolve, EoH, ReEvo, OPRO, ELM, LLM4AD, EvoPlac
 
 LLMs writing constraint models (Text2Zinc ≤25.39%, CP-Bench ~70%) → [CP-SAT](cp-sat-milp-smt.md#llms-writing-constraint-models): give a tested CP-SAT template; the LLM only adds typed constraints [I].
 
-## Offline evolution loop for kae
+## Offline evolution loop for haslam
 
 [I]
 - Targets: PathFinder `net_priority()`/`edge_cost()`; net/placement order heuristic (OrderPlace); PSDL repair neighbourhood; legalizer GLS weight schedule; placer loss over observables (HPWL, net crossing, RUDY, decap distance, loop area).

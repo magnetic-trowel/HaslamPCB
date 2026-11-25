@@ -36,7 +36,7 @@ Successful LLM roles: hierarchy and grouping, constraint/relation graphs, hyperp
 Mechanism details (VeoPlace prompt contract and Top-Stratified context selection, ModuPlace SFT/GRPO training, MAGE tournament) -> [placement/llm-guided-placement](../placement/llm-guided-placement.md); training recipe -> [data/training-recipes](../data/training-recipes.md).
 
 1. Weak anchors only, relative to the wirelength and density terms, validated against a random-region control. VeoPlace's λ_A = 0.01 (0.1–1.0 over-constrained) is an absolute coefficient in its benchmark's units, not a 1% share: calibrate ours by a sweep [I].
-2. VeoPlace prompt-contract port and MAGE-style channel replication (KiCad multichannel / Repeat Layout, then global legalization) -> [placement/llm-guided-placement](../placement/llm-guided-placement.md#use-in-kae) [I].
+2. VeoPlace prompt-contract port and MAGE-style channel replication (KiCad multichannel / Repeat Layout, then global legalization) -> [placement/llm-guided-placement](../placement/llm-guided-placement.md#use-in-haslam) [I].
 3. The LLM explains every parameter or weight it proposes (HyperPlace pattern), stored in the intent record -> [ux/design-rationale-and-intent-record](../ux/design-rationale-and-intent-record.md) [I].
 4. Plan a fine-tuned constraint-graph model: open CCG dataset mined from PCBWorld D3 tier-A boards only, evaluation boards excluded -> [data/training-recipes](../data/training-recipes.md) [I].
 

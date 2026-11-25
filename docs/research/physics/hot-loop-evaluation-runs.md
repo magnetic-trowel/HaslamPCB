@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Hot-loop evaluation runs: window cost, validation, AC copper loss (2026-11)
 
@@ -58,7 +58,7 @@ Counting open cells moves C from 1.10× to 1.38× human: the arm that left more 
 - Class-D and filterless bridges (max98357, circuitmonkey, noggin) have no inductor in their structure: no ripple term, noted.
 - Physics agrees: ripple RMS is ΔI/√12, ~10 % of a CCM load current, through mΩ of output copper, against the full pulsed current RMS I·√(D(1−D)) in the hot loop.
 
-**Against `kae.excite.wideband`** (its `ac_loss.copper_W`: every AC source's harmonics through the reduced model at 0.25 mm, skin on; no ripple source either):
+**Against `haslam.excite.wideband`** (its `ac_loss.copper_W`: every AC source's harmonics through the reduced model at 0.25 mm, skin on; no ripple source either):
 | Board | wideband | `loss.loop_ac` + `loss.copper_ac` | Why they differ |
 |---|---|---|---|
 | bq25306 human | 0.235 mW | 0.230 + 0.018 = 0.248 mW | the cell's term agrees within 2 %; wideband adds the cores' currents, has no ripple |

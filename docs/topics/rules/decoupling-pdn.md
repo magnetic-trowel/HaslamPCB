@@ -1,16 +1,16 @@
 # Decoupling and PDN: mounting inductance, target impedance, flat profiles
 
 Scope: decoupling (mounting inductance, values, myths), target impedance and flat profiles, plane cavities, MLCC/bead components, PDN workflow and rule IDs. Not here: trace/via current -> [power/high-current.md](power/high-current.md); return stitching -> [si-fundamentals.md](si-fundamentals.md#discontinuities-splits-slots-voids-reference-changes); estimator code -> [checkers-power.md](checkers-power.md).
-Keys: decoupling, bypass, PDN, PDN screener, kae.excite.pdn, Z(f), Z0, peak Q, mounting inductance, ESL, ESR, three capacitor values myth, anti-resonance, target impedance, Z_t, flat profile, 1.57 × Z_t, rogue wave, cavity mode, f₁₀, plane capacitance, DC bias, MLCC derating, ferrite bead, SimSurfing, K-SIM, PDN-01, PDN-12
+Keys: decoupling, bypass, PDN, PDN screener, haslam.excite.pdn, Z(f), Z0, peak Q, mounting inductance, ESL, ESR, three capacitor values myth, anti-resonance, target impedance, Z_t, flat profile, 1.57 × Z_t, rogue wave, cavity mode, f₁₀, plane capacitance, DC bias, MLCC derating, ferrite bead, SimSurfing, K-SIM, PDN-01, PDN-12
 
 ## Decoupling and PDN rules
 1. Mounting loop inductance (pads, vias, depth to plane pair) sets HF decoupling, not capacitor value: same-package 0.1 µF and 47 µF MLCCs have the same ESL. Implement "smallest closest" as "**lowest mounting inductance closest**", ranked with the [loop-inductance estimator](checkers-power.md) (package, pad-to-via distance, via length to the plane pair); alternate orientation in clusters.
-   - Built so far (`kae.circuit.roles.cap_class`, `CAP_CLASS = 'package'`): a non-polarized chip of 0805 or smaller counts as HF at any value, so a load's pin may be paired with it ([comprehension](../physics/comprehension.md) §3.3). Larger and through-hole bodies fall back to value (≤ 1 µF), and polarized bodies are never HF. Who owns a capacitor, and what a converter loop or bias pin takes, still goes by value, because there the charge it holds matters and humans lay out that way: the ownership eval holds at 74.67% (1,378 caps), and pin pairings rise from 289 to 295: the 6 new ones (4.7–10 µF 0402) sit 1.3–3.7 mm from their pin in the human layouts. `CAP_CLASS = 'value'` restores the old classes. Adding 0805 (2026-11) changes one pairing on those 112 boards: a 22 µF on an INA230 `Vbus` sense pin (a sense input read as a supply pin, a separate fault).
+   - Built so far (`haslam.circuit.roles.cap_class`, `CAP_CLASS = 'package'`): a non-polarized chip of 0805 or smaller counts as HF at any value, so a load's pin may be paired with it ([comprehension](../physics/comprehension.md) §3.3). Larger and through-hole bodies fall back to value (≤ 1 µF), and polarized bodies are never HF. Who owns a capacitor, and what a converter loop or bias pin takes, still goes by value, because there the charge it holds matters and humans lay out that way: the ownership eval holds at 74.67% (1,378 caps), and pin pairings rise from 289 to 295: the 6 new ones (4.7–10 µF 0402) sit 1.3–3.7 mm from their pin in the human layouts. `CAP_CLASS = 'value'` restores the old classes. Adding 0805 (2026-11) changes one pairing on those 112 boards: a 22 µF on an INA230 `Vbus` sense pin (a sense input read as a supply pin, a separate fault).
    - Basis [P]: Archambeault's connection-inductance table ([IEEE EMC Society Newsletter, 2009](https://forum.hsbne.org/uploads/default/original/2X/9/946bf58f4e03f86ead589fbf62e3db9c2a1a6ec0.pdf)) rises 0402 < 0603 < 0805 at every via depth (0.9 / 1.1 / 1.2 nH at 10 mil). It puts body ESL at 0.2–0.5 nH "depending on the size". Bogatin, Smith and Sandler (above) give a 10 µF and a 0.1 µF MLCC in one body "exactly the same high frequency impedance". 0805 costs 0.3 nH over 0402 at equal mounting, less than a 50 mil pad-to-via trace (+0.5 nH) or 10 mil more via depth; KYOCERA AVX measures 0.1 µF at 0.87 / 1.05 / 1.20 nH for 0603 / 0805 / 1206, within ±10 % across values ([Cain](https://kyocera-avx.com/docs/techinfo/CeramicCapacitors/parasitc.pdf)) [P]; AMD UG483 Table 2-5 makes its 4.7 µF 0805 the "PCB high-frequency" capacitor (ESL ≤ 0.5 nH) [P]. 1206 and larger stay with the value classes.
 2. "Three values per pin" is a myth: equal-ESL values create anti-resonance peaks; damp with ESR or controlled-ESR bulk instead of adding decade values.
 3. `Z_t = ΔV/I_transient` is necessary, not sufficient: transient share of the budget only, flat profile, peaks ≤1.57 × Z_t robust (≤3 × tolerated); watch for "rogue waves" from several high-Q peaks.
 4. Pre-layout BOM checks: MLCC DC-bias derating; bead at ~20% of rated current; bead + cap resonance vs f_sw. Add beads only on explicit requirement, always with the resonance check.
-5. No open-source PDN impedance tool was found, so kae has its own lumped-RLC screener fed with geometry-derived mounting inductance, run on every placement: [below](#pdn-screener-kaeexcitepdn).
+5. No open-source PDN impedance tool was found, so haslam has its own lumped-RLC screener fed with geometry-derived mounting inductance, run on every placement: [below](#pdn-screener-haslamexcitepdn).
 
 ## Decoupling myths vs reality
 - **Archambeault**, "PCB Power Decoupling Myths Debunked" (IEEE EMC chapter 2012, [slides](https://ewh.ieee.org/r3/enc/emcs/archive/2012-10-10b_DecouplingMyths.pdf)) [P]: "It's really the inductance that matters!"
@@ -93,9 +93,9 @@ RPA §17 [I]. Each step is code, not LLM judgement:
 4. **Fix:** same-value caps (lower ESL), ESR-chosen values, or a controlled-ESR bulk cap (C ≈ L/R²). Never pile on decade values.
 5. **Cavity modes:** compute f₁₀/f₀₁ from the outline; flag clock harmonics or edges within ±10% of a mode; stitch and decouple at mode maxima (edges, corners).
 
-## PDN screener (`kae.excite.pdn`)
-Report-only: it changes no placement or routing, so it needs no A/B. Runs in `kae place` (report `pdn`, decap loops from the place terms at the final poses) and in `kae.route.critical_cli physics` (`_pdn`, the routed recheck's loops).
-- **Circuit:** `kae.excite.models`' board circuit, not a copy. Capacitors keep their bias-derated C, ESR and ESL (PDN-05). Regulator outputs and port supplies stay R + L stand-ins; a rail with neither gets a stated 50 mΩ + 0.2 µH regulator. The loads' supply-pin package and die come out, since the PDN is judged at the pins.
+## PDN screener (`haslam.excite.pdn`)
+Report-only: it changes no placement or routing, so it needs no A/B. Runs in `haslam place` (report `pdn`, decap loops from the place terms at the final poses) and in `haslam.route.critical_cli physics` (`_pdn`, the routed recheck's loops).
+- **Circuit:** `haslam.excite.models`' board circuit, not a copy. Capacitors keep their bias-derated C, ESR and ESL (PDN-05). Regulator outputs and port supplies stay R + L stand-ins; a rail with neither gets a stated 50 mΩ + 0.2 µH regulator. The loads' supply-pin package and die come out, since the PDN is judged at the pins.
 - **Mounting:** each capacitor's series L is max(ESL, its decap loop), because the loop already crosses the body. With no loop it is ESL + 1 nH. AMD UG933 gives 0.3–4 nH for pads, vias and traces.
 - **Planes:** facing rail and ground zones add εA/d. Cavity modes come from the overlap's extent.
 - **Band:** 100 kHz–100 MHz. UG933 checks decoupling "from 100 KHz to 100 MHz", and the VRM holds the rail "from DC to a few hundred kHz". The upper end is `decap_budget`'s package handover.
@@ -106,7 +106,7 @@ Report-only: it changes no placement or routing, so it needs no A/B. Runs in `ka
   - Peak Q = Z_peak/Z0. Z0 = 2/(ω₀·dB/dω), with B = Im(1/Z), is the equivalent tank's √(L/C).
   - `pdn_rogue_wave_risk`: ≥ 2 peaks with Q > 2 above Z_t/2.
   - `pdn_cavity_mode_clock`: f₁₀, f₀₁ or f₁₁ within ±10 % of a stated clock's harmonic 1, 3, 5 or 7.
-- **Validation** (`tools/research/physics/pdn_validate.py`; `kae/tests/test_excite_pdn.py`):
+- **Validation** (`tools/research/physics/pdn_validate.py`; `haslam/tests/test_excite_pdn.py`):
   - Novak's 100 µF ∥ 1 µF ([Quiet Power 2010](https://iconnect007.com/article/39561/quiet-power-calculating-basic-resonances-in-the-pdn/39564/design)): 0.0794 Ω at 2.87 MHz, against the published "0.08 Ohms" near 3 MHz.
   - The UG583 0.01 µF example: 53.1 and 38.6 MHz, against 53 and 38.
   - A parallel RLC's Q is exact.
@@ -123,19 +123,19 @@ RPA §2, §17 [I].
 | PDN-02 | Order by mounting L; bulk anywhere local | Bulk within ~10–20 mm | Lowest estimated mounting L closest (package, pad-to-via distance, via depth) | S3 |
 | PDN-03 | Tight power/ground plane pair | ~38 pF/cm² at 0.1 mm | Stack-up adjacency and thickness | S3 |
 | PDN-04 | Cap count/values from the Z_t profile, not "0.1 µF per pin" | Z_t = ΔV/ΔI | Derated admittance sum vs Z_t | S3 |
-| PDN-05 | Derate MLCCs at DC bias | Vendor bias curve; 50% voltage derating as a start | BOM: derated C from the part's bias curve (fallback: `kae.excite.models.mlcc_bias_factor`, field proxy V·√(C/body volume), fitted to vendor points; [component-priors](../../research/physics/component-priors.md)) | S2 |
+| PDN-05 | Derate MLCCs at DC bias | Vendor bias curve; 50% voltage derating as a start | BOM: derated C from the part's bias curve (fallback: `haslam.excite.models.mlcc_bias_factor`, field proxy V·√(C/body volume), fitted to vendor points; [component-priors](../../research/physics/component-priors.md)) | S2 |
 | PDN-06 | Bead only where needed; I_DC ≤20% rated; f_res = 1/(2π√(L·C)) well below f_sw. An undamped LC has gain ≥1 at every f_sw < √2·f_res, so RPA's "not within ±50%" window passes amplifying filters (f_res = 1.6·f_sw gives +4 dB) [I] | — | BOM + datasheet L; computed attenuation at f_sw and its harmonics; Q or damping | S2 |
 | PDN-08 | No plane cuts under referenced signals; stitch at layer changes | ≥1–2 GND vias near each reference-changing via | Nearest-GND-via distance; zone-void crossings | S2 |
-| PDN-09 | Peak ≤1.57 × Z_t (robust) / ≤3 × (risk) | — | RLC sweep (`kae.excite.pdn`) | S2 |
-| PDN-10 | Flat profile, controlled-ESR damping | Q ≲ 1–2 | Q per peak (`kae.excite.pdn`) | S3 |
-| PDN-11 | Cavity mode vs clock/edge spectrum | f₁₀ formula | Zone overlap + the brief's clocks (`kae.excite.pdn`) | S3 |
+| PDN-09 | Peak ≤1.57 × Z_t (robust) / ≤3 × (risk) | — | RLC sweep (`haslam.excite.pdn`) | S2 |
+| PDN-10 | Flat profile, controlled-ESR damping | Q ≲ 1–2 | Q per peak (`haslam.excite.pdn`) | S3 |
+| PDN-11 | Cavity mode vs clock/edge spectrum | f₁₀ formula | Zone overlap + the brief's clocks (`haslam.excite.pdn`) | S3 |
 | PDN-12 | Plane pairs high in the stack, thin, no long thin necks | — | Stack-up position; neck width/length | S3 |
 
 ## Open questions
 - **"Smallest closest":** MT-101 (2009) vs Bogatin (2020) and Archambeault (2012). Default to mounting L; context switch for legacy designs.
 - **No authoritative cap-to-pin maximum distance exists.** The mm values are heuristics; prefer the inductance estimate.
 - **Not read in full:** Keysight and Novak. MLCC derating figures are secondary.
-- **Transient share of the tolerance:** no source gives a universal fraction. AMD UG863 gives ±2 % of a ±3 % rail to the transient; Intel's PDN tool examples use 5 % at 50 % dynamic current. kae uses 5 % of the full current prior.
+- **Transient share of the tolerance:** no source gives a universal fraction. AMD UG863 gives ±2 % of a ±3 % rail to the transient; Intel's PDN tool examples use 5 % at 50 % dynamic current. haslam uses 5 % of the full current prior.
 
 ## Sources
 - [rules_power_rf_analog_dfm.md § 2, § 17, § 19](../../../research_notes/LLM%20driven%20PCB%20placement%20and%20routing/rules_power_rf_analog_dfm.md); [verification_rules.md § 1B, § 2](../../../research_notes/LLM%20driven%20PCB%20placement%20and%20routing/verification_rules.md)

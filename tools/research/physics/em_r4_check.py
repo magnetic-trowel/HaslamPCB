@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Gate R4 seed (docs/topics/architecture/physics-frequency-coverage.md): does a hop's price, taken from the
 reduced model's basis fields, predict the change of a pair's transfer impedance at every frequency?
@@ -6,12 +6,12 @@ reduced model's basis fields, predict the change of a pair's transfer impedance 
 An aggressor trace over a plane (optionally slotted under both traces), driven at its near end by a current
 source with a switch-node capacitance across it (C_sw), closed at its far end by a capacitor with ESR and
 ESL: a series loop that rings with C_sw. A victim at offset d has its two pads present and joined by a
-field-free short (an unrouted connection, as in kae.em.pnr); its far pad is tied to the plane, and its port
+field-free short (an unrouted connection, as in haslam.em.pnr); its far pad is tied to the plane, and its port
 sits at the near pad. The hop is the victim's trace, which replaces the short, along one of two paths
 (straight, or a detour 2 mm further out).
 
 - exact: Z_vs with the trace, and the difference between the two paths, from direct solves.
-- basis (kae.em.spectral): a reduced model of the board before the hop; the hop pays, per unit current,
+- basis (haslam.em.spectral): a reduced model of the board before the hop; the hop pays, per unit current,
   jw sum_j y_sj(w) (F_j along its path) plus the crossing steps of the basis potentials.
 - single band: the same price taken at 10 MHz and continued as a constant inductance, dZ = jw dL(10 MHz).
 
@@ -27,12 +27,12 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[2] / "kae" / "src"))
+sys.path.insert(0, str(HERE.parents[2] / "haslam" / "src"))
 
-from kae.em import reduce as RD  # noqa: E402
-from kae.em import solve as ES  # noqa: E402
-from kae.em.mesh import Layer, Mesh  # noqa: E402
-from kae.em.spectral import Spectral, path_integrals  # noqa: E402
+from haslam.em import reduce as RD  # noqa: E402
+from haslam.em import solve as ES  # noqa: E402
+from haslam.em.mesh import Layer, Mesh  # noqa: E402
+from haslam.em.spectral import Spectral, path_integrals  # noqa: E402
 
 T, H = 0.035, 0.2
 C_SW, ESR, ESL, C_OUT = 200e-12, 0.02, 0.5e-9, 1e-6

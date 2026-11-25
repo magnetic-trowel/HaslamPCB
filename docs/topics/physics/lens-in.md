@@ -163,7 +163,7 @@ The LLM works the card by abduction ([LA39](../../ideas/physics-first/language.m
 
 Explanations curb over-reliance only if they make verifying cheaper ([Vasconcelos](../ux/explanations-and-alternatives.md) [P]), as flip thresholds do. Representation: [lens-cd](lens-cd.md).
 
-## Use in kae
+## Use in haslam
 
 1. Keep an epistemic ledger: each quantity carries belief, lineage, validity, a level/shape error split and links to its decisions; rank actions by EVPPI per cost, *robustify* included.
 2. Rankings may use calibrated proxies; compliance needs level calibration or F2/F3, reported as a probability P(LII ≤ 1), not a point.

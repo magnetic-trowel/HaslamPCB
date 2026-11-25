@@ -1,13 +1,13 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Does a load/save through KiCad's own reader and writer lose or change anything?
 
     python roundtrip_audit.py pick CORPUS N_PER_STAMP > ids.txt
-    python roundtrip_audit.py run CORPUS WORK ids.txt > rows.jsonl     # needs KAE_KICAD_WRAP
+    python roundtrip_audit.py run CORPUS WORK ids.txt > rows.jsonl     # needs HASLAM_KICAD_WRAP
     python roundtrip_audit.py summary rows.jsonl
 
 For each board (copied out of the read-only corpus with its .kicad_pro/.kicad_dru),
-pcbnew_inventory.py writes four variants: PCB_IO_MGR load+save ("plain", kae's writer),
+pcbnew_inventory.py writes four variants: PCB_IO_MGR load+save ("plain", haslam's writer),
 plain re-saved ("plain2"), LoadBoard + PCB_IO_MGR.Save ("lb_plain", import_ses before
 the fix) and LoadBoard + SaveBoard ("lb_save"). Compared here:
   - the format stamp before and after;
@@ -15,8 +15,8 @@ the fix) and LoadBoard + SaveBoard ("lb_save"). Compared here:
     original file and of "plain" (what KiCad's loader dropped is visible only here);
   - pcbnew's inventory of each variant against the original's (footprints, pads with
     nets, tracks with nets, drawings, zones, nets, embedded files, groups);
-  - kae's own reader (kae.board.kicad_file.load) on the original and on "plain";
-  - kae.board.sdiff between the original and "plain" (same-stamp boards only) and
+  - haslam's own reader (haslam.board.kicad_file.load) on the original and on "plain";
+  - haslam.board.sdiff between the original and "plain" (same-stamp boards only) and
     between "plain" and "plain2".
 """
 import collections
@@ -127,8 +127,8 @@ def compare_inv(o, v):
     return out
 
 
-def kae_view(path):
-    from kae.board import kicad_file
+def haslam_view(path):
+    from haslam.board import kicad_file
     b = kicad_file.load(str(path))
     pads = sorted(json.dumps([f.ref, p.number, round(p.x, 4), round(p.y, 4), p.net]) for f in b.footprints
                   for p in f.pads)
@@ -141,7 +141,7 @@ def kae_view(path):
     return dict(pads=pads, fps=fps, zones=zones, nets=sorted(b.nets), tracks=tracks, vias=vias)
 
 
-def compare_kae(a, b):
+def compare_haslam(a, b):
     out = {}
     for k in a:
         ca, cb = collections.Counter(a[k]), collections.Counter(b[k])
@@ -153,7 +153,7 @@ def compare_kae(a, b):
 
 
 def run_one(corpus, work, bid):
-    from kae.board import sdiff
+    from haslam.board import sdiff
     src = Path(corpus) / "boards" / bid
     d = Path(work) / bid
     shutil.rmtree(d, ignore_errors=True)
@@ -164,7 +164,7 @@ def run_one(corpus, work, bid):
     board = d / "board.kicad_pcb"
     row = dict(id=bid, stamp=stamp(board), bytes=board.stat().st_size)
     inv = d / "inv.json"
-    wrap = os.environ.get("KAE_KICAD_WRAP", "").split()
+    wrap = os.environ.get("HASLAM_KICAD_WRAP", "").split()
     cmd = ["bash", "-c", 'ulimit -v 40000000; exec "$@"', "x", *wrap, "python3",
            str(HERE / "pcbnew_inventory.py"), str(board), str(d / "out"), str(inv)]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)
@@ -185,9 +185,9 @@ def run_one(corpus, work, bid):
         row["inv_" + v] = compare_inv(o, res[v])
     row["lb_save_ok"] = res["lb_save_ok"]
     try:
-        row["kae_plain"] = compare_kae(kae_view(board), kae_view(plain))
+        row["haslam_plain"] = compare_haslam(haslam_view(board), haslam_view(plain))
     except Exception as e:  # noqa: BLE001
-        row["kae_plain"] = dict(error=f"{type(e).__name__}: {e}")
+        row["haslam_plain"] = dict(error=f"{type(e).__name__}: {e}")
     if row["stamp"] == row["stamp_after"]:
         ch = sdiff.diff(board, plain)
         row["sdiff_orig_plain"] = dict(n=len(ch), kinds=dict(collections.Counter(c["kind"] for c in ch)))
@@ -202,7 +202,7 @@ def summary(path):
         if "error" in r:
             print(r["id"], r.get("stamp"), "ERROR", r["error"][-200:].replace("\n", " "))
             continue
-        bad = {k: v for k, v in r.items() if k.startswith(("inv_", "kae_")) and v}
+        bad = {k: v for k, v in r.items() if k.startswith(("inv_", "haslam_")) and v}
         print(f"{r['stamp']}->{r['stamp_after']} {r['id'][:55]:55s} n={r['n']}")
         print("   tokens changed:", r["tokens_changed"])
         for k, v in bad.items():

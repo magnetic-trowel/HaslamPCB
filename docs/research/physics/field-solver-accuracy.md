@@ -1,11 +1,11 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Field-solver accuracy: skin effect vs nsub, mesh bias, hot copper (2026-11-03)
 
 **Status:** partial. Three audit items were decided and built. Everything here is model against model (closed forms, finer solves, the evaluator on corpus boards); nothing was measured on physical hardware.
 **First published:** 2026-11-03 on branch `decide-em` (off `audit-fixes-2611`).
 
-The 2026-11 audit raised three accuracy questions about `kae.em` and the two evaluators (`kae.excite.evaluate`, the fast one, and `kae.excite.wideband`):
+The 2026-11 audit raised three accuracy questions about `haslam.em` and the two evaluators (`haslam.excite.evaluate`, the fast one, and `haslam.excite.wideband`):
 - **E5.** How much skin effect do two filaments through the copper miss?
 - **E7.** How large is the raster's inductance bias, and when does it matter?
 - **E4.** What does copper's temperature coefficient do to heat and drop?
@@ -14,7 +14,7 @@ A fourth problem turned up while answering E5: a bug in narrow bars.
 
 Scripts:
 - [em_skin_nsub_check.py](../../../tools/research/physics/em_skin_nsub_check.py): the 1-D slab, the canonical solves (decap loop, buck hot loop, plane pair, coplanar pair) at nsub 1–8 and 1–200 MHz, and `--pitch` refinement.
-- Code: [kae.em.skin](../../../kae/src/kae/em/skin.py), `Reduced.skin_correction` in [reduce](../../../kae/src/kae/em/reduce.py), `mesh_report` and `bias_hazards` in [evaluate](../../../kae/src/kae/excite/evaluate.py), `tcr_solve` in [heat](../../../kae/src/kae/excite/heat.py).
+- Code: [haslam.em.skin](../../../haslam/src/haslam/em/skin.py), `Reduced.skin_correction` in [reduce](../../../haslam/src/haslam/em/reduce.py), `mesh_report` and `bias_hazards` in [evaluate](../../../haslam/src/haslam/excite/evaluate.py), `tcr_solve` in [heat](../../../haslam/src/haslam/excite/heat.py).
 
 ## 1. Narrow bars lost part of their inductance correction at nsub ≥ 2 (fixed)
 
@@ -38,7 +38,7 @@ A 0.5 mm trace (full cells) was nsub-independent before the fix too.
 
 ## 2. Skin effect vs nsub (E5)
 
-**The slab.** Take 35 µm copper with its field on one side, as a conductor facing its return across a dielectric has. Its exact ratio is R/R_dc = Re[(1+j)D coth((1+j)D)], with D = t/δ. This is Dowell's single-layer factor; δ is 66 µm at 1 MHz and 6.6 µm at 100 MHz. The same slab cut into n uniform-current filaments (kae.em's Chebyshev slices) reaches only F_n:
+**The slab.** Take 35 µm copper with its field on one side, as a conductor facing its return across a dielectric has. Its exact ratio is R/R_dc = Re[(1+j)D coth((1+j)D)], with D = t/δ. This is Dowell's single-layer factor; δ is 66 µm at 1 MHz and 6.6 µm at 100 MHz. The same slab cut into n uniform-current filaments (haslam.em's Chebyshev slices) reaches only F_n:
 
 | f | δ | exact | n = 2 | 3 | 4 | 8 |
 |---|---|---|---|---|---|---|

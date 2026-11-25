@@ -128,7 +128,7 @@ Readings:
 
 Agreement lowers a coupon's VOI; disagreement makes it decisive.
 
-**Harness integration** ([CLAUDE.md](../../../CLAUDE.md), [physics-critics](physics-critics.md#4-fitting-it-into-kaebench-without-touching-the-score)): `physics-report <run> <baseline>` as specified there (writes `physics/ledger.json` and `scorecard.json`), plus the floor census columns. Registered predictions become golden values in the regression suite (gap 20), versioned so no script changes them silently.
+**Harness integration** ([CLAUDE.md](../../../CLAUDE.md), [physics-critics](physics-critics.md#4-fitting-it-into-haslambench-without-touching-the-score)): `physics-report <run> <baseline>` as specified there (writes `physics/ledger.json` and `scorecard.json`), plus the floor census columns. Registered predictions become golden values in the regression suite (gap 20), versioned so no script changes them silently.
 
 ## 5. Kill criteria
 
@@ -174,7 +174,7 @@ Agreement lowers a coupon's VOI; disagreement makes it decisive.
 
 - [S]: Gneiting and Raftery, JASA 102(477), 2007 (interval scores); Kennedy and O'Hagan, JRSS B 63(3), 2001 (model discrepancy).
 - [P]: JLCPCB stackups ([impedance page](https://jlcpcb.com/impedance)).
-- Boards: kaebench candidates manifest, fetched at pinned commits (not redistributed).
+- Boards: haslambench candidates manifest, fetched at pinned commits (not redistributed).
 - Lens inputs: [lens-in](lens-in.md), [lens-vp](lens-vp.md), [lens-ct](lens-ct.md), [lens-sy](lens-sy.md), [lens-ls](lens-ls.md), [lens-th](lens-th.md), [lens-cd](lens-cd.md).
 - Verification: [verification-and-limits](verification-and-limits.md).
 

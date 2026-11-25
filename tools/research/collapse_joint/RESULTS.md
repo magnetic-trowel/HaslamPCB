@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Joint collapse by continuation (tag `jcollapse`)
 
@@ -43,7 +43,7 @@ Same lift, schedule, restarts and router, no polish; only whether parts answer �
 
 Figure for tuxkeychain (figure not published: it renders a third-party board; regenerate it locally).
 
-Wire and part history; also 0rax xiao, paw3395 and gas sensor (figures of third-party boards, not published); all in `kae-work/jc-png/ab33-jc/`. Prices climb at dense pin rows (2×N header, castellated XIAO row, sensor-lens cutout edges): where L = 2 is too few for the evolving placement. Wire-history density predicts failure: median 4.3/mm² on incomplete vs 0.18 on complete boards (Mann–Whitney p = 0.046, n = 31).
+Wire and part history; also 0rax xiao, paw3395 and gas sensor (figures of third-party boards, not published); all in `haslam-work/jc-png/ab33-jc/`. Prices climb at dense pin rows (2×N header, castellated XIAO row, sensor-lens cutout edges): where L = 2 is too few for the evolving placement. Wire-history density predicts failure: median 4.3/mm² on incomplete vs 0.18 on complete boards (Mann–Whitney p = 0.046, n = 31).
 
 ## Verdict
 
@@ -53,4 +53,4 @@ Wire and part history; also 0rax xiao, paw3395 and gas sensor (figures of third-
 
 Three seeds of `jc`/`jc_full`; steer restarts by the obstruction map (re-rotate high-history parts with `collapse_obst.bus_lds`); price vias in the part cost; rank lifts with `collapse_assign.LiftedConflicts`.
 
-Runs: `kae-work/results/jcollapse-{jc,jc_nopol,jc_lv_nopol,jc_frozen}-ab33-v3`, `jcollapse-jc_full-phys10-v3`, `jcollapse-jc_{fast,slow}-dev6-v2`; snapshots `kae-work/jc-snap/`.
+Runs: `haslam-work/results/jcollapse-{jc,jc_nopol,jc_lv_nopol,jc_frozen}-ab33-v3`, `jcollapse-jc_full-phys10-v3`, `jcollapse-jc_{fast,slow}-dev6-v2`; snapshots `haslam-work/jc-snap/`.

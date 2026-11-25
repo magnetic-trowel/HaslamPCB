@@ -1,13 +1,13 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The physics advisor's estimates against full solves of the same edits (docs/research/physics-advisor.md).
 
     advisor_validate.py BASE_EVAL.json INTENT.json SCREEN_DIR [--solve NAME ...] [-o OUT.json]
 
-SCREEN_DIR holds one folder per measured variant (`<name>/status.json`, kae.intent status of a full
-kae.excite.evaluate with the edit in the circuit). For each variant in VARIANTS the advisor predicts T-FB,
-T-FB3 and the status total from the base evaluation alone (first order, kae.intent.advise._WhatIf), and,
-for names given with --solve, with a targeted re-solve (kae.intent.advise.solve_entry: minutes each).
+SCREEN_DIR holds one folder per measured variant (`<name>/status.json`, haslam.intent status of a full
+haslam.excite.evaluate with the edit in the circuit). For each variant in VARIANTS the advisor predicts T-FB,
+T-FB3 and the status total from the base evaluation alone (first order, haslam.intent.advise._WhatIf), and,
+for names given with --solve, with a targeted re-solve (haslam.intent.advise.solve_entry: minutes each).
 Prints a table predicted / measured."""
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import json
 import sys
 from pathlib import Path
 
-# name -> (edits in kae.excite.evaluate.apply_edit's grammar, what the screen did)
+# name -> (edits in haslam.excite.evaluate.apply_edit's grammar, what the screen did)
 VARIANTS = {
     "S1-cff8p2": (["value:C117:8.2pF"], "C117 22 -> 8.2 pF"),
     "S2-nocff": (["remove:C117"], "C117 removed"),
@@ -49,12 +49,12 @@ TERMS = ("T-FB", "T-FB3")
 
 
 def _brief(ev, intent_path):
-    from kae.board.kicad_file import load
-    from kae.circuit import brief as B
-    from kae.intent import objective as OB
+    from haslam.board.kicad_file import load
+    from haslam.circuit import brief as B
+    from haslam.intent import objective as OB
     try:
-        from kae.intent import facts as F
-    except ImportError:                       # a kae without intent facts
+        from haslam.intent import facts as F
+    except ImportError:                       # a haslam without intent facts
         return B.build(load(ev["board"]))
     return B.build(load(ev["board"]), facts=F.facts_of(OB.load(intent_path)) or None)
 
@@ -76,9 +76,9 @@ def main(argv=None):
     ap.add_argument("--solve", nargs="*", default=[], help="variants also estimated by a targeted re-solve")
     ap.add_argument("-o")
     a = ap.parse_args(argv)
-    from kae.board.kicad_file import load
-    from kae.intent import advise as AD
-    from kae.intent import objective as OB
+    from haslam.board.kicad_file import load
+    from haslam.intent import advise as AD
+    from haslam.intent import objective as OB
     ev = json.loads(Path(a.eval).read_text())
     intent = OB.load(a.intent)
     brief = _brief(ev, a.intent)

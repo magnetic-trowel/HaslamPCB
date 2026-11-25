@@ -1,11 +1,11 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Stage E3 check: does the capacitive price field predict the change of mutual capacitance that a
 fresh static solve gives?
 
 An aggressor strip A over a ground plane, a victim pad V elsewhere. The prediction uses only the
 fields of the copper as it stands: a victim segment at edge gap d from A adds C'(x) phi_A(x) dl
-(kae.em.cprice); an aggressor segment beside a victim strip adds C'(x) phi_V(x) dl (reciprocity).
+(haslam.em.cprice); an aggressor segment beside a victim strip adds C'(x) phi_V(x) dl (reciprocity).
 The exact change is a re-solve with the segment painted in (CapPrices.after_hop).
 
     python em_cap_price_check.py [--pitch 0.25] [--h 1.51] [--er 4.5]
@@ -26,11 +26,11 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[2] / "kae" / "src"))
+sys.path.insert(0, str(HERE.parents[2] / "haslam" / "src"))
 
-from kae.em import cprice as CP  # noqa: E402
-from kae.em import static as ST  # noqa: E402
-from kae.em.mesh import Layer, Mesh  # noqa: E402
+from haslam.em import cprice as CP  # noqa: E402
+from haslam.em import static as ST  # noqa: E402
+from haslam.em.mesh import Layer, Mesh  # noqa: E402
 
 
 def setup(pitch, h, er, victim_strip=False):
@@ -52,16 +52,16 @@ def setup(pitch, h, er, victim_strip=False):
 
 def measure(path, pitch):
     """C_m, C_node and u of every capacitive pair of a board as it stands, by a fresh static solve."""
-    from kae.board import transform
-    from kae.board.kicad_file import load
-    from kae.circuit import brief as B
-    from kae.em.kicad import BoardMesh
-    from kae.excite import models as M
-    from kae.excite import observe as O
-    from kae.excite import sources as S
-    from kae.excite.beliefs import corners
-    from kae.excite.evaluate import ledger_for
-    from kae.excite.harm import robust
+    from haslam.board import transform
+    from haslam.board.kicad_file import load
+    from haslam.circuit import brief as B
+    from haslam.em.kicad import BoardMesh
+    from haslam.excite import models as M
+    from haslam.excite import observe as O
+    from haslam.excite import sources as S
+    from haslam.excite.beliefs import corners
+    from haslam.excite.evaluate import ledger_for
+    from haslam.excite.harm import robust
     b = load(path)
     brief = B.build(b)
     bd = M.build(b, brief)
@@ -87,17 +87,17 @@ def board_check(path, victim, hops_file, pitch):
     import math
     import time
 
-    from kae.board import transform
-    from kae.board.kicad_file import load
-    from kae.circuit import brief as B
-    from kae.em.kicad import BoardMesh
-    from kae.excite import models as M
-    from kae.excite import observe as O
-    from kae.excite import sources as S
-    from kae.excite.beliefs import corners
-    from kae.excite.evaluate import ledger_for
-    from kae.excite.harm import robust
-    from kae.route.critical_recheck import fills_of
+    from haslam.board import transform
+    from haslam.board.kicad_file import load
+    from haslam.circuit import brief as B
+    from haslam.em.kicad import BoardMesh
+    from haslam.excite import models as M
+    from haslam.excite import observe as O
+    from haslam.excite import sources as S
+    from haslam.excite.beliefs import corners
+    from haslam.excite.evaluate import ledger_for
+    from haslam.excite.harm import robust
+    from haslam.route.critical_recheck import fills_of
     t0 = time.time()
     b = load(path)
     brief = B.build(b)
@@ -116,7 +116,7 @@ def board_check(path, victim, hops_file, pitch):
         hops = [[[t.layer, list(t.start), list(t.end), t.width]] for t in b.tracks if t.net == victim]
     import shutil
     import tempfile
-    from kae.route import critical_write as W
+    from haslam.route import critical_write as W
     tmp = Path(tempfile.mkdtemp(prefix="cap-check-"))
     base, out = tmp / "base.kicad_pcb", tmp / "hops.kicad_pcb"
     W.edit(path, base, remove=[t.uuid for t in b.tracks if t.net == victim] + [v.uuid for v in b.vias if v.net == victim])
@@ -132,7 +132,7 @@ def board_check(path, victim, hops_file, pitch):
     F = cp.solve(bm, b)
     ncp = len(next(iter(cval.values())))
     idx = robust(list(np.sum([F.u[k] for k in F.u], axis=0) if F.u else np.zeros(ncp)))[1]
-    from kae.em.pnr import phi_prime
+    from haslam.em.pnr import phi_prime
     cp.set_weights(F, idx, phi_prime)
     print(f"setup and first solve {time.time() - t0:.1f}s; {cp.report(F)}")
     names = [l.name for l in bm.m.layers]

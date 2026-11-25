@@ -49,7 +49,7 @@ Candidate lists, rejects with reasons, scripts: [tools/research/board-sourcing/]
 
 ## Pipeline
 
-Find and verify (agents, `probe.py`/`atcommit.py`, quoted licence evidence) → fingerprint and de-duplicate (`sig.py`) → enrich (`enrich.py`, mostly on a 50-core host) → merge (`merge.py`, validated by `kaebench.manifest`). Mechanism and parameters -> [board-corpus#idea-and-how-it-works](../../research/data/board-corpus.md#idea-and-how-it-works).
+Find and verify (agents, `probe.py`/`atcommit.py`, quoted licence evidence) → fingerprint and de-duplicate (`sig.py`) → enrich (`enrich.py`, mostly on a 50-core host) → merge (`merge.py`, validated by `haslambench.manifest`). Mechanism and parameters -> [board-corpus#idea-and-how-it-works](../../research/data/board-corpus.md#idea-and-how-it-works).
 
 ## Harness changes this pass needed
 

@@ -1,18 +1,18 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A board's kae.intent from a few facts about it (board_summary.py + a model's reading of it), under
+"""A board's haslam.intent from a few facts about it (board_summary.py + a model's reading of it), under
 the benchmark's standing priorities: power loss and efficiency, ripple, and EMI wherever the board has
 a radio or a satellite receiver. Every term says where it came from.
 
     python intent_from_facts.py FACTS.json SUMMARY.json -o INTENT.json [--operating OPERATING.json]
 
-FACTS (kae.board-facts/1): {"purpose": str, "radio": bool, "radio_parts": [refs], "radio_kinds": [str],
+FACTS (haslam.board-facts/1): {"purpose": str, "radio": bool, "radio_parts": [refs], "radio_kinds": [str],
 "enclosure": "none|plastic|metal|unknown", "cables": [{"connector": ref, "length_m": m, "why": str}],
 "connectors": [{"ref", "function", "direction": "input|output|bidirectional|unknown",
 "carries": "power|signal|both", "power": {"net", "volts", "amps"} | null, "why"}], "why": str}.
 Only parts and connectors that exist on the board are used; the rest is dropped and listed.
 
-OPERATING (kae.excite.evaluate --intent): the current each output connector delivers off the board,
+OPERATING (haslam.excite.evaluate --intent): the current each output connector delivers off the board,
 {"parts": {ref: {"I_A": [0.5 a, 1.5 a]}}}, replacing the evaluator's class prior (a tenth of a
 connector's rating, x0.1 .. x5). Input connectors are the board's sources; their current is the loads'.
 """
@@ -65,7 +65,7 @@ def compile_intent(facts, summary):
     else:
         terms.append(dict(id="E3", tier="report", obs="cable_cm.v", why="no radio or GPS: EMI is not a standing priority here"))
     intent = {
-        "schema": "kae.intent/1", "generation": 1, "currency": "mW_eq", "defaults": "neutral/1",
+        "schema": "haslam.intent/1", "generation": 1, "currency": "mW_eq", "defaults": "neutral/1",
         "environment": {"enclosure": {"kind": facts.get("enclosure") or "unknown", "why": "guessed from the board summary"},
                         "cables": cables if radio else []},
         "terms": terms,
@@ -94,9 +94,9 @@ def operating(facts, summary):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("facts"), ap.add_argument("summary"), ap.add_argument("-o", required=True)
-    ap.add_argument("--operating", help="also write the evaluator's operating facts (kae.excite.evaluate --intent)")
+    ap.add_argument("--operating", help="also write the evaluator's operating facts (haslam.excite.evaluate --intent)")
     a = ap.parse_args(argv)
-    from kae.intent import objective as OBJ
+    from haslam.intent import objective as OBJ
     facts, summary = json.load(open(a.facts)), json.load(open(a.summary))
     it = compile_intent(facts, summary)
     it["provenance"]["connectors"] = facts.get("connectors") or []

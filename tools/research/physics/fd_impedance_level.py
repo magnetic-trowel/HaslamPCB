@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Test of the candidate principle "a conductor is invisible to first order when Z0 equals the
 circuit impedance it carries" (round-3 foundations, docs/topics/physics/foundations.md).

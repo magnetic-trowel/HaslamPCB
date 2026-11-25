@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """merge.py WORKDIR RESULTS_GLOB OUT_DIR
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import enrich  # noqa: E402
-from kaebench import manifest  # noqa: E402
+from haslambench import manifest  # noqa: E402
 
 HERE = Path(__file__).parent
 # Manual decisions (see docs/topics/data/open-board-sources.md).

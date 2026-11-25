@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Where pad-entry overhang comes from: every entry kae.route.taut.board_stats counts as overhanging,
+"""Where pad-entry overhang comes from: every entry haslam.route.taut.board_stats counts as overhanging,
 by pad kind and what the track is.
 
     python3 tools/research/routing/overhang_diag.py BOARD.kicad_pcb [--ref A.kicad_pcb] [--json OUT]
@@ -25,12 +25,12 @@ from shapely.geometry import Point
 
 
 def entries(board):
-    from kae.board import pcbnew_io
-    from kae.board.kicad_file import load
-    from kae.route import pad_entry as PE
-    from kae.route.constraints import _pad_shapes
+    from haslam.board import pcbnew_io
+    from haslam.board.kicad_file import load
+    from haslam.route import pad_entry as PE
+    from haslam.route.constraints import _pad_shapes
     b = load(Path(board))
-    with tempfile.TemporaryDirectory(prefix="kae-ovd-") as d:
+    with tempfile.TemporaryDirectory(prefix="haslam-ovd-") as d:
         info = pcbnew_io.export_dsn(Path(board), Path(d) / "board.dsn", probes=False)
     per_fp = {}
     for pd in info.get("pads") or []:
@@ -70,7 +70,7 @@ def main(argv):
     refw = {}
     ids = set()
     if ref:
-        from kae.board.kicad_file import load
+        from haslam.board.kicad_file import load
         rb = load(Path(ref))
         ids = {t.uuid for t in rb.tracks}
         for t in rb.tracks:

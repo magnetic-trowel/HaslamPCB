@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """End to end against kicad-cli: ERC clean, schematic netlist identical to the IR, DRU parses."""
 import json
@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from kaesynth.build import build
-from kaesynth.lib import C, LED, NMOS, PINMAP_SOT23_FET, R, Conn
+from haslamsynth.build import build
+from haslamsynth.lib import C, LED, NMOS, PINMAP_SOT23_FET, R, Conn
 
 from test_core import isolated_design, opto
 
@@ -59,15 +59,15 @@ def test_barrier_rules_and_lib_parts(tmp_path):
     dru = (tmp_path / "iso.kicad_dru").read_text()
     assert "creepage (min 5mm)" in dru and "hasNetclass('MAINS')" in dru
     # the renumbered MOSFET symbol lands in the project library with numeric pins
-    lib = (tmp_path / "kaesynth.kicad_sym").read_text()
+    lib = (tmp_path / "haslamsynth.kicad_sym").read_text()
     assert 'Q_NMOS_G1S2D3' in lib
     errs = {f.check for f in findings if f.severity == "error" and not f.waived_by}
     assert not errs, [f.message for f in findings if f.severity == "error"]
 
 
 def two_board_design(with_connector=True):
-    from kaesynth import Design
-    from kaesynth.lib import Conn, Fuse
+    from haslamsynth import Design
+    from haslamsynth.lib import Conn, Fuse
     d = Design("twob")
     d.net("GND", domain="LV", v=0, kind="ground")
     d.domain("LV", ref="GND")
@@ -93,7 +93,7 @@ def two_board_design(with_connector=True):
 
 
 def test_crossing_needs_connector():
-    from kaesynth.checks import Checker
+    from haslamsynth.checks import Checker
     errs = [f for f in Checker(two_board_design(False)).run() if f.check == "board.crossing_without_connector"]
     assert errs and "remote" in errs[0].message
 

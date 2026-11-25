@@ -1,8 +1,8 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # exact-repack: CP-SAT repack of what the closed loop leaves illegal, placement only (2026-11-23)
 
-kae on main 1cdbf617 plus this branch (a5fe7587). Placement only, counted work, seeds 8 and 9, one fresh process per
+haslam on main 1cdbf617 plus this branch (a5fe7587). Placement only, counted work, seeds 8 and 9, one fresh process per
 run, same harness and budget as crowded-ab2 (`scripts/place_ab.py`, `scripts/job.sh`). Arms: control, and
 `exact_repack=1`. KiCad errors whose items all belong to one footprint are counted apart (in-fp), not as placement
 errors.

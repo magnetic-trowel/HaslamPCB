@@ -1,11 +1,11 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# Crowded boards and edge headers: why kae's placements fail there, and what pinning does
+# Crowded boards and edge headers: why haslam's placements fail there, and what pinning does
 
-Scope: crowded boards (movable-part utilization at or above about 0.7) where kae's placements end illegal or with
+Scope: crowded boards (movable-part utilization at or above about 0.7) where haslam's placements end illegal or with
 stacked parts, and the edge-header pinning tried against it. Not here: legality in general ->
-[kae-exact-legality](kae-exact-legality.md); big parts with no free spot -> [anchor-tight-parts](anchor-tight-parts.md).
-Keys: crowded boards, utilization, edge header, Feather, ItsyBitsy, QT Py, kae.place.crowded, place_edge_headers,
+[haslam-exact-legality](haslam-exact-legality.md); big parts with no free spot -> [anchor-tight-parts](anchor-tight-parts.md).
+Keys: crowded boards, utilization, edge header, Feather, ItsyBitsy, QT Py, haslam.place.crowded, place_edge_headers,
 place_edge_slot, place_edge_header_pairs, place_edge_pose_clear, place_fine_grid_util, edge_pose, score 13.
 
 **Status:** no-harm, uncertain gain. The fixed version (`place_edge_pose_clear`) leaves every do-no-harm board as
@@ -39,25 +39,25 @@ showed two patterns.
 2. **Crowded passives (doorman, olimex-lora, fercus).** Small parts are left unplaced, and the diagnosis says
    "room exists but its region is full".
 
-**The human layouts are not legal either.** Each human placement was run through kae's model and exact check
+**The human layouts are not legal either.** Each human placement was run through haslam's model and exact check
 (`human_grid.py`):
 - doorman's has 6 courtyard overlaps;
 - qt-py's has 13 courtyard overlaps and 35 header pads inside the copper-to-edge clearance;
 - itsybitsy's and xenon's have 34 and 46 copper_edge_clearance errors.
-Only fercus's human layout is clean, and kae's grid rectangles flag 5 of its parts. So on 6 of 7 boards "legal" asks
+Only fercus's human layout is clean, and haslam's grid rectangles flag 5 of its parts. So on 6 of 7 boards "legal" asks
 more than the human met. That led to two scoring decisions (2026-11-22):
 - placement legality counts only errors between footprints (score 13, PR #137);
 - a report-only "not worse than the human" column (PR #136, waiting).
 
 ## How common the edge-header pattern is
-A shape-only detector (`kae.place.crowded.header_row`) looks for a movable footprint with a regular row of at least
+A shape-only detector (`haslam.place.crowded.header_row`) looks for a movable footprint with a regular row of at least
 7 pins spanning at least 0.6 of the board's long side or 0.8 of its short side. The input gives movable parts no
 position, so only the footprint's own pads are used.
 - It fires on 90 of 865 cached corpus boards (10 %), 35 of them with two rows (Feather, ItsyBitsy, QT Py style).
 - It catches all four pattern-1 boards and none of the other six crowded ones.
 - It also fires on rows that are not edge headers: a keyboard MCU, DIP sockets, dev-board rows.
 
-## The helps (kae.place.crowded, all off by default)
+## The helps (haslam.place.crowded, all off by default)
 - `place_edge_headers`: detected header rows are pinned flush along a board side before the seed, then held like
   fixed parts.
   - The pose is computed, not searched (`edge_pose`). The rows cannot keep the copper-to-edge clearance at their
@@ -77,7 +77,7 @@ on every board-seed of every test.
   - failing: the 7 boards;
   - crowded: 10 more chan-gated-m6 boards at 0.7 or more;
   - header: 19 detected boards, one per repository, as a do-no-harm sample.
-- **Primary:** kae's own legality flag on the failing boards. Part-to-part shorts are the primary from ab4 on.
+- **Primary:** haslam's own legality flag on the failing boards. Part-to-part shorts are the primary from ab4 on.
 
 | test | arm | legal, failing (21) | shorts, failing | do-no-harm |
 |---|---|---|---|---|
@@ -104,7 +104,7 @@ on every board-seed of every test.
 - **The result.** On crowded-ab4 the harm is gone: header boards equal to control under every view and guard.
 
 ### Legality under the three views (crowded-ab4, kept DRC reports)
-- **Failing boards (control / pairs / clear):** kae's own flag 1 / 4 / 4; no placement-type DRC error between
+- **Failing boards (control / pairs / clear):** haslam's own flag 1 / 4 / 4; no placement-type DRC error between
   footprints 0 / 0 / 0; not worse than the human 1 / 3 / 3.
 - **Header boards:** clear equals control in every view (30, 20, 30 of 38). Pairs is worse (32, 16, 26).
 
@@ -130,5 +130,5 @@ on every board-seed of every test.
   - `crowded-fixes2` (66aaa596): crowded-ab2;
   - `crowded-pairs` (5cc939e2): crowded-ab3;
   - `crowded-pinclear` (df50f967): crowded-ab4.
-- **Related:** the scoring follow-ups are score 13 (PR #137, merged), `kaeres rescore` (PR #138) and `legal_h`
+- **Related:** the scoring follow-ups are score 13 (PR #137, merged), `haslamres rescore` (PR #138) and `legal_h`
   (PR #136).

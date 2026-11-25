@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tasks limited to the copper layers a board uses, through prepare and the scorer. Needs KiCad 10."""
 import re
@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from kaebench import prepare, score, tools
-from kaebench.boardfiles import board_path
+from haslambench import prepare, score, tools
+from haslambench.boardfiles import board_path
 
 FIXTURE = Path(__file__).parent / "fixtures" / "two_pads.kicad_pcb"
 
@@ -80,7 +80,7 @@ def test_four_to_three_keeps_the_stack_and_forbids_the_empty_layer(tmp_path):
     assert rec["layer_restriction"]["forbidden"] == ["In2.Cu"]
     for b in ("reference", "route/input"):
         assert len(layers_of(board_path(tdir / b))) == 4
-        assert "kae_unused_layer" in board_path(tdir / b).read_text()
+        assert "haslam_unused_layer" in board_path(tdir / b).read_text()
     assert rec["qualified"] and rec["roundtrip"]["route"]["ok"]
 
     def scored(layer, name):

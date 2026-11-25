@@ -1,9 +1,9 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Covering the whole frequency range: one reduced model, not a list of bands
 
 Scope: one passive reduced-order model (Galerkin/PRIMA projection of the PEEC system) covering DC to the quasi-static limit for evaluation, router prices and sign-off; evidence on boost; stages R1–R7. Not here: the formal problem and tiers -> [physics-driven-design](physics-driven-design.md); field solver and capacitive prices -> [physics-driven-build](physics-driven-build.md); hop ports -> [physics-hop-ports](physics-hop-ports.md); later results (chaac R2, evaluator speed) -> [field-solver-routing-and-intent](../../research/physics/field-solver-routing-and-intent.md).
-Keys: model order reduction, MOR, reduced basis, PRIMA, Galerkin projection, two-sided basis, snapshots, greedy, dual-weighted residual, DC moments, AWE, `kae.em.spectral`, `--spectral`, R1–R7 gates, basis recycling, R–L transition, θ = ωℓ/v, quasi-TEM, wideband
+Keys: model order reduction, MOR, reduced basis, PRIMA, Galerkin projection, two-sided basis, snapshots, greedy, dual-weighted residual, DC moments, AWE, `haslam.em.spectral`, `--spectral`, R1–R7 gates, basis recycling, R–L transition, θ = ωℓ/v, quasi-TEM, wideband
 
 Copper and passive parts have frequency-independent R, L (and P once added), so the response at every frequency and in time lies in a small subspace spanned by solutions at a few frequencies. Skin effect does not break this: it emerges from the filaments through the thickness, and what `nsub` filaments cannot hold is a per-layer surface-impedance factor applied at evaluation ([field-solver-accuracy](../../research/physics/field-solver-accuracy.md)). A band list combines samples by interpolation, with no error estimate; projection combines them by the physics (Galerkin), so resonances between samples come out right.
 
@@ -11,14 +11,14 @@ Copper and passive parts have frequency-independent R, L (and P once added), so 
 
 | Range | Physics that sets it | Harm it decides | Now |
 |---|---|---|---|
-| DC | resistance | copper loss, rail drop, heating | DC band ([dc](../../../kae/src/kae/excite/dc.py)) |
+| DC | resistance | copper loss, rail drop, heating | DC band ([dc](../../../haslam/src/haslam/excite/dc.py)) |
 | ~1 kHz – 1 MHz | R–L transition: return current moves from least resistance to least inductance | ground currents through analog/audio returns; regulator loop ripple | not covered |
 | f_sw and harmonics, ~0.1–10 MHz | capacitor ESR/ESL and C split the current; PDN anti-resonance | input/output ripple, supply bounce | fundamental, one point |
 | 10–300 MHz | loop L, switch-node ring with C_sw, capacitor self-resonance | overshoot, ringing, CM emissions (CISPR 30–230 MHz), victim pickup | one 10 MHz solve, extrapolated as constant L |
 | any, dV/dt-driven | electric field (partial capacitance) | capacitive crosstalk into high-Z nodes, switch-node CM via capacitance | not modelled |
 | above the quasi-static limit | retardation, θ = ωℓ/v ≳ 0.3 | transmission-line nets (DDR, USB), radiation (above ~150 MHz on a 5 cm board) | not modelled |
 
-Two bands per aggressor ([kae.excite.evaluate](../../../kae/src/kae/excite/evaluate.py)) joined by the assumed peak shape |Z_f| c₁ I + |L_e| I/t_i fail near resonances (ring, PDN anti-resonance: |H(f)| peaks by Q), in the R–L transition (return path changes), and for capacitive coupling (∝ f, not constant L).
+Two bands per aggressor ([haslam.excite.evaluate](../../../haslam/src/haslam/excite/evaluate.py)) joined by the assumed peak shape |Z_f| c₁ I + |L_e| I/t_i fail near resonances (ring, PDN anti-resonance: |H(f)| peaks by Q), in the R–L transition (return path changes), and for capacitive coupling (∝ f, not constant L).
 
 ## 2. The options
 
@@ -71,14 +71,14 @@ Script [`tools/research/physics/em_reduced_basis_check.py`](../../../tools/resea
 **Router.**
 - Price fields are linear in currents and each basis vector's flux L·V_I is computed by the projection anyway, so whole-spectrum prices Π = Σ_f w(f) Π(f) combine fixed fields with reduced-model weights; resonant pairs get Q-amplified weight automatically.
 - Recycle snapshot frequencies, not basis vectors (vectors measured too inaccurate, §6 R4): a refresh re-solves them concurrently, adding one only where the calibrated error estimate says so.
-- Built: [`kae.em.spectral`](../../../kae/src/kae/em/spectral.py), `kae.em.pnr --spectral`. Missed by the design: (a) a hop's per-pattern current must come from the model's own part currents per frequency (ring and copper current split included; ideal-copper flow has neither); (b) projected potentials are KCL multipliers, right at ports and snapshots but off up to 40× between, so crossing prices recover potentials from reduced currents via D φ = (R + jωL) I.
+- Built: [`haslam.em.spectral`](../../../haslam/src/haslam/em/spectral.py), `haslam.em.pnr --spectral`. Missed by the design: (a) a hop's per-pattern current must come from the model's own part currents per frequency (ring and copper current split included; ideal-copper flow has neither); (b) projected potentials are KCL multipliers, right at ports and snapshots but off up to 40× between, so crossing prices recover potentials from reduced currents via D φ = (R + jωL) I.
 
 **Sign-off.** The reduced model is a passive RLC-like state space; export it as a SPICE subcircuit with switch and rectifier replaced by device models (= M6 of [physics-driven-design](physics-driven-design.md#8-the-build-with-gates-registered-in-advance)).
 
 ## 5. What projection does not cover, and what does
 
 - **Capacitive coupling, plane cavity modes need P** (layered-electrostatics potential coefficients) on the same raster with FFT Toeplitz kernels. (L, P)-PEEC stays symmetric and passive under congruence: same reduction. Validate against FastCap (FastHenry's sibling).
-- **Electrically long nets**: quasi-static PEEC holds while θ = ωℓ/v ≲ 0.3, with v = c/√ε_eff (ε_eff = 3.5, FR4 microstrip) and ℓ the board diagonal: f_qs = 0.3·c/(2π·ℓ·√3.5), 153 MHz at 5 cm, 51 MHz at 15 cm ([wideband.py](../../../kae/src/kae/excite/wideband.py) `THETA`, `EPS_EFF`; free-space v would give 286 and 95 MHz). Nets with knee above that: θ-screened, quasi-TEM lines with per-length L, C from the same operators on the cross-section -> routing constraints (impedance by layer, length match, crosstalk spacing), not field prices. Report radiated emission above the limit as not computed, never extrapolate.
+- **Electrically long nets**: quasi-static PEEC holds while θ = ωℓ/v ≲ 0.3, with v = c/√ε_eff (ε_eff = 3.5, FR4 microstrip) and ℓ the board diagonal: f_qs = 0.3·c/(2π·ℓ·√3.5), 153 MHz at 5 cm, 51 MHz at 15 cm ([wideband.py](../../../haslam/src/haslam/excite/wideband.py) `THETA`, `EPS_EFF`; free-space v would give 286 and 95 MHz). Nets with knee above that: θ-screened, quasi-TEM lines with per-length L, C from the same operators on the cross-section -> routing constraints (impedance by layer, length match, crosstalk spacing), not field prices. Report radiated emission above the limit as not computed, never extrapolate.
 
 ## 6. Build stages and their gates
 
@@ -99,7 +99,7 @@ Script [`tools/research/physics/em_reduced_basis_check.py`](../../../tools/resea
 
 ### R4: spectral router prices
 
-`kae.em.spectral`: each refresh reduces the current copper with the whole circuit inside; weights = derivatives of the evaluator's harms (waveform peak at every corner, through the robust objective), one complex weight per harmonic; hop price = one real combination of basis vectors' price fields.
+`haslam.em.spectral`: each refresh reduces the current copper with the whole circuit inside; weights = derivatives of the evaluator's harms (waveform peak at every corner, through the robust objective), one complex weight per harmonic; hop price = one real combination of basis vectors' price fields.
 
 Check geometry ([em_r4_check](../../../tools/research/physics/em_r4_check.py), 0.2 mm): aggressor loop with C_sw ringing at 130–170 MHz, victim hop replacing a field-free short; price / exact, 1–300 MHz:
 
@@ -130,7 +130,7 @@ Boost `--verify` (each net routed twice from one state, candidates' difference c
 - Hop carries the pair's pattern current (first order): switch node Net-(D3-A) overshoot +0.796 nH actual vs +0.797 predicted at 10 MHz (1.00); supply:IC1 0.96; whole-spectrum u 0.73 (overshoot), 1.15 (supply:IC1); FB net feedback victim 1.09.
 - Hop carries none: prediction ~0, actual 0.001–0.03 nH (rails with capacitors become new return copper, second order; every pair's |dZ| peaks at 70–95 MHz, the resonance under the board's 95 MHz limit, which routing shifts). One spurious −0.71 nH on supply:U2 for a /VBAT route (+0.03 actual), which the search sought out.
 
-Boost A/B, six priced nets re-routed with human placement; scores by `kae.excite.wideband` (robust) and `kae.excite.evaluate` (two bands):
+Boost A/B, six priced nets re-routed with human placement; scores by `haslam.excite.wideband` (robust) and `haslam.excite.evaluate` (two bands):
 
 | Router | Wideband robust | Two-band robust | DRC |
 |---|---|---|---|

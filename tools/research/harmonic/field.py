@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Harmonic (Laplace) fields per net on a coarse grid of the pnr engine's World
 (docs/ideas/original/joint-pnr.md, idea 19).

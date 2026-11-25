@@ -107,7 +107,7 @@ flag: parasitic, protect  # no spec, yet load-bearing for two couplings
 - **Incremental upkeep:** a move changes k pieces; a rank-k Woodbury step updates all shares in k solves. Refactor when the core turns ill-conditioned: a near-bridge forming (λ_max → 1) is a topological event, the copper analogue of JPR2. At DC, 1 ≤ exact/first-order ≤ 1/(1 − λ_max) for self terms ([physics-core-v2](physics-core-v2.md) §4).
 - **Whole-board cost:** DC and thermal are sparse (one factorization, ~100 source solves, 24–96 sketch solves); HF needs per-cell windows (SIM26, DR22) or compressed PEEC (dense L grows as N²).
 
-## Use in kae
+## Use in haslam
 
 1. Put Piece, Passport and Job in `ledger.json` (code-written, per band, sparse). The 12 [vocabulary](vocabulary.md#atoms) atoms stay for intent (Body = net × layer, top-down roles); Piece/Passport/Job serve observation; derive loops, references, cells, exclusions as share-matrix queries; mark designed/parasitic per (piece, job). Classify copper per piece and band, not per net: one SW pour is a heat spreader at one end and an antenna at the other (§4).
 2. Removal/addition oracle in the physics core (SIM46): factor once per band; y_bb by selected inversion or sketch; Woodbury for sets, Thevenin for additions, Foster sum as self-test. Exact removal prices replace first-order ones (SIM24); adjoints stay for shape gradients (one adjoint + polarization tensor prices small edits; one extra solve per piece prices finite ones exactly).

@@ -1,14 +1,14 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Physics place terms in the loop: kae.physics (branch claude/vigilant-mayer-i91rrr).
+"""Physics place terms in the loop: haslam.physics (branch claude/vigilant-mayer-i91rrr).
 
     ph = Phys(world, input_board)        # brief built from the input netlist (no positions)
-    ph.sync()                            # poses of all placed parts -> kae poses
+    ph.sync()                            # poses of all placed parts -> haslam poses
     ph.delta(pi, (cx, cy, ri))           # change of the place-terms total if pi moves there
     ph.commit(pi)                        # after world.place(...) of an accepted move
     ph.total(), ph.coarse_map(pi, ri, kit)
 
-kae is found through KAE_SRC (path to kae/src of that branch). Terms are φ(u) per
+haslam is found through HASLAM_SRC (path to haslam/src of that branch). Terms are φ(u) per
 structure (decap loop nH, hot-loop nH, aggressor-victim mV, crystal ppm, thermal K, cable
 common-mode / ESD); the same brief and terms are used by tools/research/pnr_phys to score.
 """
@@ -20,36 +20,36 @@ import numpy as np
 
 from world import ROTS
 
-def _kae_src():
-    """KAE_SRC, else the first existing default. The kaebench sandbox hides /tmp, so the
-    copy in the kaebench tool cache (readable inside the sandbox) comes first."""
-    if os.environ.get("KAE_SRC"):
-        return os.environ["KAE_SRC"]
+def _haslam_src():
+    """HASLAM_SRC, else the first existing default. The haslambench sandbox hides /tmp, so the
+    copy in the haslambench tool cache (readable inside the sandbox) comes first."""
+    if os.environ.get("HASLAM_SRC"):
+        return os.environ["HASLAM_SRC"]
     repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    for cand in (os.path.expanduser("~/.cache/kaebench/kae-phys/src"),
-                 os.path.join(repo, "kae", "src")):
-        if os.path.isdir(os.path.join(cand, "kae")):
+    for cand in (os.path.expanduser("~/.cache/haslambench/haslam-phys/src"),
+                 os.path.join(repo, "haslam", "src")):
+        if os.path.isdir(os.path.join(cand, "haslam")):
             return cand
     return ""
 
 
-KAE_SRC = _kae_src()
+HASLAM_SRC = _haslam_src()
 
 
 class Phys:
     def __init__(self, world, board_path):
-        if KAE_SRC not in sys.path:
-            sys.path.insert(0, KAE_SRC)
-        from kae.board.kicad_file import load
-        from kae.circuit.brief import build
-        from kae.physics.place_terms import Terms
+        if HASLAM_SRC not in sys.path:
+            sys.path.insert(0, HASLAM_SRC)
+        from haslam.board.kicad_file import load
+        from haslam.circuit.brief import build
+        from haslam.physics.place_terms import Terms
         self.w = world
         board = load(board_path)
         brief = json.loads(json.dumps(build(board), default=str))
         self.T = Terms(board, brief)
         self.uuids = {fp.uuid for fp in board.footprints}
         self.poses = {fp.uuid: (fp.x, fp.y, fp.rot, fp.side) for fp in board.footprints}
-        # world part -> kae uuid (uuid, else a unique reference designator)
+        # world part -> haslam uuid (uuid, else a unique reference designator)
         by_ref = {}
         for fp in board.footprints:
             by_ref.setdefault(fp.ref, []).append(fp.uuid)
@@ -124,7 +124,7 @@ class Phys:
 
 class RoutedPhys:
     """Full physics on the routed copper: write the board (poses + tracks + vias) with
-    KiCad's Python, then kae's routed recheck (critical_recheck.board_physics, zone
+    KiCad's Python, then haslam's routed recheck (critical_recheck.board_physics, zone
     outlines instead of a KiCad refill) summarized as the Scorecard's physics_total.
     About 1.5 s per call on small boards, so it is for stage gates and checkpoints, not
     for single moves."""
@@ -141,8 +141,8 @@ class RoutedPhys:
     def __call__(self, router):
         import subprocess
         from pathlib import Path
-        from kae.joint.scorecard import physics_total
-        from kae.route.critical_recheck import board_physics
+        from haslam.joint.scorecard import physics_total
+        from haslam.route.critical_recheck import board_physics
         w = self.w
         tracks, vias = router.export()
         poses = {}
@@ -156,7 +156,7 @@ class RoutedPhys:
         out = self.dir / "rp_board.kicad_pcb"
         res.write_text(json.dumps(dict(poses=poses, tracks=tracks, vias=vias)))
         here = Path(__file__).resolve().parent
-        py = os.environ.get("KAE_KICAD_PYTHON", "/usr/bin/python3")
+        py = os.environ.get("HASLAM_KICAD_PYTHON", "/usr/bin/python3")
         r = subprocess.run([py, str(here / "kicad_io.py"), "apply", w.data["path"], str(res), str(out)],
                            capture_output=True, text=True)
         if r.returncode != 0:

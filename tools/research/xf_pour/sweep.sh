@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 # dev6 weight sweep (K = 30, 100, 300) of the coupled maps; old engine (v6.1), run names xf2C-sw-*.
 cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && source tools/research/xf_common/env.sh

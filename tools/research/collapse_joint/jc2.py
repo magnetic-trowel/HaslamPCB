@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """jc2: joint collapse by continuation (jc.py, unchanged reference) with its known
 weaknesses addressed one switch at a time (tag `jcfix`, write-up RESULTS-jc2.md).

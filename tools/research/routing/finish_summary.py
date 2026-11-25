@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Summarize finish_smoke.sh results: the three gated passes chained (chain) against kae.route.finish.
+"""Summarize finish_smoke.sh results: the three gated passes chained (chain) against haslam.route.finish.
 
     python3 tools/research/routing/finish_summary.py DIR... [--json OUT]
 

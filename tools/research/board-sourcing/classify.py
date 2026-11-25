@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 import json, re, sys
 PAT = [("CERN-OHL-S-2.0", r"CERN Open Hardware Licence Version 2 - Strongly Reciprocal|CERN-OHL-S"),

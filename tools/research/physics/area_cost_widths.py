@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""What copper area price (kae.intent.route AREA_COST) the human layouts imply.
+"""What copper area price (haslam.intent.route AREA_COST) the human layouts imply.
 
-For every rail net of a routed board that carries DC current in kae's DC plan (kae.excite.dc, the
+For every rail net of a routed board that carries DC current in haslam's DC plan (haslam.excite.dc, the
 evaluator's plan, at its corners), compare the human track widths with the closed-form width the
 neutral intent policy gives, w* = sqrt(k_R rho / (t a)) with k_R = 1 mW_eq/mW x cvar20(I^2), and with
 IPC-2221 at 10 K and 20 K. The implied price is the a that makes w* equal the human width:
@@ -19,19 +19,19 @@ import math
 import sys
 import traceback
 
-RHO = 1.72e-5          # ohm mm (kae.intent.route.RHO_CU_OHM_MM)
+RHO = 1.72e-5          # ohm mm (haslam.intent.route.RHO_CU_OHM_MM)
 
 
 def rows_of(path, n_corners=16, seed=0):
-    from kae.board.kicad_file import load
-    from kae.circuit import brief as B
-    from kae.excite import dc as DC
-    from kae.excite import models as M
-    from kae.excite import sources as S
-    from kae.excite.beliefs import corners
-    from kae.excite.evaluate import ledger_for
-    from kae.intent import objective as OB
-    from kae.route.critical_physics import ipc2221_width
+    from haslam.board.kicad_file import load
+    from haslam.circuit import brief as B
+    from haslam.excite import dc as DC
+    from haslam.excite import models as M
+    from haslam.excite import sources as S
+    from haslam.excite.beliefs import corners
+    from haslam.excite.evaluate import ledger_for
+    from haslam.intent import objective as OB
+    from haslam.route.critical_physics import ipc2221_width
     b = load(path)
     brief = B.build(b)
     bd = M.build(b, brief)

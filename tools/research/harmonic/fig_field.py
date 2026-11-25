@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Figure: one net's harmonic field on a human-placed board (potential, expected wire
 occupancy |J|/I, streamline tree vs the engine's A* route).

@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Pre-polish search quality: best objective found by a qd archive vs the best of jc's
 restarts (both routed cost + phys_w * fast physics, before the anneal_phys polish).
 
-    python search_cost.py kae-work/qd/<run> kae-work/jc-png/ab33-jc
+    python search_cost.py haslam-work/qd/<run> haslam-work/jc-png/ab33-jc
 """
 import json
 import sys

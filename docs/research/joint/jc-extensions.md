@@ -1,7 +1,7 @@
 # Extensions of jc: harmonic pressure, learned value, quality-diversity, min-plus maps, exact physics maps
 
 **Status:** harmonic routing did not work, harmonic pressure ties jc (partial); learned value did not work; QD archive did not work vs jc; min-plus maps inconclusive (leans merit on vias); exact physics maps did not work.
-**First published:** 2026-10-24, commit [b2bcf8c](https://github.com/magnetic-trowel/kicad-auto-everything/commit/b2bcf8cbfebb19e6a0bd5159eff4b8629ae32131) on branch `claude/keen-wright-mlkjv6` (harmonic, learned value, QD); [093823b](https://github.com/magnetic-trowel/kicad-auto-everything/commit/093823b1b66ff5267f37a19cce72192bdfd1455a) (min-plus); [553ae9f](https://github.com/magnetic-trowel/kicad-auto-everything/commit/553ae9fe88141481bd998d1c9976b4a5952f6538) (exact physics maps). Results: [57eee2c](https://github.com/magnetic-trowel/kicad-auto-everything/commit/57eee2ca29927de258dab0d16f3e24a0ebe92979), [db10e58](https://github.com/magnetic-trowel/kicad-auto-everything/commit/db10e580a68863f09641244e432c401f5a293348), [ecaa86a](https://github.com/magnetic-trowel/kicad-auto-everything/commit/ecaa86a78322c0fdcd1021568a3e29185d6aacfd).
+**First published:** 2026-10-24, commit [b2bcf8c](https://github.com/magnetic-trowel/HaslamPCB/commit/b2bcf8cbfebb19e6a0bd5159eff4b8629ae32131) on branch `claude/keen-wright-mlkjv6` (harmonic, learned value, QD); [093823b](https://github.com/magnetic-trowel/HaslamPCB/commit/093823b1b66ff5267f37a19cce72192bdfd1455a) (min-plus); [553ae9f](https://github.com/magnetic-trowel/HaslamPCB/commit/553ae9fe88141481bd998d1c9976b4a5952f6538) (exact physics maps). Results: [57eee2c](https://github.com/magnetic-trowel/HaslamPCB/commit/57eee2ca29927de258dab0d16f3e24a0ebe92979), [db10e58](https://github.com/magnetic-trowel/HaslamPCB/commit/db10e580a68863f09641244e432c401f5a293348), [ecaa86a](https://github.com/magnetic-trowel/HaslamPCB/commit/ecaa86a78322c0fdcd1021568a3e29185d6aacfd).
 
 Scope: five attempts to improve [jc](jc.md) by changing what parts feel (harmonic pressure, min-plus maps, exact physics maps) or how restarts are spent (learned value, quality-diversity archive). Not here: T4 pour-damage maps -> [pour-models.md](pour-models.md#pour-damage-maps-in-jc-t4); T3, T5–T12 -> [untested-ideas.md](untested-ideas.md); plans -> [transformations.md](../../../research_notes/transformations/transformations.md).
 Keys: harmonic field routing, field pressure, hjc_press, hjc_press_lv, streamlines, |J|/I congestion, learned value, jc_value, learn_value, quality-diversity, MAP-Elites, qd, qdh, qd_lv, min-plus, tropical convolution, xf_h, MPCollapse, `minplus_w`, exact physics maps, ExactPhys, jc_x, jc_full_x, `*_xlp`, T1, T2, ideas 16 19 32
@@ -27,7 +27,7 @@ Keys: harmonic field routing, field pressure, hjc_press, hjc_press_lv, streamlin
 
 **Mechanism** (`learn_value/`, idea 32). Probe jc after the lift and after every β iteration of every restart: 31 boards, 1569 restarts, 28,433 checkpoints, ~20 features at ~5 ms each (HPWL, fast physics, routed length, vias, unrouted, routed cost, wire-history statistics, part history and overlap, conflicts, moved parts, forced vias, crossings, overflow, β, time). Pairwise model: (restart a at checkpoint c, restart b of the same board) → Δ log(1 + final cost); ridge and gradient boosting (sklearn); 5 leave-boards-out folds. Policy: abandon a restart when its predicted Δ against the incumbent exceeds a margin chosen on other folds (nested), ≤ 3 abandons in a row, time spent charged.
 
-**Results** ([learn_value/RESULTS.md](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/learn_value/RESULTS.md)):
+**Results** ([learn_value/RESULTS.md](https://github.com/magnetic-trowel/HaslamPCB/blob/archive/research-prototypes-2611/tools/research/learn_value/RESULTS.md)):
 - Within-board Spearman with final restart cost: at the lift ≤ 0.12 for every predictor; at iteration 5 current routed cost alone 0.45, ridge 0.32, GBM 0.36.
 - Simulated at equal CPU (60 bootstrap orders): oracle at the lift buys only 3.3–3.8% (0.967 / 0.962); learned ridge 0.996 / 1.002 (physics / lv objective).
 - Harness (v7, 29 boards, 3 seeds; arms `jc_value`, `jc_value_lv`): `jc_value` clean 0.667 ± 0.017 vs jc 0.655 ± 0.034, vias 53.7 vs 57.7, legal 0.943 vs 0.954.
@@ -69,15 +69,15 @@ Keys: harmonic field routing, field pressure, hjc_press, hjc_press_lv, streamlin
 
 ## Exact physics maps (T2)
 
-**Mechanism** (`xf_physmap/physmap.py`). `ExactPhys(Phys).exact_map(part, rot)` evaluates `Phys.delta` at every cell instead of sampling (`coarse_map`): thermal by a DCT-II Neumann screened-Poisson solve with kae's G_s and λ; loop, coupling and common-mode terms by kae's `loop_core` / `eng_eval` compiled over the grid in numba; decap, ESD and crystal in closed form. Nodes every 0.4 mm, bilinear interpolation, exact refinement where curvature > 1%, CPU budget per map. Used in jc's lift, polish and best-response argmin (`jc_x`, `jc_full_x`) or lift / polish only (`*_xlp`); falls back to plain jc if maps exceed 35% of CPU.
+**Mechanism** (`xf_physmap/physmap.py`). `ExactPhys(Phys).exact_map(part, rot)` evaluates `Phys.delta` at every cell instead of sampling (`coarse_map`): thermal by a DCT-II Neumann screened-Poisson solve with haslam's G_s and λ; loop, coupling and common-mode terms by haslam's `loop_core` / `eng_eval` compiled over the grid in numba; decap, ESD and crystal in closed form. Nodes every 0.4 mm, bilinear interpolation, exact refinement where curvature > 1%, CPU budget per map. Used in jc's lift, polish and best-response argmin (`jc_x`, `jc_full_x`) or lift / polish only (`*_xlp`); falls back to plain jc if maps exceed 35% of CPU.
 
-**Results** ([xf_physmap/RESULTS.md](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/xf_physmap/RESULTS.md); xf3, 3 seeds):
+**Results** ([xf_physmap/RESULTS.md](https://github.com/magnetic-trowel/HaslamPCB/blob/archive/research-prototypes-2611/tools/research/xf_physmap/RESULTS.md); xf3, 3 seeds):
 - Gate passed: p95 relative error thermal 0.3%, coupling 0.3%.
 - ab33: `jc_x` fast physics 0.85 vs 0.96 (−11%), routed 1.11 vs 1.18; a phys10 replicate reversed it (pooled 6 attempts: −1% fast, −2% routed; identical-code noise ±0.08).
 - `jc_full_x` routed physics 1.08 vs 0.98 for `jc_full`, worse on every seed; lift / polish only (`jc_full_xlp`) 1.05.
 - Maps used 14–19% of CPU.
 
-**Verdict: did not work.** Exact maps do not beat sampled maps once noise is accounted for. Side finding for kae: the thermal approximation "rings = 1 + continuum tail" gives G 35–40% below the full lattice on olimex. Not a merit arm.
+**Verdict: did not work.** Exact maps do not beat sampled maps once noise is accounted for. Side finding for haslam: the thermal approximation "rings = 1 + continuum tail" gives G 35–40% below the full lattice on olimex. Not a merit arm.
 
 ## Open questions
 
@@ -85,13 +85,13 @@ Keys: harmonic field routing, field pressure, hjc_press, hjc_press_lv, streamlin
 
 ## Code
 
-- **Archived:** [`learn_value`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/learn_value), [`xf_physmap`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/xf_physmap) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/kicad-auto-everything/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [1e53ff1](https://github.com/magnetic-trowel/kicad-auto-everything/commit/1e53ff126883570507cb8f7400556e52c200ff25) (2026-10-27, import from the research branch, path fixes only). Run it from a checkout of the tag.
+- **Archived:** [`learn_value`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/learn_value), [`xf_physmap`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/xf_physmap) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/HaslamPCB/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [1e53ff1](https://github.com/magnetic-trowel/HaslamPCB/commit/1e53ff126883570507cb8f7400556e52c200ff25) (2026-10-27, import from the research branch, path fixes only). Run it from a checkout of the tag.
 
 - [`tools/research/harmonic/`](../../../tools/research/harmonic/): `field.py`, `stream.py`, `hjc.py`, `common.py`, `congestion.py`, `diag.py`, `fig_field.py`, `test_field.py`, `runj_harm.sh`.
-- [`tools/research/learn_value/`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/learn_value): `lv_jc.py`, `lv_gen.py`, `lv_model.py`, `lv_policy.py`, `runj_wt.sh`.
+- [`tools/research/learn_value/`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/learn_value): `lv_jc.py`, `lv_gen.py`, `lv_model.py`, `lv_policy.py`, `runj_wt.sh`.
 - [`tools/research/qd_archive/`](../../../tools/research/qd_archive/): `qd.py`, `archive_stats.py`, `search_cost.py`, `seeds.py`, `runj_qd.sh`.
 - [`tools/research/xf_minplus/`](../../../tools/research/xf_minplus/): `minplus.py`, `validate.py`, `gate_report.py`, `summarize.py`, `test_minplus.py`.
-- [`tools/research/xf_physmap/`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/xf_physmap): `physmap.py`, `jc_x.py`, `gate.py`, `gate_summary.py`, `phys_seed.py`.
+- [`tools/research/xf_physmap/`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/xf_physmap): `physmap.py`, `jc_x.py`, `gate.py`, `gate_summary.py`, `phys_seed.py`.
 - Shared xf setup: [`xf_common/SETUP.md`](../../../tools/research/xf_common/SETUP.md), `xf_run.sh`.
 
 ## Related

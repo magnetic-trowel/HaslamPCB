@@ -110,7 +110,7 @@ intent too weak for an auto-placer. **BLOCKER 0, MAJOR 6, MINOR 10.**
 ### m2. The ERC status is misreported, and the custom footprint reference is broken
 
 - report.md says ERC "0 warnings", then lists 5 `footprint_link_issues`.
-- J1–J5 reference `custom:WAGO_2606-3102_020-000`. DESIGN and CONNECTIONS say `kae:`, and neither library is in `fp-lib-table`.
+- J1–J5 reference `custom:WAGO_2606-3102_020-000`. DESIGN and CONNECTIONS say `haslam:`, and neither library is in `fp-lib-table`.
 - Verified on the WAGO product page: 7.5 mm pitch, 2-pole, L = (n−1)·7.5 + 10.35 = 17.85 mm, top entry at 90°, strip length 11–13 mm, 24–8 AWG.
 - Not verified: "W pinning" and the claimed pole-2 offset (+7.5, +12.5).
 - Not verified: UL 1059 600 V/31 A. Distributors list 41 A (probably the IEC figure).
@@ -413,7 +413,7 @@ Every new pinout checks out, including the J5 handedness. Three MAJOR issues rem
 
 #### m7. intent.yaml never declares its coordinate frame
 
-- kaesynth's `BoardSpec` is y-up with the origin at the lower left (placement.py), while KiCad is y-down.
+- haslamsynth's `BoardSpec` is y-up with the origin at the lower left (placement.py), while KiCad is y-down.
 - The Pi holes H7–H10 (y 4.5/27.5), the antenna rect (y 0–13) and the J5 datum are only consistent in y-up.
 - A placer that copies them into KiCad coordinates would put the Pi holes and the antenna keepout on the north edge, in the wire compartment.
 - **Fix.** Emit `frame: {origin: lower-left, y: up}`.

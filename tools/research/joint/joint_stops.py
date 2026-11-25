@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Why each stage of kae.joint runs stopped, arm by arm: was the extra time used?
+"""Why each stage of haslam.joint runs stopped, arm by arm: was the extra time used?
 
 Reads the joint loop's JSON report (the first JSON line of each attempt's adapter.log in a
-kaebench `joint` run) and tabulates, per arm:
+haslambench `joint` run) and tabulates, per arm:
 - time used: the run's seconds over its budget (mean, max);
 - the loop's stop reason (clean / no improvement (cycle k) / time / no window / iteration cap);
 - iteration 0: the placer's annealer (planned moves done / clock), its closed-loop legality

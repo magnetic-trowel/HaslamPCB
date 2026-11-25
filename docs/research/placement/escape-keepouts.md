@@ -1,9 +1,9 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Escape bands: keeping unrelated parts out of BGA and fine-pitch escape strips
 
-Scope: defensive publication of escape bands in the placer (mechanism, human-vs-kae measurement, routing A/B, verdict) and the ball-grid router changes' A/B. Not here: the escape planner itself -> [closing open connections](../routing/kae-closing-open-connections.md).
-Keys: escape bands, escape_band, escape_band_w, escape_grid, related parts, kae.place.escape_band, small ball grid, ball_grid, void rings, depopulated grid, escape-ab3, bga-next-ab, BGA window repair
+Scope: defensive publication of escape bands in the placer (mechanism, human-vs-haslam measurement, routing A/B, verdict) and the ball-grid router changes' A/B. Not here: the escape planner itself -> [closing open connections](../routing/haslam-closing-open-connections.md).
+Keys: escape bands, escape_band, escape_band_w, escape_grid, related parts, haslam.place.escape_band, small ball grid, ball_grid, void rings, depopulated grid, escape-ab3, bga-next-ab, BGA window repair
 
 **Status:** did not work. The bands do what they say (soft halves unrelated parts in the strips), but on the routing A/B (63 merit boards × 3 seeds) they leave open connections unchanged, and hard is worse on ball grids. `escape_band` is off by default since this result; both modes stay as options.
 **First published:** 2026-11-01, branch `place-escape-keepouts` (code 0efc1ec, A/B recipe b1bad94).
@@ -11,18 +11,18 @@ Keys: escape bands, escape_band, escape_band_w, escape_grid, related parts, kae.
 ## Why
 
 About half of the connections our place-and-route runs left open were ones the placement made impossible
-(class (c) in [kae-closing-open-connections](../routing/kae-closing-open-connections.md)), typically a
+(class (c) in [haslam-closing-open-connections](../routing/haslam-closing-open-connections.md)), typically a
 capacitor dropped into the strip a ball grid's or a fine-pitch QFN's escapes need. The placer saw no
 difference between that strip and any other free space: RUDY prices a net's box, not the room a package's
-pins need to leave it ([kae-routability-estimators](kae-routability-estimators.md)).
+pins need to leave it ([haslam-routability-estimators](haslam-routability-estimators.md)).
 
 ## What a band is
 
-`kae.place.escape_band` finds every ball grid (≥ 16 balls on a grid) and every pad ring at ≤ 0.5 mm pitch
+`haslam.place.escape_band` finds every ball grid (≥ 16 balls on a grid) and every pad ring at ≤ 0.5 mm pitch
 (`escape_ring_pitch`), and counts, per side, the signal pads that must escape on the parts' own copper layer:
 
 - **ball grid:** a ball escapes on the surface when its ring is at most the number of tracks that fit
-  between two outer balls, the escape planner's own rule (`kae.route.escape.fit`); inner rings go down their
+  between two outer balls, the escape planner's own rule (`haslam.route.escape.fit`); inner rings go down their
   dog-bones and need no surface room outside the package;
 - **pad ring:** every signal pad escapes on the surface;
 - ground and power pads go to planes and decaps and count for nothing, so a mostly-power side keeps a
@@ -31,9 +31,9 @@ pins need to leave it ([kae-routability-estimators](kae-routability-estimators.m
   body (the scan first put half its escapes on the body side).
 
 A side with n escapes gets a band n × (track + clearance) deep, from the board's own default net class
-(kae's 0.2 / 0.2 mm only where the board is silent), scaled by `escape_band_scale`, capped at
-`escape_band_max_mm` (2.5 mm). Every switch is a `KAE_<NAME>` project text variable or an option
-(`kae.route.constraints`). Nothing is written to the board and the router never sees a band.
+(haslam's 0.2 / 0.2 mm only where the board is silent), scaled by `escape_band_scale`, capped at
+`escape_band_max_mm` (2.5 mm). Every switch is a `HASLAM_<NAME>` project text variable or an option
+(`haslam.route.constraints`). Nothing is written to the board and the router never sees a band.
 
 **Coverage.** Of the 213 merge3-ab merit boards, 67 have such a package (9 with a ball grid); 1 raw board
 does not load (smcboard-mono, a parser error before the bands). Most bands hit the 2.5 mm cap.
@@ -43,22 +43,22 @@ does not load (smcboard-mono, a parser error before the bands). Most bands hit t
 `tools/research/place/escape_band_cover.py` puts each band on a placed board and lists the parts whose
 courtyard overlaps it, as **on-escape** (shares a signal net with the package: series resistors, pull-ups,
 ESD, terminations), **decap** (≤ 3 pads, all on the package's ground/power nets, at least one power) or
-**other**. The 67 human placements against kae's merit staged placements (`kae-staged-lm-base-resume`,
+**other**. The 67 human placements against haslam's merit staged placements (`haslam-staged-lm-base-resume`,
 same boards), full-depth bands:
 
 | sides | | on-escape parts (mm²) | decaps (mm²) | other parts (mm²) | sides with an other part |
 |---|---|---|---|---|---|
 | 63 ball-grid | human | 102 (346) | 29 (72) | 49 (139) | 18 |
-| | kae staged | 67 (274) | 13 (35) | **116 (374)** | 44 |
+| | haslam staged | 67 (274) | 13 (35) | **116 (374)** | 44 |
 | 407 pad-ring | human | 400 (767) | 187 (282) | 99 (226) | 57 |
-| | kae staged | 312 (897) | 108 (173) | **245 (622)** | 113 |
+| | haslam staged | 312 (897) | 108 (173) | **245 (622)** | 113 |
 
 Two findings, both against a plain keepout:
 
 1. **Humans fill the bands with the package's own parts.** 718 of the 866 parts in human bands are
    on-escape parts or decaps. A band that keeps every part out would push these away: longer stubs on the
    escaping nets and longer decap loops.
-2. **kae puts 2.5x as many unrelated parts there as the humans** (361 vs 148; in the ball grids' bands 2.7x
+2. **haslam puts 2.5x as many unrelated parts there as the humans** (361 vs 148; in the ball grids' bands 2.7x
    the area), and fewer of the package's own. The worst boards are the known hard ones: gecko5education
    (163 mm² of unrelated parts), polarfire-som, nekoink, sdi-mipi, arvsom.
 
@@ -70,7 +70,7 @@ every part shares GND, that hid the unrelated ones. The classes above are the co
 `escape_band` (default 1):
 
 - **1, soft:** an annealer term on the soft-overlap machinery that silk and routing channels use
-  (`kae.place.exact.soft_grid`). Package k's band rectangles are class 2 + k sources; every part on its side
+  (`haslam.place.exact.soft_grid`). Package k's band rectangles are class 2 + k sources; every part on its side
   that is not related to it carries its own body as a class 2 + k target. Related parts sit in the band for
   free; an unrelated one pays `escape_band_w` × overlap / mean part area, as silk does. CP-SAT, the
   legalizer and the exact check do not see it.
@@ -85,7 +85,7 @@ the back covers them; untested.
 
 ## Placement smoke
 
-300 s placements (`kae.place.pipeline.place`, no routing) of the three hardest ball-grid boards, two seeds
+300 s placements (`haslam.place.pipeline.place`, no routing) of the three hardest ball-grid boards, two seeds
 each; unrelated and own-part area in the full-depth bands, mm² per seed:
 
 | board | human | off | soft w=1 | soft w=4 | hard |
@@ -100,12 +100,12 @@ each; unrelated and own-part area in the full-depth bands, mm² per seed:
 The soft term roughly halves the unrelated area and keeps the package's own parts as close as the humans
 do; a weight of 4 is no better than 1 (within seed noise), so 1 stays the default. The hard band empties
 the bands of the package's own parts too. No arm dropped its bands for legality. Placement time: off and
-soft w=1 within 3 % of each other, hard up to 10 % and soft w=4 up to 24 % slower (gecko5education). kae suite: 613 passed, 1 failed (the known flaky
+soft w=1 within 3 % of each other, hard up to 10 % and soft w=4 up to 24 % slower (gecko5education). haslam suite: 613 passed, 1 failed (the known flaky
 `test_router_killed_at_its_deadline_still_yields_a_board`).
 
 ## Routing A/B
 
-`tools/kaeres/experiments/escape-ab.sh`: every arm is merge3-ab's staged arm (merit staged wrapper +
+`tools/haslamres/experiments/escape-ab.sh`: every arm is merge3-ab's staged arm (merit staged wrapper +
 `--screen` + `--final`, 900 s × sqrt(footprints/40), routing from the bare placement of the joint-fixed
 task) at the same commit (21bc53d, after the code audit); only `--set escape_band=` differs. Experiments
 `escape-ab3` (off vs soft, 65 boards, 3 seeds) and `escape-ab3-hard` (hard, the 10 ball-grid boards, 3
@@ -138,7 +138,7 @@ Why, from four board studies (polarfire-som, nekoink, sdi-mipi, gecko5education)
 
 Branch `route-bga-next` (c5f328a): the BGA window repair from `close-bga-region` merged, one shared
 small-ball-grid test (3 × 3 sites and up) for router and placer, and escape rings counted from the nearest
-open side, an empty channel inside the grid included (nekoink U202). Against its base (7221e4a), kae staged,
+open side, an empty channel inside the grid included (nekoink U202). Against its base (7221e4a), haslam staged,
 the 10 ball-grid boards × 3 seeds: 26 pairs, open 5,270 → 5,526 (+4.9 %), pairs 9 fewer and 10 more,
 per board 2 better and 4 worse; errors 51.5 → 49.6 per run. No gain. On a big board the window repair
 rarely runs at all: it needs 120 s after the repair rounds, which on nekoink run to the last mile's
@@ -152,5 +152,5 @@ pay: [bga-window-repair](../routing/bga-window-repair.md).
   escape plan before routing made things worse (gecko5 54 → 241 open), so stubs would stay placement-only
   obstacles.
 - The joint loop's re-anneal windows do not build the band term.
-- Pulling the package's own series parts closer: kae places fewer of them in the band than humans do
+- Pulling the package's own series parts closer: haslam places fewer of them in the band than humans do
   (379 on-escape parts vs the humans' 502); a separate term.

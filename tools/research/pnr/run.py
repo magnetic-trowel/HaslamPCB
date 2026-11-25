@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Entry point for kaebench --command:
+"""Entry point for haslambench --command:
 
     python run.py METHOD {input} {output} [--seed N] [--grid MM] [--budget S]
 
@@ -22,7 +22,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-KICAD_PY = os.environ.get("KAE_KICAD_PYTHON", "/usr/bin/python3")
+KICAD_PY = os.environ.get("HASLAM_KICAD_PYTHON", "/usr/bin/python3")
 
 
 def kicad(*args):

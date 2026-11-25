@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The [calc] numbers of docs/research/physics/pcb-cooling*.md: via thermal resistance, spreading
 length and floor of a pour, face heat-transfer coefficients, in-plane conductivity of a stackup."""

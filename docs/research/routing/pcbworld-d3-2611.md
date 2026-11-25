@@ -1,17 +1,17 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# PCBWorld D3-A/B: kae, pnr and the Freerouting fork, scored by our scorer and by PCBWorld's own chain
+# PCBWorld D3-A/B: haslam, pnr and the Freerouting fork, scored by our scorer and by PCBWorld's own chain
 
 **Status:** location measured (R8). No default changes. Report-only tooling: `tools/research/pcbworld/`.
-**First published:** 2026-11-11, branch `pcbworld-d3`. Plan: [`tools/kaeres/experiments/pcbworld-d3/PLAN.md`](../../../tools/kaeres/experiments/pcbworld-d3/PLAN.md) (pre-registered), smoke and profile: [`SMOKE.md`](../../../tools/kaeres/experiments/pcbworld-d3/SMOKE.md).
+**First published:** 2026-11-11, branch `pcbworld-d3`. Plan: [`tools/haslamres/experiments/pcbworld-d3/PLAN.md`](../../../tools/haslamres/experiments/pcbworld-d3/PLAN.md) (pre-registered), smoke and profile: [`SMOKE.md`](../../../tools/haslamres/experiments/pcbworld-d3/SMOKE.md).
 Keys: PCBWorld, PCBWorld-Bench, D3-A, D3-B, clean pass, CP@5, CP@1, potential gain, transplant_v9, KiCad 9.0.8 engine, ProtoFlow, Koppar, DeepPCB, TraceMaker, KRT
 
 **Results**
-1. kae bridge is clean on every D3-A and D3-B board, on every one of 5 seeds: cp1 = cpk@5 = CP@5 = CP@1 = 1.00 / 1.00, under our scorer (KiCad 10.0.7) and PCBWorld's own (KiCad 9.0.8 engine). The paper's best is 0.94 / 0.42 (@5).
+1. haslam bridge is clean on every D3-A and D3-B board, on every one of 5 seeds: cp1 = cpk@5 = CP@5 = CP@1 = 1.00 / 1.00, under our scorer (KiCad 10.0.7) and PCBWorld's own (KiCad 9.0.8 engine). The paper's best is 0.94 / 0.42 (@5).
 2. Freerouting fork d137fd1 `-mp 10`, one run: 0.929 / 0.900, against PCBWorld's published Freerouting 2.1.0 `-mp 10` 0.80 / 0.78 (theirs, not rerun).
 3. pnr route_only: 0.939 / 0.700; its failures are only open connections.
 4. The two scorers gave the same clean verdict on all 1,199 runs; PCBWorld's chain reproduces the paper's Reference row exactly.
-5. kae matches the vendors' 1.00 claims (ProtoFlow, Koppar, PUNKFAB) on the same boards, scored by the benchmark's own chain, which none of them used.
+5. haslam matches the vendors' 1.00 claims (ProtoFlow, Koppar, PUNKFAB) on the same boards, scored by the benchmark's own chain, which none of them used.
 
 ## Benchmark and its chain
 
@@ -22,7 +22,7 @@ We rebuilt PCBWorld's chain from its published source, outside the repo, as untr
 
 | Step | What | Result |
 |---|---|---|
-| Engine | PCBWorld 9c125f7, engine eb7d598 (ENGINE_VERSION 1.9), KiCad 9.0.8 b09c980 plus their 24 patched files; `BUILD_CLI=1 BUILD_PCBNEW=1` | built (kaeq, 16 CPUs) |
+| Engine | PCBWorld 9c125f7, engine eb7d598 (ENGINE_VERSION 1.9), KiCad 9.0.8 b09c980 plus their 24 patched files; `BUILD_CLI=1 BUILD_PCBNEW=1` | built (haslamq, 16 CPUs) |
 | Data | `prepare_pcbench.sh` on PCBench dec3be75: KiCad 5 → 9 conversion, `.kicad_pro` edits, DRC filter, guide boards, sort, DSN | 1,182 converted, **679** pass the filter (the paper's count), 668 DSN (11 fail rows, none in D3-A/B/C, as their README says) |
 | Splits | `configs/datasets/d3.json` easy/medium `test` | equal to `bench/suites/pcbworld-d3{a,b}-test.txt` and to the paper's Table 28 |
 | Scorer | `python -m eval.pipeline --skip-rollout --stages eval,aggregate --reward-config drc_dense_promoted --selection-method final_potential --check-angle 45` (the paper's scoring flags) | `tools/research/pcbworld/score_pcbworld.py` |
@@ -59,9 +59,9 @@ On every run of this experiment the two scorers gave the same clean verdict (tab
 
 All route-only, from the bare placement, main 3a482ed, KiCad 10.0.7 for our scorer.
 
-- **kae bridge**: `kae.route.cli` under `restart.py` at its defaults, counted-work budgets (`KAE_BUDGET=work PYTHONHASHSEED=0 KAE_WORKERS=1`, nominal 900 s × sqrt(footprints/40), stops when clean), Freerouting fork d137fd1 as the inner engine; k = 5 seeds.
+- **haslam bridge**: `haslam.route.cli` under `restart.py` at its defaults, counted-work budgets (`HASLAM_BUDGET=work PYTHONHASHSEED=0 HASLAM_WORKERS=1`, nominal 900 s × sqrt(footprints/40), stops when clean), Freerouting fork d137fd1 as the inner engine; k = 5 seeds.
 - **pnr**: `tools/research/pnr` `route_only` (grid router, no Freerouting), wall budget 900 s × sqrt(fp/40), stops after its pathfinder passes; k = 5 seeds.
-- **Freerouting fork d137fd1**, `-mp 10` (PCBWorld's control setting) through the kaebench adapter, `-mt 1`; once per board (deterministic).
+- **Freerouting fork d137fd1**, `-mp 10` (PCBWorld's control setting) through the haslambench adapter, `-mt 1`; once per board (deterministic).
 - Not run: stock Freerouting releases (2.1.0 is cited from the paper as theirs); the staged place-and-route pipeline (PCBWorld fixes the placement).
 
 ## Results by scorer
@@ -70,7 +70,7 @@ D3-A (99 boards) / D3-B (10). Ours: `cp1` (attempt 0), `cpk` (any of k). Theirs:
 
 | Arm | k | ours cp1 | ours cpk | theirs CP@5 | theirs CP@1 | Pot. | WL | vias | CPU per run |
 |---|---|---|---|---|---|---|---|---|---|
-| kae bridge | 5 | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 | 23.34 / 64.64 | 148.2 / 510.3 | 0.96 / 3.90 | 71 s (21 s wall) |
+| haslam bridge | 5 | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 | 23.34 / 64.64 | 148.2 / 510.3 | 0.96 / 3.90 | 71 s (21 s wall) |
 | pnr route_only | 5 | 0.939 / 0.700 | 0.939 / 0.700 | 0.939 / 0.700 | 0.939 / 0.700 | 23.00 / 58.34 | 116.9 / 392.2 | 1.73 / 9.30 | 11 s |
 | fork d137fd1 `-mp 10` | 1 | 0.929 / 0.900 | = cp1 | 0.929 / 0.900 | 0.929 / 0.900 | 22.97 / 64.32 | 147.6 / 512.1 | 1.04 / 5.20 | 14 s |
 | human layout | - | 1.000 / 1.000 | - | 1.000 / 1.000 | - | 23.16 / 63.96 | 170.2 / 570.3 | 1.18 / 6.70 | - |
@@ -114,4 +114,4 @@ Spot check of the bridge outputs (coordinator, 5 boards): their own copper, 0-5 
 
 - PCBWorld: [paper](https://arxiv.org/abs/2607.05915), [repo](https://github.com/LGAI-Research/PCBWorld) 9c125f7 (`docs/METRICS.md`, `eval/`, `tools/datagen/pcbench_prep/`), [engine](https://github.com/LGAI-Research/PCBWorld-Engine) eb7d598.
 - Rivals: [ProtoFlow](https://www.protoflow.ai/benchmarks/pcbworld-bench), [Koppar](https://github.com/Koppar-AI/autorouter-bench) (`results/pcbworld-2026-10/`), [DeepPCB](https://deeppcb.ai/benchmark/pcbworld-bench-deeppcb-results/), [PUNKFAB](https://punkfab.com/blog/tracemaker-router/) ([per-board](https://github.com/punkfab/circuit-skills)).
-- Runs: kaeres experiments `pcbworld-d3`, `pcbworld-d3-fr` (`kaeres exp report`, with `KAE_CORPUS` set to the corpus `d3_corpus.py` builds).
+- Runs: haslamres experiments `pcbworld-d3`, `pcbworld-d3-fr` (`haslamres exp report`, with `HASLAM_CORPUS` set to the corpus `d3_corpus.py` builds).

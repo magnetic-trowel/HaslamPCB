@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """kh_select.py AUDIT_JSONL CATALOG_JSON OUT_FOUND_JSONL OUT_REVIEW_JSONL
 

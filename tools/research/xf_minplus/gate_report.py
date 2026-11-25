@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Summarize validate.py rows: Spearman rho of predictor vs re-routed cost per board and
 pooled; 'within' = mean rho over the candidate poses of one part (the ranking a best

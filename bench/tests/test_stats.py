@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Paired statistics (kaebench.stats) and the paired A/B report (report.compare)."""
+"""Paired statistics (haslambench.stats) and the paired A/B report (report.compare)."""
 import pytest
 
-from kaebench import report, stats
+from haslambench import report, stats
 
 
 def test_mcnemar_exact_matches_the_binomial():

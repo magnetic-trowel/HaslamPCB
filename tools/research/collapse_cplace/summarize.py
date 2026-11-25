@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Multi-seed comparison of place runs (kaebench --probe self), as pnr/compare.py but over
+"""Multi-seed comparison of place runs (haslambench --probe self), as pnr/compare.py but over
 attempts 0..k-1 (attempt N = seed N).
 
-    python summarize.py --suite kae-work/ab33.txt [--seeds 0,1,2] RUN_DIR [RUN_DIR ...]
+    python summarize.py --suite haslam-work/ab33.txt [--seeds 0,1,2] RUN_DIR [RUN_DIR ...]
 
 Per run: mean over the seeds present of legal, clean, completion; length and vias summed
 over (board, seed) pairs that every run completed (only seeds every run has); DRC error

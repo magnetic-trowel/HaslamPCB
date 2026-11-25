@@ -32,10 +32,10 @@ Keys: SA-PCB, NS-Place, PcbRouter, HiePlace, PCBAgent, ModuPlace, PCB-Migrator, 
 
 **Commercial** [V]: Trace (Claude + SA, KiCad-integrated), Quilter (RL + physics checks; HiePlace wrongly calls it open source), DeepPCB placement, Cadence Allegro X AI (>10× turnaround claim). NVIDIA's ISPD'24 talk calls PCB layout "typically semi-automated or fully manual" [S].
 
-## Use in kae
+## Use in haslam
 - Fork Cypress or reimplement its terms in JAX/PyTorch; add Chen DAC'25 power/signal wire-area, pad-to-pad clearance and pad-type two-sided density, plus NTU power-flow anchors and pad alignment ([analytical](../solvers/analytical-differentiable.md)) [I].
 - Let the LLM own hierarchy, sides, regions and priorities ([LLM-guided](llm-guided-placement.md)); legalize exactly ([legalization](legalization.md)) [I].
-- Beat Chen DAC'25 and Quilter, not just academic placers; LMM zero-shot RR is a non-trivial baseline → [benchmark ladder](benchmarks-and-metrics.md#use-in-kae) [I].
+- Beat Chen DAC'25 and Quilter, not just academic placers; LMM zero-shot RR is a non-trivial baseline → [benchmark ladder](benchmarks-and-metrics.md#use-in-haslam) [I].
 - Reimplement HiePlace ideas from the paper (no code; CC BY-NC-ND text) with CP-SAT/HiGHS instead of Gurobi [I].
 
 ## Open questions

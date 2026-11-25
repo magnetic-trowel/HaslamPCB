@@ -149,7 +149,7 @@ A layout is what the schematic leaves out: a parasitic R, L, M, C, G network, fi
 
 Rule packs gain an `applies_if: {regime: ...}` key to pick the variant per regime ([rule-pack-format](../rules/rule-pack-format.md)).
 
-## Use in kae
+## Use in haslam
 
 - Adopt the 12 atoms and 5 value types as the `physics:` block of `pcb-intent/0.3` ([physics-ir](physics-ir.md)); the LLM reasons in them, never draws copper [I].
 - Make port pairs and closed loops validation errors, not warnings: most "DRC-clean but physically wrong" layouts have an unnamed return path [I].

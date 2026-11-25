@@ -1,10 +1,10 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Sanity checks of joint runs: non-ok attempts (with the adapter log's last error line),
 invalid scores and why, the engine's own unrouted count vs KiCad's unconnected count,
 and DRC error types per board.
 
-    python check_runs.py kae-v7/results/RUN [...]
+    python check_runs.py haslam-v7/results/RUN [...]
 """
 import json
 import re

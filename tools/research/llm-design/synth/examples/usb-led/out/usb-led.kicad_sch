@@ -1,6 +1,6 @@
 (kicad_sch
 	(version 20260306)
-	(generator "kaesynth")
+	(generator "haslamsynth")
 	(generator_version "0.1")
 	(uuid "5ead922d-a46e-5213-8afa-717d4080c82c")
 	(paper "A3")
@@ -8,7 +8,7 @@
 		(title "USB LED example")
 		(date "2026-10-23")
 		(rev "A")
-		(company "kaesynth")
+		(company "haslamsynth")
 	)
 	(lib_symbols)
 	(sheet

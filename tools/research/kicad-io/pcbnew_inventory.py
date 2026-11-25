@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Runs under KiCad's Python. Writes the round-trip variants of one board and an
 inventory of each, as pcbnew sees it, for roundtrip_audit.py.
@@ -6,7 +6,7 @@ inventory of each, as pcbnew sees it, for roundtrip_audit.py.
     python pcbnew_inventory.py BOARD WORKDIR OUT_JSON
 
 Variants (all in WORKDIR):
-  plain.kicad_pcb    PCB_IO_MGR.Load + PCB_IO_MGR.Save (kae's writer)
+  plain.kicad_pcb    PCB_IO_MGR.Load + PCB_IO_MGR.Save (haslam's writer)
   plain2.kicad_pcb   plain.kicad_pcb re-saved the same way (idempotence)
   lb_plain.kicad_pcb LoadBoard + PCB_IO_MGR.Save (what import_ses did)
   lb_save.kicad_pcb  LoadBoard + SaveBoard (the old fallback)

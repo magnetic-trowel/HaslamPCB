@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # crowded-ab4: edge pins that keep clear of fixed parts (pre-registered)
 
@@ -28,7 +28,7 @@ Written 2026-11-22, before any run. Sprint tier, prio 5, at most 40 CPU-h.
   2. teeprom and uzsito: clear's shorts no higher than control's on each seed.
   3. The header stratum: no rise in shorts (the CI may not exclude a rise).
 - **Guards:** legality under two views, which are reported together:
-  1. kae's own flag;
+  1. haslam's own flag;
   2. DRC placement-type errors between two footprints (#137), and the same not worse than the human layout per
      kind. The DRC reports are kept.
 - Also: placement errors, HPWL. The control twin must be identical.
@@ -51,6 +51,6 @@ The ab4 shorts CI on the failing boards reached 0 (-220, CI [-624, 0]). One exte
 
 ## Result of the extension (2026-11-22)
 - **Pooled, 42 board-seeds:** clear against control, part-to-part shorts 583 -> 389, -194 [-575, +42].
-- **Legality:** kae's own flag 1 -> 7, all itsybitsy-rp2040.
+- **Legality:** haslam's own flag 1 -> 7, all itsybitsy-rp2040.
 - **Decision:** the CI includes 0, so by the addendum the fix is recorded as no-harm with an uncertain gain, off by
   default. No routed check. Write-up: `docs/research/placement/crowded-headers-2611.md`.

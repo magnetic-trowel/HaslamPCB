@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """intent_from_spec: a board's radios come from its parts as well as its spec, their EMI terms price noise into the
 radio (not the radio's own noise into other parts), a radio board's cables default to 1 m, and the schematic's pin
@@ -20,7 +20,7 @@ SUMMARY = {"parts": [{"ref": "U1", "kind": "module", "value": "ESP32-WROOM-32E",
 
 
 def test_a_radio_the_spec_missed_still_gets_emi_terms_scoped_to_its_own_pins():
-    spec = {"schema": "kae.board-spec/1", "rails": [], "loads": [], "radio": [], "connectors": []}
+    spec = {"schema": "haslam.board-spec/1", "rails": [], "loads": [], "radio": [], "connectors": []}
     it, op = I.compile_spec(spec, SUMMARY)
     e = {t["id"]: t for t in it["terms"] if t["id"].startswith("E")}
     assert e["E1"]["where"] == {"to_part": ["U1"]} and e["E2"]["where"] == {"to_part": ["U1"]}
@@ -31,20 +31,20 @@ def test_a_radio_the_spec_missed_still_gets_emi_terms_scoped_to_its_own_pins():
 
 
 def test_stated_cables_win_and_a_board_without_a_radio_reports_emission_only():
-    spec = {"schema": "kae.board-spec/1", "rails": [], "loads": [], "radio": [{"ref": "U1", "kind": "Wi-Fi"}],
+    spec = {"schema": "haslam.board-spec/1", "rails": [], "loads": [], "radio": [{"ref": "U1", "kind": "Wi-Fi"}],
             "connectors": [{"ref": "J2", "cable_length_m": 0.3}]}
     it, _ = I.compile_spec(spec, SUMMARY)
     assert [c["connector"] for c in it["environment"]["cables"]] == ["J2"]
     quiet = dict(SUMMARY, parts=SUMMARY["parts"][1:])
-    it, _ = I.compile_spec({"schema": "kae.board-spec/1", "rails": [], "loads": []}, quiet)
+    it, _ = I.compile_spec({"schema": "haslam.board-spec/1", "rails": [], "loads": []}, quiet)
     assert [t["tier"] for t in it["terms"] if t["id"].startswith("E")] == ["report"]
 
 
 def test_pin_facts_ride_in_the_operating_facts(tmp_path):
     spec, summ, pt = tmp_path / "s.json", tmp_path / "m.json", tmp_path / "p.json"
-    spec.write_text(json.dumps({"schema": "kae.board-spec/1", "rails": [], "loads": []}))
+    spec.write_text(json.dumps({"schema": "haslam.board-spec/1", "rails": [], "loads": []}))
     summ.write_text(json.dumps(SUMMARY))
-    pt.write_text(json.dumps({"schema": "kaeres.pintypes/1", "refs": {"U1": {"2": {"type": "power_in", "name": "3V3"}}}}))
+    pt.write_text(json.dumps({"schema": "haslamres.pintypes/1", "refs": {"U1": {"2": {"type": "power_in", "name": "3V3"}}}}))
     I.main([str(spec), str(summ), "--intent", str(tmp_path / "i.json"), "--operating", str(tmp_path / "o.json"),
             "--pintypes", str(pt)])
     op = json.loads((tmp_path / "o.json").read_text())
@@ -52,9 +52,9 @@ def test_pin_facts_ride_in_the_operating_facts(tmp_path):
 
 
 def test_two_sensitive_pins_on_one_part_make_one_limit_on_its_victim_side():
-    """Two spec entries on one part were two part-scoped limits that tie in kae.intent as soon as any pickup on that
+    """Two spec entries on one part were two part-scoped limits that tie in haslam.intent as soon as any pickup on that
     part is observed (the radio bonnet's RF victim): one limit, the strictest, scoped to the victim side."""
-    spec = {"schema": "kae.board-spec/1", "rails": [], "loads": [],
+    spec = {"schema": "haslam.board-spec/1", "rails": [], "loads": [],
             "sensitive": [{"ref": "U1", "max_noise_mV": 5, "what": "ADC input"},
                           {"ref": "U1", "max_noise_mV": 2, "what": "reference pin"}]}
     it, _ = I.compile_spec(spec, SUMMARY)

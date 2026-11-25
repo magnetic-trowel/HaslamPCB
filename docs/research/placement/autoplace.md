@@ -1,12 +1,12 @@
 # autoplace: annealing placer with the router and DRC in the loop
 
-Scope: defensive publication of autoplace, a rectangle placer with five arms (rand, greedy, sa, sa-best, sa-loop), its cost, legalizer, 14-board results and a provisional larger sample. Not here: kae-router variant and speed-ups -> [autoplace with kae router](autoplace-kae-router.md).
+Scope: defensive publication of autoplace, a rectangle placer with five arms (rand, greedy, sa, sa-best, sa-loop), its cost, legalizer, 14-board results and a provisional larger sample. Not here: haslam-router variant and speed-ups -> [autoplace with haslam router](autoplace-haslam-router.md).
 Keys: autoplace, kicad_helper.py, place.py, escape halo, fill factor, POWER_RE, ratsnest MST crossings, w_x, rand, greedy, sa, sa-best, sa-loop, repair rounds, blamed parts, successive halving S6, place_route_loop, legalizer meshgrid, starved_thermal, solder_mask_bridge, place-smoke-14.txt, score v5
 
 **Status:** partial. Router-in-the-loop repair (`sa-loop`) worked on a 14-board smoke suite; on a larger provisional sample it was much weaker and did not scale to big boards.
-**First published:** 2026-10-22, commit [3267001](https://github.com/magnetic-trowel/kicad-auto-everything/commit/32670011f0a3941edfef9629ad6f39fac20f27be) on branch `autoplace-experiments`; results [b3b0896](https://github.com/magnetic-trowel/kicad-auto-everything/commit/b3b08961f8e26555827730f2306c677073d0fca4).
+**First published:** 2026-10-22, commit [3267001](https://github.com/magnetic-trowel/HaslamPCB/commit/32670011f0a3941edfef9629ad6f39fac20f27be) on branch `autoplace-experiments`; results [b3b0896](https://github.com/magnetic-trowel/HaslamPCB/commit/b3b08961f8e26555827730f2306c677073d0fca4).
 
-A rectangle placer for kaebench place tasks with five arms: random, greedy, simulated annealing (SA), best-of-N SA picked by routing + DRC, and SA followed by repair rounds that re-anneal only the parts a router and KiCad DRC blame. On 14 small 2-layer boards the repair loop routed clean on 14/14, the same as the human placements, against 9/14 for plain SA. The deciding change was to close the loop on KiCad DRC, not only on connectivity.
+A rectangle placer for haslambench place tasks with five arms: random, greedy, simulated annealing (SA), best-of-N SA picked by routing + DRC, and SA followed by repair rounds that re-anneal only the parts a router and KiCad DRC blame. On 14 small 2-layer boards the repair loop routed clean on 14/14, the same as the human placements, against 9/14 for plain SA. The deciding change was to close the loop on KiCad DRC, not only on connectivity.
 
 ## Idea and how it works
 
@@ -35,12 +35,12 @@ Costs are updated incrementally per moved part (`State`).
 ## What we tried
 
 - **Suite:** 14 qualified 2-layer place tasks (`tools/research/autoplace/place-smoke-14.txt`; 6 split A, 8 split B; 4–34 footprints, ≤ 98 pads), one per repo, a seeded draw from boards where Freerouting 2.5.0 routes the human placement clean. The task stacks unlocked footprints off-board at 0°.
-- **Score:** kaebench score v5 (task spec 4, KiCad 10.0.7): placement `legal`, then `--probe freerouting` (2.5.0, 10 passes) and KiCad DRC on the rebuilt board. k = 1, 600 s per attempt (1,200 s for v4 `sa-best`/`sa-loop`), 10 cores, bwrap sandbox.
+- **Score:** haslambench score v5 (task spec 4, KiCad 10.0.7): placement `legal`, then `--probe freerouting` (2.5.0, 10 passes) and KiCad DRC on the rebuilt board. k = 1, 600 s per attempt (1,200 s for v4 `sa-best`/`sa-loop`), 10 cores, bwrap sandbox.
 - **Versions:** v3 (code `4b4fba0`) and v4 (`e63bd23`, copper graphics inside footprints counted, DRC in the loop). Ablations on v3 SA: crossing term off (`--cross-w 0`), halo off.
 
 ## Results
 
-Attempt 0, 14 boards, single seed unless noted. Source: `docs/topics/placement/autoplace-experiments-2026-10.md` at [b3b0896](https://github.com/magnetic-trowel/kicad-auto-everything/commit/b3b08961f8e26555827730f2306c677073d0fca4) (branch `autoplace-experiments`; run outputs were local, boards are third-party).
+Attempt 0, 14 boards, single seed unless noted. Source: `docs/topics/placement/autoplace-experiments-2026-10.md` at [b3b0896](https://github.com/magnetic-trowel/HaslamPCB/commit/b3b08961f8e26555827730f2306c677073d0fca4) (branch `autoplace-experiments`; run outputs were local, boards are third-party).
 
 | Arm | legal | probe clean | probe completion | HPWL / human | probe DRC errors | method s |
 |---|---|---|---|---|---|---|
@@ -59,7 +59,7 @@ v3 counts include a printed-coil bug (below) that caused 64 copper-edge errors a
 
 How the loop spent its effort (in-loop unrouted/errors per probe, `*` = kept): a 34-part LED-matrix board 2/1 → 0/0\*; a 75 %-fill board with eight 13 mm jacks 0/1 → 0/3 → 0/3 → 0/0\* in 825 s, where `sa-best`'s six seeds never got clean; 9 of 14 boards were clean on the first probe.
 
-**Provisional, larger sample** (not from a written-up experiment; from the kaeres results index, experiment `merit-500` plus `merit-smoke`, method `autoplace sa-loop` at `b3b0896`, evaluator `98dc632c1679`, queried 2026-10-27): 145 runs, 36 produced no output (the Python SA did not finish within budget on larger boards), 109 scored, 105 legal, **19/105 probe-clean**, mean probe completion 0.867 over the legal ones. Freerouting 2.5.0 on the human placements of the same 109 boards (experiment `fr-baseline`): 15 clean. Different routing budgets, so not a matched comparison. This method was superseded by the `--router kae` variant ([autoplace-kae-router.md](autoplace-kae-router.md)).
+**Provisional, larger sample** (not from a written-up experiment; from the haslamres results index, experiment `merit-500` plus `merit-smoke`, method `autoplace sa-loop` at `b3b0896`, evaluator `98dc632c1679`, queried 2026-10-27): 145 runs, 36 produced no output (the Python SA did not finish within budget on larger boards), 109 scored, 105 legal, **19/105 probe-clean**, mean probe completion 0.867 over the legal ones. Freerouting 2.5.0 on the human placements of the same 109 boards (experiment `fr-baseline`): 15 clean. Different routing budgets, so not a matched comparison. This method was superseded by the `--router haslam` variant ([autoplace-haslam-router.md](autoplace-haslam-router.md)).
 
 ## Verdict
 
@@ -76,21 +76,21 @@ How the loop spent its effort (in-loop unrouted/errors per probe, `*` = kept): a
 
 ## Code
 
-- **Archived:** [`autoplace`](https://github.com/magnetic-trowel/kicad-auto-everything/tree/archive/research-prototypes-2611/tools/research/autoplace) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/kicad-auto-everything/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [e822cf3](https://github.com/magnetic-trowel/kicad-auto-everything/commit/e822cf31fa4b572b19571644aef2eb1ec9ab8eca) (2026-10-27, import from the research branch, path fixes only); last change on the research branch: `cd26ccb` on `autoplace-experiments`, docs-only `7a540b4` (2026-11-01) at tag `archive/autoplace-experiments`. Run it from a checkout of the tag.
+- **Archived:** [`autoplace`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research/autoplace) removed from HEAD on 2026-11-15; code kept at tag `archive/research-prototypes-2611` (main [ca98570](https://github.com/magnetic-trowel/HaslamPCB/commit/ca98570edba288d631e2c4c2d1f56e128049b51e)). Last change on main: [e822cf3](https://github.com/magnetic-trowel/HaslamPCB/commit/e822cf31fa4b572b19571644aef2eb1ec9ab8eca) (2026-10-27, import from the research branch, path fixes only); last change on the research branch: `cd26ccb` on `autoplace-experiments`, docs-only `7a540b4` (2026-11-01) at tag `archive/autoplace-experiments`. Run it from a checkout of the tag.
 
-`tools/research/autoplace/` (moved from `methods/autoplace` on the branch, tip `cd26ccb`): `place.py` (solver and driver), `kicad_helper.py` (pcbnew side), `summarize.py`, `place-smoke-14.txt`, README with setup. Run as a kaebench `--command`:
+`tools/research/autoplace/` (moved from `methods/autoplace` on the branch, tip `cd26ccb`): `place.py` (solver and driver), `kicad_helper.py` (pcbnew side), `summarize.py`, `place-smoke-14.txt`, README with setup. Run as a haslambench `--command`:
 
 ```bash
-kaebench run --adapter sa-loop --kinds place --probe freerouting --timeout 1200 \
+haslambench run --adapter sa-loop --kinds place --probe freerouting --timeout 1200 \
   --command "$PY $PWD/tools/research/autoplace/place.py --algo sa-loop --input {input} --output {output} --workdir {workdir} --attempt {attempt} --timeout {timeout}" \
   --only @tools/research/autoplace/place-smoke-14.txt --name sa-loop
 ```
 
-`$PY` needs numpy, scipy and shapely; `kaebench` is taken from `PYTHONPATH` or this checkout's `bench/src`. The runs above used score v5; main's harness scores with a later version, so re-run the reference before comparing.
+`$PY` needs numpy, scipy and shapely; `haslambench` is taken from `PYTHONPATH` or this checkout's `bench/src`. The runs above used score v5; main's harness scores with a later version, so re-run the reference before comparing.
 
 ## Related
 
-- [autoplace-kae-router.md](autoplace-kae-router.md): the same loop with kae's router, and the speed-ups.
+- [autoplace-haslam-router.md](autoplace-haslam-router.md): the same loop with haslam's router, and the speed-ups.
 - [Placement area map](README.md); [research index](../README.md).
 - Plans this followed: [strategy-candidates](../../topics/placement/strategy-candidates.md) (P1, P3, P4); original ideas [P1 router-probe forces](../../ideas/original/placement.md) and [S6 successive halving](../../ideas/original/system-loop.md); [legalization survey](../../topics/placement/legalization.md).
 - Prior art used: [KiCadRoutingTools placement notes](https://github.com/drandyhaas/KiCadRoutingTools/blob/main/docs/placement-optimization.md) (MIT; crossing term, √pins halo, `place_route_loop`); [autolayout ROADMAP](https://github.com/bwattendorf/autolayout/blob/main/ROADMAP.md) (escape halo).

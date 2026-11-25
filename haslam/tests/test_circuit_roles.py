@@ -1,0 +1,838 @@
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Part and net roles (haslam.circuit.roles), including the failure modes found by the suite physics run
+(docs/topics/physics/suite-physics-results.md)."""
+from circuit_fixtures import C, D, IC, L, Q, R, board, buck_board, fp, mcu_parts
+
+from haslam.circuit.netlist import Netlist
+from haslam.circuit.roles import classify_part, infer_roles, regulator_vout
+
+
+def roles_of(parts, **kw):
+    nl = Netlist.from_board(board(parts, **kw))
+    return nl, infer_roles(nl)
+
+
+# ------------------------------------------------------------------------------- part kinds
+def kind(*args, **kw):
+    nl = Netlist.from_board(board([fp(*args, **kw)]))
+    k, sub, p, _ = classify_part(next(iter(nl.parts.values())))
+    return k, sub, p
+
+
+def test_part_kinds_from_names_values_footprints():
+    assert kind('C1', '100nF', 'Capacitor_SMD:C_0402_1005Metric', [('1', 'A', '', ''), ('2', 'B', '', '')])[0] == 'capacitor'
+    assert kind('R1', '10k', 'Resistor_SMD:R_0402_1005Metric', [('1', 'A', '', ''), ('2', 'B', '', '')])[0] == 'resistor'
+    assert kind('L1', '10uH', 'Inductor_SMD:L_1210_3225Metric', [('1', 'A', '', ''), ('2', 'B', '', '')])[0] == 'inductor'
+    # a bead on a resistor footprint, named by its impedance
+    assert kind('FB1', '600R@100MHz', 'Resistor_SMD:R_0603_1608Metric', [('1', 'A', '', ''), ('2', 'B', '', '')])[0] == 'ferrite'
+    assert kind('L2', '600OHM/2A', 'Inductor_SMD:L_0805_2012Metric', [('1', 'A', '', ''), ('2', 'B', '', '')])[0] == 'ferrite'
+    # TLV70x1/TLV70x2 are comparators, TLV70033/TLV75733 LDOs
+    sot = 'Package_TO_SOT_SMD:SOT-23-5'
+    assert kind('U3', 'TLV7031', sot, [('1', 'OUT', 'OUT', 'output'), ('2', 'GND', 'V-', 'power_in')])[1] != 'regulator_linear'
+    assert kind('U3', 'TLV7042DGKR', sot, [('1', 'OUT', 'OUT', 'output'), ('2', 'GND', 'V-', 'power_in')])[1] != 'regulator_linear'
+    assert kind('U3', 'TLV70033', sot, [('1', 'IN', 'IN', 'power_in'), ('5', 'OUT', 'OUT', 'power_out')])[1] == 'regulator_linear'
+    assert kind('U3', 'TLV75733PDRVR', sot, [('1', 'IN', 'IN', 'power_in'), ('5', 'OUT', 'OUT', 'power_out')])[1] == 'regulator_linear'
+    k, sub, _ = kind('D1', 'SMBJ15A', 'Diode_SMD:D_SMB', [('1', 'A', 'K', ''), ('2', 'B', 'A', '')])
+    assert (k, sub) == ('diode', 'tvs')
+    k, sub, _ = kind('U5', 'USBLC6-2SC6', 'Package_TO_SOT_SMD:SOT-23-6',
+                     [('1', 'D1', 'I/O1', 'passive'), ('2', 'GND', 'GND', 'passive'), ('3', 'D2', 'I/O2', 'passive'),
+                      ('4', 'D2b', 'I/O2', 'passive'), ('5', 'VBUS', 'VBUS', 'passive'), ('6', 'D1b', 'I/O1', 'passive')])
+    assert (k, sub) == ('diode', 'esd_array')          # an ESD array with a U prefix is not an IC
+    assert kind('D2', 'BAT54', 'Package_TO_SOT_SMD:SOT-23', [('1', 'A', 'A', ''), ('3', 'B', 'K', '')])[1] == 'schottky'
+    assert kind('Q1', 'AO3400A', 'Package_TO_SOT_SMD:SOT-23', [('1', 'G', 'G', ''), ('2', 'S', 'S', ''), ('3', 'D', 'D', '')])[:2] == ('transistor', 'nmos')
+    assert kind('Y1', '8MHz', 'Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm', [('1', 'A', '1', ''), ('3', 'B', '3', '')])[0] == 'crystal'
+    assert kind('X1', 'ASE-24MHz', 'Oscillator:Oscillator_SMD_Abracon_ASE-4Pin_3.2x2.5mm',
+                [('1', 'EN', 'EN', 'input'), ('2', 'GND', 'GND', 'power_in'), ('3', 'CLK', 'OUT', 'output'), ('4', 'V', 'VDD', 'power_in')])[0] == 'oscillator'
+    assert kind('J1', 'USB_C_Receptacle', 'Connector_USB:USB_C_Receptacle_GCT_USB4105-xx-A_16P', [('A4', 'VBUS', 'VBUS', 'passive')])[0] == 'connector'
+    assert kind('TP1', 'TestPoint', 'TestPoint:TestPoint_Pad_D1.0mm', [('1', 'X', '1', 'passive')])[0] == 'test_point'
+    assert kind('H1', 'MountingHole', 'MountingHole:MountingHole_3.2mm_M3', [])[0] == 'mounting_hole'
+    assert kind('FID1', 'Fiducial', 'Fiducial:Fiducial_1mm_Mask2mm', [('1', '', '', '')])[0] == 'fiducial'
+    assert kind('G1', 'LOGO', 'Symbol:OSHW-Logo_7.5x8mm_SilkScreen', [])[0] == 'graphic'
+    # case-insensitive substrings must not misfire ('ExtraFootprints' contains 'traFo')
+    assert kind('SW1', 'EG2305', 'ExtraFootprints:EG2305', [('1', 'A', 'NC_1', ''), ('2', 'B', 'NO_1', ''), ('3', 'C', 'COM_1', '')])[0] == 'switch'
+
+
+def test_regulator_part_number_voltage():
+    assert regulator_vout('AMS1117-3.3')[0] == 3.3
+    assert regulator_vout('MCP1700-3302E/TT')[0] == 3.3
+    assert regulator_vout('XC6206P332MR')[0] == 3.3
+    assert regulator_vout('L7805CV')[0] == 5.0
+    assert regulator_vout('NCP177AMX330TCG')[0] == 3.3
+    assert regulator_vout('TLV74318PDBVR')[0] == 1.8
+    assert regulator_vout('LM317') is None
+    assert regulator_vout('SPX1117-ADJ') is None
+    assert regulator_vout('AZ1117CH-3.3TRG1')[0] == 3.3
+    assert regulator_vout('R-78B5.0-2.0')[0] == 5.0
+    assert regulator_vout('TPS7A20285PDQNR')[0] == 2.85          # TI x.xx code
+    assert regulator_vout('TLV75733PDRVR')[0] == 3.3
+    assert regulator_vout('LD1117S33TR')[0] == 3.3
+
+
+def test_regulator_voltage_reads_part_numbers_not_sizes_or_currents():
+    """A decimal needs a V or a part-number position: footprint pitches and body sizes,
+    current ratings and input ranges are not an output voltage (opendrone whoop TPS7A20285 read
+    1.0 V from 'X2SON-4_L1.0', TPS63001 read 1.8 V from '1.8A')."""
+    from types import SimpleNamespace
+
+    from haslam.circuit.roles import part_number_text
+    assert regulator_vout('TPS62130 Package_DFN_QFN:VQFN-16-1EP_3x3mm_P0.5mm_EP1.68x1.68mm') is None
+    assert regulator_vout('MP2307 Package_SO:SOIC-8_3.9x4.9mm_P1.27mm') is None
+    assert regulator_vout('TPS63001 buck-boost 1.8A') is None
+    assert regulator_vout('TLV7031DPWR') is None                     # a comparator, no code
+    p = SimpleNamespace(value='TPS7A20285', lib_id='Package_SON:Texas_X2SON-4_L1.0',
+                        fields={'Description': 'LDO 300 mA, VIN 1.6-6.0 V', 'MPN': 'TPS7A20285PDQNR'})
+    assert 'X2SON' not in part_number_text(p) and 'VIN' not in part_number_text(p)
+    assert regulator_vout(part_number_text(p))[0] == 2.85
+
+
+# ------------------------------------------------------------------------------- grounds and rails
+def test_split_grounds_stay_distinct():
+    parts = [IC('U1', 'ADS1115', 'Package_SO:MSOP-10_3x3mm_P0.5mm',
+                [('1', 'GND', 'GND', 'power_in'), ('2', 'AGND', 'AGND', 'power_in'), ('3', 'VDD', '+3V3', 'power_in'),
+                 ('4', 'AIN0', 'AIN0', 'input')]),
+             C('C1', '100nF', '+3V3', 'GND'), C('C2', '100nF', '+3V3', 'AGND'), C('C3', '1nF', 'AIN0', 'AGND'),
+             IC('U2', 'ISO7741', 'Package_SO:SOIC-16W', [('1', 'GND_ISO', 'GND1', 'power_in'), ('2', 'VCC1', 'V_ISO', 'power_in')]),
+             C('C4', '100nF', 'V_ISO', 'GND_ISO'), C('C5', '100nF', 'V_ISO', 'GND_ISO'),
+             fp('J1', 'Conn_01x02', 'Connector_PinHeader_2.54mm:PinHeader_1x02', [('1', 'PGND', '', ''), ('2', '+12V', '', '')]),
+             C('C6', '10uF', '+12V', 'PGND'), C('C7', '10uF', '+12V', 'PGND'),
+             fp('J2', 'USB_B', 'Connector_USB:USB_B_OST', [('5', 'EARTH', 'Shield', 'passive')]),
+             C('C8', '4.7nF', 'EARTH', 'GND'), R('R1', '1M', 'EARTH', 'GND')]
+    nl, r = roles_of(parts)
+    sub = {n: r.nets[n].subrole for n in r.grounds}
+    assert sub['GND'] == 'ground' and r.gnd == 'GND'
+    assert sub['AGND'] == 'analog_ground'
+    assert sub['PGND'] == 'power_ground'
+    assert sub['GND_ISO'] == 'isolated_ground'
+    assert sub['EARTH'] == 'chassis'
+
+
+def test_rails_with_voltage_sources():
+    nl, r = roles_of(buck_board() + mcu_parts())
+    assert r.nets['+12V'].role == 'rail' and r.nets['+12V'].attrs['volts']['value'] == 12.0
+    assert r.nets['+3V3'].attrs['volts']['value'] == 3.3
+    assert r.nets['+3V3'].attrs['source']['kind'] == 'converter'
+    assert r.nets['+3V3A'].role == 'rail'                       # filtered branch through FB1
+    assert r.nets['+3V3A'].attrs['source']['kind'] == 'derived'
+    assert r.nets['SW'].role == 'switch_node'
+    assert r.nets['FB'].role == 'analog' and r.nets['FB'].subrole == 'feedback'
+
+
+def test_power_out_pin_on_a_connector_is_not_a_source():
+    """Library pins typed power_out on connectors, fuses and resistors were read as regulator outputs."""
+    parts = [fp('J1', 'Conn_01x02', 'Connector_PinHeader_2.54mm:PinHeader_1x02',
+                [('1', 'SIG_OUT', 'VOUT', 'power_out'), ('2', 'GND', 'GND', 'power_out')]),
+             R('R1', '10k', 'SIG_OUT', 'MCU_IN'), C('C1', '100nF', 'SIG_OUT', 'GND'),
+             IC('U1', 'ATTINY85-20SU', 'Package_SO:SOIC-8', [('1', 'PB0', 'MCU_IN', 'bidirectional'), ('4', 'GND', 'GND', 'power_in'),
+                                                             ('8', 'VCC', '+5V', 'power_in')]),
+             C('C2', '100nF', '+5V', 'GND')]
+    nl, r = roles_of(parts)
+    assert r.nets.get('SIG_OUT') is None or r.nets['SIG_OUT'].role != 'rail'
+    assert r.parts['J1'].kind == 'connector'
+
+
+def test_kelvin_sense_line_named_after_a_rail_is_not_a_rail():
+    parts = [IC('U1', 'INA219AID', 'Package_SO:SOIC-8', [('1', 'IN+', 'VBAT_SENSE', 'input'), ('2', 'IN-', '+5V_KELVIN', 'input'),
+                                                        ('3', 'VS', '+3V3', 'power_in'), ('4', 'GND', 'GND', 'power_in')]),
+             R('R1', '0R05', 'VBAT_SENSE', '+5V_KELVIN', lib='Resistor_SMD:R_2512_6332Metric'),
+             C('C1', '100nF', '+3V3', 'GND'), C('C2', '1uF', 'VBAT_SENSE', 'GND')]
+    nl, r = roles_of(parts)
+    for n in ('VBAT_SENSE', '+5V_KELVIN'):
+        assert r.nets[n].role != 'rail', n
+    assert r.parts['R1'].role == 'shunt'
+
+
+def test_two_pin_supply_net_is_a_rail():
+    """A rail with one load and one cap is still a rail (suite run: rejected for having two pads)."""
+    parts = [IC('U1', 'BME280', 'Package_LGA:Bosch_LGA-8', [('1', 'GND', 'GND', 'power_in'), ('8', 'VDD', 'Net-(U1-VDD)', 'power_in')]),
+             C('C1', '100nF', 'Net-(U1-VDD)', 'GND'), C('C2', '100nF', '+3V3', 'GND'), C('C3', '1uF', '+3V3', 'GND')]
+    nl, r = roles_of(parts)
+    assert r.nets['Net-(U1-VDD)'].role == 'rail'
+
+
+def test_internal_supply_without_a_source_is_still_a_rail():
+    """IC-internal supplies (core LDO output on a decoupling-only net): source 'internal', not an error."""
+    parts = [IC('U1', 'STM32F405RGT6', 'Package_QFP:LQFP-64', [('1', 'VCAP_1', 'VCAP1', 'power_out'), ('2', 'VSS', 'GND', 'power_in'),
+                                                               ('3', 'VDD', '+3V3', 'power_in')]),
+             C('C1', '2.2uF', 'VCAP1', 'GND'), C('C2', '100nF', '+3V3', 'GND'), C('C3', '100nF', '+3V3', 'GND')]
+    nl, r = roles_of(parts)
+    assert r.nets['VCAP1'].role == 'rail'
+    assert r.nets['VCAP1'].attrs['source']['kind'] == 'internal'
+    assert r.nets['+3V3'].attrs['source']['kind'] == 'unknown'
+
+
+# ------------------------------------------------------------------------------- switch nodes, pairs, signals
+def test_logic_pair_is_not_a_half_bridge():
+    """Two small FETs sharing a node (a level shifter, a logic inverter) must not become a power stage."""
+    parts = [Q('Q1', 'BSS84', 'G1', '+3V3', 'X'), Q('Q2', 'BSS138', 'G1', 'X', 'GND'),
+             C('C1', '100nF', '+3V3', 'GND'), C('C2', '100nF', '+3V3', 'GND'),
+             IC('U1', 'ATTINY85-20SU', 'Package_SO:SOIC-8', [('1', 'PB0', 'G1', 'bidirectional'), ('4', 'GND', 'GND', 'power_in'),
+                                                             ('8', 'VCC', '+3V3', 'power_in')])]
+    nl, r = roles_of(parts)
+    assert 'X' not in r.switch_nodes
+
+
+def test_power_half_bridge_with_driver_and_shunt():
+    drv = IC('U1', 'IR2104', 'Package_SO:SOIC-8', [('1', 'VCC', '+12V', 'power_in'), ('2', 'IN', 'PWM', 'input'),
+                                                   ('7', 'HO', 'GH', 'output'), ('5', 'LO', 'GL', 'output'), ('6', 'VS', 'PHASE', 'passive'),
+                                                   ('4', 'COM', 'GND', 'power_in')])
+    parts = [drv, Q('Q1', 'IRF540N', 'GH', '+48V', 'PHASE', lib='Package_TO_SOT_THT:TO-220-3_Vertical'),
+             Q('Q2', 'IRF540N', 'GL', 'PHASE', 'SRC', lib='Package_TO_SOT_THT:TO-220-3_Vertical'),
+             R('R1', '0R01', 'SRC', 'GND', lib='Resistor_SMD:R_2512_6332Metric'),
+             C('C1', '100uF', '+48V', 'GND', lib='Capacitor_THT:CP_Radial_D10.0mm_P5.00mm'), C('C2', '1uF', '+48V', 'GND'),
+             C('C3', '100nF', '+12V', 'GND'),
+             fp('J1', 'Conn_01x02', 'TerminalBlock:TerminalBlock_bornier-2_P5.08mm', [('1', 'PHASE', '', ''), ('2', 'GND', '', '')])]
+    nl, r = roles_of(parts)
+    assert r.switch_nodes['PHASE']['kind'] == 'half_bridge'
+    assert r.parts['R1'].role == 'shunt'
+
+
+def test_usb_pair_and_signal_roles():
+    nl, r = roles_of(mcu_parts() + [fp('J1', 'USB_C_Receptacle', 'Connector_USB:USB_C_Receptacle_HRO_TYPE-C-31-M-12',
+                                       [('A6', 'USB_DP', 'D+', 'bidirectional'), ('A7', 'USB_DM', 'D-', 'bidirectional'),
+                                        ('A4', 'VBUS', 'VBUS', 'passive'), ('A1', 'GND', 'GND', 'passive')]),
+                                    C('C20', '10uF', 'VBUS', 'GND')])
+    pairs = {(p.p, p.n): p for p in r.pairs}
+    assert ('USB_DP', 'USB_DM') in pairs and pairs[('USB_DP', 'USB_DM')].interface == 'usb2'
+    assert r.nets['USB_DP'].role == 'high_speed'
+    assert r.nets['XIN'].role == 'clock' and r.nets['XIN'].subrole == 'xtal'
+    assert r.nets['NRST'].role == 'reset'
+    assert r.nets['ADC_IN0'].role == 'analog'
+    assert r.nets['VBUS'].subrole == 'usb_vbus' and r.nets['VBUS'].attrs['volts']['value'] == 5.0
+    assert r.parts['J1'].subtype == 'usb'
+
+
+def test_can_pair_and_termination():
+    parts = [IC('U1', 'TCAN1042', 'Package_SO:SOIC-8', [('6', 'CANL', 'CAN_L', 'bidirectional'), ('7', 'CANH', 'CAN_H', 'bidirectional'),
+                                                        ('3', 'VCC', '+5V', 'power_in'), ('2', 'GND', 'GND', 'power_in')]),
+             R('R1', '120', 'CAN_H', 'CAN_L'), C('C1', '100nF', '+5V', 'GND'),
+             fp('J1', 'Conn_01x03', 'Connector_JST:JST_PH_B3B-PH-K', [('1', 'CAN_H', '', ''), ('2', 'CAN_L', '', ''), ('3', 'GND', '', '')])]
+    nl, r = roles_of(parts)
+    assert any(p.interface == 'can' and {p.p, p.n} == {'CAN_H', 'CAN_L'} for p in r.pairs)
+    assert r.parts['R1'].role == 'termination'
+
+
+# ------------------------------------------------------------------------------- audit fixes (docs/topics/physics/comprehension.md)
+def test_supply_pins_typed_input_still_make_a_rail():
+    """Libraries type VIN/VBAT/VDD as input or bidirectional (TPS63802 VIN, MCP73031 VBAT, CP2102 VDD)."""
+    parts = [IC('U1', 'TPS63802', 'Package_SON:Texas_DLA0010A', [('10', 'VIN', '+BATT', 'input'), ('1', 'EN', '+BATT', 'input'),
+                                                                   ('8', 'GND', 'GND', 'power_in')]),
+             IC('U2', 'MCP73031', 'Package_TO_SOT_SMD:SOT-23-5', [('3', 'VBAT', '+BATT', 'input'), ('2', 'VSS', 'GND', 'input'),
+                                                                   ('4', 'VDD', 'VBUS', 'input')]),
+             C('C1', '4.7uF', '+BATT', 'GND'), C('C2', '10uF', '+BATT', 'GND'),
+             IC('U3', 'CP2102-GMR', 'Package_DFN_QFN:QFN-28', [('6', 'VDD', 'Net-(U3-VDD)', 'bidirectional'), ('3', 'GND', 'GND', 'bidirectional')]),
+             C('C3', '4.7uF', 'Net-(U3-VDD)', 'GND'), C('C4', '100nF', 'Net-(U3-VDD)', 'GND')]
+    nl, r = roles_of(parts)
+    assert r.nets['+BATT'].role == 'rail' and r.nets['+BATT'].subrole == 'battery'
+    assert r.nets['+BATT'].attrs['source'] == {'kind': 'regulator', 'ref': 'U2', 'pin': '3'}     # the charger's battery pin
+    assert r.nets['Net-(U3-VDD)'].role == 'rail' and r.nets['Net-(U3-VDD)'].attrs['source']['kind'] == 'internal'
+
+
+def test_rail_named_control_lines_are_not_rails():
+    """'12V0_OUT_EN' is an enable line; INA VIN+/VIN- typed power_in on '12V0_LC1_P' are Kelvin taps."""
+    parts = [fp('J1', 'MGMT', 'Connector_Molex:Molex_PicoBlade', [('1', '12V0_OUT_EN', '12V0_OUT_EN', 'input'), ('2', 'GND', 'GND', 'passive')]),
+             fp('J2', 'MGMT', 'Connector_Molex:Molex_PicoBlade', [('1', '12V0_OUT_EN', '12V0_OUT_EN', 'output'), ('2', 'GND', 'GND', 'passive')]),
+             IC('U1', 'INA230', 'Package_DFN_QFN:QFN-16', [('13', 'VIN+', '12V0_LC1_P', 'power_in'), ('12', 'VIN-', '12V0_LC1_N', 'power_in'),
+                                                          ('11', 'VBUS', '12V0_LC1', 'power_in'), ('9', 'VS', '3V3', 'power_in'),
+                                                          ('10', 'GND', 'GND', 'power_in')]),
+             fp('R1', 'LVK25R005FER', 'Resistor_SMD:R_Shunt_Ohmite_LVK25', [('1', '12V0_LC1_N', 'ILO', 'power_out'), ('2', '12V0_LC1', 'VO', 'power_out'),
+                                                                         ('3', '12V0_LC1_P', 'IHI', 'power_out'), ('4', 'SW_OUT', 'VI', 'power_out')]),
+             IC('U2', 'NCP45560', 'Package_DFN_QFN:DFN-12', [('1', 'VIN', '12V0', 'power_in'), ('8', 'VOUT', 'SW_OUT', 'power_out'),
+                                                            ('4', 'GND', 'GND', 'power_in'), ('3', 'VCC', '3V3', 'power_in')]),
+             fp('J3', 'MiniFit', 'Connector_Molex:Molex_Mini-Fit_Jr', [('1', '12V0_LC1', '', 'passive'), ('2', 'GND', '', 'passive')]),
+             fp('J4', 'MiniFit', 'Connector_Molex:Molex_Mini-Fit_Jr', [('1', '12V0', '', 'passive'), ('2', 'GND', '', 'passive')]),
+             C('C1', '470nF', '3V3', 'GND'), C('C2', '10uF', '12V0', 'GND')]
+    nl, r = roles_of(parts)
+    assert r.nets['12V0_OUT_EN'].role != 'rail'
+    for n in ('12V0_LC1_P', '12V0_LC1_N'):
+        assert r.nets[n].role == 'analog' and r.nets[n].subrole == 'sense', n
+    assert r.parts['R1'].subtype == 'shunt'
+    assert r.nets['SW_OUT'].attrs['volts']['value'] == 12.0                        # a load switch passes its input through
+    assert r.nets['12V0_LC1'].attrs['source'] == {'kind': 'derived', 'ref': 'R1', 'upstream': 'SW_OUT', 'via': 'shunt'}
+
+
+def test_level_shifted_signals_with_a_voltage_suffix_are_not_rails():
+    """Adafruit and Antmicro name level-shifted logic '<signal>_3V' / '_5V': a voltage suffix alone is
+    no rail (SCK_3V, TFTCS_3V on the 1.69in TFT were rails at confidence 0.5-0.62). A suffix net with
+    bulk capacitance, a supply suffix or a supply word in the base stays a rail."""
+    parts = [R('R1', '10k', 'SCK_3V', 'GND'), R('R2', '10k', 'TFTCS_3V', 'GND'), R('R3', '10k', 'LCD_DATA1_5V', 'GND'),
+             fp('J2', 'Conn', 'Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical',
+                [('1', 'SCK_3V', '', 'passive'), ('2', 'TFTCS_3V', '', 'passive'), ('3', 'LCD_DATA1_5V', '', 'passive')]),
+             fp('J1', 'Conn', 'Connector_PinHeader_2.54mm:PinHeader_1x08_P2.54mm_Vertical',
+                [('1', 'SCK_3V', '', 'passive'), ('2', 'TFTCS_3V', '', 'passive'), ('3', 'LCD_DATA1_5V', '', 'passive'),
+                 ('4', 'GND', '', 'passive'), ('5', 'USB_VCC', '', 'passive'), ('6', 'UART_5V', '', 'passive'),
+                 ('7', 'MOTOR_12V', '', 'passive')]),
+             C('C1', '100nF', '+3V3', 'GND'), C('C2', '10uF', 'USB_VCC', 'GND'), C('C3', '10uF', 'UART_5V', 'GND'),
+             C('C4', '10uF', 'UART_5V', 'GND'), C('C5', '10uF', 'MOTOR_12V', 'GND')]
+    nl, r = roles_of(parts)
+    for n in ('SCK_3V', 'TFTCS_3V', 'LCD_DATA1_5V'):
+        assert n not in r.rails, (n, r.nets[n].confidence)
+    for n in ('USB_VCC', 'UART_5V', 'MOTOR_12V'):
+        assert n in r.rails, n
+
+
+def test_i2c_clock_and_gpio_named_oscillator_pins():
+    parts = [IC('U1', 'STM32F030C8T6', 'Package_QFP:LQFP-48', [('3', 'PC14', 'PC14', 'bidirectional'), ('4', 'PC15', 'BUTTON', 'bidirectional'),
+                                                             ('42', 'PB6', 'I2C1_SCLK', 'bidirectional'), ('1', 'VDD', '+3V3', 'power_in'),
+                                                             ('8', 'VSS', 'GND', 'power_in')]),
+             IC('U2', 'AT24C128C', 'Package_SO:SOIC-8', [('6', 'SCL', 'I2C1_SCLK', 'input'), ('8', 'VCC', '+3V3', 'power_in'), ('4', 'GND', 'GND', 'power_in')]),
+             R('R1', '2k2', 'I2C1_SCLK', '+3V3'), C('C1', '100nF', '+3V3', 'GND')]
+    nl, r = roles_of(parts)
+    assert r.nets['I2C1_SCLK'].role == 'signal' and r.nets['I2C1_SCLK'].subrole == 'i2c'
+    assert r.nets['PC14'].role != 'clock' and r.nets['BUTTON'].role != 'clock'
+
+
+def test_negative_rail_series_diode_direction():
+    parts = [fp('J1', 'EuroPower', 'Connector_IDC:IDC-Header_2x05', [('1', '-12V_IN', '-12V', 'passive'), ('3', 'GND', 'GND', 'passive'),
+                                                                    ('9', '+12V_IN', '+12V', 'passive')]),
+             D('D1', '1N4001', '+12V', '+12V_IN'), D('D2', '1N4001', '-12V_IN', '-12V'),
+             C('C1', '22uF', '+12V', 'GND', lib='Capacitor_THT:CP_Radial_D5.0mm_P2.50mm'),
+             C('C2', '22uF', 'GND', '-12V', lib='Capacitor_THT:CP_Radial_D5.0mm_P2.50mm')]
+    nl, r = roles_of(parts)
+    assert r.nets['+12V'].attrs['source']['upstream'] == '+12V_IN'
+    assert r.nets['-12V'].attrs['source']['kind'] == 'derived' and r.nets['-12V'].attrs['source']['upstream'] == '-12V_IN'
+    assert r.nets['-12V_IN'].attrs['source']['kind'] == 'connector'
+
+
+def test_rail_sources_through_middle_nets_jacks_and_modules():
+    parts = [fp('J1', 'USB_C', 'Connector_USB:USB_C_Receptacle_HRO', [('A4', 'VBUS', 'VBUS', 'passive'), ('A1', 'GND', 'GND', 'passive')]),
+             fp('F1', 'MF-NSMF050', 'Fuse:Fuse_1206_3216Metric', [('1', 'VBUS', '', 'passive'), ('2', 'MID', '', 'passive')]),
+             D('D1', 'RB160M-30', '5V0', 'MID'), C('C1', '10uF', '5V0', 'GND'), C('C2', '1uF', '5V0', 'GND'),
+             fp('J2', 'TRRS', 'Connector_Audio:Jack_3.5mm_PJ320A', [('S', '5V0', '', 'passive'), ('T', 'GND', '', 'passive')]),
+             fp('U1', 'RP2040_breakout', 'lib:RP2040_Breakout-PTH', [('1', '3V3', '+3V3', 'power_in'), ('2', 'GND', 'GND', 'power_in'),
+                                                                     ('3', '5V0', 'VSYS', 'power_in')]),
+             fp('J3', 'OLED', 'Connector_PinHeader_2.54mm:PinHeader_1x04', [('1', '3V3', 'VCC', 'passive'), ('2', 'GND', 'GND', 'passive')]),
+             C('C3', '100nF', '3V3', 'GND'),
+             fp('JP1', 'SolderJumper_2_Open', 'Jumper:SolderJumper-2_P1.3mm_Open_Pad1.0x1.5mm', [('1', '5V0', 'A', 'passive'), ('2', '3V3', 'B', 'passive')])]
+    nl, r = roles_of(parts)
+    s = r.nets['5V0'].attrs['source']
+    assert s['kind'] == 'derived' and s['upstream'] == 'VBUS' and s['path'] == ['D1', 'F1']
+    assert r.nets['VBUS'].attrs['source']['kind'] == 'connector' and r.nets['VBUS'].attrs['source']['ref'] == 'J1'
+    assert r.nets['3V3'].attrs['source']['kind'] == 'module'                       # not the open jumper, not the OLED header
+    assert abs(r.nets['5V0'].attrs['volts']['value'] - 5.0) < 1e-6                 # named 5V0
+
+
+def test_signal_role_fixes():
+    """GPIO0 is a strap only on ESP parts; bridge-driver AIN1 is a logic input; a converter's BOOT net is a bootstrap."""
+    parts = [IC('U1', 'RP2350B', 'Package_DFN_QFN:QFN-80', [('2', 'GPIO0', 'GPIO0/TRIG', 'bidirectional'), ('5', 'IOVDD', '+3V3', 'power_in'),
+                                                          ('3', 'GPIO10', 'MOTOR_IN1', 'bidirectional'), ('81', 'GND', 'GND', 'power_in')]),
+             IC('U2', 'DRV8411A', 'Package_DFN_QFN:QFN-16', [('13', 'AIN1', 'MOTOR_IN1', 'input'), ('10', 'VM', 'VM', 'power_in'),
+                                                            ('1', 'PGND', 'GND', 'power_in')]),
+             IC('U3', 'ESP32-S3-WROOM-1', 'RF_Module:ESP32-S3-WROOM-1', [('27', 'IO0', 'BOOT_BTN', 'bidirectional'), ('2', '3V3', '+3V3', 'power_in'),
+                                                                        ('1', 'GND', 'GND', 'power_in')]),
+             fp('SW1', 'BOOT', 'Button_Switch_SMD:SW_SPST_B3U', [('1', 'BOOT_BTN', '1', 'passive'), ('2', 'GND', '2', 'passive')]),
+             C('C1', '100nF', '+3V3', 'GND'), C('C2', '10uF', 'VM', 'GND')] + buck_board()
+    nl, r = roles_of(parts)
+    assert r.nets['GPIO0/TRIG'].role != 'boot'
+    assert r.nets['BOOT_BTN'].role == 'boot'
+    assert r.nets['MOTOR_IN1'].role != 'analog'
+    assert r.nets['BST'].role == 'signal' and r.nets['BST'].subrole == 'bootstrap'
+
+
+def test_mechanical_and_relay_part_kinds():
+    panel = fp('REF1', 'PanelHole_Potentiometer_RV09', 'Panel:PanelHole_Potentiometer_RV09', [('', '', '', '')])
+    panel.pads[0].kind = 'np_thru_hole'                 # one unplated hole: a front-panel cut-out drawing
+    nl = Netlist.from_board(board([panel]))
+    assert classify_part(next(iter(nl.parts.values())))[0] not in ('potentiometer', 'connector', 'switch')
+    assert kind('BOOT0', 'BOOT0_SW', 'Project:K3-1270L-F1', [('1', 'A', '', 'passive'), ('2', 'B', '', 'passive'), ('3', 'C', '', 'passive')])[0] == 'switch'
+    assert kind('U3', 'GAQY252G3S', 'Package_SO:SOP-4_4.4x2.6mm_P1.27mm',
+                [('1', 'A', '1', 'input'), ('2', 'K', '2', 'input'), ('3', 'X', '3', 'passive'), ('4', 'Y', '4', 'passive')])[0] == 'optocoupler'
+    k, sub, _ = kind('U1', 'FUSB302BMPX', 'Package_DFN_QFN:WQFN-14', [('1', 'CC2', 'CC2', 'bidirectional'), ('2', 'VBUS', 'VBUS', 'power_in'),
+                                                                       ('3', 'VDD', 'VDD', 'power_in'), ('8', 'GND', 'GND', 'power_in')])
+    assert (k, sub) == ('ic', 'usb_pd')
+
+
+# ------------------------------------------------------------------------------- held-out audit fixes
+def test_amplifier_known_only_by_its_pins_and_volt_valued_zeners():
+    parts = [IC('U1', '1512P08-U', 'Package_DIP:DIP-8_W7.62mm', [('2', '-', 'INM', 'input'), ('3', '+', 'INP', 'input'), ('4', 'V-', 'GND', 'power_in'),
+                                                               ('7', 'V+', 'V35P', 'power_in'), ('1', 'RG1', 'RG1', 'passive')]),
+             C('C1', '100n', 'V35P', 'GND'), C('C2', '220u', 'V35P', 'GND', lib='Capacitor_THT:CP_Radial_D10.0mm_P5.00mm'),
+             R('R1', '1k2', 'INM', 'MID'), R('R2', '1k2', 'INP', 'MID'),
+             D('D1', '16V', 'V35P', 'GND', lib='Diode_THT:D_DO-34_SOD68_P7.62mm_Horizontal')]
+    nl, r = roles_of(parts)
+    assert r.nets['INM'].role == 'analog' and r.nets['INP'].role == 'analog'
+    assert r.parts['D1'].subtype == 'zener'
+
+
+def test_input_jack_through_fuse_and_filter_is_the_source():
+    parts = [fp('J1', 'BarrelJack', 'Connector_BarrelJack:BarrelJack_Horizontal', [('1', 'JIN', '', 'passive'), ('2', 'JRET', '', 'passive')]),
+             fp('F1', '0ZRC0015', 'Fuse:Fuse_Bourns_MF-RHT050', [('1', 'JIN', '', 'passive'), ('2', 'FILT', '', 'passive')]),
+             D('D7', '1N4004', 'FILT', 'JRET', lib='Diode_THT:D_DO-41_SOD81_P10.16mm_Horizontal'), C('C9', '100n', 'FILT', 'JRET'),
+             L('L3', '10u', 'FILT', 'VIN', lib='Inductor_THT:L_Axial_L5.3mm_D2.2mm_P10.16mm'), L('L2', '10u', 'JRET', 'GND'),
+             C('C8', '220u-63V', 'VIN', 'GND', lib='Capacitor_THT:CP_Radial_D10.0mm_P5.00mm'), C('C1', '100n', 'VIN', 'GND')]
+    nl, r = roles_of(parts)
+    s = r.nets['VIN'].attrs['source']
+    assert s['kind'] == 'connector' and s['ref'] == 'J1' and s['path'] == ['L3', 'F1']
+
+
+def test_bms_shunt_and_cell_sense_inputs():
+    afe = IC('U4', 'BQ76952', 'Package_QFP:TQFP-48_7x7mm_P0.5mm',
+             [('18', 'SRP', 'SRP', 'input'), ('20', 'SRN', 'SRN', 'input'), ('3', 'VC1', 'VC1', 'input'), ('2', 'VC0', 'VC0', 'input'),
+              ('17', 'VSS', 'GND', 'power_in'), ('24', 'REG18', 'REG18', 'power_out')])
+    parts = [afe, fp('R45', '300µ', 'LibreSolar:R_Shunt_5931_Kelvin', [('1', 'BAT-', '1', 'passive'), ('2', 'SHUNT_P', '2', 'passive'),
+                                                                      ('3', 'SHUNT_N', '3', 'passive'), ('4', 'PACK-', '4', 'passive')]),
+             R('R19', '100', 'SHUNT_P', 'SRP'), R('R20', '100', 'SHUNT_N', 'SRN'), C('C28', '100nF', 'SRP', 'SRN'),
+             C('C20', '2.2uF', 'REG18', 'GND'), R('R2', '20', 'C1+', 'VC1'), C('C1', '220nF', 'VC1', 'VC0'),
+             fp('P2', 'BAT-', 'Connector:Wuerth_PowerOne', [('1', 'BAT-', '', 'passive')]),
+             fp('P4', 'PACK-', 'Connector:Wuerth_PowerOne', [('1', 'PACK-', '', 'passive')]),
+             fp('J1', 'Cells', 'Connector_Molex:Molex_Micro-Fit_3.0', [('1', 'C1+', '', 'passive'), ('2', 'GND', '', 'passive')])]
+    nl, r = roles_of(parts)
+    assert r.parts['R45'].subtype == 'shunt' and r.parts['U4'].subtype == 'battery_monitor'
+    assert r.nets['VC1'].role == 'analog' and r.nets['VC1'].subrole == 'cell_sense'
+    assert r.nets['SRP'].subrole == 'sense'
+
+
+def test_xtal_named_gpio_driving_an_led_is_not_a_clock_and_driver_enable_is_not_reset():
+    parts = [fp('U5', 'ESP32-C3-MINI-1', 'RF_Module:ESP32-C3-MINI-1', [('12', 'XTAL_32K_P', 'LED_RED', 'bidirectional'), ('3', '3V3', '+3V3', 'power_in'),
+                                                                        ('1', 'GND', 'GND', 'power_in')]),
+             R('R22', '1k', 'LED_A', 'LED_RED'), D('LED1', 'Red', 'GND', 'LED_A', lib='LED_SMD:LED_0603_1608Metric'),
+             IC('U2', 'DRV2603RUNT', 'Package_DFN_QFN:WQFN-10', [('1', 'EN', 'VIB_EN', 'input'), ('7', 'VDD', '+3V3', 'power_in'), ('5', 'GND', 'GND', 'power_in')]),
+             R('R5', '100k', 'VIB_EN', 'GND'), C('C1', '100nF', '+3V3', 'GND'), C('C2', '10uF', '+3V3', 'GND')]
+    nl, r = roles_of(parts)
+    assert r.nets['LED_RED'].role != 'clock'
+    assert r.nets['VIB_EN'].role != 'reset'
+    assert kind('X608', 'Display', 'zswatch:ER-CON0.4-24P', [(str(i), f'N{i}', 'VDD' if i == 3 else f'P{i}', 'passive') for i in range(1, 25)])[0] == 'connector'
+
+
+def test_battery_minus_net_tied_to_ground_is_a_power_ground_but_kelvin_lines_are_not():
+    """bms-c1: BAT- joins GND through a net tie (the star point); the pack's 47 uF sat on a 'signal' net."""
+    parts = [fp('NT1', 'NetTie', 'NetTie:NetTie-2_SMD_Pad0.5mm', [('1', 'BAT-', '1', 'passive'), ('2', 'GND', '2', 'passive')]),
+             fp('NT2', 'NetTie', 'NetTie:NetTie-2_SMD_Pad0.5mm', [('1', 'SENSE_N', '1', 'passive'), ('2', 'GND', '2', 'passive')]),
+             C('C1', '47uF', 'BAT+', 'BAT-', lib='Capacitor_SMD:C_1210_3225Metric'), C('C2', '100nF', '+3V3', 'GND'),
+             C('C3', '100nF', '+3V3', 'GND'), C('C4', '100nF', '+3V3', 'GND'),
+             IC('U1', 'INA180A1', 'Package_TO_SOT_SMD:SOT-23-5', [('3', 'IN+', 'SENSE_P', 'input'), ('4', 'IN-', 'SENSE_N', 'input'),
+                                                                 ('5', 'VS', '+3V3', 'power_in'), ('2', 'GND', 'GND', 'power_in')]),
+             fp('P1', 'BAT+', 'Connector:Wuerth_PowerOne', [('1', 'BAT+', '', 'passive')]),
+             fp('P2', 'BAT-', 'Connector:Wuerth_PowerOne', [('1', 'BAT-', '', 'passive')])]
+    nl, r = roles_of(parts)
+    assert r.nets['BAT-'].role == 'ground' and 'BAT-' in r.grounds and r.gnd == 'GND'
+    assert r.nets['SENSE_N'].role != 'ground'
+    assert ('C1', 'BAT-') in r.caps_to['BAT+']
+
+
+def test_pin_names_outvote_contradicting_library_types():
+    """Library types that contradict the pin name: EN and TXD typed as power pins, VIN typed input, an
+    instrumentation amplifier's VIN+ typed power_in."""
+    parts = [IC('U1', 'TPS62160', 'Package_SON:WSON-8', [('2', 'VIN', '+5V', 'input'), ('3', 'EN', 'BUCK_EN', 'power_in'),
+                                                        ('1', 'GND', 'GND', 'power_in'), ('6', 'VOS', '+3V3', 'input')]),
+             IC('U2', 'CH340C', 'Package_SO:SOIC-16', [('2', 'TXD', 'UART_TX', 'power_out'), ('3', 'RXD', 'UART_RX', 'power_in'),
+                                                      ('16', 'VCC', '+5V', 'power_in'), ('1', 'GND', 'GND', 'power_in')]),
+             IC('U3', 'INA226', 'Package_SO:VSSOP-10', [('10', 'VIN+', 'SHUNT_HI', 'power_in'), ('9', 'VIN-', 'SHUNT_LO', 'power_in'),
+                                                       ('6', 'VS', '+3V3', 'power_in'), ('7', 'GND', 'GND', 'power_in')]),
+             R('R1', '0.01', 'SHUNT_HI', 'SHUNT_LO', lib='Resistor_SMD:R_2512_6332Metric'),
+             R('R2', '100k', 'BUCK_EN', '+5V'), C('C1', '10uF', '+5V', 'GND', lib='Capacitor_SMD:C_0805_2012Metric'),
+             C('C2', '100nF', '+5V', 'GND'), C('C3', '100nF', '+3V3', 'GND'),
+             fp('J1', 'USB_B_Micro', 'Connector_USB:USB_Micro-B_Molex-105017-0001', [('1', '+5V', 'VBUS', 'power_out'), ('5', 'GND', 'GND', 'power_out')])]
+    nl, r = roles_of(parts)
+    sem = {(p.ref, p.fn): r.sem(p) for p in (x for part in nl.parts.values() for x in part.pins)}
+    assert sem[('U1', 'VIN')] == 'supply' and sem[('U1', 'EN')] == 'signal'
+    assert sem[('U2', 'TXD')] == 'signal' and sem[('U2', 'RXD')] == 'signal'
+    assert sem[('U3', 'VIN+')] == 'analog' and sem[('U3', 'VIN-')] == 'analog'
+    assert r.nets['BUCK_EN'].role != 'rail' and r.nets['UART_TX'].role != 'rail' and r.nets['UART_RX'].role != 'rail'
+    assert r.nets['SHUNT_HI'].role == 'analog'
+    assert r.nets['+5V'].role == 'rail' and r.nets['+5V'].attrs['source']['kind'] == 'connector'
+
+
+def test_module_supply_pins_on_a_breakout_header_and_prefixed_vdd_names():
+    """Held-out boards: sc14cvmdect's VDDPA/VDDE go straight to header pins (2-pin nets, no capacitor);
+    sdtv2csi's ADV7280 has every pin typed passive and an 'MVDD' supply."""
+    parts = [IC('U2', 'SC14CVMDECT', 'custom:SC14CVMDECT', [('25', 'VDDPA', 'Net-(J6-Pin_3)', 'power_in'), ('33', 'VDDE', 'Net-(J1-Pin_3)', 'bidirectional'),
+                                                          ('34', 'TDOD', 'Net-(J1-Pin_4)', 'bidirectional'), ('1', 'GND', 'GND', 'power_in')]),
+             fp('J6', 'Conn_01x18', 'Connector_PinHeader_2.54mm:PinHeader_1x18_P2.54mm_Vertical',
+                [('2', 'GND', 'Pin_2', 'passive'), ('3', 'Net-(J6-Pin_3)', 'Pin_3', 'passive')]),
+             fp('J1', 'Conn_01x08', 'Connector_PinHeader_2.54mm:PinHeader_1x08_P2.54mm_Vertical',
+                [('3', 'Net-(J1-Pin_3)', 'Pin_3', 'passive'), ('4', 'Net-(J1-Pin_4)', 'Pin_4', 'passive')]),
+             IC('U1', 'ADV7280A-M', 'Package_CSP:LFCSP-32-1EP_5x5mm_P0.5mm', [('13', 'MVDD', 'MVDD_1V8', 'passive'), ('21', 'AVDD', 'AVDD_1V8', 'passive'),
+                                                                           ('1', 'DGND', 'GND', 'passive'), ('33', 'EPAD', 'GND', 'passive')]),
+             C('C19', '10uF', 'MVDD_1V8', 'GND'), C('C24', '100nF', 'MVDD_1V8', 'GND'), C('C18', '10uF', 'AVDD_1V8', 'GND'),
+             C('C23', '100nF', 'AVDD_1V8', 'GND')]
+    nl, r = roles_of(parts)
+    for n in ('Net-(J6-Pin_3)', 'Net-(J1-Pin_3)'):
+        assert r.nets[n].role == 'rail' and r.rails[n].attrs['source']['kind'] == 'connector', n
+    assert r.nets['Net-(J1-Pin_4)'].role != 'rail'
+    mvdd = next(p for p in nl.parts['U1'].pins if p.fn == 'MVDD')
+    assert r.sem(mvdd) == 'supply'
+    from haslam.circuit.structures import find_structures
+    st = find_structures(nl, r)
+    assert {('U1', 'MVDD_1V8'), ('U1', 'AVDD_1V8')} <= {(d['ic'], d['rail']) for d in st['decaps']}
+
+
+def test_camera_fpc_pairs_are_mipi_and_crystal_terminals_are_no_pair():
+    """sdtv2csi: D0P/D0N to an RPi CSI FPC had no interface; XTALP/XTALN read as a differential pair."""
+    parts = [IC('U1', 'ADV7280A-M', 'Package_CSP:LFCSP-32-1EP_5x5mm_P0.5mm', [('9', 'D0P', 'D0P', 'passive'), ('10', 'D0N', 'D0N', 'passive'),
+                                                                           ('14', 'XTALP', 'XTALP', 'passive'), ('15', 'XTALN', 'XTALN', 'passive'),
+                                                                           ('2', 'DVDDIO', '+3V3', 'passive'), ('1', 'DGND', 'GND', 'passive')]),
+             fp('J2', 'RPI_CSI_TOP', 'Connector_FFC-FPC:TE_1-84953-5_1x15-1MP_P1.0mm_Horizontal',
+                [('13', 'D0P', 'D0P', 'passive'), ('14', 'D0N', 'D0N', 'passive'), ('1', '+3V3', '3V3', 'passive'), ('6', 'GND', 'GND', 'passive')]),
+             fp('Y1', '28.63636MHz', 'Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm', [('1', 'XTALP', '1', 'passive'), ('2', 'GND', '2', 'passive'),
+                                                                                ('3', 'XTALN', '3', 'passive'), ('4', 'GND', '4', 'passive')]),
+             C('C1', '100nF', '+3V3', 'GND'), C('C2', '10uF', '+3V3', 'GND')]
+    nl, r = roles_of(parts)
+    pairs = {(dp.p, dp.n): dp for dp in r.pairs}
+    assert pairs[('D0P', 'D0N')].interface == 'mipi'
+    assert not any('XTAL' in a for a, _ in pairs)
+
+
+def test_kicad_markup_in_pin_names_and_untyped_internal_regulator_pins():
+    """zswatch: 'V_{DD}', 'V_{SYS}', 'VBUS_{OUT}' hid the names from every rule once types were missing;
+    bms-c1: BQ76952 REG18 is an internal LDO output by name."""
+    from haslam.circuit.netlist import Pin
+    assert [Pin('U1', '1', 'N', f, '', False, 'smd').fn for f in ('V_{DD}', 'DO/IO_{1}', 'VBUS_{OUT}', '~{RESET}')] == \
+        ['VDD', 'DO/IO1', 'VBUS_OUT', 'RESET']
+    parts = [IC('U1', 'nPM1300-QEXX', 'Package_DFN_QFN:QFN-32', [('4', 'V_{DD}', 'VSYS', ''), ('20', 'V_{SYS}', 'VSYS', 'power_out'),
+                                                                ('9', 'VBUS_{OUT}', 'VBUSOUT', ''), ('33', 'GND', 'GND', '')]),
+             C('C1', '10uF', 'VSYS', 'GND'), C('C2', '1uF', 'VBUSOUT', 'GND'),
+             IC('U4', 'BQ76952', 'Package_QFP:TQFP-48_7x7mm_P0.5mm', [('24', 'REG18', 'REG18', ''), ('17', 'VSS', 'GND', '')]),
+             C('C20', '2.2uF', 'REG18', 'GND')]
+    nl, r = roles_of(parts)
+    sem = {(p.ref, p.number): r.sem(p) for part in nl.parts.values() for p in part.pins}
+    assert sem[('U1', '4')] == 'supply' and sem[('U1', '20')] == 'supply_out' and sem[('U1', '9')] == 'supply_out'
+    assert sem[('U4', '24')] == 'supply_out'
+    assert r.nets['REG18'].role == 'rail' and r.nets['VBUSOUT'].role == 'rail'
+
+
+def test_unannotated_pins_take_their_nets_meaning():
+    """A board never updated from a schematic has pads without names or types; an IC pad's net decides."""
+    from haslam.circuit.roles import _unannotated_pin_sem
+    assert _unannotated_pin_sem("GND") == "ground"
+    assert _unannotated_pin_sem("/power/GND") == "ground"
+    assert _unannotated_pin_sem("+3V3") == "supply"
+    assert _unannotated_pin_sem("VCC") == "supply"
+    assert _unannotated_pin_sem("3V3_EN") is None      # a control line, not a rail
+    assert _unannotated_pin_sem("SHIELD") is None      # chassis is not a ground pin
+    assert _unannotated_pin_sem("Net-(U1-Pad3)") is None
+
+
+# ------------------------------------------------------------------------------- brief fixes from the 213-board summary review
+def _volts(r, net):
+    return r.rails[net].attrs['volts']
+
+
+def test_battery_rail_voltage_comes_from_the_cell_charger_or_name():
+    rtc = IC('U1', 'PCF8523', 'Package_SO:SOIC-8', [('3', 'VBAT', 'VBAT', 'power_in'), ('4', 'VSS', 'GND', 'power_in'),
+                                                    ('8', 'VDD', '+3V3', 'power_in')])
+    coin = fp('B1', 'CR1220', 'Battery:BatteryHolder_Keystone_3000_1x12mm', [('1', 'VBAT', '+', 'passive'), ('2', 'GND', '-', 'passive')])
+    nl, r = roles_of([rtc, coin, C('C1', '100nF', 'VBAT', 'GND'), C('C2', '100nF', '+3V3', 'GND')])
+    vb = _volts(r, 'VBAT')
+    assert vb['value'] == 3.0 and vb['interval'] == [2.0, 3.3] and 'coin cell' in vb['relative_to']
+    # an RTC backup pin fed from the coin cell through a series diode
+    nl, r = roles_of([rtc, fp('BT1', 'CR2032', 'Battery:BatteryHolder_Keystone_103_1x20mm', [('1', 'CELL', '+', ''), ('2', 'GND', '-', '')]),
+                      D('D1', 'BAT54', 'VBAT', 'CELL'), C('C1', '100nF', 'VBAT', 'GND'), C('C2', '100nF', '+3V3', 'GND')])
+    assert _volts(r, 'VBAT')['value'] == 3.0
+    # a rechargeable LIR coin cell
+    nl, r = roles_of([rtc, fp('B1', 'LIR2032', 'Battery:BatteryHolder_Keystone_103_1x20mm', [('1', 'VBAT', '+', ''), ('2', 'GND', '-', '')]),
+                      C('C1', '100nF', 'VBAT', 'GND'), C('C2', '100nF', '+3V3', 'GND')])
+    assert _volts(r, 'VBAT')['value'] == 3.6
+    # a Li-ion charger on the rail settles one cell
+    chg = IC('U2', 'TP4056', 'Package_SO:SOIC-8', [('5', 'BAT', 'VBAT', 'power_out'), ('4', 'VCC', 'VBUS', 'power_in'), ('3', 'GND', 'GND', 'power_in')])
+    nl, r = roles_of([rtc, chg, C('C1', '10uF', 'VBAT', 'GND'), C('C2', '100nF', '+3V3', 'GND'), C('C3', '10uF', 'VBUS', 'GND')])
+    assert _volts(r, 'VBAT')['value'] == 3.7
+    pmic = IC('U2', 'AXP209', 'Package_DFN_QFN:QFN-48', [('38', 'BAT', 'VBAT', 'power_in'), ('4', 'ACIN', 'VBUS', 'power_in'),
+                                                        ('49', 'GND', 'GND', 'power_in')])
+    nl, r = roles_of([rtc, pmic, C('C1', '10uF', 'VBAT', 'GND'), C('C2', '100nF', '+3V3', 'GND'), C('C3', '10uF', 'VBUS', 'GND')])
+    assert _volts(r, 'VBAT')['value'] == 3.7
+    # a cell count in the name
+    esc = IC('U3', 'DRV8301', 'Package_QFP:HTQFP-56', [('1', 'PVDD', 'VBAT_4S', 'power_in'), ('2', 'GND', 'GND', 'power_in')])
+    nl, r = roles_of([esc, C('C1', '10uF', 'VBAT_4S', 'GND'), C('C2', '10uF', 'VBAT_4S', 'GND')])
+    assert _volts(r, 'VBAT_4S')['value'] == 14.8
+    # nothing says what the pack is: unknown, with a wide interval bounded by the capacitor rating
+    esc = IC('U3', 'DRV8301', 'Package_QFP:HTQFP-56', [('1', 'PVDD', 'VBAT', 'power_in'), ('2', 'GND', 'GND', 'power_in')])
+    nl, r = roles_of([esc, C('C1', '10uF 63V', 'VBAT', 'GND'), C('C2', '10uF 63V', 'VBAT', 'GND')])
+    vb = _volts(r, 'VBAT')
+    assert vb['value'] is None and vb['interval'] == [2.0, 63.0] and 'unknown' in vb['relative_to']
+
+
+def test_capacitor_rating_bounds_a_rail_but_does_not_state_its_voltage():
+    ic = IC('U1', 'ATTINY85-20SU', 'Package_SO:SOIC-8', [('8', 'VCC', 'VDDX', 'power_in'), ('4', 'GND', 'GND', 'power_in')])
+    nl, r = roles_of([ic, C('C1', '100nF 50V', 'VDDX', 'GND'), C('C2', '1uF 50V', 'VDDX', 'GND')])
+    vb = _volts(r, 'VDDX')
+    assert vb['value'] is None and vb['interval'][1] == 50.0 and vb['relative_to'].startswith('estimate')
+
+
+def test_net_names_that_state_a_voltage_beat_the_capacitor_bound():
+    ic = IC('U1', 'ATTINY85-20SU', 'Package_SO:SOIC-8', [('8', 'VCC', 'Net3V3_1', 'power_in'), ('4', 'GND', 'GND', 'power_in'),
+                                                          ('5', 'VDD', '+12', 'power_in')])
+    nl, r = roles_of([ic, C('C1', '100nF 6.3V', 'Net3V3_1', 'GND'), C('C2', '1uF 6.3V', 'Net3V3_1', 'GND'),
+                      C('C3', '1uF 25V', '+12', 'GND'), C('C4', '1uF 25V', '+12', 'GND')])
+    assert _volts(r, 'Net3V3_1')['value'] == 3.3 and _volts(r, '+12')['value'] == 12.0
+
+
+def test_regulator_vout_ignores_ranges_inputs_and_footprints():
+    from haslam.circuit.netlist import Netlist as NL
+    from haslam.circuit.roles import part_number_text
+    assert regulator_vout('TPSM5D1806RDBR Non-Isolated PoL Module DC DC Converter 1 Output 0.5 ~ 5.5V 12A 4.5V - 15V Input') is None
+    assert regulator_vout('RS-PRO_K7805M-1000R3')[0] == 5.0
+    assert regulator_vout('LM7812CT')[0] == 12.0 and regulator_vout('MC7905')[0] == -5.0
+    nl = NL.from_board(board([fp('U1', 'MCP1700', 'Package_TO_SOT_THT:TO-92_Inline_P2.54mm', [('1', 'GND', 'GND', '')])]))
+    assert regulator_vout(part_number_text(nl.parts["U1"])) is None        # the pitch is no output voltage
+
+
+def test_eagle_x_connectors_are_not_oscillators():
+    jack = kind('X5', '2.1mm', 'DCJACK_2MM_PTH', [('GND', 'GND', 'GND', 'power_in'), ('GNDBREAK', 'GND', 'GNDBREAK', 'power_in'),
+                                                  ('PWR', 'PWRIN', 'PWR', 'power_in')])
+    assert jack[0] == 'connector'
+    swd = kind('X2', '2x5 0.05" SWD', '2X05_1.27MM_BOX_POSTS', [(str(i), f'N{i}', '', '') for i in range(1, 11)])
+    assert swd[0] == 'connector'
+    # a real oscillator with an X prefix stays one
+    assert kind('X1', 'ASE-24MHz', 'Oscillator:Oscillator_SMD_Abracon_ASE-4Pin_3.2x2.5mm',
+                [('1', 'EN', 'EN', 'input'), ('2', 'GND', 'GND', 'power_in'), ('3', 'CLK', 'OUT', 'output'), ('4', 'V', 'VDD', 'power_in')])[0] == 'oscillator'
+
+
+def test_module_footprint_makes_a_regulator_module():
+    k, sub, _ = kind('U2', 'LM7805', 'CONV_OKI-78SR-5:1.5-W36-C', [('1', '+12V', 'VI', 'power_in'), ('2', 'GND', 'GND', 'power_in'),
+                                                                   ('3', '+5V', 'VO', 'power_out')])
+    assert (k, sub) == ('ic', 'regulator_module')
+
+
+def test_level_shifter_fets_on_a_rail_are_not_a_half_bridge():
+    """Unannotated BSS138 level shifters whose gates sit on a rail, next to a switching regulator's ground pin
+    (an imported board: no pin names, no footprint)."""
+    def q(ref, a, b, c):
+        return fp(ref, 'BSS138LT3G', '', [('1', a, '', ''), ('2', b, '', ''), ('3', c, '', '')])
+    reg = IC('U9', 'ETA3410D2I-T', '', [('1', '', 'GND', ''), ('7', '', 'VIN', ''), ('2', '', 'SWX', '')])
+    parts = [q('Q18', 'VDD_3V3_HDMI', 'DDC_SCL', 'DDC_SCL_CON'), q('Q21', 'VDD_3V3_HDMI', 'GND', 'N1'), reg,
+             C('C1', '100nF', 'VDD_3V3_HDMI', 'GND'), C('C2', '100nF', 'VDD_3V3_HDMI', 'GND'), C('C3', '10uF', 'VIN', 'GND')]
+    nl, r = roles_of(parts)
+    assert 'VDD_3V3_HDMI' not in r.switch_nodes
+
+
+def test_dac_and_class_ab_headphone_amp_have_no_bridge_outputs_but_class_d_does():
+    dac = IC('U1', 'PCM5102', 'Package_SO:TSSOP-20_4.4x6.5mm_P0.65mm', [
+        ('6', 'OUTL', 'OUT_L', 'output'), ('7', 'OUTR', 'OUT_R', 'output'), ('8', 'AVDD', 'AVDD', 'power_in'), ('9', 'AGND', 'GND', 'power_in'),
+        ('1', 'CPVDD', 'AVDD', 'passive'), ('2', 'CAPP', 'CAPP', 'passive'), ('4', 'CAPM', 'CAPM', 'passive')])
+    hp = IC('U4', 'TPA6132A2RTE', 'Package_DFN_QFN:WQFN-16-1EP_3x3mm_P0.5mm', [
+        ('5', 'OUTR', 'HP_R', 'output'), ('16', 'OUTL', 'HP_L', 'output'), ('14', 'VDD', 'AVDD', 'power_in'), ('10', 'PGND', 'GND', 'power_in')])
+    amp = IC('U5', 'MAX98357A', 'Package_DFN_QFN:QFN-16', [
+        ('9', 'OUTP', 'SPK_P', 'output'), ('10', 'OUTN', 'SPK_N', 'output'), ('7', 'VDD', 'VDD5', 'power_in'), ('3', 'GND', 'GND', 'power_in')])
+    parts = [dac, hp, amp, C('C1', '10uF', 'AVDD', 'GND'), C('C2', '1uF', 'CAPP', 'CAPM'), C('C3', '10uF', 'VDD5', 'GND')]
+    nl, r = roles_of(parts)
+    assert not {'OUT_L', 'OUT_R', 'HP_L', 'HP_R'} & set(r.switch_nodes)
+    assert r.switch_nodes['SPK_P']['kind'] == 'bridge_output'
+
+
+def test_signal_word_in_a_net_name():
+    from haslam.circuit.roles import signal_word
+    for s in ('PWRSTAT', 'PWRSTAT_5V', 'RI_5V', 'NETSTAT_5V', 'PWRKEY', 'PWRKEY_5V', 'RXD_5V', 'RESET_5V', '/sda_5v', 'SCL_3V3',
+              'CHG_STAT', 'PWR_EN', 'PWRON'):
+        assert signal_word(s), s
+    # supplies, including a block's supply led by a supply word
+    for s in ('+5V', 'VBAT', 'VBUS', '3V3', 'VCCIO', 'VCC_CLK', 'VDD_TX', '3V3_LED', 'USB_5V', 'PWR_IN', 'V_USB', '1.8V', 'VDD_IO'):
+        assert signal_word(s) is None, s
+
+
+def test_level_shifted_status_lines_are_not_rails():
+    """Adafruit FONA (an Eagle import without pin names or types): a 74VHCT125 between a GSM module's
+    status lines and the header. PWRSTAT, RI_5V, PWRSTAT_5V and the diode-isolated PWRKEY/PWRKEY_5V
+    pair are signals at a level, not supplies; VBAT (module supply, bulk caps) and VCCIO (the buffer's
+    supply from the header) stay rails."""
+    u = lambda ref, value, lib, nets: fp(ref, value, lib, [(str(i + 1), n, '', '') for i, n in enumerate(nets)])
+    parts = [u('IC1', '74VHCT125PW', 'TSSOP14', ['PWRSTAT', 'PWRSTAT_5V', 'RI', 'RI_5V', 'NETSTAT', 'NETSTAT_5V', 'GND', 'VCCIO']),
+             u('U1', 'SIM800H', 'SIM800H', ['VBAT', 'VBAT', 'GND', 'PWRSTAT', 'PWRKEY', 'RI', 'NETSTAT', '2.8V']),
+             u('JP1', 'HEADER', 'Connector_PinHeader_2.54mm:PinHeader_1x08',
+               ['VCCIO', 'PWRSTAT_5V', 'RI_5V', 'NETSTAT_5V', 'PWRKEY_5V', 'RXD_5V', 'VBAT', 'GND']),
+             D('D5', '1N4148', 'PWRKEY', 'PWRKEY_5V'), D('D4', '1N4148', 'UART_RXD', 'RXD_5V'),
+             R('R4', '10k', 'PWRSTAT_5V', 'GND'),
+             C('C5', '10pF', 'VBAT', 'GND'), C('C6', '33pF', 'VBAT', 'GND'), C('C7', '100uF', 'VBAT', 'GND'),
+             fp('SW1', 'KMR2', 'Button_Switch_SMD:SW_SPST_KMR2', [('1', 'GND', '', ''), ('2', 'PWRKEY', '', '')])]
+    nl, r = roles_of(parts)
+    for n in ('PWRSTAT', 'PWRSTAT_5V', 'RI_5V', 'NETSTAT_5V', 'PWRKEY', 'PWRKEY_5V', 'RXD_5V'):
+        assert n not in r.rails, (n, r.rails[n].evidence)
+    assert 'VBAT' in r.rails and 'VCCIO' in r.rails
+
+
+def test_a_block_supply_named_after_its_block_stays_a_rail():
+    parts = [IC('U1', 'CDCLVC1104', 'Package_SO:TSSOP-8', [('1', 'VDD', 'VCC_CLK', 'power_in'), ('2', 'GND', 'GND', 'power_in'),
+                                                          ('3', 'CLKIN', 'CLK_IN', 'input'), ('4', 'Y0', 'CLK0', 'output')]),
+             C('C1', '100nF', 'VCC_CLK', 'GND'), C('C2', '10uF', 'VCC_CLK', 'GND')]
+    nl, r = roles_of(parts)
+    assert 'VCC_CLK' in r.rails
+
+
+def test_negative_rail_voltage_intervals_contain_their_value():
+    """A Belief's interval holds its value (physics-core-v2-api Belief): intervals built from abs(v) gave
+    -12 V the interval [11.4, 12.6]."""
+    parts = [fp('J1', 'EuroPower', 'Connector_IDC:IDC-Header_2x05', [('1', '-12V_IN', '-12V', 'passive'), ('3', 'GND', 'GND', 'passive'),
+                                                                    ('9', '+12V_IN', '+12V', 'passive')]),
+             D('D1', '1N4001', '+12V', '+12V_IN'), D('D2', '1N4001', '-12V_IN', '-12V'),
+             C('C1', '22uF', '+12V', 'GND', lib='Capacitor_THT:CP_Radial_D5.0mm_P2.50mm'),
+             C('C2', '22uF', 'GND', '-12V', lib='Capacitor_THT:CP_Radial_D5.0mm_P2.50mm'),
+             IC('U1', 'LM2664', 'Package_TO_SOT_SMD:SOT-23-6', [('1', 'OUT', '-5V', 'power_out'), ('2', 'GND', 'GND', 'power_in')]),
+             C('C3', '10uF', '-5V', 'GND'),
+             IC('U2', 'LM7905', 'Package_TO_SOT_THT:TO-220-3_Vertical', [('1', 'GND', 'GND', 'power_in'), ('2', 'VI', '-12V', 'power_in'),
+                                                                        ('3', 'VO', 'VEE', 'power_out')]),
+             C('C4', '10uF', 'VEE', 'GND')]
+    nl, r = roles_of(parts)
+    assert r.nets['VEE'].attrs['volts']['value'] == -5.0        # from the regulator's part number
+    seen = 0
+    for n in ('-12V', '-12V_IN', '-5V', '+12V', 'VEE'):
+        vb = r.nets[n].attrs.get('volts') or {}
+        if vb.get('value') is None or not vb.get('interval'):
+            continue
+        lo, hi = vb['interval']
+        assert lo <= vb['value'] <= hi, (n, vb)
+        seen += vb['value'] < 0
+    assert seen >= 4
+
+
+# ------------------------------------------------------------------------------- net-role layering (docs/topics/llm/net-role-classification.md)
+def test_interface_keywords_are_anchored_and_sidebands_are_low_speed():
+    from haslam.circuit.roles import name_iface
+    for s in ('HDMI_HPD', 'CEC', 'DDC_SCL', 'PCIE_PERST', 'CLKREQ', 'PCIE_CLKREQ_N', 'CSI_EN', 'DSI_RESET', 'MIPI_PWDN', 'SFP_LOS',
+              'USB3_SBU1'):
+        assert name_iface(s)[1] == 'ls', s
+    for s in ('PLL_LOCKED', 'CASE_TEMP', 'PHRASE', 'PODT', 'LED_A1', 'ADDR0', 'ROM_A13', 'CLASS_TX', 'FEEDPWR'):
+        assert name_iface(s)[1] != 'gbps', s
+    assert name_iface('USB_DP') == ('usb2', 'hs') and name_iface('USB_DM') == ('usb2', 'hs')
+    for s, want in (('PCIE_TX0_P', 'pcie'), ('PETP0', 'pcie'), ('DDR_DQ0', 'ddr'), ('DQ5', 'ddr'), ('DDR_CKE', 'ddr'), ('RAS_N', 'ddr'),
+                    ('CKE0', 'ddr'), ('HDMI_D0_P', 'hdmi'), ('TMDS_CLK_N', 'hdmi'), ('CSI0_D1_P', 'mipi'), ('SSTX_P', 'usb3'),
+                    ('LPDDR4_DQS0_T', 'ddr')):
+        assert name_iface(s) == (want, 'gbps'), s
+
+
+def _soc_ddr_hdmi_pcie():
+    soc = IC('U1', 'SOC', 'Package_BGA:BGA-100', [
+        ('A1', 'DDR_DQ0', 'DDR_DQ0', 'bidirectional'), ('A2', 'HDMI_TX0_P', 'HDMI_D0_P', 'output'), ('A3', 'HDMI_TX0_N', 'HDMI_D0_N', 'output'),
+        ('A4', 'PCIE_TX0_P', 'PCIE_TX0_P', 'output'), ('A5', 'PCIE_TX0_N', 'PCIE_TX0_N', 'output'), ('A6', 'GPIO1', 'HDMI_HPD', 'bidirectional'),
+        ('A7', 'GPIO2', 'PLL_LOCKED', 'bidirectional'), ('A8', 'GPIO3', 'PCIE_PERST', 'bidirectional'), ('A9', 'GPIO4', 'ROM_A13', 'bidirectional'),
+        ('B1', 'VDD', '+1V8', 'power_in'), ('B2', 'VSS', 'GND', 'power_in')])
+    ram = IC('U2', 'MT41K256', 'Package_BGA:BGA-96', [('C1', 'DQ0', 'DDR_DQ0', 'bidirectional'), ('C2', 'VDD', '+1V8', 'power_in'),
+                                                      ('C3', 'VSS', 'GND', 'power_in')])
+    hdmi = fp('J1', 'HDMI_A', 'Connector_Video:HDMI_A_Molex_208658-1001_Horizontal',
+              [('1', 'HDMI_D0_P', 'D0+', 'passive'), ('3', 'HDMI_D0_N', 'D0-', 'passive'), ('19', 'HDMI_HPD', 'HPD', 'passive'),
+               ('2', 'GND', 'GND', 'passive')])
+    m2 = fp('J2', 'M.2', 'Connector_PCBEdge:BUS_PCIexpress_x1', [('1', 'PCIE_TX0_P', 'PETp0', 'passive'),
+                                                                    ('2', 'PCIE_TX0_N', 'PETn0', 'passive'),
+                                                                    ('3', 'PCIE_PERST', 'PERST#', 'passive'), ('4', 'GND', 'GND', 'passive')])
+    return [soc, ram, hdmi, m2, C('C1', '100nF', '+1V8', 'GND'), C('C2', '100nF', '+1V8', 'GND')]
+
+
+def test_gigabit_names_need_a_second_fact_and_sidebands_are_not_high_speed():
+    nl, r = roles_of(_soc_ddr_hdmi_pcie())
+    for n in ('HDMI_HPD', 'PLL_LOCKED', 'PCIE_PERST', 'ROM_A13'):
+        assert r.nets[n].role != 'high_speed', (n, r.nets[n])
+    for n in ('DDR_DQ0', 'HDMI_D0_P', 'HDMI_D0_N', 'PCIE_TX0_P', 'PCIE_TX0_N'):
+        assert r.nets[n].role == 'high_speed', (n, r.nets[n])
+    assert {(p.p, p.n, p.interface) for p in r.pairs} >= {('HDMI_D0_P', 'HDMI_D0_N', 'hdmi'), ('PCIE_TX0_P', 'PCIE_TX0_N', 'pcie')}
+
+
+def test_designer_net_classes_establish_roles_on_their_own():
+    """Explicit intent is the first layer: a Power, ground, high-speed or diff class sets the role without a name match."""
+    mcu = IC('U1', 'MCU', 'Package_QFP:LQFP-48', [('1', 'PA1', 'SIG_X', 'bidirectional'), ('4', 'VDD', '+3V3', 'power_in'),
+                                                 ('5', 'VSS', 'GND', 'power_in'), ('6', 'VSSA', 'RET', 'power_in')])
+    ldo = IC('U2', 'LT3045', 'Package_SON:DFN-10', [('1', 'IN', 'LINEAR_HS', 'power_in'), ('2', 'GND', 'GND', 'power_in'),
+                                                   ('3', 'OUT', '+3V3', 'power_out')])
+    conn = fp('J1', 'Conn_01x03', 'Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical',
+              [('1', 'LINEAR_HS', '', 'passive'), ('2', 'SIG_P', '', 'passive'), ('4', 'RET', '', 'passive')])
+    conn2 = fp('J2', 'Conn_01x01', 'Connector_PinHeader_2.54mm:PinHeader_1x01_P2.54mm_Vertical', [('1', 'SIG_N', '', 'passive')])
+    # the pair's members share no IC or connector and carry no interface word: the names alone do not make a pair,
+    # the class does
+    parts = [mcu, ldo, conn, conn2, C('C1', '10uF', '+3V3', 'GND'), C('C2', '100nF', '+3V3', 'GND'),
+             R('R1', '0', 'SIG_P', 'X1'), R('R2', '0', 'SIG_N', 'X2')]
+    classes = {'SIG_X': 'HighSpeed_90R', 'LINEAR_HS': 'Power', 'RET': 'GND', 'SIG_P': 'DIFF_100R', 'SIG_N': 'DIFF_100R'}
+    nl, r = roles_of(parts, netclasses=classes)
+    assert r.nets['SIG_X'].role == 'high_speed', r.nets['SIG_X']
+    assert r.nets['LINEAR_HS'].role == 'rail', r.nets['LINEAR_HS']
+    assert r.nets['RET'].role == 'ground', r.nets.get('RET')
+    assert any({p.p, p.n} == {'SIG_P', 'SIG_N'} and p.confidence > 0.9 for p in r.pairs)     # MODERATE class: 0.73
+    # without the classes the names alone decide, and none of these names makes those roles
+    nl, r = roles_of(parts)
+    assert r.nets['SIG_X'].role != 'high_speed' and r.nets['LINEAR_HS'].role != 'rail'
+    assert not any({p.p, p.n} == {'SIG_P', 'SIG_N'} for p in r.pairs)
+
+
+def test_a_mixed_power_and_ground_class_does_not_make_a_rail_a_ground():
+    parts = buck_board()
+    nl, r = roles_of(parts, netclasses={'+3V3': 'PWR_GND', '+12V': 'PWR_GND', 'GND': 'PWR_GND'})
+    assert r.nets['+3V3'].role == 'rail' and r.nets['GND'].role == 'ground'
+
+
+def test_an_analog_word_alone_or_with_a_control_suffix_is_not_analog():
+    mcu = IC('U1', 'MCU', 'Package_QFP:LQFP-48', [('1', 'PA1', 'TEMP_ALERT', 'bidirectional'), ('2', 'PA2', 'MIC_EN', 'output'),
+                                                 ('3', 'PA3', 'NTC_EN', 'output'), ('4', 'PA4', 'TEMP', 'bidirectional'),
+                                                 ('5', 'VDD', '+3V3', 'power_in'), ('6', 'VSS', 'GND', 'power_in'),
+                                                 ('7', 'PA5', 'ADC_VBAT', 'bidirectional')])
+    hdr = fp('J1', 'Conn_01x05', 'Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical',
+             [('1', 'TEMP_ALERT', '', 'passive'), ('2', 'MIC_EN', '', 'passive'), ('3', 'NTC_EN', '', 'passive'), ('4', 'TEMP', '', 'passive'),
+              ('5', 'GND', '', 'passive')])
+    parts = [mcu, hdr, C('C1', '100nF', '+3V3', 'GND'), C('C2', '10uF', '+3V3', 'GND'),
+             R('R1', '100k', '+3V3', 'ADC_VBAT'), C('C3', '100nF', 'ADC_VBAT', 'GND')]
+    nl, r = roles_of(parts)
+    for n in ('TEMP_ALERT', 'MIC_EN', 'NTC_EN', 'TEMP'):
+        assert r.nets[n].role != 'analog', (n, r.nets[n])
+    assert r.nets['ADC_VBAT'].role == 'analog'          # the name with its RC filter
+
+
+def test_zdiff_windows_match_the_interface_docs_they_cite():
+    """docs/topics/rules/interfaces/{usb3-usb4-typec,hdmi-dp,ddr,mipi}.md; vendor conflicts are listed in the basis."""
+    from haslam.circuit.roles import ZDIFF, ZDIFF_SRC
+    assert ZDIFF['usb3'] == (90.0, 76.5, 103.5)          # 90 ohm +-15% default; vendor windows do not intersect
+    assert ZDIFF['hdmi'] == (100.0, 90.0, 110.0)         # SLLA414A +-15% intersected with AM57xx 90-110
+    assert ZDIFF['ddr'] == (100.0, 95.0, 105.0)          # SPRABI1D 100 ohm +-5% on DQS and CK
+    assert ZDIFF['mipi'][1:] == (85.0, 100.0)            # Qualcomm 70-100 intersected with TI 85-115
+    for k, (z, lo, hi) in ZDIFF.items():
+        assert lo <= z <= hi and k in ZDIFF_SRC
+    assert 'Qualcomm' in ZDIFF_SRC['mipi'] and 'TI' in ZDIFF_SRC['mipi']
+    assert 'conflict' in ZDIFF_SRC['usb3'] and 'Microchip' in ZDIFF_SRC['usb3']
+
+
+def test_an_analog_name_decides_where_no_ic_pin_is_named():
+    """An unannotated board (KiCad 5, imports): its IC pins carry neither name nor type, so the pin layer is silent
+    and the designer's name decides; control suffixes and KiCad's generated names still do not count."""
+    mcu = IC('U1', 'AT91SAM3S', 'Package_QFP:LQFP-100', [('1', '', 'VREF', ''), ('2', '', 'STACK-CURRENT', ''),
+                                                          ('3', '', 'TEMP_ALERT', ''), ('4', '', '+3V3', ''), ('5', '', 'GND', ''),
+                                                          ('6', '', 'Net-(FB1-Pad2)', ''), ('7', '', 'ADC_CS', ''),
+                                                          ('8', '', 'UP5K_CSN', ''), ('9', '', 'PROG_B', ''), ('10', '', 'AUDIO_MUTE', ''),
+                                                          ('11', '', 'ADC_DRDY', '')])
+    hdr = fp('J1', 'Conn_01x02', 'Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical',
+             [('1', 'Net-(FB1-Pad1)', '', ''), ('2', 'GND', '', '')])
+    parts = [mcu, hdr, C('C1', '100nF', '+3V3', 'GND'), C('C2', '10uF', '+3V3', 'GND'), C('C3', '100nF', 'VREF', 'GND'),
+             R('R1', '10', 'STACK-CURRENT', 'GND'), R('R2', '10k', '+3V3', 'TEMP_ALERT'),
+             fp('J3', 'Conn_01x05', 'Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical',
+                [('1', 'ADC_CS', '', ''), ('2', 'UP5K_CSN', '', ''), ('3', 'PROG_B', '', ''), ('4', 'AUDIO_MUTE', '', ''), ('5', 'ADC_DRDY', '', '')]),
+             fp('FB1', 'FB', 'Inductor_SMD:L_0603_1608Metric', [('1', 'Net-(FB1-Pad1)', '', ''), ('2', 'Net-(FB1-Pad2)', '', '')]),
+             C('C10', '330nF', 'AUDIO_IN', 'Net-(C10-Pad2)', lib='Capacitor_THT:C_Rect_L7.2mm_W3.5mm_P5.00mm'),
+             fp('J2', 'AUDIO', 'Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical', [('1', 'AUDIO_IN', '', ''), ('2', 'GND', '', '')])]
+    nl, r = roles_of(parts)
+    for n in ('VREF', 'STACK-CURRENT', 'AUDIO_IN'):
+        assert r.nets[n].role == 'analog', (n, r.nets[n])
+        assert any('only layer' in e.fact for e in r.nets[n].evidence)
+    for n in ('TEMP_ALERT', 'Net-(FB1-Pad1)', 'Net-(FB1-Pad2)', 'ADC_CS', 'UP5K_CSN', 'PROG_B', 'AUDIO_MUTE', 'ADC_DRDY'):
+        assert r.nets[n].role != 'analog', (n, r.nets[n])
+
+
+def test_an_analog_name_on_a_named_logic_pin_still_needs_a_second_fact():
+    # IO35 of an ESP32-S3 has no ADC (ESP-IDF GPIO summary): the name is the only fact
+    mcu = IC('U1', 'ESP32-S3', 'RF_Module:ESP32-S3-WROOM-1', [('1', 'IO35', 'ADC_BAT', 'bidirectional'),
+                                                              ('2', '3V3', '+3V3', 'power_in'), ('3', 'GND', 'GND', 'power_in')])
+    nl, r = roles_of([mcu, C('C1', '100nF', '+3V3', 'GND'), C('C2', '10uF', '+3V3', 'GND'),
+                      fp('J1', 'Conn', 'Connector_PinHeader_2.54mm:PinHeader_1x01_P2.54mm_Vertical', [('1', 'ADC_BAT', '', '')])])
+    assert r.nets['ADC_BAT'].role != 'analog'
+
+
+def test_an_analog_name_on_an_mcu_adc_pin_is_analog():
+    """The vendor pin table is the second fact: ESP32-S3 IO18 is ADC2_CH7, ESP32 IO35 is ADC1_CH7, ATmega328P PC2 is ADC2.
+    The pin alone does not make a net analog (IO32 as I2C SDA), nor does a control suffix (ADC_EN)."""
+    s3 = IC('U1', 'ESP32-S3', 'RF_Module:ESP32-S3-WROOM-1', [('1', 'IO18', 'ADC_BAT', 'bidirectional'), ('4', 'IO1', 'BTN', 'bidirectional'),
+                                                             ('2', '3V3', '+3V3', 'power_in'), ('3', 'GND', 'GND', 'power_in')])
+    e32 = IC('U2', 'ESP32-WROOM-32', 'RF_Module:ESP32-WROOM-32', [('1', 'IO35', 'VBAT_SENSE', 'input'), ('5', 'IO32', 'I2C_SDA', 'bidirectional'),
+                                                                 ('6', 'IO33', 'ADC_EN', 'bidirectional'),
+                                                                 ('2', '3V3', '+3V3', 'power_in'), ('3', 'GND', 'GND', 'power_in')])
+    avr = IC('U3', 'ATmega328P-AU', 'Package_QFP:TQFP-32_7x7mm_P0.8mm', [('25', 'PC2', 'POT_WIPER', 'bidirectional'),
+                                                                        ('4', 'VCC', '+3V3', 'power_in'), ('5', 'GND', 'GND', 'power_in')])
+    hdr = fp('J1', 'Conn', 'Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical',
+             [('1', 'ADC_BAT', '', ''), ('2', 'VBAT_SENSE', '', ''), ('3', 'I2C_SDA', '', ''), ('4', 'ADC_EN', '', ''), ('5', 'POT_WIPER', '', ''),
+              ('6', 'BTN', '', '')])
+    nl, r = roles_of([s3, e32, avr, hdr, C('C1', '100nF', '+3V3', 'GND'), C('C2', '10uF', '+3V3', 'GND')])
+    for n, ch in (('ADC_BAT', 'ADC2_CH7'), ('VBAT_SENSE', 'ADC1_CH7'), ('POT_WIPER', 'ADC2')):
+        assert r.nets[n].role == 'analog', (n, r.nets[n])
+        assert any(e.kind == 'table' and ch in e.fact for e in r.nets[n].evidence), r.nets[n].evidence
+    for n in ('I2C_SDA', 'ADC_EN', 'BTN'):
+        assert r.nets[n].role != 'analog', (n, r.nets[n])
+
+
+def test_a_chargers_current_setting_pin_is_analog():
+    chg = IC('U4', 'LTC4054ES5-4.2', 'Package_TO_SOT_SMD:TSOT-23-5', [('1', 'CHRG', 'Net-(D2-K)', 'open_collector'),
+                                                                      ('2', 'GND', 'GND', 'power_in'), ('3', 'BAT', 'VBAT', 'power_out'),
+                                                                      ('4', 'VCC', 'VBUS', 'power_in'), ('5', 'PROG', 'Net-(U4-PROG)', 'bidirectional')])
+    nl, r = roles_of([chg, R('R4', '2k', 'Net-(U4-PROG)', 'GND'), C('C1', '1uF', 'VBUS', 'GND'), C('C2', '1uF', 'VBAT', 'GND')])
+    assert r.nets['Net-(U4-PROG)'].role == 'analog', r.nets['Net-(U4-PROG)']

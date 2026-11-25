@@ -5,7 +5,7 @@ Keys: Holodeck, MRR, PSDL, Brown PSDL, LayoutVLM, PSA, self-consistency filter, 
 
 **Results**
 1. Three generations: (1) LLM emits absolute coordinates (collisions); (2) LLM emits relational constraints, a solver places (Holodeck); (3) **LLM writes structured relative-placement code/relations and an LLM-free numeric repair stays close to that intent** (Brown PSDL; LayoutVLM +40.8 PSA).
-2. **Top PCB transplant: a "PCB-PSDL" imperative placement language** with LLM-free repair that keeps the program's intent (d_edit) (VP-corrected; design in [Use in kae](#use-in-kae)).
+2. **Top PCB transplant: a "PCB-PSDL" imperative placement language** with LLM-free repair that keeps the program's intent (d_edit) (VP-corrected; design in [Use in haslam](#use-in-haslam)).
 3. **Self-consistency filter** (LayoutVLM): keep only LLM relations already satisfied by its own rough poses.
 4. Avoid long chains of relative references (R3L drift) and global crossing-free geometry (PlanarBench) — anchor relations to a parent IC's pins or the board frame.
 5. A VLM asked to list **pros and cons before choosing** between two layouts is a cheap ranking judge (PSDL).
@@ -31,7 +31,7 @@ Keys: Holodeck, MRR, PSDL, Brown PSDL, LayoutVLM, PSA, self-consistency filter, 
 
 **Multi-agent critique precedents**: LLM participatory urban planning (planner + resident agents in a "fishbowl"; SOTA satisfaction on two Beijing regions) [S]; LayoutCopilot ([analog](analog-constraint-placement.md)).
 
-## Use in kae
+## Use in haslam
 - **PCB-PSDL** [I]: footprints expose `.min/.max/.center` (courtyard), `.facing` ∈ {0,90,180,270}, `.side`, pin handles (`U1.pin["VDD"]`); operators `set_frame(U1)`, `row(R1..R8, pitch=p)`, `ring(caps, around=U1, gap=g)` with shared variables; repair by greedy local search over constant rewrites (×(±4^Y)) and 90° direction rewrites, minimizing loss + d_edit(P, P₀) + d_OT; loss = courtyard overlap + outline protrusion + keep-out intrusion + hole/connector clearance + decap-to-pin + crystal loop; d_OT weighted by footprint area so ICs/connectors stay put; regenerate via LLM only on identity/semantic errors. PCBs are 4-orientation, matching PSDL's main limit.
 - Hybrid: ask for rough (x, y, θ) **and** relations, keep self-consistent relations, DIoU courtyard loss, projected GD into the outline, group-by-group with re-render [I].
 - Use frame-free or pin-anchored relations; detect PCB contradiction patterns (`edge(J1,W)` + `edge(J1,E)`, 12 caps "within 1 mm", part on both sides); declare unsat after k restarts; centroid no-overlap gradient + repel schedule in gradient placers [I].

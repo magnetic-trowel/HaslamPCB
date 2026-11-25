@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Can a cheap correction learned from exact solves remove the decision flips?
 (docs/topics/physics/exact-physics-options.md, designs f and h)
@@ -22,8 +22,8 @@ For each, the decision flips against PEEC among each part's candidates are recou
 ex_decision_flips.aggregate counts them (same materiality), next to fast and to the routed
 detour.
 
-Usage:  python tools/research/physics/ex_surrogate.py --flips kae-work/physics/exact-options/flips
-        [--out kae-work/physics/exact-options/surrogate]
+Usage:  python tools/research/physics/ex_surrogate.py --flips haslam-work/physics/exact-options/flips
+        [--out haslam-work/physics/exact-options/surrogate]
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / 'kae' / 'src'))
+sys.path.insert(0, str(ROOT / 'haslam' / 'src'))
 sys.path.insert(0, str(HERE))
 
 import numpy as np  # noqa: E402
@@ -71,12 +71,12 @@ def seg_rect_len(a, b, r):
 def features(bid, cands):
     """[(kind, part, row index, struct id, comp index, feature dict)] for one board."""
     import ex_exact as X
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
-    from kae.physics.place_terms import Terms
-    from kae.physics.structures import EsdComp, LoopComp, NearestLoopComp
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
+    from haslam.physics.place_terms import Terms
+    from haslam.physics.structures import EsdComp, LoopComp, NearestLoopComp
     from pt_grid_route import HopRouter
-    path = ROOT / 'kae-work-v2' / 'tasks' / bid / 'reference' / 'board.kicad_pcb'
+    path = ROOT / 'haslam-work-v2' / 'tasks' / bid / 'reference' / 'board.kicad_pcb'
     b = load(str(path))
     T = Terms(b, build(b))
     bv = T.bv
@@ -146,7 +146,7 @@ def features(bid, cands):
                                     nb += 1
                             f['blocked'] += blk
                             f['nblock'] += nb
-                            from kae.physics.kernels import lprime_hj
+                            from haslam.physics.kernels import lprime_hj
                             f['lp_blocked'] += lprime_hj(w, h if h != float('inf') else 1.6) * blk
                         out.append((ci, ri, sid, c_idx, f))
             finally:
@@ -174,8 +174,8 @@ def ridge(X, y, lam=1e-2):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('--flips', default=str(ROOT / 'kae-work' / 'physics' / 'exact-options' / 'flips'))
-    ap.add_argument('--out', default=str(ROOT / 'kae-work' / 'physics' / 'exact-options' / 'surrogate'))
+    ap.add_argument('--flips', default=str(ROOT / 'haslam-work' / 'physics' / 'exact-options' / 'flips'))
+    ap.add_argument('--out', default=str(ROOT / 'haslam-work' / 'physics' / 'exact-options' / 'surrogate'))
     a = ap.parse_args(argv)
     os.makedirs(a.out, exist_ok=True)
     import ex_decision_flips as D
@@ -219,7 +219,7 @@ def main(argv=None):
             for (ci, ri, sid, cj, f), p in zip(te, pr):
                 pred[b][(ci, ri, sid, cj)] = (f['fast'] * math.exp(p), f['fast'] * (1 + coef[0]) + coef[1] * f['lp_blocked'])
     # recount flips with the corrected component values
-    from kae.physics.place_terms import _red
+    from haslam.physics.place_terms import _red
     cnt = defaultdict(Counter)
     for b in boards:
         r = recs[b]

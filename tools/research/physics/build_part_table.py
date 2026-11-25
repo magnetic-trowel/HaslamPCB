@@ -1,11 +1,11 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""kae's part table (kae/src/kae/excite/parts.json) from the datasheet library (datasheet_prompt.md):
+"""haslam's part table (haslam/src/haslam/excite/parts.json) from the datasheet library (datasheet_prompt.md):
 for regulators, converters and power switches, the values the evaluator's cell model reads, each with
 its datasheet and page. Only values datasheet_check.py verified on their cited page are used; entries
 written by hand (without "from_library") are kept as they are.
 
-    python build_part_table.py [LIBRARY] [--table kae/src/kae/excite/parts.json]
+    python build_part_table.py [LIBRARY] [--table haslam/src/haslam/excite/parts.json]
 """
 import argparse
 import glob
@@ -14,7 +14,7 @@ import os
 import re
 import sys
 
-# library value name -> part table name (the names kae.excite.params reads)
+# library value name -> part table name (the names haslam.excite.params reads)
 FIELDS = {"f_sw_Hz": "f_sw_Hz", "R_on_high_ohm": "r_on_ohm", "R_ds_on_ohm": "r_on_ohm", "V_sw_max_V": "v_sw_max_V",
           "C_oss_F": "c_sw_F"}
 KINDS = ("switching_regulator", "charger", "mosfet", "driver", "load_switch")
@@ -32,7 +32,7 @@ def entry(f):
                 return None
     except re.error:
         return None
-    pat = re.sub(r"\$$", r"\\b", pat)       # kae matches "value lib_id": the value is not the whole text
+    pat = re.sub(r"\$$", r"\\b", pat)       # haslam matches "value lib_id": the value is not the whole text
     ds = f.get("datasheet") or {}
     data, cites = {}, []
     for k, name in FIELDS.items():
@@ -53,9 +53,9 @@ def entry(f):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("library", nargs="?", default=os.environ.get("KAE_DATASHEETS", "~/kae-datasheets"))
+    ap.add_argument("library", nargs="?", default=os.environ.get("HASLAM_DATASHEETS", "~/haslam-datasheets"))
     ap.add_argument("--table", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..",
-                                                   "kae", "src", "kae", "excite", "parts.json"))
+                                                   "haslam", "src", "haslam", "excite", "parts.json"))
     a = ap.parse_args(argv)
     lib = os.path.expanduser(a.library)
     table = json.load(open(a.table))

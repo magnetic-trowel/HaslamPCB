@@ -1,13 +1,13 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Upstream RipupMemory on oscillating boards: no gain
 
 Scope: A/B of Freerouting upstream `847e7dae3` cherry-picked onto the fork. Not here: a rebase onto 2.6.0 (ledger R12), the partial-board optimizer `c78ee54` (conflicts in the fork's optimizer; not ported or tested).
 Keys: RipupMemory, 847e7da, oscillation, board restore, STOP_AT_PASS_MODULO, ripupmemory-ab.
 
-**Status:** did not work; stays out of the fork. **First published:** 2026-11-09, branch `fr-settings-ab`. **Code:** fork branch `fr-ripupmemory` 061507e5d against 2e1125a. **Plan:** [PLAN](https://github.com/magnetic-trowel/kicad-auto-everything/blob/db2d2f5548e85ac4706ef0530dff5194f089f652/tools/kaeres/experiments/ripupmemory-ab/PLAN.md).
+**Status:** did not work; stays out of the fork. **First published:** 2026-11-09, branch `fr-settings-ab`. **Code:** fork branch `fr-ripupmemory` 061507e5d against 2e1125a. **Plan:** [PLAN](https://github.com/magnetic-trowel/HaslamPCB/blob/db2d2f5548e85ac4706ef0530dff5194f089f652/tools/haslamres/experiments/ripupmemory-ab/PLAN.md).
 
-**Branch:** `fr-settings-ab`, first commit [7f17a5d](https://github.com/magnetic-trowel/kicad-auto-everything/commit/7f17a5d35b7fb02f10ee06d6672c7c00cb7eaad9) (2026-11-09), last [db2d2f5](https://github.com/magnetic-trowel/kicad-auto-everything/commit/db2d2f5548e85ac4706ef0530dff5194f089f652) (2026-11-13). The code, plans and scripts named here are at [db2d2f5](https://github.com/magnetic-trowel/kicad-auto-everything/tree/db2d2f5548e85ac4706ef0530dff5194f089f652), not on main.
+**Branch:** `fr-settings-ab`, first commit [7f17a5d](https://github.com/magnetic-trowel/HaslamPCB/commit/7f17a5d35b7fb02f10ee06d6672c7c00cb7eaad9) (2026-11-09), last [db2d2f5](https://github.com/magnetic-trowel/HaslamPCB/commit/db2d2f5548e85ac4706ef0530dff5194f089f652) (2026-11-13). The code, plans and scripts named here are at [db2d2f5](https://github.com/magnetic-trowel/HaslamPCB/tree/db2d2f5548e85ac4706ef0530dff5194f089f652), not on main.
 
 ## Mechanism
 

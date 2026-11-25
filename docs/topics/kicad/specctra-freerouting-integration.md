@@ -40,14 +40,14 @@ Source: [specctra_import.cpp @10.0](https://gitlab.com/kicad/code/kicad/-/blob/1
 | `False == 0` let failed import/export report success | check strictly; on 10.0.7 also verify counts, connectivity, DRC after import and capture wx log warnings | same [P] |
 | Wrong Java runtime | read the required version from the JAR's class-file major version (2.4.x needs Java 25); Docker (`eclipse-temurin:<N>-jre`) or Podman fallback | [KMS 356be10](https://github.com/mixelpixx/KiCAD-MCP-Server/commit/356be10abf0acf209d961ca9505a9fa8c4ebe9c1) [P] |
 | Stale SES files | guard; stage artifacts in a temp dir | [KMS a7b4901](https://github.com/mixelpixx/KiCAD-MCP-Server/commit/a7b49012d11673785cafa4dba7f03b6dc4618aea) [P] |
-| Multi-threaded optimizer warns of clearance violations ([quote](../routing/freerouting.md#use-in-kae)) | `num_threads = 1`; KMS forces `-mt 1` in best-of-N | [POA pcb.py](https://github.com/ProductOfAmerica/mcp-server-kicad/blob/f5f82e02ffe17bbcba806fec35f3302ee332fefc/mcp_server_kicad/pcb.py) [P] |
+| Multi-threaded optimizer warns of clearance violations ([quote](../routing/freerouting.md#use-in-haslam)) | `num_threads = 1`; KMS forces `-mt 1` in best-of-N | [POA pcb.py](https://github.com/ProductOfAmerica/mcp-server-kicad/blob/f5f82e02ffe17bbcba806fec35f3302ee332fefc/mcp_server_kicad/pcb.py) [P] |
 | "On dense boards a single Freerouting run routinely leaves 1–7 nets unrouted" | best-of-N varying `--max-passes`; score = `nets_routed·1000 + segments`, +50,000 if all target nets route; "3 attempts is usually enough for 4-layer designs; 5–8 for stubborn cases" (ported from morningfire-pcb-automation, MIT) | [KMS CHANGELOG](https://github.com/mixelpixx/KiCAD-MCP-Server/blob/cbb59a6203997f5e916be7e0480d63fe5519134a/CHANGELOG.md) [P] |
 | Footprint-level keepouts ignored | promote to board level before export (POA) | POA pcb.py [P] |
 | Footprint text displaced after import | fix after import (POA) | same [P] |
 | Board-edge clearance missing in KiCad exports | `--router.copperToEdgeClearanceUm` (v2.3.0 workaround) | [releases](https://github.com/freerouting/freerouting/releases) [P] |
 
 ## Pitfalls seen in our benchmark (KiCad 10.0.7, Freerouting 2.5.0)
-Reproduced on corpus boards; `bench/src/kaebench/adapters.py` (`Freerouting`) handles each [P].
+Reproduced on corpus boards; `bench/src/haslambench/adapters.py` (`Freerouting`) handles each [P].
 | Pitfall | Fix |
 |---|---|
 | Bare net name with `\|` (e.g. `ADD\|SUB`) passes through DSN and Freerouting, then KiCad's SES import fails the whole session with no message | quote every bare `(net …)` name in the SES |
@@ -66,7 +66,7 @@ Expose one tool, `route_with_freerouting(board, nets_subset?, timeout)`, returni
 1. Lock every track and via to keep (critical nets, earlier routes) before export.
 2. Export DSN: SWIG helper on 10.x; `kicad-cli pcb export specctra` or IPC on 11.
 3. `POST /v1/autoroute` on a **local** server (auth disabled, `Freerouting-Environment-Host: KiCad/10.0`), or the CLI with `-da`. Hash-pinned binary, `-mt 1`, best-of-N.
-4. Strip or match the SES placement block; import SES into a candidate board; check item counts and connectivity. `ImportSpecctraSession` ends with `BOARD::BuildConnectivity`, which moves copper that touches a single pad onto that pad's net, kept pre-routes included; kae restores those nets and compares the session's wires and vias per net with what landed (`kae.route.bridge.import_session`; [kae-board-model](../../research/placement/kae-board-model.md#writing-boards)) [C].
+4. Strip or match the SES placement block; import SES into a candidate board; check item counts and connectivity. `ImportSpecctraSession` ends with `BOARD::BuildConnectivity`, which moves copper that touches a single pad onto that pad's net, kept pre-routes included; haslam restores those nets and compares the session's wires and vias per net with what landed (`haslam.route.bridge.import_session`; [haslam-board-model](../../research/placement/haslam-board-model.md#writing-boards)) [C].
 5. Refill zones (async on 10.0, poll), run `kicad-cli pcb drc`; put the post-import DRC delta in the score; diff KiCad DRC vs Freerouting drc.v1 to expose DSN translation losses (e.g. the edge-clearance gap).
 6. Return `normalized_score`, `optimizer_score`, unrouted count, compact DRC summary.
 

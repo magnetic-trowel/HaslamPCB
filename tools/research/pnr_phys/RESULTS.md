@@ -1,12 +1,12 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Physics score of the joint place-and-route runs (tag `phys`)
 
 ## How the scorer works
-`physics_score.py RUN_DIR...` runs in the `kae` venv (branch `claude/vigilant-mayer-i91rrr`,
-`KAE_KICAD_PYTHON=/usr/bin/python3`). Once per board it builds the netlist-only brief, which
+`physics_score.py RUN_DIR...` runs in the `haslam` venv (branch `claude/vigilant-mayer-i91rrr`,
+`HASLAM_KICAD_PYTHON=/usr/bin/python3`). Once per board it builds the netlist-only brief, which
 is identical from the reference or the input and is the one `pnr/physics.py` optimizes. It
-then builds `Terms(board, brief)` and caches both in `kae-work/phys-cache/<id>/`.
+then builds `Terms(board, brief)` and caches both in `haslam-work/phys-cache/<id>/`.
 
 The human reference and each run's `attempt-0` output are scored with that same brief:
 - **place**: `Terms.total` (confidence × φ(u), barrier above budget) and the robust
@@ -17,7 +17,7 @@ The human reference and each run's `attempt-0` output are scored with that same 
 
 Ratios are geometric means of (method + 0.01) / (human + 0.01). "Worse" means more than
 0.1 % above the human. Legal, clean and completion come from `attempt.json`. Results go to
-`kae-work/phys/<run>.json` and `table-v5.md`.
+`haslam-work/phys/<run>.json` and `table-v5.md`.
 
 ## Coverage
 - All 33 A+B boards are scored on both place and routed physics, with no per-board errors.
@@ -37,7 +37,7 @@ Ratios are geometric means of (method + 0.01) / (human + 0.01). "Worse" means mo
 | anneal | 9 / 4 / 0.89 | 19 / 0.87 | 4.28 | 1.57 (7/2) | 1.37 (n=9) | 1.54 (6/4) | 2.08 (5) |
 | anneal_phys | 8 / 4 / 0.89 | 19 / 0.88 | 1.68 | 1.29 (7/2) | 1.11 (n=8) | 1.33 (7/3) | 1.20 (5) |
 
-The other v5 runs are added to `kae-work/phys/table-v5.md` as they finish.
+The other v5 runs are added to `haslam-work/phys/table-v5.md` as they finish.
 
 ## What it says
 - **HPWL placements are physically worse than the human ones**:

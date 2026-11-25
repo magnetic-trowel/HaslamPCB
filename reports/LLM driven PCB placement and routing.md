@@ -88,7 +88,7 @@ Experiments run in the harness (pinned KiCad, re-opened saved files, no method s
 
 | # | Experiment | Baseline | Kill criterion |
 |---|---|---|---|
-| 0 | harness: PCBWorld D3 @5, Cypress protocol, placement-stripped D3 (kaebench built; D3 import and Cypress protocol to add) | published Freerouting 0.80/0.78, KRT 0.74/0.20; re-run Freerouting 2.5.0 pinned | no agent work until reproduced within [dev-eval-plan](../docs/topics/verification/dev-eval-plan.md) tolerance [I]; kaebench `cpk` = any-clean@k, never below PCBWorld best-potential CP@5 |
+| 0 | harness: PCBWorld D3 @5, Cypress protocol, placement-stripped D3 (haslambench built; D3 import and Cypress protocol to add) | published Freerouting 0.80/0.78, KRT 0.74/0.20; re-run Freerouting 2.5.0 pinned | no agent work until reproduced within [dev-eval-plan](../docs/topics/verification/dev-eval-plan.md) tolerance [I]; haslambench `cpk` = any-clean@k, never below PCBWorld best-potential CP@5 |
 | 1 | relational planner + engines on D3 with SI constraints | Freerouting alone; DeepPCB | Phase-1 exit (clean pass, SI PRC pass, tokens) |
 | 2 | P6 slot stage on/off | same placer without P6 | no clean-route gain [I] |
 | 3 | N7 on 30 converters, 5 checked with FastHenry/openEMS | EVM layout; generic placer with `loop_area` | worse nH than generic placer, or L_est disagrees with extraction [I] |

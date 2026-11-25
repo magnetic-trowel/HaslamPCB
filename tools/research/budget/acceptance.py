@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Acceptance test for counted-work budgets: the same command at two load levels must give the
 same board.
 
-Runs COMMAND twice with KAE_BUDGET=work, both pinned to the same CPUs: once alone, once while busy
+Runs COMMAND twice with HASLAM_BUDGET=work, both pinned to the same CPUs: once alone, once while busy
 loops share those CPUs (each busy loop takes about one CPU's worth of time, so the command gets
-roughly half the speed). The load stays inside the CPUs this job was given (run it through kaeq),
+roughly half the speed). The load stays inside the CPUs this job was given (run it through haslamq),
 so no other user's work is slowed. Compares the two outputs' placement (footprint reference,
 position, rotation, side) and copper (tracks, arcs, vias), and prints the wall times and the
 first differences.
 
-    acceptance.py --cpus 2 --hogs 2 --workdir W -- python -m kae.joint.cli run IN {out} --seed 0 --time 300
+    acceptance.py --cpus 2 --hogs 2 --workdir W -- python -m haslam.joint.cli run IN {out} --seed 0 --time 300
 
 `{out}` in COMMAND is replaced by each run's output board. Exit 0: identical; 1: different.
 
 With --shuffle BOARD the second run is not loaded but gets a copy of BOARD whose copper blocks are
 shuffled and re-UUIDed (shuffle.py); `{in}` in COMMAND is replaced by each run's input board:
 
-    acceptance.py --shuffle IN --workdir W -- python -m kae.route.cli route {in} {out} --time 120
+    acceptance.py --shuffle IN --workdir W -- python -m haslam.route.cli route {in} {out} --time 120
 """
 from __future__ import annotations
 
@@ -109,7 +109,7 @@ def main():
     cpus = set(mine[:a.cpus])
     wd = Path(a.workdir)
     wd.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, KAE_BUDGET="work", OMP_NUM_THREADS="1", KAE_WORKERS="1", PYTHONHASHSEED="0")
+    env = dict(os.environ, HASLAM_BUDGET="work", OMP_NUM_THREADS="1", HASLAM_WORKERS="1", PYTHONHASHSEED="0")
     res = {}
     inputs = {}
     second = "loaded"

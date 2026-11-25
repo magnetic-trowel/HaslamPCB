@@ -1,9 +1,9 @@
 # Physics place terms in the placement objective, and the physics scorer
 
 **Status:** worked (objective); the scorer is a working measurement tool.
-**First published:** 2026-10-24, commit [2a1c9c1](https://github.com/magnetic-trowel/kicad-auto-everything/commit/2a1c9c1f6213e7e289bea7e014c0e9b5c90b6328) on branch `claude/keen-wright-mlkjv6` (engine v5; scorer [6e5c658](https://github.com/magnetic-trowel/kicad-auto-everything/commit/6e5c658f0ea7c268fe8d44682160bf7a820b4d4b)).
+**First published:** 2026-10-24, commit [2a1c9c1](https://github.com/magnetic-trowel/HaslamPCB/commit/2a1c9c1f6213e7e289bea7e014c0e9b5c90b6328) on branch `claude/keen-wright-mlkjv6` (engine v5; scorer [6e5c658](https://github.com/magnetic-trowel/HaslamPCB/commit/6e5c658f0ea7c268fe8d44682160bf7a820b4d4b)).
 
-Scope: kae's fast physics terms added to every pnr placement objective (idea 43 of the [catalog](../../ideas/original/joint-pnr.md)), and the scorer that measures place and routed physics against the human layout. Not here: exact maps instead of `Terms.delta` sampling -> [jc-extensions.md](jc-extensions.md#exact-physics-maps-t2).
+Scope: haslam's fast physics terms added to every pnr placement objective (idea 43 of the [catalog](../../ideas/original/joint-pnr.md)), and the scorer that measures place and routed physics against the human layout. Not here: exact maps instead of `Terms.delta` sampling -> [jc-extensions.md](jc-extensions.md#exact-physics-maps-t2).
 Keys: physics place terms, `phys_w`, φ(u), capped-u, `Terms.delta`, `Phys`, `RoutedPhys`, `descent_phys`, `coarse_map`, seq_phys, anneal_phys, physics scorer, `physics_score.py`, routed physics, phys10, idea 43
 
 ## Idea and how it works
@@ -11,20 +11,20 @@ Keys: physics place terms, `phys_w`, φ(u), capped-u, `Terms.delta`, `Phys`, `Ro
 ### Physics in the objective (`pnr/physics.py`, `pnr/methods_phys.py`)
 
 Problem: HPWL placements are electrically worse than human ones (decaps far from the pin they serve, feedback nodes next to switch nodes).
-- `Phys` builds a netlist-only "brief" (decap loop, hot loop, crystal, cable entry, ESD path, coupled victim) and kae's `Terms` once per board; poses keyed by footprint uuid.
+- `Phys` builds a netlist-only "brief" (decap loop, hot loop, crystal, cable entry, ESD path, coupled victim) and haslam's `Terms` once per board; poses keyed by footprint uuid.
 - Move price: `Terms.delta(...)` in 30–60 µs. Terms = φ(u) per structure, u = metric / budget: decap loop inductance (nH), hot-loop inductance (nH), coupling (mV), crystal (ppm), thermal rise (K), cable common-mode, ESD path.
 - Objective = routability cost + `phys_w` · Δphysics, `phys_w` = 2 mm of copper per unit of φ.
 - `descent_phys`: best-response descent; physics parts use a coarse physics map over their legal origins (`coarse_map`), others the HPWL map.
 - `seq_phys` = HPWL placement (as `seq`) → `descent_phys` → route.
 - `anneal_phys` = annealing on routed cost + `phys_w` · physics; half the moves pick a physics part, a third of those jump to the part's best HPWL + physics spot.
 - `RoutedPhys`: full routed recheck (~1.5 s, KiCad subprocess) for stage gates in `combo_full` and `jc_full`; runs outside the CPU clock.
-- kae found via `KAE_SRC` (default `~/.cache/kaebench/kae-phys/src`, else `kae/src`).
+- haslam found via `HASLAM_SRC` (default `~/.cache/haslambench/haslam-phys/src`, else `haslam/src`).
 
 ### Physics scorer (`pnr_phys/physics_score.py`)
 
-`physics_score.py RUN_DIR...` (kae venv). Per board, once (cached): the brief (identical from reference board or task input) and `Terms(board, brief)`; then score the human reference and each attempt:
+`physics_score.py RUN_DIR...` (haslam venv). Per board, once (cached): the brief (identical from reference board or task input) and `Terms(board, brief)`; then score the human reference and each attempt:
 - **place:** `Terms.total` (confidence × φ(u), barrier above budget) and robust **capped-u** Σ min(u, 5);
-- **routed:** kae's `critical_recheck.board_physics` on the real copper, zones refilled by KiCad; unrouted hops priced as straight strips (optimistic), so a "no open hop" column is reported too.
+- **routed:** haslam's `critical_recheck.board_physics` on the real copper, zones refilled by KiCad; unrouted hops priced as straight strips (optimistic), so a "no open hop" column is reported too.
 - Ratio = geometric mean over boards of (method + 0.01) / (human + 0.01).
 - `xf_common/physics_score_xf.py` supersedes it for the xf rounds.
 
@@ -35,7 +35,7 @@ Problem: HPWL placements are electrically worse than human ones (decaps far from
 
 ## Results
 
-v5, phys10, 1 seed, ratio to human ([pnr_phys/RESULTS.md](../../../tools/research/pnr_phys/RESULTS.md), [15e1899](https://github.com/magnetic-trowel/kicad-auto-everything/commit/15e189903b958c1a77e5ca1aaae21ac526b38a25)):
+v5, phys10, 1 seed, ratio to human ([pnr_phys/RESULTS.md](../../../tools/research/pnr_phys/RESULTS.md), [15e1899](https://github.com/magnetic-trowel/HaslamPCB/commit/15e189903b958c1a77e5ca1aaae21ac526b38a25)):
 
 | run | clean / compl. (33 boards) | φ-total | capped-u (worse/better boards) | routed (worse/better) |
 |---|---|---|---|---|
@@ -75,7 +75,7 @@ Objective comparison, v5, ab33, seed 0: length + vias objective (`phys_w` = 0) v
 
 - In every pipeline the physics objective improves fast and routed physics; completion, length and vias equal within noise. Keep the physics term on by default [M].
 - 22-board length set (v5, seed 0; [collapse_joint/RESULTS.md](../../../tools/research/collapse_joint/RESULTS.md)): seq 3386 mm / 60 vias, seq_phys 3422 / 64, anneal_phys 3189 / 38, beam 3095 / 39, combo 2943 / 25.
-- Three scores on every run (`kae-work/score_all.sh`): DRC (legal, clean, completion, length, vias), fast physics × human, full routed physics × human.
+- Three scores on every run (`haslam-work/score_all.sh`): DRC (legal, clean, completion, length, vias), fast physics × human, full routed physics × human.
 
 v7, phys10, 3 seeds, mean ± half-range ([v7-baselines.md](../../../tools/research/pnr/results/v7-baselines.md)):
 
@@ -98,7 +98,7 @@ Scorer: only **10 of 33** boards have any physics structure (all terms 0 on the 
 ## Code
 
 - [`tools/research/pnr/physics.py`](../../../tools/research/pnr/physics.py) (`Phys`, `RoutedPhys`), [`methods_phys.py`](../../../tools/research/pnr/methods_phys.py) (`seq_phys`, `anneal_phys`, `grow_phys`, `descent_phys`).
-- Scorer: [`tools/research/pnr_phys/physics_score.py`](../../../tools/research/pnr_phys/physics_score.py), xf version [`xf_common/physics_score_xf.py`](../../../tools/research/xf_common/physics_score_xf.py). Needs kae (`KAE_SRC`).
+- Scorer: [`tools/research/pnr_phys/physics_score.py`](../../../tools/research/pnr_phys/physics_score.py), xf version [`xf_common/physics_score_xf.py`](../../../tools/research/xf_common/physics_score_xf.py). Needs haslam (`HASLAM_SRC`).
 
 ## Related
 

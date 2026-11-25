@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The combination the experiments point to (docs/topics/placement/joint-pnr-experiments.md):
 
@@ -7,7 +7,7 @@
               routed cost + physics (methods_phys.anneal_phys continuing from the board).
               Budget split 45/25/30 %. phys_w=0 gives the length + vias objective.
   combo_lv    combo with phys_w=0: routed length + vias only.
-  combo_full  combo with fast physics in the loop and full physics (kae's routed recheck
+  combo_full  combo with fast physics in the loop and full physics (haslam's routed recheck
               on the written board, physics.RoutedPhys) at stage gates: a stage whose result
               is worse on routed cost + full_w * routed physics is reverted, and annealing
               checkpoints are chosen by the same score.

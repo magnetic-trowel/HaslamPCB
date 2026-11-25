@@ -1,6 +1,6 @@
 # Intent interchange: how operating intent reaches the evaluator
 
-Scope: the file that carries operating intent (sources, loads, tolerances, bus speeds, requirements) to kae's functional evaluator: industry channels, what our corpus holds, 20 formats checked, the chosen annotated-SPICE testbench and the tool facts that shape it. Not here: evaluation semantics -> [functional-evaluation](../physics/functional-evaluation.md); code -> [functional-evaluator](functional-evaluator.md); geometric constraints -> [constraint-ir](constraint-ir.md); objective priorities -> [intent-driven-objectives](intent-driven-objectives.md).
+Scope: the file that carries operating intent (sources, loads, tolerances, bus speeds, requirements) to haslam's functional evaluator: industry channels, what our corpus holds, 20 formats checked, the chosen annotated-SPICE testbench and the tool facts that shape it. Not here: evaluation semantics -> [functional-evaluation](../physics/functional-evaluation.md); code -> [functional-evaluator](functional-evaluator.md); geometric constraints -> [constraint-ir](constraint-ir.md); objective priorities -> [intent-driven-objectives](intent-driven-objectives.md).
 Keys: operating intent, testbench, .tb.cir, annotated SPICE, `*@range`, `*@require`, `.meas`, ngspice 44.2, kicad-cli SPICE export, Sim.* fields, PDN Analyzer, PowerTree, PowerDC, HyperLynx DRC, ODB++ net_test_current, IPC-2581C, IBIS EMD, SDC, UPF, IEEE 1801, Zener, atopile, PolymorphicBlocks, SKiDL, tscircuit pcb-spice-pipeline, Modelica_Requirements, SysML v2, Verilog-A, OSDI, KiCad 5 schematics, SWIG removal, KiCad 11 IPC API
 
 Tags: [P] primary, [S] secondary (search summaries of vendor documentation), [V] vendor, [I] inference, [M] measured in this repo, [C] checked hands-on here.
@@ -36,7 +36,7 @@ None of the vendor-tool formats appears in our corpus.
 | `.kicad_dru` | 3% |
 | currents, frequencies, bus modes | essentially none |
 
-- Schematics fetched for 8,100 boards; pin types extracted for 6,748 ([pintypes.py](../../../tools/kaeres/pintypes.py)) [M].
+- Schematics fetched for 8,100 boards; pin types extracted for 6,748 ([pintypes.py](../../../tools/haslamres/pintypes.py)) [M].
 - Some boards (e.g. exports from other tools) carry no component values in the footprints; values then come from the schematic.
 
 ## Formats evaluated
@@ -58,7 +58,7 @@ Twenty formats, three research passes (2026-10-28), same criteria: connectivity 
 | KiCad netlist / schematic | binding, `Sim.*` models, text directives exported verbatim | conditions only as free text; a schematic is hard to write from scratch | importer; designer-facing store |
 | ODB++, IPC-2581C, EDIF, ReqIF, FMI, VHDL-AMS | various | no intervals or executable requirements | — |
 
-Keep the testbench format small: the annotations in [testbench.py](../../../kae/src/kae/sim/testbench.py); add atopile's requirement fields only when a test needs them.
+Keep the testbench format small: the annotations in [testbench.py](../../../haslam/src/haslam/sim/testbench.py); add atopile's requirement fields only when a test needs them.
 
 ## Testbench workflow
 
@@ -101,7 +101,7 @@ KiCad 11:
 
 ## Open questions
 
-- Part facts in KiCad fields (`kae.I_max` on a symbol) vs everything in the testbench: fields travel with the part; the testbench is easier to review in one place.
+- Part facts in KiCad fields (`haslam.I_max` on a symbol) vs everything in the testbench: fields travel with the part; the testbench is easier to review in one place.
 - May methods read the testbench? Servoing needs it; fairness requires every method gets the same file.
 
 ## Sources

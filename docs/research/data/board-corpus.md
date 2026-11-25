@@ -1,7 +1,7 @@
 # Wide open-board corpus
 
 **Status:** worked (data infrastructure).
-**First published:** 2026-10-21, commit [c03ad19](https://github.com/magnetic-trowel/kicad-auto-everything/commit/c03ad199c26ea51932bd798bc05d00d068d9dfb0) on branch `claude/compassionate-ramanujan-lo56ee`.
+**First published:** 2026-10-21, commit [c03ad19](https://github.com/magnetic-trowel/HaslamPCB/commit/c03ad199c26ea51932bd798bc05d00d068d9dfb0) on branch `claude/compassionate-ramanujan-lo56ee`.
 
 Scope: method and results of the second sourcing pass: 14,318 open-hardware boards from 8,757 repos, each pinned by commit or sha256, licence read, de-duplicated by content, loaded in KiCad 10.0.7 with stats and DRC; ≈17% DRC-clean as committed under their own rules. Not here: licence policy table and source sectors -> [wide-board-corpus](../../topics/data/wide-board-corpus.md); building and using the local folder -> [local-board-corpus](../../topics/data/local-board-corpus.md).
 Keys: board sourcing, sig.py, MinHash, LSH, Jaccard 0.75, union-find, near-duplicate, enrich.py, merge.py, load fixes, PYTHONHASHSEED
@@ -19,7 +19,7 @@ Four stages; agents do stage 1, scripts the rest ([tools/research/board-sourcing
    `probe.py`/`atcommit.py` list a repo's licence and board files at a pinned commit; `classify.py` assigns a licence family from licence + README text; each accepted row quotes its licence evidence.
 2. **Fingerprint and de-duplicate** (`sig.py`; [below](#near-duplicate-removal)).
 3. **Enrich** (`enrich.py`), per board: fetch at pinned commit; import non-KiCad formats; pcbnew stats (layers, footprints, nets, tracks, vias, zones, size); `kicad-cli pcb drc` as saved under its own `.kicad_pro`/`.kicad_dru`; if connections are missing, a second DRC after zone refill. DRC read through the benchmark's `tools.summarize_drc`. Heuristic tags (`2layer`/`4layer`/`6plus`, `drc-clean`, `unrouted`, `imported-eagle`, `bga`, `ddr`, `usb2`, `rf`, ...).
-4. **Merge** (`merge.py`): match results by (repo, commit, path); apply manual licence decisions; final sha256 dedup against mirrors and benchmark candidates; split off non-commercial rows; validate every row against the `kaebench.manifest` schema.
+4. **Merge** (`merge.py`): match results by (repo, commit, path); apply manual licence decisions; final sha256 dedup against mirrors and benchmark candidates; split off non-commercial rows; validate every row against the `haslambench.manifest` schema.
 
 `corpus.py` turns the manifests into one local folder, one directory per board (board, project rules, DRC report, manifest row); resumable; `--prune` drops ids no longer listed. Layout and manifest fields -> [local-board-corpus#layout](../../topics/data/local-board-corpus.md#layout); the `board.*` names match the harness layout, so harness helpers work on a corpus folder directly.
 
@@ -63,7 +63,7 @@ Reproducibility: a fresh build gives byte-identical native boards and DRC report
 
 ## Results
 
-Source: wide-corpus and local-corpus docs at [c03ad19](https://github.com/magnetic-trowel/kicad-auto-everything/commit/c03ad199c26ea51932bd798bc05d00d068d9dfb0) and [a6b4dc9](https://github.com/magnetic-trowel/kicad-auto-everything/commit/a6b4dc93623cb8a46c57f7aa783ee1b4a623f21a). KiCad 10.0.7.
+Source: wide-corpus and local-corpus docs at [c03ad19](https://github.com/magnetic-trowel/HaslamPCB/commit/c03ad199c26ea51932bd798bc05d00d068d9dfb0) and [a6b4dc9](https://github.com/magnetic-trowel/HaslamPCB/commit/a6b4dc93623cb8a46c57f7aa783ee1b4a623f21a). KiCad 10.0.7.
 
 | Quantity | Value |
 |---|---|
@@ -97,7 +97,7 @@ Known limits:
 ## Code
 
 - On main: [tools/research/board-sourcing](../../../tools/research/board-sourcing/README.md): `probe.py`, `atcommit.py`, `classify.py`, `kh_select.py`, `sig.py`, `enrich.py`, `merge.py`, `corpus.py`.
-- Also on main (merged from `claude/compassionate-ramanujan-lo56ee` on 2026-11-01): manifests (`bench/manifests/wide*.jsonl`, 13 MB); candidate and reject lists; fetch-time import and load repairs in `bench/src/kaebench/{fetch,boardfiles,manifest}.py`, commits [dfacba0](https://github.com/magnetic-trowel/kicad-auto-everything/commit/dfacba0be374f2effda2d70574022306e4a62153), [28f61e7](https://github.com/magnetic-trowel/kicad-auto-everything/commit/28f61e76d6be204e44a5a7031f15a9eda542a93b), [db6cd48](https://github.com/magnetic-trowel/kicad-auto-everything/commit/db6cd483f123121c1e5c9f3cb8657ee74fbd47cf), [390771e](https://github.com/magnetic-trowel/kicad-auto-everything/commit/390771e3d4240e8115f82135f762a72d25427527), [bc33b73](https://github.com/magnetic-trowel/kicad-auto-everything/commit/bc33b73c36ec13e26c7fa01a55b4b981e2a57868); `bench/scripts/build-corpus.sh` ([local-board-corpus](../../topics/data/local-board-corpus.md)).
+- Also on main (merged from `claude/compassionate-ramanujan-lo56ee` on 2026-11-01): manifests (`bench/manifests/wide*.jsonl`, 13 MB); candidate and reject lists; fetch-time import and load repairs in `bench/src/haslambench/{fetch,boardfiles,manifest}.py`, commits [dfacba0](https://github.com/magnetic-trowel/HaslamPCB/commit/dfacba0be374f2effda2d70574022306e4a62153), [28f61e7](https://github.com/magnetic-trowel/HaslamPCB/commit/28f61e76d6be204e44a5a7031f15a9eda542a93b), [db6cd48](https://github.com/magnetic-trowel/HaslamPCB/commit/db6cd483f123121c1e5c9f3cb8657ee74fbd47cf), [390771e](https://github.com/magnetic-trowel/HaslamPCB/commit/390771e3d4240e8115f82135f762a72d25427527), [bc33b73](https://github.com/magnetic-trowel/HaslamPCB/commit/bc33b73c36ec13e26c7fa01a55b4b981e2a57868); `bench/scripts/build-corpus.sh` ([local-board-corpus](../../topics/data/local-board-corpus.md)).
 - Run (see board-sourcing README): `sig.py` → `enrich.py` → `merge.py` → `corpus.py <out> --fetch-missing --drc --no-fetch-tag host-robots-restricted name=rows.jsonl@workdir ...`.
 
 ## Related

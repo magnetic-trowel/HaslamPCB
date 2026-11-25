@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Calibrate kae.budget.RATES: nominal seconds per unit of counted work, from runs on a quiet host.
+"""Calibrate haslam.budget.RATES: nominal seconds per unit of counted work, from runs on a quiet host.
 
-Run kae commands in time mode with KAE_BUDGET_PROFILE=1: at exit each prints a line
-`[kae.budget] {...}` with, per kind of work, the units counted and the wall seconds that passed
+Run haslam commands in time mode with HASLAM_BUDGET_PROFILE=1: at exit each prints a line
+`[haslam.budget] {...}` with, per kind of work, the units counted and the wall seconds that passed
 before those charges (each charge is attributed the time since the previous clock event). This
 script reads such logs and prints each kind's rate per board and the median over the boards, to
 paste into RATES.
@@ -22,8 +22,8 @@ from pathlib import Path
 
 def reports(path):
     for line in Path(path).read_text(errors="replace").splitlines():
-        if line.startswith("[kae.budget] "):
-            yield json.loads(line.split(" ", 2)[2] if line.startswith("[kae.budget]  ") else line[len("[kae.budget] "):])
+        if line.startswith("[haslam.budget] "):
+            yield json.loads(line.split(" ", 2)[2] if line.startswith("[haslam.budget]  ") else line[len("[haslam.budget] "):])
 
 
 def main(paths):

@@ -1,7 +1,7 @@
 # Physics engine design: data model, kernels, discretization, performance
 
-Scope: design of the `kae.physics` engine (not built): data model, kernels K1–K8 and their update rules, discretization, measured costs. Not here: types, API signatures, licence table, test matrix, build order E0–E5 -> [details](physics-engine-design-details.md); session server -> [system-design](system-design.md); milestones -> [build plan](system-design-build-plan.md).
-Keys: physics engine, `kae.physics`, epoch, EpochKey, design domain, board_rev, ModelScope, Belief, dirty region, piece, passport, extended graph, world conductor, regime cell, K1–K8, supernodal Cholesky, CHOLMOD, scikit-sparse, faer, SuperLU, `Factorization`, pivot-free LDLᵀ, boundary Schur complement, Kron reduction, window, G_W, Green block, Woodbury/Thevenin quote, edit spectrum λ, rank-k up/downdate, selected inversion, Takahashi, leverage, strip, sparse tile, P1 quadtree, Peaceman well, sandwich bracket, Prager–Synge, Beckmann bound, `kae-fast`, AMD, METIS
+Scope: design of the `haslam.physics` engine (not built): data model, kernels K1–K8 and their update rules, discretization, measured costs. Not here: types, API signatures, licence table, test matrix, build order E0–E5 -> [details](physics-engine-design-details.md); session server -> [system-design](system-design.md); milestones -> [build plan](system-design-build-plan.md).
+Keys: physics engine, `haslam.physics`, epoch, EpochKey, design domain, board_rev, ModelScope, Belief, dirty region, piece, passport, extended graph, world conductor, regime cell, K1–K8, supernodal Cholesky, CHOLMOD, scikit-sparse, faer, SuperLU, `Factorization`, pivot-free LDLᵀ, boundary Schur complement, Kron reduction, window, G_W, Green block, Woodbury/Thevenin quote, edit spectrum λ, rank-k up/downdate, selected inversion, Takahashi, leverage, strip, sparse tile, P1 quadtree, Peaceman well, sandwich bracket, Prager–Synge, Beckmann bound, `haslam-fast`, AMD, METIS
 
 Tags: [C] one core of a shared 4-core VM (load 1–7; ±30%), by [eng_board_scaling](../../../tools/research/physics/eng_board_scaling.py), [eng_window_schur](../../../tools/research/physics/eng_window_schur.py), [eng_compiled_cholesky](../../../tools/research/physics/eng_compiled_cholesky.py), [eng_discretization](../../../tools/research/physics/eng_discretization.py), on whole-board models (all nets, layers, vias) of BLDCM-Power (32 mm, 4 layers), bms-c1 (134 × 69 mm, 4 layers), linecard (184 × 92 mm, 6 layers); [I] inference; [S] secondary.
 
@@ -11,11 +11,11 @@ Tags: [C] one core of a shared 4-core VM (load 1–7; ±30%), by [eng_board_scal
 - Copper held as exact polygons, disposable discretizations and stable pieces, not a uniform raster (0.1 mm of a large suite board = 3–7M cells).
 - Optimizer workers get boundary Schur complements, not Green blocks; nothing is re-analysed within an epoch; commits are rank-k updates.
 - The build plan's targets hold with conditioning-relative identity tolerances, a compiled factorization from M1 and Schur windows; without Schur windows the 2 s refresh fails.
-- Benchmark numbers: [kae-exact-physics-before-routing](../../research/placement/kae-exact-physics-before-routing.md#engine-benchmarks).
+- Benchmark numbers: [haslam-exact-physics-before-routing](../../research/placement/haslam-exact-physics-before-routing.md#engine-benchmarks).
 
 ## Data model
 
-- **Snapshot:** immutable `kae.board` snapshot named by `board_rev` (content hash). Optimizer candidates = copy-on-write overlays (lists of `Edit`) on a base snapshot. A `Quote` or `Candidate` records `base_rev` and applies only there.
+- **Snapshot:** immutable `haslam.board` snapshot named by `board_rev` (content hash). Optimizer candidates = copy-on-write overlays (lists of `Edit`) on a base snapshot. A `Quote` or `Candidate` records `base_rev` and applies only there.
 - **Epoch key** = (topology hash, pattern hash).
   - Topology: K1 invariants per band (islands, holes, cycle rank, block–cut tree, return words, closures).
   - Pattern: each operator's sparsity pattern over the **design domain** (all copper that may exist in the current phase). Void cells carry zero admittance; isolated void nodes get an identity row.
@@ -31,7 +31,7 @@ Tags: [C] one core of a shared 4-core VM (load 1–7; ±30%), by [eng_board_scal
 
 - **Piece ids** anchor to KiCad uuids where an item exists, to the lattice for pours: an edit invalidates only touched tiles; rerouted tracks inherit ids by overlap. Elements carry piece ids, so passports aggregate exactly.
 - **Extended graph** (per band): nodes = copper islands, part terminals in band models (a capacitor above C_min(band) shorts), world conductors (chassis, cable, heatsink, enclosure; facts E5 until answered); C_ext edges from one electrostatic solve. A `ClosedLoopBudget` names a cycle of this graph, verified by K1. A regime cell per (structure, band) picks the representation.
-- **Belief:** every number is a `kae.units.Belief`; `relative_to` names a content-hashed `ModelScope`: operator, discretization (kind, cell range, refinement level), idealizations (quasi-static, t < δ, ε_r = 1 for C_ext, 20 °C copper), stackup, band, `board_rev`, epoch. Lineage lists kernel versions and input Beliefs, so K8 can correlate shared idealizations.
+- **Belief:** every number is a `haslam.units.Belief`; `relative_to` names a content-hashed `ModelScope`: operator, discretization (kind, cell range, refinement level), idealizations (quasi-static, t < δ, ε_r = 1 for C_ext, 20 °C copper), stackup, band, `board_rev`, epoch. Lineage lists kernel versions and input Beliefs, so K8 can correlate shared idealizations.
 
 ## Kernels K1–K8
 
@@ -109,14 +109,14 @@ Replace bounding-box rasters with sparse tiles and strips before fine-grid suite
 
 ## Performance
 
-Measured costs per board (build, factor, solve, window, Green block, rank-8 update), scaling, backends and build time: [engine benchmarks](../../research/placement/kae-exact-physics-before-routing.md#engine-benchmarks) [C]. Consequences:
+Measured costs per board (build, factor, solve, window, Green block, rank-8 update), scaling, backends and build time: [engine benchmarks](../../research/placement/haslam-exact-physics-before-routing.md#engine-benchmarks) [C]. Consequences:
 
 - **Backends:** faer (Rust, MIT) for refactorization; CHOLMOD for rank-k up/downdates.
 - **Incremental:** topology and morphology recompute only touched islands and tiles; passports lazy.
 - **Memory < 4 GB:** factors 0.2–0.4 GB per million nodes per band; windows 20 MB each; dense passports pieces × budgets × bands × 16 B (40 MB for 10k × 50 × 5); tiles ≈ 32 B per cell; dense right-hand sides capped at 256 MB (an uncapped 200-column block killed a 3M-node run at 10.7 GB [C]).
 - **Parallelism:** one actor per (operator, band, epoch), one worker per window, vectorized candidate batches, multi-RHS solves (48 cost 9–15 single solves in faer). Workers single-threaded for determinism; threads inside one factorization pay only above ≈ 2M nodes [I].
 - **GPU:** not for sparse factorization (≈ 1 s on one core at 1M nodes; NVIDIA cuDSS proprietary); it serves batched window algebra and candidate quotes, JAX placement kernels and surrogates, openEMS or Palace finalists ([solver-ladder](../physics/solver-ladder.md)).
-- **Compiled code by milestone.** M1: put CHOLMOD (scikit-sparse) behind the `Factorization` protocol; keep SuperLU as fallback and for complex bands until `kae-fast`; linear assembly; memory caps. M4 (with the router): `kae-fast` crate (PyO3) with faer, window quote kernel (≈ 1 µs per rank-1 quote [I]), scanline coverage rasterizer, selected inversion, pivot-free complex LDLᵀ.
+- **Compiled code by milestone.** M1: put CHOLMOD (scikit-sparse) behind the `Factorization` protocol; keep SuperLU as fallback and for complex bands until `haslam-fast`; linear assembly; memory caps. M4 (with the router): `haslam-fast` crate (PyO3) with faer, window quote kernel (≈ 1 µs per rank-1 quote [I]), scanline coverage rasterizer, selected inversion, pivot-free complex LDLᵀ.
 - **Licensing:** every shipped dependency is GPL-3.0-compatible → [licence table](physics-engine-design-details.md#licences).
 
 ## Open questions

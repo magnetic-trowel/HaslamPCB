@@ -20,7 +20,7 @@ Full output: [summary-final.md](summary-final.md).
 - **Placement study** (80 board × placement × pour-net rows):
   - `pour_score` follows the full Laplace R_eff at Spearman 0.48 in absolute terms, but only
     0.21 as a ratio to human.
-  - Full pour R_eff, as a ratio to human, follows kae routed physics at 0.65; `pour_score`
+  - Full pour R_eff, as a ratio to human, follows haslam routed physics at 0.65; `pour_score`
     follows it at 0.11.
   - combo's placements give better pours than the human ones (geometric mean R_eff 0.897
     over 15 boards). seq's give worse (1.088).
@@ -84,7 +84,7 @@ area. R = mean pad-pair resistance in squares; lower is better.
 Figures (not published: third-party boards; `summarize.py` regenerates them) were `fig/olimex-dcdc-50-5-12-dcdc-50-5-12-rev-a1_*_{iso3,fill4,iso_area}.png`.
 The kobold In1 4-rail split, xerxes In2 5-rail split, oasis, bentwire, pi5-pcie,
 caffeinated, libresolar and the fill runs are still in the tmux `pour` batch
-(`kae-work/pour/batch1.sh`). After it finishes, `python summarize.py` prints the full table.
+(`haslam-work/pour/batch1.sh`). After it finishes, `python summarize.py` prints the full table.
 
 What olimex shows so far:
 - With a single GND pour, the minimal partition has nothing to decide. Fill mode
@@ -113,7 +113,7 @@ same 105, and they are excluded. The reference `drc.json` (pre-refill) has none.
 When the pads of two rails interleave, the boundary has to be long, so minimal perimeter
 is the wrong objective.
 
-Fixes made, rerunning in `kae-work/pour/batch3.sh` with tags `iso_area2`/`fill2` and
+Fixes made, rerunning in `haslam-work/pour/batch3.sh` with tags `iso_area2`/`fill2` and
 `place2.json`:
 - (a) disconnected pairs count as zero conductance: `R_eff = 1/mean(1/R)`, plus the number
   of cut-off pads;
@@ -122,8 +122,8 @@ Fixes made, rerunning in `kae-work/pour/batch3.sh` with tags `iso_area2`/`fill2`
 - (d) the kernel is annealed from 4 mm.
 
 `summarize.py` builds the tables, including the placement-term correlations against full
-R_eff, the kae fast and routed physics, worst-rail mOhm, length and vias (all read from
-`kae-work/phys/*.json`).
+R_eff, the haslam fast and routed physics, worst-rail mOhm, length and vias (all read from
+`haslam-work/phys/*.json`).
 
 ## Verdict (provisional)
 **No merit as a pour objective on real boards.** Minimal partitions reproduce the soap-film
@@ -143,7 +143,7 @@ plane. Conductance-aware shapes need a pad-aware term rather than perimeter.
 
 `pour_place.py` runs the full Laplace metric and the cheap term on the human board and on
 the attempt-0 boards of pnr-seq-v5 and pnr-combo-v5, for all 17 A/B boards with zones
-(queued as tmux `pour2`, output to `kae-work/pour/place.json`). `summarize.py` then reports
+(queued as tmux `pour2`, output to `haslam-work/pour/place.json`). `summarize.py` then reports
 the Spearman correlation and the agreement in pairwise ranking. Pilot result
 (pcbcupid, GND):
 

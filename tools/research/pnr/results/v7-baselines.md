@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # v7 joint place-and-route baselines (PARTIAL)
 
@@ -12,10 +12,10 @@
 
 | Item | Value |
 |---|---|
-| Harness | kaebench score v7, task spec 6, `--kinds joint`: place and route in one output, scored by `score_joint_task` with kicad-cli; workdir `kae-v7/` (KiCad 10.0.7) |
+| Harness | haslambench score v7, task spec 6, `--kinds joint`: place and route in one output, scored by `score_joint_task` with kicad-cli; workdir `haslam-v7/` (KiCad 10.0.7) |
 | Engine | pnr **v6.3** (c78c537): v6 plus fixes 1, 2, 5, 6 and 7 of [v7-bugs.md](v7-bugs.md) |
 | Budget | 120 CPU-s (`placekit.Clock`), seeds 0–2 = attempts 0–2 (`-k 3`), timeout 1080 s wall; there were no timeouts and no failures |
-| Runner | `kae-v7/runj.sh SPEC NAME 120 kae-v7/ab33.txt 2 3`, sandboxed |
+| Runner | `haslam-v7/runj.sh SPEC NAME 120 haslam-v7/ab33.txt 2 3`, sandboxed |
 | Runs | `v7-seq-r3`, `v7-seq_phys-r3`, `v7-combo_lv-r3`, `v7-combo-r3`, `v7-jc_lv-r3` (partial), `v7-jc-r3` (partial), plus `v7-route-r3` (the human placement routed by the same router, route task, k = 1) |
 | Methods | `seq`; `methods_phys.py:seq_phys`; `methods_combo.py:combo_lv` / `combo`; `collapse_joint/jc.py:jc_lv` / `jc` (unmodified) |
 | Tables | `seeds.py` (DRC) and `phys_seeds.py` (physics); every value is the mean ± half-range over the 3 seeds |
@@ -68,7 +68,7 @@ Length and vias are summed over the 16 boards every arm completed on every seed.
 | combo | 0.869 ± 0.015 | 0.657 ± 0.045 | 0.925 ± 0.003 | 2994 ± 18 | 36.3 ± 3.0 |
 
 The table that swaps in the 5-board v6.4 re-runs is pending: `-r4cu` has not run. When it
-has, run `seeds.py --override v7-X-r3=kae-v7/results/v7-X-r4cu --override-ids kae-v7/cu5.txt`.
+has, run `seeds.py --override v7-X-r3=haslam-v7/results/v7-X-r4cu --override-ids haslam-v7/cu5.txt`.
 
 Reference: the human placement routed by the same router (`v7-route-r3`, route task, one
 deterministic run) is clean on 0.667 of the 33 boards (A 0.923, B 0.500), with completion 0.927.
@@ -86,7 +86,7 @@ Not legal on the 28 boards, all of them method or engine-model failures, not cra
 ## Physics vs human (10 physics boards; complete arms only)
 
 Each value is the method / human geometric mean; below 1 is better than human. "Fast" is the
-kae place-terms capped utilisation; "routed" is kae's routed recheck on the real copper.
+haslam place-terms capped utilisation; "routed" is haslam's routed recheck on the real copper.
 
 | Arm | Legal (of 10) | Clean | Place terms | Fast (capped u) | Routed | Routed, no open hop (n per seed) |
 |---|---|---|---|---|---|---|
@@ -133,6 +133,6 @@ physics (1.15 ± 0.04) and combo second (1.28 ± 0.09). combo is best on routed 
 - **Some failures come from an over-strict legality model.** The engine's model rejects the
   human placement on 13 of 33 boards (thermal-spoke corridors, mask apertures). Several
   "no legal spot" failures are this model's fault.
-- **CPU accounting.** `cpu_s` in kaebench reports is not usable for sandboxed methods. Budgets
+- **CPU accounting.** `cpu_s` in haslambench reports is not usable for sandboxed methods. Budgets
   are process CPU inside the method; wall time per attempt was 2–5× the budget under a
   machine load of about 15.

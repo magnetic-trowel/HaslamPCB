@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Exact incremental quotes for placement moves inside a module window
 (docs/topics/physics/exact-physics-options.md, design d).
@@ -39,7 +39,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / 'kae' / 'src'))
+sys.path.insert(0, str(ROOT / 'haslam' / 'src'))
 sys.path.insert(0, str(HERE))
 
 import numpy as np  # noqa: E402
@@ -61,10 +61,10 @@ def main(argv=None):
     ap.add_argument('--json', default=None)
     a = ap.parse_args(argv)
     from eng_board_scaling import build_operator, peak_mb
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
-    from kae.physics.place_terms import Terms
-    path = str(ROOT / 'kae-work-v2' / 'tasks' / a.board / 'reference' / 'board.kicad_pcb')
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
+    from haslam.physics.place_terms import Terms
+    path = str(ROOT / 'haslam-work-v2' / 'tasks' / a.board / 'reference' / 'board.kicad_pcb')
     res = dict(board=a.board, h=a.h)
     b = load(path)
     T = Terms(b, build(b))

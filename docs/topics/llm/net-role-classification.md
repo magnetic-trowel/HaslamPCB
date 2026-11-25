@@ -21,7 +21,7 @@ Rules [I]:
 
 ## Fast nets (built)
 
-`kae.circuit.edges` answers "is this net fast?" with the computation above, not with names.
+`haslam.circuit.edges` answers "is this net fast?" with the computation above, not with names.
 
 - **t_r** is the fastest driver on the net: an IC, module or oscillator pin typed output, bidirectional, tri-state or open-drain (untyped pins count). Each family row names its source and is marked `assumed`: it is a family default, not this part's datasheet or IBIS `[Ramp]`. Values are 10–90 %. Logic and FPGA rows are the family's fastest edge; MCU rows are the pin's reset default, since the netlist cannot show what slew firmware sets (user decision, 2026-11): the brief's `edge.slew` and every edge hazard's fix say that a pin set to a fast slew or higher drive needs review.
 
@@ -39,8 +39,8 @@ Rules [I]:
 
   Other parts have no row and their nets are not judged (`edge.t_r_ns: null`). Interfaces whose standards set edge and termination (USB, PCIe, SATA, HDMI, DP, MIPI, LVDS, SerDes, Ethernet MDI, DDR, CAN, RS-485) are left to their rule packs.
 - **t_pd**: microstrip √(0.475 εr + 0.67)/c (IPC-2141 fit), stripline √εr/c, εr from the stackup or 4.5. At εr 4.6, TI [SCAA082A](https://www.ti.com/lit/an/scaa082a/scaa082a.pdf) Table 2 gives 5.8–5.9 ps/mm microstrip and 7.15 ps/mm stripline [P]; the fit gives 5.65 and 7.15.
-- **Brief** (`nets[n].edge`): t_r, source, the review (t_r/6) and terminate (t_r/2) lengths. A plain `signal` net whose terminate length is shorter than the outline's w + h becomes `high_speed`/`fast_edge` (confidence 0.73): power copper keeps its victim gap from it, and placement weights it `fast_edge_weight` (1.5; `KAE_FAST_EDGE_WEIGHT`, 1 = off), a trade-off the place report records under `fast_edge`. Sprint A/B (12 boards × 2 seeds): 2.3 fewer nets per board over t_r/2 [−4.0, −1.0], fast nets 128 mm shorter [−267, −9], total HPWL +116 mm [−13, +249] (median +1.2 %), legality, probe opens and physics unchanged. An analog victim structure still outranks it.
-- **Hazards** on every board kae writes (`board_hazards.finish`): driver-to-farthest-load delay over t_r/2 is `edge_ringing_risk` (warn), over t_r/6 `edge_si_review` (info); routed copper where it reaches the load (Dijkstra on delay per layer), else a Manhattan estimate. The fix names a series resistor at the driver pin, a shorter route or a lower slew, per rule 5 of [si-fundamentals](../rules/si-fundamentals.md): never auto-insert terminations.
+- **Brief** (`nets[n].edge`): t_r, source, the review (t_r/6) and terminate (t_r/2) lengths. A plain `signal` net whose terminate length is shorter than the outline's w + h becomes `high_speed`/`fast_edge` (confidence 0.73): power copper keeps its victim gap from it, and placement weights it `fast_edge_weight` (1.5; `HASLAM_FAST_EDGE_WEIGHT`, 1 = off), a trade-off the place report records under `fast_edge`. Sprint A/B (12 boards × 2 seeds): 2.3 fewer nets per board over t_r/2 [−4.0, −1.0], fast nets 128 mm shorter [−267, −9], total HPWL +116 mm [−13, +249] (median +1.2 %), legality, probe opens and physics unchanged. An analog victim structure still outranks it.
+- **Hazards** on every board haslam writes (`board_hazards.finish`): driver-to-farthest-load delay over t_r/2 is `edge_ringing_risk` (warn), over t_r/6 `edge_si_review` (info); routed copper where it reaches the load (Dijkstra on delay per layer), else a Manhattan estimate. The fix names a series resistor at the driver pin, a shorter route or a lower slew, per rule 5 of [si-fundamentals](../rules/si-fundamentals.md): never auto-insert terminations.
 
 ## KiCad naming and class rules
 

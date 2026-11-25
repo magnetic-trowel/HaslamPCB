@@ -46,7 +46,7 @@ Keys: PCBAgent, ModuPlace, Li DAC'26, VeoPlace, MAGE, OmniLayout, hierarchy, con
 
 **Steerable representations** an LLM can author or read: weighted multi-term costs (Cypress JSON knobs + tuner, PA-ICM α/β/γ, Hier-RTLMP weights); declarative constraints (ALIGN JSON, HiePlace priorities/spacing/alignment); hierarchy and relative-position graphs (HMT/CCG, offset constraint graphs, NS-Place relative positions); region anchors/fences; orders/seeds; raster masks; conflict lists with features. A KiCad AI guide warns API moves skip courtyard checks — run DRC each pass ([pcbeditor.com](https://pcbeditor.com/kicad-ai) [S]).
 
-## Use in kae
+## Use in haslam
 - **Typed relation bundle as the LLM's only write API** (vocabulary incl. placement-side terms -> [relation vocabulary](../llm/interfaces-relations-vs-coordinates.md#relation-vocabulary)). Compile each soft relation twice (penalty + exact constraint) ([analog](analog-constraint-placement.md), [legalization](legalization.md)) [I].
 - **Hierarchy first**: KiCad sheets → netlist clusters → LLM names modules and sets side, region/edge, adjacency; RAG over datasheet layout sections; optional subgraph-matched reuse [I].
 - **LLM assigns sides** ([sides](sides-thermal-emc-reuse.md)); calibrate tight/close/loose mm per component class from human boards (e.g., PCBWorld D3) [I].

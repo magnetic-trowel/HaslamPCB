@@ -1,12 +1,12 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Margin gate: the auto margin on dense boards, capped per region (2026-11-16)
 
 Scope: the routing margin (`place_margin`) after margin-ab. Follows [pair swaps and margin](pair-swaps-margin-2611.md).
-Keys: place_margin, place_margin_gate, place_margin_regions, auto_margin, kae.place.margin_gate, margin-gate
+Keys: place_margin, place_margin_gate, place_margin_regions, auto_margin, haslam.place.margin_gate, margin-gate
 
 **Status:** experiment `margin-gate` registered and queued; no result yet. Plan, boards and decision rule:
-[PLAN.md](../../../tools/kaeres/experiments/margin-gate/PLAN.md). Branch `margin-gate`, not on main.
+[PLAN.md](../../../tools/haslamres/experiments/margin-gate/PLAN.md). Branch `margin-gate`, not on main.
 
 ## Mechanism
 The auto margin (`Problem.auto_margin`: 2 × (0.7 − utilization), 0..1 mm) grows every movable part's
@@ -16,7 +16,7 @@ early clean stops. It hurt one board through a cause density does not explain: d
 panel of sub-boards between cutouts with most parts locked, where the margin pushed movable parts across the
 cutouts.
 
-Two settings in `kae.place.margin_gate`, both off by default:
+Two settings in `haslam.place.margin_gate`, both off by default:
 - **Gate** (`place_margin_gate`): the margin only on boards with at least that many pads per cm² per copper
   layer. On margin-ab, 4 split the 13 boards that moved cleanly (6 helped above, 6 hurt below); fine pad gaps
   did not separate them.

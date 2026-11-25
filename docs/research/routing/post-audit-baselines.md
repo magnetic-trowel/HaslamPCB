@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors -->
+<!-- SPDX-FileCopyrightText: 2026 HaslamPCB contributors -->
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # Post-audit baselines (2026-11)
 
@@ -17,9 +17,9 @@ the "load-stable boards" filter assumed only large boards drift, but small ones 
 Commit 21bc53d gathers the audit's fixes (about 50: router, placer, board loader, physics inputs, harness and
 scoring), task spec 9 (place-fixed classifier rules 5: castellated edge pads and 4UCONN connectors are
 fixed) and score v9. Every place-fixed / joint-fixed result and every physics number made before is on
-another task spec or evaluator, hence these baselines. Recipe: `tools/kaeres/experiments/baseline-2611.sh`;
+another task spec or evaluator, hence these baselines. Recipe: `tools/haslamres/experiments/baseline-2611.sh`;
 experiment `baseline-2611b` (`baseline-2611` is superseded: its Freerouting method was pinned to a
-spec-8 harness, so its runs landed on the old task and were discarded; kaeres now refuses such a method).
+spec-8 harness, so its runs landed on the old task and were discarded; haslamres now refuses such a method).
 
 ## Results
 
@@ -33,22 +33,22 @@ not change:
 
 | method | boards | open connections | boards better / worse | clean | errors / board | physics median |
 |---|---|---|---|---|---|---|
-| kae staged (escape soft, then the default) | 194 | 754 → 719 (−4.6 %) | 26 / 16 | 64 → 66 | 26.6 → 26.5 | 3.00 → 2.60 |
-| kae bridge on the human placement | 196 | 299 → 288 (−3.7 %) | 9 / 8 | 57 → 57 | 26.8 → 26.7 | 3.00 → 3.00 |
+| haslam staged (escape soft, then the default) | 194 | 754 → 719 (−4.6 %) | 26 / 16 | 64 → 66 | 26.6 → 26.5 | 3.00 → 2.60 |
+| haslam bridge on the human placement | 196 | 299 → 288 (−3.7 %) | 9 / 8 | 57 → 57 | 26.8 → 26.7 | 3.00 → 3.00 |
 
-On all boards (load-confounded on the large ones): kae staged 3,793 → 3,582 open (−5.6 %), kae bridge
-4,603 → 4,127 (−10.3 %), Freerouting 8,642 → 7,722 (−10.6 %). kae joint loop final (no pre-audit run on
+On all boards (load-confounded on the large ones): haslam staged 3,793 → 3,582 open (−5.6 %), haslam bridge
+4,603 → 4,127 (−10.3 %), Freerouting 8,642 → 7,722 (−10.6 %). haslam joint loop final (no pre-audit run on
 these boards): 211 boards, 65 clean, 5,392 open.
 
-Physics is kae's module physics (Σu, lower is better), both sides measured by the fixed evaluator
-(4d02d001c80b; merge3-ab re-evaluated with `kaeres rephysics`).
+Physics is haslam's module physics (Σu, lower is better), both sides measured by the fixed evaluator
+(4d02d001c80b; merge3-ab re-evaluated with `haslamres rephysics`).
 
 ## Boards whose project ignores the unconnected check
 
 Score v8 (bae48db) counts unconnected items where a project sets the check to "ignore"; before, every
 output on such a board scored as fully routed. Experiment `fr-h1-rescore2`, the three qualified boards:
 
-| board | Freerouting 2.5.0 | kae bridge |
+| board | Freerouting 2.5.0 | haslam bridge |
 |---|---|---|
 | ttankbuster cyberwatch v1b | 29 of 85 open (was "0 of 0", clean) | 14 of 85 |
 | gamaphy freedom-rp2040 | 48 of 146 | 14 of 146 |
@@ -61,6 +61,6 @@ re-prepared.
 
 - Before and after ran in different weeks: within host-load drift (status line above).
 
-- kaeq froze jobs for memory before it gained its "timed" class (2026-11-03); 29 of 419 jobs here were
+- haslamq froze jobs for memory before it gained its "timed" class (2026-11-03); 29 of 419 jobs here were
   frozen, at most 1.7 min. None timed out.
 - One attempt per method: per-board differences on small boards are partly seed noise.

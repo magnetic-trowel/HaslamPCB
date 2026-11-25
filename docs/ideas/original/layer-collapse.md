@@ -68,7 +68,7 @@ A homotopy from the lifted state to the board, close to deterministic annealing.
 2. Obstructions: cut-capacity bounds over Delaunay edges and rings around dense parts give where and how many layers are needed (topology alone never needs more than 2).
 3. Assign: crossings/overlaps of lifted shapes → conflict graph; planar max-cut for 2 layers (exact when junction degree ≤ 3), annealing or ILP for L.
 4. Grow pours into each layer's remainder as a multi-phase minimal partition (MBO with area weights and Wulff anisotropy), cut only by short signal jumpers.
-5. Realize with the pnr router using the assignment as a layer prior; score with KiCad DRC and kae.physics.
+5. Realize with the pnr router using the assignment as a layer prior; score with KiCad DRC and haslam.physics.
 
 ## Experiments (tools/research/collapse_*)
 

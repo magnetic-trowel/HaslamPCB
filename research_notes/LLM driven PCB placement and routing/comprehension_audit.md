@@ -1,10 +1,10 @@
-# Comprehension stage audit: weak labels, manual audit and suite table (kae.circuit, 2026-10-22; follow-up 2026-10-23)
+# Comprehension stage audit: weak labels, manual audit and suite table (haslam.circuit, 2026-10-22; follow-up 2026-10-23)
 
-> **Method note.** `kae.circuit` reads a `.kicad_pcb` (names, values, footprints, lib ids, pin functions and types,
+> **Method note.** `haslam.circuit` reads a `.kicad_pcb` (names, values, footprints, lib ids, pin functions and types,
 > fields, net classes, zone nets, sheet names) and writes the physics brief; positions are never read. This note is
 > the raw evidence behind [comprehension](../../docs/topics/physics/comprehension.md).
 > - **Weak labels.** [`tools/research/physics/cm_comprehension_eval.py`](../../tools/research/physics/cm_comprehension_eval.py)
->   builds the brief for the 112 reference boards in `kae-work/tasks` (KiCad 10.0.7 suite), then reads the human
+>   builds the brief for the 112 reference boards in `haslam-work/tasks` (KiCad 10.0.7 suite), then reads the human
 >   placement to score it against random baselines. Run: `-j 2`, `OMP_NUM_THREADS=1`, about 40 s per pass.
 > - **Manual audit.** 10 dev boards were read part by part against the brief; rules were fixed where an error
 >   generalised (F), and residual errors kept (R). 3 held-out boards were audited after the code froze, errors

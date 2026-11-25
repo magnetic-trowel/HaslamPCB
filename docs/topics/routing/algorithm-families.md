@@ -65,7 +65,7 @@ Source: [RC § Q1](../../../research_notes/LLM%20driven%20PCB%20placement%20and%
 - Security-aware PCB routing (ISQED'26): sequence-first net prioritization, multilayer A*, RL test-point placement; 100% on evaluated boards [P-abs].
 - Polygon-partition MCTS router (DATE'23) and other learned routers → [ML/RL routing](ml-rl-routing.md).
 - Python building blocks: `pathfinding` 1.0.22 (MIT; A*, Dijkstra, no Theta*), rustworkx 0.18.1 (Apache-2.0), networkx 3.7 (BSD-3); no maintained Python-bound Theta*/any-angle router verified ([solver_toolbox.md § 5](../../../research_notes/LLM%20driven%20PCB%20placement%20and%20routing/solver_toolbox.md) [P]).
-- kae in-house router plan: Rust A*/PathFinder modelled on KRT (MIT), Freerouting as baseline/fallback → [recommended stack](../solvers/recommended-stack.md) [I].
+- haslam in-house router plan: Rust A*/PathFinder modelled on KRT (MIT), Freerouting as baseline/fallback → [recommended stack](../solvers/recommended-stack.md) [I].
 
 ## Open questions
 

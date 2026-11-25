@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Mechanical fixes for upstream .kicad_dru files that KiCad 10 rejects.
 
@@ -11,11 +11,11 @@ has no custom rules, which is what KiCad applied before the fix anyway).
 
 corpus.py applies FIXES when it copies a board. To fix an existing corpus in place:
 
-    python dru_fixes.py apply ~/kae-boards [--ids a,b] [--dry-run]
+    python dru_fixes.py apply ~/haslam-boards [--ids a,b] [--dry-run]
 
 Each fixed board's row.json (and its manifest.jsonl row) gets `dru_fix`: reason, edits,
 sha256 before and after. Its drc.json is deleted (it was made under the broken rules);
-re-run DRC with corpus.py --drc. kaeres puts `dru_fix` into the task recipe, so runs on
+re-run DRC with corpus.py --drc. haslamres puts `dru_fix` into the task recipe, so runs on
 a fixed board get a new task id and do not mix with runs made under the broken file.
 """
 import argparse

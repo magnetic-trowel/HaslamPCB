@@ -1,12 +1,12 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Multi-seed summary of joint runs (kaebench, harness score v7): mean and [min, max]
+"""Multi-seed summary of joint runs (haslambench, harness score v7): mean and [min, max]
 over seeds of legal, clean (cp), completion, and length / vias on the boards every run
 completed in that seed; cpk (clean on any seed); optional physics ratios parsed from
 physics_score.py markdown, one file per attempt.
 
-    python seeds.py RUN_DIR... [--seeds 3] [--suite kae-v7/ab33.txt]
-                    [--phys 'kae-v7/score/{run}-a{seed}.md']
+    python seeds.py RUN_DIR... [--seeds 3] [--suite haslam-v7/ab33.txt]
+                    [--phys 'haslam-v7/score/{run}-a{seed}.md']
 """
 import argparse
 import json

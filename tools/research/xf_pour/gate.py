@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Validation gate for the pour-damage maps (venv Python, env from xf_common/env.sh).
 
@@ -35,7 +35,7 @@ sys.path.insert(0, str(HERE))
 
 from pourmap import PourMaps  # noqa: E402
 
-XF_WORK = Path(os.environ.get("XF_WORK", ROOT / "kae-work2"))
+XF_WORK = Path(os.environ.get("XF_WORK", ROOT / "haslam-work2"))
 
 
 def load_world(bid, work):
@@ -43,7 +43,7 @@ def load_world(bid, work):
     inp = XF_WORK / "tasks" / bid / "reference" / "board.kicad_pcb"
     ext = Path(work) / f"{bid}.extract.json"
     if not ext.exists():
-        kpy = os.environ.get("KAE_KICAD_PYTHON", "/usr/bin/python3")
+        kpy = os.environ.get("HASLAM_KICAD_PYTHON", "/usr/bin/python3")
         r = subprocess.run([kpy, str(PNR / "kicad_io.py"), "extract", str(inp), str(ext)],
                            capture_output=True, text=True)
         if r.returncode:

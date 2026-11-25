@@ -27,7 +27,7 @@ Keys: LLM limits, coupled relations, RAC, relation bundle, ordinal magnitude, re
 - Net roles from layered evidence (intent → IBIS/datasheet → topology → names → LLM). → [classifier](../topics/llm/net-role-classification.md#layered-classifier)
 - Recipes are data: recognizer → constraints → per-constraint check; vendor conflicts are recorded. → [recipes](../topics/llm/function-to-recipe-mapping.md#recipe--recognizer--constraints--checks)
 - Staged, provenance-keeping extraction reaches 98.8% faithfulness vs 76.1% one-shot; naive PDF Q&A fails (GDP.pdf best 30.7%). → [pipelines](../topics/llm/datasheet-extraction.md#pipelines-and-reliability)
-- Our kaesynth typed IR builds clean schematics, but independent LLM review rated every design "not ready". → [kaesynth](../research/llm-design/kaesynth.md#results)
+- Our haslamsynth typed IR builds clean schematics, but independent LLM review rated every design "not ready". → [haslamsynth](../research/llm-design/haslamsynth.md#results)
 
 ## Data
 - Usable data is scarce: PCBench has no or unclear licence on 62.1% of per-board `metadata.json` files (54.3% by `master_metadata.json`); 33% of licensed routed human boards pass their own DRC; expect low thousands usable. → [PCBench](../topics/data/corpora-and-yield.md#pcbench-source-pool-of-pcbworld-d3), [yield](../topics/data/corpora-and-yield.md#supply-vs-usable-yield)

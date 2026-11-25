@@ -17,8 +17,8 @@ Tags: [P] primary, [V] vendor or self-report, [I] inference, [M] measured in thi
 | Item | State |
 |---|---|
 | Host | Shared benchmark host: 128 threads, 251 GB, 2 NUMA nodes, **shared**. Budget: ≤ 50 cores, ≤ 96 GB. `$HOME` is NFS, local NVMe has 356 GB free |
-| Toolchain | `kaebench doctor` passes: KiCad 10.0.7 (Apptainer image), Freerouting 2.5.0 |
-| Corpus | local board corpus `kae-boards` (never committed): 13,749 KiCad-10-loadable boards, 10,902 fully routed, 2,412 drc-clean (2-layer 2,028, 4-layer 332, 6+ 52; median 27 footprints, p90 111; 1,663 repos; 193 noncommercial, private evaluation only). The committed benchmark manifest has 297, of which 112 qualified ([harness](harness.md)) |
+| Toolchain | `haslambench doctor` passes: KiCad 10.0.7 (Apptainer image), Freerouting 2.5.0 |
+| Corpus | local board corpus `haslam-boards` (never committed): 13,749 KiCad-10-loadable boards, 10,902 fully routed, 2,412 drc-clean (2-layer 2,028, 4-layer 332, 6+ 52; median 27 footprints, p90 111; 1,663 repos; 193 noncommercial, private evaluation only). The committed benchmark manifest has 297, of which 112 qualified ([harness](harness.md)) |
 | Routing baseline | (Historical; the control is now the pinned fork, see bench/README.md.) Freerouting 2.5.0, k = 1, 600 s: A 0.62, B 0.35 with adapter fixes. C 0.04 with the **stock** adapter only; the fixed adapter has never run on C [M] |
 | Placement baseline | None run. The place track has defects (below) |
 
@@ -36,7 +36,7 @@ Verified in code unless marked.
 | H6 | Integrity covers only placement, pad nets and `(setup)` | `score.py`, `pcbnew_ops stats` | Layers, Edge.Cuts, zones, rule areas, pad geometry and local clearances can be changed without detection. Adapters can also read `tasks/<id>/reference/`. **Fixed in score v2:** rebuild-then-score, foreign-change detection, bwrap sandbox, red-team tests |
 | H7 | The placement probe inherits the attempt index and the placer's timeout | `runner._probe` | Placement variance is mixed with router effort |
 | H8 | Report bias | `report.py` | `_mean` skips boards with no output, so methods that time out look cleaner. `wl_ratio` and `via_delta` include incomplete boards. Place reports have no @1. **Paired report fixes it for A/Bs:** failures count, guardrails only on boards both arms routed clean, vias per connection |
-| H9 | Scoring DRC timeouts and OOMs count as method failures and are cached | `runner.py` | Shared-host load turns into method noise. **Paired report** sets `score_error` boards aside and lists them for `kaebench rescore`; no `--retry-infra` yet |
+| H9 | Scoring DRC timeouts and OOMs count as method failures and are cached | `runner.py` | Shared-host load turns into method noise. **Paired report** sets `score_error` boards aside and lists them for `haslambench rescore`; no `--retry-infra` yet |
 | H10 | Provenance gaps: git dirty state, Freerouting version, image digest, task-set hash, filters, `-j`, cgroup | `runner.py` | Runs can't be checked for comparability |
 | H11 | `hpwl_ratio` sums GND and power nets over pad centres | `pcbnew_ops stats` | Rewards over-packing. autolayout cut HPWL 21% and got about 2× the unconnected items [P] |
 | H12 | Severities come from each board's `.kicad_pro`; `courtyards_overlap` is downgraded on 12 boards, `missing_courtyard` ignored on 90 | `score.py` | "Legal" means different things on different boards. **Score v11:** `clean_strict`/`legal_strict` beside `clean`/`legal` ([harness](harness.md)); the body-overlap check is still open |
@@ -56,7 +56,7 @@ Doc correction: Freerouting's "92.4% of 979 boards" (2.6.0-RC4) covers tiers A+B
 | 0.5 | H3: use `--router.job_timeout` with a margin, keep the last SES, add `--router.result_json` | `adapters.py` | S |
 | 0.6 | H7: `--probe-passes` and `--probe-timeout`, always also probing the human placement | `runner.py`, `cli.py` | S |
 | 0.7 | H8–H10: infra vs method status, `--retry-infra`, CPU-seconds and peak RSS per attempt, full provenance in `run.json`; `report` refuses to mix incomparable runs | `runner.py`, `report.py`, `tools.py` | M |
-| 0.8 | Stats: `cp1_mean`, unbiased cp@k, per-type error diff, flipped-board list, exact McNemar, paired sign-flip and repo-clustered bootstrap (stdlib); new `kaebench compare`. **Built** in `stats.py` and as the paired section of `kaebench report` / `kaeres exp report` (on the boards both arms ran; `score_error` rows set aside; guardrails on boards both arms routed clean). Not yet: the A/A run (0.12), so the minimum claimable effect is unknown | new `stats.py`, `report.py` | M |
+| 0.8 | Stats: `cp1_mean`, unbiased cp@k, per-type error diff, flipped-board list, exact McNemar, paired sign-flip and repo-clustered bootstrap (stdlib); new `haslambench compare`. **Built** in `stats.py` and as the paired section of `haslambench report` / `haslamres exp report` (on the boards both arms ran; `score_error` rows set aside; guardrails on boards both arms routed clean). Not yet: the A/A run (0.12), so the minimum claimable effect is unknown | new `stats.py`, `report.py` | M |
 | 0.9 | **Done (22 cases).** V2 red-team suite: move part, delete keepout, grow outline, edit setup, shrink pad, zero pad clearance, swap net, add layer, bogus net, move locked part, delete footprint, shrink courtyard, add copper, own rules, read/write reference, network. Each is invalid, blocked or ineffective. Add a case per new cheat | `bench/tests/test_redteam.py` | M |
 | 0.10 | Resource control (see Compute) | `adapters.py`, `tools.py`, `runner.py`, `CLAUDE.local.md` | M |
 | 0.11 | Suites v1 from the 2,412 drc-clean boards: group by repo; seeded split stratified by split×layers×tier into `smoke` (12), `dev` (≈ 600, with a stratified `dev-200` for fast iteration), `val` (≈ 600) and `test` (≈ 1,200, sealed, reads logged in `bench/results/test-ledger.jsonl`). Commit ids only | `bench/scripts/make_splits.py`, `bench/suites/` | S |
@@ -70,7 +70,7 @@ Doc correction: Freerouting's "92.4% of 979 boards" (2.6.0-RC4) covers tiers A+B
 
 **Kill:** A/A above 5% after fixes means no comparisons until budgets are deterministic: pass counts, iterations and tokens rather than wall clock.
 
-*Divergence, kept:* every method is budgeted in wall seconds (`--timeout`, `--time`), because that is how an LLM commanding kae spends time, and kae's routers, Freerouting and restart portfolios have no common deterministic unit. In exchange each attempt records its CPU-seconds (`method_usage.cpu_s`; kaeres also records the job step's cgroup CPU), so a parallel arm is read against its CPU: the restart portfolio at P = 4 used 6,199 CPU s in a 1,186 s run on gamaphy-freedom-rp2040, about 5× a single-process arm. A CPU-matched control is a best-of-N of the baseline at the same CPU total. Until the launcher became a subreaper, rusage lost every sandboxed (`--command`) method's CPU, because bwrap exits without reaping its pid 1; those older rows read ~0.
+*Divergence, kept:* every method is budgeted in wall seconds (`--timeout`, `--time`), because that is how an LLM commanding haslam spends time, and haslam's routers, Freerouting and restart portfolios have no common deterministic unit. In exchange each attempt records its CPU-seconds (`method_usage.cpu_s`; haslamres also records the job step's cgroup CPU), so a parallel arm is read against its CPU: the restart portfolio at P = 4 used 6,199 CPU s in a 1,186 s run on gamaphy-freedom-rp2040, about 5× a single-process arm. A CPU-matched control is a best-of-N of the baseline at the same CPU total. Until the launcher became a subreaper, rusage lost every sandboxed (`--command`) method's CPU, because bwrap exits without reaping its pid 1; those older rows read ~0.
 
 ## Phase 1: baselines and diagnosis (weeks 3–4)
 
@@ -180,7 +180,7 @@ Levers under +5 pp of oracle headroom are dropped. Under +10 pp, they are not wo
 
 ## Sources
 
-- Harness code: [bench/src/kaebench/](../../../bench/src/kaebench/) (line references above, read 2026-10-21)
+- Harness code: [bench/src/haslambench/](../../../bench/src/haslambench/) (line references above, read 2026-10-21)
 - Freerouting: [settings.md](https://github.com/freerouting/freerouting/blob/master/docs/settings.md), [nightly benchmarks](https://github.com/freerouting/freerouting/blob/master/scripts/benchmark/results/benchmarks.md), [v2.5.0 release](https://github.com/freerouting/freerouting/releases/tag/v2.5.0)
 - KiCad 10 DRC: [drc_engine.cpp](https://gitlab.com/kicad/code/kicad/-/blob/10.0/pcbnew/drc/drc_engine.cpp), [advanced_config](https://docs.kicad.org/doxygen/advanced__config_8cpp.html)
 - fastroute: [repo](https://github.com/parisxmas/fastroute). KRT: [repo](https://github.com/drandyhaas/KiCadRoutingTools), [placement-optimization.md](https://github.com/drandyhaas/KiCadRoutingTools/blob/main/docs/placement-optimization.md). kicad-tools: [placement_score_calibration.md](https://github.com/rjwalters/kicad-tools/blob/main/docs/research/placement_score_calibration.md). autolayout: [ROADMAP](https://github.com/bwattendorf/autolayout/blob/main/ROADMAP.md)

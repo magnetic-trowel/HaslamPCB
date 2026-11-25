@@ -62,7 +62,7 @@ Average trace length slightly longer (21.6 vs 20.0 mm). Licence MIT, but links G
 - DQN escape on a 25×26 toy grid (SPIE'25) [S]; learned dual predictions warm-start ε-relaxation MCF, 1.64× faster (IC, [arXiv 2601.20203](https://arxiv.org/abs/2601.20203)) [P-abs].
 - Microfluidics/package analogues (PACOR, McDaniel, MCMF RDL, bump assignment) → [cross-domain routing](cross-domain-routing-transplants.md#other-physical-design-domains).
 
-## Escape in kae
+## Escape in haslam
 
 [I]
 - Escape is a solver call that may return "impossible": flow with correct diagonal capacity for single layer; MonoSAT (`-DGPL=OFF`) or CP-SAT/flow MILP (HiGHS/SCIP) for multi-layer with via-type choices and DP same-layer constraints; return a solution or a proof that N layers / this via technology is insufficient.

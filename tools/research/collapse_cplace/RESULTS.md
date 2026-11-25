@@ -42,7 +42,7 @@ seed 0), fv+ovf and x alone were both within noise of `combo`.
 | `pnr-combo_lv-v5` | 0.818 | 0.545 | 0.900 | 2998 | 32 |
 | `combo_collapse_lv` | 0.848 | 0.636 | 0.894 | 3004 | 37 |
 
-Physics, ratio to human on the 10 boards with structures (attempt 0; `kae-work/score/cplace-*.md`):
+Physics, ratio to human on the 10 boards with structures (attempt 0; `haslam-work/score/cplace-*.md`):
 
 | | combo | +coll. | combo_lv | +coll. | seq_phys | sc 0 | sc | seq | sc_lv 0 | sc_lv |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -84,6 +84,6 @@ Physics, ratio to human on the 10 boards with structures (attempt 0; `kae-work/s
 - For cheap routing-aware ranking, use `collapse_assign`'s lifted cost (Spearman 0.85
   against routed cost).
 
-Reproduce: `run_cplace.sh SPEC NAME 120 kae-work/ab33.txt 2 3 --opt w_fv=4 --opt w_x=1 --opt w_ovf=0`,
-`summarize.py`, `kae-work/score_all.sh`. Runs: `cplace-cc-fvx[-lv]-ab33`,
+Reproduce: `run_cplace.sh SPEC NAME 120 haslam-work/ab33.txt 2 3 --opt w_fv=4 --opt w_x=1 --opt w_ovf=0`,
+`summarize.py`, `haslam-work/score_all.sh`. Runs: `cplace-cc-fvx[-lv]-ab33`,
 `cplace-sc-{fvx,zero}[-lv]-ab33`, `cplace-cc-{fvovf,x}-dev11`.

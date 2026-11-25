@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Smallest end-to-end example: a USB-powered 3.3 V LDO driving an LED through a MOSFET."""
-from kaesynth import Design, Isolation, PinDef, Ratings, VLimit
-from kaesynth.lib import C, IC, LED, NMOS, PINMAP_SOT23_FET, R, Conn, Fuse
+from haslamsynth import Design, Isolation, PinDef, Ratings, VLimit
+from haslamsynth.lib import C, IC, LED, NMOS, PINMAP_SOT23_FET, R, Conn, Fuse
 
 
 def build():

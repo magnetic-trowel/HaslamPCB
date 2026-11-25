@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Harmonic-field routing inside joint collapse (idea 19 on top of
 tools/research/collapse_joint/jc.py; the continuation, restarts, legalization and polish

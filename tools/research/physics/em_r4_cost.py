@@ -1,7 +1,7 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Cost of one router refresh (kae.em.pnr.solve_fields) on one board state: the 10 MHz solve of every pattern
-against the whole-spectrum model of kae.em.spectral, built greedily (the first refresh) and recycled (later
+"""Cost of one router refresh (haslam.em.pnr.solve_fields) on one board state: the 10 MHz solve of every pattern
+against the whole-spectrum model of haslam.em.spectral, built greedily (the first refresh) and recycled (later
 refreshes: the same snapshot frequencies, solved one after another or concurrently).
 
     python em_r4_cost.py BOARD.kicad_pcb [--pitch 0.25] [--workers 1 4]
@@ -14,10 +14,10 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[2] / "kae" / "src"))
+sys.path.insert(0, str(HERE.parents[2] / "haslam" / "src"))
 
-from kae.em.pnr import PhysRouter  # noqa: E402
-from kae.em.spectral import Spectral  # noqa: E402
+from haslam.em.pnr import PhysRouter  # noqa: E402
+from haslam.em.spectral import Spectral  # noqa: E402
 
 
 def main(argv=None):

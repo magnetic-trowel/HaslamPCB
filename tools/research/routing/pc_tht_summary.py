@@ -1,12 +1,12 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Summarize the THT-neck A/B: finish (kae.route.cli finish) on route-finish-ab stage 2's arm A boards with
+"""Summarize the THT-neck A/B: finish (haslam.route.cli finish) on route-finish-ab stage 2's arm A boards with
 the base code and with power copper's THT neck, measured per board.
 
     python3 tools/research/routing/pc_tht_summary.py OUTDIR [--arms base,tht]
 
 OUTDIR/<board>/<arm>.finish.json (finish report), <arm>.ovd.json (overhang_diag), <arm>.stats.json (taut
-stats), phys/<arm>.status.json (kae.intent status). Prints a per-board table and totals: THT and SMD overhang
+stats), phys/<arm>.status.json (haslam.intent status). Prints a per-board table and totals: THT and SMD overhang
 mm^2, DRC errors/unconnected and the types that differ, entries kept/planned, loss.copper, the worst
 drop.rail, the hottest temp.junction, heat.track, and the THT hazards."""
 import json

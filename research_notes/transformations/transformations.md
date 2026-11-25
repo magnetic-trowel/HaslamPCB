@@ -8,7 +8,7 @@ algorithms, and has nobody applied them here yet?
 [layer-collapse](../../docs/ideas/original/layer-collapse.md),
 [analogs](../layer-collapse/analogs.md) (its findings are not repeated here),
 [joint-pnr-experiments](../../docs/topics/placement/joint-pnr-experiments.md),
-`tools/research/collapse_joint/jc.py`, and the `kae.physics` place-term sources.
+`tools/research/collapse_joint/jc.py`, and the `haslam.physics` place-term sources.
 
 **Tags.** [P] read in a primary source; [S] abstract or secondary source only;
 [U] unverified; [I] our own derivation; [N] numerical check run for this note (scripts
@@ -132,7 +132,7 @@ Each entry gives (a) the mapping, (b) the known result, (c) what breaks, (d) the
   - Two pads of the same part on the same net are double-counted (take the min).
 - **(d) Payoff.**
   - The lifted cost ranks placements by routed cost at ρ 0.85, against 0.51 for HPWL
-    ([collapse_assign](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/collapse_assign/RESULTS.md)). T1 brings that
+    ([collapse_assign](https://github.com/magnetic-trowel/HaslamPCB/blob/archive/research-prototypes-2611/tools/research/collapse_assign/RESULTS.md)). T1 brings that
     signal into every best response, priced at the current β.
   - It is the exact discrete version of the envelope-theorem pin tension, which failed as
     a *gradient* (`tension`, `grad`) and has not been tried as a *global argmin*.
@@ -150,7 +150,7 @@ Each entry gives (a) the mapping, (b) the known result, (c) what breaks, (d) the
   - **Thermal.** The victim-rise map for a moving victim is the temperature field of all
     other sources. The effect of a moving source on all victims is the correlation of the
     victim-weight map with G. Both are one screened-Poisson solve with Neumann edges,
-    which the DCT-II diagonalises. The DCT's even reflection *is* kae's adiabatic-image
+    which the DCT-II diagonalises. The DCT's even reflection *is* haslam's adiabatic-image
     lattice, with all rings included.
   - **Decap, ESD, CM, crystal.** Their dependence on the moving part's position is a
     closed form of a few distances: pour mode 0.2·d·ln(D²/r²), or a hop length. These
@@ -166,7 +166,7 @@ Each entry gives (a) the mapping, (b) the known result, (c) what breaks, (d) the
     blurring as convolution (Ziabari et al. [S]); ePlace's FFT Poisson density
     (Lu et al. 2015 [S]).
   - Our check [N]: on a 40 × 60 mm board at 0.1 mm, the DCT solve matches the K0
-    image sum to 3·10⁻⁴ relative (r > 1 mm) and takes 12 ms. kae's rings = 1 is already
+    image sum to 3·10⁻⁴ relative (r > 1 mm) and takes 12 ms. haslam's rings = 1 is already
     converged; rings = 0 errs by 0.85%.
 - **(c) What breaks.**
   - Uniform G_s is assumed; real copper varies. Then use the DCT solve as a
@@ -183,7 +183,7 @@ Each entry gives (a) the mapping, (b) the known result, (c) what breaks, (d) the
   equal `Terms.delta` at sample points, then run jc on the 10 physics boards.
 - **(f) Novelty.**
   - Thermal: low (done for ICs).
-  - The set of all kae terms as maps feeding a whole-board argmin: we found no
+  - The set of all haslam terms as maps feeding a whole-board argmin: we found no
     precedent [U].
 
 ### T3. Routed coupling as an additive edge cost (vector-potential transform)
@@ -210,7 +210,7 @@ Each entry gives (a) the mapping, (b) the known result, (c) what breaks, (d) the
   - Attacks the gap where fast physics predicts routed physics only at Spearman 0.55. The
     router itself would minimise routed coupling.
   - jc_full gains most from routed physics (0.80×), which suggests the leverage is there.
-- **(e) Test.** For nets marked victim in kae's brief, add w·|A·dl| to the router cost on
+- **(e) Test.** For nets marked victim in haslam's brief, add w·|A·dl| to the router cost on
   the 10 physics boards. Score with `RoutedPhys`.
 - **(f) Novelty.** Moderate. The field-convolution form inside a PCB maze router has no
   precedent we found.
@@ -285,7 +285,7 @@ Each entry gives (a) the mapping, (b) the known result, (c) what breaks, (d) the
 - **(d) Payoff.**
   - jc uses 70% more vias than combo on large boards.
   - Its conflicts are mostly corridor sharing
-    ([collapse_assign](https://github.com/magnetic-trowel/kicad-auto-everything/blob/archive/research-prototypes-2611/tools/research/collapse_assign/RESULTS.md)).
+    ([collapse_assign](https://github.com/magnetic-trowel/HaslamPCB/blob/archive/research-prototypes-2611/tools/research/collapse_assign/RESULTS.md)).
   - Class alternatives could replace via hops.
 - **(e) Test.** For the conflict cells with the highest jc history, enumerate 2–4 classes
   per involved net and pick a combination by local search. Count vias and clean.
@@ -437,7 +437,7 @@ already reached.
 - **Controls.** jc (same seed and restarts), jc with tension_w = 0.
 - **Runs.**
   - dev6 at 120 CPU-s, seeds 0–2, then ab33 seeds 0–2, using
-    `kae-work/runext.sh … xf_minplus-ab33-v1 120 kae-work/ab33.txt 1`.
+    `haslam-work/runext.sh … xf_minplus-ab33-v1 120 haslam-work/ab33.txt 1`.
   - Compare with `jcollapse-jc-ab33-v3` using `pnr/compare.py`.
 - **Metrics.** Legal, clean, completion, length, vias; fast and routed physics on the 10
   boards; time per iteration.
@@ -456,7 +456,7 @@ already reached.
   1. For each structure touching a part, classify its dependence:
      - analytic-distance (decap pour mode, ESD, CM window, crystal length): vectorised
        numpy over the grid;
-     - thermal: DCT solves with kae's G_s and λ;
+     - thermal: DCT solves with haslam's G_s and λ;
      - coupling: FFT correlation of the part-internal current rasters plus exact
        evaluation of the hop segments on a 2 mm-step grid near the part (far field by a
        dipole).
@@ -495,7 +495,7 @@ already reached.
 - **Success.** Pour resistance ≤ 0.9× jc and routed physics lower, with completion
   within 0.01.
 - **Kill.** No routed-physics change, which would mean pours are not on the critical
-  path of kae's routed recheck.
+  path of haslam's routed recheck.
 
 ## 6. Notes on the brief's examples
 

@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Census of KiCad DRC violations in a kaebench run, by type, rule source and size of the miss.
+"""Census of KiCad DRC violations in a haslambench run, by type, rule source and size of the miss.
 
 Reads every attempt's score/drc.json under a run directory and groups the violations so that
 translation faults (a constraint the router never saw) separate from routing faults:

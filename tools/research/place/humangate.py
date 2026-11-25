@@ -1,18 +1,18 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Gate: kae.place's exact check must not flag the human placement where KiCad does not.
+"""Gate: haslam.place's exact check must not flag the human placement where KiCad does not.
 
 For every task of a split, the reference board (human poses) is read into a placement
-Problem and checked by kae.place.exact with every part in scope. Each finding type is
+Problem and checked by haslam.place.exact with every part in scope. Each finding type is
 compared with KiCad's DRC report of the same reference board (reference/drc.json, made by
-kaebench prepare): a type kae reports where KiCad has no error of that type is a false
+haslambench prepare): a type haslam reports where KiCad has no error of that type is a false
 positive of the model (it would make the placer avoid spots KiCad allows, or call a legal
 board illegal). pad_outside is compared with the pads the reference record lists outside;
-kae-only types with no KiCad counterpart (over_cutout, kicad_feedback) are reported apart.
+haslam-only types with no KiCad counterpart (over_cutout, kicad_feedback) are reported apart.
 Where the project makes silkscreen an error, the placer's soft silk check (silk_overlap,
 silk_over_copper on KiCad's glyph outlines) is gated the same way.
 
-    python tools/research/place/humangate.py --tasks kae-work-v3/tasks --split C [--ids a,b] [--out FILE]
+    python tools/research/place/humangate.py --tasks haslam-work-v3/tasks --split C [--ids a,b] [--out FILE]
 
 Exit status 1 when any task has a false positive.
 """
@@ -30,13 +30,13 @@ KICAD_TYPES = {"courtyards_overlap", "clearance", "hole_clearance", "hole_to_hol
 
 
 def check_task(tdir):
-    from kae.board.kicad_file import load
-    from kae.place.exact import ExactModel, refine_silk_text, silk_on
-    from kae.place.problem import Problem
-    from kae.place.state import State
+    from haslam.board.kicad_file import load
+    from haslam.place.exact import ExactModel, refine_silk_text, silk_on
+    from haslam.place.problem import Problem
+    from haslam.place.state import State
     t = json.loads((tdir / "task.json").read_text())
     ref = load(tdir / "reference" / "board.kicad_pcb")
-    # the gate compares with KiCad's DRC under the project's own severities: the same in kae
+    # the gate compares with KiCad's DRC under the project's own severities: the same in haslam
     P = Problem.build(ref, severity="board")
     P.set_margin(0.0)
     st = State(P)
@@ -81,7 +81,7 @@ def check_task(tdir):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--tasks", default="kae-work-v3/tasks")
+    ap.add_argument("--tasks", default="haslam-work-v3/tasks")
     ap.add_argument("--split", default="C")
     ap.add_argument("--ids")
     ap.add_argument("--out")

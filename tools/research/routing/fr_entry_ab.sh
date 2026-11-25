@@ -1,12 +1,12 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 # fr_entry_ab.sh BOARDDIR ARM[-fr] SEED BUDGET_S FORK
-# One arm of the native rule D entry A/B (kae.route.fr_entry + the fork's router.kae_pin_entries):
-# `kae.route.cli route` of BOARDDIR/input.kicad_pcb (with its project files) with the Freerouting
-# build FORK, KAE_FR_PIN_ENTRIES by ARM (off*, on: phase 1, plan*: phase 2, rails*: phase 2 and rail
-# classes; OPERATING_DIR/<board>.operating.json becomes KAE_OPERATING for every arm), then
-# kae.route.pad_reroute on the result. ARM-fr: Freerouting's import alone (no repair rounds, no last
+# One arm of the native rule D entry A/B (haslam.route.fr_entry + the fork's router.haslam_pin_entries):
+# `haslam.route.cli route` of BOARDDIR/input.kicad_pcb (with its project files) with the Freerouting
+# build FORK, HASLAM_FR_PIN_ENTRIES by ARM (off*, on: phase 1, plan*: phase 2, rails*: phase 2 and rail
+# classes; OPERATING_DIR/<board>.operating.json becomes HASLAM_OPERATING for every arm), then
+# haslam.route.pad_reroute on the result. ARM-fr: Freerouting's import alone (no repair rounds, no last
 # mile, no diagnosis), to see the router's own ends. Writes BOARDDIR/ARM/{routed,rr}.kicad_pcb, route.json,
 # rr.json, and score.json: per stage, KiCad DRC of the re-opened board (errors by type,
 # unconnected) and pad-entry counts (pad_trim.stats: oblique, acute, on the centre line,
@@ -14,36 +14,36 @@
 set -eo pipefail
 dir=$(cd "$1" && pwd) arm=$2 seed=${3:-0} budget=${4:-300} fork=$5
 REPO=$(cd "$(dirname "$0")/../../.." && pwd)
-PY=${AB_PY:?python with the kae dependencies}
-source ~/.cache/kaebench/env.sh; export APPTAINER_BIND=${KAE_WORK:-/var/tmp/$USER}
+PY=${AB_PY:?python with the haslam dependencies}
+source ~/.cache/haslambench/env.sh; export APPTAINER_BIND=${HASLAM_WORK:-/var/tmp/$USER}
 out=$dir/$arm; rm -rf "$out"; mkdir -p "$out"
-export PYTHONPATH=$REPO/kae/src:$REPO/bench/src KAE_BRIDGE_FREEROUTING=$fork OMP_NUM_THREADS=1 KAE_WORKERS=1
+export PYTHONPATH=$REPO/haslam/src:$REPO/bench/src HASLAM_BRIDGE_FREEROUTING=$fork OMP_NUM_THREADS=1 HASLAM_WORKERS=1
 extra=()
 case $arm in *-fr) extra=(--no-repair --no-last-mile --no-blocked);; esac
 case ${arm%-fr} in
-  on|on2|on3) export KAE_FR_PIN_ENTRIES=on KAE_FR_RAILS=off;;
-  plan*) export KAE_FR_PIN_ENTRIES=plan KAE_FR_RAILS=off;;
-  rails*) export KAE_FR_PIN_ENTRIES=plan KAE_FR_RAILS=on;;
-  off*) export KAE_FR_PIN_ENTRIES=off KAE_FR_RAILS=off;;
+  on|on2|on3) export HASLAM_FR_PIN_ENTRIES=on HASLAM_FR_RAILS=off;;
+  plan*) export HASLAM_FR_PIN_ENTRIES=plan HASLAM_FR_RAILS=off;;
+  rails*) export HASLAM_FR_PIN_ENTRIES=plan HASLAM_FR_RAILS=on;;
+  off*) export HASLAM_FR_PIN_ENTRIES=off HASLAM_FR_RAILS=off;;
   *) echo "unknown arm $arm" >&2; exit 2;;
 esac
-# operating facts (rail currents for KAE_FR_RAILS, pad currents for pad_reroute's necks), every arm alike
+# operating facts (rail currents for HASLAM_FR_RAILS, pad currents for pad_reroute's necks), every arm alike
 [ -n "$OPERATING_DIR" ] && [ -f "$OPERATING_DIR/$(basename "$dir").operating.json" ] && \
-  export KAE_OPERATING=$OPERATING_DIR/$(basename "$dir").operating.json
+  export HASLAM_OPERATING=$OPERATING_DIR/$(basename "$dir").operating.json
 ulimit -v 40000000
 for t in routed rr; do for e in kicad_pro kicad_dru; do
   [ -f "$dir/input.$e" ] && cp "$dir/input.$e" "$out/$t.$e"; done; done
 t0=$(date +%s.%N)
-$PY -m kae.route.cli route "$dir/input.kicad_pcb" "$out/routed.kicad_pcb" --seed "$seed" --time "$budget" \
+$PY -m haslam.route.cli route "$dir/input.kicad_pcb" "$out/routed.kicad_pcb" --seed "$seed" --time "$budget" \
   --workdir "$out/work" --report "$out/route.json" "${extra[@]}" > "$out/route.log" 2>&1
 t1=$(date +%s.%N)
-$PY -m kae.route.pad_reroute "$out/routed.kicad_pcb" "$out/rr.kicad_pcb" --workdir "$out/rr-work" \
+$PY -m haslam.route.pad_reroute "$out/routed.kicad_pcb" "$out/rr.kicad_pcb" --workdir "$out/rr-work" \
   --report "$out/rr.json" > "$out/rr.log" 2>&1 || cp "$out/routed.kicad_pcb" "$out/rr.kicad_pcb"
 t2=$(date +%s.%N)
 $PY - "$dir" "$out" "$t0" "$t1" "$t2" <<'PYEOF'
 import json, sys
 from pathlib import Path
-from kae.route import drc, pad_trim as T
+from haslam.route import drc, pad_trim as T
 d, out, t0, t1, t2 = Path(sys.argv[1]), Path(sys.argv[2]), *map(float, sys.argv[3:6])
 info = T._info(d / "input.kicad_pcb")
 res = dict(route_s=round(t1 - t0, 1), reroute_s=round(t2 - t1, 1))

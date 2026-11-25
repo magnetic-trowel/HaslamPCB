@@ -1,7 +1,7 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Gate R4 on a routed board: the change of every (observer, source) pair that the hops' whole-spectrum
-prices predicted, against the change the next refresh's reduced model measured (kae.em.spectral writes
+prices predicted, against the change the next refresh's reduced model measured (haslam.em.spectral writes
 both to WORK/spectral.jsonl).
 
 Absolute changes carry a term no price can: a hop replaces a field-free short whose return already ran
@@ -30,7 +30,7 @@ def main(argv=None):
             if abs(p["dL"]) > 1e-12 or abs(p["dL_pred"]) > 1e-12:
                 du = f"{p['du_lin']:+.3f} / {p['du_pred']:+.3f}" if p["du_lin"] is not None else ""
                 print(f"  {p['pair'][0][:30]:30s} {p['dL'] * 1e9:+8.3f} / {p['dL_pred'] * 1e9:+8.3f}   {du}")
-    # with connection ports (kae.em.hopport) the absolute change is predictable too
+    # with connection ports (haslam.em.hopport) the absolute change is predictable too
     ab10, abu = [], []
     for r in recs:
         mx = max((abs(p["dL"]) for p in r["pairs"]), default=0)

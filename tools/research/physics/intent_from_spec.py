@@ -1,24 +1,24 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """A board's two structured inputs from its spec (numbers a model or a designer states about the board):
 
-  OPERATING  kae.excite.evaluate --intent: what the board does electrically. radios.<ref> = kind, cells.<cell id>.{V_V,
+  OPERATING  haslam.excite.evaluate --intent: what the board does electrically. radios.<ref> = kind, cells.<cell id>.{V_V,
              f_sw_Hz, I_out_A, V_in_V, V_out_V, eta, I_switch_A (stated only: an override), t_i_s; I_A for
              cells that are no DC-DC converter}, parts.<ref>.{I_A, I_sustained_A} (loads and output connectors; the sustained draw sets temperatures), nets.<rail>.source,
              requirements.thermal.{T_amb_C, airflow_h_W_m2K, heatsinks}, requirements.assembly.{process,
              hand_solder_ok, reflow_only_parts}. Each replaces one of the evaluator's priors. With --pintypes,
              pins.<ref>.<pad> = [type, name]: the schematic's pin facts the summary was built with, which the
-             evaluator applies too (kae.board.pinfacts), so both see the same rails, regulators and cells.
-  INTENT     kae.intent: what matters. Standing priorities on every board (copper loss = power loss and
+             evaluator applies too (haslam.board.pinfacts), so both see the same rails, regulators and cells.
+  INTENT     haslam.intent: what matters. Standing priorities on every board (copper loss = power loss and
              efficiency; ripple), the spec's limits (rail tolerance -> drop.rail, rail and IC ripple ->
              supply.peak, sensitive pins -> pickup.peak, switch ratings -> overshoot.peak hard, track heat),
              and EMI terms on boards with a radio or GNSS receiver: the spec's radios and every part
-             kae.circuit.roles.radio_kind names, noise into its supply and RF pins (to_part: the victim side
+             haslam.circuit.roles.radio_kind names, noise into its supply and RF pins (to_part: the victim side
              only), and cable emission (declared cables; else 1 m on each cable-type connector).
 
     python intent_from_spec.py SPEC.json SUMMARY.json --intent INTENT.json --operating OPERATING.json
 
-SPEC is kae.board-spec/1 (tools/research/physics/board_spec_prompt.md). Every id, ref and net is checked
+SPEC is haslam.board-spec/1 (tools/research/physics/board_spec_prompt.md). Every id, ref and net is checked
 against the board's summary and every number against physical bounds; what fails is dropped and listed
 in provenance.rejected, never guessed around.
 """
@@ -47,7 +47,7 @@ def library():
         import glob
         import os
         import re
-        d = os.path.expanduser(os.environ.get("KAE_DATASHEETS", "~/kae-datasheets"))
+        d = os.path.expanduser(os.environ.get("HASLAM_DATASHEETS", "~/haslam-datasheets"))
         _LIB = []
         for p in sorted(glob.glob(f"{d}/facts/*.json")):
             try:
@@ -62,8 +62,8 @@ def library():
 
 def datasheet(part):
     """The library facts for a board part: the entry whose match names its value (else value + lib_id) best,
-    from a word boundary and the most specific first (kae.excite.beliefs.match_rank)."""
-    from kae.excite.beliefs import best_match
+    from a word boundary and the most specific first (haslam.excite.beliefs.match_rank)."""
+    from haslam.excite.beliefs import best_match
     text = f"{part.get('value') or ''} {part.get('lib_id') or ''}"
     e = best_match(library(), lambda e: e[0].pattern, text, part.get("value") or "", name_of=lambda e: e[1].get("part"))
     return e[1] if e else None
@@ -162,9 +162,9 @@ def field_bases(item):
 
 
 def cell_topology(S, cid, vout=None):
-    """(topology, leg) of a cell section (kae.physics.converter.topology_of): its class from the id; a buck and a
+    """(topology, leg) of a cell section (haslam.physics.converter.topology_of): its class from the id; a buck and a
     boost cell of one controller sharing an inductor are the two legs of a 4-switch buck-boost."""
-    from kae.physics import converter as CV
+    from haslam.physics import converter as CV
     bits = str(cid).split(":")
     cls, ctrl = (bits[1], bits[2]) if len(bits) >= 3 else (None, None)
     st = {}
@@ -308,7 +308,7 @@ def compile_spec(spec, summary):
                 cell["I_A"] = [round(0.3 * (Isw or Iout), 6), round(Isw or Iout, 6)]
         else:
             # the operating facts; the evaluator converts I_out_A to the commutated current by the cell's topology
-            # (kae.physics.converter: a boost's switch carries its input current); I_switch_A, stated, overrides
+            # (haslam.physics.converter: a boost's switch carries its input current); I_switch_A, stated, overrides
             if Iout:
                 cell["I_out_A"] = [round(0.3 * Iout, 6), round(Iout, 6)]
             if vin:
@@ -322,9 +322,9 @@ def compile_spec(spec, summary):
                 cell["I_switch_A"] = [round(0.3 * Isw, 6), round(Isw, 6)]
                 extra = f"; I_switch_A {Isw:g} A stated by the spec (override)"
             if Iout and vin and vout:
-                from kae.physics import converter as CV
+                from haslam.physics import converter as CV
                 cc = CV.from_intent(dict(cell, I_switch_A=None), top, leg)
-                extra += (f"; derived (kae.physics.converter) I_switch {cc.I[1]:.4g}-{cc.I[2]:.4g} A: {cc.basis}"
+                extra += (f"; derived (haslam.physics.converter) I_switch {cc.I[1]:.4g}-{cc.I[2]:.4g} A: {cc.basis}"
                           if cc else "")
         if t:
             cell["t_i_s"] = [t / 2, t * 2]
@@ -349,7 +349,7 @@ def compile_spec(spec, summary):
         else:
             S.rejected.append(f"{w}: needs a victim:... section id or a part ref")
             continue
-        # two limits on one scope tie in kae.intent (equal specificity): the strictest stands for both
+        # two limits on one scope tie in haslam.intent (equal specificity): the strictest stands for both
         dup = next((t for t in terms if t["obs"] == "pickup.peak" and t.get("where") == where and t["tier"] == "limit"), None)
         if dup is not None:
             if mx < float(dup["max"].split()[0]):
@@ -364,14 +364,14 @@ def compile_spec(spec, summary):
         ref = S.ref(r.get("ref"), f"radio[{i}]")
         if ref and ref not in {x["ref"] for x in radios}:
             radios.append(dict(r, ref=ref))
-    # the board's own radios and GNSS receivers by part number (kae.circuit.roles.radio_kind), whether the spec
+    # the board's own radios and GNSS receivers by part number (haslam.circuit.roles.radio_kind), whether the spec
     # listed them or not: EMI is a standing priority on every board with one
-    from kae.circuit.roles import radio_kind
+    from haslam.circuit.roles import radio_kind
     for p in summary.get("parts") or []:
         k = radio_kind(f"{p.get('value') or ''} {p.get('lib_id') or ''}", p.get("kind"), None)
         if k and p["ref"] not in {x["ref"] for x in radios}:
             radios.append(dict(ref=p["ref"], kind=k, basis="typical", why=f"{p.get('value')}: a {k} part by its part number"))
-            opwhy[f"radio.{p['ref']}"] = f"{p.get('value')} is a {k} part by its part number (kae.circuit.roles.radio_kind)"
+            opwhy[f"radio.{p['ref']}"] = f"{p.get('value')} is a {k} part by its part number (haslam.circuit.roles.radio_kind)"
     cables = []
     for i, c in enumerate(spec.get("connectors") or []):
         w = f"connectors[{i}]"
@@ -394,8 +394,8 @@ def compile_spec(spec, summary):
         if L:
             cables.append(dict(connector=ref, length_m=L, why=why(c, c.get("function") or "cable")))
     if radios:
-        op["radios"] = {r["ref"]: str(r.get("kind") or "rf") for r in radios}     # the evaluator's radios (kae.excite.observe)
-        opwhy["radios"] = "the spec's radios and every part kae.circuit.roles.radio_kind names"
+        op["radios"] = {r["ref"]: str(r.get("kind") or "rf") for r in radios}     # the evaluator's radios (haslam.excite.observe)
+        opwhy["radios"] = "the spec's radios and every part haslam.circuit.roles.radio_kind names"
     if radios and not cables:
         # a radio board whose spec declares no cable lengths: every connector that takes a cable (power, USB, audio,
         # wire-to-board, Ethernet, CAN, HDMI, RF) gets CISPR 32's reference 1 m, so its cable emission is judged
@@ -422,7 +422,7 @@ def compile_spec(spec, summary):
         terms.append(dict(id="H1", tier="limit", obs="heat.track", max=f"{hk:g} K", rate="5 mW_eq/K", why=why(spec["thermal"], "track heating")))
     # thermals: nothing may overheat. A part's own rating (a load's T_max_C) or its class rating is hard;
     # 20 K below it is a priced margin
-    from kae.excite.heat import T_MAX
+    from haslam.excite.heat import T_MAX
     own = {}
     for i, l in enumerate(spec.get("loads") or []):
         t = l.get("T_max_C")
@@ -464,7 +464,7 @@ def compile_spec(spec, summary):
             typ = (rng[0] * rng[1]) ** 0.5
             op["parts"].setdefault(p["ref"], {})["theta_jb_C_W"] = [round(rng[0], 3), round(rng[1], 3)] if rng[0] != rng[1] else round(typ, 3)
             opwhy[f"parts.{p['ref']}.theta_jb_C_W"] = f"junction to board: {rule}"
-    # a module's own board cools it (kae.excite.heat): its outline from its datasheet
+    # a module's own board cools it (haslam.excite.heat): its outline from its datasheet
     for p in summary.get("parts") or []:
         f = datasheet(p)
         bw, bl = verified(f, "body_w_mm"), verified(f, "body_l_mm")
@@ -478,7 +478,7 @@ def compile_spec(spec, summary):
     if isinstance(ta, list) and len(ta) == 2 and all(isinstance(x, (int, float)) for x in ta) and -55 <= min(ta) <= max(ta) <= 150:
         op["requirements"]["thermal"] = {"T_amb_C": [float(min(ta)), float(max(ta))]}
         opwhy["requirements.thermal.T_amb_C"] = why(th, "ambient")
-    # cooling beyond still air: forced air, and heat sinks on parts or under the board (kae.excite.heat)
+    # cooling beyond still air: forced air, and heat sinks on parts or under the board (haslam.excite.heat)
     air = S.num(th, "airflow_h_W_m2K", "W/m2K", "thermal")
     if air:
         op["requirements"].setdefault("thermal", {})["airflow_h_W_m2K"] = air
@@ -564,7 +564,7 @@ def compile_spec(spec, summary):
     op["requirements"]["assembly"] = a
     opwhy["requirements.assembly"] = why(asm, "assembly") + (f"; the board has {len(reflow_only)} leadless or ball-grid "
                                                              f"part(s), which need reflow" if reflow_only else "")
-    intent = {"schema": "kae.intent/1", "generation": 1, "currency": "mW_eq", "defaults": "neutral/1",
+    intent = {"schema": "haslam.intent/1", "generation": 1, "currency": "mW_eq", "defaults": "neutral/1",
               "environment": {"enclosure": {"kind": th.get("enclosure") or "unknown", "why": why(th, "enclosure")},
                               "cables": cables if radios else []},
               "terms": terms,
@@ -579,18 +579,18 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("spec"), ap.add_argument("summary")
     ap.add_argument("--intent", required=True), ap.add_argument("--operating", required=True)
-    ap.add_argument("--pintypes", help="kaeres.pintypes/1 file the summary was built with (board_summary.py --pintypes): "
+    ap.add_argument("--pintypes", help="haslamres.pintypes/1 file the summary was built with (board_summary.py --pintypes): "
                                        "carried into the operating facts as `pins`, so the evaluator sees the same circuit")
     a = ap.parse_args(argv)
     import os
-    from kae.board import pinfacts as PF
-    from kae.intent import objective as OBJ
+    from haslam.board import pinfacts as PF
+    from haslam.intent import objective as OBJ
     it, op = compile_spec(json.load(open(a.spec)), json.load(open(a.summary)))
     if a.pintypes and os.path.exists(a.pintypes):
         pins = PF.from_pintypes(json.load(open(a.pintypes)))
         if pins:
             op["pins"] = pins
-            op["provenance"]["why"]["pins"] = ("pin types and names from the board's schematic (kaeres.pintypes/1), as "
+            op["provenance"]["why"]["pins"] = ("pin types and names from the board's schematic (haslamres.pintypes/1), as "
                                                "the summary the spec was written from saw them")
     OBJ.load(dict(it))
     for path, obj in ((a.intent, it), (a.operating, op)):

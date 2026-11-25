@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """jc (collapse_joint) with T4 pour-damage maps, by subclassing (collapse_joint is not
 edited): run.py plug-ins pjc (physics objective, phys_w 2, polish 0.15, as xf-base-jc)

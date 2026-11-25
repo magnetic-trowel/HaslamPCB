@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests that need no KiCad installation."""
 import hashlib
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from kaebench import adapters, boardfiles, fetch, manifest, report, runner, score, tools
+from haslambench import adapters, boardfiles, fetch, manifest, report, runner, score, tools
 
 SHA = "0" * 40
 
@@ -469,7 +469,7 @@ def test_report_keeps_runs_of_one_adapter_apart(tmp_path):
 
 
 def test_id_list_from_file(tmp_path):
-    from kaebench.cli import _split
+    from haslambench.cli import _split
     f = tmp_path / "suite.txt"
     f.write_text("b1\n# comment\nb2  # trailing\n\n")
     assert _split(f"@{f}") == ["b1", "b2"]
@@ -477,7 +477,7 @@ def test_id_list_from_file(tmp_path):
 
 
 def test_local_boards_read_row_json(tmp_path):
-    from kaebench.cli import _local_boards
+    from haslambench.cli import _local_boards
     for name, row in (("b1", dict(id="b1", repo="https://github.com/o/r", commit=SHA, pcb_path="x/b.kicad_pcb",
                                   license="MIT", license_tier="permissive", tags=["rf"])), ("b2", None)):
         d = tmp_path / name
@@ -537,7 +537,7 @@ def test_outside_is_judged_against_the_human_placement():
 
 
 def test_work_list_interleaves_arms_per_board():
-    from kaebench import runner
+    from haslambench import runner
 
     class A:
         kinds = ("route",)
@@ -588,7 +588,7 @@ def test_run_measured_cpu_exit_code_and_errors():
     assert u["cpu_s"] > 0.05
     assert tools.run_measured(["sh", "-c", "kill -9 $$"]).returncode == -9
     with pytest.raises(FileNotFoundError):
-        tools.run_measured(["/nonexistent/kae-command"])
+        tools.run_measured(["/nonexistent/haslam-command"])
     with pytest.raises(subprocess.TimeoutExpired):
         tools.run_measured([sys.executable, "-c", "while True: pass"], timeout=1)
     assert tools.usage_take()["cpu_s"] > 0.5  # the killed command's CPU is still accounted
@@ -639,7 +639,7 @@ def test_unconnected_is_counted_where_the_project_ignores_it(tmp_path, monkeypat
     counts["ign"] = 1
     assert score._uncapped(ign, 0, cache=cache) == (40, False)  # the start's cache
     # prepare: the human layout and the task start are counted the same way
-    from kaebench import prepare
+    from haslambench import prepare
     monkeypatch.setattr(tools, "run_drc", lambda b, o: dict(violations=[], unconnected_items=[]))
     assert prepare._drc(ign, None)["unconnected"] == 1
     assert prepare._drc(warn, None)["unconnected"] == 0
@@ -745,7 +745,7 @@ def _fp(ref, fpid, value="", pads=2, pth=0, npth=0):
     (_fp("X2", "x:4UCONN_20329", "MicroB", pads=13, pth=6), "connector", "name"),
 ])
 def test_mech_classifier_fixes(fp, cls, rule):
-    from kaebench.kicad_scripts import mech_rules
+    from haslambench.kicad_scripts import mech_rules
     got, evidence = mech_rules.classify(fp)
     assert got == cls and evidence.startswith(rule), (got, evidence)
 
@@ -789,20 +789,20 @@ def test_mech_classifier_fixes(fp, cls, rule):
 ])
 
 def test_mech_classifier_leaves_free(fp, rule):
-    from kaebench.kicad_scripts import mech_rules
+    from haslambench.kicad_scripts import mech_rules
     got, evidence = mech_rules.classify(fp)
     assert got is None and evidence.startswith(rule), (got, evidence)
 
 
 def test_mech_classifier_keeps_a_prog_button_fixed():
     """The debug-header rule frees connectors only: a boot button labelled PROG stays fixed."""
-    from kaebench.kicad_scripts import mech_rules
+    from haslambench.kicad_scripts import mech_rules
     got, _ = mech_rules.classify(_fp("SW2", "Button_Switch_SMD:SW_SPST_B3U-1000P", "PROG", pads=2))
     assert got == "user"
 
 
 def test_mech_overrides():
-    from kaebench.kicad_scripts import mech_rules
+    from haslambench.kicad_scripts import mech_rules
     rows = [dict(ref="J1", **{"class": "connector"}, evidence="lib: Connector"),
             dict(ref="U1", **{"class": None}, evidence="")]
     applied = mech_rules.apply_overrides(rows, {"fix": ["U1", "U9"], "free": ["J1"]})
@@ -846,7 +846,7 @@ def test_work_list_skips_place_fixed_whose_round_trip_failed():
     (_fp("REF1", "DIYSynthMNL:PanelHole_Bourns_3296W_TrimPot", pads=1, npth=1), "mounting"),  # a hole
 ])
 def test_mech_classifier_matches_the_research_rules(fp, cls):
-    from kaebench.kicad_scripts import mech_rules
+    from haslambench.kicad_scripts import mech_rules
     got, evidence = mech_rules.classify(fp)
     assert got == cls, (got, evidence)
 
@@ -934,7 +934,7 @@ def test_stop_passes_sigterm_to_the_method_and_keeps_its_output(tmp_path, monkey
     launcher stays to reap it, its output so far is returned, and the tee's live log and echo have it."""
     import threading
     import time
-    from kaebench import stopping
+    from haslambench import stopping
     monkeypatch.setattr(stopping, "STOP", stopping.Flag())
     stopping.watch(poll=0.05)
     echo = tmp_path / "echo"
@@ -954,7 +954,7 @@ def test_stop_passes_sigterm_to_the_method_and_keeps_its_output(tmp_path, monkey
 def test_stop_kills_a_method_that_ignores_sigterm_after_the_grace(monkeypatch):
     import threading
     import time
-    from kaebench import stopping
+    from haslambench import stopping
     monkeypatch.setattr(stopping, "STOP", stopping.Flag())
     monkeypatch.setattr(stopping, "STOP_GRACE_S", 1.0)
     stopping.watch(poll=0.05)
@@ -965,7 +965,7 @@ def test_stop_kills_a_method_that_ignores_sigterm_after_the_grace(monkeypatch):
 
 
 def test_runner_records_a_stopped_attempt_as_killed_and_starts_no_more(tmp_path, monkeypatch):
-    from kaebench import stopping
+    from haslambench import stopping
     monkeypatch.setattr(stopping, "STOP", stopping.Flag())
 
     class Stopper(adapters.Adapter):
@@ -992,10 +992,10 @@ def test_runner_records_a_stopped_attempt_as_killed_and_starts_no_more(tmp_path,
 
 
 def test_repeated_sigterms_set_stop_without_deadlock(monkeypatch):
-    """kaeq signals every process of a job and kaeres passes the signal on too: the handler gets it twice, and once
+    """haslamq signals every process of a job and haslamres passes the signal on too: the handler gets it twice, and once
     deadlocked inside threading.Event.set (a lock taken by the first call). Now it only sets a flag."""
     import signal
-    from kaebench import cli, stopping
+    from haslambench import cli, stopping
     monkeypatch.setattr(stopping, "STOP", stopping.Flag())
     monkeypatch.setattr(stopping, "watch", lambda: None)
     old = signal.getsignal(signal.SIGTERM)
@@ -1009,5 +1009,5 @@ def test_repeated_sigterms_set_stop_without_deadlock(monkeypatch):
 
 
 def test_evaluator_files_are_untouched_by_the_stop_path():
-    """tools.py is part of the DRC evaluator's identity (kaeres SCORER_PATHS): the stop path lives in stopping.py."""
+    """tools.py is part of the DRC evaluator's identity (haslamres SCORER_PATHS): the stop path lives in stopping.py."""
     assert "STOP" not in (Path(tools.__file__)).read_text()

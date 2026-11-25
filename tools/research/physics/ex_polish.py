@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Does deciding with exact physics give a better placement, and at what cost?
 (docs/topics/physics/exact-physics-options.md, designs a, b, h)
@@ -24,7 +24,7 @@ to. Every final state is scored by PEEC (crystal: routed length x field-solver C
 Reported per board and pooled: exact cost of the start, of the human placement and of each
 strategy's result; exact evaluations and CPU seconds per strategy.
 
-Usage:  python tools/research/physics/ex_polish.py --out kae-work/physics/exact-options/polish [--only ids]
+Usage:  python tools/research/physics/ex_polish.py --out haslam-work/physics/exact-options/polish [--only ids]
         [--parts 10] [--sweeps 2]
 """
 from __future__ import annotations
@@ -44,7 +44,7 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / 'kae' / 'src'))
+sys.path.insert(0, str(ROOT / 'haslam' / 'src'))
 sys.path.insert(0, str(HERE))
 
 import numpy as np  # noqa: E402
@@ -66,7 +66,7 @@ class Ev:
         self.t = 0.0
 
     def cost(self, ks, mode):
-        from kae.physics.place_terms import _red
+        from haslam.physics.place_terms import _red
         T = self.T
         c0 = time.process_time()
         if mode != 'fast':
@@ -106,12 +106,12 @@ def proposals(legal, i, pose, key):
 
 def run_board(bid, out_dir, n_parts, sweeps, seed):
     import ex_exact as X
-    from kae.board.kicad_file import load
-    from kae.circuit.brief import build
-    from kae.physics.place_terms import Terms
+    from haslam.board.kicad_file import load
+    from haslam.circuit.brief import build
+    from haslam.physics.place_terms import Terms
     from pt_human_perturb import Legal
     X.PEEC_CLIP = True
-    path = ROOT / 'kae-work-v2' / 'tasks' / bid / 'reference' / 'board.kicad_pcb'
+    path = ROOT / 'haslam-work-v2' / 'tasks' / bid / 'reference' / 'board.kicad_pcb'
     b = load(str(path))
     T = Terms(b, build(b))
     bv = T.bv

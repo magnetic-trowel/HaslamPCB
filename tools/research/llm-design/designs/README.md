@@ -1,13 +1,13 @@
 # Designs
 
-Boards designed from plain-language briefs with [`kaesynth`](../synth/README.md). Each folder has:
+Boards designed from plain-language briefs with [`haslamsynth`](../synth/README.md). Each folder has:
 
 - `DESIGN.md`: requirements, hazards, trade study, calculations, parts, placement;
 - `CONNECTIONS.md`: net tables and naming rules;
 - `parts.py` and `design.py`: the circuit as code;
 - `REVIEW.md`: an independent review and the designer's response;
 - `out/`: the generated KiCad 10 project, `intent.yaml`, BOM and `report.md`. Only `report.md`
-  and `erc.json` are committed here; rebuild the rest with `kaesynth build designs/<slug>/design.py -v`
+  and `erc.json` are committed here; rebuild the rest with `haslamsynth build designs/<slug>/design.py -v`
   (deterministic up to the title-block date, `--date`).
 
 Write-up: [docs/research/llm-design](../../../../docs/research/llm-design/README.md).

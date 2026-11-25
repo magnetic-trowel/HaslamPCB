@@ -31,7 +31,7 @@ Three: (1) median-point / centerline routing (one virtual wire between P/N merge
 - Altium Situs: "Differential pairs nets must be manually routed and locked before using the autorouter" [P-doc].
 - TopoR: arc-smoothed wires keep constant maximal gap, "important … for differential pairs" [V]. gEDA toporouter: paired-net awareness (`netlist->pair`) [P-code]. FanoutNet MCR: diff-pair term c3 in the A* cost [P]. DeepPCB routes diff pairs (vendor), excludes length matching/skew [V].
 
-## Diff-pair pipeline for kae
+## Diff-pair pipeline for haslam
 
 [I]
 1. Median-point detection (pair pins, compute P/N merge points).

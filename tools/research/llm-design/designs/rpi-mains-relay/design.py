@@ -1,9 +1,9 @@
-# SPDX-FileCopyrightText: 2026 kicad-auto-everything contributors
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """rpi-mains-relay: six individually switched 120 VAC receptacles run by an on-board Raspberry Pi Zero 2 W.
 
 Encodes designs/rpi-mains-relay/DESIGN.md (engineering rationale, evidence tags, sources) and
-CONNECTIONS.md (pin rationale). Build: `kaesynth build designs/rpi-mains-relay/design.py -v`.
+CONNECTIONS.md (pin rationale). Build: `haslamsynth build designs/rpi-mains-relay/design.py -v`.
 Custom footprints: footprints/make_footprints.py writes footprints/custom.pretty/.
 
 Assembly (Q-8 answered "One enclosure"): one polycarbonate UL 50 enclosure (Carlon NS14126) holds this PCB,
@@ -24,7 +24,7 @@ import importlib.util
 import math
 from pathlib import Path
 
-from kaesynth import Design, Hole
+from haslamsynth import Design, Hole
 
 _spec = importlib.util.spec_from_file_location("rpi_mains_relay_parts", Path(__file__).with_name("parts.py"))
 P = importlib.util.module_from_spec(_spec)
