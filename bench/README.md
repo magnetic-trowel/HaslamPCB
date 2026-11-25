@@ -56,6 +56,8 @@ boards whose human layout is not clean.
 
 ### Experiment-tier suites
 
+How to run an experiment on them: [suites/README.md](suites/README.md).
+
 Four lists for the [experiment tiers](../docs/topics/verification/experiment-tiers.md), plus `merit-213.txt` (the 213
 merit boards, an archived regression set). Built by `python3 tools/haslamres/suites.py --tags DIR` (seed 20261120) on
 2026-11-20 from the results index (100,968 runs), the board-tag suites and the corpus manifest; the same inputs give

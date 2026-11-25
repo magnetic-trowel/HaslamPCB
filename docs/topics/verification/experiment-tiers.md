@@ -28,8 +28,9 @@ Mechanism suites: an experiment on one mechanism (BGA escape, differential pairs
 
 - Tag: `baseline/<year>-w<week>` on main, with its Freerouting fork pin and evaluators. Current: `baseline/2026-w47` = `c2dd008a`.
 - An experiment is the tag plus one change. Queued or running work is not migrated when main or the fork pin moves. Adopted changes are confirmed again at the next tag.
-- Stored control: experiment `control-w<week>` (`tools/haslamres/experiments/control-tag.sh`) holds the control methods (bridge on the human placement; staged place-and-route) at the tag on both sprint suites, seeds 0-3. A sprint experiment then names the control and its new arm with `--reuse-runs` and runs only the new arm; counted-work budgets (`HASLAM_BUDGET=work`) make stored runs comparable.
-- State 2026-11-20: `control-w47` is not registered: its recipes need operating facts, which only the 213 merit boards have (22 of the 140 sprint boards). Until then, run the control arm side by side.
+- Stored control: experiment `control-w<week>` (`tools/haslamres/experiments/control-tag.sh`) holds two control methods at the tag on both sprint suites, one attempt per seed, no restart wrapper, no operating facts, counted-work budgets (`HASLAM_BUDGET=work`), so runs are paired per board and seed. `control-w47`, seeds 0-1: bridge on the human placement `71e60a91475d`; staged place-and-route `716e9b11e0f4`.
+- A sprint experiment (`haslamres sprint`) reuses the control's stored runs (`--reuse-runs`) and runs only its new arm.
+- Ladder runs use the restart-wrapped recipes (`RECIPE=restart`); these need operating facts, which only the 213 merit boards have.
 
 ## Rules
 
@@ -41,12 +42,12 @@ Mechanism suites: an experiment on one mechanism (BGA escape, differential pairs
 
 ## Commands
 
+Procedure: [bench/suites/README.md](../../../bench/suites/README.md).
+
 ```bash
 K="python3 tools/haslamres/haslamres.py"
-cat bench/suites/sprint-frontier.txt bench/suites/sprint-quality.txt > /tmp/sprint.txt
-$K exp create my-ab --method CONTROL --method NEW --boards @/tmp/sprint.txt \
-   --harness baseline/2026-w47 --haslam baseline/2026-w47   # --reuse-runs with a stored control
-$K exp submit my-ab && haslamq prio 5 --owner exp-my-ab
+$K sprint my-ab --base bridge --commit SHA [--set KEY=VALUE]     # one arm against the stored control, priority 5
+$K exp report my-ab && $K quality my-ab --control '<control name>'
 $K exp create my-ab-ladder ... --boards @bench/suites/ladder.txt --tier ladder
 ```
 
