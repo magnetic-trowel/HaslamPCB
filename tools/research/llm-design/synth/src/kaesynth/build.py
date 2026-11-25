@@ -230,7 +230,16 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
     if not d.kae.empty():
         # the operating intent kae reads beside the board (kae.intent.facts): <slug>.kae_intent.json
         from .kae_intent import kae_available
-        doc, problems = d.kae.document()
+        rows = d.kae.relations()[0]
+        if fplibs:
+            # board.json beside design.py holds the fixed parts and the outline (sch_to_board.py reads it)
+            bj = Path(design_path).resolve().parent / "board.json" if not isinstance(design_path, Design) else None
+            spec = json.loads(bj.read_text()) if bj is not None and bj.exists() else {}
+            outline = spec.get("outline") or ((d.board_spec.width_mm, d.board_spec.height_mm)
+                                              if d.board_spec and d.board_spec.width_mm else None)
+            rows = LY.check_relations(d, fplibs, rows, lambda chk, sev, msg, objs=(): findings.append(
+                Finding(chk, sev, msg, list(objs))), fixed=spec.get("fixed"), outline=outline)
+        doc, problems = d.kae.document(relations=rows)
         (outdir / f"{d.slug}.kae_intent.json").write_text(json.dumps(doc, indent=1) + "\n")
         for prob in problems:
             findings.append(Finding("kae_intent.invalid", "error", prob))

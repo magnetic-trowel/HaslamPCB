@@ -212,6 +212,7 @@ converter output and the pack it charges) belongs to one root: model the worst c
 | `rules.pin_escape`, `rules.pad_gap` | error | a pad no minimum-width track can leave past its neighbours under the generated clearances; pads of one footprint closer than their nets allow (`kaesynth/layout.py`; necessary, not sufficient: corners and centre pads are not modelled) |
 | `layout.density`, `layout.fab_minimums` | warn/info | courtyard area vs board area (warn above 40 % on 2 layers); board min track/clearance from the finest pitch when `BoardSpec` leaves them unset (0.127/0.15 mm at <= 0.65 mm pitch) |
 | `kae_intent.invalid` | error | the `<slug>.kae_intent.json` kae's own loader rejects, or names that are not in the design |
+| `kae_intent.relation_infeasible`, `layout.relation` | error/warn/info | a relation for kae that board.json's fixed parts already break, or that the footprints' courtyards (pad centres, quarter turns, both on one side) or the 0.5 mm copper-to-edge clearance make impossible (error, with the distance to loosen to), or allow only with courtyards touching (warning, above 90 %); relations whose sides are all fixed are dropped from the intent file (info) |
 | `kae_intent.relation_unused` | warning | a `d.place` relation kae has no reader for (each with the reason: a physics term, a board rule, `board.json`, no placer term yet) |
 
 ## Known limits
