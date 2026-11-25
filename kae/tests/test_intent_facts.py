@@ -98,3 +98,35 @@ def test_explicit_intent_facts_reach_the_brief(monkeypatch, tmp_path):
     seen.clear()
     M._brief({"board": "x.kicad_pcb"})
     assert seen["facts"] is None                      # no intent: the board's own intent file
+
+
+def test_a_stated_rail_voltage_beats_the_cells_name_reading():
+    """A bus named 12V whose facts say 15 V: the cell (and a power path on it) switches 15 V, recorded with
+    what it replaced, even when the facts say nothing else about the cell."""
+    b = _brief()
+    b["nets"]["VIN"]["volts"] = 12.0
+    b["structures"][0]["excite"].update(V=12.0, basis=["V from 'VIN': net name"])
+    b["structures"].append({"id": "path:Q1", "kind": "power_path", "rail_in": "VIN", "rail_out": "VOUT",
+                            "excite": {"V": 12.0, "I": 1.0, "basis": ["I from Q1"]}})
+    F.apply(b, {"nets": {"VIN": {"V_V": 15.0, "why": "bench supply"}}}, origin="test")
+    ex, px = b["structures"][0]["excite"], b["structures"][1]["excite"]
+    assert ex["V"] == 15.0 and px["V"] == 15.0
+    assert not any(x.startswith("V from") for x in ex["basis"]) and "replaces 12 V" in ex["basis"][-1]
+    rec = {r["what"]: r for r in b["facts"]["applied"]}
+    assert rec["cell:buck:U1.excite.V"]["was"] == 12.0 and rec["cell:buck:U1.excite.V"]["via"] == "nets.VIN"
+    assert rec["path:Q1.excite.V"]["was"] == 12.0
+
+
+def test_a_cells_own_voltage_fact_wins_over_its_rail():
+    b = _brief()
+    F.apply(b, {"nets": {"VIN": {"V_V": 15.0}}, "cells": {"cell:buck:U1": {"V_V": 9.0}}})
+    assert b["structures"][0]["excite"]["V"] == 9.0
+
+
+def test_an_unstated_rail_keeps_the_cells_reading():
+    b = _brief()
+    b["nets"]["VIN"]["volts"] = 12.0
+    b["structures"][0]["excite"]["V"] = 12.0
+    F.apply(b, {"nets": {"VOUT": {"V_V": 3.3}}})
+    assert b["structures"][0]["excite"]["V"] == 12.0
+    assert not any(r["what"].endswith("excite.V") for r in b["facts"]["applied"])
