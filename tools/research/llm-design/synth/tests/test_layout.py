@@ -86,25 +86,24 @@ def _run(d, fl, rows, fixed=None):
 def test_relation_courtyards_bound_a_near(tmp_path):
     # U1.1 sits 0.5 mm inside its courtyard, a CAP pad 0.5 mm inside its own: 1.0 mm is the least reachable
     d, fl = _rel_design(tmp_path)
-    rows = [{"id": "far", "kind": "near", "a": "C1", "b": "U1.1", "within_mm": 0.8},
-            {"id": "edge", "kind": "near", "a": "C1", "b": "U1.1", "within_mm": 1.05},
-            {"id": "ok", "kind": "near", "a": "C1", "b": "U1.1", "mag": "tight"}]
+    rows = [{"id": "far", "kind": "near", "a": "C1", "b": "U1.1", "mag": "0.8 mm"},
+            {"id": "edge", "kind": "near", "a": "C1", "b": "U1.1", "mag": "1.05 mm"},
+            {"id": "ok", "kind": "near", "a": "C1", "b": "U1.1", "mag": "tight"},
+            {"id": "gap", "kind": "near", "a": "C1", "b": "U1", "mag": "0.1 mm"}]   # a courtyard gap: reachable
     kept, f = _run(d, fl, rows)
-    assert [r["id"] for r in kept] == ["far", "edge", "ok"]          # free parts: kept, the placer still acts
+    assert [r["id"] for r in kept] == ["far", "edge", "ok", "gap"]   # free parts: kept, the placer still acts
     err = f[("kae_intent.relation_infeasible", "error")]
-    assert len(err) == 1 and err[0].startswith("far:") and "1.00 mm" in err[0] and "loosen it to 1.5 mm" in err[0]
+    assert len(err) == 1 and err[0].startswith("far:") and "1.00 mm" in err[0] and "mag '1.5 mm'" in err[0]
     warn = f[("kae_intent.relation_infeasible", "warning")]
     assert len(warn) == 1 and warn[0].startswith("edge:")
 
 
-def test_relation_free_edge_reach(tmp_path):
-    # U1's pads (0.25 mm half size) need 0.5 mm copper-to-edge clearance: a pad centre 0.75 mm from the edge
+def test_relation_free_edge_is_within_reach(tmp_path):
+    # kae measures on_edge from the courtyard, which a free part can put on the edge: nothing to check
     d, fl = _rel_design(tmp_path)
-    kept, f = _run(d, fl, [{"id": "e", "kind": "edge", "part": "U1", "edge": "west", "within_mm": 0.5},
-                           {"id": "e2", "kind": "edge", "part": "U1", "edge": "west"}])
-    assert len(kept) == 2
-    (err,) = f[("kae_intent.relation_infeasible", "error")]
-    assert err.startswith("e:") and "0.75 mm" in err
+    kept, f = _run(d, fl, [{"id": "e", "kind": "on_edge", "part": "U1", "edge": "edge:west", "mag": "0.5 mm"},
+                           {"id": "e2", "kind": "on_edge", "part": "U1", "edge": "edge:nearest"}])
+    assert len(kept) == 2 and not f.get(("kae_intent.relation_infeasible", "error"))
 
 
 def test_relation_fixed_sides_dropped_and_checked(tmp_path):
@@ -112,8 +111,8 @@ def test_relation_fixed_sides_dropped_and_checked(tmp_path):
     fixed = {"U1": {"x": 10, "y": 10, "rot": 0}, "C2": {"x": 30, "y": 10, "rot": 0}}
     rows = [{"id": "n", "kind": "near", "a": "C2", "b": "U1", "mag": "tight"},
             {"id": "k", "kind": "keep_away", "a": "C2", "b": "U1", "mag": "close"},
-            {"id": "e", "kind": "edge", "part": "U1", "edge": "west"},
-            {"id": "e-ok", "kind": "edge", "part": "U1", "edge": "west", "within_mm": 9.0},
+            {"id": "e", "kind": "on_edge", "part": "U1", "edge": "edge:west"},
+            {"id": "e-ok", "kind": "on_edge", "part": "U1", "edge": "edge:west", "mag": "9 mm"},
             {"id": "free", "kind": "near", "a": "C1", "b": "U1", "mag": "close"},
             {"id": "g", "kind": "group", "members": ["U1", "C1", "C2"], "mag": "loose"}]
     kept, f = _run(d, fl, rows, fixed)
@@ -122,7 +121,7 @@ def test_relation_fixed_sides_dropped_and_checked(tmp_path):
     assert by["g"]["members"] == ["U1", "C1"]                        # C2 only related to the fixed anchor
     errs = f[("kae_intent.relation_infeasible", "error")]
     assert sorted(e.split(":")[0] for e in errs) == ["e", "n"]       # keep_away and e-ok are met where fixed
-    assert any("8.50 mm from the west edge" in e for e in errs)
+    assert any("8.00 mm from edge:west (courtyard)" in e for e in errs)
     assert any("U1 or C2" in e or "C2 or U1" in e for e in errs)
     info = f[("layout.relation", "info")]
     assert sum("already decided" in m for m in info) == 4 and "2 written for kae" in info[-1]

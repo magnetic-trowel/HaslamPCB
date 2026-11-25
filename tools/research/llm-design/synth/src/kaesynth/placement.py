@@ -3,11 +3,12 @@
 """Placement intent: board/mechanical spec and relations over named objects.
 
 Relations follow docs/topics/llm/interfaces-relations-vs-coordinates.md: the design names
-objects and ordinal magnitudes (tight/close/loose); kae resolves them to mm (kae.intent.relations.MAG_MM).
-A datasheet distance may be given as near(..., within_mm=, note="DS p.N ...").
+objects and ordinal magnitudes (tight/close/loose); kae scales them to the parts (kae.place.relations target_mm).
+A datasheet distance may be given as near(..., within_mm=, note="DS p.N ..."), written as mag "<v> mm".
 
-kaesynth writes the relations kae's placer uses into `<slug>.kae_intent.json` (kae_intent.KaeIntent.relations):
-near, far (keep_away), group, edge (north/south/east/west), plus the decoupling nears `infer_decaps` finds.
+kaesynth writes the relations into `<slug>.kae_intent.json` in kae's vocabulary (kae_intent.KaeIntent.relations):
+near, far (keep_away), group, edge (on_edge), region, side, array/align (row), plus the decoupling nears
+`infer_decaps` finds.
 The others are not written: each reason is in kae_intent.UNUSED and comes back as a build finding.
 """
 import re

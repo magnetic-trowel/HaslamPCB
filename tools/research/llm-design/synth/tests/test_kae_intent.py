@@ -50,13 +50,17 @@ def test_relations_written_for_kae_and_the_rest_reported():
     d.place.edge("U1", "any")
     d.place.hot_loop(["U1.1", "C1.1", "C1.2", "U1.2"])
     d.place.side("U1", "bottom")
+    d.place.region("U1", "corner-ne")
     d.finalize()
     rows, skipped = d.kae.relations()
     by = {r["kind"]: r for r in rows}
-    assert by["near"]["within_mm"] == 2.0 and by["near"]["b"] == "U1.1" and "DS p.9" in by["near"]["why"]
-    assert by["keep_away"]["mag"] == "close" and by["edge"]["edge"] == "west"
+    assert by["near"]["mag"] == "2 mm" and by["near"]["b"] == "U1.1" and "DS p.9" in by["near"]["why"]
+    assert by["keep_away"]["mag"] == "close"
+    assert sorted(r["edge"] for r in rows if r["kind"] == "on_edge") == ["edge:nearest", "edge:west"]
+    assert by["side"]["members"] == ["U1"] and by["side"]["side"] == "bottom"
+    assert by["region"]["members"] == ["U1"] and by["region"]["region"] == "region:ne"
     assert all(r["id"] for r in rows) and len({r["id"] for r in rows}) == len(rows)
-    assert {r["kind"] for r, _ in skipped} == {"edge", "hot_loop", "side"}
+    assert {r["kind"] for r, _ in skipped} == {"hot_loop"}
     doc, problems = d.kae.document()
     assert doc["relations"] == rows and not [p for p in problems if "relation" in p]
     for k in ("producer", "knobs", "environment"):

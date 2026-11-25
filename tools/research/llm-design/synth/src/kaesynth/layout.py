@@ -13,9 +13,11 @@ only after hours in the queue:
   one that bridges spaced domains (the .kicad_dru exempts its own pads: its package sets that spacing).
 - `layout.density` (warning above DENSITY_WARN on two layers): courtyard area against board area.
 - `check_relations`: every placement relation written for kae against board.json's fixed parts and the
-  footprints' courtyards and pads. A relation whose sides are all fixed is dropped (already decided) and is an
-  error when the fixed parts break it; one the footprints cannot meet (`kae_intent.relation_infeasible`,
-  error) or meet only with courtyards touching (warning, within RELATION_TIGHT) says what to loosen it to.
+  footprints' courtyards and pads, measured as kae measures (pad to pad for a pin or a decap, else the
+  courtyard gap; on_edge: courtyard to edge). A relation whose sides are all fixed is dropped (already
+  decided) and is an error when the fixed parts break it; a datasheet distance the footprints cannot meet
+  (`kae_intent.relation_infeasible`, error) or meet only with courtyards touching (warning, within
+  RELATION_TIGHT) says what to loosen it to.
 
 `finest_pitch` sets the board's fab minimums when the design leaves them unset (FINE_PITCH_MINS).
 Geometry is the footprint as drawn: pad centre, size and rotation; courtyard as the bounding box of the
@@ -227,13 +229,19 @@ def check(design, fplibs, netclasses, pair_mm, bridging, add):
 
 
 # ------------------------------------------------------------------------------------------- relations
-# kae.intent.relations' distances: MAG_MM for mag, EDGE_MM for an edge row without one. Measured as kae measures
-# (pad centre to pad centre; an edge row: its pads' extreme centre against the board edge).
-REL_MAG_MM = {"tight": 3.0, "close": 8.0, "loose": 20.0}
-REL_EDGE_MM = 5.0
-REL_BIG_NET = 10            # kae.intent.relations.BIG_NET: a net this big does not tie two bare parts
+# kae's relations (kae.intent/1, kae.place.relations on kae branch relations-unified), measured as kae measures:
+# - near/keep_away naming a pin, or a 0402 decap and a part: pad centre to pad centre (the `pad` metric), over
+#   the named pin and the bare part's pads on that pin's net (two bare parts: the nets they share but ground);
+# - other near/keep_away: the courtyard gap, which any two free parts can close to 0;
+# - on_edge: the courtyard's distance from the edge, <= the mag length (default REL_EDGE_TOL).
+# A `mag` length ("2 mm") is taken as written; an ordinal one kae scales to the parts (REL_SCALE, the decap
+# priors): s = sqrt(courtyard area of the smaller side), plus both pads' insets in their courtyards for `pad`.
+REL_DECAP_MM = {"tight": 2.5, "close": 4.9, "loose": 15.0}      # kae rel_<mag>_decap (corpus priors)
+REL_SCALE = {"tight": 0.5, "close": 2.0, "loose": 6.0}           # kae rel_<mag>_scale
+REL_GAP_MIN = 0.5                                                # kae rel_gap_min
+REL_EDGE_TOL = 1.0                                               # kae EDGE_TOL: on_edge courtyard to edge
 RELATION_TIGHT = 0.9        # reachable minimum above this fraction of the target: met only with courtyards touching
-EDGE_CLEARANCE_MM = 0.5     # KiCad's default copper-to-edge clearance (kaesynth writes no other board-wide value)
+GROUND_WORDS = ("GND", "VSS", "GROUND")
 
 
 def _rot(x, y, deg):
@@ -274,26 +282,35 @@ def _min_apart(pa, ca, pb, cb):
     return best
 
 
+def _box_gap(a, b):
+    """The gap between two boxes (0 when they touch or overlap)."""
+    dx = max(0.0, a[0] - b[2], b[0] - a[2])
+    dy = max(0.0, a[1] - b[3], b[1] - a[3])
+    return math.hypot(dx, dy)
+
+
+def _inset(pads, box, ks):
+    """The least distance from a selected pad's centre to its courtyard box's boundary (kae's pad inset)."""
+    if box is None:
+        return 0.0
+    return min(min(p[0] - box[0], box[2] - p[0], p[1] - box[1], box[3] - p[1]) for p in (pads[k] for k in ks))
+
+
 class _Parts:
     """The design's on-board parts with their footprint geometry, pad nets and board.json positions."""
 
     def __init__(self, design, fplibs, fixed):
         from .emit.project import kicad_net_name
         self.fixed = dict(fixed or {})
-        self.geo, self.nets = {}, {}
-        size = {}
+        self.geo, self.nets, self.fpname = {}, {}, {}
+        self.ground = {kicad_net_name(n) for n in design.all_nets() if getattr(n, "kind", None) == "ground"}
         for p in design.all_parts():
             if not p.on_board or not p.ref:
                 continue
-            net_of = {num: kicad_net_name(n) for num, n in p.conn.items()}
-            self.nets[p.ref] = net_of
+            self.nets[p.ref] = {num: kicad_net_name(n) for num, n in p.conn.items()}
+            self.fpname[p.ref] = p.defn.footprint or ""
             if p.defn.footprint and fplibs and fplibs.has(p.defn.footprint):
-                pads, bbox = footprint_geometry(str(fplibs.path(p.defn.footprint)), unnamed=True)
-                self.geo[p.ref] = (pads, bbox)
-                for q in pads:
-                    if q.number in net_of:
-                        size[net_of[q.number]] = size.get(net_of[q.number], 0) + 1
-        self.net_size = size
+                self.geo[p.ref] = footprint_geometry(str(fplibs.path(p.defn.footprint)), unnamed=True)
 
     def known(self, name):
         return name.split(".", 1)[0] in self.geo
@@ -306,31 +323,38 @@ class _Parts:
             return ref, None
         return ref, [k for k, q in enumerate(pads) if q.number == pin]
 
+    def is_ground(self, net):
+        return net in self.ground or any(w in (net or "").upper() for w in GROUND_WORDS)
+
+    def decap(self, ref):
+        """kae's 0402 decap: a 2-pad C part on an 0402/1005 footprint."""
+        f = self.fpname.get(ref, "")
+        return ref[:1] == "C" and ref[1:2].isdigit() and len(self.geo[ref][0]) == 2 and ("0402" in f or "1005" in f)
+
     def _pad_nets(self, ref, ks):
         pads, net_of = self.geo[ref][0], self.nets[ref]
-        return {net_of[pads[k].number] for k in (ks if ks is not None else range(len(pads)))
-                if pads[k].number in net_of}
+        return {net_of[pads[k].number] for k in (ks if ks is not None else range(len(pads))) if pads[k].number in net_of}
+
+    def _side(self, ref, ks, other):
+        if ks is not None:
+            return ks
+        pads, net_of = self.geo[ref][0], self.nets[ref]
+        return [k for k, q in enumerate(pads) if net_of.get(q.number) in other] or list(range(len(pads)))
+
+    def metric(self, a, b):
+        """'pad' (a named pin, or a 0402 decap and a part) or 'gap' (courtyards), as kae measures."""
+        (ra, ka), (rb, kb) = self.pads_of(a), self.pads_of(b)
+        return "pad" if (ka is not None or kb is not None or self.decap(ra) or self.decap(rb)) else "gap"
 
     def sides(self, a, b):
-        """kae.intent.relations.resolve's pad choice for a near/keep_away row: a named pad is that pad; a bare
-        part is its pads on a net of the other side (nets under REL_BIG_NET pads for two bare parts), else all."""
+        """kae.place.relations.Bundle.pad_sides: a named pin is that pad; a bare part is its pads on a net of
+        the other side (two bare parts: the nets they share but ground), else all its pads."""
         (ra, ka), (rb, kb) = self.pads_of(a), self.pads_of(b)
-        na, nb = self._pad_nets(ra, ka), self._pad_nets(rb, kb)
         if ka is None and kb is None:
-            na = {n for n in na if self.net_size.get(n, 0) < REL_BIG_NET}
-            nb = {n for n in nb if self.net_size.get(n, 0) < REL_BIG_NET}
-
-        def side(ref, ks, other):
-            if ks is not None:
-                return ks, "pad"
-            pads, net_of = self.geo[ref][0], self.nets[ref]
-            shared = [k for k, q in enumerate(pads) if net_of.get(q.number) in other]
-            return (shared, "shared_net") if shared else (list(range(len(pads))), "part")
-
-        sa, basis = side(ra, ka, nb)
-        pads_a = self.geo[ra][0]
-        other = ({self.nets[ra].get(pads_a[k].number) for k in sa} & (na | nb)) if basis != "part" else set()
-        sb, _ = side(rb, kb, other)
+            tie = {n for n in self._pad_nets(ra, None) & self._pad_nets(rb, None) if not self.is_ground(n)}
+            return (ra, self._side(ra, None, tie)), (rb, self._side(rb, None, tie))
+        sa = self._side(ra, ka, self._pad_nets(rb, kb))
+        sb = self._side(rb, kb, self._pad_nets(ra, sa))
         return (ra, sa), (rb, sb)
 
     def placements(self, ref):
@@ -347,15 +371,36 @@ class _Parts:
     def side_of(self, ref):
         return (self.fixed.get(ref) or {}).get("side", "top")
 
+    def target(self, row, metric, sides):
+        """The distance kae asks of a near/keep_away row, mm: a length as written, else kae's scaled magnitude."""
+        mag = row.get("mag", "close")
+        mm = _length(mag)
+        if mm is not None:
+            return mm
+        (ra, ka), (rb, kb) = sides
+        if metric == "pad" and (self.decap(ra) or self.decap(rb)) and row["kind"] == "near":
+            return REL_DECAP_MM[mag]
+        boxes = [self.placements(r)[0][2] for r in (ra, rb)]
+        areas = [(b[2] - b[0]) * (b[3] - b[1]) for b in boxes if b]
+        s = math.sqrt(min(areas)) if areas else 1.0
+        out = REL_SCALE[mag] * s
+        out = max(REL_GAP_MIN, out) if mag == "tight" else out
+        if metric == "pad":
+            for (r, ks) in sides:
+                _, pads, box = self.placements(r)[0]
+                out += _inset(pads, box, ks)
+        return out
 
-def _target(row):
-    if "within_mm" in row:
-        return float(row["within_mm"])
-    if "min_mm" in row:
-        return float(row["min_mm"])
-    if "mag" in row:
-        return REL_MAG_MM[row["mag"]]
-    return REL_EDGE_MM if row["kind"] == "edge" else REL_MAG_MM["close"]
+
+def _length(mag):
+    """A mag length ('2 mm', '2.5mm') in mm, else None (an ordinal)."""
+    m = str(mag).strip().lower()
+    if m.endswith("mm"):
+        try:
+            return float(m[:-2])
+        except ValueError:
+            return None
+    return None
 
 
 def _loosen(dmin):
@@ -363,29 +408,18 @@ def _loosen(dmin):
     return math.ceil(dmin / RELATION_TIGHT / 0.5) * 0.5
 
 
-def _edge_reach(P, ref, ks, edge, outline):
-    """(distance, how): the fixed part's measured distance, or the least one any placement inside the edge's
-    copper clearance allows (pads only: a courtyard may overhang the edge)."""
-    best = (math.inf, "")
-    for rot, pads, _ in P.placements(ref):
-        sel = [pads[k] for k in (ks if ks is not None else range(len(pads)))]
-        if ref in P.fixed:
-            W, H = outline
-            m = {"west": min(p[0] for p in sel), "east": W - max(p[0] for p in sel),
-                 "north": min(p[1] for p in sel), "south": H - max(p[1] for p in sel)}[edge]
-            return m, "fixed"
-        # coordinate of each pad measured inward from the edge, and the inset its copper needs
-        ax, sgn = {"west": (0, 1), "east": (0, -1), "north": (1, 1), "south": (1, -1)}[edge]
-        c = [sgn * p[ax] for p in pads]
-        need = max((p[2 + ax] + EDGE_CLEARANCE_MM - ci for p, ci in zip(pads, c) if p[4]), default=-min(c))
-        m = need + min(sgn * p[ax] for p in sel)
-        if m < best[0]:
-            best = (m, f"rot {rot:g}")
-    return best
+def _edge_distance(P, ref, edge, outline):
+    """A fixed part's courtyard distance from a board edge (edge:nearest: the least), mm; None without a box."""
+    _, _, box = P.placements(ref)[0]
+    if box is None or outline is None:
+        return None
+    W, H = outline
+    d = {"edge:west": box[0], "edge:east": W - box[2], "edge:north": box[1], "edge:south": H - box[3]}
+    return max(0.0, min(d.values()) if edge == "edge:nearest" else d[edge])
 
 
 def _pair_reach(P, a, ka, b, kb):
-    """(distance, how): the measured distance when both are fixed, else the least the courtyards allow
+    """(distance, how): the measured pad distance when both are fixed, else the least the courtyards allow
     (quarter turns of the free part(s); both on one side)."""
     if a in P.fixed and b in P.fixed:
         (_, pa, _), = P.placements(a)
@@ -410,76 +444,82 @@ def check_relations(design, fplibs, rows, add, fixed=None, outline=None):
 
     rows: kae.intent/1 relations (kaesynth.kae_intent.KaeIntent.relations()); fixed: board.json `fixed`
     {ref: {x, y, rot, side}}; outline: (W, H) mm, origin top-left, y down. `add(check, severity, message, objs)`.
-    A row whose sides are all fixed is dropped; a group loses the fixed members that only relate to a fixed
-    anchor (and is dropped below two members)."""
+    A row whose parts are all fixed is dropped (already decided), an error when the fixed parts break it; a
+    group loses members that are fixed with a fixed anchor (and is dropped below two members). Only a pad
+    distance can be out of the footprints' reach: two free courtyards can always touch, and kae scales an
+    ordinal magnitude to the parts."""
     P = _Parts(design, fplibs, fixed)
     kept, dropped, tight, bad, checked = [], [], [], [], 0
 
-    def infeasible(row, refs, d, m, how, fixed_both):
+    def infeasible(row, refs, d, m, how, fixed_both, what):
         rid, k = row["id"], row["kind"]
-        where = f"from the {row['edge']} edge" if k == "edge" else "apart"
         op = ">=" if k == "keep_away" else "<="
         to = math.floor(m * 2) / 2 if k == "keep_away" else _loosen(m)
         if fixed_both:
             msg = (f"{rid}: {' and '.join(refs)} {'are' if len(refs) > 1 else 'is'} fixed in board.json "
-                   f"{m:.2f} mm {where} (pad centres); the relation asks {op} {d:g} mm and the placer cannot move "
-                   f"{'them' if len(refs) > 1 else 'it'}. Loosen it to {to:g} mm, move {' or '.join(refs)} in "
-                   f"board.json, or drop the relation")
-        elif k == "edge":
-            msg = (f"{rid}: {refs[0]}'s pads cannot come nearer than {m:.2f} mm to the {row['edge']} edge ({how}; "
-                   f"{EDGE_CLEARANCE_MM:g} mm copper-to-edge clearance), the relation asks <= {d:g} mm: loosen it "
-                   f"to {to:g} mm (within_mm)")
+                   f"{m:.2f} mm {what}; the relation asks {op} {d:.2f} mm and the placer cannot move "
+                   f"{'them' if len(refs) > 1 else 'it'}. Loosen it to mag '{to:g} mm', move {' or '.join(refs)} "
+                   f"in board.json, or drop the relation")
         else:
             msg = (f"{rid}: the courtyards keep {' and '.join(refs)} at least {m:.2f} mm apart ({how}; kae "
-                   f"measures pad centre to pad centre), the relation asks <= {d:g} mm: loosen it to {to:g} mm "
-                   f"(within_mm) or change a footprint")
+                   f"measures {what}), the relation asks <= {d:.2f} mm: loosen it to mag '{to:g} mm' or change "
+                   f"a footprint")
         add("kae_intent.relation_infeasible", "error", msg, refs)
         bad.append(rid)
 
-    def judge(row, refs, d, m, how, fixed_both):
+    def judge(row, refs, d, m, how, fixed_both, what):
         """True when the row stays in the file."""
         nonlocal checked
         checked += 1
         if row["kind"] == "keep_away":
             if fixed_both and m + 1e-9 < d:
-                infeasible(row, refs, d, m, how, True)
+                infeasible(row, refs, d, m, how, True, what)
             return not fixed_both
         if m > d + 1e-9:
-            infeasible(row, refs, d, m, how, fixed_both)
+            infeasible(row, refs, d, m, how, fixed_both, what)
         elif not fixed_both and m > RELATION_TIGHT * d:
             add("kae_intent.relation_infeasible", "warning",
                 f"{row['id']}: met only with courtyards nearly touching: the footprints allow {m:.2f} mm ({how}), "
-                f"the relation asks <= {d:g} mm; loosen it to {_loosen(m):g} mm unless the placement is meant to "
-                f"be that tight", refs)
+                f"the relation asks <= {d:.2f} mm; loosen it to mag '{_loosen(m):g} mm' unless the placement is "
+                f"meant to be that tight", refs)
             tight.append(row["id"])
         return not fixed_both
 
     for row in rows:
-        k, d = row["kind"], _target(row)
+        k = row["kind"]
         if k in ("near", "keep_away"):
             if not (P.known(row["a"]) and P.known(row["b"])):
                 kept.append(row)
                 continue
-            (ra, ka), (rb, kb) = P.sides(row["a"], row["b"])
+            metric = P.metric(row["a"], row["b"])
+            (ra, ka), (rb, kb) = sides = P.sides(row["a"], row["b"])
             both = ra in P.fixed and rb in P.fixed
-            if k == "keep_away" and not both:
-                kept.append(row)
+            if not ka or not kb or (not both and (k == "keep_away" or metric == "gap"
+                                                  or _length(row.get("mag", "close")) is None)):
+                kept.append(row)          # free parts: within reach (courtyards can touch; kae scales ordinals)
                 continue
-            if not ka or not kb:
-                kept.append(row)
-                continue
-            m, how = _pair_reach(P, ra, ka, rb, kb)
-            if judge(row, [ra, rb], d, m, how, both):
+            d = P.target(row, metric, sides)
+            if metric == "pad":
+                m, how = _pair_reach(P, ra, ka, rb, kb)
+                what = "pad centre to pad centre"
+            else:
+                m, how = _box_gap(P.placements(ra)[0][2], P.placements(rb)[0][2]), "fixed"
+                what = "courtyard gap"
+            if judge(row, [ra, rb], d, m, how, both, what):
                 kept.append(row)
             else:
                 dropped.append(row["id"])
-        elif k == "edge":
-            if not P.known(row["part"]) or outline is None and row["part"] in P.fixed:
+        elif k == "on_edge":
+            ref = str(row["part"]).split(".", 1)[0]
+            if not P.known(ref) or ref not in P.fixed:
+                kept.append(row)          # a free part can reach any edge; kae pins it there
+                continue
+            m = _edge_distance(P, ref, row["edge"], outline)
+            if m is None:
                 kept.append(row)
                 continue
-            ref, ks = P.pads_of(row["part"])
-            m, how = _edge_reach(P, ref, ks, row["edge"], outline)
-            if judge(row, [ref], d, m, how, ref in P.fixed):
+            d = _length(row.get("mag", "")) or REL_EDGE_TOL
+            if judge(dict(row, kind="near"), [ref], d, m, "fixed", True, f"from {row['edge']} (courtyard)"):
                 kept.append(row)
             else:
                 dropped.append(row["id"])
@@ -488,19 +528,9 @@ def check_relations(design, fplibs, rows, add, fixed=None, outline=None):
             if len(mem) < 2:
                 kept.append(row)
                 continue
-            anchor, keep = mem[0], [row["members"][0]]
-            ra = anchor.split(".", 1)[0]
-            for m in row["members"][1:]:
-                if not P.known(m):
-                    keep.append(m)
-                    continue
-                rm = m.split(".", 1)[0]
-                ka = P.pads_of(anchor)[1] or list(range(len(P.geo[ra][0])))
-                km = P.pads_of(m)[1] or list(range(len(P.geo[rm][0])))
-                dist, how = _pair_reach(P, rm, km, ra, ka)
-                if judge(dict(row, id=f"{row['id']}/{m}", kind="near"), [rm, ra], d, dist, how,
-                         rm in P.fixed and ra in P.fixed):
-                    keep.append(m)
+            ra = mem[0].split(".", 1)[0]
+            keep = [row["members"][0]] + [m for m in row["members"][1:]
+                                          if not (P.known(m) and m.split(".", 1)[0] in P.fixed and ra in P.fixed)]
             if len(keep) >= 2:
                 kept.append(dict(row, members=keep))
             else:
