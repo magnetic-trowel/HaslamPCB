@@ -133,6 +133,8 @@ def _sprint(monkeypatch, store, plan=True, **kw):
                                                                   runner=dict(template="cp numba-default-ttttttt numba; haslam route"))),
                st=dict(id="st", name="control staged", recipe=dict(kind="joint-fixed", params={}, environment=dict(kicad_threads=2),
                                                                   runner=dict(template="haslam joint"))))
+    if "control_code" in kw:
+        ctl["br"]["code"] = kw.pop("control_code")
     monkeypatch.setattr(K, "exp_dir", lambda n: store / "experiments" / n)
     monkeypatch.setattr(K, "load_exp", lambda n: dict(name=n, attempts=2, harness=dict(commit=tag), methods=[dict(id="br"), dict(id="st")]))
     monkeypatch.setattr(K, "find_method", lambda k: ctl[k])
@@ -177,6 +179,13 @@ def test_sprint_registers_the_control_recipe_at_the_commit_and_reuses_the_stored
     assert e.boards.split(",") == boards
     assert s.prio == 5 and s.tier is None and not s.dry_run
     assert "haslamres exp report x && haslamres quality x --control 'control bridge'" in capsys.readouterr().out
+
+
+def test_sprint_names_the_arm_code_as_the_control_template_does(monkeypatch, store):
+    """A control stored before the rename of PR #163 (control-w47) runs {py:kae}: its arm's code is named kae."""
+    old = dict(kae=dict(commit="t" * 40), harness=dict(commit="t" * 40))
+    assert _sprint(monkeypatch, store, set=["k=v"], control_code=old)["method"].code == ["kae=/repo@" + "c" * 40]
+    assert _sprint(monkeypatch, store, set=["k=v"])["method"].code == ["haslam=/repo@" + "c" * 40]
 
 
 def test_sprint_params_and_note_go_on_every_arm(monkeypatch, store):

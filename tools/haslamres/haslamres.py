@@ -979,6 +979,9 @@ def cmd_sprint(a):
     note = getattr(a, "note", None)
     if any("=" not in kv for kv in extra):
         raise SystemExit("--param: give K=V")
+    # the arm's code goes under the name the control's template uses ({py:NAME}): a control stored before the
+    # rename of PR #163 (control-w47) names it kae, a later one haslam
+    cname = next((k for k in ctl.get("code") or {} if k != "harness"), "haslam")
     mids = []
     for arm, own in arms:
         sets = "".join(f" --set {kv}" for kv in common + own)
@@ -995,7 +998,7 @@ def cmd_sprint(a):
             name=f"{label} {a.base} {commit[:7]}{sets}",
             description=f"sprint arm {arm or ''} of {a.name}: {ctl['name']!r} at {commit[:7]}{sets}"
                         + (f"; {note}" if note else ""),
-            reference=False, adapter=None, binary=None, command=template, kind=ctl["recipe"]["kind"], code=[f"haslam={repo}@{commit}"],
+            reference=False, adapter=None, binary=None, command=template, kind=ctl["recipe"]["kind"], code=[f"{cname}={repo}@{commit}"],
             harness=tag, param=[f"{k}={v}" for k, v in params.items()], timeout=900,
             kicad_threads=ctl["recipe"]["environment"]["kicad_threads"], build=None, allow_dirty=False)))
     if a.suite:
