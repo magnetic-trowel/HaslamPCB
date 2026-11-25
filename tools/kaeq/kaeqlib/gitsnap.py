@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Git snapshots: a job runs a frozen copy of the submitter's tree in its own worktree."""
 import os
+import queue
+import shutil
 import subprocess
+import threading
+import time
 from .store import jobdir
 
 
@@ -50,11 +54,58 @@ def git_snapshot(cwd):
     return snapshot_or_why(cwd)[0]
 
 
-def drop_worktree(j):
-    if j["sha"] and j["root"]:
-        src = os.path.join(jobdir(j["id"]), "src")
-        subprocess.run(["git", "-C", j["root"], "worktree", "remove", "--force", src], capture_output=True)
-        subprocess.run(["git", "-C", j["root"], "worktree", "prune"], capture_output=True)
+_pending = {}            # worktree path -> threading.Event, set once a background removal of it is done
+_lock = threading.Lock()
+_work = queue.Queue()
+_thread = None
+_pruned = [0.0]
+
+
+def _remove(root, src):
+    subprocess.run(["git", "-C", root, "worktree", "remove", "--force", src], capture_output=True)
+    if os.path.lexists(src):         # no longer (or never) a registered worktree: just delete the files
+        shutil.rmtree(src, ignore_errors=True)
+    if time.time() - _pruned[0] > 3600:   # stale entries of worktrees deleted by other means; hourly is plenty
+        _pruned[0] = time.time()
+        subprocess.run(["git", "-C", root, "worktree", "prune"], capture_output=True)
+
+
+def _worker():
+    while True:
+        root, src = _work.get()
+        try:
+            _remove(root, src)
+        finally:
+            with _lock:
+                ev = _pending.pop(src, None)
+            if ev:
+                ev.set()
+
+
+def drop_worktree(j, wait=True):
+    """Remove a job's snapshot worktree. wait=False queues it for a background thread: the daemon's tick must not
+    wait for it. Deleting a source tree on a network home took 20-40 s a job, and the daemon then started jobs
+    once every 20-40 s. With wait=True (a start reusing the path, `kaeq cancel`), a queued removal of the same path
+    finishes first."""
+    global _thread
+    if not (j["sha"] and j["root"]):
+        return
+    src = os.path.join(jobdir(j["id"]), "src")
+    if wait:
+        with _lock:
+            ev = _pending.get(src)
+        if ev:
+            ev.wait()
+        _remove(j["root"], src)
+        return
+    with _lock:
+        if src in _pending:
+            return
+        _pending[src] = threading.Event()
+        if _thread is None or not _thread.is_alive():
+            _thread = threading.Thread(target=_worker, name="kaeq-worktrees", daemon=True)
+            _thread.start()
+    _work.put((j["root"], src))
 
 
 def ref(j):
