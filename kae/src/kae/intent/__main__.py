@@ -6,6 +6,10 @@ observations (python -m kae.excite.evaluate BOARD -o EVAL.json) are re-scored in
     python -m kae.intent catalog EVAL.json                 what kae measures on this board, and its sections
     python -m kae.intent status EVAL.json [--intent I.json] [--detailed] [--no-advice] [-o STATUS.json]
     python -m kae.intent compare EVAL_A.json EVAL_B.json ... [--intent I.json]
+
+Without --intent the board's own intent file (`<board>.kae_intent.json` beside the evaluated board,
+kae.intent.facts.sidecar) supplies the terms, knobs, currency and facts, as it does for the evaluator and
+the brief; neutral/1 only when the board has none. The status names the intent it used (status["intent"]).
 """
 from __future__ import annotations
 
@@ -15,6 +19,18 @@ import sys
 
 from . import objective as OB
 from . import sections as SE
+
+
+def resolve_intent(intent, ev):
+    """(intent path or None, where it came from): an explicit --intent, else the evaluated board's own intent
+    file beside it, else None (neutral/1). The same rule as the facts (kae.excite.beliefs.board_facts)."""
+    if intent:
+        return intent, "--intent"
+    from kae.intent import facts as F
+    _, path = F.for_board(ev.get("board"))
+    if path is not None:
+        return str(path), "the board's intent file"
+    return None, "none: neutral/1 defaults"
 
 
 def _brief(ev, intent=None):
@@ -49,6 +65,8 @@ def text(st, detailed=False):
         return f"{st.get('board')}: no score ({st.get('why_incomplete')})"
     t = st["tiers"]
     out.append(f"{st['board']}  [intent generation {st['observedGeneration']}, defaults {st['defaults']}]")
+    if st.get("intent"):
+        out.append(f"  intent: {st['intent'].get('path') or '(none)'} ({st['intent'].get('source')})")
     out.append(f"  hard violations {t['hard']:g}; limits {t['limit']:.4g} + costs {t['cost']:.4g} = "
                f"{t['limit'] + t['cost']:.4g} {st['currency']}")
     if st.get("not_computed"):
@@ -159,6 +177,11 @@ def main(argv=None):
     m.add_argument("--intent")
     a = ap.parse_args(argv)
     try:
+        if a.cmd in ("status", "compare"):
+            first = json.load(open(a.eval if a.cmd == "status" else a.evals[0]))
+            a.intent, src = resolve_intent(a.intent, first)
+            if src != "--intent":
+                print(f"intent: {a.intent or '(none)'} ({src})", file=sys.stderr)
         if a.cmd == "catalog":
             ev = json.load(open(a.eval))
             print(json.dumps(catalog(ev, _brief(ev)), indent=1))
@@ -166,6 +189,7 @@ def main(argv=None):
             ev = json.load(open(a.eval))
             brief = _brief(ev, a.intent)
             st = OB.evaluate(ev, a.intent, brief)
+            st["intent"] = dict(path=a.intent, source=src)
             if not a.no_advice:
                 from kae.board.kicad_file import load
                 from . import advise as AD

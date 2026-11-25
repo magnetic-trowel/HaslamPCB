@@ -489,3 +489,32 @@ def test_celsius_is_absolute_for_junctions_and_a_rise_for_tracks():
     with pytest.raises(OB.IntentError, match="absolute temperature"):
         OB.evaluate(ev, {"terms": [{"id": "J", "tier": "hard", "obs": "temp.junction", "max": "398 K", "why": "w"}]},
                     BRIEF)
+
+
+def _status_json(monkeypatch, tmp_path, argv):
+    """kae.intent status on WIDE (board in tmp_path) with the brief stubbed; returns the status dict."""
+    import json
+    from kae.intent import __main__ as M
+    ev = dict(WIDE, board=str(tmp_path / "b.kicad_pcb"))
+    (tmp_path / "ev.json").write_text(json.dumps(ev))
+    monkeypatch.setattr(M, "_brief", lambda ev, intent=None: BRIEF)
+    out = tmp_path / "st.json"
+    assert M.main(["status", str(tmp_path / "ev.json"), "--no-advice", "-o", str(out)] + argv) == 0
+    return json.loads(out.read_text())
+
+
+def test_status_without_intent_scores_the_boards_own_intent_file(monkeypatch, tmp_path):
+    import json
+    it = {"schema": "kae.intent/1", "generation": 3, "currency": "mW_eq", "terms": [
+        dict(id="T-RF", tier="limit", obs="pickup.peak", where={"to_part": "U7"}, max="1 mV", rate="10 mW_eq/mV",
+             why="GNSS front end")]}
+    neutral = _status_json(monkeypatch, tmp_path, [])
+    assert neutral["intent"] == {"path": None, "source": "none: neutral/1 defaults"}
+    assert neutral["observedGeneration"] == 0
+    (tmp_path / "b.kae_intent.json").write_text(json.dumps(it))
+    own = _status_json(monkeypatch, tmp_path, [])
+    explicit = _status_json(monkeypatch, tmp_path, ["--intent", str(tmp_path / "b.kae_intent.json")])
+    assert own["intent"]["source"] == "the board's intent file" and explicit["intent"]["source"] == "--intent"
+    assert own["observedGeneration"] == 3 and own["tiers"] == explicit["tiers"]
+    assert {r["id"] for r in own["terms"]} == {r["id"] for r in explicit["terms"]} >= {"T-RF"}
+    assert own["tiers"]["limit"] == pytest.approx(30.0)          # (4 mV - 1 mV) x 10 mW_eq/mV
