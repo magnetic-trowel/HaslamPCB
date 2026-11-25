@@ -187,3 +187,10 @@ def test_linear_regulator_heat_takes_stated_volts_and_current():
     b0 = F.apply(b0, {"parts": {"U1": {"I_A": 0.005}}})
     assert b0["parts"]["u-1"]["P_W"] == 0.255
     assert [s["id"] for s in b["structures"] if s["kind"] == "heat_source"] == ["heat:U1"]
+
+
+def test_a_controllers_own_draw_is_not_its_cells_current():
+    # parts.<ref>.I_A is the part's supply draw (haslam.excite.dc); the cell keeps its own current
+    b = F.apply(_brief(), {"parts": {"U1": {"I_A": [2.5e-5, 1e-4], "f_sw_Hz": 5e5}}})
+    ex = b["structures"][0]["excite"]
+    assert ex["I"] == 1.2 and ex["f_sw_Hz"] == 5e5

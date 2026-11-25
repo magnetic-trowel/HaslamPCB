@@ -197,8 +197,9 @@ def cell_facts(intent, sid, ctrl_ref):
     cell's own facts win), as haslam.intent.facts.apply merges them into the brief: a part's facts apply to every
     cell it controls. Not I_A: haslam.excite.dc reads parts.<ref>.I_A as the part's own supply draw (the operating
     facts' "load current"), not the current its cell commutates. Returns intent itself when that adds nothing."""
+    from haslam.intent.facts import PART_CELL_KEYS
     part = (((intent or {}).get("parts") or {}).get(ctrl_ref) or {}) if ctrl_ref else {}
-    add = {k: v for k, v in part.items() if k in ("f_sw_Hz", "t_i_s", "v_sw_max_V")}
+    add = {k: v for k, v in part.items() if k in PART_CELL_KEYS}
     if not add:
         return intent
     cells = dict((intent or {}).get("cells") or {})
