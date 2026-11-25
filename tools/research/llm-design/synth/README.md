@@ -178,9 +178,12 @@ haslamsynth writes it from three places, later ones winning:
 - `d.haslam.net(...)`, `d.haslam.part(...)`, `d.haslam.cell(controller, "buck"|"boost", I_A=(lo, typ, hi), V_V=..., vin=, vout=)`,
   `d.haslam.cable(...)`, `d.haslam.term(...)` (what this design chooses: rail sources and efficiencies, a cell's current and
   switched bus, cables, priced terms). Every fact says why; haslam's own loader checks the file at build time.
-- placement relations: `d.place.near/far/group/edge` (written as haslam's near, keep_away, group, edge) and the decoupling
-  nears the circuit implies; `near(..., within_mm=, note=)` takes a datasheet distance. Other relation kinds are not
-  written and come back as `haslam_intent.relation_unused` warnings with the reason. Only fields haslam reads are written
+- placement relations in haslam's vocabulary (docs/topics/placement/relations-unified.md): `d.place.near/far/group`
+  (near, keep_away, group; `mag` tight/close/loose, which haslam scales to the parts), `edge` (on_edge; `any` is
+  edge:nearest), `region`, `side`, `array`/`align` (row), and the decoupling nears the circuit implies;
+  `near(..., within_mm=, note=)` takes a datasheet distance, written as `mag: "<v> mm"` and measured pad to pad. The
+  build checks each against board.json's fixed parts and the footprints as haslam measures. Other relation kinds are
+  not written and come back as `haslam_intent.relation_unused` warnings with the reason. Only fields haslam reads are written
   (docs/topics/workflow/intent-file-fields.md).
 
 ### Calculations and waivers
