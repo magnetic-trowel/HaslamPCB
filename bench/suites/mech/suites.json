@@ -1,0 +1,1356 @@
+{
+ "schema": "haslam-mech-suites/1",
+ "seed": 20261120,
+ "suites": {
+  "bga": {
+   "expr": "bga",
+   "group": "packages",
+   "about": "a ball grid of 9+ balls",
+   "tier": "sprint",
+   "pool": {
+    "boards": 451,
+    "usable": 428,
+    "owners": 216,
+    "human_clean": 33
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 12,
+   "layers4": 47,
+   "footprints": [
+    5,
+    52,
+    379
+   ],
+   "cpu_h_per_arm": 13.8,
+   "own_history": 41,
+   "stored_control": 5,
+   "placed": 35
+  },
+  "bga-balls-9-64": {
+   "expr": "bga_balls.9-24 | bga_balls.25-64",
+   "group": "packages",
+   "about": "largest ball grid 9-64 balls (mostly wafer-level parts)",
+   "tier": "sprint",
+   "pool": {
+    "boards": 97,
+    "usable": 89,
+    "owners": 56,
+    "human_clean": 8
+   },
+   "boards": 37,
+   "owners": 37,
+   "human_clean": 6,
+   "layers4": 24,
+   "footprints": [
+    5,
+    54,
+    247
+   ],
+   "cpu_h_per_arm": 11.6,
+   "own_history": 16,
+   "stored_control": 1,
+   "placed": 8
+  },
+  "bga-balls-65-144": {
+   "expr": "bga_balls.65-144",
+   "group": "packages",
+   "about": "largest ball grid 65-144 balls",
+   "tier": "ladder",
+   "pool": {
+    "boards": 57,
+    "usable": 57,
+    "owners": 37,
+    "human_clean": 6
+   },
+   "boards": 30,
+   "owners": 30,
+   "human_clean": 5,
+   "layers4": 26,
+   "footprints": [
+    11,
+    88,
+    577
+   ],
+   "cpu_h_per_arm": 12.5,
+   "own_history": 14,
+   "stored_control": 0,
+   "placed": 10
+  },
+  "bga-balls-145-324": {
+   "expr": "bga_balls.145-324",
+   "group": "packages",
+   "about": "largest ball grid 145-324 balls",
+   "tier": "sprint",
+   "pool": {
+    "boards": 151,
+    "usable": 148,
+    "owners": 89,
+    "human_clean": 11
+   },
+   "boards": 36,
+   "owners": 36,
+   "human_clean": 1,
+   "layers4": 35,
+   "footprints": [
+    9,
+    108,
+    379
+   ],
+   "cpu_h_per_arm": 12.3,
+   "own_history": 31,
+   "stored_control": 1,
+   "placed": 24
+  },
+  "bga-balls-325plus": {
+   "expr": "bga_balls.325plus",
+   "group": "packages",
+   "about": "largest ball grid 325+ balls",
+   "tier": "ladder",
+   "pool": {
+    "boards": 146,
+    "usable": 134,
+    "owners": 84,
+    "human_clean": 8
+   },
+   "boards": 30,
+   "owners": 30,
+   "human_clean": 3,
+   "layers4": 30,
+   "footprints": [
+    5,
+    204,
+    595
+   ],
+   "cpu_h_per_arm": 9.4,
+   "own_history": 26,
+   "stored_control": 3,
+   "placed": 24
+  },
+  "bga-pitch-0.4": {
+   "expr": "bga_pitch.0.4",
+   "group": "packages",
+   "about": "finest ball pitch up to 0.4 mm",
+   "tier": "sprint",
+   "pool": {
+    "boards": 76,
+    "usable": 72,
+    "owners": 55,
+    "human_clean": 5
+   },
+   "boards": 30,
+   "owners": 30,
+   "human_clean": 3,
+   "layers4": 22,
+   "footprints": [
+    6,
+    61,
+    287
+   ],
+   "cpu_h_per_arm": 9.4,
+   "own_history": 17,
+   "stored_control": 0,
+   "placed": 11
+  },
+  "bga-pitch-0.5": {
+   "expr": "bga_pitch.0.5",
+   "group": "packages",
+   "about": "finest ball pitch 0.4-0.5 mm",
+   "tier": "ladder",
+   "pool": {
+    "boards": 86,
+    "usable": 83,
+    "owners": 48,
+    "human_clean": 6
+   },
+   "boards": 30,
+   "owners": 30,
+   "human_clean": 5,
+   "layers4": 22,
+   "footprints": [
+    5,
+    70,
+    1364
+   ],
+   "cpu_h_per_arm": 10.1,
+   "own_history": 16,
+   "stored_control": 1,
+   "placed": 10
+  },
+  "bga-pitch-0.65": {
+   "expr": "bga_pitch.0.65",
+   "group": "packages",
+   "about": "finest ball pitch 0.5-0.65 mm",
+   "tier": "ladder",
+   "pool": {
+    "boards": 34,
+    "usable": 32,
+    "owners": 20,
+    "human_clean": 0
+   },
+   "boards": 20,
+   "owners": 20,
+   "human_clean": 0,
+   "layers4": 18,
+   "footprints": [
+    17,
+    208,
+    741
+   ],
+   "cpu_h_per_arm": 11.1,
+   "own_history": 15,
+   "stored_control": 0,
+   "placed": 5
+  },
+  "bga-pitch-0.8": {
+   "expr": "bga_pitch.0.8",
+   "group": "packages",
+   "about": "finest ball pitch 0.65-0.8 mm",
+   "tier": "sprint",
+   "pool": {
+    "boards": 179,
+    "usable": 170,
+    "owners": 106,
+    "human_clean": 15
+   },
+   "boards": 38,
+   "owners": 38,
+   "human_clean": 3,
+   "layers4": 38,
+   "footprints": [
+    26,
+    135,
+    379
+   ],
+   "cpu_h_per_arm": 12.0,
+   "own_history": 34,
+   "stored_control": 1,
+   "placed": 31
+  },
+  "bga-pitch-1.0-1.27": {
+   "expr": "bga_pitch.1.0 | bga_pitch.1.27",
+   "group": "packages",
+   "about": "finest ball pitch 0.8-1.27 mm",
+   "tier": "ladder",
+   "pool": {
+    "boards": 76,
+    "usable": 71,
+    "owners": 40,
+    "human_clean": 7
+   },
+   "boards": 30,
+   "owners": 30,
+   "human_clean": 4,
+   "layers4": 28,
+   "footprints": [
+    5,
+    90,
+    922
+   ],
+   "cpu_h_per_arm": 12.7,
+   "own_history": 16,
+   "stored_control": 3,
+   "placed": 8
+  },
+  "fine-pitch": {
+   "expr": "( fine_pitch.le0.4 | fine_pitch.0.5 ) & ( qfn_dfn_leadless | qfp_leaded_quad ) - ball_grid_any",
+   "group": "packages",
+   "about": "QFN, DFN or QFP parts on a board whose finest pad pitch is 0.5 mm or less, no ball grid",
+   "tier": "sprint",
+   "pool": {
+    "boards": 3821,
+    "usable": 3690,
+    "owners": 1512,
+    "human_clean": 397
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 53,
+   "layers4": 29,
+   "footprints": [
+    7,
+    61,
+    257
+   ],
+   "cpu_h_per_arm": 15.0,
+   "own_history": 28,
+   "stored_control": 35,
+   "placed": 25
+  },
+  "diffpairs": {
+   "expr": "diffpair_nets",
+   "group": "signals",
+   "about": "differential pairs (P/N net names)",
+   "tier": "sprint",
+   "pool": {
+    "boards": 2126,
+    "usable": 2057,
+    "owners": 967,
+    "human_clean": 235
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 50,
+   "layers4": 27,
+   "footprints": [
+    5,
+    60,
+    257
+   ],
+   "cpu_h_per_arm": 13.5,
+   "own_history": 29,
+   "stored_control": 24,
+   "placed": 22
+  },
+  "parallel-bus": {
+   "expr": "bus_width.16-31 | bus_width.32-63 | bus_width.64plus",
+   "group": "signals",
+   "about": "a bus of 16+ nets between two parts",
+   "tier": "sprint",
+   "pool": {
+    "boards": 902,
+    "usable": 849,
+    "owners": 467,
+    "human_clean": 92
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 40,
+   "layers4": 30,
+   "footprints": [
+    6,
+    62,
+    290
+   ],
+   "cpu_h_per_arm": 13.7,
+   "own_history": 38,
+   "stored_control": 9,
+   "placed": 28
+  },
+  "pours": {
+   "expr": "power_pours",
+   "group": "structure",
+   "about": "a copper pour over at least a fifth of the board",
+   "tier": "sprint",
+   "pool": {
+    "boards": 11857,
+    "usable": 11402,
+    "owners": 3492,
+    "human_clean": 1854
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 60,
+   "layers4": 18,
+   "footprints": [
+    6,
+    57,
+    176
+   ],
+   "cpu_h_per_arm": 12.8,
+   "own_history": 36,
+   "stored_control": 45,
+   "placed": 34
+  },
+  "inner-planes": {
+   "expr": "inner_planes",
+   "group": "structure",
+   "about": "an inner layer with a plane over most of the board",
+   "tier": "sprint",
+   "pool": {
+    "boards": 2263,
+    "usable": 2219,
+    "owners": 974,
+    "human_clean": 355
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 55,
+   "layers4": 60,
+   "footprints": [
+    5,
+    60,
+    257
+   ],
+   "cpu_h_per_arm": 14.3,
+   "own_history": 33,
+   "stored_control": 34,
+   "placed": 27
+  },
+  "double-sided": {
+   "expr": "back_heavy",
+   "group": "structure",
+   "about": "parts on both sides, at least 5 and 30 % on the back",
+   "tier": "sprint",
+   "pool": {
+    "boards": 2788,
+    "usable": 2668,
+    "owners": 1299,
+    "human_clean": 385
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 60,
+   "layers4": 10,
+   "footprints": [
+    6,
+    57,
+    219
+   ],
+   "cpu_h_per_arm": 9.3,
+   "own_history": 49,
+   "stored_control": 15,
+   "placed": 46
+  },
+  "cutouts-slots": {
+   "expr": "outline_cutouts | slots",
+   "group": "structure",
+   "about": "cut-outs inside the outline or slotted holes",
+   "tier": "sprint",
+   "pool": {
+    "boards": 5544,
+    "usable": 5175,
+    "owners": 2404,
+    "human_clean": 853
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 60,
+   "layers4": 17,
+   "footprints": [
+    5,
+    59,
+    176
+   ],
+   "cpu_h_per_arm": 11.4,
+   "own_history": 44,
+   "stored_control": 29,
+   "placed": 40
+  },
+  "arrays": {
+   "expr": "repeated_matrix.16-35 | repeated_matrix.36-63 | repeated_matrix.64-99 | repeated_matrix.100plus | radial_array",
+   "group": "structure",
+   "about": "16+ identical footprints on a lattice, or on a circle",
+   "tier": "sprint",
+   "pool": {
+    "boards": 468,
+    "usable": 427,
+    "owners": 284,
+    "human_clean": 63
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 28,
+   "layers4": 5,
+   "footprints": [
+    17,
+    58,
+    325
+   ],
+   "cpu_h_per_arm": 15.3,
+   "own_history": 21,
+   "stored_control": 3,
+   "placed": 21
+  },
+  "connectors": {
+   "expr": "x_connector_dominated",
+   "group": "structure",
+   "about": "at least 4 connectors, and half of the parts are connectors",
+   "tier": "sprint",
+   "pool": {
+    "boards": 1018,
+    "usable": 921,
+    "owners": 551,
+    "human_clean": 261
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 44,
+   "layers4": 6,
+   "footprints": [
+    5,
+    39,
+    100
+   ],
+   "cpu_h_per_arm": 14.4,
+   "own_history": 10,
+   "stored_control": 2,
+   "placed": 8
+  },
+  "decoupling": {
+   "expr": "dec_rich",
+   "group": "structure",
+   "about": "many IC power pins with decoupling capacitors",
+   "tier": "sprint",
+   "pool": {
+    "boards": 3576,
+    "usable": 3476,
+    "owners": 1605,
+    "human_clean": 433
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 59,
+   "layers4": 27,
+   "footprints": [
+    11,
+    59,
+    219
+   ],
+   "cpu_h_per_arm": 15.8,
+   "own_history": 31,
+   "stored_control": 33,
+   "placed": 26
+  },
+  "buck": {
+   "expr": "pw_cell_buck",
+   "group": "power conversion and distribution",
+   "about": "a buck converter cell",
+   "tier": "sprint",
+   "pool": {
+    "boards": 1481,
+    "usable": 1440,
+    "owners": 764,
+    "human_clean": 228
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 51,
+   "layers4": 25,
+   "footprints": [
+    10,
+    59,
+    313
+   ],
+   "cpu_h_per_arm": 14.4,
+   "own_history": 36,
+   "stored_control": 28,
+   "placed": 23
+  },
+  "boost": {
+   "expr": "pw_cell_boost",
+   "group": "power conversion and distribution",
+   "about": "a boost converter cell",
+   "tier": "sprint",
+   "pool": {
+    "boards": 501,
+    "usable": 485,
+    "owners": 299,
+    "human_clean": 49
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 28,
+   "layers4": 20,
+   "footprints": [
+    9,
+    51,
+    379
+   ],
+   "cpu_h_per_arm": 15.0,
+   "own_history": 35,
+   "stored_control": 7,
+   "placed": 30
+  },
+  "ldo": {
+   "expr": "pw_ldo",
+   "group": "power conversion and distribution",
+   "about": "a linear regulator",
+   "tier": "sprint",
+   "pool": {
+    "boards": 3733,
+    "usable": 3611,
+    "owners": 1561,
+    "human_clean": 464
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 53,
+   "layers4": 19,
+   "footprints": [
+    9,
+    59,
+    257
+   ],
+   "cpu_h_per_arm": 12.6,
+   "own_history": 38,
+   "stored_control": 27,
+   "placed": 34
+  },
+  "power-distribution": {
+   "expr": "pw_multi_rail | pw_load_switch",
+   "group": "power conversion and distribution",
+   "about": "four or more rail voltages, or load switches",
+   "tier": "sprint",
+   "pool": {
+    "boards": 1364,
+    "usable": 1328,
+    "owners": 684,
+    "human_clean": 189
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 46,
+   "layers4": 23,
+   "footprints": [
+    13,
+    59,
+    313
+   ],
+   "cpu_h_per_arm": 14.4,
+   "own_history": 30,
+   "stored_control": 18,
+   "placed": 24
+  },
+  "battery-charging": {
+   "expr": "pw_charger",
+   "group": "battery and charging",
+   "about": "a battery charger",
+   "tier": "sprint",
+   "pool": {
+    "boards": 616,
+    "usable": 598,
+    "owners": 307,
+    "human_clean": 42
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 24,
+   "layers4": 21,
+   "footprints": [
+    6,
+    53,
+    359
+   ],
+   "cpu_h_per_arm": 13.9,
+   "own_history": 32,
+   "stored_control": 5,
+   "placed": 30
+  },
+  "mcu-core": {
+   "expr": "sub:mcu",
+   "group": "microcontroller core",
+   "about": "a microcontroller",
+   "tier": "sprint",
+   "pool": {
+    "boards": 3240,
+    "usable": 3116,
+    "owners": 1568,
+    "human_clean": 378
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 54,
+   "layers4": 21,
+   "footprints": [
+    9,
+    59,
+    257
+   ],
+   "cpu_h_per_arm": 13.4,
+   "own_history": 36,
+   "stored_control": 37,
+   "placed": 33
+  },
+  "crystal": {
+   "expr": "an_crystal",
+   "group": "clocking",
+   "about": "a crystal or oscillator with its load network",
+   "tier": "sprint",
+   "pool": {
+    "boards": 2858,
+    "usable": 2766,
+    "owners": 1360,
+    "human_clean": 264
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 51,
+   "layers4": 25,
+   "footprints": [
+    7,
+    59,
+    257
+   ],
+   "cpu_h_per_arm": 14.5,
+   "own_history": 28,
+   "stored_control": 34,
+   "placed": 25
+  },
+  "ddr": {
+   "expr": "if_ddr",
+   "group": "memory",
+   "about": "SDRAM or DDR memory (any generation)",
+   "tier": "sprint",
+   "pool": {
+    "boards": 207,
+    "usable": 198,
+    "owners": 119,
+    "human_clean": 16
+   },
+   "boards": 52,
+   "owners": 52,
+   "human_clean": 5,
+   "layers4": 43,
+   "footprints": [
+    5,
+    150,
+    379
+   ],
+   "cpu_h_per_arm": 15.9,
+   "own_history": 49,
+   "stored_control": 1,
+   "placed": 47
+  },
+  "ddr3": {
+   "expr": "if_ddr.ddr3",
+   "group": "memory",
+   "about": "DDR3 memory",
+   "tier": "ladder",
+   "pool": {
+    "boards": 81,
+    "usable": 76,
+    "owners": 56,
+    "human_clean": 5
+   },
+   "boards": 30,
+   "owners": 30,
+   "human_clean": 1,
+   "layers4": 30,
+   "footprints": [
+    129,
+    285,
+    1020
+   ],
+   "cpu_h_per_arm": 12.4,
+   "own_history": 29,
+   "stored_control": 1,
+   "placed": 21
+  },
+  "ddr4-ddr5": {
+   "expr": "if_ddr.ddr4 | if_ddr.ddr5",
+   "group": "memory",
+   "about": "DDR4 or DDR5 memory",
+   "tier": "ladder",
+   "pool": {
+    "boards": 10,
+    "usable": 8,
+    "owners": 6,
+    "human_clean": 2
+   },
+   "boards": 6,
+   "owners": 6,
+   "human_clean": 2,
+   "layers4": 6,
+   "footprints": [
+    65,
+    237,
+    4546
+   ],
+   "cpu_h_per_arm": 5.1,
+   "own_history": 6,
+   "stored_control": 0,
+   "placed": 3
+  },
+  "flash-sd": {
+   "expr": "if_qspi | if_sd_emmc",
+   "group": "memory",
+   "about": "QSPI flash, SD card or eMMC",
+   "tier": "sprint",
+   "pool": {
+    "boards": 642,
+    "usable": 621,
+    "owners": 355,
+    "human_clean": 61
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 24,
+   "layers4": 33,
+   "footprints": [
+    6,
+    66,
+    313
+   ],
+   "cpu_h_per_arm": 13.5,
+   "own_history": 35,
+   "stored_control": 11,
+   "placed": 31
+  },
+  "field-bus": {
+   "expr": "if_can | if_rs485",
+   "group": "wired interfaces",
+   "about": "CAN or RS-485 (low speed, long cable)",
+   "tier": "sprint",
+   "pool": {
+    "boards": 401,
+    "usable": 380,
+    "owners": 199,
+    "human_clean": 51
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 23,
+   "layers4": 16,
+   "footprints": [
+    5,
+    42,
+    377
+   ],
+   "cpu_h_per_arm": 16.1,
+   "own_history": 15,
+   "stored_control": 4,
+   "placed": 12
+  },
+  "usb": {
+   "expr": "if_usb2 | if_usb_c",
+   "group": "wired interfaces",
+   "about": "USB data pairs or a USB-C connector",
+   "tier": "sprint",
+   "pool": {
+    "boards": 3380,
+    "usable": 3269,
+    "owners": 1546,
+    "human_clean": 329
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 55,
+   "layers4": 27,
+   "footprints": [
+    8,
+    56,
+    257
+   ],
+   "cpu_h_per_arm": 13.4,
+   "own_history": 34,
+   "stored_control": 32,
+   "placed": 29
+  },
+  "ethernet": {
+   "expr": "if_ethernet",
+   "group": "wired interfaces",
+   "about": "Ethernet (10/100 or 1G)",
+   "tier": "sprint",
+   "pool": {
+    "boards": 355,
+    "usable": 340,
+    "owners": 177,
+    "human_clean": 26
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 9,
+   "layers4": 26,
+   "footprints": [
+    5,
+    70,
+    366
+   ],
+   "cpu_h_per_arm": 17.1,
+   "own_history": 23,
+   "stored_control": 3,
+   "placed": 20
+  },
+  "multi-gigabit": {
+   "expr": "( if_usb3 & net:usb3_ss ) | if_pcie | if_sata | if_hdmi.tmds_pairs",
+   "group": "wired interfaces",
+   "about": "USB 3, PCIe, SATA or HDMI pairs (5 Gbit/s class)",
+   "tier": "sprint",
+   "pool": {
+    "boards": 255,
+    "usable": 246,
+    "owners": 129,
+    "human_clean": 22
+   },
+   "boards": 56,
+   "owners": 56,
+   "human_clean": 9,
+   "layers4": 44,
+   "footprints": [
+    14,
+    71,
+    379
+   ],
+   "cpu_h_per_arm": 19.0,
+   "own_history": 36,
+   "stored_control": 3,
+   "placed": 18
+  },
+  "sata": {
+   "expr": "if_sata",
+   "group": "wired interfaces",
+   "about": "SATA",
+   "tier": "ladder",
+   "pool": {
+    "boards": 16,
+    "usable": 13,
+    "owners": 11,
+    "human_clean": 1
+   },
+   "boards": 11,
+   "owners": 11,
+   "human_clean": 1,
+   "layers4": 10,
+   "footprints": [
+    41,
+    366,
+    4546
+   ],
+   "cpu_h_per_arm": 6.4,
+   "own_history": 5,
+   "stored_control": 1,
+   "placed": 0
+  },
+  "rf-antenna": {
+   "expr": "rf_antenna.connector | rf_antenna.discrete_part",
+   "group": "wireless",
+   "about": "RF copper on the board: a feed line to an antenna connector or an antenna part",
+   "tier": "sprint",
+   "pool": {
+    "boards": 1122,
+    "usable": 1063,
+    "owners": 459,
+    "human_clean": 124
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 45,
+   "layers4": 27,
+   "footprints": [
+    8,
+    60,
+    377
+   ],
+   "cpu_h_per_arm": 15.0,
+   "own_history": 26,
+   "stored_control": 12,
+   "placed": 23
+  },
+  "radio-module": {
+   "expr": "rf_wifi_ble | rf_lora | rf_gnss",
+   "group": "wireless",
+   "about": "a radio IC or module (WiFi/BLE, LoRa or other sub-GHz, 802.15.4, GNSS)",
+   "tier": "sprint",
+   "pool": {
+    "boards": 2100,
+    "usable": 2000,
+    "owners": 1131,
+    "human_clean": 292
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 47,
+   "layers4": 17,
+   "footprints": [
+    7,
+    61,
+    257
+   ],
+   "cpu_h_per_arm": 11.3,
+   "own_history": 41,
+   "stored_control": 20,
+   "placed": 36
+  },
+  "analog-opamp": {
+   "expr": "an_opamp",
+   "group": "analog signal chain",
+   "about": "op-amps",
+   "tier": "sprint",
+   "pool": {
+    "boards": 1476,
+    "usable": 1414,
+    "owners": 655,
+    "human_clean": 254
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 52,
+   "layers4": 11,
+   "footprints": [
+    9,
+    61,
+    205
+   ],
+   "cpu_h_per_arm": 11.2,
+   "own_history": 31,
+   "stored_control": 13,
+   "placed": 31
+  },
+  "adc-dac": {
+   "expr": "sub:adc_dac",
+   "group": "analog signal chain",
+   "about": "a discrete ADC or DAC",
+   "tier": "sprint",
+   "pool": {
+    "boards": 654,
+    "usable": 632,
+    "owners": 366,
+    "human_clean": 77
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 34,
+   "layers4": 17,
+   "footprints": [
+    7,
+    55,
+    299
+   ],
+   "cpu_h_per_arm": 13.6,
+   "own_history": 34,
+   "stored_control": 6,
+   "placed": 30
+  },
+  "sensors": {
+   "expr": "sub:sensor",
+   "group": "sensing",
+   "about": "a sensor IC",
+   "tier": "sprint",
+   "pool": {
+    "boards": 1351,
+    "usable": 1301,
+    "owners": 603,
+    "human_clean": 161
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 47,
+   "layers4": 22,
+   "footprints": [
+    5,
+    57,
+    359
+   ],
+   "cpu_h_per_arm": 14.4,
+   "own_history": 26,
+   "stored_control": 8,
+   "placed": 22
+  },
+  "audio": {
+   "expr": "dom_audio | if_i2s",
+   "group": "audio",
+   "about": "an audio board (codec, amplifier, jacks) or an I2S link",
+   "tier": "sprint",
+   "pool": {
+    "boards": 1075,
+    "usable": 1043,
+    "owners": 487,
+    "human_clean": 203
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 50,
+   "layers4": 11,
+   "footprints": [
+    7,
+    61,
+    313
+   ],
+   "cpu_h_per_arm": 11.6,
+   "own_history": 34,
+   "stored_control": 8,
+   "placed": 32
+  },
+  "video-links": {
+   "expr": "if_hdmi.tmds_pairs | if_mipi | if_lvds",
+   "group": "display and camera",
+   "about": "HDMI, MIPI or LVDS pairs",
+   "tier": "sprint",
+   "pool": {
+    "boards": 313,
+    "usable": 295,
+    "owners": 129,
+    "human_clean": 22
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 9,
+   "layers4": 42,
+   "footprints": [
+    6,
+    70,
+    379
+   ],
+   "cpu_h_per_arm": 18.9,
+   "own_history": 35,
+   "stored_control": 1,
+   "placed": 19
+  },
+  "displays": {
+   "expr": "hit:display_part",
+   "group": "display and camera",
+   "about": "a display part or display connector",
+   "tier": "sprint",
+   "pool": {
+    "boards": 1523,
+    "usable": 1440,
+    "owners": 885,
+    "human_clean": 230
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 50,
+   "layers4": 4,
+   "footprints": [
+    7,
+    58,
+    227
+   ],
+   "cpu_h_per_arm": 11.9,
+   "own_history": 33,
+   "stored_control": 8,
+   "placed": 29
+  },
+  "motor-gate-drivers": {
+   "expr": "pw_motor_driver | pw_gate_driver",
+   "group": "motor and power stages",
+   "about": "a motor driver or gate driver IC",
+   "tier": "sprint",
+   "pool": {
+    "boards": 409,
+    "usable": 393,
+    "owners": 260,
+    "human_clean": 60
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 29,
+   "layers4": 14,
+   "footprints": [
+    12,
+    45,
+    356
+   ],
+   "cpu_h_per_arm": 14.7,
+   "own_history": 18,
+   "stored_control": 6,
+   "placed": 14
+  },
+  "isolation": {
+   "expr": "iso_isolator | iso_dcdc_module | hit:iso_dcdc | hit:acdc_module",
+   "group": "isolation and mains",
+   "about": "an optocoupler or digital isolator, or an isolated DC-DC or AC-DC module",
+   "tier": "sprint",
+   "pool": {
+    "boards": 756,
+    "usable": 721,
+    "owners": 430,
+    "human_clean": 149
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 50,
+   "layers4": 13,
+   "footprints": [
+    5,
+    49,
+    305
+   ],
+   "cpu_h_per_arm": 13.9,
+   "own_history": 25,
+   "stored_control": 12,
+   "placed": 19
+  },
+  "mains": {
+   "expr": "hit:acdc_module",
+   "group": "isolation and mains",
+   "about": "an AC-DC module on the mains (other mains inputs are not detected reliably)",
+   "tier": "sprint",
+   "pool": {
+    "boards": 84,
+    "usable": 81,
+    "owners": 61,
+    "human_clean": 19
+   },
+   "boards": 49,
+   "owners": 49,
+   "human_clean": 17,
+   "layers4": 5,
+   "footprints": [
+    8,
+    41,
+    305
+   ],
+   "cpu_h_per_arm": 13.1,
+   "own_history": 7,
+   "stored_control": 3,
+   "placed": 5
+  },
+  "protection": {
+   "expr": "pr_connector_esd",
+   "group": "protection and connectors",
+   "about": "ESD or TVS parts on the pins of cable connectors",
+   "tier": "sprint",
+   "pool": {
+    "boards": 607,
+    "usable": 583,
+    "owners": 361,
+    "human_clean": 109
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 47,
+   "layers4": 22,
+   "footprints": [
+    7,
+    59,
+    379
+   ],
+   "cpu_h_per_arm": 14.9,
+   "own_history": 27,
+   "stored_control": 10,
+   "placed": 26
+  },
+  "keyboards": {
+   "expr": "dom_keyboard",
+   "group": "arrays and human interface",
+   "about": "a key-switch matrix",
+   "tier": "sprint",
+   "pool": {
+    "boards": 1189,
+    "usable": 1134,
+    "owners": 683,
+    "human_clean": 208
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 57,
+   "layers4": 2,
+   "footprints": [
+    6,
+    58,
+    197
+   ],
+   "cpu_h_per_arm": 10.5,
+   "own_history": 33,
+   "stored_control": 3,
+   "placed": 32
+  },
+  "led-arrays": {
+   "expr": "( repeated_matrix.16-35 | repeated_matrix.36-63 | repeated_matrix.64-99 | repeated_matrix.100plus | radial_array | repeated_cells.aligned_rows ) & x_addressable_leds_16",
+   "group": "arrays and human interface",
+   "about": "16+ addressable LEDs in a matrix, rows or a ring",
+   "tier": "sprint",
+   "pool": {
+    "boards": 236,
+    "usable": 225,
+    "owners": 155,
+    "human_clean": 33
+   },
+   "boards": 57,
+   "owners": 57,
+   "human_clean": 17,
+   "layers4": 2,
+   "footprints": [
+    26,
+    72,
+    201
+   ],
+   "cpu_h_per_arm": 19.9,
+   "own_history": 19,
+   "stored_control": 2,
+   "placed": 12
+  },
+  "fpga": {
+   "expr": "hit:fpga | hit:cpld_only",
+   "group": "programmable logic",
+   "about": "an FPGA or CPLD",
+   "tier": "sprint",
+   "pool": {
+    "boards": 355,
+    "usable": 340,
+    "owners": 207,
+    "human_clean": 34
+   },
+   "boards": 60,
+   "owners": 60,
+   "human_clean": 11,
+   "layers4": 27,
+   "footprints": [
+    5,
+    60,
+    276
+   ],
+   "cpu_h_per_arm": 14.1,
+   "own_history": 33,
+   "stored_control": 3,
+   "placed": 25
+  },
+  "flex": {
+   "expr": "flex_hint",
+   "group": "thin in the corpus",
+   "about": "a flex or rigid-flex stackup",
+   "tier": "ladder",
+   "pool": {
+    "boards": 16,
+    "usable": 13,
+    "owners": 8,
+    "human_clean": 4
+   },
+   "boards": 8,
+   "owners": 8,
+   "human_clean": 3,
+   "layers4": 2,
+   "footprints": [
+    5,
+    24,
+    651
+   ],
+   "cpu_h_per_arm": 1.9,
+   "own_history": 2,
+   "stored_control": 0,
+   "placed": 2
+  },
+  "passive-01005": {
+   "expr": "passive_01005",
+   "group": "thin in the corpus",
+   "about": "01005 passives",
+   "tier": "ladder",
+   "pool": {
+    "boards": 19,
+    "usable": 18,
+    "owners": 17,
+    "human_clean": 2
+   },
+   "boards": 17,
+   "owners": 17,
+   "human_clean": 2,
+   "layers4": 12,
+   "footprints": [
+    22,
+    118,
+    2482
+   ],
+   "cpu_h_per_arm": 9.7,
+   "own_history": 6,
+   "stored_control": 1,
+   "placed": 3
+  },
+  "microvias": {
+   "expr": "microvias | blind_buried_vias",
+   "group": "thin in the corpus",
+   "about": "microvias, blind or buried vias",
+   "tier": "ladder",
+   "pool": {
+    "boards": 102,
+    "usable": 99,
+    "owners": 50,
+    "human_clean": 5
+   },
+   "boards": 30,
+   "owners": 30,
+   "human_clean": 2,
+   "layers4": 22,
+   "footprints": [
+    10,
+    67,
+    258
+   ],
+   "cpu_h_per_arm": 10.8,
+   "own_history": 7,
+   "stored_control": 0,
+   "placed": 2
+  }
+ }
+}

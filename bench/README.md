@@ -85,6 +85,16 @@ the same lists. Rebuild monthly, with a new seed for the random part.
   rates of the restart-wrapped `s2-merit213` controls, one seed of `sprint-frontier` is about 54 CPU-h (bridge) or
   69 (staged place-and-route); `haslamres exp create` prints the estimate it uses.
 
+### Mechanism suites and coverage
+
+- `suites/mech/<name>.txt`: one list per mechanism and per standard kind of circuit (54: `bga` and its ball-count and pitch
+  bands, `fine-pitch`, `diffpairs`, `buck`, `pours`, `usb`, ...), for experiments on that mechanism:
+  [suites/mech/README.md](suites/mech/README.md). Built by `python3 tools/haslamres/mechsuites.py --tags DIR`.
+- [suites/COVERAGE.md](suites/COVERAGE.md): per kind, the usable boards, human-clean boards and owners in the corpus and
+  the kind's boards in each suite, by size and layer count; the holes. Built by `python3 tools/haslamres/coverage.py --tags DIR`,
+  which also writes `sprint-quality-additions.txt` and `ladder-additions.txt`: boards of kinds the two suites held
+  too few of. They are separate lists; the original suites are unchanged.
+
 ### Reproducing PCBWorld's routing baseline
 
 PCBWorld's D3 boards are PCBench boards run through PCBWorld's own chain: KiCad 5→9.0.8 conversion, DRC repair, guide generation. Build them with that chain, then import them:
