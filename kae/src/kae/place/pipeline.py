@@ -672,6 +672,8 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         log(f"rules: KiCad drops the .kicad_dru ({rejected}); placing with net-class and board rules only")
     rep["brief"] = dict(source=src, structures=len((brief or {}).get("structures") or []),
                         labels=len((brief or {}).get("labels") or []))
+    if (brief or {}).get("intent_use"):
+        rep["intent_use"] = brief["intent_use"]      # each intent term and knob, and which stage reads it
     stage("brief", t)
 
     t = clock_now()

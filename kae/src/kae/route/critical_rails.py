@@ -361,9 +361,17 @@ def _class_only(ctx, m, tag, rt, opt):
     return True
 
 
-def drop_share(ctx):
-    """The rail + ground drop budget as a fraction of the rail voltage: opts drop_share (an
-    intent's requirements.drop_share, critical.intent_opts), else DROP_SHARE."""
+def drop_share(ctx, net=None, v=None):
+    """The rail + ground drop budget as a fraction of the rail voltage: the tightest drop.rail bound
+    of the intent that covers `net` over its `v` volts (opts intent_drop, kae.intent.uses: the
+    evaluator's drop.rail is the rail and ground copper together, as this budget; a stated
+    requirements.drop_share when tighter), else opts
+    drop_share (an intent's requirements.drop_share, critical.intent_opts), else DROP_SHARE."""
+    if net is not None and v and ctx.opts.get("intent_drop"):
+        from kae.intent.uses import route_limit
+        lim, _ = route_limit(ctx.opts, "intent_drop", net)
+        if lim is not None:
+            return min(float(lim) / abs(v), (ctx.opts.get("intent_req") or {}).get("drop_share", math.inf))
     return float(ctx.opts.get("drop_share") or DROP_SHARE)
 
 
@@ -382,12 +390,12 @@ def _plating(ctx):
 def _vias_for(ctx, net, cur):
     """Through vias the net's current needs between two layers (critical_physics.vias_needed for the
     net's via drill; opts via_A: a fixed current per via, 1.0 for TI's "one via per amp")."""
-    return vias_needed(cur, ctx.sp.via_size(net)[1], _plating(ctx), dT_max(ctx),
+    return vias_needed(cur, ctx.sp.via_size(net)[1], _plating(ctx), dT_max(ctx, net),
                        per_via_a=float(ctx.opts.get("via_A") or 0.0) or None)
 
 
 def _via_check(ctx, rep, net, cur, nominal, placed, needed, where):
-    hz = via_hazard(cur, placed, needed, ctx.sp.via_size(net)[1], _plating(ctx), dT_max(ctx), [net],
+    hz = via_hazard(cur, placed, needed, ctx.sp.via_size(net)[1], _plating(ctx), dT_max(ctx, net), [net],
                     nominal_a=nominal, where=where, per_via_a=float(ctx.opts.get("via_A") or 0.0) or None)
     if hz is not None:
         rep.setdefault("hazards", []).append(hz)
@@ -395,7 +403,7 @@ def _via_check(ctx, rep, net, cur, nominal, placed, needed, where):
 
 def _heat_check(ctx, rep, code, cur, width, t_mm, net, nominal, where, w_ipc=None):
     """A heat hazard in `rep` when `width` of copper is narrower than `cur` asks (heat_hazard)."""
-    hz = heat_hazard(code, cur, width, t_mm, dT_max(ctx), [net], nominal_a=nominal, where=where, w_ipc=w_ipc)
+    hz = heat_hazard(code, cur, width, t_mm, dT_max(ctx, net), [net], nominal_a=nominal, where=where, w_ipc=w_ipc)
     if hz is not None:
         rep.setdefault("hazards", []).append(hz)
 
@@ -422,7 +430,7 @@ def _branch_widths(ctx, m, tag, b, cur, w_ipc, w_drop, w_feed, opt, n=4):
 def _route_rail(ctx, rl, mode, gnd_pour):
     net, src = rl["net"], rl["src"]
     v = ctx.volts(net) or 3.3
-    dv_rail = drop_share(ctx) * v * (0.8 if gnd_pour else 0.5)
+    dv_rail = drop_share(ctx, net, v) * v * (0.8 if gnd_pour else 0.5)
     design = rl["design"]
     nominal = _nominal(rl)
     m = Module(id=f"rail:{net}", kind="rail", spec=dict(net=net), parts=[src] + list(rl["loads"]))
@@ -438,12 +446,12 @@ def _route_rail(ctx, rl, mode, gnd_pour):
     lmax = _dist_part(ctx, far, rl["parts"][far], (st.x, st.y)) * 1.3
     layer = ctx.side_layer(src)
     t_cu = ctx.sp.tcu.get(layer, 0.035)
-    w_need = max(ipc2221_width(design, dT=dT_max(ctx), t_mm=t_cu), drop_width(design, lmax, dv_rail, t_cu))
+    w_need = max(ipc2221_width(design, dT=dT_max(ctx, net), t_mm=t_cu), drop_width(design, lmax, dv_rail, t_cu))
     mn, opt, mx = ctx.sp.width_limits(net, layer)
     rep["width_needed_mm"] = round(w_need, 3)
     if mode == "auto" and w_need <= 1.2 * opt:
         rep["note"] = f"class width {opt} mm carries {design:.2f} A within budget: left to the general router"
-        hz = heat_hazard("rail_class_width_warm", design, opt, t_cu, dT_max(ctx), [net], nominal_a=nominal,
+        hz = heat_hazard("rail_class_width_warm", design, opt, t_cu, dT_max(ctx, net), [net], nominal_a=nominal,
                          where=f"rail {net} (general router, class width)")
         if hz is not None:
             rep.setdefault("hazards", []).append(hz)
@@ -489,7 +497,7 @@ def _route_rail(ctx, rl, mode, gnd_pour):
         dist = math.hypot(lt.x - st.x, lt.y - st.y)
         lay = ctx.side_layer(u)
         t_cu = ctx.sp.tcu.get(lay, 0.035)
-        w_ipc = ipc2221_width(cur, dT=dT_max(ctx), t_mm=t_cu)
+        w_ipc = ipc2221_width(cur, dT=dT_max(ctx, net), t_mm=t_cu)
         w_drop = drop_width(cur, 1.3 * dist, dv_rail, t_cu)
         w_feed = min(st.width, lt.width) if cur >= 0.25 else 0.0
         widths, floor = _branch_widths(ctx, m, f"br:{u}", b, cur, w_ipc, w_drop, w_feed, opt)
@@ -519,7 +527,7 @@ def _route_rail(ctx, rl, mode, gnd_pour):
                      drop_mV=round(1e3 * R * cur, 2))
             t_min = min((ctx.sp.tcu.get(l_, 0.035) for l_, _, _ in rt.segs), default=t_cu)
             _heat_check(ctx, rep, "copper_below_ipc_width", cur, rt.width, t_min, net, nom, where,
-                        ipc2221_width(cur, dT=dT_max(ctx), t_mm=t_min))
+                        ipc2221_width(cur, dT=dT_max(ctx, net), t_mm=t_min))
             if rt.vias:
                 _via_check(ctx, rep, net, cur, nom, 1, _vias_for(ctx, net, cur), where + " (layer change)")
         rep["branches"].append(b)
@@ -708,7 +716,7 @@ def _ground_return(ctx, m, rl, dv):
         mn, opt, mx = ctx.sp.width_limits(g, lay)
         dist = math.hypot(lt.x - st.x, lt.y - st.y)
         b = dict(load=f.ref, current_A=round(cur, 3))
-        widths, floor = _branch_widths(ctx, m, f"gr:{u}", b, cur, ipc2221_width(cur, dT=dT_max(ctx), t_mm=t_cu),
+        widths, floor = _branch_widths(ctx, m, f"gr:{u}", b, cur, ipc2221_width(cur, dT=dT_max(ctx, g), t_mm=t_cu),
                                        drop_width(cur, 1.3 * dist, dv, t_cu),
                                        min(st.width, lt.width) if cur >= 0.25 else 0.0, opt)
         srcs = [anchor(st)] + ctx.net_copper_anchors(g, connected_to=st)
@@ -815,7 +823,7 @@ def _route_ground(ctx, g, ground_load, rails, mode, ground_nom=None):
             lay = ctx.side_layer(u)
             mn, opt, mx = ctx.sp.width_limits(g, lay)
             # never below IPC-2221 for its current (the class width only when that is wider)
-            w_t = max(ipc2221_width(a, dT=dT_max(ctx), t_mm=ctx.sp.tcu.get(lay, 0.035)), opt)
+            w_t = max(ipc2221_width(a, dT=dT_max(ctx, g), t_mm=ctx.sp.tcu.get(lay, 0.035)), opt)
             srcs = [anchor(st)] + ctx.net_copper_anchors(g)
             rt = route_hop(ctx, m, f"gr:{u}", g, [anchor(lt)], srcs, [w_t],
                            [ctx.sp.cu[0], ctx.sp.cu[-1]], via=True, via_cost=5.0)
