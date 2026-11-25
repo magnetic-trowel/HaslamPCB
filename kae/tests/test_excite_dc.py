@@ -711,7 +711,8 @@ def test_a_cells_loads_draw_their_own_currents_not_its_output_shared_out():
     pl = _cell_board_plan()
     assert pl.feeds["3V3"]["kind"] == "cell" and pl.feeds["3V3"]["I_hi"] == 2.0
     by = {ld["ref"]: ld for ld in pl.loads}
-    assert set(by) == {"U2", "U3", "J2"}
+    assert set(by) == {"U2", "U3"}                             # the header exports nothing the facts do not state
+    assert any("J2@3V3" in n for n in pl.notes)
     ps = {(p.subject, p.name): p for p in pl.params}
     sens = ps[by["U3"]["key"]]
     assert (sens.lo, sens.hi, sens.source) == (1e-6, 1e-2, "prior") and sens.typ == pytest.approx(1e-4)
@@ -720,10 +721,10 @@ def test_a_cells_loads_draw_their_own_currents_not_its_output_shared_out():
     for IL in (0.2, 1.0, 2.0):                                 # whatever the cell's operating point
         cv["cell:c1"] = {"I_A": IL, "D": 3.3 / 12.0}
         inj = DC.injections(pl, cv)
-        xs[IL] = (inj["U2.1"], inj["U3.1"], inj["J2.1"])
+        xs[IL] = (inj["U2.1"], inj["U3.1"])
         assert sum(inj.values()) == pytest.approx(0.0, abs=1e-12)
     assert len(set(xs.values())) == 1
-    assert xs[1.0] == (pytest.approx(-cv[by["U2"]["key"]]), pytest.approx(-sens.typ), pytest.approx(-cv[by["J2"]["key"]]))
+    assert xs[1.0] == (pytest.approx(-cv[by["U2"]["key"]]), pytest.approx(-sens.typ))
     bd = NS(part_kind={"U2": ("ic", "mcu"), "U3": ("ic", "sensor")})
     heat = H.part_heat(bd, pl, cv, {}, inj)
     assert heat["U3"] == pytest.approx(sens.typ * 3.3) and heat["U3"] < 1e-3
@@ -733,7 +734,11 @@ def test_a_cells_loads_draw_their_own_currents_not_its_output_shared_out():
     assert sum(x) == pytest.approx(2.0)
 
 
-def test_a_part_table_supply_current_is_a_loads_current():
+def test_a_stated_export_and_a_part_table_supply_current_are_loads():
+    pl = _cell_board_plan({"parts": {"J2": {"I_A": [0.05, 0.2]}}})
+    by = {ld["ref"]: ld for ld in pl.loads}
+    ps = {(p.subject, p.name): p for p in pl.params}
+    assert "J2" in by and ps[by["J2"]["key"]].source == "intent" and ps[by["J2"]["key"]].hi == pytest.approx(0.2)
     orig = DC.lookup_part
     try:
         DC.lookup_part = lambda text: {"I_supply_A": (5e-5, 3e-5, 8e-5, "a datasheet")}

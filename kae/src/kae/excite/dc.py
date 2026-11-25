@@ -28,7 +28,8 @@ each return to where it really goes (a do-not-populate part takes no part in it)
                                            enters at the controller
 
 Every load draws its own current (the facts' I_A, the part table's supply current, else a class prior:
-a sense, monitor or data-converter IC microamperes to milliamperes), whatever feeds its rail. A rail fed by a cell carries the sum of its loads' currents
+a sense, monitor or data-converter IC microamperes to milliamperes, a connector export only where the
+facts state it), whatever feeds its rail. A rail fed by a cell carries the sum of its loads' currents
 (and of the regulators it feeds, through their ratios); the cell's I_A interval (the AC ledger's, the
 operating range the switching harms use) only bounds it from above.
 
@@ -407,6 +408,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
              and any(net == r2 for _, net, _, _ in pads.get(ref, []))}
         return n.get(r, 0) / sum(n.values()) if sum(n.values()) else 1.0
     # loads: parts that draw from a rail and return at their own ground
+    exports_unstated = []
     # an export through a connector without a ground pad of its own returns through the board's other connectors'
     # grounds (a stack connector carries the rail, its mate the ground)
     conn_g_all = conn_g
@@ -430,13 +432,16 @@ def plan(board, brief, bd, P, srcs, intent=None):
             if not g:
                 continue
             iv = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_A")
+            if kind == "connector" and iv is None:
+                # an export leaves the board only where the facts say how much (a header's supply pin usually
+                # feeds nothing on the bench; a guessed tenth of its rating loaded every header)
+                exports_unstated.append(f"{ref}@{r}")
+                continue
             if kind in LOAD_PRIOR:
                 a = LOAD_PRIOR[kind] if supply(ref, r) and draws_from(pp, r, rails) or kind == "oscillator" else 0.0
             else:
                 a = load_current(ctx, u, r, {}, draws=draws_from(pp, r, rails) if kind in ("ic", "module") else None)
-            if kind == "connector":
-                a = 0.1 * a                          # an export: a tenth of its rating, typically
-            if a <= 0:
+            if a <= 0 and kind != "connector":
                 continue
             ld = dict(ref=ref, rail=r, sup=supply(ref, r), gnd=g, prior=a)
             # the intent states a part's whole current: on several rails it is split by their share of the part's
@@ -461,9 +466,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
                 p = Param(f"dc:{ref}@{r}", "I_A", math.sqrt(lo * hi), lo, hi, "A", "prior",
                           f"{sub} IC supply current (sense, monitor and data-converter ICs draw uA to mA; class range)")
             else:
-                lo, hi = (a / 10, 5 * a) if kind == "connector" else (a / 3, 3 * a)
-                p = Param(f"dc:{ref}@{r}", "I_A", a, lo, hi, "A", "prior",
-                          f"{kind} load current by class (E5) {'0.01-0.5 x its rating' if kind == 'connector' else 'x/3 .. x3'}")
+                p = Param(f"dc:{ref}@{r}", "I_A", a, a / 3, 3 * a, "A", "prior", f"{kind} load current by class (E5) x/3 .. x3")
             pl.params.append(p)
             ld["key"] = (p.subject, p.name)
             pl.loads.append(ld)
@@ -491,6 +494,8 @@ def plan(board, brief, bd, P, srcs, intent=None):
         mine = [t for n, net, _, _ in pads.get(ref, []) for t in tok(ref, [n]) if net in fed or net in grounds]
         pl.self_loads.append(dict(ref=ref, rail=r, key=(p.subject, p.name), pads=mine or tok(ref, [n for n, _, _, _ in pads.get(ref, [])])))
         pl.notes.append(f"{r}: {ref} powers itself from off the board; its own draw heats it but flows in no carrier copper")
+    if exports_unstated:
+        pl.notes.append("connector exports the facts do not state, left out: " + ", ".join(sorted(exports_unstated)))
     loaded = {ld["rail"] for ld in pl.loads}
     for r, f in pl.feeds.items():
         if f["kind"] == "cell" and not any(r in _chain(pl, r2) for r2 in loaded):
