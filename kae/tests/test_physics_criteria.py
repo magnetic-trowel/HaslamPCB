@@ -163,3 +163,11 @@ def test_a_stated_rating_always_sets_the_budget(monkeypatch):
     assert not any(b.startswith("V_abs = 20") for b in ex["basis"])           # the table's basis gave way
     known = PR.hot_loop_budget("boost", 5.0, v_abs=PR.budget_v_abs(ex)).value
     assert known > PR.hot_loop_budget("boost", 5.0).value                      # 28 V loosens the 5 V prior's 7 V
+
+
+def test_a_controllers_part_facts_complete_its_cells_facts():
+    from kae.excite.params import cell_facts
+    f = {"parts": {"U1": {"f_sw_Hz": 5e5, "t_i_s": 3e-9, "I_A": 0.004}}, "cells": {"cell:buck:U1": {"t_i_s": 1e-9}}}
+    c = cell_facts(f, "cell:buck:U1", "U1")["cells"]["cell:buck:U1"]
+    assert c == {"f_sw_Hz": 5e5, "t_i_s": 1e-9}          # the cell's own win; a part's I_A is its own draw
+    assert cell_facts(f, "cell:buck:U2", "U2") is f

@@ -574,7 +574,11 @@ def _intent_cell(ctx, m):
         return {}
     facts = intent.get("facts") if intent.get("schema") == "kae.intent/1" else intent
     cs = (facts or {}).get("cells") or {}
-    return cs.get(m.id) or cs.get(f"cell:{m.id}") or {}
+    sid = m.id if m.id in cs else f"cell:{m.id}"
+    # the controller's part facts apply to every cell it controls (kae.intent.facts.apply), the cell's own win
+    from kae.excite.params import cell_facts
+    ref = (((ctx.brief or {}).get("parts") or {}).get(m.spec.get("controller")) or {}).get("ref")
+    return ((cell_facts(facts, sid, ref) or {}).get("cells") or {}).get(sid) or {}
 
 
 def _intent_converter(ctx, m):
