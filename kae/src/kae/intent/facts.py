@@ -37,7 +37,9 @@ INTENT_EXT = ".kae_intent.json"
 SCHEMA = "kae.intent/1"
 NET_KEYS = ("V_V", "range_V", "source", "from", "kind", "eta", "I_A", "why")
 CELL_KEYS = ("V_V", "I_A", "f_sw_Hz", "t_i_s", "v_sw_max_V", "vin", "vout", "why")
-PART_CELL_KEYS = ("f_sw_Hz", "t_i_s", "v_sw_max_V", "I_A")
+# a controller's facts that are its cells' too. Not I_A: parts.<ref>.I_A is the part's own supply draw
+# (kae.excite.dc's load current, the operating facts' "load current"), not the current its cells commutate
+PART_CELL_KEYS = ("f_sw_Hz", "t_i_s", "v_sw_max_V")
 
 
 class FactsError(ValueError):
