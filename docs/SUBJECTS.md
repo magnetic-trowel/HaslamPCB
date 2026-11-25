@@ -989,7 +989,7 @@ Use: `grep -i '<term>' docs/SUBJECTS.md`. The first link is the likeliest main d
 - contrastive explanation: [ux/explanations-and-alternatives#contrastive-and-counterfactual-explanation-of-solver-output](topics/ux/explanations-and-alternatives.md#contrastive-and-counterfactual-explanation-of-solver-output)
 - control: [research/joint/sequential-controls#seq-control](research/joint/sequential-controls.md#seq-control)
 - control router: [research/routing/freerouting-rc10-vs-fork-2611](research/routing/freerouting-rc10-vs-fork-2611.md)
-- control-w47: [verification/experiment-tiers](topics/verification/experiment-tiers.md)
+- control-w47: [verification/experiment-tiers#weekly-tag-and-stored-control](topics/verification/experiment-tiers.md#weekly-tag-and-stored-control)
 - controlled comparison: [verification/benchmark-plan#benchmark-tracks](topics/verification/benchmark-plan.md#benchmark-tracks)
 - controller-keyed limits: [research/routing/bus-yardstick-2611](research/routing/bus-yardstick-2611.md)
 - convention: [workflow/what-good-looks-like#taste-vs-physics](topics/workflow/what-good-looks-like.md#taste-vs-physics); [physics/derivation-audit#method](topics/physics/derivation-audit.md#method)
