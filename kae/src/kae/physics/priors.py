@@ -113,12 +113,22 @@ GAN_C_OSS_PF = 100.0
 
 
 def budget_v_abs(excite):
-    """The V_abs the placer's and the critical router's hot-loop allocation uses: the switch's own rating
-    (structure excite V_abs, from parts.json) under CR.shared_overshoot() (KAE_SHARED_OVERSHOOT=1), else
-    None (the 1.25 V_in ladder prior, the behaviour before the ratings reached the placer). An A/B arm: a
-    known rating can loosen a budget several-fold (a 5 V boost on a 30 V switch) or tighten it. Hazards
-    always use the known rating."""
-    return (excite or {}).get('V_abs') if CR.shared_overshoot() else None
+    """The V_abs the placer's and the critical router's hot-loop allocation uses. A rating the commander's facts
+    state (facts parts.<ref>.v_sw_max_V or cells.<id>.v_sw_max_V; kae.intent.facts.apply writes it as excite
+    V_abs with V_abs_source 'intent') always: a stated fact reaches every consumer. A rating from the part
+    table (structure excite V_abs, from parts.json) only under CR.shared_overshoot() (KAE_SHARED_OVERSHOOT=1;
+    its A/B, components-overshoot-ab, kept it off: the known rating loosened 11 boards' loops 1.4x with no gain
+    elsewhere); else None (the 1.25 V_in ladder prior). Hazards always use the known rating."""
+    ex = excite or {}
+    if ex.get('V_abs') and (ex.get('V_abs_source') == 'intent' or CR.shared_overshoot()):
+        return ex['V_abs']
+    return None
+
+
+def v_abs_source(excite):
+    """Where a cell's V_abs comes from: 'intent' (the facts), 'part' (the part table) or 'prior' (none known)."""
+    ex = excite or {}
+    return (ex.get('V_abs_source') or 'part') if ex.get('V_abs') else 'prior'
 
 
 def v_abs_rating(v_in, margin=CR.RATING_MARGIN):
