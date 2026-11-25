@@ -131,12 +131,14 @@ def apply(brief, facts, origin="intent"):
     nets = brief.setdefault("nets", {})
     uuid_of = {p.get("ref"): u for u, p in (brief.get("parts") or {}).items()}
     ref_of = {u: r for r, u in uuid_of.items()}
+    before = {}                                  # a stated net's volts before the facts (a name's or divider's)
     for name, d in (facts.get("nets") or {}).items():
         if name not in nets:
             rec["unmatched"].append(f"nets.{name}: no such net on the board")
             continue
         n = nets[name]
         if "V_V" in d:
+            before[name] = n.get("volts")
             v = float(d["V_V"])
             lo, hi = _interval(d.get("range_V", v), name)[1:]
             rec["applied"].append(dict(what=f"nets.{name}.volts", value=v, was=n.get("volts")))
@@ -160,11 +162,15 @@ def apply(brief, facts, origin="intent"):
     for cid in (facts.get("cells") or {}):
         if cid not in known:
             rec["unmatched"].append(f"cells.{cid}: no such commutation cell; this board's cells are {sorted(known)}")
+    stated = {n for n, d in (facts.get("nets") or {}).items() if "V_V" in d and n in nets}
+    for p in [s for s in brief.get("structures") or [] if s.get("kind") == "power_path"]:
+        _path_volts(p, nets, stated, before, rec, origin)
     for s in cells:
         ctrl = ref_of.get(s.get("controller"))
         merged = {k: v for k, v in ((facts.get("parts") or {}).get(ctrl) or {}).items() if k in PART_CELL_KEYS}
         merged.update({k: v for k, v in ((facts.get("cells") or {}).get(s["id"]) or {}).items() if k != "why"})
         if not merged:
+            _cell_bus_volts(s, nets, stated, rec, origin)
             continue
         for k in ("vin", "vout"):
             if k in merged:
@@ -189,12 +195,47 @@ def apply(brief, facts, origin="intent"):
             ex[field] = typ * scale
             ex.setdefault("interval", {})[field] = [lo * scale, hi * scale]
             basis.append(f"{field} = {typ * scale:g} [{lo * scale:g}, {hi * scale:g}] from the {origin}")
-        if ex.get("V") is None:                  # the switched voltage: the cell's bus, now that its rail has volts
-            bus = s.get("rail") if s.get("class") in ("buck", "half_bridge") else s.get("vout") or s.get("rail")
-            v = (nets.get(bus) or {}).get("volts")
-            if v:
-                rec["applied"].append(dict(what=f"{s['id']}.excite.V", value=abs(v), was=None, via=f"nets.{bus}"))
-                ex["V"] = abs(v)
-                basis.append(f"V = {abs(v):g} V, the volts of {bus} from the {origin}")
+        if "V_V" not in merged:                  # the cell's own V_V stands; else the volts of its bus
+            _cell_bus_volts(s, nets, stated, rec, origin)
     brief["facts"] = rec
     return brief
+
+
+def _path_volts(p, nets, stated, before, rec, origin):
+    """A power path's voltage (excite V, read from its rails' names when the brief was built) from a rail whose
+    volts the facts state: the rail whose old reading it carried, else (V unknown) its input, else its output."""
+    ex = p.setdefault("excite", {})
+    ends = [n for n in (p.get("rail_in"), p.get("rail_out")) if n in stated]
+    if not ends:
+        return
+    was = ex.get("V")
+    hit = next((n for n in ends if was is not None and before.get(n) is not None
+                and abs(float(before[n])) == abs(float(was))), None) if was is not None else ends[0]
+    v = (nets.get(hit) or {}).get("volts") if hit else None
+    if not v or (was is not None and abs(v) == abs(was)):
+        return
+    rec["applied"].append(dict(what=f"{p['id']}.excite.V", value=abs(v), was=was, via=f"nets.{hit}"))
+    ex["V"] = abs(v)
+    ex.setdefault("basis", []).append(f"V = {abs(v):g} V, the volts of {hit} from the {origin}"
+                                      + (f" (replaces {was:g} V)" if was is not None else ""))
+
+
+def _cell_bus_volts(s, nets, stated, rec, origin):
+    """A cell's switched voltage (excite V) from its bus rail: a buck's or half bridge's rail, else its vout or
+    rail. A bus whose volts the facts state sets it even over a value read from the rail's name or a divider
+    (stated facts win over name guesses: the placer, the router and the evaluator's observers price the cell
+    at it); a bus without a stated voltage only fills an unknown V. The replaced value and its basis are
+    recorded."""
+    ex = s.setdefault("excite", {})
+    bus = s.get("rail") if s.get("class") in ("buck", "half_bridge") else s.get("vout") or s.get("rail")
+    v = (nets.get(bus) or {}).get("volts")
+    if not v or (ex.get("V") is not None and bus not in stated) or ex.get("V") == abs(v):
+        return
+    was = ex.get("V")
+    rec["applied"].append(dict(what=f"{s['id']}.excite.V", value=abs(v), was=was, via=f"nets.{bus}"))
+    basis = ex.setdefault("basis", [])
+    if was is not None:                      # the name's or divider's reading is no longer the basis
+        basis[:] = [x for x in basis if not x.startswith("V ")]
+    ex["V"] = abs(v)
+    basis.append(f"V = {abs(v):g} V, the volts of {bus} from the {origin}"
+                 + (f" (replaces {was:g} V)" if was is not None else ""))
