@@ -420,6 +420,8 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
                         il = demand * max(1.0, DC._ratio(dcp, cell["vout"], cv)) if cell["vout"] in dcp.feeds else demand
                     else:
                         il = CV.inductor_from_output(cell.get("top") or cell["cls"], demand, D)
+                    # no more than its operating range's top (the DC flow current-limits its loads there too)
+                    il = min(il, (dcp.feeds.get(cell["vout"]) or {}).get("I_hi") or il)
                 else:
                     pi = next((p for p in (P.get(s.name) or {}).values() if getattr(p, "name", "") == "I_A"), None)
                     il = pi.lo if pi is not None else il0
