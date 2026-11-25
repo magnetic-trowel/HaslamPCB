@@ -707,6 +707,19 @@ def route_cell(ctx, m):
             h_, pl_, pn_ = ctx.plane(L0, (ta.x + tb.x) / 2, (ta.y + tb.y) / 2, gnd=True, nets=R)
             if pl_ is not None and pn_ == net:
                 max_len = 1.5 * d + 1.0
+                if R is not ctx.gnd:
+                    # a return net that is no ground (an inverter's -Vout) closes its loop through its plane only by
+                    # vias at both ends: with no legal via site at one of them, a locked surface return would be the
+                    # loop's whole return path (hv-probe's U21: 10.3 mm round its parts, 3.56 nH against the 2.05 nH
+                    # the general router made with three vias into the -10V plane). The hop is left to the general
+                    # router, which may reach the plane where this stage could not.
+                    lay = side if side in ta.layers else ta.layers[0]
+                    bad = [t for t in (ta, tb) if not via_candidates(ctx, t, lay, net, pl_, max_n=4)]
+                    if bad:
+                        refs_ = ", ".join(f"{getattr(ctx.fp.get(t.fp), 'ref', t.fp)}.{t.pad}" for t in bad)
+                        m.notes.append(f"hop {k} ({net}): no legal return-via site at {refs_}; left to the general router")
+                        m.spec.setdefault("_left", []).append(k)
+                        continue
         m.spec.setdefault("_floor", {})[f"hop{k}"] = max(mn, w_cur)    # what the current needs: trim_widths' floor
         rt = route_hop(ctx, m, f"hop{k}", net, [anchor(ta)], [anchor(tb)], widths, [L0], via=False, max_len=max_len,
                        optional=max_len is not None)

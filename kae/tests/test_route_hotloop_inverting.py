@@ -151,3 +151,17 @@ def test_the_cells_stage_lays_a_dual_rail_ics_negative_half(tmp_path, monkeypatc
     W.edit(rep["board"], out, drop_guards=True)
     (tmp_path / "out.kicad_pro").write_text((tmp_path / "in" / "board.kicad_pro").read_text())
     assert len(drc.errors(drc.run(out, tmp_path / "out.json"))) <= len(base)
+
+
+def test_a_return_with_no_via_site_at_one_end_is_left_to_the_general_router(tmp_path, monkeypatch):
+    """The -5V pour stops short of the input capacitor (as hv-probe's -10V plane did of C72): the return hop's vias
+    have no legal site at C1. The stage locked a surface return round the parts as the loop's whole return (hv-probe
+    U21: 10.3 mm, 3.56 nH where the general router made 2.05 nH with vias into the plane); it now leaves that hop to
+    the general router and says so."""
+    monkeypatch.setenv("KAE_CELLS_INVERTING", "1")
+    p = write_inverting_board(tmp_path / "in", "direct", routed=False, neg_pour=(119.0, 106.0, 136.0, 116.0))
+    rep = hotloop.stage(p, F.synth_info(load(p)), tmp_path / "w", ALL, log=lambda *a: None)
+    (c,) = [c for c in rep["cells"] if c["id"] == CELL]
+    assert any("no legal return-via site at C1.2; left to the general router" in n for n in c["notes"])
+    tracks = [t for t in load(Path(rep["board"])).tracks if t.net == "-5V"]
+    assert not any(min(t.start[0], t.end[0]) < 118.0 for t in tracks)       # nothing locked to C1's -5V pad
