@@ -670,8 +670,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         uncomputed.append("dc")
     return dict(board=path, pitch=pitch, window=window, seconds=round(time.time() - t0, 1), seed=seed,
                 total=totals(tot, uncomputed),
-                ledger=ledger.rows(), questions=[dict(subject=p.subject, name=p.name, lo=p.lo, hi=p.hi, unit=p.unit,
-                                                      basis=p.basis) for p in ledger.flagged()],
+                ledger=ledger.rows(), questions=_questions(ledger, dcp),
                 bands={k: v for k, v in bands.items()}, rings=rings,
                 open_cells=[dict(source=k, why=v) for k, v in sorted(open_cells.items())], cells=cell_rows, drc=drc_src,
                 scope=scope,
@@ -685,6 +684,14 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                 notes=notes + [f"pad {p}: not in the copper model" for p in missing][:20],
                 assumptions=bd.assumptions, stackup=dict(source=b.stackup.source, gaps_mm=list(b.stackup.gaps)), pins=(intent or {}).get("pins") or None)
 
+
+
+def _questions(ledger, dcp):
+    """The ledger's priors (what the commander could supply); a connector export the DC plan assumed at 1 % of
+    its rating carries the push-back's fields (haslam.excite.dc.export_questions: kind, field, assumed_A, ask)."""
+    ex = DC.export_questions(dcp) if dcp else {}
+    return [dict(dict(subject=p.subject, name=p.name, lo=p.lo, hi=p.hi, unit=p.unit, basis=p.basis),
+                 **ex.get((p.subject, p.name), {})) for p in ledger.flagged()]
 
 # observer kinds whose pairs keep their pickup by pads (`transfer` with dv): haslam.intent.advise's circuit what-ifs
 WHATIF_KINDS = ("victim", "supply")

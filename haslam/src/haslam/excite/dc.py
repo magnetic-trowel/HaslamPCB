@@ -28,7 +28,8 @@ each return to where it really goes (a do-not-populate part takes no part in it)
                                            enters at the controller
 
 Every load draws its own current (the facts' I_A, the part table's supply current, else a class prior:
-a sense, monitor or data-converter IC microamperes to milliamperes), whatever feeds its rail. A rail fed by a cell carries the sum of its loads' currents
+a sense, monitor or data-converter IC microamperes to milliamperes; a connector's export the facts do not state,
+EXPORT_SHARE of its rating, and the evaluation asks for it), whatever feeds its rail. A rail fed by a cell carries the sum of its loads' currents
 (and of the regulators it feeds, through their ratios); the cell's I_A interval (the AC ledger's, the
 operating range the switching harms use) only bounds it from above.
 
@@ -77,6 +78,16 @@ LOAD_KINDS = ("ic", "module", "connector", "led") + tuple(LOAD_PRIOR)
 # up to a few mA; the copper-sizing priors (haslam.route.critical_rails.IC_A, 2-10 mA) are deliberately high
 MONITOR_SUB = ("adc_dac", "sensor", "current_sense", "battery_monitor", "reference")
 MONITOR_A = (1e-6, 1e-2)
+# A connector on a fed rail with a ground pad exports the rail. Where the facts do not state its current, it draws
+# 1 % of its class rating (0.01 x: 10 mA through a 1 A header pin, 30 mA through a 3 A USB receptacle): most
+# such pins feed a sensor, a programmer or nothing on the bench, and a signal line through the same connector
+# carries microamperes. The band is x/10 .. x10 around it (0.1 % .. 10 % of the rating): its top is the old
+# typical guess (a tenth of the rating), so the DC band still checks drop and track heating at that current, and
+# the load never leaves the plan (a board whose only loads are exports keeps its DC band; dropping unstated
+# exports emptied sbarabe's and qubik's). The evaluation lists every such export in `questions` (kind
+# "export_current") so the board's author states the real current or confirms it is signal-level.
+EXPORT_SHARE = 0.01
+EXPORT_BAND = (0.1, 10.0)       # lo, hi as factors of the assumed current
 SUPPLY_PIN = re.compile(r"^(V(CC|DD|IN|BAT|BUS|S|M|PP|IO|CORE|DDA|DDIO|USB|SYS|P|\+)\w*|AVDD|DVDD|IOVDD|PVDD|PVIN|"
                         r"AVCC|DVCC|VIN\d*|PWR|POWER|\+V\w*|V\+|VREG_IN|IN)$", re.I)
 VOLT_PIN = re.compile(r"^\+?\d+V\d*$|^\+?\d+(\.\d+)?V$", re.I)     # '3V3', '5V', '+1.8V': a supply pin by its voltage
@@ -121,6 +132,33 @@ class Plan:
         self.notes = []
         self.dc_pads = set()
         self.self_loads = []    # dict(ref, rail, key, pads): parts that power themselves from off the board (heat only)
+        self.exports_assumed = []   # dict(ref, rail, key, rating_A, assumed_A, lo_A, hi_A, only_load): unstated exports
+
+
+def export_questions(pl):
+    """{(subject, name): fields} for each connector export the plan assumed at EXPORT_SHARE of its rating: the
+    push-back to the board's author (haslam.excite.evaluate adds them to its `questions`, haslam.intent status lists
+    them first). Machine-readable: the fact to state (`field`), the value used, and why it might differ."""
+    out = {}
+    for ex in pl.exports_assumed:
+        why = []
+        if ex.get("only_load"):
+            why.append("it is its rail's only load: the assumption is the rail's whole current")
+        if ex["rating_A"] >= 3.0:
+            why.append(f"a {ex['rating_A']:g} A connector is likely a power connector")
+        f = pl.feeds.get(ex["rail"]) or {}
+        if f.get("kind") == "cell":
+            why.append(f"its rail is fed by {f['cell']['id']}, whose operating current follows its loads")
+        ref, r, a = ex["ref"], ex["rail"], ex["assumed_A"]
+        out[ex["key"]] = dict(
+            kind="export_current", ref=ref, rail=r, rating_A=ex["rating_A"], assumed_A=a,
+            assumed_share=EXPORT_SHARE, band_A=[ex["lo_A"], ex["hi_A"]], field=f"parts.{ref}.I_A",
+            also=f"parts.{ref}.I_sustained_A", might_differ=why, priority="high" if why else "normal",
+            ask=(f"{ref} exports {r} off the board and the facts do not state its current; assumed "
+                 f"{a * 1e3:.3g} mA ({EXPORT_SHARE * 100:g} % of its {ex['rating_A']:g} A rating). What does it carry? "
+                 f"State parts.{ref}.I_A in A (a value or [lo, hi]; I_sustained_A for the typical draw), "
+                 f"or 0 if only signals or nothing draw from it."))
+    return out
 
 
 def _pads(board):
@@ -434,8 +472,9 @@ def plan(board, brief, bd, P, srcs, intent=None):
                 a = LOAD_PRIOR[kind] if supply(ref, r) and draws_from(pp, r, rails) or kind == "oscillator" else 0.0
             else:
                 a = load_current(ctx, u, r, {}, draws=draws_from(pp, r, rails) if kind in ("ic", "module") else None)
+            rating = a if kind == "connector" else None
             if kind == "connector":
-                a = 0.1 * a                          # an export: a tenth of its rating, typically
+                a = EXPORT_SHARE * a                 # an export: 1 % of its rating unless the facts say (EXPORT_SHARE)
             if a <= 0:
                 continue
             ld = dict(ref=ref, rail=r, sup=supply(ref, r), gnd=g, prior=a)
@@ -460,13 +499,19 @@ def plan(board, brief, bd, P, srcs, intent=None):
                 lo, hi = MONITOR_A
                 p = Param(f"dc:{ref}@{r}", "I_A", math.sqrt(lo * hi), lo, hi, "A", "prior",
                           f"{sub} IC supply current (sense, monitor and data-converter ICs draw uA to mA; class range)")
-            else:
-                lo, hi = (a / 10, 5 * a) if kind == "connector" else (a / 3, 3 * a)
+            elif kind == "connector":
+                lo, hi = a * EXPORT_BAND[0], a * EXPORT_BAND[1]
                 p = Param(f"dc:{ref}@{r}", "I_A", a, lo, hi, "A", "prior",
-                          f"{kind} load current by class (E5) {'0.01-0.5 x its rating' if kind == 'connector' else 'x/3 .. x3'}")
+                          f"connector export not stated by the facts: {EXPORT_SHARE * 100:g} % of its {rating:g} A rating "
+                          f"({lo / rating * 100:.3g} % .. {hi / rating * 100:.3g} %); state parts.{ref}.I_A")
+            else:
+                p = Param(f"dc:{ref}@{r}", "I_A", a, a / 3, 3 * a, "A", "prior", f"{kind} load current by class (E5) x/3 .. x3")
             pl.params.append(p)
             ld["key"] = (p.subject, p.name)
             pl.loads.append(ld)
+            if kind == "connector" and p.source == "prior":
+                pl.exports_assumed.append(dict(ref=ref, rail=r, key=ld["key"], rating_A=rating, assumed_A=a,
+                                               lo_A=p.lo, hi_A=p.hi))
     # self-powered consumers: a part that sources a rail from off the board (its own USB or battery) and draws
     # its own current there: no DC flow in the carrier's copper, but its own dissipation heats the board
     pl.self_loads = []
@@ -491,6 +536,13 @@ def plan(board, brief, bd, P, srcs, intent=None):
         mine = [t for n, net, _, _ in pads.get(ref, []) for t in tok(ref, [n]) if net in fed or net in grounds]
         pl.self_loads.append(dict(ref=ref, rail=r, key=(p.subject, p.name), pads=mine or tok(ref, [n for n, _, _, _ in pads.get(ref, [])])))
         pl.notes.append(f"{r}: {ref} powers itself from off the board; its own draw heats it but flows in no carrier copper")
+    for ex in pl.exports_assumed:
+        ex["only_load"] = all(ld["ref"] == ex["ref"] for ld in pl.loads if ld["rail"] == ex["rail"])
+    if pl.exports_assumed:
+        pl.notes.append(f"connector exports the facts do not state, assumed at {EXPORT_SHARE * 100:g} % of their rating: "
+                        + ", ".join(f"{ex['ref']}@{ex['rail']} {ex['assumed_A'] * 1e3:.3g} mA"
+                                    for ex in pl.exports_assumed[:12])
+                        + (f" (+{len(pl.exports_assumed) - 12} more)" if len(pl.exports_assumed) > 12 else ""))
     loaded = {ld["rail"] for ld in pl.loads}
     for r, f in pl.feeds.items():
         if f["kind"] == "cell" and not any(r in _chain(pl, r2) for r2 in loaded):
