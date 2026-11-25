@@ -303,17 +303,19 @@ def _loss(m, ref, cells, nets, fn, fp, touched):
             how = f"conversion loss at {CONVERTER_ETA:.0%} efficiency (none stated)"
         return P, lo, hi, f"{how} of P_out {pout:.3g} W = {v:g} V x {I:g} A" + ("" if vo else " x 0.5"), used
     if law == "linear":
+        # the pass current is its output rail's: nets.<vout>.I_A when stated (not parts.<ref>.I_A, which
+        # kae.excite.dc reads as the regulator's own supply draw, its quiescent current)
         used = [f"nets.{n}.V_V" for n in (m.get("vin"), m.get("vout")) if n in fn and "V_V" in fn[n]]
-        iv = (fp.get(ref) or {}).get("I_A")
+        iv = (fn.get(m.get("vout")) or {}).get("I_A") if m.get("vout") else None
         if iv is not None:
-            used.append(f"parts.{ref}.I_A")
+            used.append(f"nets.{m['vout']}.I_A")
         if not used:
             return None
         vi = volts(m.get("vin"))
         vo = volts(m.get("vout")) if m.get("vout") else m.get("vout_V")
         if not vi or vo is None:
             return None
-        I, ilo, ihi = _interval(iv, f"parts.{ref}.I_A") if iv is not None else (m["I_A"], m["I_A"] / 3, m["I_A"] * 3)
+        I, ilo, ihi = _interval(iv, f"nets.{m['vout']}.I_A") if iv is not None else (m["I_A"], m["I_A"] / 3, m["I_A"] * 3)
         d = max(abs(vi) - abs(vo), 0.0)
         return d * I, d * ilo, d * ihi, f"(Vin {abs(vi):g} - Vout {abs(vo):g}) V x {I:g} A", used
     return None

@@ -180,6 +180,10 @@ def test_linear_regulator_heat_takes_stated_volts_and_current():
     b = {"nets": {"VIN": {"volts": 5.0}, "VOUT": {"volts": 3.3}}, "structures": [],
          "parts": {"u-1": {"ref": "U1", "P_W": 0.255, "P_W_model": {"law": "linear", "vin": "VIN", "vout": "VOUT",
                                                                    "vout_V": 3.3, "I_A": 0.15}}}}
-    b = F.apply(b, {"nets": {"VIN": {"V_V": 12.0}}, "parts": {"U1": {"I_A": 0.1}}})
+    b0 = copy.deepcopy(b)
+    b = F.apply(b, {"nets": {"VIN": {"V_V": 12.0}, "VOUT": {"I_A": 0.1}}})
     assert b["parts"]["u-1"]["P_W"] == pytest.approx(0.87)
+    # a part's own I_A is its supply draw (kae.excite.dc), not its pass current: no change
+    b0 = F.apply(b0, {"parts": {"U1": {"I_A": 0.005}}})
+    assert b0["parts"]["u-1"]["P_W"] == 0.255
     assert [s["id"] for s in b["structures"] if s["kind"] == "heat_source"] == ["heat:U1"]
