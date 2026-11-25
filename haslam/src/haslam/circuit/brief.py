@@ -314,6 +314,9 @@ def _build(board, *, use_sheets: bool = True) -> dict:
              'confidence': round(r.confidence if sid is None else max(r.confidence, min(r.kind_confidence, 0.9)), 3),
              'kind_confidence': round(r.kind_confidence, 3),
              'evidence': evidence_json(r.evidence, 6), 'value': pr.value, 'lib_id': pr.lib_id}
+        if ref in st['heat_models']:
+            # the law and inputs of its loss (P_W), which haslam.intent.facts.apply re-sizes from stated facts
+            d['P_W_model'] = dict(st['heat_models'][ref])
         if r.attrs:
             d['attrs'] = {k: v for k, v in r.attrs.items() if v is not None}
         if member_of.get(ref):
