@@ -87,7 +87,7 @@ def overshoot_hazard(cell, objects, v_bus, overshoot, v_abs=None, derate=OVERSHO
     fix = ("shrink the hot loop (input capacitor beside the switch and its ground, on the same layer, "
            "return on the adjacent plane), or slow the edge / add a snubber")
     if not known:
-        fix += "; state the switch's V_max (intent cells.<id>.V_max_V or haslam/src/haslam/excite/parts.json)"
+        fix += "; state the switch's rating (the intent's facts parts.<controller>.v_sw_max_V or cells.<id>.v_sw_max_V, or haslam/src/haslam/excite/parts.json)"
     return dict(code=code, severity=sev, category="electrical", message=msg, objects=list(objects),
                 evidence=ev, fix=fix)
 

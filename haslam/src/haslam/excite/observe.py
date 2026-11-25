@@ -228,6 +228,26 @@ def _ref(tok):
     return tok.rsplit(".", 1)[0] if tok and "." in tok else None
 
 
+def rate_overshoot(obs, P):
+    """Each cell's overshoot observer re-based on the switch rating the facts state (the ledger P's V_max with
+    source "intent": cells.<id> or parts.<controller>.v_sw_max_V): its reference bound, basis and source class
+    name that rating and where it came from instead of the 1.25 x V prior. Per-corner bounds already read
+    V_max_V from the ledger (harm.overshoot_bound). A part-table rating leaves the reference as it was (the
+    corpus boards' outputs stay unchanged; their per-corner bounds use it all the same)."""
+    for o in obs:
+        if o.kind != "overshoot":
+            continue
+        pv = P.get(o.meta.get("source")) or {}
+        vm, V = pv.get("V_max"), pv.get("V")
+        if vm is None or V is None or vm.source != "intent":
+            continue
+        o.bound = CR.overshoot_limits(V.typ, vm.typ)[0]
+        o.basis = f"{CR.overshoot_basis(V.typ, vm.typ)}; rating from {vm.basis}"
+        o.src_class = vm.source
+        o.meta["V_abs_V"], o.meta["V_abs_source"] = vm.typ, vm.source
+    return obs
+
+
 def observation(bd, o, s, values, us, fs=()):
     """One (observer, aggressor) pair as a haslam.intent observation: its physical value at every corner
     (V peak; for cm the common-mode voltage between the two connectors' grounds at its worst harmonic,
