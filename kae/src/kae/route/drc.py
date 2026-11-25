@@ -106,6 +106,16 @@ def _run(board, out_json, timeout, cache, mb):
     return rep
 
 
+_QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
+def _paren_depth(line):
+    """The change in S-expression depth over a line, quoted strings left out (a net named 'Net-(U2-PA13(JTMS)'
+    has an unbalanced parenthesis inside its quotes)."""
+    s = _QUOTED.sub('""', line)
+    return s.count("(") - s.count(")")
+
+
 def canonical_copper_order(board, uuids=False):
     """Rewrite `board` with its top-level (segment), (arc) and (via) blocks in the order of their content.
     KiCad writes copper in UUID order, new on every import of a routed board, and its ratsnest breaks ties
@@ -119,11 +129,12 @@ def canonical_copper_order(board, uuids=False):
         ln = lines[i]
         if ln.startswith(("\t(segment", "\t(arc", "\t(via")) and not ln.startswith("\t(via_"):
             j, depth = i, 0
-            while True:
-                depth += lines[j].count("(") - lines[j].count(")")
+            while j < len(lines):
+                depth += _paren_depth(lines[j])
                 if depth <= 0:
                     break
                 j += 1
+            j = min(j, len(lines) - 1)
             blocks.append(lines[i:j + 1])
             if first is None:
                 first = len(out)
