@@ -28,6 +28,7 @@ Purposes: (1) spare others dead ends: failures are written up as carefully as su
 - `docs/research/ideas.md`: untested ideas by theme.
 - Code: `tools/research/<path>/`; the `haslam` package in `haslam/`; code not ported is cited by branch and commit.
 - Archived code: prototypes that nothing in HEAD runs were removed on 2026-11-15 and stay public at tag [`archive/research-prototypes-2611`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/research-prototypes-2611/tools/research); their pages link there. Map: [tools/research/README.md](../../tools/research/README.md#archived-prototypes).
+- Archived branches: the November 2026 experiment branches were deleted after their write-ups; each tried line keeps its code at tag `archive/<branch>` (= branch tip, pre-rename `kae` paths). Index: [archive-tags-2611](archive-tags-2611.md); dead ends: [dead-ends-2611](dead-ends-2611.md), [2611b](dead-ends-2611b.md), [2611c](dead-ends-2611c.md), [2611d](dead-ends-2611d.md).
 
 ## Areas
 
