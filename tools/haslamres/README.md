@@ -86,7 +86,7 @@ $K method add "fr-fork master" --binary ~/.cache/haslambench/haslam-freerouting-
 $K method add "haslam bridge" --command "{py:haslam} -m haslam.route.cli route {input} {output} --seed {attempt} --time {timeout}" \
    --code haslam=.@origin/claude/vigilant-mayer-i91rrr        # place / joint: --kind joint; place adds --param probe=freerouting
 $K method list
-$K exp create NAME --method "freerouting 2.5.0" --method "fr-fork master" [--boards @ids.txt] --description "..."
+$K exp create NAME --method "freerouting 2.5.0" --method "fr-fork master" [--boards @ids.txt] [--tier ladder] --description "..."
 $K exp submit NAME [--limit 20]       # one haslamq job per board that lacks a run; re-submitting resumes
 $K exp status NAME; $K exp report NAME [--baseline METHOD]; $K exp install-timer NAME   # report + index hourly
 $K board BOARD_ID                     # every method's run of this board, with its scores
@@ -97,6 +97,20 @@ $K index                              # then e.g. sqlite3 ~/haslam-baselines/ind
 A method runs with the harness commit recorded in it, and an experiment's jobs run the
 experiment's frozen copy of `haslamres.py`. Code changes after `exp create` therefore change
 nothing in that experiment.
+
+## Tiers
+
+`exp create` and `exp submit` print the experiment's estimated CPU-hours and refuse it unless it fits its tier
+([experiment tiers](../../docs/topics/verification/experiment-tiers.md)).
+
+- **Estimate.** Method-runs to make (boards × methods × attempts at `create`; the runs still missing at `submit`; the
+  human reference not counted) times each board's mean CPU-h per method-run in `index.sqlite` (`suites.history`:
+  runs an experiment asked for, corpus sweeps left out). A board without history costs the mean of its footprint
+  band. The history mixes methods, so a restart-wrapped haslam method costs several times the estimate.
+- **`sprint`** (default): at most 40 CPU-h, and no board whose history is over 0.5 CPU-h per method-run.
+- **`--tier ladder`, `--tier canary`**: no limits. The tier is recorded in `experiment.json`; `exp submit NAME --tier T`
+  changes it. An experiment created before the tiers counts as `sprint` when it is submitted again.
+- Without `index.sqlite` nothing is estimated or checked. `tools/haslamres/suites.py` builds the tiers' board lists.
 
 ## Running an experiment without wasting it
 
