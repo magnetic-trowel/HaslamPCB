@@ -226,7 +226,8 @@ def build(board, *, use_sheets: bool = True) -> dict:
     for v in st['victims']:
         for n in v.get('nets', []):
             nr = roles.nets.get(n)
-            if nr is not None and nr.role in ('signal',):
+            # an analog victim outranks a fast edge found by kae.circuit.edges (it was a plain signal before that)
+            if nr is not None and (nr.role == 'signal' or nr.subrole == 'fast_edge'):
                 nr.role, nr.subrole = 'analog', v.get('subclass') or v['class']
                 nr.confidence = max(nr.confidence, v['confidence'])
                 nr.evidence = list(nr.evidence) + [e for e in v['evidence'] if e.weight > 0][:2]
@@ -237,7 +238,7 @@ def build(board, *, use_sheets: bool = True) -> dict:
              'confidence': round(nr.confidence, 3), 'evidence': evidence_json(nr.evidence, 6)}
         if vb:
             d['volts_belief'] = vb
-        for k in ('interface', 'speed', 'pair'):
+        for k in ('interface', 'speed', 'pair', 'edge'):
             if nr.attrs.get(k):
                 d[k] = nr.attrs[k]
         src = nr.attrs.get('source')

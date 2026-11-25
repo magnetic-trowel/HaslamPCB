@@ -801,11 +801,33 @@ def test_an_analog_name_decides_where_no_ic_pin_is_named():
 
 
 def test_an_analog_name_on_a_named_logic_pin_still_needs_a_second_fact():
-    mcu = IC('U1', 'ESP32-S3', 'RF_Module:ESP32-S3-WROOM-1', [('1', 'IO18', 'ADC_BAT', 'bidirectional'),
+    # IO35 of an ESP32-S3 has no ADC (ESP-IDF GPIO summary): the name is the only fact
+    mcu = IC('U1', 'ESP32-S3', 'RF_Module:ESP32-S3-WROOM-1', [('1', 'IO35', 'ADC_BAT', 'bidirectional'),
                                                               ('2', '3V3', '+3V3', 'power_in'), ('3', 'GND', 'GND', 'power_in')])
     nl, r = roles_of([mcu, C('C1', '100nF', '+3V3', 'GND'), C('C2', '10uF', '+3V3', 'GND'),
                       fp('J1', 'Conn', 'Connector_PinHeader_2.54mm:PinHeader_1x01_P2.54mm_Vertical', [('1', 'ADC_BAT', '', '')])])
     assert r.nets['ADC_BAT'].role != 'analog'
+
+
+def test_an_analog_name_on_an_mcu_adc_pin_is_analog():
+    """The vendor pin table is the second fact: ESP32-S3 IO18 is ADC2_CH7, ESP32 IO35 is ADC1_CH7, ATmega328P PC2 is ADC2.
+    The pin alone does not make a net analog (IO32 as I2C SDA), nor does a control suffix (ADC_EN)."""
+    s3 = IC('U1', 'ESP32-S3', 'RF_Module:ESP32-S3-WROOM-1', [('1', 'IO18', 'ADC_BAT', 'bidirectional'), ('4', 'IO1', 'BTN', 'bidirectional'),
+                                                             ('2', '3V3', '+3V3', 'power_in'), ('3', 'GND', 'GND', 'power_in')])
+    e32 = IC('U2', 'ESP32-WROOM-32', 'RF_Module:ESP32-WROOM-32', [('1', 'IO35', 'VBAT_SENSE', 'input'), ('5', 'IO32', 'I2C_SDA', 'bidirectional'),
+                                                                 ('6', 'IO33', 'ADC_EN', 'bidirectional'),
+                                                                 ('2', '3V3', '+3V3', 'power_in'), ('3', 'GND', 'GND', 'power_in')])
+    avr = IC('U3', 'ATmega328P-AU', 'Package_QFP:TQFP-32_7x7mm_P0.8mm', [('25', 'PC2', 'POT_WIPER', 'bidirectional'),
+                                                                        ('4', 'VCC', '+3V3', 'power_in'), ('5', 'GND', 'GND', 'power_in')])
+    hdr = fp('J1', 'Conn', 'Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical',
+             [('1', 'ADC_BAT', '', ''), ('2', 'VBAT_SENSE', '', ''), ('3', 'I2C_SDA', '', ''), ('4', 'ADC_EN', '', ''), ('5', 'POT_WIPER', '', ''),
+              ('6', 'BTN', '', '')])
+    nl, r = roles_of([s3, e32, avr, hdr, C('C1', '100nF', '+3V3', 'GND'), C('C2', '10uF', '+3V3', 'GND')])
+    for n, ch in (('ADC_BAT', 'ADC2_CH7'), ('VBAT_SENSE', 'ADC1_CH7'), ('POT_WIPER', 'ADC2')):
+        assert r.nets[n].role == 'analog', (n, r.nets[n])
+        assert any(e.kind == 'table' and ch in e.fact for e in r.nets[n].evidence), r.nets[n].evidence
+    for n in ('I2C_SDA', 'ADC_EN', 'BTN'):
+        assert r.nets[n].role != 'analog', (n, r.nets[n])
 
 
 def test_a_chargers_current_setting_pin_is_analog():

@@ -115,6 +115,9 @@ DEFAULT_OPTS = dict(
                              # A+B k=3 suite at 57487e6: cp1 0.727 -> 0.909, cpk 0.818 -> 0.970, 0 errors
     last_mile_reserve_s=90.0,  # with last_mile: the repair rounds stop this much before the deadline
     last_mile_free_first=True,  # one last-mile round before those that joins without ripping anything
+    stitch_pours=True,       # before and after the last mile: through vias where the fill of a net's part KiCad
+                             # sees apart lies over another part's fill (kae.route.pour_stitch; repair.stitch_pours),
+                             # DRC-judged like a round; only for missing connections on nets with a zone
     planes="cost",           # inner plane layers (translate.plane_layers): "cost" (traces there cost
                              # plane_cost x, so they go there only when nothing shorter exists), "keep"
                              # (Freerouting power layers, no traces; a repair round with open connections
@@ -169,6 +172,25 @@ def severities(board_path):
         return ((d.get("board") or {}).get("design_settings") or {}).get("rule_severities") or {}
     except (OSError, ValueError):
         return {}
+
+
+def _add_soft(opts, board_path, locked, report, log):
+    """Locked items in `locked` (uuids) that are marked soft copper (critical_write.soft_uuid, laid by
+    kae.em.pnr --lock) join opts' `soft_fixed`, with the physics guard of critical.soft_marked unless
+    the caller gave one (kae.route.critical passes its session's): the last mile may then rip them as
+    its last tier and keeps such a board only when routed physics holds. Freerouting and the repair
+    rounds still route around them (they stay in `fixed_uuids`)."""
+    from .critical_write import is_soft
+    soft = sorted(u for u in locked if is_soft(u))
+    report["soft_items"] = len(soft)
+    if not soft:
+        return
+    if opts.get("physics_guard") is None:
+        from .critical import soft_marked
+        opts.update(soft_marked(board_path, soft))
+    else:
+        opts["soft_fixed"] = sorted(set(opts.get("soft_fixed") or ()) | set(soft))
+    log(f"soft copper: {len(soft)} locked items the last mile may rip under the physics guard")
 
 
 def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None, log=_log):
@@ -310,6 +332,9 @@ def route(input_path, output_path, seed=0, time_s=600.0, workdir=None, opts=None
         # rips, widens or unlocks them
         opts["fixed_uuids"] = sorted(r["uuid"] for r in routed if r.get("locked"))
         report["fixed_items"] = len(opts["fixed_uuids"])
+        # ... but those marked soft (kae.em.pnr's physics copper) the last mile may rip, as its last
+        # tier, under the physics guard
+        _add_soft(opts, input_path, [r["uuid"] for r in routed if r.get("locked")], report, log)
 
         # 5: DRC and repair
         diag_s = min(float(opts.get("blocked_s") or 0.0), 0.05 * time_s) if opts.get("blocked") else 0.0
@@ -536,6 +561,8 @@ def last_mile_only(input_path, board_path, output_path, time_s=120.0, seed=0, wo
             # the hot-loop stage's cell copper (locked on the routed board): the last mile keeps it
             fixed |= {r["uuid"] for r in routing(board_path) if r.get("locked")}
         opts["fixed_uuids"] = sorted(fixed)
+        # soft copper (kae.em.pnr's) on the board as it stands: the last mile's last tier may rip it
+        _add_soft(opts, board_path, [r["uuid"] for r in routing(board_path) if r.get("locked")], report, log)
         staged = drc.stage_board(output_path, input_path, wd / "start")
         rep = drc.run(staged, wd / "start" / "drc.json", timeout=max(10, deadline - clock_now()))
         if hotloop.active(hotloop.settings(input_path, opts)):
@@ -552,10 +579,22 @@ def last_mile_only(input_path, board_path, output_path, time_s=120.0, seed=0, wo
         report["start"] = best
         log(f"last mile only: {best['errors']} errors {best['by_type']}, {best['unconnected']} unconnected")
         rounds = []
+        # stitching vias for fill pieces KiCad sees apart, before the last mile and after it (repair.loop's order)
+        got = repair.stitch_pours(input_path, output_path, wd / "stitch0", info, p, opts, deadline, best, rep, rounds,
+                                  "stitch0", base=lambda: repair.input_errors(input_path, wd, deadline), log=log)
+        if got is not None:
+            best, rep, _d, uuids = got
+            fixed |= set(uuids)
         if best["unconnected"] or best["errors"]:
             base = repair.input_errors(input_path, wd, deadline) if best["errors"] else {}
-            repair._last_mile(input_path, output_path, wd, p, info, opts, deadline, rounds, best, rep, fixed, log,
-                              base=base)
+            before = rep
+            rep = repair._last_mile(input_path, output_path, wd, p, info, opts, deadline, rounds, best, rep, fixed,
+                                    log, base=base) or rep
+            if rep is not before:       # the last mile kept a board: it may have cut a pour
+                best = next((r for r in reversed(rounds) if r.get("final")), {}).get("final") or best
+                repair.stitch_pours(input_path, output_path, wd / "stitch1", info, p, opts, deadline, best, rep,
+                                    rounds, "stitch1", base=lambda: repair.input_errors(input_path, wd, deadline),
+                                    log=log)
         final = next((r for r in reversed(rounds) if r.get("final")), {}).get("final") or best
         report.update(rounds=rounds, final=final, status="repaired")
         # the portfolio's final pass: the cells' returns cleared after the last mile, before finish

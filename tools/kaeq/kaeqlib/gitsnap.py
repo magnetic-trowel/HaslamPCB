@@ -17,10 +17,20 @@ def git(root, *args, env=None):
     return r.stdout.strip()
 
 
-def git_snapshot(cwd):
-    """Freeze the working tree (tracked + untracked, not ignored) as a commit; None outside a git repo."""
+# Snapshot commits are local refs (refs/kaeq/*) that are never pushed. They carry a fixed identity so a snapshot never
+# depends on the user's git identity: with none configured (or user.useConfigOnly), `git commit-tree` failed and every
+# job silently ran on the live directory.
+SNAP_IDENT = {"GIT_AUTHOR_NAME": "kaeq", "GIT_AUTHOR_EMAIL": "kaeq@localhost",
+              "GIT_COMMITTER_NAME": "kaeq", "GIT_COMMITTER_EMAIL": "kaeq@localhost"}
+
+
+def snapshot_or_why(cwd):
+    """(snapshot, None), or (None, why the job would run on the live directory)."""
     try:
         root = git(cwd, "rev-parse", "--show-toplevel")
+    except (RuntimeError, OSError):
+        return None, "not in a git repository"
+    try:
         head = git(root, "rev-parse", "HEAD")
         branch = git(root, "rev-parse", "--abbrev-ref", "HEAD")
         idx = os.path.join(git(root, "rev-parse", "--absolute-git-dir"), f"kaeq-index-{os.getpid()}")
@@ -32,11 +42,16 @@ def git_snapshot(cwd):
         finally:
             if os.path.exists(idx):
                 os.unlink(idx)
-        sha = git(root, "commit-tree", tree, "-p", head, "-m", "kaeq snapshot")
+        sha = git(root, "commit-tree", tree, "-p", head, "-m", "kaeq snapshot", env=dict(os.environ, **SNAP_IDENT))
         git(root, "update-ref", f"refs/kaeq/{sha}", sha)  # keeps it from being gc'd
-        return dict(root=root, branch=branch, sha=sha, rel=os.path.relpath(os.path.realpath(cwd), os.path.realpath(root)))
-    except (RuntimeError, OSError):
-        return None
+        return dict(root=root, branch=branch, sha=sha, rel=os.path.relpath(os.path.realpath(cwd), os.path.realpath(root))), None
+    except (RuntimeError, OSError) as e:
+        return None, f"git snapshot of {root} failed: {str(e).splitlines()[-1] if str(e) else type(e).__name__}"
+
+
+def git_snapshot(cwd):
+    """Freeze the working tree (tracked + untracked, not ignored) as a commit; None outside a git repo or on failure."""
+    return snapshot_or_why(cwd)[0]
 
 
 _pending = {}            # worktree path -> threading.Event, set once a background removal of it is done

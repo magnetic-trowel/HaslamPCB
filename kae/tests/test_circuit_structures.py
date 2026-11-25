@@ -104,7 +104,8 @@ def test_decap_groups_and_ownership_by_sheet():
     assert mcu['power_pins'] == ['1', '2', '3', '4'] and mcu['ground_pins'] == ['6', '7']
     assert set(mcu['caps']) == {'C10', 'C11', 'C12', 'C13', 'C14'}
     assert flash['caps'] == ['C30']
-    assert mcu['bulk_caps'] == ['C14'] and 'C14' not in mcu['hf_caps']   # >= 4.7 uF is bulk
+    # a 4.7 uF 0805 decouples like a 100 nF 0805: its body, not its value, sets its inductance (roles.HF_CHIP_SIZES)
+    assert 'C14' in mcu['hf_caps'] and mcu['bulk_caps'] == []
     vdda = one(st['decaps'], ic='U2', rail='+3V3A')
     assert vdda['caps'] == ['C15']
     # four VDD pins on one net: no netlist evidence for which cap sits at which pin -> the placer pairs by distance
@@ -695,6 +696,10 @@ def test_decap_hf_by_body_not_value():
     nl2, _, _ = structures([flash, big, tant])
     assert cap_class(nl2.parts['C2'])[0] == 'hf'          # a large body falls back to its value
     assert cap_class(nl2.parts['C3'])[0] == 'bulk'        # polarized: never HF
+    # 0805 is a low-inductance body at any value (0.3 nH over an 0402: Archambeault 2009); 1206 falls back to its value
+    nl3, _, _ = structures([flash, C('C4', '10uF', '+3V3', 'GND', lib='Capacitor_SMD:C_0805_2012Metric'),
+                            C('C5', '10uF', '+3V3', 'GND', lib='Capacitor_SMD:C_1206_3216Metric')])
+    assert cap_class(nl3.parts['C4'])[0] == 'hf' and cap_class(nl3.parts['C5'])[0] == 'bulk'
     old = RO.CAP_CLASS
     try:
         RO.CAP_CLASS = 'value'

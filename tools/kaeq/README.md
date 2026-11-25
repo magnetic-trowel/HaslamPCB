@@ -83,6 +83,9 @@ submitter's repo, in the same subdirectory. Checkouts or edits after submit cann
 runs, and two branches of one repo can run side by side. The worktree is removed when the job
 ends; the log stays. Git-ignored inputs are not in a snapshot: share them with `--link PATH`
 (symlinked from the original repo). `--live` skips snapshots. Outside git, jobs run live.
+`git worktree`s snapshot like any checkout. Snapshot commits carry a fixed `kaeq` identity, so they do not
+need a git user to be configured (until 2026-11-21 they did, and on a host without one every job silently ran
+live). When a job runs live, `submit` says why (`--live`, not in a git repository, or the git error).
 The default owner is `repo@branch`; failure digests carry `repo@branch:sha`.
 Old `refs/kaeq/*` can be deleted any time once no queued job needs them.
 
@@ -102,6 +105,18 @@ host and per start, so nothing else writing into a shared home can end a job.
 (command name, rc, runtime, peak/declared memory, earlier error lines, log tail, log path),
 and exits 1/0 (2 = timeout, call again). Successes are never printed individually.
 The session fixes the code and runs `kaeq retry [ids]`; it reuses the same command and cwd.
+A bare `kaeq retry` (no ids, `--owner` or `--tag`) requeues the session's failures only while they belong
+to one owner and all failed within the last 12 hours; otherwise it refuses and prints, per owner, the
+`kaeq retry --owner O` and `kaeq retry <ids>` commands to choose from (old failures are usually obsolete,
+and a retry would overwrite newer results). A bare `kaeq cancel` is refused outright.
+
+## KiCad jobs
+
+A job that runs pcbnew or `kicad-cli` needs `KAE_KICAD_WRAP`, which `~/.cache/kaebench/env.sh` sets;
+without it it fails at once (`PcbnewError`). `kaeq submit --kicad` sources that script (config key
+`kicad_env`) in the job before its command. A submitting shell that already has `KAE_KICAD_WRAP` (and
+`KAE_HOME`) passes them on, like `PATH`. `submit` prints a hint when a command looks like it needs KiCad
+(`pcbnew`, `kicad-cli`, `kaebench`, `-m kae`, `kae/tests`, `bench/tests`) and nothing loads the environment.
 State lives in `~/.kaeq` (SQLite WAL, per-job `log`); the daemon can restart without
 losing running jobs (they are re-adopted).
 
