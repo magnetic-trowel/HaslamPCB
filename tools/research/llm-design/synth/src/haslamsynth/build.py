@@ -230,7 +230,16 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
     if not d.haslam.empty():
         # the operating intent haslam reads beside the board (haslam.intent.facts): <slug>.haslam_intent.json
         from .haslam_intent import haslam_available
-        doc, problems = d.haslam.document()
+        rows = d.haslam.relations()[0]
+        if fplibs:
+            # board.json beside design.py holds the fixed parts and the outline (sch_to_board.py reads it)
+            bj = Path(design_path).resolve().parent / "board.json" if not isinstance(design_path, Design) else None
+            spec = json.loads(bj.read_text()) if bj is not None and bj.exists() else {}
+            outline = spec.get("outline") or ((d.board_spec.width_mm, d.board_spec.height_mm)
+                                              if d.board_spec and d.board_spec.width_mm else None)
+            rows = LY.check_relations(d, fplibs, rows, lambda chk, sev, msg, objs=(): findings.append(
+                Finding(chk, sev, msg, list(objs))), fixed=spec.get("fixed"), outline=outline)
+        doc, problems = d.haslam.document(relations=rows)
         (outdir / f"{d.slug}.haslam_intent.json").write_text(json.dumps(doc, indent=1) + "\n")
         for prob in problems:
             findings.append(Finding("haslam_intent.invalid", "error", prob))

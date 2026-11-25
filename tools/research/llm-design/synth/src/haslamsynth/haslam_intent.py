@@ -186,8 +186,9 @@ class HaslamIntent:
             rows.append(row)
         return rows, skipped
 
-    def document(self):
-        """(haslam.intent/1 dict, [problems])."""
+    def document(self, relations=None):
+        """(haslam.intent/1 dict, [problems]). relations: the rows to write (the build's checked
+        `layout.check_relations` result), else every row `relations()` returns."""
         d, problems = self.d, []
         dn, dp = self.defaults()
         for k, v in dn.items():
@@ -259,7 +260,8 @@ class HaslamIntent:
         # every field below has a reader in haslam (docs/topics/workflow/intent-file-fields.md); knobs and the
         # environment only when the design sets them
         doc = {"schema": "haslam.intent/1", "generation": 1, "currency": "mW_eq", "defaults": "neutral/1",
-               "terms": terms, "relations": self.relations()[0],
+               "terms": terms,
+               "relations": self.relations()[0] if relations is None else relations,
                "facts": {"nets": nets, "parts": parts, "cells": cells,
                          "requirements": {"thermal": {"T_amb_C": [lo, hi]}}}}
         if env:
