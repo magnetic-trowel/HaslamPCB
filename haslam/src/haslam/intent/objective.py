@@ -487,6 +487,9 @@ def _rests(ob, ev):
             if src and q["subject"] in src][:4]
 
 
+EXPORT_QUESTIONS = 16      # connector-export questions listed by name in status (the rest summed in one)
+
+
 def _questions(ev, intent, obs, rows):
     qs = []
     env = intent.get("environment") or {}
@@ -495,7 +498,22 @@ def _questions(ev, intent, obs, rows):
         qs.append(dict(id="Q-cables", ask=f"Which of {', '.join(conns)} carry cables in use, and how long? "
                        "(environment.cables: [{connector, length_m}]); until then cable emissions are not judged.",
                        schema={"type": "array"}))
-    for q in ev.get("questions", [])[:8]:
+    # connector exports the DC plan assumed at 1 % of their rating (haslam.excite.dc.export_questions): each one
+    # asked by name, likely-different ones first; they never block, the assumed value stands until answered
+    ex = [q for q in ev.get("questions", []) if q.get("kind") == "export_current"]
+    for q in sorted(ex, key=lambda q: (q.get("priority") != "high", q["ref"], q["rail"]))[:EXPORT_QUESTIONS]:
+        qs.append(dict(id=f"Q-export-{q['ref']}-{q['rail']}", kind="export_current", ask=q["ask"], field=q["field"],
+                       also=q.get("also"), assumed_A=q["assumed_A"], rating_A=q["rating_A"], band_A=q.get("band_A"),
+                       priority=q.get("priority"), might_differ=q.get("might_differ") or [],
+                       schema={"oneOf": [{"type": "number", "minimum": 0},
+                                         {"type": "array", "items": {"type": "number", "minimum": 0},
+                                          "minItems": 2, "maxItems": 2}]}))
+    if len(ex) > EXPORT_QUESTIONS:
+        qs.append(dict(id="Q-export-more", kind="export_current", schema={"type": "object"},
+                       ask=f"{len(ex) - EXPORT_QUESTIONS} more connector exports are assumed at 1 % of their rating "
+                           f"(the evaluation's questions, kind export_current); state parts.<ref>.I_A for any that "
+                           f"carry more."))
+    for q in [q for q in ev.get("questions", []) if q.get("kind") != "export_current"][:8]:
         qs.append(dict(id=f"Q-{q['subject']}-{q['name']}", ask=f"{q['subject']} {q['name']}: is it known? "
                        f"(assumed {q['lo']:.3g}..{q['hi']:.3g} {q['unit']}; {q['basis'][:80]})",
                        schema={"type": "number"}))

@@ -518,3 +518,19 @@ def test_status_without_intent_scores_the_boards_own_intent_file(monkeypatch, tm
     assert own["observedGeneration"] == 3 and own["tiers"] == explicit["tiers"]
     assert {r["id"] for r in own["terms"]} == {r["id"] for r in explicit["terms"]} >= {"T-RF"}
     assert own["tiers"]["limit"] == pytest.approx(30.0)          # (4 mV - 1 mV) x 10 mW_eq/mV
+
+
+def test_an_assumed_connector_export_is_asked_for_by_name_without_changing_the_score():
+    """haslam.excite.dc assumes an unstated connector export at 1 % of its rating; status asks for each one (the
+    fact to state, the value used) ahead of the other priors, and the tiers do not depend on the question."""
+    exq = dict(subject="dc:J2@3V3", name="I_A", lo=1e-3, hi=0.1, unit="A", basis="connector export",
+               kind="export_current", ref="J2", rail="3V3", rating_A=1.0, assumed_A=0.01, band_A=[1e-3, 0.1],
+               field="parts.J2.I_A", also="parts.J2.I_sustained_A", priority="normal", might_differ=[],
+               ask="J2 exports 3V3 off the board ...")
+    other = [dict(subject=f"cell:c{i}", name="t_i_s", lo=1e-9, hi=1e-8, unit="s", basis="prior") for i in range(9)]
+    ev = dict(WIDE, questions=other + [exq])
+    st, base = OB.evaluate(ev, None, BRIEF), OB.evaluate(WIDE, None, BRIEF)
+    qs = [q for q in st["questions"] if q["id"] != "Q-cables"]
+    assert qs[0]["id"] == "Q-export-J2-3V3" and qs[0]["field"] == "parts.J2.I_A" and qs[0]["assumed_A"] == 0.01
+    assert len(qs) == 9                                       # the export plus the usual 8 priors
+    assert st["tiers"] == base["tiers"]

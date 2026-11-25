@@ -742,3 +742,50 @@ def test_a_part_table_supply_current_is_a_loads_current():
         DC.lookup_part = orig
     p = next(p for p in pl.params if p.subject == "dc:U3@3V3")
     assert (p.typ, p.source, p.basis) == (5e-5, "part_table", "a datasheet")
+
+
+def test_an_unstated_export_draws_one_percent_of_its_rating_and_is_asked_for():
+    """A connector export the facts do not state draws EXPORT_SHARE (1 %) of its class rating, band x/10 .. x10;
+    it stays a load (the DC band never empties by this rule) and the plan asks for its real current."""
+    pl = _cell_board_plan()
+    by = {ld["ref"]: ld for ld in pl.loads}
+    p = next(p for p in pl.params if (p.subject, p.name) == by["J2"]["key"])
+    rating = 1.0                                               # a header without a rating pattern or big drills
+    assert (p.typ, p.lo, p.hi, p.source) == (pytest.approx(0.01 * rating), pytest.approx(0.001 * rating),
+                                             pytest.approx(0.1 * rating), "prior")
+    assert any("assumed at 1 % of their rating" in n and "J2@3V3 10 mA" in n for n in pl.notes)
+    q = DC.export_questions(pl)[by["J2"]["key"]]
+    assert q["kind"] == "export_current" and q["field"] == "parts.J2.I_A" and q["assumed_A"] == pytest.approx(0.01)
+    assert q["rating_A"] == 1.0 and q["priority"] == "high" and "J2" in q["ask"] and "10 mA" in q["ask"]
+    assert any("fed by c1" in w for w in q["might_differ"])
+
+
+def test_a_stated_export_is_not_asked_for_and_an_export_alone_keeps_the_dc_band():
+    pl = _cell_board_plan({"parts": {"J2": {"I_A": [0.05, 0.2]}}})
+    by = {ld["ref"]: ld for ld in pl.loads}
+    p = next(p for p in pl.params if (p.subject, p.name) == by["J2"]["key"])
+    assert p.source == "intent" and p.hi == pytest.approx(0.2) and DC.export_questions(pl) == {}
+    # sbarabe / qubik: a board whose only loads are exports keeps them (and its DC band), each asked for
+    from types import SimpleNamespace as NS
+    pads = {"J1": [("1", "VIN", "passive", ""), ("2", "GND", "passive", "")],
+            "J2": [("1", "VIN", "passive", ""), ("2", "GND", "passive", "")]}
+    fps = [NS(ref=r, uuid=f"u{r}", attrs=[], value="X", lib_id="", fields={},
+              pads=[NS(number=n, net=net, pintype=pt, pinfunction=fn, drill=0.0) for n, net, pt, fn in pp])
+           for r, pp in pads.items()]
+    brief = dict(parts={f"u{r}": dict(ref=r, kind="connector", subtype="header") for r in pads},
+                 nets={"VIN": dict(role="rail", volts=5.0), "GND": dict(role="ground")}, structures=[])
+    pl = DC.plan(NS(footprints=fps), brief, NS(grounds={"GND"}, circuit=NS(elems=[])), {}, [],
+                 {"nets": {"VIN": {"V_V": 5.0}}})
+    ex = DC.export_questions(pl)
+    assert [ld["ref"] for ld in pl.loads] == ["J2"] and len(ex) == 1
+    q = next(iter(ex.values()))
+    assert q["priority"] == "high" and any("only load" in w for w in q["might_differ"])
+
+
+def test_heat_takes_an_unstated_export_at_one_percent():
+    """The heat band's sustained draw of an unstated export is its typical 1 %, as before (then the band's low end)."""
+    import inspect
+
+    from haslam.excite import heat as H
+    src = inspect.getsource(H)
+    assert "sustained[(p.subject, p.name)] = p.typ" in src

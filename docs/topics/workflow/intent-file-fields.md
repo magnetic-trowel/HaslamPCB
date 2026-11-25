@@ -70,6 +70,16 @@ A stated `requirements.dT_max_K` / `drop_share` still applies where it is the ti
 
 Not emitted, read by haslam: `parts.theta_jb_C_W`, `I_sustained_A`, `body_mm2` (`excite/heat.py`), `parts.I_A` (`dc.plan`: the part's own supply draw; no longer taken for a controller's cell current, `facts-everywhere`), `requirements.dT_max_K`, `drop_share` (`critical.intent_opts`, R via `critical_cli` only), `cells.t_i_s`.
 
+Connector exports (a connector with a pad on a fed rail and a ground pad; E, `excite/dc.py:plan`): `parts.<ref>.I_A` is the current it carries off the board, `I_sustained_A` its typical draw for the heat band. Unstated, it is 1 % of the connector's class rating (`dc.EXPORT_SHARE`; DC band 0.1 % .. 10 % of the rating, heat band 1 %), never dropped, so a board whose only loads are exports keeps its DC band. The evaluation asks for each one:
+
+| Channel | Content |
+|---|---|
+| `evaluate` → `questions[]`, entries with `kind: "export_current"` (`dc.export_questions`) | `ref`, `rail`, `rating_A`, `assumed_A`, `band_A`, `field` (`parts.<ref>.I_A`), `also` (`parts.<ref>.I_sustained_A`), `might_differ` (the export is its rail's only load; rating >= 3 A; a cell-fed rail), `priority` (`high` when any), `ask` |
+| `haslam.intent status` → `questions[]` | `Q-export-<ref>-<rail>` with the fields above and a number-or-[lo, hi] `schema`, ahead of the other priors (16 by name, high priority first; the rest in `Q-export-more`) |
+| evaluation notes | `DC: connector exports the facts do not state, assumed at 1 % of their rating: J2@3V3 10 mA, ...` |
+
+Non-blocking: tiers and completeness are the same whether a question is answered. The answer goes into the intent file as `parts.<ref>.I_A` (0 when only signals or nothing draw from it). Measured: [rule B'](../../research/physics/export-current-one-percent.md).
+
 ## A5. Placement relations (`d.place`)
 
 | haslamsynth relation | Written as | Why not, when not |
