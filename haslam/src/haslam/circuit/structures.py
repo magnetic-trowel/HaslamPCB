@@ -1909,21 +1909,28 @@ def antennas(b: _B) -> list:
 
 
 # =============================================================================== heat
-def heat(b: _B, cells) -> tuple[list, dict]:
-    """Heat sources with an E5 power estimate, and the per-part P_W map."""
+CONVERTER_ETA = 0.88            # a switching converter's efficiency when nobody states it (its loss prior)
+HEAT_SOURCE_MIN_W = 0.1         # a part dissipating less is in the P_W map only, not a heat source
+
+
+def heat(b: _B, cells, heat_models=None) -> tuple[list, dict]:
+    """Heat sources with an E5 power estimate, and the per-part P_W map. heat_models (a dict, filled when given):
+    {ref: the law and inputs of a regulator's or converter's loss}, which haslam.intent.facts.apply re-sizes the
+    loss from when the facts state its volts, currents or efficiency (the brief's heat_models)."""
+    heat_models = {} if heat_models is None else heat_models
     pw = {}
     out = []
     cell_by_ctrl = {c.get('controller'): c for c in cells if c.get('controller')}
     for ref, pr in b.r.parts.items():
         part = b.nl.parts[ref]
-        P = basis = None
+        P = basis = model = None
         if pr.kind == 'ic' and pr.subtype == 'regulator_linear':
-            vin = vout = None
+            vin = vout = vin_net = vout_net = None
             for p in part.active_pins():
                 if IN_PIN.match(p.fn) and b.volts(p.net):
-                    vin = b.volts(p.net)
+                    vin, vin_net = b.volts(p.net), p.net
                 if (OUT_PIN.match(p.fn) or b.r.sem(p) == 'supply_out') and b.volts(p.net):
-                    vout = b.volts(p.net)
+                    vout, vout_net = b.volts(p.net), p.net
             vo = pr.attrs.get('vout', {}).get('value') if pr.attrs.get('vout') else None
             vout = vout or vo
             if vin and vout and vin > vout:
@@ -1932,19 +1939,23 @@ def heat(b: _B, cells) -> tuple[list, dict]:
                     0.3 if re.search(r'SOT-?89|DFN|SON', pk) else 0.15
                 P = round((vin - vout) * I_, 3)
                 basis = f"(Vin {vin:g} - Vout {vout:g}) V x {I_:g} A, the load current assumed from the {part.package.text or 'package'} class"
+                # what haslam.intent.facts.apply re-sizes the loss from once the facts state volts or current
+                model = {'law': 'linear', 'vin': vin_net, 'vout': vout_net, 'vout_V': vout, 'I_A': I_}
         elif ref in cell_by_ctrl and cell_by_ctrl[ref]['class'] in ('buck', 'boost'):
             c = cell_by_ctrl[ref]
             ex = c['excite']
             vout = b.volts(c.get('vout') or '') if c.get('vout') else None
             if ex.get('I') and (vout or ex.get('V')):
                 pout = abs(vout or ex['V']) * ex['I'] * (1 if vout else 0.5)
-                P = round(pout * (1 - 0.88) / 0.88, 3)
+                P = round(pout * (1 - CONVERTER_ETA) / CONVERTER_ETA, 3)
                 basis = f"conversion loss at 88% efficiency of {pout:.2f} W (I from {ex['basis'][0] if ex['basis'] else '?'})"
+            model = {'law': 'converter', 'cell': c['id']}
         elif ref in cell_by_ctrl and cell_by_ctrl[ref]['class'] == 'half_bridge':
             ex = cell_by_ctrl[ref]['excite']
             if ex.get('I'):
                 P = round(min(3.0, 0.15 * ex['I'] ** 1.5), 3)
                 basis = f"integrated bridge conduction and switching loss, class estimate at {ex['I']:g} A"
+            model = {'law': 'bridge', 'cell': cell_by_ctrl[ref]['id']}
         elif pr.kind == 'ic' and pr.subtype == 'fpga':
             n = len(part.active_pins())
             P = 2.0 if n > 300 else 1.0 if n > 100 else 0.3
@@ -1957,10 +1968,12 @@ def heat(b: _B, cells) -> tuple[list, dict]:
             basis = 'large MCU/SoC class estimate'
         if P is not None and P > 0:
             pw[ref] = (P, basis)
-            if P >= 0.1:
+            if P >= HEAT_SOURCE_MIN_W:
                 out.append(_struct('heat_source', f"heat:{ref}", [ev('derived', basis, MODERATE)], conf_cap=0.6, prior=0.0,
                                    part=ref, P_W=P, P_W_belief={'value': P, 'unit': 'W', 'class': 'E5', 'basis': basis,
                                                                 'interval': [round(P / 3, 3), round(P * 3, 3)]}))
+        if model is not None:
+            heat_models[ref] = model
     return out, pw
 
 
@@ -2069,7 +2082,8 @@ def find_structures(nl: Netlist, roles: Roles) -> dict:
                           conf_cap=x['confidence'], **{'class': 'crystal', 'nets': x['nets'][:2], 'loop': loop}))
     st['victims'] = fb + se + xv + analog_victims(b, taken)
     st['antennas'] = antennas(b)
-    hs, pw = heat(b, cells)
+    st['heat_models'] = {}
+    hs, pw = heat(b, cells, st['heat_models'])
     pp, ph = power_paths(b, cells, groups)
     st['power_paths'] = pp
     have = {h['part']: i for i, h in enumerate(hs)}
