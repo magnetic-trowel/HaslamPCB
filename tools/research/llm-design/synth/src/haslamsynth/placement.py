@@ -3,11 +3,12 @@
 """Placement intent: board/mechanical spec and relations over named objects.
 
 Relations follow docs/topics/llm/interfaces-relations-vs-coordinates.md: the design names
-objects and ordinal magnitudes (tight/close/loose); haslam resolves them to mm (haslam.intent.relations.MAG_MM).
-A datasheet distance may be given as near(..., within_mm=, note="DS p.N ...").
+objects and ordinal magnitudes (tight/close/loose); haslam scales them to the parts (haslam.place.relations target_mm).
+A datasheet distance may be given as near(..., within_mm=, note="DS p.N ..."), written as mag "<v> mm".
 
-haslamsynth writes the relations haslam's placer uses into `<slug>.haslam_intent.json` (haslam_intent.HaslamIntent.relations):
-near, far (keep_away), group, edge (north/south/east/west), plus the decoupling nears `infer_decaps` finds.
+haslamsynth writes the relations into `<slug>.haslam_intent.json` in haslam's vocabulary (haslam_intent.HaslamIntent.relations):
+near, far (keep_away), group, edge (on_edge), region, side, array/align (row), plus the decoupling nears
+`infer_decaps` finds.
 The others are not written: each reason is in haslam_intent.UNUSED and comes back as a build finding.
 """
 import re

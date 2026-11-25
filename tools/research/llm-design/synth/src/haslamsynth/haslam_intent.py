@@ -13,8 +13,12 @@ haslam reads it beside the board (haslam.intent.facts): its facts set the operat
     d.haslam.term("T1", "limit", "pickup.peak", where={"net": "CHG/FB"}, max="5 mV", rate="2 mW_eq/mV", why="...")
 
 Placement relations come from `d.place` (haslamsynth.placement) and the decoupling nears the circuit implies
-(placement.infer_decaps); `relations()` writes the kinds haslam's placer prices (haslam.intent.relations: near,
-keep_away, group, edge) and lists every other relation with the reason it is not written (UNUSED).
+(placement.infer_decaps); `relations()` writes them in haslam's relations vocabulary (haslam.intent/1, haslam branch
+relations-unified, docs/topics/placement/relations-unified.md): near and far (keep_away) with `mag` an
+ordinal (tight | close | loose, haslam scales it to the parts) or a datasheet length ("2 mm", from
+within_mm=), group, edge as on_edge (edge:west ..., `any` as edge:nearest; haslam pins the part there facing
+out), region as a compass cell or edge band, side, array and align as row. Every other relation is listed
+with the reason it is not written (UNUSED).
 
 Nets are named as in design.py ("SYS", "CHG/FB") and written with KiCad's names ("/CHG/FB"); a net's range_V
 defaults to its declared v= interval. Every fact and term says why. The file is checked here (names exist,
@@ -36,16 +40,17 @@ UNUSED = {
     "keepout": "a keep-out is a board rule area (board.json keepouts), which haslam treats as an obstacle",
     "keepout_around": "a keep-out is a board rule area (board.json keepouts), which haslam treats as an obstacle",
     "fixed": "positions come from board.json `fixed` (sch_to_board locks those parts)",
-    "side": "haslam never flips a part; its side is set where the board is made (board.json `fixed` side)",
     "thermal": "dissipation is a fact (d.haslam.part), not a relation; the placer's heat terms read the brief",
-    "region": "no placer term yet (docs/topics/placement/llm-relations-input.md R7 phase 1)",
-    "orient": "no placer term yet (orientation, llm-relations-input.md R7)",
-    "pins_toward": "no placer term yet (llm-relations-input.md R7 phase 3)",
-    "array": "no placer term yet (row, llm-relations-input.md R7 phase 2)",
-    "align": "no placer term yet (row, llm-relations-input.md R7 phase 2)",
+    "orient": "haslam's orient takes a rotation set (allowed); a facing direction has no haslam spelling yet",
+    "pins_toward": "haslam's pins_toward points pins at a place, not at a side of the part's own body",
     "symmetric": "no placer term yet (llm-relations-input.md R7 phase 3)",
 }
-HASLAM_EDGES = ("north", "south", "east", "west")
+HASLAM_EDGES = {"north": "edge:north", "south": "edge:south", "east": "edge:east", "west": "edge:west",
+             "any": "edge:nearest"}
+# d.place.region's `where` as haslam's region names: a side is that edge's band of thirds, a corner its cell
+HASLAM_REGIONS = {"north": "edge:north", "south": "edge:south", "east": "edge:east", "west": "edge:west",
+               "center": "region:c", "centre": "region:c"}
+HASLAM_REGIONS.update({f"corner-{c}": f"region:{c}" for c in ("ne", "nw", "se", "sw")})
 
 
 def _iv(v):
@@ -162,7 +167,7 @@ class HaslamIntent:
                     continue
                 row = {"kind": "near" if k == "near" else "keep_away", "a": r["a"], "b": r["b"]}
                 if k == "near" and r.get("within_mm") is not None:
-                    row["within_mm"] = float(r["within_mm"])
+                    row["mag"] = f"{float(r['within_mm']):g} mm"     # a datasheet distance, pad to pad
                 else:
                     row["mag"] = r["strength"]
             elif k == "group":
@@ -173,12 +178,33 @@ class HaslamIntent:
                     continue
                 row = {"kind": "group", "members": members, "mag": r["strength"]}
             elif k == "edge":
-                if r.get("side") not in HASLAM_EDGES or not ref_ok(r.get("obj")):
-                    skipped.append((r, "haslam's edge relation names one part and one of north/south/east/west; "
-                                       "user-facing connectors go to the nearest edge by themselves "
-                                       "(haslam.place connector_edge)"))
+                if r.get("side") not in HASLAM_EDGES or not ref_ok(r.get("obj")) or "." in str(r.get("obj")):
+                    skipped.append((r, "haslam's on_edge names one part and one of north/south/east/west/any"))
                     continue
-                row = {"kind": "edge", "part": r["obj"], "edge": r["side"]}
+                row = {"kind": "on_edge", "part": r["obj"], "edge": HASLAM_EDGES[r["side"]]}
+            elif k == "region":
+                if "block" in r:
+                    blk = str(r["block"]).removeprefix("block:")
+                    members = [p.ref for b in d.blocks if b.name == blk for p in b.parts if p.ref and p.on_board]
+                else:
+                    members = [m for m in r.get("members") or [] if ref_ok(m)]
+                if r.get("where") not in HASLAM_REGIONS or not members:
+                    skipped.append((r, f"haslam's region names parts and one of {sorted(HASLAM_REGIONS)}"))
+                    continue
+                row = {"kind": "region", "members": members, "region": HASLAM_REGIONS[r["where"]]}
+            elif k == "side":
+                if not ref_ok(r.get("obj")):
+                    skipped.append((r, "haslam's side names parts on the board"))
+                    continue
+                row = {"kind": "side", "members": [r["obj"].split(".", 1)[0]], "side": r["side"]}
+            elif k in ("array", "align"):
+                members = [m for m in r.get("members") or [] if ref_ok(m) and "." not in m]
+                if len(members) < 2 or r.get("axis") not in ("x", "y"):
+                    skipped.append((r, "haslam's row names two or more parts and an axis x or y"))
+                    continue
+                row = {"kind": "row", "members": members, "axis": r["axis"]}
+                if k == "array" and r.get("pitch") in ("equal", "any"):
+                    row["pitch"] = r["pitch"]
             else:
                 skipped.append((r, UNUSED.get(k, "a custom relation: no placer term reads it")))
                 continue
@@ -273,15 +299,20 @@ class HaslamIntent:
 
 
 def haslam_check(doc):
-    """haslam's own checks of the document, when haslam is importable; [] otherwise (the build says which)."""
+    """haslam's own checks of the document, when haslam is importable; [] otherwise (the build says which). The
+    relations and terms by haslam.intent.objective.load, the facts by haslam.intent.facts where that haslam has it."""
     try:
-        from haslam.intent import facts as F
         from haslam.intent import objective as OB
     except Exception:
         return []
     try:
+        from haslam.intent import facts as F
+    except Exception:
+        F = None
+    try:
         OB.load(json.loads(json.dumps(doc)))
-        F.check_facts(doc.get("facts") or {})
+        if F is not None:
+            F.check_facts(doc.get("facts") or {})
     except Exception as e:  # IntentError, FactsError
         return [f"haslam rejects the intent: {e}"]
     return []
@@ -289,7 +320,7 @@ def haslam_check(doc):
 
 def haslam_available():
     try:
-        import haslam.intent.facts  # noqa: F401
+        import haslam.intent.objective  # noqa: F401
         return True
     except Exception:
         return False
