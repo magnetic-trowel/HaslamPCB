@@ -975,6 +975,10 @@ def cmd_sprint(a):
     attempts = a.attempts or c["attempts"]
     if not 1 <= attempts <= c["attempts"]:
         raise SystemExit(f"--attempts {attempts}: the control {a.control} stores seeds 0-{c['attempts'] - 1}")
+    extra = list(getattr(a, "param", None) or [])
+    note = getattr(a, "note", None)
+    if any("=" not in kv for kv in extra):
+        raise SystemExit("--param: give K=V")
     mids = []
     for arm, own in arms:
         sets = "".join(f" --set {kv}" for kv in common + own)
@@ -984,10 +988,15 @@ def cmd_sprint(a):
         label = f"{a.name}{'-' + arm if arm else ''}"
         # the control's recipe, with a numba cache of its own checkout (a cache serves only the code that made it)
         template = ctl["recipe"]["runner"]["template"].replace(f"numba-default-{tag[:7]}", f"numba-default-{commit[:7]}") + sets
+        # --param: method parameters over the control's (e.g. parallel=8 for an arm whose router runs 8 threads,
+        # so the queue reserves them); they are part of the arm's identity, not haslam settings
+        params = dict(ctl["recipe"]["params"], **dict(kv.split("=", 1) for kv in extra))
         mids.append(cmd_method_add(argparse.Namespace(
-            name=f"{label} {a.base} {commit[:7]}{sets}", description=f"sprint arm {arm or ''} of {a.name}: {ctl['name']!r} at {commit[:7]}{sets}",
+            name=f"{label} {a.base} {commit[:7]}{sets}",
+            description=f"sprint arm {arm or ''} of {a.name}: {ctl['name']!r} at {commit[:7]}{sets}"
+                        + (f"; {note}" if note else ""),
             reference=False, adapter=None, binary=None, command=template, kind=ctl["recipe"]["kind"], code=[f"haslam={repo}@{commit}"],
-            harness=tag, param=[f"{k}={v}" for k, v in ctl["recipe"]["params"].items()], timeout=900,
+            harness=tag, param=[f"{k}={v}" for k, v in params.items()], timeout=900,
             kicad_threads=ctl["recipe"]["environment"]["kicad_threads"], build=None, allow_dirty=False)))
     if a.suite:
         files = [suite_file(a.suite)]
@@ -3149,6 +3158,10 @@ def main():
     s.add_argument("--allow-over-cap", metavar="REASON",
                    help="keep boards over the per-board limit because the question needs them; the reason is recorded")
     s.add_argument("--smoke", type=int, metavar="N", help="submit only N cheap boards now; the rest with exp submit later")
+    s.add_argument("--param", action="append", metavar="K=V",
+                   help="method parameter of every arm over the control's (repeatable; e.g. parallel=8: the queue "
+                        "reserves 8 CPUs for an arm whose router runs 8 threads)")
+    s.add_argument("--note", help="appended to every arm's method description (e.g. a stage that runs on wall clock)")
     s.add_argument("--control", default="control-w47", help="the tag's stored control experiment")
     s.add_argument("--dry-run", action="store_true", help="register and create, write the job file, submit nothing")
     s.set_defaults(f=cmd_sprint)

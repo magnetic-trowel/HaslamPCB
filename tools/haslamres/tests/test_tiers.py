@@ -179,6 +179,14 @@ def test_sprint_registers_the_control_recipe_at_the_commit_and_reuses_the_stored
     assert "haslamres exp report x && haslamres quality x --control 'control bridge'" in capsys.readouterr().out
 
 
+def test_sprint_params_and_note_go_on_every_arm(monkeypatch, store):
+    c = _sprint(monkeypatch, store, set=["k=v"], param=["parallel=8"], note="router on wall clock")
+    m = c["method"]
+    assert m.param == ["timeout_s=3600", "parallel=8"] and m.description.endswith("; router on wall clock")
+    with pytest.raises(SystemExit, match="--param: give K=V"):
+        _sprint(monkeypatch, store, set=["k=v"], param=["parallel"])
+
+
 def test_sprint_staged_takes_the_placing_control_and_refuses_the_control_itself(monkeypatch, store):
     c = _sprint(monkeypatch, store, base="staged", dry_run=True)
     assert c["method"].kind == "joint-fixed" and c["create"].method == ["st", "new"] and c["submit"].dry_run
