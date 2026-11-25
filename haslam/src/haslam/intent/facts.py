@@ -40,6 +40,11 @@ CELL_KEYS = ("V_V", "I_A", "f_sw_Hz", "t_i_s", "v_sw_max_V", "vin", "vout", "why
 # a controller's facts that are its cells' too. Not I_A: parts.<ref>.I_A is the part's own supply draw
 # (haslam.excite.dc's load current, the operating facts' "load current"), not the current its cells commutate
 PART_CELL_KEYS = ("f_sw_Hz", "t_i_s", "v_sw_max_V")
+SECTIONS = ("nets", "parts", "cells", "requirements")      # what apply() writes into the brief
+# sections other readers own, left to them here: the schematic's pin facts (haslam.board.pinfacts), the radios
+# (haslam.excite.observe, sources) and the compiler's citations. The physics set's operating facts carry them
+# all (intent-213/compiled-*), and refusing them failed every evaluation of those boards
+OTHER_SECTIONS = ("pins", "radios", "provenance")
 
 
 class FactsError(ValueError):
@@ -96,8 +101,8 @@ def _interval(v, what):
 def check_facts(f):
     """Shape check of a facts dict; FactsError names the first problem and how to fix it."""
     for sec in f:
-        if sec not in ("nets", "parts", "cells", "requirements"):
-            raise FactsError(f"facts.{sec}: unknown section; use nets, parts, cells, requirements")
+        if sec not in SECTIONS + OTHER_SECTIONS:
+            raise FactsError(f"facts.{sec}: unknown section; use {', '.join(SECTIONS + OTHER_SECTIONS)}")
     for net, d in (f.get("nets") or {}).items():
         bad = [k for k in d if k not in NET_KEYS]
         if bad:

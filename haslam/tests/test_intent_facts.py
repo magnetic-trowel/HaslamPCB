@@ -66,6 +66,14 @@ def test_check_facts_names_the_fix(bad, msg):
         F.check_facts(bad)
 
 
+def test_sections_other_readers_own_pass_the_check_and_leave_the_brief_alone():
+    """The physics set's compiled operating facts carry pins, radios and provenance: the brief's check refused
+    them, so every evaluation under those facts raised before the solve."""
+    f = dict(copy.deepcopy(FACTS), pins={"U1": {"3": "power_in"}}, radios={"U1": "wifi"}, provenance={"why": {}})
+    assert F.check_facts(f) is f
+    assert F.apply(_brief(), f) == F.apply(_brief(), FACTS)
+
+
 def test_sidecar_is_found_and_unwrapped(tmp_path):
     board = tmp_path / "b.kicad_pcb"
     board.write_text("(kicad_pcb)")
