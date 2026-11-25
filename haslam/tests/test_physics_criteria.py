@@ -144,3 +144,22 @@ def test_the_facts_switch_rating_rates_the_overshoot():
     o3 = O.Observer("o", "overshoot", "SW", "GND", None, None, 1.0, "prior basis", "prior", dict(source=s.name))
     O.rate_overshoot([o3], P3)
     assert "V_max" not in P3[s.name] and (o3.bound, o3.basis, o3.src_class) == (1.0, "prior basis", "prior")
+
+
+def test_a_stated_rating_always_sets_the_budget(monkeypatch):
+    # the facts' v_sw_max_V (haslam.intent.facts.apply: V_abs_source 'intent') reaches the hot-loop budget whatever
+    # HASLAM_SHARED_OVERSHOOT says; a part-table rating only under the switch
+    from haslam.intent import facts as F
+    monkeypatch.delenv("HASLAM_SHARED_OVERSHOOT", raising=False)
+    brief = {"nets": {"VIN": {"volts": 5.0}}, "parts": {"u": {"ref": "U1"}},
+             "structures": [{"id": "cell:boost:U1", "kind": "commutation_cell", "class": "boost", "rail": "VIN",
+                             "controller": "u", "excite": {"V": 5.0, "I": 1.0, "V_abs": 20.0,
+                                                           "basis": ["V_abs = 20 V, the switch's rating (table)"]}}]}
+    assert PR.budget_v_abs(brief["structures"][0]["excite"]) is None           # the part table's: the prior
+    F.apply(brief, {"parts": {"U1": {"v_sw_max_V": 28.0, "why": "DS p.2"}}})
+    ex = brief["structures"][0]["excite"]
+    assert ex["V_abs"] == 28.0 and ex["V_abs_source"] == "intent"
+    assert PR.budget_v_abs(ex) == 28.0 and PR.v_abs_source(ex) == "intent"
+    assert not any(b.startswith("V_abs = 20") for b in ex["basis"])           # the table's basis gave way
+    known = PR.hot_loop_budget("boost", 5.0, v_abs=PR.budget_v_abs(ex)).value
+    assert known > PR.hot_loop_budget("boost", 5.0).value                      # 28 V loosens the 5 V prior's 7 V
