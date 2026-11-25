@@ -61,3 +61,12 @@ def test_relations_written_for_kae_and_the_rest_reported():
     assert doc["relations"] == rows and not [p for p in problems if "relation" in p]
     for k in ("producer", "knobs", "environment"):
         assert k not in doc                     # nothing kae does not read
+
+
+def test_an_overshoot_term_at_the_switch_rating_is_flagged():
+    # overshoot.peak bounds the ring above the bus: at the rating itself it never binds
+    d = _design()
+    d.kae.term("T-OS", "hard", "overshoot.peak", where={"part": "U1"}, max="36 V", why="abs max")
+    d.kae.term("T-RING", "hard", "overshoot.peak", where={"part": "U1"}, max="19.5 V", why="36 - 16 - 0.5 V")
+    w = d.kae.warnings()
+    assert [x[0] for x in w] == ["kae_intent.overshoot_at_rating"] and w[0][1].startswith("T-OS:")
