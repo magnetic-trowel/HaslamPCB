@@ -5,7 +5,7 @@
 Scope: the fifteen ideas dropped after the 2026-11-20 design sessions: what was tried, the evidence, why each is a dead end, what would reopen it. Not here: the audit that set them up -> [audit-2611b](audit-2611b.md); ideas that passed (ground-side routing cost, TraceMaker hybrid) -> their experiments `ground-side-ab`, `tm-hybrid`.
 Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut overflow, learned failure model, pin swap, bus inversion, LLM diagnosis, count certificate, stop rule, conflict-set closure, repair_cycles, permute_pins, reach check, confidence sequence, TraceMaker, joint-loop windows, ground skeleton, budget exponent, seed diversity
 
-**Status:** per item (first line of each section; README rows carry the same). **Dates:** 2026-11-20 (stage 0 analyses) to 2026-11-22 (sprint verdicts). **Code base:** tag `baseline/2026-w47` (main c2dd008); stored control `control-w47` (seeds 0, 1; counted-work budget 900 s × √(footprints / 40); Freerouting fork 37b1a8b). **Kinds:** *experiment* = sprint run judged by kicad-cli DRC; *stored-data analysis* = no new run, a pre-registered kill line applied to stored outputs (mostly `s2-merit213`); *micro replay* = short re-run from stored boards. Intervals: 95 % board bootstrap unless named.
+**Status:** per item (first line of each section; README rows carry the same). **Dates:** 2026-11-20 (stage 0 analyses) to 2026-11-22 (sprint verdicts). **Code tags:** each item's **Code** line names the `archive/<branch>` tag that keeps its branch (tag = branch tip; pre-rename `kae` paths inside); later dead ends: [dead-ends-2611b](dead-ends-2611b.md). **Code base:** tag `baseline/2026-w47` (main c2dd008); stored control `control-w47` (seeds 0, 1; counted-work budget 900 s × √(footprints / 40); Freerouting fork 37b1a8b). **Kinds:** *experiment* = sprint run judged by kicad-cli DRC; *stored-data analysis* = no new run, a pre-registered kill line applied to stored outputs (mostly `s2-merit213`); *micro replay* = short re-run from stored boards. Intervals: 95 % board bootstrap unless named.
 
 ## 1. Satisficing physics term in the placer
 
@@ -24,6 +24,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
   A/A of the control's seeds: +0.23 [0.01, 0.44] over-budget modules. CPU 78 h.
 - **Why dead:** the pre-registered kill fired: over-budget modules rise beyond A/A. Margin freed at placement is not kept by routing (placer physics vs routed physics within a board: ρ 0.02-0.18) and crowding barely moves. Opens alone are undecided; deciding them needs about 3× the boards.
 - **Reopen if:** the hinge-only arm (`place_phys_hinge_beta=0`, the plan's named follow-up) is run, or the freed room is aimed at the pads that end up stranded (escape room at 2-4 mm, [§ 3](#3-cut-overflow-routability-term)), on about 240 boards.
+- **Code:** tag `archive/place-physics-satisficing` 2f3e7d8ef983818a2b6a840d2f99e657faa5cad6 (setting `place_phys_hinge`, plan `tools/kaeres/experiments/place-satisfice/PLAN.md`, page `docs/research/placement/satisficing-physics.md`; pre-rename paths).
 
 ## 2. Part slides inside the last mile
 
@@ -33,6 +34,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: binding gap against another net's via 33.0 %, own part's pad 15.5 %, another net's track 14.5 %, larger part 9.7 %, **small unlocked part 6.0 % [3.9, 8.8]** (kill line 20 %); P22 (staged open, bridge clean) 15.1 % [6.9, 23.1]; joint loop 6.0 %, bridge 3.4 %. Deficits median 0.22 mm, yet a legal slide in any of 17 directions clears the binding gap for 1.0 / 1.4 / 2.1 % of opens at 0.5 / 1 / 2 mm, and every gap of the path for 1 of 966 (the path runs between the part's pads).
 - **Why dead:** small parts are rarely what blocks, and moving one rarely clears the whole path.
 - **Reopen if:** an elastic finishing state exists (vias and tracks move with the part: 51.2 % [44, 59] of slides ≤ 1 mm are feasible without rip-up; track shove alone fits 11.7 % of opens). Part slides then become one move of that engine, not a mechanism of their own.
+- **Code:** design-session scratch, not committed (no tag).
 
 ## 3. Cut-overflow routability term
 
@@ -50,6 +52,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
   Kill line 0.3. Partial given HPWL 0.19 [0.12, 0.28]; 2-layer 0.42, HPWL 0.44. A 60 s real route ranks at 0.53. Human vs ours (195 boards): overflow is higher on ours where opens are worse (23 vs 8) and also where equal (17 vs 9).
 - **Why dead:** it sees that our placements are tighter, not where tightness costs connections; no better than HPWL or RUDY.
 - **Reopen if:** a placement-only measure ranks above 0.3 and beats HPWL and RUDY on the same placements. The measured lead is part-attached: excess crowding at stranded pads, AUC 0.567 [0.526, 0.608] at 2 mm.
+- **Code:** tag `archive/d2-cutflow` 55dee915c9c8cf3e4f504db934d35aa68120d8e6 (`tools/research/joint/cut_rank.py`, plans `tools/kaeres/experiments/d2-cutflow-rank/`, `d2-perturb-response/`).
 
 ## 4. Learned placement-level failure model
 
@@ -59,6 +62,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: model minus best single feature +0.04 to +0.075 in within-board ρ, intervals include 0. On 201 same-arm seed pairs, flyline crossings alone order pairs at 0.629 [0.567, 0.686], every model 0.52-0.56; HPWL at chance. Within-board share of log-opens variance 1.7-5.5 %; model-based selection −2.4 % opens, oracle −12 %.
 - **Why dead:** little within-board variance to learn, and one feature already captures it.
 - **Reopen if:** labels exist per connection on haslam placements (connection ledger). Net-level signal is real: within-board AUC 0.847 vs 0.804 for MST length (+0.043 [+0.015, +0.074]), +0.115 [+0.063, +0.167] on 2-3 pad signal nets, human placement only.
+- **Code:** tag `archive/d5-stage0-tools` c7b00198179cde24dec413c071cfadc6769caed3 (`tools/research/diagnostics/placement_rank.py`).
 
 ## 5. Pin and gate swaps as a search variable
 
@@ -68,6 +72,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: inversion density staged 0.284 vs human 0.266, +0.018 [−0.022, +0.061] (435 buses, 105 boards). An optimal in-group swap removes 76-79 % of inversions under either placement (40 % with strict classes). 34 % of diagnosed staged opens sit on a bus with a swappable end (15 % strict), half of them on three big boards. Within boards, inverted buses have more opens on 7, fewer on 6.
 - **Why parked:** the premise (pin-outs co-adapted to the human placement, so our placements invert buses) is not supported; whether inversion causes opens is undecided. **Not refuted for FPGA boards:** there the pin-out is a free choice inside banks, swap groups are far larger than the census's classes, and few merit boards carry one.
 - **Reopen if:** the connection ledger shows opens tied to inversion (board as a random effect), or an FPGA/CPLD suite is built.
+- **Code:** tag `archive/d5-stage0-tools` c7b00198179cde24dec413c071cfadc6769caed3 (`tools/research/diagnostics/bus_inversions.py`).
 
 ## 6. LLM diagnosis-from-report test on past A/Bs
 
@@ -77,6 +82,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: 98 knob A/Bs (186 arms, 1,232 boards open in control). Rule: helped if opens fall ≥ max(2, 20 %) or the board becomes clean. Knob A/Bs: helped 9.4 %, hurt 18.8 %; two seeds of one recipe: helped 9.2 %, hurt 7.2 %. P(helped on seed 1 | helped on seed 0) 0.27 (n 260) vs 0.055. Helped on every seed: 47 cases on 30 boards; a diagnosis exists for 16 of them; 384 of 400 sampled control runs have no `restart-report.json`. Picking the best arm per board on seed 0, scored on seed 1: −2.1 % [−5.1, +0.7]; one global arm −2.5 % [−5.8, +0.6].
 - **Why dead:** "helped" fires at the seed-noise rate, so there is no ground truth to score a diagnosis against, and with today's knobs a perfect per-board choice is worth no more than one global setting.
 - **Reopen if:** every run stores its diagnosis and DRC detail, and knobs exist whose per-board effects exceed seed noise.
+- **Code:** design-session scratch, not committed (no tag).
 
 ## 7. Count-based capacity certificate
 
@@ -86,6 +92,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: the premise (stable count, changing nets) holds in 5 of 55 same-placement groups with ≥ 3 runs. Replayed: −0.8 % CPU on the bridge; on route-only restarts (CB) −53.8 % CPU, **−9 clean boards, +698 opens** (flat over two doublings, then clean).
 - **Why dead:** a flat count does not mean no capacity.
 - **Reopen if:** never as a count rule. The sound form is per-placement certification by cause: rule and geometry diagnoses recur on the same placement with probability 0.98-0.99, fixed copper 0.96, congestion 0.61 (`tools/research/effort/certified.py`).
+- **Code:** tag `archive/d4-replay` f60e6e1fadba0dbff6e1e1b6c4dcb7282e6d5d7c (`tools/research/effort/replay.py`, `certified.py`).
 
 ## 8. Stopping earlier as the budget lever
 
@@ -95,6 +102,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: oracle "stop after the best wave" −9.3 % CPU [−15.0, −4.9]; near-miss plus count-stability stop −6.4 % CPU, 154 clean, 865 opens. Stopping Freerouting after dry passes: ceiling under 1 %. Lanes instead: probe 4 seeds, then 1 fresh + 1 resumed lane, −44.1 % CPU, −5 [−10, −1] clean; at equal CPU +21 [+13, +31] clean.
 - **Why dead:** even a perfect stop rule saves 7-10 %; no policy saves 15 % at equal outcome. The lever is lane width, which `d4-sched-width` tests.
 - **Reopen if:** budgets grow far past the last useful wave.
+- **Code:** tag `archive/d4-replay` f60e6e1fadba0dbff6e1e1b6c4dcb7282e6d5d7c (replay); lane-width follow-up plan `tools/kaeres/experiments/d4-sched-return/PLAN.md` and scheduler notes: tag `archive/d4-sched` e187387366b8bad52b8abf1884f49bf6b132973d.
 
 ## 9. Conflict-set closure for near-miss boards
 
@@ -104,6 +112,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: control (last mile with rip-up) and closure each closed 0 opens; none worse. Closure records: 15 "needs fixed copper", 5 joint solve failed, 5 out of time.
 - **Why dead:** pre-registered kill (fewer than 3 boards) met. Half the opens need fixed or input copper moved, which closure may not touch; `lastmile.close` already rips what a soft search crosses. Limit: the control closed nothing either, so 120 s cannot separate arms.
 - **Reopen if:** an elastic state can move vias and fixed copper ([§ 2](#2-part-slides-inside-the-last-mile)), or a longer replay in which the control closes something.
+- **Code:** tag `archive/d4-closure` 428c8f6194aa02a1dc72c16952bfaf279ef170e7 (`kae/src/kae/route/closure.py`, setting `closure=1`, micro-test driver, `tools/kaeres/experiments/d4-closure/PLAN.md`).
 
 ## 10. Routing-budget reserve and repair loop
 
@@ -113,6 +122,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: paired `d = (o_arm − o_ctl)/(o_arm + o_ctl + 1)` −0.015 [−0.049, +0.001] (sign-flip), 1 better / 9 same / 0 worse; opens 166 → 158; DRC errors 866 → 864. CPU 43.5 h.
 - **Why undecided, not dead:** at ≥ 600 s budgets nothing is left over to spend (137 of 140 sprint boards get the 90 s reserve in both arms). The failure was measured in 60-365 s restart waves: 175 of 264 `s2-merit213` attempts skipped every repair round for time, with a median 48 % of budget unused.
 - **Reopen with:** a control at 60-365 s wave budgets.
+- **Code:** tag `archive/route-budget-fixes` c582091373741a9851e959ac5f16ce47be7f3daa (`last_mile_reserve_share`, `repair_cycles`, `permute_pins`; plan `tools/kaeres/experiments/route-budget/PLAN.md`; pre-rename paths).
 
 ## 11. State-hash reach check and confidence sequences at sprint size
 
@@ -122,6 +132,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: placement fingerprint (`hpwl, scorecard, crossings`) identical on **0 of 507** pairs for the crossing and channel terms (89 under counted work), 5 of 132 for untangle. Sequence width / fixed-n width: 5.0× at 60 boards, 2.5× at 300, 1.8× at 1,200; on 188 stored arms fixed-n excludes 0 on 79, the sequence on 24.
 - **Why dead:** any annealer term change moves the whole anneal, so a hash saves nothing for placement terms; a sequence costs 5× the boards at sprint size.
 - **Reopen if:** the change is gated or late (reach check pays about half the CPU there), or evidence accumulates over weeks to ≥ 1,200 boards (sequence then 1.8×).
+- **Code:** tag `archive/d6-reach` 4dafcfd4d1d2164bcdb8572720646010585ff2d3 (`tools/kaeres/reach.py`, now `haslamres` naming).
 
 ## 12. TraceMaker as a replacement engine
 
@@ -131,6 +142,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: TraceMaker 600 s against the bridge on 30 boards: better 6, worse 23, median log opens ratio +1.04; against the fork alone better on 26. Open signal connections 262 vs bridge 488, but 294 of its 712 opens involve a zone (bridge 12): it trusts its own in-memory zone fill, and KiCad's refill splits planes and starves thermals. 5× time: opens −16 % for 3.5× CPU.
 - **Why dead:** loses on planes, runs on wall clock. Kept: its signal routing, as the first router on BGA boards in `tm-hybrid` (hybrid − control −15.2 opens per pair [−29.7, −3.2]; 272 CPU-h against a 150 cap) and as pin-first strict search to port into the fork.
 - **Reopen if:** it keeps KiCad's zone refill in its loop and budgets by counted work.
+- **Code:** tag `archive/tracemaker-trial` 0fae2dbdb214d54a49cd9e31f21a052e1f319955 (board list, paired-results script). The hybrid (`first_router`) lives on in the live `hybrid-baseline` branches, which contain `tracemaker-hybrid` and `tracemaker-hybrid-w47`.
 
 ## 13. Joint-loop windows as built
 
@@ -140,6 +152,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** ([audit-2611b](audit-2611b.md#six-conclusions); `j10-joint-window2` verdict): 126 of 4,036 windows kept (3.1 %), about 2 useful revisions per CPU-hour; 38 % die illegal, 28 % end with more opens. `j10-joint-window2` (cancelled at 25 %): in 25 of 28 runs per arm no re-placement ran at 900 s × √(fp/40). Placements under 1 % of the diagonal apart differ in opens as much as unrelated ones (77 pairs, 4 boards, descriptive).
 - **Why dead:** a fresh restart re-draws every pose and beats windows at equal CPU. The remaining campaigns `loop-win3` and `j10-joint-window2` (about 1,300 queued CPU-h) were retired by user decision on 2026-11-20.
 - **Reopen if:** `d2-perturb-response` shows the router responds smoothly to small placement changes, or windows edit an elastic state instead of ripping nets.
+- **Code:** windows chosen from evidence, tabu, exact legality (`loop-win*`): [window-choice-2611 § Code](joint/window-choice-2611.md#code), main tag `archive/loop-win3-results` 3b4c551f9791fe4759a98bfbf5ef0234164927de; window fixes, diagnosis, ends-only and soft copper: [window-ends-2611 § Code](joint/window-ends-2611.md#code), main tag `archive/window-ends` 24ad25e6cdd4454183e865c48bb2e6144e3c0ae5.
 
 ## 14. Ground skeleton first on boards without a plane
 
@@ -149,6 +162,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: ground within 1 mm on the same layer or directly opposite (`cov_any`): bridge − human −1.3 points [−3.2, +0.5], within noise. Ground directly under the track (`cov_opp`): bridge −3.7 [−6.3, −1.0], staged −9.8 [−13.7, −6.1]. 2-10 % of opens involve a zone, so a skeleton buys no completion.
 - **Why dead:** the gap is `cov_opp`, which the price form closes: `ground-side-ab` +8.4 points [+5.5, +11.6] (0.507 → 0.591), adopted as candidate. On the 6 of 43 boards with no ground zone the human is no reference (`cov_any` 5 %); the skeleton's value there rests on a secondary source only.
 - **Reopen if:** the ground-side cost fails its completion guard on the ladder, or a measured return-path row shows a gap on plane-less boards.
+- **Code:** design-session scratch, not committed (no tag); the ground-side cost is the live `ground-side-*` line.
 
 ## 15. More budget and seed restarts for big boards
 
@@ -158,6 +172,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: opens fall as CPU^b, median b = −0.27 (−0.14 to −0.65): halving opens costs about 13× CPU; 10 opens only after thousands of CPU-h on every board but gecko5. Best of 110-234 methods, 2,731 CPU-h: never 0 opens. kocer (956 of 989 unconnected) and jetson (117 unconnected, 1,615 errors) are unfinished human layouts holding 54 % of big-board opens. Seeds: the fork from 9a5512d (upstream #1022, `DsnReadOptions.REFERENCE_NAME`) creates components in reference-name order whatever the DSN's, so `translate.permute` changes only net numbers; pass 1 never reads them. First pass identical within seed parity on all 206 boards; 3 extra seeds in wave 0 cleaned 0 boards. `permute_pins=1`: −0.011 [−0.074, +0.048], undecided.
 - **Why dead:** budget is a 13×-per-halving lever, and seeds never diversified route-only runs.
 - **Reopen if:** an engine change steepens b (a 20 % curve shift equals 2.3× CPU at b = −0.27); seeds: a fork fix (pass-1 order from `autorouter.item_order_seed`, or `DsnReadOptions.INPUT_ORDER`).
+- **Code:** design-session scratch, not committed (no tag); `permute_pins`: tag `archive/route-budget-fixes` (§ 10).
 
 ## Sources
 

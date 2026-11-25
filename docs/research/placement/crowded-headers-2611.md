@@ -123,12 +123,16 @@ on every board-seed of every test.
   human" (PR #136) would be fairer than strict legality.
 
 ## Data and code
-- **Plans and results:** `tools/research/placement/` (`chan-room`, `crowded-ab`, `crowded-ab2`, `crowded-ab3`,
-  `crowded-ab4`), each with `PLAN.md`, addenda and scripts.
-- **Branches:**
-  - `crowded-fixes` (ce093dc4): crowded-ab;
-  - `crowded-fixes2` (66aaa596): crowded-ab2;
-  - `crowded-pairs` (5cc939e2): crowded-ab3;
-  - `crowded-pinclear` (df50f967): crowded-ab4.
+- **Plans and results:** `tools/research/placement/crowded-ab4/` on main; `crowded-ab`, `crowded-ab2`, `crowded-ab3`
+  (each `PLAN.md`, `RESULT.md` where run, addenda, scripts) only on the archive tags below; `chan-room` on the
+  `chan-util-gate` branch.
+- **Branches** (superseded by `crowded-pinclear`; tag = branch tip, pre-rename `kae` paths):
+  - crowded-ab: tag [`archive/crowded-fixes`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/crowded-fixes/tools/research/placement/crowded-ab)
+    2b7e75e5a2688f2f8c089632e1193306703c2c48 (the three helps: ce093dc4);
+  - crowded-ab2: tag [`archive/crowded-fixes2`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/crowded-fixes2/tools/research/placement/crowded-ab2)
+    add33ce31ca5683278e1b3e04c4428cbc22ce9ab (header pinned only when it fits nowhere: 66aaa596);
+  - crowded-ab3: tag [`archive/crowded-pairs`](https://github.com/magnetic-trowel/HaslamPCB/tree/archive/crowded-pairs/tools/research/placement/crowded-ab3)
+    ee6b13ba5cb467280adae28fb0706af7ced5ff2c (`place_edge_header_pairs`: 5cc939e2);
+  - crowded-ab4: `crowded-pinclear` (`place_edge_pose_clear`: df50f967), merged into main.
 - **Related:** the scoring follow-ups are score 13 (PR #137, merged), `haslamres rescore` (PR #138) and `legal_h`
   (PR #136).
