@@ -211,6 +211,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     srcs = S.add_all(bd, brief)
     obs = O.observers(bd, brief, srcs)
     P, ledger = ledger_for(bd, brief, srcs, intent)
+    O.rate_overshoot(obs, P)
     if sources is not None:
         unknown = set(sources) - {s.name for s in srcs}
         if unknown:

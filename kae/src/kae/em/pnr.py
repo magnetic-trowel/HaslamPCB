@@ -104,6 +104,7 @@ class PhysRouter:
         from kae.excite.beliefs import corners
         from kae.excite.evaluate import ledger_for
         self.P, self.ledger = ledger_for(bd, self.brief, self.srcs, intent)
+        O.rate_overshoot(self.obs, self.P)
         self.cval = {s.name: [{k[1]: v for k, v in c.items()} for c in corners(self.P[s.name].values(), n=n_corners, seed=seed)]
                      for s in self.srcs}
         for s in self.srcs:

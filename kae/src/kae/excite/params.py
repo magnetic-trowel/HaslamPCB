@@ -180,11 +180,27 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
     else:
         why = f"input rail {vin_net} has no voltage" if vin_net else "input rail not identified"
         out["D"] = _p(L, sid, "D", 0.5, 0.1, 0.9, "", "prior", f"duty unknown ({why})")
-    # the switch's voltage rating, for the overshoot requirement
-    if "v_sw_max_V" in tab:
+    # the switch's voltage rating, for the overshoot requirement: the facts' (the cell's own, else its
+    # controller's parts.<ref>.v_sw_max_V) win over the part table's
+    rated = switch_rating(intent, sid, (brief.get("parts") or {}).get(st.get("controller"), {}).get("ref"))
+    if rated:
+        out["V_max"] = _p(L, sid, "V_max_V", rated[0], rated[0], rated[0], "V", "intent", rated[1])
+    elif "v_sw_max_V" in tab:
         t, lo, hi, src = tab["v_sw_max_V"]
         out["V_max"] = _p(L, sid, "V_max_V", t, lo, hi, "V", "part_table", src)
     return out
+
+
+def switch_rating(intent, sid, ctrl_ref):
+    """(V, basis) of a cell's switch rating stated in the facts: cells.<sid>.v_sw_max_V, else the controller's
+    parts.<ref>.v_sw_max_V; None when neither says. A rating is its lowest stated value (as kae.intent.facts.apply
+    writes excite V_abs), the same at every corner."""
+    for sec, key in (("cells", sid), ("parts", ctrl_ref)):
+        iv = intent_value(intent, sec, key, "v_sw_max_V") if key else None
+        if iv:
+            why = (((intent or {}).get(sec) or {}).get(key) or {}).get("why")
+            return iv[1], f"facts {sec}.{key}.v_sw_max_V" + (f" ({why})" if why else "")
+    return None
 
 
 def generic(L, s, kind):
