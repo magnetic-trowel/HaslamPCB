@@ -347,6 +347,17 @@ def report_unconnected(pro):
         pro.write_text(json.dumps(d, indent=2), encoding="utf-8")
 
 
+_QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
+def _paren_depth(line):
+    """The change in S-expression depth over a line, quoted strings left out: a net named with an unbalanced
+    parenthesis ('Net-(U2-PA13(JTMS)', a pin name with one) wrote a copper block whose parentheses never balanced
+    when counted raw, and the scan ran off the end of the file."""
+    s = _QUOTED.sub('""', line)
+    return s.count("(") - s.count(")")
+
+
 def canonical_copper_order(board, uuids=False):
     """Rewrite `board` with its top-level (segment), (arc) and (via) blocks in the order of their content
     (the same rule as kae.route.drc.canonical_copper_order; this wrapper is stdlib only), and with `uuids`
@@ -360,11 +371,12 @@ def canonical_copper_order(board, uuids=False):
         ln = lines[i]
         if ln.startswith(("\t(segment", "\t(arc", "\t(via")) and not ln.startswith("\t(via_"):
             j, depth = i, 0
-            while True:
-                depth += lines[j].count("(") - lines[j].count(")")
+            while j < len(lines):
+                depth += _paren_depth(lines[j])
                 if depth <= 0:
                     break
                 j += 1
+            j = min(j, len(lines) - 1)
             blocks.append(lines[i:j + 1])
             if first is None:
                 first = len(out)
