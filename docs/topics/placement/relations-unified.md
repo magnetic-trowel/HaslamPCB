@@ -50,6 +50,7 @@ Who writes which: #141's spelling is written by its six test fixtures, its docs 
 - #141's six fixtures: same status rows and, with `haslam place --intent`, the same written boards as main [M].
 - solar-small, A0 recipe, seeds 1-3, haslamsynth's 20 unified rows: met 7-10/20 without the file, 15-18/20 with it; C312 46-64 → 2.9-3.0 mm, FB dividers 13-35 → 2.2-6.4 mm (5 mm asked) [M]. T-FB and T-FB3 meet their limits in every complete evaluation; the one complete pair has lower pickup without relations (0.28 vs 3.5 mV): undecided [M].
 - Details: `~/haslam-baselines/experiments/relations-unified/VERDICT.md`.
+- Physics against relations, the user's exception (`category: safety`, `requested: true` keep full weight, [llm-relations](llm-relations.md#physics-against-relations-who-keeps-full-weight)): neutral without either mark. `haslam place` writes the same board item by item and the same status rows before and after it on #141's six fixtures (`--intent`) and, without an intent, on the four corpus boards above [M] (`~/haslam-baselines/experiments/relations-weighting/VERDICT.md`).
 
 ## Sources
 
