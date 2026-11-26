@@ -30,9 +30,10 @@ class Finding:
         return d
 
 
-# fraction of time a pulled-up signal line is held low, for a pull-up's default dissipation: I2C and open-drain
-# lines idle high, and a byte with its ACK is at most about half low [I]; a line held low longer needs p_diss=
-PULLUP_DUTY = 0.5
+# fraction of time a pulled-up signal line is assumed held low for a pull-up's default dissipation: 1.0, the
+# conservative worst case (a line held low, e.g. a stuck bus or a reset held), for every design. A 50 % default
+# (d5f8e81) was less conservative everywhere (review of F13); a designer who knows the duty states p_diss= instead.
+PULLUP_DUTY = 1.0
 
 SERIES_CATEGORIES = ("fuse", "ptc", "connector", "relay", "inductor", "switch", "mosfet", "diode",
                      "transformer", "led", "bjt")

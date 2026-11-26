@@ -180,8 +180,8 @@ def level(d):
     b.add(P.SJ_BRIDGED, "JP1", {"A": "VIO", "B": "VIO_PU"}, notes="host-side pull-ups on (cut to disable)")
     b.add(P.SJ_OPEN, "JP2", {"A": "VIO", "B": "VIN_P"},
           notes="bridge for 4-wire hosts (VIO = VIN); open by default")
-    b.R("R15", 4.7e3, "VIO_PU", "SDA_H", note="2.5 mA at 12 V (I2C 3 mA)")
-    b.R("R16", 4.7e3, "VIO_PU", "SCL_H", note="13.2^2 / 4.7 k: 18.5 mW at the default 50 % low time (pull-up)")
+    b.R("R15", 4.7e3, "VIO_PU", "SDA_H", note="2.5 mA at 12 V (I2C 3 mA)", p_diss=0.019)
+    b.R("R16", 4.7e3, "VIO_PU", "SCL_H", p_diss=0.019, note="13.2^2 / 4.7 k x 50 % low time (I2C idles high; a byte with ACK is at most half low): 18.5 mW")
     b.R("R17", 100e3, "VIO", "RST_H", note="host RST_N may float")
     b.C("C10", "100nF", 25, "VIO", "GND")
     b.R("R18", 4.7e3, "+1V8", "SDA_L")

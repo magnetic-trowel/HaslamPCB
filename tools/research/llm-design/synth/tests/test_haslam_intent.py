@@ -128,3 +128,24 @@ def test_no_supply_prior_nag_without_physics_facts():
     assert not [x for x in d.haslam.warnings() if x[0] == "haslam_intent.supply_prior"]
     d.haslam.part("U1", I_A=[1e-4, 1e-3], why="DS")
     assert [x[2] for x in d.haslam.warnings() if x[0] == "haslam_intent.supply_prior"] == [["U2"]]
+
+
+def test_requested_is_opt_in_per_relation():
+    """Review of F23: a relation is `requested` (keeps its strength against physics) only when the designer says so
+    (requested=True or req="REQ-n"); plain d.place calls and inferred relations never are (F52: a default that
+    promotes relations over physics goes global)."""
+    from haslamsynth import Design
+    from haslamsynth.lib import R
+    d = Design("req-opt-in")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.domain("LV", ref="GND", kind="selv")
+    d.net("A", domain="LV", v=(0, 3.3), kind="signal")
+    d.require("REQ-1", "keep R1 away from R2")
+    b = d.block("b", domain="LV")
+    r1, r2 = b.add(R("1k"), ref="R1"), b.add(R("1k"), ref="R2")
+    for r in (r1, r2):
+        d.nets["A"].connect(r["1"]); d.nets["GND"].connect(r["2"])
+    d.place.far(r1, r2, "close")
+    d.place.far(r2, r1, "close", req="REQ-1")
+    rows = [r for r in d.place.relations if r["kind"] == "far"]
+    assert [bool(r.get("requested")) for r in rows] == [False, True]

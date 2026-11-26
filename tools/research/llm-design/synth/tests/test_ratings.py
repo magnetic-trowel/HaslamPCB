@@ -61,31 +61,17 @@ def test_v_rel_outside_the_ranges_is_an_error():
     assert [s for s, _ in _msgs(d, "net.v_rel")] == ["error"]
 
 
-def test_pullup_on_signal_line_defaults_to_half_duty():
-    """F13: 13.2 V on 4.7 k is 37 mW held low; an I2C pull-up is low about half the time."""
-    def design(kind):
+def test_pullup_dissipation_defaults_to_the_worst_case():
+    """Review of F13: a pull-up is checked as if its line were held low all the time (37 mW at 13.2 V on 4.7 k),
+    the conservative default for every design; a designer who knows the duty states p_diss."""
+    def design(kind, p_diss=None):
         d = _base()
         d.net("SDA", domain="LV", v=(0, 13.2), kind=kind)
         b = d.block("b")
-        r = b.add(R("4.7k", "0402").with_(symbol=None, pins=[PinDef("1"), PinDef("2")]))
+        kw = {"p_diss": p_diss} if p_diss is not None else {}
+        r = b.add(R("4.7k", "0402").with_(symbol=None, pins=[PinDef("1"), PinDef("2")]), **kw)
         d.nets["VIN_P"].connect(r[1]); d.nets["SDA"].connect(r[2])
         return d
-    assert not _msgs(design("signal"), "rating.power")        # 18.5 mW vs 62.5 mW x 50 % derating
-    assert _msgs(design("analog"), "rating.power")            # not a pull-up: full time
-
-
-def test_divider_top_leg_is_not_a_pullup():
-    """A rail-to-enable divider (prius-solar-mppt R107/R108, rpi-mains-relay R24/R25) has its voltage all the
-    time: the 50 % pull-up duty must not halve its dissipation."""
-    def design(with_bottom):
-        d = _base()
-        d.net("EN", domain="LV", v=(0, 13.2), kind="signal")
-        b = d.block("b")
-        top = b.add(R("4.7k", "0402").with_(symbol=None, pins=[PinDef("1"), PinDef("2")]))
-        d.nets["VIN_P"].connect(top[1]); d.nets["EN"].connect(top[2])
-        if with_bottom:
-            bot = b.add(R("1M", "0402").with_(symbol=None, pins=[PinDef("1"), PinDef("2")]))
-            d.nets["EN"].connect(bot[1]); d.nets["GND"].connect(bot[2])
-        return d
-    assert not _msgs(design(False), "rating.power")           # a pull-up: 18.5 mW averaged
-    assert _msgs(design(True), "rating.power")                # a divider's top leg: 37 mW, all the time
+    assert _msgs(design("signal"), "rating.power")            # 37 mW vs 62.5 mW x 50 % derating: flagged
+    assert _msgs(design("analog"), "rating.power")
+    assert not _msgs(design("signal", p_diss=0.0185), "rating.power")   # the designer's stated duty
