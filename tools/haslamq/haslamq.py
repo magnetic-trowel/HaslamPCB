@@ -80,7 +80,7 @@ def qos(name):
 # A job that runs KiCad (pcbnew, kicad-cli, haslambench, haslam) needs HASLAM_KICAD_WRAP; without it it fails at once with
 # PcbnewError. submit hints at --kicad when a command looks like that and nothing loads the environment.
 KICAD_ENV_VARS = ("HASLAM_KICAD_WRAP",)
-NEEDS_KICAD = re.compile(r"pcbnew|kicad-cli|\bkaebench\b|-m haslam\b|\b(haslam|bench)/tests\b")
+NEEDS_KICAD = re.compile(r"pcbnew|kicad-cli|\bhaslambench\b|-m haslam\b|\b(haslam|bench)/tests\b")
 LOADS_KICAD = re.compile(r"env\.sh|HASLAM_KICAD_WRAP")
 
 
