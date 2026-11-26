@@ -372,6 +372,9 @@ DEFAULTS = dict(
     hotloop_cell_partial="rip",    # a partial cell with a gap (a hop not laid, a return not closed; critical_modules.
                                    # cell_gaps) is ripped like a failed one; "keep" keeps its laid hops locked (as
                                    # before cells-robust: arvsom U6, nekoink U1, hv-probe U21 lost connections or L)
+    hotloop_pour_revert="nearest", # a pad the cells cut off its pour reverts the cells nearest it one at a time until
+                                   # the refill reaches it again; "all": every cell with copper in that zone at once
+                                   # (as before cells-robust: hvdc's one GND pad reverted all four cells)
     hotloop_cells_max_pads=0,      # the cells stage is skipped on a board with more pads than this (0: no gate;
                                    # hotloop.density_gate: dense boards lost connections far from any cell)
     hotloop_cell_walls=0,          # 1 lays a cell hop whose every route walls off another net's pin (the first such

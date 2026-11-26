@@ -80,7 +80,7 @@ MARGIN_WHY = ("a return at height h spreads as h / (x^2 + h^2): a 1 mm band hold
 SETTINGS = ("hotloop_keepout", "hotloop_keepout_mm", "hotloop_cells", "hotloop_vias", "hotloop_pours",
             "hotloop_budget_s", "hotloop_keepout_pours", "hotloop_lift", "hotloop_keepout_loopvias", "hotloop_clear",
             "hotloop_clear_force", "hotloop_cell_kinds", "hotloop_cell_walls", "hotloop_cell_partial",
-            "hotloop_cells_max_pads")
+            "hotloop_cells_max_pads", "hotloop_pour_revert")
 
 
 def _log(msg):
@@ -103,6 +103,7 @@ def settings(board_path=None, opts=None):
     out["cell_kinds"] = tuple(k.strip() for k in str(g["hotloop_cell_kinds"] or "").split(",") if k.strip())
     out["cell_walls"] = bool(float(g["hotloop_cell_walls"] or 0))
     out["cells_max_pads"] = float(g["hotloop_cells_max_pads"] or 0)
+    out["pour_revert"] = "all" if str(g["hotloop_pour_revert"] or "").strip() == "all" else "nearest"
     out["cell_partial"] = "keep" if str(g["hotloop_cell_partial"] or "").strip() == "keep" else "rip"
     return out
 
@@ -786,13 +787,27 @@ def _pad_fill_contacts(path, info):
     return out
 
 
-def pour_check(s, input_path, info, mods, workdir, log=_log, before=None):
+def _dist_to_pad(m, pad, layer):
+    """The distance from a cell's other-net copper on `layer` to a pad (0 when the pad has no shape here)."""
+    try:
+        g = (CN._pad_shapes(pad)[1] or {}).get(layer)
+    except Exception:  # noqa: BLE001 - a pad without geometry (a test's): no order
+        g = None
+    if g is None or g.is_empty:
+        return 0.0
+    ds = [it.geom.distance(g) for it in m.copper if it.net != pad.get("net") and layer in (it.layers or ())]
+    return min(ds) if ds else math.inf
+
+
+def pour_check(s, input_path, info, mods, workdir, log=_log, before=None, revert_mode="all"):
     """The post-cells check: the cells' copper written to a probe board and every zone refilled; a pad
     of a zone's net whose copper touched its pour on the input and no longer does has been cut off
     by a cell's other-net copper (giacobot: +BATT, +3V3 and GND cell tracks beside U2's LX pins
     left the solid LX pours no way to the pins). The cells with other-net copper inside that pad's
     zone on that layer are reverted (their copper ripped; the general router lays those nets) and a
-    `hotloop_cell_cut_pour` hazard says so. Returns (hazards, cut pads after the revert)."""
+    `hotloop_cell_cut_pour` hazard says so. With `revert_mode` "nearest" (hotloop_pour_revert, the stage's default)
+    they are reverted one at a time, nearest the pad first, until the refill reaches the pad again; "all" reverts every
+    one at once. Returns (hazards, cut pads after the revert)."""
     from shapely.ops import unary_union
     from haslam import hazards as H
     from .critical_joint import _rip
@@ -825,18 +840,41 @@ def pour_check(s, input_path, info, mods, workdir, log=_log, before=None):
                     hit.append(m)
                     break
         found.append((u, l, pad, net, hit))
-    for u, l, pad, net, hit in found:
-        for m in hit:
-            if m.status != "reverted":
-                log(f"hotloop: {m.id} cut {pad.get('ref')}.{pad.get('number')} ({net}) off its pour on {l}; reverted")
-                _rip(s, m)
-                m.status = "reverted"
-                m.notes = [f"reverted: its copper cut {pad.get('ref')}.{pad.get('number')} ({net}) off its pour on {l}"]
-    if any(hit for *_, hit in found):
-        s.write(probe)
-        gone = sorted(before - _pad_fill_contacts(probe, info))
+    def revert(m, pad, net, l):
+        log(f"hotloop: {m.id} cut {pad.get('ref')}.{pad.get('number')} ({net}) off its pour on {l}; reverted")
+        _rip(s, m)
+        m.status = "reverted"
+        m.notes = [f"reverted: its copper cut {pad.get('ref')}.{pad.get('number')} ({net}) off its pour on {l}"]
+
+    if revert_mode == "nearest":
+        # nearest first, the fills re-checked after each revert: a pad cut off from a board-wide pour named every
+        # cell with other-net copper anywhere in it (hvdc: U20.6's GND cut, all four cells reverted, the stage laid
+        # nothing and still spent its time); the cell beside the pad is nearly always the one that cut it
+        now = None
+        for u, l, pad, net, hit in found:
+            if now is not None and (u, l) in now:
+                continue
+            for m in sorted(hit, key=lambda m_: _dist_to_pad(m_, pad, l)):
+                if m.status == "reverted":
+                    continue
+                revert(m, pad, net, l)
+                s.write(probe)
+                now = _pad_fill_contacts(probe, info)
+                if (u, l) in now:
+                    break
+        for f in found:                 # a hazard names the cells actually reverted
+            f[4][:] = [m for m in f[4] if m.status == "reverted"]
+        gone = sorted(before - now) if now is not None else lost
     else:
-        gone = lost
+        for u, l, pad, net, hit in found:
+            for m in hit:
+                if m.status != "reverted":
+                    revert(m, pad, net, l)
+        if any(hit for *_, hit in found):
+            s.write(probe)
+            gone = sorted(before - _pad_fill_contacts(probe, info))
+        else:
+            gone = lost
     still = set(gone)
     out = []
     for u, l, pad, net, hit in found:
@@ -1144,7 +1182,7 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
             mods = [m for m in s.modules if m.kind == "cell"]
             rep["hazards"] += s.hazards() + cell_hazards(mods)
             drop_cells(s, mods, st["cell_kinds"], log=log, partial=st["cell_partial"])
-            hz, rep["pour_cut"] = pour_check(s, input_path, s.info, mods, wd, log=log)
+            hz, rep["pour_cut"] = pour_check(s, input_path, s.info, mods, wd, log=log, revert_mode=st["pour_revert"])
             rep["hazards"] += hz
             hz, rep["pin_blocked"] = reach_check(s, s.info, mods, log=log)
             rep["hazards"] += hz

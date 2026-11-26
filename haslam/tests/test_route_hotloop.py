@@ -446,6 +446,32 @@ def test_pour_check_names_a_cell_for_every_pad_it_cut_and_reports_after_the_reve
     assert not any("none was reverted" in h["message"] for h in hz)
 
 
+def test_pour_check_nearest_reverts_only_the_cell_beside_a_pad_cut_off_a_board_wide_pour(tmp_path, monkeypatch):
+    """hvdc (inverters A/B): U20.6's GND pad was cut off the board-wide GND pour, and every cell with other-net copper
+    anywhere in that pour was reverted, so the stage laid nothing. Nearest first, with the fill re-checked after each
+    revert, only the cell beside the pad goes; "all" keeps the old behaviour."""
+    from types import SimpleNamespace as NS
+    from shapely.geometry import LineString
+    from haslam.route import critical_joint
+    sq = lambda x0, y0, x1, y1: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+    pad = dict(uuid="p6", ref="U20", number="6", net="GND", layers=["F.Cu"], poly=[[sq(0.0, 0.0, 1.0, 1.0)]])
+    info = dict(pads=[pad], zones=[dict(net="GND", layers=["F.Cu"], rings=[[sq(-50, -50, 50, 50)]], clearance=0.2)])
+    mk = lambda i, x: NS(id=i, status="routed", notes=[], copper=[NS(net="VIN", layers=("F.Cu",), width=0.3,
+                                                                       geom=LineString([(x, 0.5), (x + 2, 0.5)]))])
+    for mode, want in (("nearest", ["cell:buck:U20"]), ("all", ["cell:buck:U20", "cell:inverting:U21"])):
+        near, far = mk("cell:buck:U20", 1.3), mk("cell:inverting:U21", 30.0)
+        before = {("p6", "F.Cu")}
+        monkeypatch.setattr(hotloop, "_pad_fill_contacts",
+                            lambda path, info, near=near: before if near.status == "reverted" else set())
+        monkeypatch.setattr(critical_joint, "_rip", lambda s, m: setattr(m, "copper", []))
+        hz, gone = hotloop.pour_check(NS(write=lambda p: None), None, info, [far, near], tmp_path,
+                                      log=lambda *a: None, before=before, revert_mode=mode)
+        assert gone == [] and sorted(m.id for m in (near, far) if m.status == "reverted") == want, mode
+        (h,) = hz
+        assert sorted(h["evidence"]["reverted"]) == want and h["evidence"]["restored"]
+    assert hotloop.settings()["pour_revert"] == "nearest"
+
+
 def _walled_bst(tmp_path):
     """U1.6 (BST) walled in by other-net tracks on three sides, open on its right towards a zone of its own
     net 0.16 mm away: open-authenticator's U4.2 in miniature. The net class's vias (1.2 mm) fit neither
