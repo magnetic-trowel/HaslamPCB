@@ -253,3 +253,12 @@ def test_a_parts_pin_count_for_the_heat_prior_is_its_distinct_pad_numbers():
     assert n_pins(qfn) == 41
     assert PR.source_power_prior("mcu", n_pins=n_pins(qfn))[0] == PR.source_power_prior("mcu", n_pins=41)[0]
     assert n_pins(SimpleNamespace(pad_num=["", ""])) == 2
+
+
+def test_the_provisional_brief_counts_pins_not_pads():
+    """A QFN-28 whose exposed pad is drawn as 9 pads (37 pads, 29 pins) was a > 32-pin MCU heat source."""
+    from haslam.physics.provisional_brief import provisional_brief
+    pads = [dict(number=str(i), net=f"N{i}") for i in range(1, 29)] + [dict(number="29", net="GND")] * 9
+    board = SimpleNamespace(footprints=[dict(uuid="u1", ref="U1", value="X", lib_id="Package_DFN_QFN:QFN-28", pads=pads)])
+    br = provisional_brief(board)
+    assert not [s for s in br["structures"] if s.get("kind") == "heat_source"]
