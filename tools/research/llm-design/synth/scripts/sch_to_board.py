@@ -2,7 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Build an unplaced .kicad_pcb from a haslamsynth project: KiCad's own Python does the work.
 
-Run with KiCad's Python (pcbnew), e.g. `$HASLAM_KICAD_WRAP python3 sch_to_board.py OUT_DIR BOARD_JSON`.
+Run with KiCad's Python (pcbnew): `$HASLAM_KICAD_PYTHON sch_to_board.py OUT_DIR BOARD_JSON` (env.sh sets it for a
+native KiCad, e.g. /usr/bin/python3; the PATH python3 may lack pcbnew), or `$HASLAM_KICAD_WRAP python3 ...` for the
+container set-up. Every footprint library it loads from (the mounting holes' MountingHole too) is added to the
+project's fp-lib-table, so KiCad's DRC reports no lib_footprint_issues.
 
 OUT_DIR is a `haslamsynth build` output folder (<slug>.kicad_pro, .kicad_sch, fp-lib-table). The netlist comes from
 `kicad-cli sch export netlist` on the schematic, so the board carries exactly what KiCad reads from the sheets
@@ -72,6 +75,24 @@ def fp_lib_dirs(out_dir):
             uri = re.sub(r"\$\{(\w+)\}", lambda m: env.get(m.group(1), m.group(0)), val(lib, "uri"))
             dirs[val(lib, "name")] = os.path.normpath(uri)
     return dirs
+
+
+def add_fp_libs(out_dir, nicknames, libs):
+    """Add each library in `nicknames` that the project's fp-lib-table lacks (a stock one, e.g. MountingHole for
+    the holes): KiCad's DRC flags a footprint whose library is in no table (lib_footprint_issues)."""
+    t = Path(out_dir) / "fp-lib-table"
+    text = t.read_text() if t.exists() else "(fp_lib_table\n  (version 7)\n)\n"
+    have = {val(lib, "name") for lib in find(sexpr(text), "lib")}
+    stock = Path(os.environ.get("KICAD10_FOOTPRINT_DIR", "/usr/share/kicad/footprints")).resolve()
+    rows = []
+    for nick in sorted(set(nicknames) - have):
+        d = Path(libs[nick]).resolve()
+        uri = f"${{KICAD10_FOOTPRINT_DIR}}/{d.name}" if d.parent == stock else str(d)
+        rows.append(f'  (lib (name "{nick}")(type "KiCad")(uri "{uri}")(options "")(descr ""))')
+    if rows:
+        head, _, _ = text.rstrip().rpartition(")")
+        t.write_text(head.rstrip("\n") + "\n" + "\n".join(rows) + "\n)\n")
+    return rows
 
 
 def netlist(out_dir, slug):
@@ -265,6 +286,7 @@ def main(out_dir, board_json):
     for k in spec.get("keepouts", []):
         zone(board, k["rect"], k["layers"], keepout=set(k.get("no", ["copper"])), name=k.get("name", ""))
 
+    add_fp_libs(out_dir, {str(fp.GetFPID().GetLibNickname()) for fp in board.GetFootprints()}, libs)
     path = out_dir / f"{slug}.kicad_pcb"
     pcbnew.SaveBoard(str(path), board)
     st = write_stackup(path, spec)
