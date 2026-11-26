@@ -1146,7 +1146,9 @@ class PowerCopper:
         evaluator's DC plan of the board's facts (haslam.excite.dc.planned_injections at the typical point; operating
         facts, else the board's intent file): widening saves at most that loss, so they are not grown. The loss is
         sum I^2 R over each net's tracks (branch_currents, 1 oz copper; vias and fills join at no resistance). A net
-        without planned current, or a board without a plan, is not quiet (grown as before)."""
+        without planned current, or a board without a plan, is not quiet (grown as before). Nor is a net where any load
+        current rests on a class prior (not a stated fact or the curated part table): a prior can understate a real
+        power net, and then it would be left narrow (review of bf7a5de)."""
         if self._quiet is not None:
             return self._quiet
         self._quiet = {}
@@ -1159,7 +1161,8 @@ class PowerCopper:
         from haslam.excite.beliefs import board_facts
         try:
             facts = board_facts(self.op, str(self.path))
-            inj = DC.planned_injections(load(self.path), facts) if facts else {}
+            src = {}
+            inj = DC.planned_injections(load(self.path), facts, sources=src) if facts else {}
         except Exception as e:      # noqa: BLE001 - no plan: grow as before, never a failed pass
             self.log(f"[power-copper] quiet nets: no DC plan ({type(e).__name__}: {e})")
             return self._quiet
@@ -1176,6 +1179,9 @@ class PowerCopper:
         for net in sorted(nets):
             if not any(abs(inj.get(tok, 0.0)) > 0 for tok, _g, _l in pads.get(net, [])):
                 continue
+            known = {"intent", "part_table"}
+            if any(not (src.get(tok) or set()) <= known for tok, _g, _l in pads.get(net, []) if tok in src):
+                continue                 # a load on this net rests on a prior: widen it as before
             st = {}
             branch_currents(net, self.board.tracks, vias, pads.get(net, []), self.fills.get(net) or {}, inj, stats=st)
             w = st.get("loss_sq", 0.0) * r_sq

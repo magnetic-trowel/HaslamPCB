@@ -35,10 +35,16 @@ def _board(tmp_path, area=None, text_vars=None):
     return p, load(p)
 
 
-def _pc(tmp_path, monkeypatch, amps, area=None, text_vars=None, **opts):
-    """Power copper on the board with a DC plan driving `amps` along the VIN track (J1.1 in, U1.3 out)."""
+def _pc(tmp_path, monkeypatch, amps, area=None, text_vars=None, source="intent", **opts):
+    """Power copper on the board with a DC plan driving `amps` along the VIN track (J1.1 in, U1.3 out); `source`: where
+    the load's current comes from (intent, part_table or prior)."""
     from haslam.excite import dc
-    monkeypatch.setattr(dc, "planned_injections", lambda *a, **k: {"J1.1": amps, "U1.3": -amps} if amps else {})
+
+    def plan(*a, sources=None, **k):
+        if sources is not None and amps:
+            sources["U1.3"] = {source}
+        return {"J1.1": amps, "U1.3": -amps} if amps else {}
+    monkeypatch.setattr(dc, "planned_injections", plan)
     p, b = _board(tmp_path, area, text_vars)
     op = tmp_path / "op.json"
     op.write_text(json.dumps(OPERATING))
@@ -62,6 +68,14 @@ def test_a_microamp_net_is_not_widened(tmp_path, monkeypatch):
     assert "VIN" not in loud.quiet_nets() and _vin_widened(loud)
     off = _pc(tmp_path / "o", monkeypatch, 60e-6, widen_min_loss_uW=0)            # the setting off
     assert _vin_widened(off)
+
+
+def test_a_net_whose_load_current_is_a_prior_is_widened_as_before(tmp_path, monkeypatch):
+    """A class prior can understate a real power net: only stated (or part-table) currents make a net quiet."""
+    obj = _pc(tmp_path, monkeypatch, 60e-6, source="prior")
+    assert "VIN" not in obj.quiet_nets() and _vin_widened(obj)
+    tab = _pc(tmp_path / "t", monkeypatch, 60e-6, source="part_table")
+    assert "VIN" in tab.quiet_nets()
 
 
 def test_a_net_without_planned_current_is_widened_as_before(tmp_path, monkeypatch):
