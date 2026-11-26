@@ -341,6 +341,22 @@ def plan(board, brief, bd, P, srcs, intent=None):
         cells[st["id"]] = c
     merge_buckboost(cells)
     cell_parts = set().union(*[c["parts"] for c in cells.values()]) if cells else set()
+    def fed_on_board(n):
+        """Whether rail n's current comes from a converter on the board: a cell's output, a rail whose source part
+        (the facts', else the brief's) is an IC or module, or one the facts give as fed from another rail."""
+        if any(c["vout"] == n for c in cells.values()) or (facts.get(n) or {}).get("from"):
+            return True
+        sr = over.get(n) or ref_of.get(((nets.get(n) or {}).get("source") or {}).get("part"))
+        return (parts.get(uuid_of.get(sr)) or {}).get("kind") in ("ic", "module")
+
+    def link_of(ref, r):
+        """The other rail of connector ref when it is a series link into rail r (no ground pad, its pads on r and
+        on exactly one other rail, which an on-board converter feeds), else None."""
+        ns = {nt for _, nt, _, _ in pads.get(ref, [])}
+        if gnd_pads(ref) or r not in ns or len(ns) != 2:
+            return None
+        (r2,) = ns - {r}
+        return r2 if r2 in rails and r2 not in grounds and fed_on_board(r2) else None
     # feeds: what delivers each rail's current
     over = {n: (d or {}).get("source") for n, d in ((intent or {}).get("nets") or {}).items() if (d or {}).get("source")}
     for r in sorted(rails):
@@ -409,6 +425,16 @@ def plan(board, brief, bd, P, srcs, intent=None):
             # transistor): its current comes from that rail through the part's channel. Taken as external, a
             # switched rail's loads never reached the rail and regulator upstream (solar-small's +3V3_SW via Q301)
             pl.feeds[r] = dict(kind="linear", ref=src_ref, rin=fr, out=on(src_ref, r), inp=on(src_ref, fr), gnd=[])
+        elif kind == "connector" and fk != "external" and link_of(src_ref, r):
+            # a connector with no ground pad whose pins land on this rail and one other on-board rail fed by a
+            # converter (duanestorey's J10, a 2-pin jumper header from 12V_OUT to 12V) links the two: its current
+            # comes from the other rail through it. Read as an external source, the rail's 0.35 A appeared from
+            # nowhere and the converter upstream (U7) carried only its own rail's load. The facts say otherwise with
+            # nets.<rail>.kind "external" (a cable really brings the rail in on that header)
+            other = link_of(src_ref, r)
+            pl.feeds[r] = dict(kind="linear", ref=src_ref, rin=other, out=on(src_ref, r), inp=on(src_ref, other), gnd=[])
+            pl.notes.append(f"{r}: source {src_ref} is a connector with no ground pad between {r} and {other}, which "
+                            f"an on-board converter feeds: a series link from {other}, not the board's input")
         elif kind in ("diode", "inductor", "ferrite", "resistor", "jumper"):
             other = next((net for _, net, _, _ in pads[src_ref] if net != r and net in rails), None)
             if other is None:

@@ -61,7 +61,7 @@ A stated `requirements.dT_max_K` / `drop_share` still applies where it is the ti
 | `nets.V_V` | `facts.apply` → brief `volts` (P `physics/build.py`, R `critical_modules`, E `excite/params.py`); `excite/dc.py:plan`; a cell's (and power path's) switched voltage `excite.V` on that bus, over a name- or divider-read value (`facts._cell_bus_volts`, the replaced value in `brief.facts.applied`) | kept; **fixed**: a name-read cell V used to win |
 | `nets.range_V` | `facts.apply` → `volts_belief.interval` → `excite/params.py:cell` (E, PNR) | kept |
 | `nets.source` | `facts.apply` (role rail; P `_net_roles`, R `critical_rails`, `critical_recheck`), `dc.plan` | kept |
-| `nets.from`, `nets.kind`, `nets.eta` | `excite/dc.py:plan` (E, PNR) | kept |
+| `nets.from`, `nets.kind`, `nets.eta` | `excite/dc.py:plan` (E, PNR) | kept; `kind` is `linear`, `switching` or `external` (a connector that brings the rail in: a connector with no ground pad between the rail and another one an on-board converter feeds is otherwise a series link from that rail, [evaluator-dc-heat-fixes](../../research/physics/evaluator-dc-heat-fixes.md)) |
 | `nets.I_A` | `facts.apply` → a linear regulator's pass current for its loss (P, branch `facts-everywhere`); nothing else | **removed** from haslamsynth's `d.haslam.net` |
 | `nets.why` | `facts.apply` → `volts_belief.lineage` and the applied record | kept |
 | `cells.V_V, I_A, f_sw_Hz, vin, vout` | `excite/params.py:cell` (E, PNR); `facts.apply` → `excite` (P, R) | kept |

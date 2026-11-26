@@ -110,3 +110,53 @@ def test_a_load_across_two_rails_balances_at_every_corner(tmp_path):
         lost = []
         inj = DC.injections(pl, cv, lost)
         assert DC.imbalance(pl, inj, lost) == [], cv
+
+
+def _jumper_board(tmp_path, kind=None):
+    """24 V in at J1; a buck U1 (facts: switching) makes 12V_OUT; J10, a 2-pin header with no ground pad, joins
+    12V_OUT to 12V; J2 exports 12V (duanestorey's U7, J10 and J6/J8)."""
+    nets = ["VIN", "GND", "12V_OUT", "12V"]
+    fps = [_fp("J1", "Conn_01x02", "Connector:Header_1x02", 5, [_pad("1", 0, 1, "VIN"), _pad("2", 1, 2, "GND")], 1),
+           _fp("U1", "LMR51430", "Package_TO_SOT_SMD:SOT-23-6", 15,
+               [_pad("1", 0, 2, "GND", "GND", "power_in"), _pad("2", 1, 3, "12V_OUT", "VOUT", "power_out"),
+                _pad("3", 2, 1, "VIN", "VIN", "power_in")], 2),
+           _fp("J10", "Conn_01x02", "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical", 30,
+               [_pad("1", 0, 3, "12V_OUT"), _pad("2", 1, 4, "12V")], 3),
+           _fp("J2", "Conn_01x02", "Connector:Header_1x02", 45, [_pad("1", 0, 4, "12V"), _pad("2", 1, 2, "GND")], 4)]
+    n12 = {"source": "J10", "V_V": 12.0}
+    if kind:
+        n12["kind"] = kind
+    intent = {"nets": {"VIN": {"source": "J1", "V_V": 24.0},
+                       "12V_OUT": {"source": "U1", "from": "VIN", "kind": "switching", "V_V": 12.0, "eta": [0.9, 0.9]},
+                       "12V": n12},
+              "parts": {"J2": {"I_A": 0.3}}}
+    return _board(tmp_path, nets, fps), intent
+
+
+def test_a_two_pin_jumper_between_rails_is_a_series_link(tmp_path):
+    """duanestorey's J10 joins 12V_OUT (U7's output) to 12V and was read as an external 12 V source, so U7 carried only
+    12V_OUT's load (0.15 W of loss instead of 0.65 W). A connector with no ground pad between a rail and another the
+    board's converter feeds is a link: the 12V load's current is drawn through it from U1."""
+    from haslam.intent.facts import check_facts
+    b, intent = _jumper_board(tmp_path)
+    check_facts(intent)
+    pl, bd, _, _ = _plan(b, intent)
+    f = pl.feeds["12V"]
+    assert (f["kind"], f["ref"], f["rin"], f["out"], f["inp"]) == ("linear", "J10", "12V_OUT", ["J10.2"], ["J10.1"])
+    cv = _typical(pl)
+    inj = DC.injections(pl, cv)
+    assert inj["J10.1"] == pytest.approx(-0.3) and inj["J10.2"] == pytest.approx(0.3)
+    assert inj["J1.1"] == pytest.approx(0.3 * 12 / (0.9 * 24))
+    assert DC.imbalance(pl, inj) == []
+    heat = H.part_heat(bd, pl, cv, {}, inj)
+    assert heat["U1"] == pytest.approx((1 / 0.9 - 1) * 12 * 0.3)
+    assert "J10" not in heat
+
+
+def test_the_facts_can_still_make_such_a_connector_the_rails_input(tmp_path):
+    """nets.<rail>.kind "external": a cable really brings the rail in on that header; the old reading."""
+    from haslam.intent.facts import check_facts
+    b, intent = _jumper_board(tmp_path, kind="external")
+    check_facts(intent)
+    pl, _, _, _ = _plan(b, intent)
+    assert (pl.feeds["12V"]["kind"], pl.feeds["12V"]["ref"]) == ("external", "J10")
