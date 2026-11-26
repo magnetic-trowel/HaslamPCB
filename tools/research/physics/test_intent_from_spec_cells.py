@@ -60,3 +60,25 @@ def test_field_bases_in_the_operating_provenance():
                                         "I_out_A": {"basis": "guess", "why": "no load stated"}}), SUMMARY)
     w = op["provenance"]["why"]["cells.cell:boost:U1"]
     assert "V_out_V board" in w and "I_out_A guess" in w
+
+
+def test_the_compilers_operating_facts_pass_haslams_facts_check_and_reach_the_brief():
+    """What the compiler writes, haslam.intent.facts takes: every cells.<id> key it emits (I_out_A, V_in_V, V_out_V,
+    eta, I_switch_A, V_V, f_sw_Hz, t_i_s) passes check_facts, and the brief's cell current comes from them."""
+    from haslam.intent import facts as F
+    spec = conv(I_switch_A=0.75, t_edge_s=4e-9)
+    spec["rails"] = [{"net": "+5V", "V_nom": 5.0, "source_ref": "U1", "regulator": "switching", "eta": [0.85, 0.92],
+                      "basis": "datasheet", "why": "t"}]
+    sm = dict(SUMMARY, parts=[dict(SUMMARY["parts"][0], nets={"VIN": 1, "SW": 1, "GND": 1, "+5V": 1})])
+    _, op = I.compile_spec(spec, sm)
+    assert not op["provenance"]["rejected"], op["provenance"]["rejected"]
+    c = op["cells"]["cell:boost:U1"]
+    assert {"I_out_A", "V_in_V", "V_out_V", "eta", "I_switch_A", "t_i_s"} <= set(c), (c, op["provenance"])
+    F.check_facts(op)
+    _, op2 = I.compile_spec(conv(), SUMMARY)
+    F.check_facts(op2)
+    brief = {"nets": {"VIN": {"volts": 3.7}, "+5V": {"volts": 5.0}, "SW": {}}, "parts": {"u1": {"ref": "U1"}},
+             "structures": [{"id": "cell:boost:U1", "kind": "commutation_cell", "class": "boost", "rail": "+5V",
+                             "vin": "VIN", "controller": "u1", "excite": {"I": 4.7, "basis": []}}]}
+    ex = F.apply(brief, op2)["structures"][0]["excite"]
+    assert ex["I"] != 4.7 and ex["interval"]["I"][1] == pytest.approx(0.5 * 5.0 / (3.7 * 0.8))
