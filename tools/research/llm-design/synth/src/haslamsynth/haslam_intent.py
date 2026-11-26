@@ -230,10 +230,11 @@ class HaslamIntent:
                     members = [p.ref for b in d.blocks if b.name == blk for p in b.parts if p.ref and p.on_board]
                 else:
                     members = [m for m in r.get("members") or [] if ref_ok(m)]
-                if r.get("where") not in HASLAM_REGIONS or not members:
+                where = r.get("where")
+                if not (where in HASLAM_REGIONS or str(where).startswith("area:")) or not members:
                     skipped.append((r, f"haslam's region names parts and one of {sorted(HASLAM_REGIONS)}"))
                     continue
-                row = {"kind": "region", "members": members, "region": HASLAM_REGIONS[r["where"]]}
+                row = {"kind": "region", "members": members, "region": HASLAM_REGIONS.get(where, where)}
             elif k == "side":
                 if not ref_ok(r.get("obj")):
                     skipped.append((r, "haslam's side names parts on the board"))
@@ -250,6 +251,8 @@ class HaslamIntent:
             else:
                 skipped.append((r, UNUSED.get(k, "a custom relation: no placer term reads it")))
                 continue
+            if r.get("level") and row.get("kind") in ("region", "keep_away"):
+                row["strength"] = r["level"]          # haslam's priority (haslam.intent.relations.STRENGTHS)
             row = {"id": rid(r), **row, "why": why, "source": r.get("source", "design")}
             rows.append(row)
         return rows, skipped

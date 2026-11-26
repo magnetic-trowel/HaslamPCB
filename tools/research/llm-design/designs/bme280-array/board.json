@@ -157,5 +157,37 @@
   6,
   47,
   76
+ ],
+ "keepouts": [
+  {
+   "rect": [
+    0.5,
+    0.5,
+    49.5,
+    19.0
+   ],
+   "layers": [
+    "F.Cu",
+    "B.Cu"
+   ],
+   "no": [],
+   "name": "POWER",
+   "note": "named rule area (no restrictions): the power section's region (design.py placement)"
+  },
+  {
+   "rect": [
+    0.5,
+    21.5,
+    49.5,
+    77.5
+   ],
+   "layers": [
+    "F.Cu",
+    "B.Cu"
+   ],
+   "no": [],
+   "name": "SENSE",
+   "note": "named rule area: the sensor field (mux, pull-ups, sensors)"
+  }
  ]
 }

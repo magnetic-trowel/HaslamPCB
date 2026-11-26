@@ -341,11 +341,15 @@ def board(d):
 def placement(d):
     pl = d.place
     f = d.find_part
+    # the power section lives in rule area POWER (board.json: north of the slot), required: haslam's 'north' is the
+    # board's northern third (26 mm here), which reaches past the 19.5 mm slot, and a default-strength region lost
+    # to wire length on the first layout (U1, U2, L1, L2 placed among the sensors)
     for blk in ("IN", "PWR", "LVL"):
-        pl.region(f"block:{blk}", "north", note="power and host side north of the slot (REQ-4)")
+        pl.region(f"block:{blk}", "area:POWER", level="required", note="power and host side north of the slot (REQ-4)")
+    pl.region("block:MUX", "area:SENSE", note="mux south of the slot: only 5 tracks cross the bridge (REQ-4)")
     for hot in ("U1", "U2", "L1", "L2", "U3", "Q2"):
         for s in (SENSORS[0], SENSORS[3]):       # the nearest row
-            pl.far(f(hot), f(s), "loose", note="converter heat away from the sensors (REQ-4)")
+            pl.far(f(hot), f(s), "close", level="strong", note="converter heat away from the sensors (REQ-4)")
     pl.near(f("L1"), f("U1"), "tight", note="LX1/LX2 loop short")
     pl.near(f("L2"), f("U2"), "tight", note="SW node short")
     u2 = f("U2")
