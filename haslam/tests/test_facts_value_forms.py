@@ -46,3 +46,15 @@ def test_the_advice_reads_a_listed_part_fact_and_a_yes_no_fact_is_accepted():
     assert A._part_fact(intent, "U1", "cff_required") is True
     with pytest.raises(FactsError):
         interval(True)
+
+
+def test_a_heat_sink_at_or_below_0_C_keeps_its_temperature():
+    """heat.evaluate read a region heat sink's T_C through _rng, which takes positive values only: a plate at 0 C or
+    -10 C fell back to ambient. It reads T_C as any temperature now (the same reader as its other facts)."""
+    import inspect
+    from haslam.excite import heat as H
+    from haslam.excite.beliefs import intent_value
+    assert H._rng(0) is None and H._rng([-10, 0]) is None        # _rng stays for positive quantities
+    for v, t in ((0, (0.0, 0.0, 0.0)), ([-10, 0], (-5.0, -10.0, 0.0)), (20, (20.0, 20.0, 20.0))):
+        assert intent_value({"s": {"h": {"T_C": v}}}, "s", "h", "T_C") == pytest.approx(t)
+    assert '_rng(hs.get("T_C"))' not in inspect.getsource(H.evaluate)

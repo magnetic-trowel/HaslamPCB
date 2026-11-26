@@ -572,7 +572,9 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
         else:
             mask[:] = True
         if mask.any() and ((f"heat:sink{k}", "G_W_K") in hc[0] or (f"heat:sink{k}", "h_W_m2K") in hc[0]):
-            regions.append((k, li, mask, _rng(hs.get("T_C"))))
+            # the sink's temperature in C: 0 C or below is a temperature too (_rng takes positive values only, and a
+            # chilled plate at 0 C or -10 C fell back to ambient)
+            regions.append((k, li, mask, intent_value({"s": {"h": hs}}, "s", "h", "T_C")))
     if regions:
         notes.append("thermal: heat sinks under " + ", ".join(f"{int(mk.sum())} cells of {names[li] or li}" for _, li, mk, _ in regions))
     part_sinks = {hs["part"] for hs in heatsinks(intent) if hs.get("part")}
