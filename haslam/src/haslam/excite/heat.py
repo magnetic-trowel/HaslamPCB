@@ -69,11 +69,23 @@ def rail_demand(dcp, rail, load_amps, depth=0):
         c = f.get("cell")
         if f["kind"] == "cell" and c and c.get("vin") == rail and r2 != rail:
             d = rail_demand(dcp, r2, load_amps, depth + 1)
-            tot += d * (abs(dcp.volts.get(r2) or 0.0) or v_in) / (0.88 * max(v_in, 0.5)) if v_in else d
+            tot += d * (abs(dcp.volts.get(r2) or 0.0) or v_in) / (feed_eta(f) * max(v_in, 0.5)) if v_in else d
         elif f.get("rin") == rail and r2 != rail and f["kind"] in ("linear", "switching"):
             d = rail_demand(dcp, r2, load_amps, depth + 1)
-            tot += d if f["kind"] == "linear" else d * (abs(dcp.volts.get(r2) or 0.0) or v_in) / (0.85 * max(v_in, 0.5)) if v_in else d
+            tot += d if f["kind"] == "linear" else d * (abs(dcp.volts.get(r2) or 0.0) or v_in) / (feed_eta(f) * max(v_in, 0.5)) if v_in else d
     return tot
+
+
+def feed_eta(f):
+    """The typical efficiency of a converter feed: the facts' (nets.<rail>.eta or cells.<id>.eta, the feed's eta
+    parameter), else its class prior (a cell's: haslam.physics.converter.ETA through its source; a switching
+    regulator's: haslam.excite.dc.ETA). rail_demand used 0.88 and 0.85 whatever the facts stated."""
+    from . import dc as DC
+    if f.get("eta") is not None:
+        return float(f["eta"].typ)
+    if f["kind"] == "cell":
+        return float((f.get("cell") or {}).get("eta") or CV.ETA[1])
+    return DC.ETA[1]
 
 
 THETA_CS = (0.5, 0.2, 1.0)  # K/W, case to sink through grease or a thermal pad (class range)
