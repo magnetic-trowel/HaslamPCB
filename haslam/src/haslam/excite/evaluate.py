@@ -196,7 +196,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     from haslam.circuit import brief as B
     from haslam.em import solve as ES
     from haslam.em.kicad import BoardMesh, canonical_order
-    from .beliefs import corners
+    from .beliefs import corners, n_points
     from haslam.board import pinfacts as PF
     t0 = time.time()
     b = b or load(path)
@@ -440,9 +440,20 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             open_cells[s.name] = where
     pairs = [pr for pr in pairs if pr["s"].name not in open_cells]
     # harms at the typical point and at the corners of each aggressor's intervals
-    cps = {s.name: corners(P[s.name].values(), n=n_corners, seed=seed) for s in srcs}
+    # each aggressor's adverse vertex in the direction its own pairs' harm measures (corners' score)
+    by_src = {}
+    for pr in pairs:
+        by_src.setdefault(pr["s"].name, []).append(pr)
+
+    def src_score(name):
+        prs = by_src.get(name) or []
+        if not prs:
+            return None
+        return lambda pt: sum(HA.phi(HA.pair_u(pr["o"].kind, pr["o"].bound, pr["Zf"], pr["Le"],
+                                               {k[1]: v for k, v in pt.items()})[0]) for pr in prs)
+    cps = {s.name: corners(P[s.name].values(), n=n_corners, seed=seed, score=src_score(s.name)) for s in srcs}
     _turnoff_currents(bd, brief, srcs, P, cps, bands)
-    ncp = n_corners + 3
+    ncp = n_points(n_corners)
     harms = []
     observations = []
     hazards = []
@@ -941,9 +952,9 @@ def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes,
     ac_copper: the switching harmonics' copper loss per corner (W), counted with the DC copper loss.
     obs_out: a list the band's observations (haslam.intent: physical values per corner) are appended to."""
     from haslam.em import solve as ES
-    from .beliefs import corners
+    from .beliefs import corners, n_points
     t0 = time.time()
-    ncp = n_corners + 3
+    ncp = n_points(n_corners)
     own = corners(dcp.params, n=n_corners, seed=seed + 1) if dcp.params else [{} for _ in range(ncp)]
     cvs = []
     for c in range(ncp):

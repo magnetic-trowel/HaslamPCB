@@ -153,15 +153,80 @@ def intent_value(intent, section, key, name):
     return interval(v, f"facts.{section}.{key}.{name}")
 
 
-def corners(params, n=16, seed=0):
-    """Sample points over the parameters' intervals: n seeded Latin-hypercube samples (log-uniform
-    where lo > 0) plus the all-low and all-high corners and the typical point. Returns a list of
-    {(subject, name): value}; the first entry is the typical point."""
+# The points a band is evaluated at: the typical point, N_LHS Latin-hypercube samples, the all-low and all-high
+# vertices, and the benign and adverse vertices (each parameter at the end that lowers, raises the band's harm)
+EXTRA_POINTS = 5
+# parameters whose low end is the harmful one when nothing measures the direction: an efficiency (more input
+# current and loss), a cooling coefficient (heat stays), a commutation or edge time (faster edges ring and radiate
+# more). Every other parameter does more harm at its high end (a current, a voltage, a theta, an on-resistance, an
+# ambient). corners(score=...) measures the direction instead
+LOW_IS_WORSE = ("eta", "h_W_m2K", "G_W_K", "t_i_s", "t_v_s")
+
+
+def n_points(n_corners):
+    """How many points corners(n=n_corners) returns (every band's per-corner lists have this length)."""
+    return n_corners + EXTRA_POINTS
+
+
+def _stream(seed, p):
+    """A parameter's own random stream, keyed by its name: its samples do not depend on which other parameters the
+    band has (a shared stream re-drew every column when one parameter was added: martinberlin's D1 read a worst T_j
+    of 133 C, then 117 C, when an inductor's theta_jb joined the heat band). crc32, not hash(): stable across runs."""
+    import zlib
+    return np.random.default_rng([int(seed) & 0xFFFFFFFF, zlib.crc32(f"{p.subject}\x00{p.name}".encode())])
+
+
+def _at(p, x):
+    """The value at fraction x of p's interval (log-uniform where lo > 0)."""
+    if p.lo > 0 and p.hi > p.lo:
+        return math.exp(math.log(p.lo) + x * (math.log(p.hi) - math.log(p.lo)))
+    return p.lo + x * (p.hi - p.lo)
+
+
+def corners(params, n=16, seed=0, score=None):
+    """Sample points over the parameters' intervals, a list of {(subject, name): value} of length n_points(n):
+
+    0           the typical point;
+    1 .. n      a Latin hypercube: each parameter's n strata in its own seeded order with its own jitter (log-uniform
+                where lo > 0), from a stream keyed by the parameter's name (_stream), so adding or removing a
+                parameter leaves every other parameter's samples as they were;
+    n+1, n+2    the all-low and the all-high vertex;
+    n+3, n+4    the benign and the adverse vertex: each parameter at the end that does the band less (more) harm.
+                The direction is measured one parameter at a time from the typical point when `score` (point ->
+                the band's harm, larger is worse) is given, else LOW_IS_WORSE.
+
+    Why the adverse vertex: the worst of n random samples over k parameters is a random variable (the chance that
+    one sample has every parameter in its harmful fifth is 0.2^k per sample), so the robust and worst totals moved
+    with the seed and with any change to the parameter set. For a harm monotone in each parameter (a junction
+    temperature in ambient, theta, current and cooling; a drop in each load current) the adverse vertex is the exact
+    worst over the box, the same for every seed. A harm that is not monotone (an emission in the switching
+    frequency) is still covered at both ends of each parameter by the all-low and all-high vertices and the
+    hypercube; a parameter that raises one observer of the band and lowers another takes the band total's
+    direction."""
     ps = list(params)
-    rng = np.random.default_rng(seed)
-    pts = [{(p.subject, p.name): p.typ for p in ps}]
+    typ = {(p.subject, p.name): p.typ for p in ps}
+    pts = [dict(typ)]
     if not ps:
-        return pts
+        return pts + [dict(typ) for _ in range(n + EXTRA_POINTS - 1)]
+    cols = {}
+    for p in ps:
+        r = _stream(seed, p)
+        cols[(p.subject, p.name)] = (r.permutation(n) + r.random(n)) / n
+    for i in range(n):
+        pts.append({(p.subject, p.name): _at(p, cols[(p.subject, p.name)][i]) for p in ps})
+    pts.append({(p.subject, p.name): p.lo for p in ps})
+    pts.append({(p.subject, p.name): p.hi for p in ps})
+    worse_hi = {}
+    for p in ps:
+        k = (p.subject, p.name)
+        if score is not None and p.hi != p.lo:
+            s_lo, s_hi = score({**typ, k: p.lo}), score({**typ, k: p.hi})
+            worse_hi[k] = s_hi >= s_lo
+        else:
+            worse_hi[k] = p.name not in LOW_IS_WORSE
+    pts.append({(p.subject, p.name): (p.lo if worse_hi[(p.subject, p.name)] else p.hi) for p in ps})
+    pts.append({(p.subject, p.name): (p.hi if worse_hi[(p.subject, p.name)] else p.lo) for p in ps})
+    return pts
     k = len(ps)
     u = (rng.permuted(np.tile(np.arange(n), (k, 1)), axis=1).T + rng.random((n, k))) / n
     for row in u:

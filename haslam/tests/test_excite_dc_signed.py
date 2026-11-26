@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from haslam.excite import dc as DC
+from haslam.excite.beliefs import n_points
 from test_excite_dc_pieces import _piece_sums, _typical
 from test_excite_physics_set import _board, _fp, _pad, _plan
 
@@ -226,7 +227,7 @@ def test_a_current_with_no_pad_is_reported_and_voids_the_dc_band():
     notes = []
     bm = SimpleNamespace(m=SimpleNamespace(terminals={}))
     b = SimpleNamespace(footprints=[], tracks=[])
-    assert E._dc_harms(pl, bm, b, None, None, {}, [], 1, 0, [0.0] * 4, notes, lambda *a: None) == []
+    assert E._dc_harms(pl, bm, b, None, None, {}, [], 1, 0, [0.0] * n_points(1), notes, lambda *a: None) == []
     assert any(n.startswith(E.DC_UNBALANCED) for n in notes) and any(n.startswith(E.DC_VOID) for n in notes)
 
 

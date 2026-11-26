@@ -4,6 +4,7 @@
 import pytest
 
 from haslam.excite import dc as DC
+from haslam.excite.beliefs import n_points
 from haslam.route.critical_physics import ipc2221_width
 
 
@@ -293,7 +294,7 @@ def test_dc_currents_left_out_of_the_copper_void_the_score():
     notes = []
     bm = SimpleNamespace(m=SimpleNamespace(terminals={}))
     b = SimpleNamespace(footprints=[], tracks=[])
-    assert E._dc_harms(pl, bm, b, None, None, {}, [], 1, 0, [0.0] * 4, notes, lambda *a: None) == []
+    assert E._dc_harms(pl, bm, b, None, None, {}, [], 1, 0, [0.0] * n_points(1), notes, lambda *a: None) == []
     assert any(n.startswith(E.DC_VOID) for n in notes)
     assert E.totals([0.0] * 4, ["dc"])["complete"] is False
 
@@ -309,7 +310,7 @@ def test_a_dc_band_that_solves_nothing_builds_no_system():
     holder = {}
     bm = SimpleNamespace(m=SimpleNamespace(terminals={}))
     b = SimpleNamespace(footprints=[], tracks=[])
-    E._dc_harms(pl, bm, b, None, None, {}, [], 1, 0, [0.0] * 4, [], lambda *a: None, system=holder)
+    E._dc_harms(pl, bm, b, None, None, {}, [], 1, 0, [0.0] * n_points(1), [], lambda *a: None, system=holder)
     assert holder == {}
 
 
@@ -481,7 +482,7 @@ def test_a_board_whose_vias_have_their_default_drill_solves_at_dc(tmp_path):
     pl.loads = [dict(ref="U2", rail="VBUS", sup=["U2.1"], gnd=["U2.2"], key=("dc:U2", "I_A"))]
     pl.params = [Param("dc:U2", "I_A", 1.0, 0.5, 2.0, "A", "test", "test")]
     notes, obs = [], []
-    rows = E._dc_harms(pl, bm, b, net, op, {}, [], 1, 0, [0.0] * 4, notes, lambda *a: None, obs_out=obs,
+    rows = E._dc_harms(pl, bm, b, net, op, {}, [], 1, 0, [0.0] * n_points(1), notes, lambda *a: None, obs_out=obs,
                        system=holder)
     assert rows, notes
     (V, info), = ES.potentials_many(bm.m, [{"J1.1": 1.0, "U2.1": -1.0, "U2.2": 1.0, "J1.2": -1.0}], 0.0, net=net,

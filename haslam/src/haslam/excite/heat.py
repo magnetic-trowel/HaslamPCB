@@ -33,7 +33,7 @@ from haslam import materials as MAT
 from haslam.physics import converter as CV
 
 from . import quantity as QT
-from .beliefs import Param, corners, intent_value
+from .beliefs import Param, corners, intent_value, n_points
 
 T_MAX = {"ic": 125.0, "module": 85.0, "diode": 125.0, "transistor": 125.0, "inductor": 125.0,
          "capacitor": 105.0, "resistor": 125.0, "ferrite": 125.0, "led": 85.0, "connector": 85.0}
@@ -538,7 +538,7 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
     hp = params(bd, dcp, P, intent)
     for p in hp if ledger is not None else []:
         ledger.add(p)
-    ncp = n_corners + 3
+    ncp = n_points(n_corners)
     hc = corners(hp, n=n_corners, seed=seed + 2)
     own = corners(dcp.params, n=n_corners, seed=seed + 1) if dcp.params else [{} for _ in range(ncp)]
     # a package's thermal time constant is seconds: its temperature follows the sustained draw, not a
