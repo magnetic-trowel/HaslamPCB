@@ -366,6 +366,139 @@ def test_rephysics_job_fails_when_no_run_could_be_rebuilt(tmp_path, monkeypatch,
     assert "0 physics evaluation(s)" in out and "unexpected keyword" in out and "no run could be rebuilt" in out
 
 
+
+def test_rebuild_boards_measures_a_reference_run_on_the_reference_it_rebuilt(tmp_path, monkeypatch):
+    """--reference-run: the human layout's output is the reference rebuilt from the board here, not a stored file."""
+    import json
+    import types
+    rb = _rebuild_boards()
+    seen = []
+
+    def run_ops(op, src, dst):
+        Path(dst).parent.mkdir(parents=True, exist_ok=True)
+        Path(dst).write_text(f"{op} of {Path(src).name}\n")
+
+    def _rebuild(op, src, onto, rules, work, ref, flags=()):
+        seen.append((op, Path(src).read_text()))
+        Path(work).mkdir(parents=True, exist_ok=True)
+        return Path(work) / "board.kicad_pcb", dict(loadable=True)
+
+    board = _touch(tmp_path / "corpus" / "b1" / "board.kicad_pcb")
+    mods = dict(prepare=types.SimpleNamespace(TASK_SPEC=11), score=types.SimpleNamespace(_rebuild=_rebuild),
+                tools=types.SimpleNamespace(run_ops=run_ops),
+                boardfiles=types.SimpleNamespace(STEM="board", board_path=lambda d: Path(d) / "board.kicad_pcb",
+                                                 install_rules=lambda ref, inp: None),
+                cli=types.SimpleNamespace(_local_boards=lambda root, glob, ids: [(None, dict(kicad_pcb=board, pcb_sha256="s"))]))
+    pkg = types.ModuleType("haslambench")
+    for k, v in mods.items():
+        setattr(pkg, k, v)
+        monkeypatch.setitem(sys.modules, f"haslambench.{k}", v)
+    monkeypatch.setitem(sys.modules, "haslambench", pkg)
+    out = tmp_path / "man.json"
+    monkeypatch.setattr(sys, "argv", ["rebuild_boards.py", "--board-dir", str(board.parent), "--work", str(tmp_path / "w"),
+                                      "--reference-run", "human-reference", "--out", str(out)])
+    assert rb.main() == 0
+    man = json.loads(out.read_text())
+    assert list(man["runs"]) == ["human-reference"] and man["runs"]["human-reference"]["board"]
+    assert seen == [("transplant-routing", "convert of board.kicad_pcb\n")]   # the reference just rebuilt
+
+
+def _remeasure_env(tmp_path, monkeypatch, runs):
+    """A board b1 with runs [(name, method id, harness)] in tmp_path/runs; method "h" is the human reference."""
+    import json
+    monkeypatch.setattr(haslamres, "corpus_rows", lambda: {"b1": dict(path="b1")})
+    monkeypatch.setattr(haslamres, "kicad_version", lambda: "10.0.7")
+    monkeypatch.setattr(haslamres, "board_size_mb", lambda row: 1.0)
+    monkeypatch.setattr(haslamres, "env_sh", dict)
+    monkeypatch.setattr(haslamres, "code_dir", lambda c: tmp_path / "code" / c[:8])
+    monkeypatch.setattr(haslamres, "board_dir", lambda bid: tmp_path)
+    monkeypatch.setattr(haslamres, "CORPUS", tmp_path / "corpus")
+    monkeypatch.setattr(haslamres, "_run_kind", lambda r: "route")
+    monkeypatch.setattr(haslamres, "methods", lambda: {"h": dict(recipe=dict(runner=dict(type="reference"))),
+                                                       "m": dict(recipe=dict(runner=dict(type="command")))})
+    monkeypatch.setattr(haslamres, "_REFERENCE_IDS", set())
+    monkeypatch.setenv("HASLAMQ_SCRATCH", str(tmp_path / "ws"))
+    (tmp_path / "ws").mkdir()
+    (tmp_path / "corpus" / "b1").mkdir(parents=True)
+    (tmp_path / "tasks" / "old").mkdir(parents=True)
+    (tmp_path / "tasks" / "old" / "task.json").write_text(json.dumps(dict(recipe=dict(board_sha256="sha"))))
+    todo = []
+    for name, mid, hc in runs:
+        d = tmp_path / "runs" / name
+        (d / "evals").mkdir(parents=True)
+        todo.append((d, dict(run=name, method_id=mid, harness_commit=hc * 40, task_id="old", attempt=0, status="ok")))
+    return todo
+
+
+def test_rephysics_job_rebuilds_the_human_layout_with_its_own_harness(tmp_path, monkeypatch):
+    """The human runs were rebuilt by their registration harness (pre-rename 99761c5e, no venv): the job failed."""
+    import json
+    todo = _remeasure_env(tmp_path, monkeypatch, [("human.a0", "h", "9"), ("human.a0.t1", "h", "4"), ("m.a0", "m", "d")])
+    monkeypatch.setattr(haslamres, "evaluators_for", lambda h, k, kc: dict(physics="pid"))
+    monkeypatch.setattr(haslamres, "_rephysics_todo", lambda bid, mids, pid: todo)
+    calls = []
+
+    def fake_run(cmd, log, env, timeout):
+        cmd = [str(x) for x in cmd]
+        out = Path(cmd[cmd.index("--out") + 1])
+        if cmd[1].endswith("rebuild_boards.py"):
+            calls.append(cmd)
+            names = [x.split("=")[0] for i, x in enumerate(cmd) if cmd[i - 1] == "--run"]
+            names += [x for i, x in enumerate(cmd) if cmd[i - 1] == "--reference-run"]
+            out.write_text(json.dumps(dict(input="in", board_sha256="sha", runs={n: dict(board=f"/{n}") for n in names})))
+        else:
+            names = [x.split("=")[0] for i, x in enumerate(cmd) if cmd[i - 1] == "--board"]
+            out.write_text(json.dumps(dict(boards={n: dict(total=len(n)) for n in names})))
+        return 0, False
+    monkeypatch.setattr(haslamres, "run_logged", fake_run)
+    a = type("A", (), dict(board="b1", harness="c" * 40, haslam="k" * 40, methods="h,m"))()
+    assert haslamres.cmd_rephysics_job(a) == 0
+    pys = sorted((c[0], c[c.index("--run") + 1] if "--run" in c else c[c.index("--reference-run") + 1]) for c in calls)
+    assert pys == [(str(tmp_path / "code" / "cccccccc.venv" / "bin" / "python"), haslamres.HUMAN_REF),
+                   (str(tmp_path / "code" / "dddddddd.venv" / "bin" / "python"), f"m.a0={tmp_path / 'runs' / 'm.a0' / 'output.kicad_pcb.gz'}")]
+    for name in ("human.a0", "human.a0.t1"):
+        ev = json.loads((tmp_path / "runs" / name / "evals" / "pid.json").read_text())
+        assert (ev["run"], ev["rebuilt_with"], ev["human_from"], ev["physics"]) == (name, "c" * 40, "board", dict(total=15))
+    ev = json.loads((tmp_path / "runs" / "m.a0" / "evals" / "pid.json").read_text())
+    assert ev["rebuilt_with"] == "d" * 40 and "human_from" not in ev
+
+
+def test_rescore_job_scores_the_human_layout_on_its_own_harnesss_task(tmp_path, monkeypatch):
+    import json
+    todo = _remeasure_env(tmp_path, monkeypatch, [("human.a0", "h", "9"), ("human.a0.t1", "h", "4"), ("m.a0", "m", "d")])
+    monkeypatch.setattr(haslamres, "evaluators_for", lambda h, k, kc: dict(drc="eid"))
+    monkeypatch.setattr(haslamres, "_rescore_todo", lambda bid, mids, eid: todo)
+    prepared = []
+
+    def fake_prepare(bid, phc, inputs, ws, env, log, steps, step="prepare"):
+        prepared.append(phc[:1])
+        task = tmp_path / "ws" / f"task-{phc[:1]}"
+        task.mkdir(parents=True, exist_ok=True)
+        (task / "task.json").write_text(json.dumps(dict(pcb_sha256="sha", task_spec=11)))
+        return task, 0, False
+    monkeypatch.setattr(haslamres, "_prepare", fake_prepare)
+    specs = []
+
+    def fake_run(cmd, log, env, timeout):
+        cmd = [str(x) for x in cmd]
+        got = [x for i, x in enumerate(cmd) if cmd[i - 1] == "--run"]
+        specs.extend(got)
+        Path(cmd[cmd.index("--out") + 1]).write_text(json.dumps(dict(score_version=10, runs={
+            x.split("=")[0]: dict(status="ok", score=dict(errors=len(x.split("=")[0])), drc={}) for x in got})))
+        return 0, False
+    monkeypatch.setattr(haslamres, "run_logged", fake_run)
+    a = type("A", (), dict(board="b1", harness="c" * 40, methods="h,m"))()
+    assert haslamres.cmd_rescore_job(a) == 0
+    assert sorted(prepared) == ["c", "d"]            # the human runs' old harnesses (9..., 4...) prepare nothing
+    assert sorted(specs) == sorted([f"{haslamres.HUMAN_REF}={tmp_path / 'ws' / 'task-c' / 'reference' / 'board.kicad_pcb'}:route:1",
+                                    f"m.a0={tmp_path / 'runs' / 'm.a0' / 'output.kicad_pcb.gz'}:route:0"])
+    tid = haslamres.ident(dict(board_sha256="sha", task_spec=11, kind="route", kicad="10.0.7"))
+    for name in ("human.a0", "human.a0.t1"):
+        ev = json.loads((tmp_path / "runs" / name / "evals" / "eid.json").read_text())
+        assert (ev["task_prepared_by"], ev["human_from"], ev["task_id"], ev["score"]) == ("c" * 40, "board", tid, dict(errors=15))
+    ev = json.loads((tmp_path / "runs" / "m.a0" / "evals" / "eid.json").read_text())
+    assert ev["task_prepared_by"] == "d" * 40 and "human_from" not in ev
+
 def _xr(method, board, xc, kind="route"):
     return dict(_r(method, board, 0, False), xc=xc, kind=kind)
 

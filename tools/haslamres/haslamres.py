@@ -1538,6 +1538,14 @@ def fill_old_contents(bid, tids, kicad, method_ids, ws, env, log, steps):
                 record_content(bid, tid, phc, task_content(task, kind))
 
 
+def task_recipe_of(record, row, kind, kicad):
+    """The recipe (hence the id) of the task a haslambench preparation (its task.json record) makes of a corpus row."""
+    task_recipe = dict(board_sha256=record.get("pcb_sha256"), task_spec=record.get("task_spec"), kind=kind, kicad=kicad)
+    if row.get("dru_fix"):  # rules file repaired in the corpus (dru_fixes.py): a different task
+        task_recipe["dru_fix"] = row["dru_fix"]["sha256_after"] or "removed"
+    return task_recipe
+
+
 def _job_group(bid, row, hc, haslam, items, human, ws, env, log, kicad, a, size, phc=None):
     phc = phc or hc  # the harness that prepares the tasks (prep_harness); hc runs and scores the methods
     d, venv = _venv(hc)
@@ -1570,9 +1578,7 @@ def _job_group(bid, row, hc, haslam, items, human, ws, env, log, kicad, a, size,
     record = json.loads(tj.read_text())
     tids = {}  # one task per kind; the route task keeps the id it had before other kinds existed
     for kind in kinds:
-        task_recipe = dict(board_sha256=record.get("pcb_sha256"), task_spec=record.get("task_spec"), kind=kind, kicad=kicad)
-        if row.get("dru_fix"):  # rules file repaired in the corpus (dru_fixes.py): a different task
-            task_recipe["dru_fix"] = row["dru_fix"]["sha256_after"] or "removed"
+        task_recipe = task_recipe_of(record, row, kind, kicad)
         tids[kind] = ident(task_recipe)
         tdir = board_dir(bid) / "tasks" / tids[kind]
         if not (tdir / "task.json").exists():
@@ -2726,6 +2732,21 @@ def _run_kind(r):
     return _KINDS.get(r["method_id"], "route")
 
 
+_REFERENCE_IDS = set()
+# What a re-measuring job calls the human layout it rebuilds or scores once and shares among the board's human runs.
+HUMAN_REF = "human-reference"
+
+
+def _is_reference(r):
+    """Whether a run is the human layout (the reference method). Its output is the board itself, so it is
+    re-measured with the re-measuring job's harness, never with the harness it was first scored by: no method
+    code is involved, and a pre-rename harness may have no venv here at all."""
+    if not _REFERENCE_IDS:
+        _REFERENCE_IDS.update(k for k, m in methods().items() if m["recipe"]["runner"]["type"] == "reference")
+        _REFERENCE_IDS.add("")  # filled (even with no reference method): do not read methods() again
+    return r["method_id"] in _REFERENCE_IDS
+
+
 def _haslamq_active(owner):
     """Names of an owner's queued or running haslamq jobs (read-only look at the queue database)."""
     cfg = read_json(Path.home() / ".haslamq" / "config.json", {})
@@ -2836,32 +2857,36 @@ def cmd_rephysics_job(a):
     written = 0
     rebuild_errors = []
     groups = defaultdict(list)
-    for d, r in todo:
-        groups[r["harness_commit"]].append((d, r))
-    for hc, items in groups.items():  # rebuild with the harness that scored the runs
+    for d, r in todo:  # a method's runs are rebuilt by the harness that scored them; the human layout by this job's
+        groups[a.harness if _is_reference(r) else r["harness_commit"]].append((d, r))
+    for hc, items in groups.items():
         hv = code_dir(hc).with_name(code_dir(hc).name + ".venv")
         man_p = ws / f"rebuild-{hc[:8]}.json"
         rb_py = cd / "tools" / "haslamres" / "rebuild_boards.py"
         if not rb_py.exists():  # harness older than rebuild_boards.py: this haslamres' copy rebuilds the same way
             rb_py = Path(__file__).resolve().with_name("rebuild_boards.py")
+        key = {r["run"]: HUMAN_REF if _is_reference(r) else r["run"] for _, r in items}  # every human run: one rebuild
+        own = [(d, r) for d, r in items if not _is_reference(r)]
         rc, to = run_logged([hv / "bin" / "python", rb_py,
                              "--board-dir", CORPUS / row["path"], "--work", ws / f"rb-{hc[:8]}",
-                             *[x for d, r in items for x in ("--run", f"{r['run']}={d / 'output.kicad_pcb.gz'}")],
-                             *[x for d, r in items if _run_kind(r) in ("joint", "joint-fixed") for x in ("--joint", r["run"])],
+                             *[x for d, r in own for x in ("--run", f"{r['run']}={d / 'output.kicad_pcb.gz'}")],
+                             *[x for d, r in own if _run_kind(r) in ("joint", "joint-fixed") for x in ("--joint", r["run"])],
+                             *(["--reference-run", HUMAN_REF] if len(own) < len(items) else []),
                              "--out", man_p], log, dict(env, PATH=f"{hv / 'bin'}:{env.get('PATH', '')}"), timeout=int(1800 + 120 * size))
         man = read_json(man_p)
         if not man:
             print(f"{bid}: rebuild with harness {hc[:7]} failed (rc {rc}, timed out {to}):\n{tail(log, 30)}", flush=True)
             return 1
-        boards = {}
+        boards, measured = {}, []
         for d, r in items:
             t = read_json(board_dir(bid) / "tasks" / r["task_id"] / "task.json") or {}
             if (t.get("recipe") or {}).get("board_sha256") not in (None, man["board_sha256"]):
                 print(f"{bid}: {r['run']} was made on another board file; skipped", flush=True)
                 continue
-            got = man["runs"].get(r["run"]) or {}
+            got = man["runs"].get(key[r["run"]]) or {}
             if got.get("board"):
-                boards[r["run"]] = got["board"]
+                boards[key[r["run"]]] = got["board"]
+                measured.append((d, r))
             elif got.get("error"):
                 rebuild_errors.append(f"{r['run']}: {got['error']}")
         if not boards:
@@ -2872,12 +2897,11 @@ def cmd_rephysics_job(a):
                     *[x for n, p in boards.items() for x in ("--board", f"{n}={p}")], "--out", pout,
                     *_pintypes_args(pb, pt)], log, env, timeout=int(1800 + 120 * size))
         phys = read_json(pout) or dict(error="physics step failed", log=tail(log, 30))
-        for d, r in items:
-            if r["run"] not in boards:
-                continue
-            ph = (phys.get("boards") or {}).get(r["run"]) or dict(error=phys.get("error") or "no result")
+        for d, r in measured:
+            ph = (phys.get("boards") or {}).get(key[r["run"]]) or dict(error=phys.get("error") or "no result")
             write_json(d / "evals" / f"{pid}.json", dict(
                 schema=SCHEMA, evaluator=pid, run=r["run"], at=now(), rescored=True, rebuilt_with=hc,
+                **({"human_from": "board"} if _is_reference(r) else {}),
                 pintypes=phys.get("pintypes"), physics={k: v for k, v in ph.items() if k != "traceback"},
                 **({"traceback": ph["traceback"]} if ph.get("traceback") else {})))
             written += 1
@@ -2978,11 +3002,12 @@ def cmd_rescore_job(a):
     log = ws / "job.log"
     cd = code_dir(a.harness)
     py = cd.with_name(cd.name + ".venv") / "bin" / "python"
-    human = next((m for m in methods().values() if m["recipe"]["runner"]["type"] == "reference"), None)
     groups = defaultdict(list)
     for d, r in todo:
-        kind = _run_kind(r)
-        groups[(run_prepared_by(r), r["task_id"], kind)].append((d, r))
+        if _is_reference(r):  # the human layout: the board as this harness prepares it, on this harness's route task
+            groups[(a.harness, None, "route")].append((d, r))
+        else:                 # a method's output: on the task its run was made on, prepared by the harness that prepared it
+            groups[(run_prepared_by(r), r["task_id"], _run_kind(r))].append((d, r))
     written, failed = 0, []
     for (phc, tid, kind), items in groups.items():
         steps = {}
@@ -2990,9 +3015,25 @@ def cmd_rescore_job(a):
         if task is None:
             failed += [f"{r['run']}: task not prepared (harness {phc[:7]}, rc {rc}, timed out {to})" for _, r in items]
             continue
+        scored_on = None
+        if tid is None:   # the human runs' group
+            rec = read_json(task / "task.json") or {}
+            scored_on = ident(task_recipe_of(rec, row, "route", kicad_version()))
+            keep = []
+            for d, r in items:
+                sha = ((task_meta(bid, r["task_id"]) or {}).get("recipe") or {}).get("board_sha256")
+                if sha not in (None, rec.get("pcb_sha256")):
+                    failed.append(f"{r['run']}: made on another board file; not re-scored")
+                else:
+                    keep.append((d, r))
+            items = keep
+            if not items:
+                continue
+        key = {r["run"]: HUMAN_REF if _is_reference(r) else r["run"] for _, r in items}  # every human run: one score
         man_p = ws / f"rescore-{phc[:8]}-{kind}.json"
-        runs = [f"{r['run']}={d / 'output.kicad_pcb.gz'}:{kind}:{1 if human and r['method_id'] == human['id'] else 0}"
-                for d, r in items]
+        runs = [f"{r['run']}={d / 'output.kicad_pcb.gz'}:{kind}:0" for d, r in items if not _is_reference(r)]
+        if len(runs) < len(items):  # as haslambench's reference adapter: its output is the task's reference board
+            runs.append(f"{HUMAN_REF}={task / 'reference' / 'board.kicad_pcb'}:route:1")
         rc, to = run_logged([py, cd / "tools" / "haslamres" / "rescore_runs.py", "--task", task, "--work", ws / "rs",
                              *[x for spec in runs for x in ("--run", spec)], "--out", man_p],
                             log, dict(env, PATH=f"{py.parent}:{env.get('PATH', '')}"), timeout=int(1800 + len(items) * (600 + 240 * size)))
@@ -3001,7 +3042,7 @@ def cmd_rescore_job(a):
             failed += [f"{r['run']}: scorer failed (rc {rc}, timed out {to}): {tail(log, 5)}" for _, r in items]
             continue
         for d, r in items:
-            got = (man.get("runs") or {}).get(r["run"]) or {}
+            got = (man.get("runs") or {}).get(key[r["run"]]) or {}
             olds = [j for j in (read_json(p) or {} for p in (d / "evals").glob("*.json"))
                     if j.get("score") is not None and j.get("evaluator") != eid]
             old = max(olds, key=lambda j: j.get("at") or "") if olds else None
@@ -3010,6 +3051,7 @@ def cmd_rescore_job(a):
                 continue   # never overwrite (another job got there first)
             ev = dict(schema=SCHEMA, evaluator=eid, run=r["run"], at=now(), rescored=True, rescored_with=a.harness,
                       task_prepared_by=phc, score_version=man.get("score_version"), status=got.get("status"),
+                      **({"human_from": "board", "task_id": scored_on} if scored_on else {}),
                       error=got.get("error"), score=got.get("score"), scoring_usage=got.get("scoring_usage"),
                       probe=(old or {}).get("probe"), probe_from=(old or {}).get("evaluator") if (old or {}).get("probe") else None)
             for tag, path in (got.get("drc") or {}).items():
