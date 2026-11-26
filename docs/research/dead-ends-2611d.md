@@ -3,7 +3,7 @@
 # Dead ends 2026-11: placement, joint chassis, restarts and physics inputs
 
 Scope: placement, joint-chassis, restart and physics-input lines dropped, parked or superseded from 2026-11-09 to 2026-11-23 that had no write-up on main: what was tried, evidence, why each stopped, what would reopen it, and the tag that keeps its code. Not here: the 2026-11-20..22 drops -> [dead-ends-2611](dead-ends-2611.md); the larger 2026-11-16..24 lines -> [dead-ends-2611b](dead-ends-2611b.md); every archive tag -> [archive-tags-2611](archive-tags-2611.md).
-Keys: dead ends 2611d, module_soft, chassis-soft, module_rail_share, module-rails, module_clock, polish-merit, P-late, barrier_weight_mode, avoidable, detour, repair_physics, p6-repair-place2, bus_pose, bus-pose-ab, place_history design B, place-history-b, phys-tiebreak, alt-from-best, select-physics, layer oracle, net_layers, ROLE_WEIGHT analog, intent-fast-nets-analogw, RHO_CU_OHM_MM, IEC 60028, materials-values, dc-open-rail, dc-signed
+Keys: dead ends 2611d, place_passive_springs, passive-springs, served-pin springs, module_soft, chassis-soft, module_rail_share, module-rails, module_clock, polish-merit, P-late, barrier_weight_mode, avoidable, detour, repair_physics, p6-repair-place2, bus_pose, bus-pose-ab, place_history design B, place-history-b, phys-tiebreak, alt-from-best, select-physics, layer oracle, net_layers, ROLE_WEIGHT analog, intent-fast-nets-analogw, RHO_CU_OHM_MM, IEC 60028, materials-values, dc-open-rail, dc-signed
 
 **Status:** per item (first line of each section). **Code:** each item names the tag `archive/<branch>` (= branch tip at archiving, 2026-11-25) that keeps its code and branch-only write-ups; `git show archive/<branch>:<path>`. Branches predate PR #163, so paths and names inside them are the old ones (`kae/src/kae/...`, `tools/kaeres/...`, `KAE_*`); the text here uses the new names. Host-only sources (`~/haslam-baselines/experiments/<exp>/`, `/var/tmp/$USER/explore-2611/results/` on the benchmark host) are named; their key numbers are copied here. [C] = computed by our scripts, some re-read on 2026-11-25 from stored results.
 
@@ -126,3 +126,17 @@ Keys: dead ends 2611d, module_soft, chassis-soft, module_rail_share, module-rail
 - **Why superseded:** `dc-signed` carries the same cases (off-board ground pieces `offboard`, series-part feeds, self-powered parts) inside the signed per-piece balance.
 - **Reopen if:** never on its own; compare with `dc-signed` if that branch is dropped.
 - **Code:** `archive/dc-open-rail` 73e2c5639c15b0106b4715640a24a379e5a64ea9 (local = origin).
+
+## 13. Served-pin springs for 2-pad passives from corpus priors (place_passive_springs)
+
+**Did not work**; experiment `passive-springs` (halves `passive-springs-frontier`, `passive-springs-quality`), 2026-11-26.
+
+- **Tried:** `haslam/src/haslam/place/springs.py`. Each movable 2-pad R/C/L/FB outside a physics macro gets a virtual two-pin net of kind `spring` from its serving pad to the pin it serves. The pin comes from the netlist: the non-ground, non-rail net first; on that net the IC or module first, then the part with the most pads. Weight 1 × clamp(3 mm / p50, 0.25, 2), with p50 from `place/data/passive_priors.json` (per-role served distance, 2,694 tier-A train-owner corpus boards, `tools/research/layout-data/passive_priors.py`). The quadratic seed, the floorplan, the annealer and repack price it; crossings ignore it. Setting `place_passive_springs`, default 0. Compared with stored control-w48 staged on the 140 sprint boards, seeds 0-1. None of these boards was used in the fit (owner-level split).
+- **Evidence** [C]:
+  - Opens Δlog1p +0.065 [+0.007, +0.124] (owner bootstrap); summed 2,477 → 2,672; better / same / worse 53 / 142 / 85 board-seeds.
+  - Decap + commutation-cell utilization ×1.21; physics_total Δlog +0.019 [−0.016, +0.055].
+  - DRC errors +0.010 [−0.021, +0.040]; legal 261 → 260; CPU ×1.04.
+  - Audit before the A/B: the staged placer already matches human served distances, sides and orientation for decaps, pull-ups, series R and LED resistors. The gaps were feedback dividers (5.1 vs 2.5 mm), inductors, ferrites, bulk caps and series terminations ([passive-priors-2611](placement/passive-priors-2611.md)).
+- **Why dead:** springs on every non-macro passive fight the place terms' nearest-load charging of decaps and bulk caps, and crowd IC perimeters. The parts with a real gap are a small share of the springs.
+- **Reopen if:** a spring limited to feedback dividers (and possibly inductors) at their FB / switch pins, or a prior that says which side of the IC a passive goes. The passive tier's share of pose-transplant (g_P 0.33) is not in served distance.
+- **Code:** branch `passive-priors` (tag `archive/passive-priors`); writeup `docs/research/placement/passive-priors-2611.md`; data `~/haslam-baselines/experiments/passive-priors/`.
