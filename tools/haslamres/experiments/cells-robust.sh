@@ -18,7 +18,7 @@
 # PYTHONHASHSEED=0 HASLAM_WORKERS=1), restart.py --parallel 4 --first-s 60 --scale-first --slack 1.15 --resume 0.5,
 # 900 s x sqrt(footprints/40) nominal (at most 4 h), the harness timeout its 4x wall ceiling, the step cache.
 #
-#   SHA=<pushed commit> STAGE=r4|inv [BOARDS=@file|ids] [NAME=suffix] tools/haslamres/experiments/cells-robust.sh
+#   SHA=<pushed commit> STAGE=r4|inv BOARDS=@file|ids [NAME=suffix] [REUSE_RUNS=1] tools/haslamres/experiments/cells-robust.sh
 # Registers only; nothing is submitted.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -77,6 +77,6 @@ case "$STAGE" in
     add "$C" "as '$N' with HASLAM_CELLS_INVERTING=1" "$Z HASLAM_HOTLOOP_CELLS=1 HASLAM_CELLS_INVERTING=1" 0
     M=(--method "$N" --method "$C") ;;
 esac
-$K exp create "$D" "${M[@]}" --boards "${BOARDS:?BOARDS: @file or ids}" --tier ladder --harness $SHA --haslam $SHA \
+$K exp create "$D" "${M[@]}" ${REUSE_RUNS:+--reuse-runs} --boards "${BOARDS:?BOARDS: @file or ids}" --tier ladder --harness $SHA --haslam $SHA \
   --env HASLAM_STEP_CACHE=$STEP_CACHE --description "cells-robust $STAGE at $S7 (plan: haslam-baselines/experiments/cells-robust/PLAN.md); Freerouting $(basename $(dirname $(dirname $FORK))); operating facts rf-ab-operating-$OPH" >/dev/null
 echo "experiment $D registered; nothing submitted"
