@@ -147,6 +147,15 @@ Same 10 boards, same physics. W*n* = track widening capped at *n* mm (`max_width
 
 **Settings** (constraints.DEFAULTS; project text variable, then opts, then env): `HASLAM_THT_NECK` on|off (board-wide), `HASLAM_THT_WIDE` refs or ref.pad, comma-separated (`J1, J3.2`), kept wide; `HASLAM_THT_NARROW`, necked even without a plan or over the loss budget. Every pad the neck actually holds back is in the report's hazards as `tht_pad_necked` (info, assembly), one entry per part (at most 8, the rest in one entry) with the pad, net, planned width with and without the neck, current, and the setting that keeps it wide. Results: [2026-11-13-power-copper-tht](../../../bench/results/2026-11-13-power-copper-tht.md).
 
+## Quiet nets and minimal-copper areas (2026-11-26)
+
+bme280-array F46: on a 16-sensor array whose rails carry ~60 µA, power copper widened GND to 0.6–3.0 mm among the sensors (75 unlocked segments; net class 0.25 mm) where the design wanted bare copper for thermal isolation. Width there buys nothing: widening a net saves at most its routed copper's loss.
+
+1. **Quiet nets** (`PowerCopper.quiet_nets`). Under the evaluator's DC plan of the board's facts (`haslam.excite.dc.planned_injections` at the typical point; the operating facts, else the board's intent file), each power and ground net's routed loss is `Σ I² R` over its tracks (`branch_currents`' `loss_sq` × 1 oz sheet resistance 0.49 mΩ/□). A net under `widen_min_loss_uW` (default 1 µW) is not widened or grown (`stats.quiet_nets`, µW). A net the plan gives no current, or a board without a plan (no facts), is grown as before.
+2. **Minimal-copper areas.** `minimal_copper` (project text variable `HASLAM_MINIMAL_COPPER`, or opts): KiCad rule-area names, comma-separated globs. Power copper grows nothing inside them on their layers (the area is a zero-gap constraint of `_constraints`, so widening, arcs and vector growth all stop at its edge; tracks inside keep their routed width). The area needs no keepout flag; give it one (tracks, vias) only to forbid routing too.
+
+On the routed bme4 board (widening re-planned on the final copper, vias and stitching off): 36 tracks widened (GND 18, +1V8 11, VIN_P 4, VIO 1, VIO_PU 2) with the setting off; with the board's evaluation facts (sensor `I_sustained_A` 3.6 µA) GND and +1V8 are quiet (2.8 and 3.1 nW) and 7 tracks are widened; `minimal_copper=SENSE` alone (without facts) leaves 9. With the routing run's own intent file (no sensor currents, the plan's 12.5 mA prior) GND reads 11.8 µW and is still widened: the facts must state the loads' currents.
+
 ## Verdict
 
 Not finished. Every board's physics total fell and DRC was never worse, but this is ten boards, one routed attempt each, model-measured physics (no lab measurement), and the router never saw the copper. Next: an A/B through the router's final stage (`power_copper=True`) on the 99-board set with cp1/cpk, and a look at the aifryz +BATT term.

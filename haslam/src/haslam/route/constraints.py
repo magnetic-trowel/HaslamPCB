@@ -279,6 +279,16 @@ DEFAULTS = dict(
     thermal_vias=1,                # routing (haslam.route.thermal_vias): 1: each part dissipating heat_min_W or more
                                    # gets vias from its thermal pad and pour pads into the same net's copper on
                                    # the other face (a region sink's face, else the net's pour there); 0: off
+    widen_min_loss_uW=1.0,         # routing (haslam.route.power_copper): a power or ground net whose routed copper
+                                   # dissipates less than this (uW) under the evaluator's DC plan of the board's facts
+                                   # (haslam.excite.dc.planned_injections, typical point) is not widened or grown:
+                                   # widening saves at most that loss (bme280-array F46: GND at ~60 uA grown to
+                                   # 0.6-3 mm among sensors). A net the plan has no current for is grown as before;
+                                   # 0: off
+    minimal_copper="",             # routing (haslam.route.power_copper): names of KiCad rule areas (comma-separated,
+                                   # glob patterns, e.g. "SENSE,MINCU_*") inside which power copper grows nothing:
+                                   # tracks keep their routed width there and vector copper stays out (a thermally
+                                   # isolated sensor field, an area the design keeps bare); "" none
     thermal_via_pitch=1.0,         # mm: grid pitch of thermal vias (the board's same-net via pitch still applies)
     thermal_via_max=16,            # thermal vias per part at most
     thermal_via_in_pad=1,          # 1: thermal vias inside an exposed pad (as critical routing's plane vias); 0:
