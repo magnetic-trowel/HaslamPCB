@@ -17,9 +17,11 @@
 # KICAD10_SYMBOL_DIR / KICAD10_FOOTPRINT_DIR). KICAD_IMAGE_TAG (default 10.0.7). KICAD_APT_VERSION pins the apt
 # package (e.g. 10.0.8; default: whatever the PPA has now, and `haslambench doctor` warns when that is not a
 # version the docs and drift tests were checked on, KICAD_TESTED_VERSIONS in bench/src/haslambench/tools.py).
+# HASLAM_SETUP_LIB=1 sources the functions only (bench/tests/test_setup_sh.py); HASLAM_SETUP_SYSROOT prefixes the
+# system paths native_kicad_env looks at (tests).
 set -euo pipefail
 
-BENCH_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HASLAM_HOME="${HASLAM_HOME:-$HOME/.cache/haslambench}"
 VENV="$BENCH_DIR/.venv"
 KICAD_MODE=auto
@@ -55,6 +57,7 @@ else SUDO=""; HAVE_SUDO=0
 fi
 ENV_FILE="$HASLAM_HOME/env.sh"
 ENV_LINES=("export HASLAM_HOME=\"$HASLAM_HOME\"")
+SYSROOT="${HASLAM_SETUP_SYSROOT:-}"
 
 kicad_major() { kicad-cli version 2>/dev/null | cut -d. -f1; }
 container_tool() {
@@ -85,14 +88,31 @@ install_apptainer_unpriv() {
 native_kicad_env() {
   local py d
   for py in /usr/bin/python3 /usr/bin/python3.12 /usr/bin/python3.11 /usr/bin/python3.10; do
+    py="$SYSROOT$py"
     if [ -x "$py" ] && "$py" -c "import pcbnew" 2>/dev/null; then
       ENV_LINES+=("export HASLAM_KICAD_PYTHON=\"$py\"")
       break
     fi
   done
   for d in SYMBOL:symbols FOOTPRINT:footprints 3DMODEL:3dmodels; do
-    if [ -d "/usr/share/kicad/${d#*:}" ]; then ENV_LINES+=("export KICAD10_${d%%:*}_DIR=/usr/share/kicad/${d#*:}"); fi
+    if [ -d "$SYSROOT/usr/share/kicad/${d#*:}" ]; then
+      ENV_LINES+=("export KICAD10_${d%%:*}_DIR=$SYSROOT/usr/share/kicad/${d#*:}")
+    fi
   done
+}
+
+# the PPA step needs curl, gpg and python3; a minimal Ubuntu image (docker ubuntu:24.04) has none of them
+apt_prereqs() {
+  local need=() c
+  for c in curl:curl gpg:gnupg python3:python3; do
+    command -v "${c%%:*}" >/dev/null || need+=("${c#*:}")
+  done
+  if [ ! -s /etc/ssl/certs/ca-certificates.crt ]; then need+=(ca-certificates); fi
+  if [ ${#need[@]} -gt 0 ]; then
+    echo "Installing ${need[*]} (needed to add the KiCad PPA)"
+    $SUDO apt-get update -qq
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${need[@]}"
+  fi
 }
 
 install_kicad_apt() {
@@ -101,6 +121,7 @@ install_kicad_apt() {
   if [ "$DO_3D" = 1 ]; then pkgs+=(kicad-packages3d); fi
   if [ -n "$KICAD_APT_VERSION" ]; then v="=$KICAD_APT_VERSION*"; fi
   echo "Installing KiCad 10 ${KICAD_APT_VERSION:-(latest)} from ppa:kicad/kicad-10.0-releases: ${pkgs[*]} (no recommends)"
+  apt_prereqs
   FP=$(curl -fsSL "https://api.launchpad.net/1.0/~kicad/+archive/ubuntu/kicad-10.0-releases" |
        python3 -c "import json,sys; print(json.load(sys.stdin)['signing_key_fingerprint'])")
   curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x$FP" |
@@ -138,6 +159,16 @@ install_kicad_container() {
   done
 }
 
+# env.sh, and the venv's activate script sourcing it
+write_env() {
+  printf '%s\n' "${ENV_LINES[@]}" > "$ENV_FILE"
+  if [ -f "$VENV/bin/activate" ] && ! grep -qF "$ENV_FILE" "$VENV/bin/activate"; then
+    echo "[ -f \"$ENV_FILE\" ] && . \"$ENV_FILE\"" >> "$VENV/bin/activate"
+  fi
+}
+
+if [ "${HASLAM_SETUP_LIB:-0}" = 1 ]; then return 0; fi
+
 case "$KICAD_MODE" in
   none)  # keep any KiCad wrapper configured by an earlier run
     if [ -f "$ENV_FILE" ]; then
@@ -155,7 +186,8 @@ case "$KICAD_MODE" in
       echo "KiCad $(kicad-cli version) already installed"
       if [ "$HAVE_SUDO" = 1 ] && command -v apt-get >/dev/null; then
         missing=()
-        if [ ! -d /usr/share/kicad/footprints ]; then missing+=(kicad-symbols kicad-footprints); fi
+        if [ ! -d /usr/share/kicad/symbols ]; then missing+=(kicad-symbols); fi
+        if [ ! -d /usr/share/kicad/footprints ]; then missing+=(kicad-footprints); fi
         if [ "$DO_3D" = 1 ] && [ ! -d /usr/share/kicad/3dmodels ]; then missing+=(kicad-packages3d); fi
         if [ ${#missing[@]} -gt 0 ]; then
           echo "Installing KiCad's ${missing[*]} (haslamsynth needs the libraries, renders the 3D models)"
@@ -231,9 +263,16 @@ else
   "$UV" pip install -q --python "$VENV/bin/python" -e "$BENCH_DIR[test]"
 fi
 
-printf '%s\n' "${ENV_LINES[@]}" > "$ENV_FILE"
-grep -qF "$ENV_FILE" "$VENV/bin/activate" || echo "[ -f \"$ENV_FILE\" ] && . \"$ENV_FILE\"" >> "$VENV/bin/activate"
+write_env
 echo
-( . "$ENV_FILE" && "$VENV/bin/haslambench" doctor )
+rc=0
+DOC=$( . "$ENV_FILE" && "$VENV/bin/haslambench" doctor 2>&1 ) || rc=$?
+printf '%s\n' "$DOC"
 echo
 echo "Activate with: source $VENV/bin/activate"
+# doctor FAILs on Freerouting when it was not installed: expected with --no-freerouting (KiCad-only set-ups)
+if [ "$rc" != 0 ] && [ "$DO_FR" = 0 ] && ! grep -v '^FAIL freerouting' <<< "$DOC" | grep -q '^FAIL'; then
+  echo "(doctor's freerouting FAIL is expected with --no-freerouting)"
+  rc=0
+fi
+exit "$rc"

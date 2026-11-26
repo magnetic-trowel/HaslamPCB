@@ -22,8 +22,9 @@ Research behind the design: [schematic-generation-landscape](../../../../docs/to
 ## Setup and use
 
 ```bash
-bench/scripts/setup.sh --no-freerouting   # KiCad 10 (+ apt install kicad-symbols kicad-footprints if missing)
+bench/scripts/setup.sh --no-freerouting   # KiCad 10 + libraries; doctor's freerouting FAIL is expected then
 cd tools/research/llm-design/synth && uv venv .venv && . .venv/bin/activate && uv pip install -e '.[test]'
+#   without uv (setup.sh installs it only when python3-venv is missing): python3 -m venv .venv && .venv/bin/pip install -e '.[test]'
 haslamsynth build ../designs/<slug>/design.py -v      # checks + KiCad files + ERC + parity
 haslamsynth sym 'Relay:.*G5LE'                        # search symbols; `haslamsynth sym Lib:Name` prints pins
 haslamsynth fp 'TerminalBlock_Phoenix:.*5.08'         # search footprints; `haslamsynth fp Lib:Name` prints pads
@@ -41,7 +42,7 @@ pytest tests                                        # KiCad tests skip without k
 the matching lines with page numbers. `check-board` reads the board with haslam's pure-Python loader: `haslamsynth check-board DESIGN BOARD` with
 `haslam/src` on `PYTHONPATH` (as for the rules check; shapely is a haslamsynth dependency).
 
-`source ~/.cache/haslambench/env.sh` (written by `bench/scripts/setup.sh`) sets `KICAD10_SYMBOL_DIR` and
+`source $HASLAM_HOME/env.sh` (default `~/.cache/haslambench/env.sh`, written by `bench/scripts/setup.sh`) sets `KICAD10_SYMBOL_DIR` and
 `KICAD10_FOOTPRINT_DIR` (apt KiCad: `/usr/share/kicad/...`; container: the image's `usr/share/kicad/...`), and
 either `HASLAM_KICAD_WRAP` (container: `kicad-cli` and KiCad's Python run through it) or `HASLAM_KICAD_PYTHON`
 (apt: KiCad's own Python; the PATH `python3` may lack `pcbnew`). The scripts in `scripts/` that need KiCad's

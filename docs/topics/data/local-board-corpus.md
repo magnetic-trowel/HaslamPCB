@@ -9,7 +9,7 @@ Facts: never committed (third-party licences); git holds only manifests pinning 
 
 | Step | Command | Notes |
 |---|---|---|
-| Install KiCad 10.0.7 and the venv | `bench/scripts/setup.sh --no-freerouting` | No sudo: rootless Apptainer + official KiCad image. `haslambench doctor` must pass |
+| Install KiCad 10.0.7 and the venv | `bench/scripts/setup.sh --no-freerouting` | No sudo: rootless Apptainer + official KiCad image. `haslambench doctor`: every line ok except `freerouting` (not installed) |
 | Build | `bench/scripts/build-corpus.sh [OUT_DIR] [WORKDIR]` | Defaults `~/haslam-boards`, `~/haslam-boards-work`. `J=8` for parallel jobs. Resumable: rerun the same command |
 | Check | `wc -l ~/haslam-boards/manifest.jsonl` | 13,837 rows on a fresh host; more if the cache already held robots-restricted boards |
 

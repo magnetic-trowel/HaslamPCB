@@ -30,3 +30,12 @@ def test_tested_version_and_library_dirs(monkeypatch, tmp_path):
     assert any(ln.startswith("ok   kicad version") for ln in lines)
     assert any(ln.startswith("ok   kicad symbol libraries") and "1 libraries" in ln for ln in lines)
     assert any(ln.startswith("WARN kicad footprint libraries") for ln in lines)
+
+
+def test_a_kicad_cli_that_does_not_run_fails(monkeypatch):
+    """A wrapper that resolves but cannot run KiCad (missing image, broken HASLAM_KICAD_WRAP) is a FAIL, not ok."""
+    monkeypatch.setattr(tools, "kicad_cli", lambda: ["/nonexistent/kicad-cli"])
+    lines = cli.kicad_checks()
+    assert any(ln.startswith("FAIL kicad version") and "did not run" in ln for ln in lines)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 255, "", "FATAL: no image\n"))
+    assert any(ln.startswith("FAIL kicad version") and "no image" in ln for ln in cli.kicad_checks())
