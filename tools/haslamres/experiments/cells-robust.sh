@@ -58,7 +58,8 @@ add() {  # NAME DESCRIPTION ENV PORTFOLIO(0/1)
   local inner="$CP if [ \"\$HASLAM_RESUME\" = 1 ]; then $E -m haslam.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@ $OP; else $E -m haslam.route.cli route @IN@ @OUT@ --seed @SEED@ --time @TIME@ $OP; fi"
   $K method add "$name" --kind route --description "$desc; restart portfolio (tools/haslamres/restart.py) as hotloop-sw round 4; operating facts rf-ab-operating-$OPH" \
     --command "$PRE $wrap '$inner'$POST" --param timeout_s=3600 --param timeout_scale=sqrt-fp40 --param timeout_cap_s=57600 --param parallel=4 \
-    --code haslam=.@$SHA --harness $SHA >/dev/null
+    --code haslam=.@$SHA --harness $SHA >/dev/null 2>&1 || true   # this base's method add exits 1 after registering (main #172)
+  $K method show "$name" >/dev/null || { echo "method $name not registered" >&2; exit 1; }
   echo "method: $name"
 }
 S7=${SHA:0:7}
@@ -78,5 +79,5 @@ case "$STAGE" in
     M=(--method "$N" --method "$C") ;;
 esac
 $K exp create "$D" "${M[@]}" ${REUSE_RUNS:+--reuse-runs} --boards "${BOARDS:?BOARDS: @file or ids}" --tier ladder --harness $SHA --haslam $SHA \
-  --env HASLAM_STEP_CACHE=$STEP_CACHE --description "cells-robust $STAGE at $S7 (plan: haslam-baselines/experiments/cells-robust/PLAN.md); Freerouting $(basename $(dirname $(dirname $FORK))); operating facts rf-ab-operating-$OPH" >/dev/null
+  --env HASLAM_STEP_CACHE=$STEP_CACHE --description "cells-robust $STAGE at $S7 (plan: haslam-baselines/experiments/cells-robust/PLAN.md); Freerouting $(basename $(dirname $(dirname $FORK))); operating facts rf-ab-operating-$OPH"
 echo "experiment $D registered; nothing submitted"
