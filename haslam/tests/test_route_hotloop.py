@@ -524,7 +524,7 @@ def test_escape_lanes_aim_at_where_the_zone_can_pour_and_keep_vias_out(tmp_path)
 
 
 def test_cells_outside_the_kinds_and_failed_cells_leave_no_copper(tmp_path):
-    """hotloop_cell_kinds (default buck, boost) and failed cells: kestrel esc, round 3, where failed and partial
+    """hotloop_cell_kinds (default buck, boost, inverting) and failed cells: kestrel esc, round 3, where failed and partial
     half-bridge cells' locked hops walled in the motor gate nets."""
     s = F.session(tmp_path, kinds=("cell",), rails="none")
     mk = lambda i, st: CM.Module(id=i, kind="cell", spec={}, parts=[], status=st)
@@ -534,12 +534,12 @@ def test_cells_outside_the_kinds_and_failed_cells_leave_no_copper(tmp_path):
     hotloop.drop_cells(s, [hb, fb, ok], ("buck", "boost"), log=lambda *a: None)
     assert hb.status == "skipped" and not hb.copper and fb.status == "failed" and not fb.copper
     assert ok.status == "routed" and ok.copper and len(s.space.routed) == 1
-    assert hotloop.settings()["cell_kinds"] == ("buck", "boost")
+    assert hotloop.settings()["cell_kinds"] == ("buck", "boost", "inverting")
 
 
 def test_a_cell_outside_the_kinds_is_not_laid_and_reads_as_no_failed_cell(tmp_path):
     """kestrel esc, cells-first round 4: its half bridges (Q21+Q22, Q23+Q24) were routed with the default kinds
-    (buck, boost), spending the stage's budget and pushing the kept cells aside, and ripped only afterwards; one
+    (then buck, boost), spending the stage's budget and pushing the kept cells aside, and ripped only afterwards; one
     that laid nothing stayed "failed" with a hotloop_cell_unrouted hazard. A cell of another kind is now skipped
     before it is routed: no copper, no time, no hazard."""
     s = F.session(tmp_path, kinds=("cell",), rails="none", cell_kinds=("boost",))

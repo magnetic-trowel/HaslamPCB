@@ -365,8 +365,9 @@ DEFAULTS = dict(
                                    # copper on its return and loop-net pour layers under the hull ripped and routed
                                    # elsewhere, kept per cell only when no worse and its quote 5 % better
     hotloop_clear_force=0,         # 1 keeps a cleared cell even when a ripped net finds no other way (left open)
-    hotloop_cell_kinds="buck,boost",  # the cell topologies the cells stage lays (hotloop-sw round 3: half bridges
-                                   # gained nothing, L 1.06, and on kestrel esc their copper walled in the gate nets)
+    hotloop_cell_kinds="buck,boost,inverting",  # the cell topologies the cells stage lays (hotloop-sw round 3: half
+                                   # bridges gained nothing, L 1.06, and on kestrel esc their copper walled in the gate
+                                   # nets). Inverting cells exist only with HASLAM_CELLS_INVERTING=1 (off by default)
     hotloop_budget_s=120.0,        # s: the cell stage stops starting cells after this (and after 15 % of the budget)
 )
 
