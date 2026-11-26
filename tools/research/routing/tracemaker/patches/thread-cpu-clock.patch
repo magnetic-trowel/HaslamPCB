@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
+# SPDX-FileCopyrightText: 2026 The TraceMaker authors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# TraceMaker (GPL-3.0-or-later) v0.12.1 db5950f4: with TM_CLOCK=thread-cpu in its environment each portfolio
+# variant's clock (--time) is the CPU time of its own thread instead of wall time. Applied by
+# install_tracemaker.sh (PATCH=thread-cpu-clock); haslam.route.tracemaker sets TM_CLOCK for tm_clock="cpu".
+# git apply skips these lines.
+
+diff --git a/src/route/router.cpp b/src/route/router.cpp
+index cec2b6c2..c372e82b 100644
+--- a/src/route/router.cpp
++++ b/src/route/router.cpp
+@@ -20,6 +20,7 @@
+ #include <queue>
+ #include <array>
+ #include <cstring>
++#include <ctime>
+ #include <fstream>
+ #include <sstream>
+ #include <deque>
+@@ -198,7 +199,19 @@ struct Router::Impl {
+     for (const auto& n : b.nets) net_class.push_back(&rules.class_for(n.name));
+   }
+ 
+-  double elapsed() const { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); }
++  // TM_CLOCK=thread-cpu: the variant's clock is the CPU time of its own thread (each variant runs on one thread),
++  // so --time is a CPU-time limit per variant that does not depend on how busy the machine is.
++  bool cpu_clock = false;
++  double cpu_t0 = 0;
++  static double thread_cpu_s() {
++    timespec ts{};
++    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
++    return static_cast<double>(ts.tv_sec) + 1e-9 * static_cast<double>(ts.tv_nsec);
++  }
++  double elapsed() const {
++    if (cpu_clock) return thread_cpu_s() - cpu_t0;
++    return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
++  }
+   // Out of budget? The work budget (search expansions) is deterministic; wall time is only a safety net.
+   double budget_scale = 1.0;  // < 1 while a share of the budget is reserved for the polish phase (opt.polish_fraction)
+   // Set when wall time, not work, ended the search: the result then depends on machine speed (reported, never read here).
+@@ -5531,6 +5544,10 @@ struct Router::Impl {
+ 
+   RouteResult run() {
+     t0 = std::chrono::steady_clock::now();
++    if (const char* c = std::getenv("TM_CLOCK"); c && std::strcmp(c, "thread-cpu") == 0) {
++      cpu_clock = true;
++      cpu_t0 = thread_cpu_s();
++    }
+     rip_cap = opt.max_rips_per_connection;
+     budget_scale = (opt.polish_fraction > 0 && opt.polish_fraction < 1) ? 1.0 - opt.polish_fraction : 1.0;
+     soft_unit = static_cast<std::int64_t>(opt.soft_cost_mm * 1e6);

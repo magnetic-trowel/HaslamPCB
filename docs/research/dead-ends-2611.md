@@ -142,7 +142,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: TraceMaker 600 s against the bridge on 30 boards: better 6, worse 23, median log opens ratio +1.04; against the fork alone better on 26. Open signal connections 262 vs bridge 488, but 294 of its 712 opens involve a zone (bridge 12): it trusts its own in-memory zone fill, and KiCad's refill splits planes and starves thermals. 5× time: opens −16 % for 3.5× CPU.
 - **Why dead:** loses on planes, runs on wall clock. Kept: its signal routing, as the first router on BGA boards in `tm-hybrid` (hybrid − control −15.2 opens per pair [−29.7, −3.2]; 272 CPU-h against a 150 cap) and as pin-first strict search to port into the fork.
 - **Reopen if:** it keeps KiCad's zone refill in its loop and budgets by counted work.
-- **Code:** tag `archive/tracemaker-trial` 0fae2dbdb214d54a49cd9e31f21a052e1f319955 (board list, paired-results script). The hybrid (`first_router`) lives on in the live `hybrid-baseline` branches, which contain `tracemaker-hybrid` and `tracemaker-hybrid-w47`.
+- **Code:** tag `archive/tracemaker-trial` 0fae2dbdb214d54a49cd9e31f21a052e1f319955 (board list, paired-results script). The hybrid (`first_router=tracemaker`, default off) is on main: `haslam.route.tracemaker`; the stored BGA baseline `hybrid-bga-w47` pins branch `hybrid-baseline-w47` -> [bench/suites/README.md](../../bench/suites/README.md#bga-and-fine-pitch-baseline-the-cpu-limited-tracemaker-hybrid).
 
 ## 13. Joint-loop windows as built
 

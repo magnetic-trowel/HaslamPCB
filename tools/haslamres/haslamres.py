@@ -907,7 +907,16 @@ def cmd_exp_submit(a):
     tier_guard(tier, runs, f"submit {a.name}", costs=control_costs(e["cost_from"], runs) if e.get("cost_from") else None,
                over_cap=(e.get("over_cap") or {}).get("reason"), arms=e.get("arms", 1))
     if tier != e.get("tier") and not a.dry_run:
-        write_json(exp_dir(a.name) / "experiment.json", dict(e, tier=tier))
+        e = dict(e, tier=tier)
+        write_json(exp_dir(a.name) / "experiment.json", e)
+    cap = cpu_cap_of(a, e, tier)
+    if cap and not a.dry_run:
+        import watchdog
+        e = watchdog.record_cap(e, cap, "haslamres exp submit" + (" --cpu-cap" if getattr(a, "cpu_cap", None) else f" (tier {tier} limit)"))
+        write_json(exp_dir(a.name) / "experiment.json", e)
+    print(f"cost watchdog: cap {cap:g} CPU-h (haslamres exp report and haslamres exp watchdog {a.name} check it; over the cap, "
+          "the campaign's queued jobs are cancelled)" if cap else
+          "cost watchdog: no CPU cap (give --cpu-cap H to have the campaign's queued jobs cancelled past it)")
     jobs = spread_large(jobs, lambda j: j["size_mb"] > LARGE_MB)  # haslamq runs them in this order
     f = exp_dir(a.name) / f"jobs-{datetime.now().strftime('%Y%m%dT%H%M%S')}.jsonl"
     f.write_text("".join(json.dumps(j) + "\n" for j in jobs))
@@ -916,6 +925,22 @@ def cmd_exp_submit(a):
         # benchmark runs: methods' results depend on the time they get, so never paused (haslamq class timed)
         subprocess.run(["haslamq", "submit", "--jobs", str(f), "--owner", f"exp-{a.name}", "--tag", a.name, "--live",
                         "--class", "timed", "--cwd", str(code_dir(e["harness"]["commit"])), "--retries", "1"], check=True)
+
+
+def cpu_cap_of(a, e, tier):
+    """The campaign's CPU-h cap: --cpu-cap, else the one recorded before, else the tier's total limit per arm
+    (sprint: 40 per treatment arm); None for a tier without a limit and no --cpu-cap."""
+    if getattr(a, "cpu_cap", None):
+        return float(a.cpu_cap)
+    if (e.get("cpu_cap") or {}).get("cpu_h"):
+        return float(e["cpu_cap"]["cpu_h"])
+    lim = TIERS.get(tier)
+    return lim["total_cpu_h"] * max(1, e.get("arms", 1)) if lim else None
+
+
+def cmd_exp_watchdog(a):
+    import watchdog
+    watchdog.check(a.name, store=STORE, dry_run=a.dry_run)
 
 
 # ------------------------------------------------------------------ sprint: one command for a sprint experiment
@@ -953,6 +978,21 @@ def parse_arm(spec):
     return name, sets
 
 
+def sprint_control(c, base, method=None):
+    """The stored control's method in control experiment `c`: `method` (an id or id prefix of one of its methods, e.g.
+    the stored TraceMaker hybrid of hybrid-bga-w47, the BGA baseline), else its first method of the base's kind."""
+    ms = [find_method(m["id"]) for m in c["methods"]]
+    if method:
+        hit = [m for m in ms if m["id"].startswith(method)]
+        if len(hit) != 1:
+            raise SystemExit(f"--control-method {method}: {len(hit)} of {c['name']}'s methods match "
+                             f"({', '.join(m['id'] + ' ' + m['name'] for m in ms)})")
+        if hit[0]["recipe"]["kind"] != SPRINT_BASES[base]:
+            raise SystemExit(f"--control-method {method}: a {hit[0]['recipe']['kind']} method, not --base {base}'s {SPRINT_BASES[base]}")
+        return hit[0]
+    return next(m for m in ms if m["recipe"]["kind"] == SPRINT_BASES[base])
+
+
 def cmd_sprint(a):
     """A sprint experiment in one command (bench/suites/README.md): each arm is the stored control's recipe
     of `--base` at `--commit` with its settings; they run on one suite (--suite; default the two sprint
@@ -965,7 +1005,7 @@ def cmd_sprint(a):
         raise SystemExit(f"refused: no {d / 'PLAN.md'} (the question, the one change, what will decide it).\n"
                          "Do this: write it, then run the same command again.")
     c = load_exp(a.control)
-    ctl = next(m for m in (find_method(m["id"]) for m in c["methods"]) if m["recipe"]["kind"] == SPRINT_BASES[a.base])
+    ctl = sprint_control(c, a.base, getattr(a, "control_method", None))
     tag, repo = c["harness"]["commit"], main_repo()
     commit = git(repo, "rev-parse", f"{a.commit}^{{commit}}")
     common = list(a.set or [])
@@ -990,7 +1030,8 @@ def cmd_sprint(a):
                              "Do this: give --commit (the tag plus one change, pushed) or --set KEY=VALUE.")
         label = f"{a.name}{'-' + arm if arm else ''}"
         # the control's recipe, with a numba cache of its own checkout (a cache serves only the code that made it)
-        template = ctl["recipe"]["runner"]["template"].replace(f"numba-default-{tag[:7]}", f"numba-default-{commit[:7]}") + sets
+        own = ((ctl.get("code") or {}).get("haslam") or {}).get("commit") or tag   # the control's haslam (a stored arm's: not the tag)
+        template = ctl["recipe"]["runner"]["template"].replace(f"numba-default-{own[:7]}", f"numba-default-{commit[:7]}") + sets
         # --param: method parameters over the control's (e.g. parallel=8 for an arm whose router runs 8 threads,
         # so the queue reserves them); they are part of the arm's identity, not haslam settings
         params = dict(ctl["recipe"]["params"], **dict(kv.split("=", 1) for kv in extra))
@@ -1047,7 +1088,8 @@ def cmd_sprint(a):
         pick = ([b for b in rank if b in fill][:1] if fill else []) + [b for b in rank if b not in fill]
         only = ",".join(pick[:a.smoke])
         print(f"smoke: {only}")
-    cmd_exp_submit(argparse.Namespace(name=a.name, only=only, limit=None, redo=False, dry_run=a.dry_run, tier=None, prio=5))
+    cmd_exp_submit(argparse.Namespace(name=a.name, only=only, limit=None, redo=False, dry_run=a.dry_run, tier=None, prio=5,
+                                      cpu_cap=getattr(a, "cpu_cap", None)))
     if a.smoke:
         print(f"after the smoke, the rest: haslamres exp submit {a.name} --prio 5")
     print(f"verdict, once the jobs are done:\n  haslamres exp report {a.name} && haslamres quality {a.name} --control '{ctl['name']}'")
@@ -2480,6 +2522,9 @@ def mfg_table(rows, names):
 
 def cmd_exp_report(a):
     e = load_exp(a.name)
+    if not getattr(a, "no_watchdog", False):   # the cost watchdog first (a report that fails must not skip it)
+        import watchdog
+        watchdog.check(a.name, store=STORE)
     d = exp_dir(a.name)
     rows, bugs, fails = exp_rows(e)
     for f in fails:
@@ -2604,7 +2649,9 @@ def cmd_exp_timer(a):
     # Reports and the index come from a frozen copy of the commit that installs the timer, not the
     # experiment's own (older) code: report fixes reach running experiments, and no result changes.
     # Not a shared installed copy: another checkout installing its timers would swap it under ours.
-    head = git(main_repo(), "rev-parse", "HEAD")
+    # this checkout's commit (the one whose code runs `install-timer`), not the main repo's: from a worktree
+    # the main repo's HEAD is another branch, and its older report had no cost watchdog
+    head = git(HERE, "rev-parse", "HEAD")
     if not on_remote(main_repo(), head):
         raise SystemExit(f"HEAD {head[:7]} is on no remote branch: push it first")
     tool = ensure_harness(head, venv=False)[0] / "tools" / "haslamres" / "haslamres.py"
@@ -3139,13 +3186,21 @@ def main():
     s.add_argument("--redo", action="store_true", help="also retry boards whose prepare failed")
     s.add_argument("--tier", choices=sorted(TIERS), help="change the experiment's tier (default: the one it was created with)")
     s.add_argument("--prio", type=int, help="haslamq priority of the jobs (higher runs first; sprint campaigns: 5)")
+    s.add_argument("--cpu-cap", type=float, metavar="CPU_H",
+                   help="the campaign's CPU-h cap, recorded for the cost watchdog (default: the one recorded before, else "
+                        "the tier's limit, 40 per treatment arm for sprint)")
     s.add_argument("--dry-run", action="store_true")
     s.set_defaults(f=cmd_exp_submit)
+    s = ep.add_parser("watchdog", help="cost watchdog: project the campaign's CPU from its finished jobs; past its cap, "
+                                       "cancel its queued jobs and write why to WATCHDOG.md (tools/haslamres/watchdog.py)")
+    s.add_argument("name"), s.add_argument("--dry-run", action="store_true")
+    s.set_defaults(f=cmd_exp_watchdog)
     for n, f in (("status", cmd_exp_status), ("report", cmd_exp_report), ("install-timer", cmd_exp_timer)):
         s = ep.add_parser(n)
         s.add_argument("name")
         if n == "report":
             s.add_argument("--baseline", help="method name the others are paired against (default: the experiment's first)")
+            s.add_argument("--no-watchdog", action="store_true", help="do not run the cost watchdog after the report")
             s.add_argument("--intent", metavar="DIR", help="also report external intent evaluations from DIR/<board>/<run>.status.json (tools/research/physics/eval_intent.sh)")
         s.set_defaults(f=f)
     s = sub.add_parser("sprint", help="a sprint experiment in one command: arms against the tag's stored control")
@@ -3167,8 +3222,13 @@ def main():
     s.add_argument("--param", action="append", metavar="K=V",
                    help="method parameter of every arm over the control's (repeatable; e.g. parallel=8: the queue "
                         "reserves 8 CPUs for an arm whose router runs 8 threads)")
+    s.add_argument("--cpu-cap", type=float, metavar="CPU_H", help="the campaign's CPU-h cap for the cost watchdog "
+                   "(default: 40 per treatment arm, the sprint limit)")
     s.add_argument("--note", help="appended to every arm's method description (e.g. a stage that runs on wall clock)")
     s.add_argument("--control", default="control-w48", help="the tag's stored control experiment")
+    s.add_argument("--control-method", metavar="ID", help="which of the control experiment's methods is the control (default: "
+                   "its first of the base's kind); the BGA baseline: --control hybrid-bga-w47 --control-method <hybrid id> "
+                   "(bench/suites/README.md)")
     s.add_argument("--dry-run", action="store_true", help="register and create, write the job file, submit nothing")
     s.set_defaults(f=cmd_sprint)
     s = sub.add_parser("job", help="one board (what each queued job runs)")
