@@ -326,9 +326,10 @@ class HaslamIntent:
             for k in ("net", "rail"):
                 if k in w and "*" not in w[k]:
                     w[k] = self._net(w[k], problems, f"haslam.term {t['id']}.where.{k}")
-            for k in ("part", "load", "connector"):
-                if k in w and "*" not in w[k]:
-                    self._ref(w[k], problems, f"haslam.term {t['id']}.where.{k}")
+            for k in ("part", "load", "connector"):      # a ref, a glob (* ? [...]) or a list of them, as haslam reads
+                for one in (w[k] if isinstance(w.get(k), list) else [w[k]] if k in w else []):
+                    if not any(c in one for c in "*?["):
+                        self._ref(one, problems, f"haslam.term {t['id']}.where.{k}")
             if w:
                 row["where"] = w
             terms.append(row)

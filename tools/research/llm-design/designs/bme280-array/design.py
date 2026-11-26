@@ -326,7 +326,18 @@ def operating(d):
     k.part("U2", f_sw_Hz=2.5e6, why="TPS629203 S-CONF #11: up to 2.5 MHz, auto PFM (DS Table 8-1)")
     k.cell("U2", "buck", I_A=(1e-5, 6e-5, 0.0125), vin="VIN_P", vout="+1V8", V_V=(3.3, 12.0, 13.2),
            why="TPS629203 above 3.4 V: same load as U1")
+    # supply draws: without them haslam.excite gives an IC a 10 mA class prior (U4 then "dissipated" 21 mW, the
+    # largest heat source on the board, inside the sensor field; FRICTION F36)
+    k.part("U4", I_A=[1e-7, 2e-6, 1e-5], I_sustained_A=2e-6,
+           why="TCA9548A DS 5.5: ICC 2-4 uA at 1.65 V, 100 kHz; 0.1 uA standby")
+    for ref in SENSORS:
+        k.part(ref, I_A=[1e-7, 3.6e-6, 7.14e-4], I_sustained_A=3.6e-6,
+               why="BME280 DS: 0.1 uA sleep, 3.6 uA at 1 Hz forced (T+P+H x1), 714 uA max while measuring pressure")
+    k.part("U3", I_A=[5.5e-6, 6e-6, 1.3e-5], I_sustained_A=6e-6, why="TPS3700 DS 6.5: IDD 6 uA typ, 13 uA max")
     k.cable("J1", 1.0, why="host lead < 1 m (A-2)")
+    k.term("T-SENS", "report", "temp.junction", where={"part": list(SENSORS)}, max="60.05 C",
+           source="REQ-4", why="sensor self-reading error from board heat: <= 50 mK above the 60 C ambient corner "
+                               "(BME280 +/-0.5 C accuracy / 10); haslam has no rise-above-ambient observable")
     k.term("T-TJ", "hard", "temp.junction", where={"part": "U*"}, max="85 C",
            source="BME280 DS: -40..85 C operating", why="sensors and ICs share the board")
 
