@@ -369,9 +369,9 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
     # radio's transmit burst or a boot peak, so the loads' currents sit at their typical point here (the
     # corners still span cooling, ambient, theta and the converters' operating points; the DC band keeps
     # the peaks for drop and heating of the copper)
-    # A connector's export current that nothing states (a class prior, a tenth of its rating) is not
-    # evidence of heat: a header's 3V3 pin usually feeds a sensor. Temperatures take such exports at
-    # their low end (1% of the rating), so a guess cannot make a regulator overheat; a stated one counts.
+    # A connector's export current that nothing states (haslam.excite.dc.EXPORT_SHARE, 1 % of its rating) is
+    # not evidence of heat: a header's 3V3 pin usually feeds a sensor. Temperatures take such exports at that
+    # typical value, not the DC band's top, so a guess cannot make a regulator overheat; a stated one counts.
     sustained = dict(own[0])
     exports = {ld["key"] for ld in dcp.loads if ld.get("key") and bd.part_kind.get(ld["ref"], ("",))[0] == "connector"}
     share_of = {ld["key"]: ld.get("part_share", 1.0) for ld in dcp.loads if ld.get("key")}
@@ -383,13 +383,13 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
         if isinstance(iv, (int, float)) and iv >= 0:      # the intent's typical draw (its datasheet's), this rail's share
             sustained[(p.subject, p.name)] = min(max(float(iv) * share_of.get((p.subject, p.name), 1.0), p.lo), p.hi)
         elif (p.subject, p.name) in exports and p.source == "prior":
-            sustained[(p.subject, p.name)] = p.lo
+            sustained[(p.subject, p.name)] = p.typ
     for c in range(len(own)):
         own[c] = dict(own[c])
         own[c].update({k: v for k, v in sustained.items() if k[1] == "I_A" and str(k[0]).startswith("dc:")})
     # A converter cell's current is what its rail's loads sustain, not its own class prior or a guessed
     # operating point (a 600 mA buck feeding a microcontroller was heated as if it carried 2 A). Loads count at
-    # their sustained draw (connector exports nobody states at their low end); a cell whose rail has no known
+    # their sustained draw (connector exports nobody states at 1 % of their rating); a cell whose rail has no known
     # load takes the low end of its own range. Its hot-loop losses (ac_parts) scale with the current squared.
     def load_amps(ld):
         if ld.get("key"):
@@ -397,7 +397,7 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
         iv = ((intent or {}).get("parts") or {}).get(ld["ref"], {}).get("I_sustained_A")
         if isinstance(iv, (int, float)) and iv >= 0:
             return float(iv) * ld.get("part_share", 1.0)
-        return ld.get("prior", 0.0) / (10.0 if bd.part_kind.get(ld["ref"], ("",))[0] == "connector" else 1.0)
+        return ld.get("prior", 0.0)          # a connector's prior is already its unstated export (EXPORT_SHARE)
     cell_out = {}
     for f in dcp.feeds.values():
         if f["kind"] == "cell":
@@ -420,6 +420,8 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
                         il = demand * max(1.0, DC._ratio(dcp, cell["vout"], cv)) if cell["vout"] in dcp.feeds else demand
                     else:
                         il = CV.inductor_from_output(cell.get("top") or cell["cls"], demand, D)
+                    # no more than its operating range's top (the DC flow current-limits its loads there too)
+                    il = min(il, (dcp.feeds.get(cell["vout"]) or {}).get("I_hi") or il)
                 else:
                     pi = next((p for p in (P.get(s.name) or {}).values() if getattr(p, "name", "") == "I_A"), None)
                     il = pi.lo if pi is not None else il0

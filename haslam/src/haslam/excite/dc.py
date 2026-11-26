@@ -27,8 +27,11 @@ each return to where it really goes (a do-not-populate part takes no part in it)
                                            I_in = I_out Vout / (eta Vin); an input with no feed of its own
                                            enters at the controller
 
-A rail fed by a cell carries the cell's operating current (the AC ledger's I_A and D, the same
-operating point the switching harms use), split among its loads by their priors.
+Every load draws its own current (the facts' I_A, the part table's supply current, else a class prior:
+a sense, monitor or data-converter IC microamperes to milliamperes; a connector's export the facts do not state,
+EXPORT_SHARE of its rating, and the evaluation asks for it), whatever feeds its rail. A rail fed by a cell carries the sum of its loads' currents
+(and of the regulators it feeds, through their ratios); the cell's I_A interval (the AC ledger's, the
+operating range the switching harms use) only bounds it from above.
 
 Observers (requirements: the intent file's, else these priors):
 
@@ -49,6 +52,7 @@ import numpy as np
 from haslam.physics import converter as CV
 
 from .beliefs import Param
+from .beliefs import lookup as lookup_part
 
 LOSS_SHARE = 0.01       # copper may dissipate 1 % of the delivered power (prior requirement)
 DROP_SHARE = 0.02       # rail + ground drop: 2 % of the rail voltage (as haslam.route.critical_rails)
@@ -69,6 +73,21 @@ LOAD_PRIOR = {"optocoupler": 0.01, "oscillator": 0.01}
 # an LED with a pad on a rail and one on ground draws from the rail (an addressable LED's VDD and GND pins; a plain
 # LED returning to ground beside its series resistor's rail end is not on the rail and is not a load here)
 LOAD_KINDS = ("ic", "module", "connector", "led") + tuple(LOAD_PRIOR)
+# sense, monitor and data-converter ICs: what they draw from a rail (A, lo .. hi; typical the geometric mean). A
+# coulomb counter sleeps under 1 uA (LTC2959), a DAC channel takes 35 uA (DAC63002), a sensor or ADC converting
+# up to a few mA; the copper-sizing priors (haslam.route.critical_rails.IC_A, 2-10 mA) are deliberately high
+MONITOR_SUB = ("adc_dac", "sensor", "current_sense", "battery_monitor", "reference")
+MONITOR_A = (1e-6, 1e-2)
+# A connector on a fed rail with a ground pad exports the rail. Where the facts do not state its current, it draws
+# 1 % of its class rating (0.01 x: 10 mA through a 1 A header pin, 30 mA through a 3 A USB receptacle): most
+# such pins feed a sensor, a programmer or nothing on the bench, and a signal line through the same connector
+# carries microamperes. The band is x/10 .. x10 around it (0.1 % .. 10 % of the rating): its top is the old
+# typical guess (a tenth of the rating), so the DC band still checks drop and track heating at that current, and
+# the load never leaves the plan (a board whose only loads are exports keeps its DC band; dropping unstated
+# exports emptied sbarabe's and qubik's). The evaluation lists every such export in `questions` (kind
+# "export_current") so the board's author states the real current or confirms it is signal-level.
+EXPORT_SHARE = 0.01
+EXPORT_BAND = (0.1, 10.0)       # lo, hi as factors of the assumed current
 SUPPLY_PIN = re.compile(r"^(V(CC|DD|IN|BAT|BUS|S|M|PP|IO|CORE|DDA|DDIO|USB|SYS|P|\+)\w*|AVDD|DVDD|IOVDD|PVDD|PVIN|"
                         r"AVCC|DVCC|VIN\d*|PWR|POWER|\+V\w*|V\+|VREG_IN|IN)$", re.I)
 VOLT_PIN = re.compile(r"^\+?\d+V\d*$|^\+?\d+(\.\d+)?V$", re.I)     # '3V3', '5V', '+1.8V': a supply pin by its voltage
@@ -108,11 +127,38 @@ class Plan:
 
     def __init__(self):
         self.feeds = {}         # rail -> dict(kind, ...)
-        self.loads = []         # dict(ref, rail, sup, gnd, key | (cell, share))
+        self.loads = []         # dict(ref, rail, sup, gnd, key, prior, part_share): each draws its own current (key)
         self.params = []        # Params of the DC band (load currents, efficiencies)
         self.notes = []
         self.dc_pads = set()
         self.self_loads = []    # dict(ref, rail, key, pads): parts that power themselves from off the board (heat only)
+        self.exports_assumed = []   # dict(ref, rail, key, rating_A, assumed_A, lo_A, hi_A, only_load): unstated exports
+
+
+def export_questions(pl):
+    """{(subject, name): fields} for each connector export the plan assumed at EXPORT_SHARE of its rating: the
+    push-back to the board's author (haslam.excite.evaluate adds them to its `questions`, haslam.intent status lists
+    them first). Machine-readable: the fact to state (`field`), the value used, and why it might differ."""
+    out = {}
+    for ex in pl.exports_assumed:
+        why = []
+        if ex.get("only_load"):
+            why.append("it is its rail's only load: the assumption is the rail's whole current")
+        if ex["rating_A"] >= 3.0:
+            why.append(f"a {ex['rating_A']:g} A connector is likely a power connector")
+        f = pl.feeds.get(ex["rail"]) or {}
+        if f.get("kind") == "cell":
+            why.append(f"its rail is fed by {f['cell']['id']}, whose operating current follows its loads")
+        ref, r, a = ex["ref"], ex["rail"], ex["assumed_A"]
+        out[ex["key"]] = dict(
+            kind="export_current", ref=ref, rail=r, rating_A=ex["rating_A"], assumed_A=a,
+            assumed_share=EXPORT_SHARE, band_A=[ex["lo_A"], ex["hi_A"]], field=f"parts.{ref}.I_A",
+            also=f"parts.{ref}.I_sustained_A", might_differ=why, priority="high" if why else "normal",
+            ask=(f"{ref} exports {r} off the board and the facts do not state its current; assumed "
+                 f"{a * 1e3:.3g} mA ({EXPORT_SHARE * 100:g} % of its {ex['rating_A']:g} A rating). What does it carry? "
+                 f"State parts.{ref}.I_A in A (a value or [lo, hi]; I_sustained_A for the typical draw), "
+                 f"or 0 if only signals or nothing draw from it."))
+    return out
 
 
 def _pads(board):
@@ -256,6 +302,11 @@ def plan(board, brief, bd, P, srcs, intent=None):
         src_ref = over.get(r) or ref_of.get((d.get("source") or {}).get("part"))
         if cell is not None:
             pl.feeds[r] = dict(kind="cell", cell=cell, ref=cell["ctrl"])
+            # the cell's stated or prior current is its operating range: the most it carries (an upper bound on
+            # what its loads can draw through it), not a current its loads must take
+            pi = next((p for p in (P.get(cell["src"]) or {}).values() if getattr(p, "name", "") == "I_A"), None)
+            if pi is not None and pi.hi > 0:
+                pl.feeds[r]["I_hi"] = float(pi.hi)
             fe = (facts.get(r) or {}).get("eta")
             if isinstance(fe, list) and len(fe) == 2 and 0 < min(fe) <= max(fe) <= 1:
                 # the facts' efficiency: the input takes P_out / eta (without it the cell's duty, lossless)
@@ -394,7 +445,6 @@ def plan(board, brief, bd, P, srcs, intent=None):
              and any(net == r2 for _, net, _, _ in pads.get(ref, []))}
         return n.get(r, 0) / sum(n.values()) if sum(n.values()) else 1.0
     # loads: parts that draw from a rail and return at their own ground
-    shares = {}
     # an export through a connector without a ground pad of its own returns through the board's other connectors'
     # grounds (a stack connector carries the rail, its mate the ground)
     conn_g_all = conn_g
@@ -417,34 +467,51 @@ def plan(board, brief, bd, P, srcs, intent=None):
                     pl.notes.append(f"{r}: export {ref} has no ground pad; its return is taken at the other connectors' ground")
             if not g:
                 continue
+            iv = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_A")
             if kind in LOAD_PRIOR:
                 a = LOAD_PRIOR[kind] if supply(ref, r) and draws_from(pp, r, rails) or kind == "oscillator" else 0.0
             else:
                 a = load_current(ctx, u, r, {}, draws=draws_from(pp, r, rails) if kind in ("ic", "module") else None)
+            rating = a if kind == "connector" else None
             if kind == "connector":
-                a = 0.1 * a                          # an export: a tenth of its rating, typically
+                a = EXPORT_SHARE * a                 # an export: 1 % of its rating unless the facts say (EXPORT_SHARE)
             if a <= 0:
                 continue
             ld = dict(ref=ref, rail=r, sup=supply(ref, r), gnd=g, prior=a)
-            iv = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_A")
             # the intent states a part's whole current: on several rails it is split by their share of the part's
             # supply pads (an MCU's 3V3 pins carry its current, not its VBUS-detect pin as well)
             ld["part_share"] = share = part_share(ref, r)
-            if pl.feeds[r]["kind"] == "cell":
-                shares.setdefault(r, []).append(ld)
+            sub = (parts.get(u) or {}).get("subtype")
+            tab = lookup_part(f"{(parts.get(u) or {}).get('value') or ''} {(parts.get(u) or {}).get('lib_id') or ''}") \
+                if kind in ("ic", "module") else {}
+            # every load draws its own current, whatever feeds its rail: a converter cell's output is what its
+            # loads take (haslam.excite.heat sets its operating current from them), not a current its rail's loads
+            # share out (solar-small's LTC2959 coulomb counter, < 1 uA, took the whole LTC3130 output: 1.5 W)
+            if iv is not None:
+                lo, hi = (iv if isinstance(iv, list) else [iv, iv])
+                lo, hi = lo * share, hi * share
+                p = Param(f"dc:{ref}@{r}", "I_A", math.sqrt(lo * hi) if lo > 0 else hi, lo, hi, "A", "intent",
+                          "the intent file" + (f" ({share:.0%} of the part's current: its share of supply pads)" if share < 1 else ""))
+            elif "I_supply_A" in tab:
+                typ, lo, hi, src = tab["I_supply_A"]
+                p = Param(f"dc:{ref}@{r}", "I_A", typ * share, lo * share, hi * share, "A", "part_table", src)
+            elif kind == "ic" and sub in MONITOR_SUB:
+                lo, hi = MONITOR_A
+                p = Param(f"dc:{ref}@{r}", "I_A", math.sqrt(lo * hi), lo, hi, "A", "prior",
+                          f"{sub} IC supply current (sense, monitor and data-converter ICs draw uA to mA; class range)")
+            elif kind == "connector":
+                lo, hi = a * EXPORT_BAND[0], a * EXPORT_BAND[1]
+                p = Param(f"dc:{ref}@{r}", "I_A", a, lo, hi, "A", "prior",
+                          f"connector export not stated by the facts: {EXPORT_SHARE * 100:g} % of its {rating:g} A rating "
+                          f"({lo / rating * 100:.3g} % .. {hi / rating * 100:.3g} %); state parts.{ref}.I_A")
             else:
-                if iv is not None:
-                    lo, hi = (iv if isinstance(iv, list) else [iv, iv])
-                    lo, hi = lo * share, hi * share
-                    p = Param(f"dc:{ref}@{r}", "I_A", math.sqrt(lo * hi) if lo > 0 else hi, lo, hi, "A", "intent",
-                              "the intent file" + (f" ({share:.0%} of the part's current: its share of supply pads)" if share < 1 else ""))
-                else:
-                    lo, hi = (a / 10, 5 * a) if kind == "connector" else (a / 3, 3 * a)
-                    p = Param(f"dc:{ref}@{r}", "I_A", a, lo, hi, "A", "prior",
-                              f"{kind} load current by class (E5) {'0.01-0.5 x its rating' if kind == 'connector' else 'x/3 .. x3'}")
-                pl.params.append(p)
-                ld["key"] = (p.subject, p.name)
+                p = Param(f"dc:{ref}@{r}", "I_A", a, a / 3, 3 * a, "A", "prior", f"{kind} load current by class (E5) x/3 .. x3")
+            pl.params.append(p)
+            ld["key"] = (p.subject, p.name)
             pl.loads.append(ld)
+            if kind == "connector" and p.source == "prior":
+                pl.exports_assumed.append(dict(ref=ref, rail=r, key=ld["key"], rating_A=rating, assumed_A=a,
+                                               lo_A=p.lo, hi_A=p.hi))
     # self-powered consumers: a part that sources a rail from off the board (its own USB or battery) and draws
     # its own current there: no DC flow in the carrier's copper, but its own dissipation heats the board
     pl.self_loads = []
@@ -469,13 +536,16 @@ def plan(board, brief, bd, P, srcs, intent=None):
         mine = [t for n, net, _, _ in pads.get(ref, []) for t in tok(ref, [n]) if net in fed or net in grounds]
         pl.self_loads.append(dict(ref=ref, rail=r, key=(p.subject, p.name), pads=mine or tok(ref, [n for n, _, _, _ in pads.get(ref, [])])))
         pl.notes.append(f"{r}: {ref} powers itself from off the board; its own draw heats it but flows in no carrier copper")
-    for r, lds in shares.items():
-        tot = sum(ld["prior"] for ld in lds)
-        for ld in lds:
-            ld["share"] = ld["prior"] / tot
-            ld["cell"] = pl.feeds[r]["cell"]
+    for ex in pl.exports_assumed:
+        ex["only_load"] = all(ld["ref"] == ex["ref"] for ld in pl.loads if ld["rail"] == ex["rail"])
+    if pl.exports_assumed:
+        pl.notes.append(f"connector exports the facts do not state, assumed at {EXPORT_SHARE * 100:g} % of their rating: "
+                        + ", ".join(f"{ex['ref']}@{ex['rail']} {ex['assumed_A'] * 1e3:.3g} mA"
+                                    for ex in pl.exports_assumed[:12])
+                        + (f" (+{len(pl.exports_assumed) - 12} more)" if len(pl.exports_assumed) > 12 else ""))
+    loaded = {ld["rail"] for ld in pl.loads}
     for r, f in pl.feeds.items():
-        if f["kind"] == "cell" and r not in shares:
+        if f["kind"] == "cell" and not any(r in _chain(pl, r2) for r2 in loaded):
             pl.notes.append(f"{r}: fed by {f['cell']['id']} but no load with a ground pad found; the cell's DC flow is not modelled")
     pl.dc_pads = {t for ld in pl.loads for t in ld["sup"] + ld["gnd"]} | {t for sl in pl.self_loads for t in sl["pads"]}
     for f in pl.feeds.values():
@@ -516,19 +586,24 @@ def _chain(pl, r):
     return out
 
 
+def _cell_cap(pl, r, cv):
+    """The most output current rail r's cell delivers at corner cv: its inductor current range's top (the
+    ledger's I_A interval) through its topology; None without one."""
+    f = pl.feeds[r]
+    IL = f.get("I_hi")
+    if f["kind"] != "cell" or not IL:
+        return None
+    c = f["cell"]
+    if c["cls"] == "buckboost":       # I_L is the output current bucking, the input current boosting
+        return IL / max(1.0, _ratio(pl, r, cv))
+    _, D = _cell_vals(c, cv)
+    return CV.output_from_inductor(_top(c), IL, D)
+
+
 def load_currents(pl, cv):
-    """Each load's current at one corner: its parameter (or its share of a cell's output), scaled down
-    where a rail on its chain would carry more than its feed's rating (the feed current-limits)."""
-    xs = []
-    for ld in pl.loads:
-        if "cell" in ld:
-            IL, D = _cell_vals(ld["cell"], cv)
-            if ld["cell"]["cls"] == "buckboost":       # I_L is the output current bucking, the input current boosting
-                xs.append(ld["share"] * IL / max(1.0, _ratio(pl, ld["rail"], cv)))
-                continue
-            xs.append(ld["share"] * CV.output_from_inductor(_top(ld["cell"]), IL, D))
-        else:
-            xs.append(cv.get(ld["key"], 0.0))
+    """Each load's current at one corner: its own parameter, scaled down where a rail on its chain would
+    carry more than its feed delivers (a source's rating, a cell's top operating current: it current-limits)."""
+    xs = [cv.get(ld["key"], 0.0) for ld in pl.loads]
     # each rail's total, through the chain's conversion ratios
     tot = {}
     for ld, x in zip(pl.loads, xs):
@@ -536,11 +611,12 @@ def load_currents(pl, cv):
         for r in _chain(pl, ld["rail"]):
             tot[r] = tot.get(r, 0.0) + a
             a *= _ratio(pl, r, cv)
+    cap = {r: pl.feeds[r].get("rating") or _cell_cap(pl, r, cv) for r in tot}
     out = []
     for ld, x in zip(pl.loads, xs):
         k = 1.0
         for r in _chain(pl, ld["rail"]):
-            R = pl.feeds[r].get("rating")
+            R = cap.get(r)
             if R and tot.get(r, 0.0) > R:
                 k = min(k, R / tot[r])
         out.append(x * k)

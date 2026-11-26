@@ -46,6 +46,7 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
     ex = st.get("excite") or {}
     tab = lookup(text)
     out = {}
+    fi = cell_facts(intent, sid, (brief.get("parts") or {}).get(st.get("controller"), {}).get("ref"))
     cls = s.meta.get("cls") or ""
     # bus and input voltages: the rails' own beliefs (net names, regulators, dividers)
     nets = brief.get("nets") or {}
@@ -89,7 +90,7 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
     if e_:
         s.meta["eta"] = e_[0]                # its stated efficiency (typical), for its input current (haslam.excite.dc)
     # f_sw
-    iv = intent_value(intent, "cells", sid, "f_sw_Hz")
+    iv = intent_value(fi, "cells", sid, "f_sw_Hz")
     if iv:
         out["f_sw"] = _p(L, sid, "f_sw_Hz", *iv, "Hz", "intent", "the intent file")
     elif "f_sw_Hz" in tab:
@@ -120,7 +121,7 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
         out["I"] = _p(L, sid, "I_A", 0.6 * rated, I_FRAC[0] * rated, I_FRAC[1] * rated, "A", "prior",
                       f"operating current unknown: {I_FRAC[0]:g}-{I_FRAC[1]:g} x the {rated:.3g} A rating ({basis})")
     # current commutation time
-    iv = intent_value(intent, "cells", sid, "t_i_s")
+    iv = intent_value(fi, "cells", sid, "t_i_s")
     gan = "GaN" in text or "EPC" in text
     klass = "gan" if gan else ("discrete" if cls in ("half_bridge", "motor_driver") and "integrated" not in text else "integrated")
     if iv:
@@ -189,6 +190,21 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
         t, lo, hi, src = tab["v_sw_max_V"]
         out["V_max"] = _p(L, sid, "V_max_V", t, lo, hi, "V", "part_table", src)
     return out
+
+
+def cell_facts(intent, sid, ctrl_ref):
+    """The facts with cells.<sid> completed from the controller's parts.<ref> (f_sw_Hz, t_i_s, v_sw_max_V; the
+    cell's own facts win), as haslam.intent.facts.apply merges them into the brief: a part's facts apply to every
+    cell it controls. Not I_A: haslam.excite.dc reads parts.<ref>.I_A as the part's own supply draw (the operating
+    facts' "load current"), not the current its cell commutates. Returns intent itself when that adds nothing."""
+    from haslam.intent.facts import PART_CELL_KEYS
+    part = (((intent or {}).get("parts") or {}).get(ctrl_ref) or {}) if ctrl_ref else {}
+    add = {k: v for k, v in part.items() if k in PART_CELL_KEYS}
+    if not add:
+        return intent
+    cells = dict((intent or {}).get("cells") or {})
+    cells[sid] = {**add, **(cells.get(sid) or {})}
+    return {**intent, "cells": cells}
 
 
 def switch_rating(intent, sid, ctrl_ref):

@@ -66,6 +66,14 @@ def test_check_facts_names_the_fix(bad, msg):
         F.check_facts(bad)
 
 
+def test_sections_other_readers_own_pass_the_check_and_leave_the_brief_alone():
+    """The physics set's compiled operating facts carry pins, radios and provenance: the brief's check refused
+    them, so every evaluation under those facts raised before the solve."""
+    f = dict(copy.deepcopy(FACTS), pins={"U1": {"3": "power_in"}}, radios={"U1": "wifi"}, provenance={"why": {}})
+    assert F.check_facts(f) is f
+    assert F.apply(_brief(), f) == F.apply(_brief(), FACTS)
+
+
 def test_sidecar_is_found_and_unwrapped(tmp_path):
     board = tmp_path / "b.kicad_pcb"
     board.write_text("(kicad_pcb)")
@@ -130,3 +138,67 @@ def test_an_unstated_rail_keeps_the_cells_reading():
     F.apply(b, {"nets": {"VOUT": {"V_V": 3.3}}})
     assert b["structures"][0]["excite"]["V"] == 12.0
     assert not any(r["what"].endswith("excite.V") for r in b["facts"]["applied"])
+
+
+def _heat_brief():
+    b = _brief()
+    b["parts"]["u-1"].update(P_W=0.54, P_W_model={"law": "converter", "cell": "cell:buck:U1"})
+    b["structures"].append({"id": "heat:U1", "kind": "heat_source", "confidence": 0.6, "part": "u-1", "P_W": 0.54,
+                            "P_W_belief": {"value": 0.54, "basis": "conversion loss at 88% efficiency"}})
+    return b
+
+
+def test_converter_heat_is_sized_from_the_applied_facts():
+    # stated I, vout volts and efficiency set the loss: (1/eta - 1) x 3.3 V x 0.4 A, eta the geometric mean
+    b = F.apply(_heat_brief(), FACTS, origin="test")
+    eta = (0.85 * 0.92) ** 0.5
+    P = round((1 / eta - 1) * 3.3 * 0.4, 3)
+    assert b["parts"]["u-1"]["P_W"] == P
+    hs = next(s for s in b["structures"] if s["kind"] == "heat_source")
+    assert hs["P_W"] == P and hs["P_W_belief"]["replaces"] == 0.54
+    assert "nets.VOUT.eta" in hs["P_W_belief"]["basis"] and "cells.cell:buck:U1" in hs["P_W_belief"]["basis"]
+    lo, hi = hs["P_W_belief"]["interval"]
+    assert lo == pytest.approx((1 / 0.92 - 1) * 3.3 * 0.01, abs=1e-4) and hi == pytest.approx((1 / 0.85 - 1) * 3.3 * 1.0, abs=1e-4)
+    rec = next(r for r in b["facts"]["applied"] if r["what"] == "heat:U1.P_W")
+    assert rec["was"] == 0.54 and rec["value"] == P
+
+
+def test_converter_heat_under_the_threshold_leaves_the_heat_sources_and_a_new_one_joins():
+    f = copy.deepcopy(FACTS)
+    f["cells"]["cell:buck:U1"]["I_A"] = 0.05                        # 0.02 W: no longer a heat source
+    b = F.apply(_heat_brief(), f)
+    assert not any(s["kind"] == "heat_source" for s in b["structures"])
+    assert b["parts"]["u-1"]["P_W"] == pytest.approx(0.022, abs=1e-3)
+    b = _heat_brief()                                               # no estimate at build (V unknown): facts add it
+    b["structures"].pop()
+    b["parts"]["u-1"]["P_W"] = None
+    f["cells"]["cell:buck:U1"]["I_A"] = 2.0
+    b = F.apply(b, f)
+    hs = [s for s in b["structures"] if s["kind"] == "heat_source"]
+    assert len(hs) == 1 and hs[0]["part"] == "u-1" and hs[0]["P_W"] > 0.1
+
+
+def test_heat_without_a_stated_input_keeps_the_builds_estimate():
+    b = F.apply(_heat_brief(), {"parts": {"U1": {"v_sw_max_V": 30}}})
+    assert b["parts"]["u-1"]["P_W"] == 0.54
+    assert not any(r["what"].startswith("heat:") for r in b["facts"]["applied"])
+
+
+def test_linear_regulator_heat_takes_stated_volts_and_current():
+    b = {"nets": {"VIN": {"volts": 5.0}, "VOUT": {"volts": 3.3}}, "structures": [],
+         "parts": {"u-1": {"ref": "U1", "P_W": 0.255, "P_W_model": {"law": "linear", "vin": "VIN", "vout": "VOUT",
+                                                                   "vout_V": 3.3, "I_A": 0.15}}}}
+    b0 = copy.deepcopy(b)
+    b = F.apply(b, {"nets": {"VIN": {"V_V": 12.0}, "VOUT": {"I_A": 0.1}}})
+    assert b["parts"]["u-1"]["P_W"] == pytest.approx(0.87)
+    # a part's own I_A is its supply draw (haslam.excite.dc), not its pass current: no change
+    b0 = F.apply(b0, {"parts": {"U1": {"I_A": 0.005}}})
+    assert b0["parts"]["u-1"]["P_W"] == 0.255
+    assert [s["id"] for s in b["structures"] if s["kind"] == "heat_source"] == ["heat:U1"]
+
+
+def test_a_controllers_own_draw_is_not_its_cells_current():
+    # parts.<ref>.I_A is the part's supply draw (haslam.excite.dc); the cell keeps its own current
+    b = F.apply(_brief(), {"parts": {"U1": {"I_A": [2.5e-5, 1e-4], "f_sw_Hz": 5e5}}})
+    ex = b["structures"][0]["excite"]
+    assert ex["I"] == 1.2 and ex["f_sw_Hz"] == 5e5
