@@ -19,7 +19,7 @@ source "$HOME/.cache/haslambench/env.sh"
 # the board as scored: project files from the input (rules), not whatever a method left beside it
 for e in kicad_pro kicad_dru; do cp "$D/in/$SLUG.$e" "$D/out/$SLUG.$e"; done
 rm -f "$D/out/$SLUG.haslam_intent.json"          # the evaluation's intent is given explicitly below
-( ulimit -v 40000000; $HASLAM_KICAD_WRAP kicad-cli pcb drc --format json --schematic-parity --refill-zones \
+( ulimit -v 40000000; ${HASLAM_KICAD_WRAP:-} kicad-cli pcb drc --format json --schematic-parity --refill-zones \
     -o "$E/drc.json" "$B" ) > "$E/drc.log" 2>&1 || true
 "$PY" -u -W ignore -m haslam.excite.evaluate "$B" --intent "$RUN/eval-intent.json" -o "$E/excite.json" \
     > "$E/excite.txt" 2> "$E/excite.log"

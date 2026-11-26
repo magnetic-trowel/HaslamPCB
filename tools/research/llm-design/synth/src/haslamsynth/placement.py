@@ -21,7 +21,7 @@ STRENGTHS = ("tight", "close", "loose")
 EDGES = ("north", "south", "east", "west", "any")
 MAGNITUDES_MM = {"tight": 3.0, "close": 8.0, "loose": 20.0}
 # relation fields that hold free text, never object references
-TEXT_KEYS = {"within_mm", "level", "kind", "note", "text", "what", "where", "why", "source", "source_doc", "layers", "side", "axis", "facing",
+TEXT_KEYS = {"within_mm", "level", "requested", "category", "kind", "note", "text", "what", "where", "why", "source", "source_doc", "layers", "side", "axis", "facing",
              "strength", "sink", "pitch", "relative", "covers", "walls", "region", "basis", "label"}
 
 
@@ -128,10 +128,12 @@ class Placement:
             raise DesignError("side must be top or bottom")
         return self._rel("side", obj=obj, side=side, note=note)
 
-    def far(self, a, b, strength="close", note="", level=None):
+    def far(self, a, b, strength="close", note="", level=None, requested=False, category=None):
         """Keep a and b apart by `strength` (tight/close/loose). `level`: haslam's priority (required, strong,
-        medium, weak; default medium)."""
-        return self._rel("far", a=a, b=b, strength=self._strength(strength), note=note, level=level)
+        medium, weak; default medium). haslam lets physics outrank a relation on a part its terms price (it
+        weighs as weak) unless `requested=True` (the user asked for exactly this) or `category="safety"`."""
+        return self._rel("far", a=a, b=b, strength=self._strength(strength), note=note, level=level,
+                         requested=requested, category=category)
 
     def orient(self, obj, facing, note=""):
         """Connector entry direction: facing='out' (toward the nearest board edge) or an edge
@@ -150,14 +152,14 @@ class Placement:
             refs.extend(x if isinstance(x, list) else ([x] if isinstance(x, PinRef) else part_obj.pin(x)))
         return self._rel("pins_toward", obj=part, pins=refs, side=side, note=note)
 
-    def region(self, obj, where, note="", level=None):
+    def region(self, obj, where, note="", level=None, requested=False, category=None):
         """Coarse floorplan zone for a block, a part, or a list of parts:
         north/south/east/west/center or 'corner-ne' etc. (haslam: a side is the board's third on that side), or
         'area:NAME', a named rule area on the board (board.json keepouts with "no": [] draw one). `level`:
-        haslam's priority (required, strong, medium, weak; default strong)."""
+        haslam's priority (required, strong, medium, weak; default strong); `requested`, `category` as far()."""
         key = "block" if isinstance(obj, Block) or (isinstance(obj, str) and obj.startswith("block:")) else "members"
         return self._rel("region", **{key: obj if key == "block" else (obj if isinstance(obj, list) else [obj])},
-                         where=where, note=note, level=level)
+                         where=where, note=note, level=level, requested=requested, category=category)
 
     def fixed(self, obj, x_mm, y_mm, rotation=0, side="top", source="", note=""):
         """A position set by the mechanics (enclosure holes, mating connector, panel cut-out):

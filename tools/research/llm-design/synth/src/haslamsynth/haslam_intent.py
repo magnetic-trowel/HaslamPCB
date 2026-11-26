@@ -253,6 +253,10 @@ class HaslamIntent:
                 continue
             if r.get("level") and row.get("kind") in ("region", "keep_away"):
                 row["strength"] = r["level"]          # haslam's priority (haslam.intent.relations.STRENGTHS)
+            if r.get("requested") is True and row.get("kind") in ("region", "keep_away"):
+                row["requested"] = True               # keeps its strength against physics (relations_vs_physics)
+            if r.get("category") and row.get("kind") in ("region", "keep_away"):
+                row["category"] = r["category"]
             row = {"id": rid(r), **row, "why": why, "source": r.get("source", "design")}
             rows.append(row)
         return rows, skipped
