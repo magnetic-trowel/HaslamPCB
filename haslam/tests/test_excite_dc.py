@@ -993,3 +993,9 @@ def test_a_regulator_whose_rail_voltage_is_unknown_is_not_priced_and_is_named():
     pl.volts["VX"] = 3.3
     assert H.part_heat(bd, pl, {}, {}, {"U1.2": 0.1}) == {"U1": pytest.approx(0.17)}
     assert H.unpriced_feeds(bd, pl) == []
+
+
+def test_a_regulators_stated_own_draw_that_the_plan_cannot_use_is_said():
+    """parts.<ref>.I_A on a linear regulator (its own draw) was dropped from the DC plan without a word."""
+    pl = _board_plan({"nets": {"VIN": {"V_V": 5.0}}, "parts": {"U1": {"I_A": 0.005}}})
+    assert any("not used for a regulator's own draw" in n and "U1" in n for n in pl.notes)
