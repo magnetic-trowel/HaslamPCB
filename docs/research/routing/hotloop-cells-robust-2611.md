@@ -10,7 +10,7 @@ Keys: cells-robust, hotloop_cell_partial, hotloop_cell_walls, hotloop_pour_rever
 
 **Status:** open. The cells stage no longer loses connections at its own cells on any re-tested board (round 4 lost
 them on six); cells-first stays opt-in (`HASLAM_HOTLOOP_CELLS=1`), the portfolio P and inverting cells are not yet
-adopted: one pre-registered rule each still fails (below), and the broader stage-2 check was not run.
+adopted: the inverting cells fail a pre-registered rule and P's run was invalid (its cells arm ran with cells off; below), and the broader stage-2 check was not run.
 **Code:** branch `physics/cells-robust` on `physics/hotloop-cells` (32e4abe5); measured at 9d32a8d3.
 **Plan and run folder** (benchmark host): `~/haslam-baselines/experiments/cells-robust/` (PLAN.md with three
 amendments, VERDICT.md, `analyse.py`, `phystable.py`, the stage replays `probe.py`/`probe2.py`).
@@ -53,7 +53,7 @@ All settings live inside the cells stage (`HASLAM_HOTLOOP_CELLS=1`, off by defau
 Round-4 losers, N (cells off) / C (cells first, fixed) / P (portfolio with guard), unconnected and R1 (connections
 open on a cell part that N closes) [C]:
 
-| board | unconnected N / C / P | R1 C, P | cells C/N L, R (full evaluator) |
+| board | unconnected N / C / P (P invalid) | R1 C, P | cells C/N L, R (full evaluator) |
 |---|---|---|---|
 | nekoink | 92 / 87 / 107 | 0, **4** (P kept an arm-A board) | open cells (harness evaluator) N 5, C 0, P 1 |
 | kestrel esc | 0 / 1 / 0 | 0, 0 | not evaluated (budget) |
@@ -82,8 +82,9 @@ the stage-2 check on the regulator suite was not run (its entry rule failed on P
 
 1. Classes A, B, D are fixed where measured: no cells arm loses a connection at a cell part on the seven round-4
    boards [C]. C's loop L is 1-56 % below N's where the stage lays the cell (7 cells; R 1-54 % below, except leodj U6 R +8 %) [C].
-2. P fails R1 on nekoink with an arm-A (cells-off) board: the 4 pins are the default lineage's search path with 8
-   attempts instead of N's 16, not cells copper [C]; the registered rule counts them, so P stays unadopted [C].
+2. P's results are withdrawn: its attempt command set `HASLAM_HOTLOOP_CELLS=0` itself, which overrode arm B's
+   setting, so no P attempt ran the cells stage [C]. restart.py now refuses such a command; P is re-tested in
+   cells-robust2.
 3. Inverting cells: scopetrex passes; hvdc fails G5 on L (class I) while completing better (33 -> 28); hv-probe fails G5 on a cell neither arm's stage laid (R +11 %, router variation [I]); glider
    fails completion on a 1,821-pad board, mostly away from the cells [C].
 
