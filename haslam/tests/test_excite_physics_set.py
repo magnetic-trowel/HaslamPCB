@@ -282,3 +282,20 @@ def test_a_logic_line_named_after_the_radio_is_no_rf_victim():
             pin_fn={"U1.1": "AUX", "U1.2": "ANT", "U1.3": "", "U1.4": ""}, pads_of={"GND": ["U1.9"]}, pad_xy={"U1.9": (0, 0)})
     br = dict(parts={}, nets={n: dict(role="rf") for n in ("/LoRa_Aux", "/ANT1", "/ANT", "/LoRa_Tx")})
     assert [t for _, t, _, _ in O.radio_pins(bd, br)] == ["U1.2", "U1.3"]
+
+
+def test_an_ics_core_current_is_split_over_its_rails_by_supply_pins(tmp_path):
+    """An MCU's class core current (sources.DYNAMIC, 50 mA) was drawn in full from every rail it touches: on 3V3 (three
+    VDD pins) and VBAT (one) it made two 50 mA aggressors. Now 3/4 and 1/4 of 50 mA, 50 mA in all."""
+    nets = ["GND", "3V3", "VBAT"]
+    pads = [_pad("1", 0, 2, "3V3", "VDD", "power_in"), _pad("2", 1, 2, "3V3", "VDD", "power_in"),
+            _pad("3", 2, 2, "3V3", "VDD", "power_in"), _pad("4", 3, 3, "VBAT", "VBAT", "power_in"),
+            _pad("5", 4, 1, "GND", "VSS", "power_in"), _pad("6", 5, 1, "GND", "VSS", "power_in")]
+    b = _board(tmp_path, nets, [_fp("U1", "STM32F103C8T6", "Package_QFP:LQFP-48_7x7mm_P0.5mm", 20, pads, 1)])
+    br = B.build(b)
+    for n, v in (("3V3", 3.3), ("VBAT", 3.0)):
+        br["nets"][n].update(role="rail", volts=v)
+    bd = M.build(b, br)
+    core = {s.meta["rail"]: s.meta["I"] for s in S.add_all(bd, br) if s.kind == "core"}
+    I = S.DYNAMIC["mcu"][0]
+    assert core == {"3V3": pytest.approx(0.75 * I), "VBAT": pytest.approx(0.25 * I)}
