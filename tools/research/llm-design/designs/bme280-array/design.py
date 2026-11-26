@@ -337,9 +337,9 @@ def operating(d):
                why="BME280 DS: 0.1 uA sleep, 3.6 uA at 1 Hz forced (T+P+H x1), 714 uA max while measuring pressure")
     k.part("U3", I_A=[5.5e-6, 1.3e-5], I_sustained_A=6e-6, why="TPS3700 DS 6.5: IDD 6 uA typ, 13 uA max")
     k.cable("J1", 1.0, why="host lead < 1 m (A-2)")
-    k.term("T-SENS", "report", "temp.junction", where={"part": list(SENSORS)}, max="60.05 C",
-           source="REQ-4", why="sensor self-reading error from board heat: <= 50 mK above the 60 C ambient corner "
-                               "(BME280 +/-0.5 C accuracy / 10); haslam has no rise-above-ambient observable")
+    k.term("T-SENS", "hard", "temp.rise", where={"part": list(SENSORS)}, max="10 mK",
+           source="REQ-4", why="sensor self-reading error from board heat: the sensors' rise above ambient stays "
+                               "<= 10 mK (BME280 +/-0.5 C accuracy / 50; calc heat_rise_sensors)")
     k.term("T-TJ", "hard", "temp.junction", where={"part": "U*"}, max="85 C",
            source="BME280 DS: -40..85 C operating", why="sensors and ICs share the board")
 

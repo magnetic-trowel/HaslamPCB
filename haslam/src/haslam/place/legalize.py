@@ -29,7 +29,6 @@ from shapely.geometry import LineString, Point, Polygon
 
 from haslam.board import transform
 
-from . import cpsat
 from .problem import is_drilled
 from .state import grid_violations
 
@@ -91,6 +90,7 @@ def _rigid_ok(P, st, members):
 def _block(P, st, members):
     """cpsat.Item moving `members` together at their current offsets and rotations (one
     variant), anchored on the largest; displacement weighs as many parts as it holds."""
+    from . import cpsat      # ortools loads on use: pad_shape/courtyard import without it
     a = max(members, key=lambda i: (P.parts[i].area, -i))
     X0, Y0 = int(st.X[a]), int(st.Y[a])
     v = {i: (int(st.X[i]) - X0, int(st.Y[i]) - Y0, int(st.K[i])) for i in members}
@@ -125,6 +125,7 @@ def _window_solve(P, st, free, margin_cells, time_s, workers, seed, w_rot=1.0, b
     window must cover (a violator's escape pose). `phys(state) -> float`: when the window is
     solved to optimality, the tie-break among its equal-displacement optima (`TIE_SOLUTIONS`
     of them); displacement stays the objective, physics only chooses between exact ties."""
+    from . import cpsat      # ortools loads on use: pad_shape/courtyard import without it
     g = P.g
     rects = [r for i in free for (_, r, _) in st.grid_rects(i)] + list(reach)
     wi0 = min(r[0] for r in rects) - margin_cells
@@ -224,6 +225,7 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
     2. Greedy: whatever is still illegal goes to the nearest free spot, largest first,
        evicting smaller parts when nothing is free nearby (`greedy`).
     3. Small boards only (<= GLOBAL_MAX parts): one CP-SAT model over every part."""
+    from . import cpsat      # ortools loads on use: pad_shape/courtyard import without it
     dl = Deadline(time_s)
     win = dl.part(window_share * time_s)
     rep = dict(rounds=0, windows=0, solved=0, global_used=False, start_violators=0)
@@ -970,3 +972,4 @@ def _net_clr(P, net, cache):
     v = max(v, P.board.rules.clearance if P.board.rules else 0.0)
     cache[net] = v
     return v
+

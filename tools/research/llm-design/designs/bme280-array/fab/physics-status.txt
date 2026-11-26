@@ -1,188 +1,213 @@
-haslam-work/bme4/A1/s0/out/bme280-array.kicad_pcb  [intent generation 1, defaults neutral/1]
-  intent: haslam-work/bme4/eval-intent.json (--intent)
-  hard violations 0; limits 0 + costs 0.0347 = 0.0347 mW_eq
-  T-SENS report temp.junction: 60 C (worst, 16 matched) vs max 60.05 C (margin 0.04753 K)  met
-         dominant: junction temperature of U110
+haslam-work/bme5/A1/s0/bme280-array.kicad_pcb  [intent generation 1, defaults neutral/1]
+  intent: haslam-work/bme5/eval-intent.json (--intent)
+  hard violations 0; limits 0 + costs 0.0118 = 0.0118 mW_eq
+  T-SENS hard   temp.rise: 0.003847 K (worst, 16 matched) vs max 10 mK (margin 0.006153 K)  met
+         dominant: junction rise of U106 above ambient
   T-TJ hard   temp.junction: 60 C (worst, 18 matched) vs max 85 C (margin 25 C)  met
          dominant: junction temperature of U110
-  D1   cost   loss.copper: 18.96 µW (cvar20, 1 matched)  -> 0.019 mW_eq (55%)
+  D1   cost   loss.copper: 8.761 µW (cvar20, 1 matched)  -> 0.0088 mW_eq (74%)
          dominant: copper dissipation (DC) (copper at its temperature)
-  D1ac cost   loss.copper_ac: 15.7 µW (cvar20, 3 matched)  -> 0.0157 mW_eq (45%)
-         dominant: inductor ripple copper loss of cell:cell:buck:U2: dI 0.000707 A p-p (L 2.21 uH) through the board's copper, R_eff 296 mOhm at f_sw (skin)
+  D1ac cost   loss.copper_ac: 3.044 µW (cvar20, 3 matched)  -> 0.003 mW_eq (25%)
+         dominant: inductor ripple copper loss of cell:cell:buck:U2: dI 0.00012 A p-p (L 2.21 uH) through the board's copper, R_eff 70.1 mOhm at f_sw (skin)
          rests on: cell:buck:U2 t_i_s 1e-09..1e-08 s
   unpriced (no term asks about them), largest against the evaluator's old reference first:
-    supply.peak          244.5 mV (reference 90 mV, x2.717)  supply:U4:+1V8 <- core:U4:+1V8
-    supply.peak          53.43 mV (reference 90 mV, x0.594)  supply:U116:+1V8 <- core:U4:+1V8
-    supply.peak           50.5 mV (reference 90 mV, x0.561)  supply:U115:+1V8 <- core:U4:+1V8
-    supply.peak          47.63 mV (reference 90 mV, x0.529)  supply:U114:+1V8 <- core:U4:+1V8
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R11
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R16
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R35
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R29
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R26
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R23
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R10
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R36
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R8
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R33
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R13
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of L1
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R19
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R21
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R1
     temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R18
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R7
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R32
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of L2
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R28
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R14
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R24
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R12
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R15
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R6
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R22
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R9
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R27
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R30
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R20
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R25
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R31
-    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R17
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R19
     temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R34
-    supply.peak          28.58 mV (reference 90 mV, x0.318)  supply:U104:+1V8 <- core:U4:+1V8
-    supply.peak           28.1 mV (reference 90 mV, x0.312)  supply:U110:+1V8 <- core:U4:+1V8
-    supply.peak          24.71 mV (reference 90 mV, x0.275)  supply:U103:+1V8 <- core:U4:+1V8
-    supply.peak           22.2 mV (reference 90 mV, x0.247)  supply:U112:+1V8 <- core:U4:+1V8
-    supply.peak           20.6 mV (reference 90 mV, x0.229)  supply:U113:+1V8 <- core:U4:+1V8
-    supply.peak          17.42 mV (reference 90 mV, x0.194)  supply:U109:+1V8 <- core:U4:+1V8
-    supply.peak          5.663 mV (reference 33 mV, x0.172)  supply:U3:VIN_P <- cell:cell:buck:U2
-    supply.peak           13.9 mV (reference 90 mV, x0.154)  supply:U102:+1V8 <- core:U4:+1V8
-    drop.rail            4.428 mV (reference 36 mV, x0.123)  DC drop from +1V8's source to U115 (copper at its temperature)
-    drop.rail            4.403 mV (reference 36 mV, x0.122)  DC drop from +1V8's source to U114 (copper at its temperature)
-    drop.rail            4.407 mV (reference 36 mV, x0.122)  DC drop from +1V8's source to U112 (copper at its temperature)
-    drop.rail            4.397 mV (reference 36 mV, x0.122)  DC drop from +1V8's source to U116 (copper at its temperature)
-    drop.rail            4.352 mV (reference 36 mV, x0.121)  DC drop from +1V8's source to U104 (copper at its temperature)
-    drop.rail            4.301 mV (reference 36 mV, x0.119)  DC drop from +1V8's source to U108 (copper at its temperature)
-    drop.rail            4.251 mV (reference 36 mV, x0.118)  DC drop from +1V8's source to U110 (copper at its temperature)
-    supply.peak          19.29 mV (reference 165 mV, x0.117)  supply:U2:VIN_P <- cell:cell:buck:U2
-    drop.rail            4.149 mV (reference 36 mV, x0.115)  DC drop from +1V8's source to U107 (copper at its temperature)
-    drop.rail            4.109 mV (reference 36 mV, x0.114)  DC drop from +1V8's source to U111 (copper at its temperature)
-    supply.peak          18.58 mV (reference 165 mV, x0.113)  supply:U1:VLO <- cell:cell:buck:U1
-    drop.rail            3.986 mV (reference 36 mV, x0.111)  DC drop from +1V8's source to U106 (copper at its temperature)
-    drop.rail            3.874 mV (reference 36 mV, x0.108)  DC drop from +1V8's source to U103 (copper at its temperature)
-    drop.rail             3.72 mV (reference 36 mV, x0.103)  DC drop from +1V8's source to U102 (copper at its temperature)
-    supply.peak          9.186 mV (reference 90 mV, x0.102)  supply:U106:+1V8 <- core:U4:+1V8
-    supply.peak          9.219 mV (reference 90 mV, x0.102)  supply:U108:+1V8 <- core:U4:+1V8
-    supply.peak          8.398 mV (reference 90 mV, x0.093)  supply:U107:+1V8 <- core:U4:+1V8
-    supply.peak          7.297 mV (reference 90 mV, x0.081)  supply:U101:+1V8 <- core:U4:+1V8
-    drop.rail            2.582 mV (reference 36 mV, x0.072)  DC drop from +1V8's source to U113 (copper at its temperature)
-    supply.peak          6.373 mV (reference 90 mV, x0.071)  supply:U111:+1V8 <- core:U4:+1V8
-    drop.rail            2.568 mV (reference 36 mV, x0.071)  DC drop from +1V8's source to U109 (copper at its temperature)
-    drop.rail            2.219 mV (reference 36 mV, x0.062)  DC drop from +1V8's source to U105 (copper at its temperature)
-    drop.rail            2.199 mV (reference 36 mV, x0.061)  DC drop from +1V8's source to U101 (copper at its temperature)
-    supply.peak          4.012 mV (reference 90 mV, x0.045)  supply:U105:+1V8 <- core:U4:+1V8
-    drop.rail            1.595 mV (reference 36 mV, x0.044)  DC drop from +1V8's source to U4 (copper at its temperature)
-    overshoot.peak       18.59 mV (reference 1.715 V, x0.011)  overshoot:cell:buck:U1 <- cell:cell:buck:U1
-    supply.peak            973 µV (reference 90 mV, x0.011)  supply:U111:+1V8 <- cell:cell:boost:U1
-    supply.peak          974.8 µV (reference 90 mV, x0.011)  supply:U105:+1V8 <- cell:cell:boost:U1
-    supply.peak          1.005 mV (reference 90 mV, x0.011)  supply:U104:+1V8 <- cell:cell:boost:U1
-    supply.peak          968.9 µV (reference 90 mV, x0.011)  supply:U106:+1V8 <- cell:cell:boost:U1
-    supply.peak          979.5 µV (reference 90 mV, x0.011)  supply:U103:+1V8 <- cell:cell:boost:U1
-    supply.peak          948.6 µV (reference 90 mV, x0.011)  supply:U102:+1V8 <- cell:cell:boost:U1
-    supply.peak          961.7 µV (reference 90 mV, x0.011)  supply:U108:+1V8 <- cell:cell:boost:U1
-    supply.peak          946.7 µV (reference 90 mV, x0.011)  supply:U109:+1V8 <- cell:cell:boost:U1
-    supply.peak          983.2 µV (reference 90 mV, x0.011)  supply:U4:+1V8 <- cell:cell:boost:U1
-    supply.peak          978.9 µV (reference 90 mV, x0.011)  supply:U101:+1V8 <- cell:cell:boost:U1
-    supply.peak          979.8 µV (reference 90 mV, x0.011)  supply:U107:+1V8 <- cell:cell:boost:U1
-    supply.peak          895.9 µV (reference 90 mV, x0.01)  supply:U110:+1V8 <- cell:cell:boost:U1
-    supply.peak          941.1 µV (reference 90 mV, x0.01)  supply:U112:+1V8 <- cell:cell:boost:U1
-    supply.peak          910.2 µV (reference 90 mV, x0.01)  supply:U113:+1V8 <- cell:cell:boost:U1
-    supply.peak          783.1 µV (reference 90 mV, x0.009)  supply:U115:+1V8 <- cell:cell:boost:U1
-    supply.peak          799.4 µV (reference 90 mV, x0.009)  supply:U114:+1V8 <- cell:cell:boost:U1
-    supply.peak          743.6 µV (reference 90 mV, x0.008)  supply:U116:+1V8 <- cell:cell:boost:U1
-    supply.peak          1.171 mV (reference 165 mV, x0.007)  supply:U2:VIN_P <- core:U4:+1V8
-    overshoot.peak       21.07 mV (reference 3.3 V, x0.006)  overshoot:cell:buck:U2 <- cell:cell:buck:U2
-    supply.peak          834.9 µV (reference 165 mV, x0.005)  supply:U1:VLO <- cell:cell:boost:U1
-    supply.peak            178 µV (reference 33 mV, x0.005)  supply:U3:VIN_P <- core:U4:+1V8
-    supply.peak          114.2 µV (reference 33 mV, x0.003)  supply:U3:VIN_P <- cell:cell:buck:U1
-    overshoot.peak       8.702 mV (reference 3.215 V, x0.003)  overshoot:cell:boost:U1 <- cell:cell:boost:U1
-    supply.peak          101.4 µV (reference 33 mV, x0.003)  supply:U3:VIN_P <- cell:cell:boost:U1
-    supply.peak          564.8 µV (reference 165 mV, x0.003)  supply:U1:VLO <- core:U4:+1V8
-    supply.peak          143.6 µV (reference 90 mV, x0.002)  supply:U4:+1V8 <- cell:cell:buck:U1
-    supply.peak          153.4 µV (reference 90 mV, x0.002)  supply:U104:+1V8 <- cell:cell:buck:U2
-    supply.peak          53.13 µV (reference 90 mV, x0.001)  supply:U104:+1V8 <- cell:cell:buck:U1
-    supply.peak          115.3 µV (reference 90 mV, x0.001)  supply:U4:+1V8 <- cell:cell:buck:U2
-    supply.peak          48.41 µV (reference 90 mV, x0.001)  supply:U116:+1V8 <- cell:cell:buck:U2
-    pickup.peak          908.5 nV (reference 1 mV, x0.001)  victim:analog:U3.3 <- cell:cell:buck:U2
-    loss.loop             1.28 µW  hot-loop loss of cell:cell:buck:U1: 1/2 L_loop I_pk^2 f_sw at turn-off, L_loop 1.82 nH (copper)
-    loss.loop_ac         257.9 nW  hot-loop AC conduction loss of cell:cell:buck:U1: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and proximity crowding, R_loop 8.8 mOhm at f_sw, 12.2 at 5 f_sw (cell window)
-    supply.peak          5.047 µV (reference 90 mV, x0)  supply:U115:+1V8 <- cell:cell:buck:U1
-    supply.peak          1.304 µV (reference 90 mV, x0)  supply:U111:+1V8 <- cell:cell:buck:U1
-    supply.peak          24.72 µV (reference 90 mV, x0)  supply:U105:+1V8 <- cell:cell:buck:U1
-    supply.peak          819.4 nV (reference 90 mV, x0)  supply:U106:+1V8 <- cell:cell:buck:U1
-    supply.peak          7.085 µV (reference 90 mV, x0)  supply:U114:+1V8 <- cell:cell:buck:U1
-    supply.peak          24.01 µV (reference 90 mV, x0)  supply:U103:+1V8 <- cell:cell:buck:U1
-    supply.peak          39.77 µV (reference 165 mV, x0)  supply:U2:VIN_P <- cell:cell:buck:U1
-    supply.peak          17.38 µV (reference 90 mV, x0)  supply:U102:+1V8 <- cell:cell:buck:U1
-    supply.peak          6.222 µV (reference 90 mV, x0)  supply:U108:+1V8 <- cell:cell:buck:U1
-    supply.peak          3.491 µV (reference 90 mV, x0)  supply:U109:+1V8 <- cell:cell:buck:U1
-    supply.peak          5.244 µV (reference 90 mV, x0)  supply:U110:+1V8 <- cell:cell:buck:U1
-    supply.peak          11.38 µV (reference 90 mV, x0)  supply:U112:+1V8 <- cell:cell:buck:U1
-    supply.peak          16.22 µV (reference 90 mV, x0)  supply:U116:+1V8 <- cell:cell:buck:U1
-    supply.peak          1.691 µV (reference 90 mV, x0)  supply:U113:+1V8 <- cell:cell:buck:U1
-    supply.peak          20.78 µV (reference 90 mV, x0)  supply:U101:+1V8 <- cell:cell:buck:U1
-    supply.peak          8.005 µV (reference 90 mV, x0)  supply:U107:+1V8 <- cell:cell:buck:U1
-    pickup.peak          88.65 nV (reference 1 mV, x0)  victim:analog:U3.4 <- cell:cell:buck:U1
-    pickup.peak          12.39 nV (reference 1 mV, x0)  victim:analog:U3.3 <- cell:cell:buck:U1
-    loss.loop            1.255 µW  hot-loop loss of cell:cell:boost:U1: 1/2 L_loop I_pk^2 f_sw at turn-off, L_loop 1.67 nH (copper)
-    loss.loop_ac         155.7 nW  hot-loop AC conduction loss of cell:cell:boost:U1: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and proximity crowding, R_loop 5.43 mOhm at f_sw, 6.88 at 5 f_sw (cell window)
-    supply.peak          19.24 µV (reference 165 mV, x0)  supply:U2:VIN_P <- cell:cell:boost:U1
-    pickup.peak          343.6 nV (reference 1 mV, x0)  victim:analog:U3.4 <- cell:cell:boost:U1
-    pickup.peak          176.3 nV (reference 1 mV, x0)  victim:analog:U3.3 <- cell:cell:boost:U1
-    loss.loop            1.606 µW  hot-loop loss of cell:cell:buck:U2: 1/2 L_loop I_pk^2 f_sw at turn-off, L_loop 2.06 nH (copper)
-    loss.loop_ac         362.9 nW  hot-loop AC conduction loss of cell:cell:buck:U2: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and proximity crowding, R_loop 8.56 mOhm at f_sw, 13.2 at 5 f_sw (cell window)
-    supply.peak          11.35 µV (reference 90 mV, x0)  supply:U115:+1V8 <- cell:cell:buck:U2
-    supply.peak          4.626 µV (reference 90 mV, x0)  supply:U111:+1V8 <- cell:cell:buck:U2
-    supply.peak          21.41 µV (reference 90 mV, x0)  supply:U105:+1V8 <- cell:cell:buck:U2
-    supply.peak          7.428 µV (reference 90 mV, x0)  supply:U106:+1V8 <- cell:cell:buck:U2
-    supply.peak          40.24 µV (reference 165 mV, x0)  supply:U1:VLO <- cell:cell:buck:U2
-    supply.peak          7.087 µV (reference 90 mV, x0)  supply:U114:+1V8 <- cell:cell:buck:U2
-    supply.peak          40.79 µV (reference 90 mV, x0)  supply:U103:+1V8 <- cell:cell:buck:U2
-    supply.peak          21.36 µV (reference 90 mV, x0)  supply:U102:+1V8 <- cell:cell:buck:U2
-    supply.peak          17.83 µV (reference 90 mV, x0)  supply:U108:+1V8 <- cell:cell:buck:U2
-    supply.peak          5.909 µV (reference 90 mV, x0)  supply:U109:+1V8 <- cell:cell:buck:U2
-    supply.peak          5.956 µV (reference 90 mV, x0)  supply:U110:+1V8 <- cell:cell:buck:U2
-    supply.peak          17.08 µV (reference 90 mV, x0)  supply:U112:+1V8 <- cell:cell:buck:U2
-    supply.peak          1.858 µV (reference 90 mV, x0)  supply:U113:+1V8 <- cell:cell:buck:U2
-    supply.peak          14.53 µV (reference 90 mV, x0)  supply:U101:+1V8 <- cell:cell:buck:U2
-    supply.peak          2.353 µV (reference 90 mV, x0)  supply:U107:+1V8 <- cell:cell:buck:U2
-    pickup.peak          101.4 nV (reference 1 mV, x0)  victim:analog:U3.4 <- cell:cell:buck:U2
-    pickup.peak          131.8 nV (reference 1 mV, x0)  victim:analog:U3.4 <- core:U4:+1V8
-    pickup.peak          56.92 nV (reference 1 mV, x0)  victim:analog:U3.3 <- core:U4:+1V8
-    loss.swnode          36.31 µW  switch-node capacitance loss of cell:cell:buck:U1: 1/2 C_sw V^2 f_sw, C_sw 1.72 pF (copper)
-    loss.swnode           10.2 µW  switch-node capacitance loss of cell:cell:boost:U1: 1/2 C_sw V^2 f_sw, C_sw 2.48 pF (copper)
-    loss.swnode          155.4 µW  switch-node capacitance loss of cell:cell:buck:U2: 1/2 C_sw V^2 f_sw, C_sw 0.713 pF (copper)
-    heat.track         0.001595 K (reference 10 K, x0)  temperature rise of the hottest track (worst corner: +1V8 on F.Cu, 0.127 mm)
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R12
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R30
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R10
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R8
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R16
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R13
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R29
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R22
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R25
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R36
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R24
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R1
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R15
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R9
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R26
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R28
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R35
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R23
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R27
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of L1
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R7
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R31
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R14
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R21
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R32
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R6
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R33
+    temp.junction            60 C (reference 125 C, x0.48)  junction temperature of R11
+    supply.peak           68.6 mV (reference 165 mV, x0.416)  supply:U2:VIN_P <- cell:cell:buck:U2
+    supply.peak           27.3 mV (reference 165 mV, x0.165)  supply:U1:VLO <- cell:cell:buck:U1
+    supply.peak          4.626 mV (reference 33 mV, x0.14)  supply:U3:VIN_P <- cell:cell:buck:U2
+    drop.rail            2.846 mV (reference 36 mV, x0.079)  DC drop from +1V8's source to U116 (copper at its temperature)
+    drop.rail            2.821 mV (reference 36 mV, x0.078)  DC drop from +1V8's source to U115 (copper at its temperature)
+    drop.rail            2.809 mV (reference 36 mV, x0.078)  DC drop from +1V8's source to U113 (copper at its temperature)
+    drop.rail            2.759 mV (reference 36 mV, x0.077)  DC drop from +1V8's source to U109 (copper at its temperature)
+    drop.rail            2.764 mV (reference 36 mV, x0.077)  DC drop from +1V8's source to U112 (copper at its temperature)
+    drop.rail            2.782 mV (reference 36 mV, x0.077)  DC drop from +1V8's source to U108 (copper at its temperature)
+    drop.rail            2.755 mV (reference 36 mV, x0.077)  DC drop from +1V8's source to U110 (copper at its temperature)
+    drop.rail            2.788 mV (reference 36 mV, x0.077)  DC drop from +1V8's source to U114 (copper at its temperature)
+    drop.rail            2.744 mV (reference 36 mV, x0.076)  DC drop from +1V8's source to U104 (copper at its temperature)
+    drop.rail             2.61 mV (reference 36 mV, x0.072)  DC drop from +1V8's source to U105 (copper at its temperature)
+    drop.rail            2.594 mV (reference 36 mV, x0.072)  DC drop from +1V8's source to U101 (copper at its temperature)
+    drop.rail            2.539 mV (reference 36 mV, x0.071)  DC drop from +1V8's source to U111 (copper at its temperature)
+    drop.rail            2.471 mV (reference 36 mV, x0.069)  DC drop from +1V8's source to U106 (copper at its temperature)
+    drop.rail            2.418 mV (reference 36 mV, x0.067)  DC drop from +1V8's source to U107 (copper at its temperature)
+    drop.rail            2.309 mV (reference 36 mV, x0.064)  DC drop from +1V8's source to U102 (copper at its temperature)
+    drop.rail            1.887 mV (reference 36 mV, x0.052)  DC drop from +1V8's source to U103 (copper at its temperature)
+    drop.rail            1.555 mV (reference 36 mV, x0.043)  DC drop from +1V8's source to U4 (copper at its temperature)
+    overshoot.peak        69.7 mV (reference 3.3 V, x0.021)  overshoot:cell:buck:U2 <- cell:cell:buck:U2
+    overshoot.peak        27.3 mV (reference 1.715 V, x0.016)  overshoot:cell:buck:U1 <- cell:cell:buck:U1
+    supply.peak          503.6 µV (reference 33 mV, x0.015)  supply:U3:VIN_P <- cell:cell:buck:U1
+    supply.peak          1.275 mV (reference 90 mV, x0.014)  supply:U4:+1V8 <- cell:cell:boost:U1
+    supply.peak          1.054 mV (reference 90 mV, x0.012)  supply:U103:+1V8 <- cell:cell:boost:U1
+    supply.peak          967.6 µV (reference 90 mV, x0.011)  supply:U105:+1V8 <- cell:cell:boost:U1
+    supply.peak          950.9 µV (reference 90 mV, x0.011)  supply:U106:+1V8 <- cell:cell:boost:U1
+    supply.peak          994.3 µV (reference 90 mV, x0.011)  supply:U107:+1V8 <- cell:cell:boost:U1
+    supply.peak          1.003 mV (reference 90 mV, x0.011)  supply:U101:+1V8 <- cell:cell:boost:U1
+    supply.peak            964 µV (reference 90 mV, x0.011)  supply:U108:+1V8 <- cell:cell:boost:U1
+    supply.peak          948.1 µV (reference 90 mV, x0.011)  supply:U4:+1V8 <- core:U4:+1V8
+    supply.peak          912.6 µV (reference 90 mV, x0.01)  supply:U104:+1V8 <- cell:cell:boost:U1
+    supply.peak          900.4 µV (reference 90 mV, x0.01)  supply:U109:+1V8 <- cell:cell:boost:U1
+    supply.peak          857.4 µV (reference 90 mV, x0.01)  supply:U112:+1V8 <- cell:cell:boost:U1
+    supply.peak          943.7 µV (reference 90 mV, x0.01)  supply:U102:+1V8 <- cell:cell:boost:U1
+    supply.peak          929.4 µV (reference 90 mV, x0.01)  supply:U111:+1V8 <- cell:cell:boost:U1
+    supply.peak          1.554 mV (reference 165 mV, x0.009)  supply:U2:VIN_P <- cell:cell:buck:U1
+    supply.peak          779.2 µV (reference 90 mV, x0.009)  supply:U116:+1V8 <- cell:cell:boost:U1
+    supply.peak          839.5 µV (reference 90 mV, x0.009)  supply:U113:+1V8 <- cell:cell:boost:U1
+    supply.peak          1.556 mV (reference 165 mV, x0.009)  supply:U1:VLO <- cell:cell:buck:U2
+    supply.peak          751.2 µV (reference 90 mV, x0.008)  supply:U115:+1V8 <- cell:cell:boost:U1
+    supply.peak          969.5 µV (reference 165 mV, x0.006)  supply:U1:VLO <- cell:cell:boost:U1
+    supply.peak            556 µV (reference 90 mV, x0.006)  supply:U110:+1V8 <- cell:cell:boost:U1
+    supply.peak          507.7 µV (reference 90 mV, x0.006)  supply:U114:+1V8 <- cell:cell:boost:U1
+    supply.peak          569.9 µV (reference 90 mV, x0.006)  supply:U4:+1V8 <- cell:cell:buck:U2
+    overshoot.peak       14.14 mV (reference 3.215 V, x0.004)  overshoot:cell:boost:U1 <- cell:cell:boost:U1
+    supply.peak          197.9 µV (reference 90 mV, x0.002)  supply:U4:+1V8 <- cell:cell:buck:U1
+    supply.peak          50.47 µV (reference 33 mV, x0.002)  supply:U3:VIN_P <- cell:cell:boost:U1
+    supply.peak          171.8 µV (reference 90 mV, x0.002)  supply:U103:+1V8 <- cell:cell:buck:U2
+    supply.peak          136.5 µV (reference 90 mV, x0.002)  supply:U110:+1V8 <- cell:cell:buck:U2
+    supply.peak          140.1 µV (reference 90 mV, x0.002)  supply:U114:+1V8 <- cell:cell:buck:U2
+    supply.peak          187.4 µV (reference 90 mV, x0.002)  supply:U110:+1V8 <- core:U4:+1V8
+    supply.peak          206.5 µV (reference 90 mV, x0.002)  supply:U114:+1V8 <- core:U4:+1V8
+    supply.peak          45.74 µV (reference 90 mV, x0.001)  supply:U101:+1V8 <- cell:cell:buck:U1
+    supply.peak          59.98 µV (reference 90 mV, x0.001)  supply:U102:+1V8 <- cell:cell:buck:U1
+    supply.peak          108.5 µV (reference 90 mV, x0.001)  supply:U110:+1V8 <- cell:cell:buck:U1
+    supply.peak          112.7 µV (reference 90 mV, x0.001)  supply:U114:+1V8 <- cell:cell:buck:U1
+    supply.peak          203.5 µV (reference 165 mV, x0.001)  supply:U2:VIN_P <- cell:cell:boost:U1
+    pickup.peak          730.3 nV (reference 1 mV, x0.001)  victim:analog:U3.4 <- cell:cell:buck:U2
+    pickup.peak           1.05 µV (reference 1 mV, x0.001)  victim:analog:U3.3 <- cell:cell:buck:U2
+    supply.peak          113.4 µV (reference 90 mV, x0.001)  supply:U115:+1V8 <- core:U4:+1V8
+    supply.peak           51.7 µV (reference 90 mV, x0.001)  supply:U104:+1V8 <- core:U4:+1V8
+    supply.peak          74.22 µV (reference 90 mV, x0.001)  supply:U103:+1V8 <- core:U4:+1V8
+    supply.peak          53.11 µV (reference 90 mV, x0.001)  supply:U107:+1V8 <- core:U4:+1V8
+    supply.peak          58.68 µV (reference 90 mV, x0.001)  supply:U109:+1V8 <- core:U4:+1V8
+    supply.peak          81.77 µV (reference 90 mV, x0.001)  supply:U112:+1V8 <- core:U4:+1V8
+    supply.peak          49.99 µV (reference 90 mV, x0.001)  supply:U111:+1V8 <- core:U4:+1V8
+    supply.peak          113.8 µV (reference 90 mV, x0.001)  supply:U116:+1V8 <- core:U4:+1V8
+    supply.peak             82 µV (reference 90 mV, x0.001)  supply:U113:+1V8 <- core:U4:+1V8
+    loss.loop            1.881 µW  hot-loop loss of cell:cell:buck:U1: 1/2 L_loop I_pk^2 f_sw at turn-off, L_loop 2.67 nH (copper)
+    loss.loop_ac         241.9 nW  hot-loop AC conduction loss of cell:cell:buck:U1: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and proximity crowding, R_loop 8.17 mOhm at f_sw, 11.5 at 5 f_sw (cell window)
+    supply.peak          34.96 µV (reference 90 mV, x0)  supply:U115:+1V8 <- cell:cell:buck:U1
+    supply.peak          23.51 µV (reference 90 mV, x0)  supply:U105:+1V8 <- cell:cell:buck:U1
+    supply.peak          12.25 µV (reference 90 mV, x0)  supply:U104:+1V8 <- cell:cell:buck:U1
+    supply.peak          31.91 µV (reference 90 mV, x0)  supply:U103:+1V8 <- cell:cell:buck:U1
+    supply.peak          28.19 µV (reference 90 mV, x0)  supply:U106:+1V8 <- cell:cell:buck:U1
+    supply.peak          19.07 µV (reference 90 mV, x0)  supply:U107:+1V8 <- cell:cell:buck:U1
+    supply.peak          10.75 µV (reference 90 mV, x0)  supply:U109:+1V8 <- cell:cell:buck:U1
+    supply.peak          3.828 µV (reference 90 mV, x0)  supply:U112:+1V8 <- cell:cell:buck:U1
+    supply.peak          1.714 µV (reference 90 mV, x0)  supply:U108:+1V8 <- cell:cell:buck:U1
+    supply.peak          25.09 µV (reference 90 mV, x0)  supply:U111:+1V8 <- cell:cell:buck:U1
+    supply.peak          5.437 µV (reference 90 mV, x0)  supply:U116:+1V8 <- cell:cell:buck:U1
+    supply.peak          4.293 µV (reference 90 mV, x0)  supply:U113:+1V8 <- cell:cell:buck:U1
+    pickup.peak          244.1 nV (reference 1 mV, x0)  victim:analog:U3.4 <- cell:cell:buck:U1
+    pickup.peak          151.7 nV (reference 1 mV, x0)  victim:analog:U3.3 <- cell:cell:buck:U1
+    loss.loop            2.039 µW  hot-loop loss of cell:cell:boost:U1: 1/2 L_loop I_pk^2 f_sw at turn-off, L_loop 2.72 nH (copper)
+    loss.loop_ac         339.9 nW  hot-loop AC conduction loss of cell:cell:boost:U1: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and proximity crowding, R_loop 11.3 mOhm at f_sw, 16.6 at 5 f_sw (cell window)
+    pickup.peak          43.95 nV (reference 1 mV, x0)  victim:analog:U3.4 <- cell:cell:boost:U1
+    pickup.peak          18.81 nV (reference 1 mV, x0)  victim:analog:U3.3 <- cell:cell:boost:U1
+    loss.loop            5.312 µW  hot-loop loss of cell:cell:buck:U2: 1/2 L_loop I_pk^2 f_sw at turn-off, L_loop 6.8 nH (copper)
+    loss.loop_ac         1.101 µW  hot-loop AC conduction loss of cell:cell:buck:U2: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and proximity crowding, R_loop 25.1 mOhm at f_sw, 44 at 5 f_sw (cell window)
+    supply.peak           5.66 µV (reference 90 mV, x0)  supply:U115:+1V8 <- cell:cell:buck:U2
+    supply.peak          3.996 µV (reference 90 mV, x0)  supply:U105:+1V8 <- cell:cell:buck:U2
+    supply.peak          20.92 µV (reference 90 mV, x0)  supply:U104:+1V8 <- cell:cell:buck:U2
+    supply.peak          15.63 µV (reference 90 mV, x0)  supply:U106:+1V8 <- cell:cell:buck:U2
+    supply.peak          36.12 µV (reference 90 mV, x0)  supply:U107:+1V8 <- cell:cell:buck:U2
+    supply.peak          2.034 µV (reference 90 mV, x0)  supply:U109:+1V8 <- cell:cell:buck:U2
+    supply.peak          19.14 µV (reference 90 mV, x0)  supply:U101:+1V8 <- cell:cell:buck:U2
+    supply.peak          7.085 µV (reference 90 mV, x0)  supply:U112:+1V8 <- cell:cell:buck:U2
+    supply.peak          8.188 µV (reference 90 mV, x0)  supply:U102:+1V8 <- cell:cell:buck:U2
+    supply.peak          5.801 µV (reference 90 mV, x0)  supply:U108:+1V8 <- cell:cell:buck:U2
+    supply.peak          7.516 µV (reference 90 mV, x0)  supply:U111:+1V8 <- cell:cell:buck:U2
+    supply.peak          5.489 µV (reference 90 mV, x0)  supply:U116:+1V8 <- cell:cell:buck:U2
+    supply.peak          4.715 µV (reference 90 mV, x0)  supply:U113:+1V8 <- cell:cell:buck:U2
+    supply.peak           23.7 µV (reference 90 mV, x0)  supply:U105:+1V8 <- core:U4:+1V8
+    supply.peak          32.67 µV (reference 90 mV, x0)  supply:U106:+1V8 <- core:U4:+1V8
+    supply.peak          24.22 µV (reference 90 mV, x0)  supply:U101:+1V8 <- core:U4:+1V8
+    supply.peak          17.84 µV (reference 90 mV, x0)  supply:U102:+1V8 <- core:U4:+1V8
+    supply.peak          29.47 µV (reference 90 mV, x0)  supply:U108:+1V8 <- core:U4:+1V8
+    supply.peak          4.637 µV (reference 165 mV, x0)  supply:U1:VLO <- core:U4:+1V8
+    supply.peak          22.89 µV (reference 165 mV, x0)  supply:U2:VIN_P <- core:U4:+1V8
+    supply.peak          2.148 µV (reference 33 mV, x0)  supply:U3:VIN_P <- core:U4:+1V8
+    pickup.peak          271.1 pV (reference 1 mV, x0)  victim:analog:U3.4 <- core:U4:+1V8
+    pickup.peak          108.5 pV (reference 1 mV, x0)  victim:analog:U3.3 <- core:U4:+1V8
+    loss.swnode          13.93 µW  switch-node capacitance loss of cell:cell:buck:U1: 1/2 C_sw V^2 f_sw, C_sw 0.658 pF (copper)
+    loss.swnode          1.981 µW  switch-node capacitance loss of cell:cell:boost:U1: 1/2 C_sw V^2 f_sw, C_sw 0.482 pF (copper)
+    loss.swnode          107.6 µW  switch-node capacitance loss of cell:cell:buck:U2: 1/2 C_sw V^2 f_sw, C_sw 0.494 pF (copper)
+    heat.track         0.001595 K (reference 10 K, x0)  temperature rise of the hottest track (worst corner: GND on B.Cu, 0.127 mm)
+    temp.rise          0.002253 K  junction rise of U4 above ambient
+    temp.rise           0.00386 K  junction rise of U1 above ambient
+    temp.rise          0.001273 K  junction rise of R18 above ambient
+    temp.rise         0.0009348 K  junction rise of R19 above ambient
+    temp.rise          0.002475 K  junction rise of R34 above ambient
+    temp.rise          0.002656 K  junction rise of R12 above ambient
+    temp.rise          0.002335 K  junction rise of R30 above ambient
+    temp.rise         0.0009693 K  junction rise of R10 above ambient
+    temp.rise          0.001131 K  junction rise of R8 above ambient
+    temp.rise          0.001225 K  junction rise of R16 above ambient
+    temp.rise          0.002088 K  junction rise of R13 above ambient
+    temp.rise          0.002585 K  junction rise of R29 above ambient
+    temp.rise          0.001822 K  junction rise of R22 above ambient
+    temp.rise          0.002165 K  junction rise of R25 above ambient
+    temp.rise          0.002401 K  junction rise of R36 above ambient
+    temp.rise          0.001742 K  junction rise of R24 above ambient
+    temp.rise          0.001368 K  junction rise of R1 above ambient
+    temp.rise           0.00136 K  junction rise of R15 above ambient
+    temp.rise          0.001187 K  junction rise of R9 above ambient
+    temp.rise          0.001896 K  junction rise of R26 above ambient
+    temp.rise          0.001769 K  junction rise of R28 above ambient
+    temp.rise          0.002469 K  junction rise of R35 above ambient
+    temp.rise          0.001676 K  junction rise of R23 above ambient
+    temp.rise          0.001886 K  junction rise of R27 above ambient
+    temp.rise          0.002625 K  junction rise of L1 above ambient
+    temp.rise          0.001046 K  junction rise of R7 above ambient
+    temp.rise          0.001952 K  junction rise of R31 above ambient
+    temp.rise           0.00245 K  junction rise of R14 above ambient
+    temp.rise           0.00203 K  junction rise of R21 above ambient
+    temp.rise          0.002215 K  junction rise of R32 above ambient
+    temp.rise          0.001057 K  junction rise of R6 above ambient
+    temp.rise          0.002632 K  junction rise of R33 above ambient
+    temp.rise          0.002426 K  junction rise of R11 above ambient
     loss.part            26.82 µW  dissipation of U1 (switching, conduction, rectification, linear drop)
-  cell cell:cell:buck:U1: L_loop 1.764 nH, R_loop 8.795 mOhm at f_sw (10.8282, 12.1957 at 3, 5 f_sw), overshoot 0.0004 V typ, 0.0181 V worst
-  cell cell:cell:boost:U1: L_loop 1.553 nH, R_loop 5.434 mOhm at f_sw (6.4715, 6.88 at 3, 5 f_sw), overshoot 0.0003 V typ, 0.0081 V worst
-  cell cell:cell:buck:U2: L_loop 2.218 nH, R_loop 8.564 mOhm at f_sw (11.2566, 13.1587 at 3, 5 f_sw), overshoot 0.0005 V typ, 0.0227 V worst
+  cell cell:cell:buck:U1: L_loop 2.494 nH, R_loop 8.165 mOhm at f_sw (10.2615, 11.5347 at 3, 5 f_sw), overshoot 0.0001 V typ, 0.0255 V worst
+  cell cell:cell:boost:U1: L_loop 3.110 nH, R_loop 11.319 mOhm at f_sw (14.6966, 16.5739 at 3, 5 f_sw), overshoot 0.0001 V typ, 0.0162 V worst
+  cell cell:cell:buck:U2: L_loop 7.009 nH, R_loop 25.065 mOhm at f_sw (36.2462, 44.0446 at 3, 5 f_sw), overshoot 0.0003 V typ, 0.0719 V worst
   question Q-cell:buck:U1-t_i_s: cell:buck:U1 t_i_s: is it known? (assumed 1e-09..1e-08 s; current commutation time of a integrated switch (class range); no datasheet valu)
   question Q-cell:boost:U1-t_i_s: cell:boost:U1 t_i_s: is it known? (assumed 1e-09..1e-08 s; current commutation time of a integrated switch (class range); no datasheet valu)
   question Q-cell:buck:U2-t_i_s: cell:buck:U2 t_i_s: is it known? (assumed 1e-09..1e-08 s; current commutation time of a integrated switch (class range); no datasheet valu)
-  question Q-core:U4:+1V8-I_A: core:U4:+1V8 I_A: is it known? (assumed 0.00333..0.03 A; core current, class value x/3)
   question Q-core:U4:+1V8-t_i_s: core:U4:+1V8 t_i_s: is it known? (assumed 1e-09..6e-09 s; core edge, class value /2 .. x3)
   question Q-core:U4:+1V8-f_sw_Hz: core:U4:+1V8 f_sw_Hz: is it known? (assumed 2.5e+07..1e+08 Hz; core repetition, class value)
   question Q-heat-h_W_m2K: heat h_W_m2K: is it known? (assumed 8..20 W/m^2/K; still-air cooling of the board's faces, convection plus radiation (haslam.materi)
   question Q-heat:U1-theta_jb: heat:U1 theta_jb: is it known? (assumed 10..40 K/W; junction to board by package size (11 pins; class range), no datasheet value)
+  question Q-heat:U101-theta_jb: heat:U101 theta_jb: is it known? (assumed 30..120 K/W; junction to board by package size (8 pins; class range), no datasheet value)
   advice (what-ifs re-priced through this intent; haslam applies none of them):
-  A1  node.shunt_c: add a 10nF decoupling capacitor from U4.24 to U4.12, pads at the pins (no copper between them and the IC); U4.12 is the quietest of 5 return pads tried
-        not estimated (needs-solve): at most 0 mW_eq (first-order (not valid here))
-        why: supply:U4:+1V8: the node's impedance at the edge band is 1.62 Ohm (100 MHz); copper noise divides into it
-        decide (llm): is there room for 10nF at U4.24/U4.12, and is its rail's start-up and inrush unaffected?
-        unpriced: the added or moved part has no copper of its own in the estimate (pads at the pins): a layout with the part placed adds a residual; hold it with a relation and re-evaluate
-  A2  datasheet.check: answer: the minimum effective output capacitance U1's datasheet requires at 1.8 V (and in which mode)
-        why: U1's output +1V8 at 1.8 V: 3 capacitor(s) within 15 mm of its pins, 32.98uF effective by haslam's DC-bias model (C9 22uF 6.3V X5R 0805 -> 16.44uF (2.3 mm), C7 22uF 6.3V X5R 0805 -> 16.44uF (2.5 mm), C11 100nF 10.0V X7R 0402 -> 95.02nF (10.3 mm))
-        decide (llm): what effective output capacitance does U1's datasheet require at 1.8 V? haslam counts 32.98uF after DC bias
+  A1  datasheet.check: answer: the minimum effective output capacitance U1's datasheet requires at 1.8 V (and in which mode)
+        why: U1's output +1V8 at 1.8 V: 2 capacitor(s) within 15 mm of its pins, 32.88uF effective by haslam's DC-bias model (C9 22uF 6.3V X5R 0805 -> 16.44uF (3.6 mm), C7 22uF 6.3V X5R 0805 -> 16.44uF (7.0 mm))
+        decide (llm): what effective output capacitance does U1's datasheet require at 1.8 V? haslam counts 32.88uF after DC bias
         needs facts.parts.U1.cout_min_eff_F: U1's minimum effective output capacitance at 1.8 V (datasheet table or formula)
         unpriced: the effective capacitance is a model of DC-bias loss, not the part's curve; temperature and ageing lower it further

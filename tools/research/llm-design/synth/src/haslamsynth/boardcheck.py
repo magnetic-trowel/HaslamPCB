@@ -37,9 +37,8 @@ def _shapely():
         import shapely  # noqa: F401
         from haslam.board import kicad_file  # noqa: F401
     except ImportError as e:
-        raise SystemExit(f"check-board needs haslam (haslam/src on PYTHONPATH) and shapely: {e}. Use haslam's "
-                         f"environment, e.g. PYTHONPATH=synth/src:haslam/src haslam/.venv/bin/python -m "
-                         f"haslamsynth.cli check-board ...") from None
+        raise SystemExit(f"check-board needs haslam (haslam/src on PYTHONPATH) and shapely (pip install -e synth): {e}. "
+                         f"Run: PYTHONPATH=<repo>/haslam/src haslamsynth check-board DESIGN BOARD") from None
 
 
 def _line_of(m, design, geometry):

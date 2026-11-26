@@ -72,19 +72,21 @@ the sensors do not share a copper plane with the power section (or with each oth
 - Slots y 19.5-21 mm leave a bridge at x 20-30 mm.
 - South: 4 x 4 sensors fixed at 11.5 x 11 mm pitch (`d.place.fixed` in design.py; the build writes `out/board.json`), mux and pull-ups placed by haslam.
 
-## 5. As built (layout bme4, haslam A1 recipe, seed 0)
+## 5. As built (acceptance run bme5 after the friction fixes: `layout.sh`, seed 0, one pass, no hand fixes)
 
 | Check | Result |
 |---|---|
-| KiCad DRC after zone refill | 0 errors, 0 unconnected, schematic parity 0 (warnings: silk, library paths) |
-| Power section | U1, U2, U3, L1, L2 and their parts north of the slot; Q1 and R1 (reverse PMOS) south of it (F42) |
-| Slot crossings | 10 tracks, all inside the 10 mm bridge (edge strips kept clear) |
-| Bridge conductance, sensor rise (hand) | 2.15 mW/K, 9.9 mK worst case (designed 5.8 mK with 5 tracks) |
-| haslam.excite (intent with part facts) | 0 hard violations; hottest sensor within 2.5 mK of ambient; copper loss 19 uW DC + 16 uW AC |
-| Silkscreen | `synth/scripts/silk_refs.py`: 80 references on silk, 10 on F.Fab, 0 silk DRC |
-| Fab package (`fab/`) | gerbers + drill zip, JLC CPL, JLC BOM (27 lines, all with LCSC numbers; 16 extended parts) |
+| KiCad DRC after zone refill | 0 errors, 0 unconnected, schematic parity 0 |
+| Power section | every member of the required regions (IN, PWR, LVL) north of the slot (hard keep-in) |
+| Slot crossings (`check-board`) | 8 tracks of the 5 intended nets (+1V8, GND, SDA, SCL, RST), all in the 10 mm bridge |
+| Bridge conductance, sensor rise (`check-board`, hand model) | 2.14 mW/K, 9.9 mK worst case (limit 10 mK) |
+| haslam.excite (intent with part facts) | complete; 0 hard violations; `T-SENS` temp.rise 3.8 mK of 10 mK; copper loss 8.8 uW |
+| GND copper in the sensor field | 79 mm2 (394 mm2 before routing stopped widening uW nets) |
+| Decoupling | placed by haslam's physics terms (no stated distances) |
+| Silkscreen | 66 references on silk, 24 on F.Fab, 0 silk DRC items |
+| Fab package (`fab/`) | gerbers + drill zip, JLC CPL, JLC BOM (27 lines, all with LCSC numbers; 16 extended), top/bottom/iso renders |
 
-Layout took three rounds; FRICTION.md F21-F42 says why. Layout time per round ~33 min on 4 CPUs, scoring ~8 min.
+Before the fixes, layout took three rounds (FRICTION.md F21-F42); after them, one. Layout time per round ~33 min on 4 CPUs, scoring ~8 min.
 Reproduce with the generic script (the design's own `run.sh`/`eval.sh`, copies of solar-small's, are retired):
 `synth/scripts/layout.sh out/bme280-array.kicad_pcb RUN/A1/s0 0`; the fab package with
 `synth/scripts/fab_outputs.py RUN/A1/s0/bme280-array.kicad_pcb fab` (silk pass and renders included).

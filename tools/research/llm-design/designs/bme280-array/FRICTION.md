@@ -31,6 +31,77 @@ Environment: fresh cloud container (4 CPU, 15 GB), no haslamq dispatcher, no boa
 Outcome: a 2-layer 50 x 78 mm board, 0 DRC errors / 0 unconnected / parity 0, JLC gerbers, CPL and BOM (27 lines, all
 with LCSC numbers) in `fab/`; physics: 0 hard violations, sensor rise <= 2.5 mK (evaluator) / 9.9 mK (hand bound).
 
+## Resolution (2026-11-26, branch claude/youthful-mayer-o7qepm)
+
+Acceptance: bme280-array rebuilt from design.py with no hand workarounds and taken through brief-to-board S3-S10 as
+documented: build 0 errors / 0 warnings; pre-flight 10 PASS (incl. `intent.priors`); placement smoke all regions and
+keep-aways met; `layout.sh` (no `$USER`) `OK`: 0 DRC errors, 0 unconnected, parity 0, physics complete, 0 hard
+violations, `T-SENS` (`temp.rise`) 3.8 mK of 10 mK; only the 5 intended nets cross the bridge; `check-board`
+heat_rise_sensors 9.9 mK <= 10 mK; GND copper in the sensor field 79 mm2 (394 before F46's fix); `fab_outputs.py`
+gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status: fixed, partial, open, by design.
+
+| # | Status | Fix (commit) | Evidence / remaining |
+|---|---|---|---|
+| F1 | fixed | setup installs kicad-symbols/footprints, env.sh carries library dirs; doctor checks them (521ec6b) | doctor ok on this host |
+| F2 | fixed | `FR_FORK_REF=06d2686` in setup.sh, built and pinned (521ec6b) | setup not re-run (F55) |
+| F3 | fixed | `KICAD_TESTED_VERSIONS`, doctor WARN on others; optional apt pin (521ec6b) | bench tests 7 passed |
+| F4 | fixed | gradle retries 30/90/240 s, `--offline` fallback (521ec6b) | fake-gradlew test |
+| F5 | fixed | `haslamsynth jlc --search` (f4a775d) | live lookups |
+| F6 | fixed | `bom.stock` check vs `d.board(quantity=)` (f4a775d) | test: 1 in stock for 80 -> warning |
+| F7 | partial | `--match/--min-stock/--basic` filters (f4a775d) | not a parametric engine |
+| F8 | fixed | `haslamsynth ds` (f4a775d) | TPS3700, C92489 |
+| F9 | fixed | build writes `out/board.json` from `d.board`; a hand file must agree (`board.geometry`) (785ae04) | bme280 board.json deleted |
+| F10 | fixed | `slots`, zone `rect`, `SlotBarrier`, areas (785ae04, earlier sch_to_board) | rect-for-rect match |
+| F11 | fixed | `lib.Zener` (d5f8e81) | waiver removed |
+| F12 | fixed | `Design.v_rel`, `lib.ReversePMOS` (d5f8e81) | Q1 V(D-S) waiver removed |
+| F13 | fixed | pull-up 50 % low default (d5f8e81) | R15/R16 p_diss removed |
+| F14 | fixed | `d.place.thermal_isolate` (785ae04) | used in bme280 |
+| F15 | fixed | footprint drills in `layout.fab_minimums` (785ae04) | `_ThermalVias` test |
+| F16 | fixed | `HASLAM_KICAD_PYTHON` in env.sh and every script; MountingHole in fp-lib-table (eb8338f) | 0 lib_footprint_issues |
+| F17 | fixed | probe prints relations met, routed/open (bc95994) | bme280 probe line |
+| F18 | fixed | `layout.sh` documented S7, `${USER:-...}` (e4cc432) | acceptance run without `$USER` |
+| F19 | fixed | CLAUDE.md: isolated-container rule (1c62259) | — |
+| F20 | fixed | drift tests pass on 10.0.8 | — |
+| F21 | fixed | hard regions (c6d719a) | acceptance: power section north on every run |
+| F22 | fixed | `layout.region_crosses_slot` warning (785ae04) | — |
+| F23 | fixed | `req="REQ-n"` -> requested (785ae04) | — |
+| F24 | fixed | joint loop and restart summary report relations (c6d719a, 6ac7f7e, 1b2f94c) | log line in joint runs |
+| F25 | fixed | judge copies named by the input, project files beside (e4cc432) | restart tests |
+| F26 | fixed | test robust to 10.0.8 footprints (d00b47a) | 67 synth tests pass; 10.0.7 pads not compared |
+| F27 | fixed | required regions hard in every stage; required never demoted; demotion reported (c6d719a) | 3 seeds: 0 members outside |
+| F28 | fixed | S6b placement smoke in brief-to-board (1c62259) | 80 s, used in acceptance |
+| F29 | by design | decaps are physics-driven; the promotion was reverted (0eadda2); only `strength: required` pins a cap | see F52 |
+| F30 | fixed | `render.sh`, called by fab_outputs (eb8338f) | 3 PNGs |
+| F31 | fixed | `silk_refs.py` in fab_outputs (e323858, eb8338f) | 0 silk DRC items |
+| F32 | fixed | `SlotBarrier` strip keep-outs (785ae04); repair stage no longer crosses rule areas (4398cfa) | acceptance: crossings only at the bridge |
+| F33 | fixed | per-member region status (c6d719a) | R28 reported (F56) |
+| F34 | fixed | `hpwl_outliers` in the place report (7cad586) | mux buses flagged |
+| F35 | fixed | one interval parser for every reader (0ba06cd, ad982e7) | cells read 60 uA |
+| F36 | fixed | `haslam.intent priors`, pre-flight WARN, haslamsynth `supply_prior` (f36ec18, bc95994, ad982e7, 785ae04) | pre-flight PASS on bme280 |
+| F37 | fixed | `temp.rise` observable (f686563) | T-SENS hard 3.8 mK |
+| F38 | fixed | lists and globs in term targets, tested (785ae04) | — |
+| F39 | fixed | hot-loop windows from the loop's own parts (e360ef7) | eval 1059 -> 457 s; corpus check F54 |
+| F40 | fixed | shared parser (0ba06cd) | 3-element I_A evaluates |
+| F41 | fixed | `RESULT` OK/FAILED line, exit 3 on a scoring crash (e4cc432) | F53 |
+| F42 | fixed | hard regions (c6d719a) | acceptance: Q1/R1 north |
+| F43 | fixed | fab_outputs KiCad-Python resolution (eb8338f) | ran with a pcbnew-less python first on PATH |
+| F44 | partial | `bom.setup_fees` lists extended parts and movable passives (f4a775d) | fees not in currency |
+| F45 | fixed | silk counts and gate warning in fab-report (eb8338f) | — |
+| F46 | fixed | no widening of uW nets; `minimal_copper` areas (bf7a5de) | GND copper 394 -> 79 mm2 |
+| F47 | fixed | `d.measure`, `calc(board=)`, `check-board` (4c42464) | 9.9 mK as built |
+| F48 | fixed | core sources read `core_*`/`core: false`, capped by `I_A` (6379503) | U4 supply.peak 245 -> 0.7 mV |
+| F49 | fixed | see F39 | — |
+| F50 | fixed | this round (see log) | check-board from haslamsynth CLI |
+| F51 | open | process: spawn fix agents from the working branch | — |
+| F52 | fixed | rule written in llm-relations.md and brief-to-board; test | — |
+| F53 | none | checks worked | — |
+| F54 | open | corpus sprint on the shared host | required before merging to main |
+| F55 | open | fresh-container setup run | — |
+| F56 | by design | soft region reported | — |
+| F57 | open | dense-area silk legend or smaller text | cosmetic |
+
+Keep this table current: a new friction point gets a log row (next F number) and a resolution row in the same commit.
+
 ## Log
 
 | # | Stage | Issue | Cost | Suggested fix |
@@ -84,3 +155,11 @@ with LCSC numbers) in `fab/`; physics: 0 hard violations, sensor rise <= 2.5 mK 
 | F47 | thermal | As built, 10 tracks cross the bridge (F42): bridge 2.15 mW/K, worst-case sensor rise 9.9 mK vs the 10 mK budget (5.8 mK designed with 5 tracks). The check had to be redone by hand from track widths; haslamsynth's calc uses designed numbers and nothing re-checks a calc against the routed board. | margin gone, found by hand | let `d.calc` name a board measurement (tracks crossing a line, copper area in a rule area) re-evaluated after layout |
 | F48 | physics | `parts.<ref>.I_A` reaches the DC and heat models but not the transient "core" source: `excite/params.generic` builds every IC core from class priors (10 mA, 2 ns edges, 50 MHz) and reads no intent. The TCA9548A, a passive I2C switch with no clock, still shows a 245 mV `supply.peak` on +1V8 (x2.7 its reference; 351 mV before F36's facts). Unpriced, so it changes no score, but it is the evaluation's largest "finding" on this board and it is fiction. | misleading report | let `parts.<ref>` carry `core_I_A`, `core_f_Hz` (or `core: false` for passive switches); haslam.circuit could know analog switches have no core |
 | F49 | physics | Final evaluation (bme4 board, part facts, 2-element I_A): 0 hard violations, T-SENS met (hottest sensor within 2.5 mK of ambient), copper loss 19 uW DC + 16 uW AC; 7.7 min, of which 7.7 min are the three hot-loop solves (U2's window 50.8 x 26.4 mm at 0.0625 mm: 366 s). | — | see F39 |
+| F50 | S8b | (round 2) The documented `check-board` command (`haslam/.venv/bin/python -m haslamsynth.cli`) failed: haslamsynth is not importable from haslam's venv; from haslamsynth's own CLI it failed on shapely, then on ortools, because haslam's board-geometry helper `place.legalize.pad_shape` imports the CP-SAT solver at module load. | 3 tries | fixed: shapely is a haslamsynth dependency; `place/legalize.py` imports cpsat inside the 3 functions that use it; docs say `haslamsynth check-board` with haslam/src on PYTHONPATH |
+| F51 | orchestration | (round 2) Sub-agent worktrees start from `main`, not the session branch: each fix agent had to fast-forward onto it, and one copied the design untracked; merges then mixed main-based and branch-based histories. | merge care | spawn fix agents from the working branch (or tell them to `git checkout` it first) |
+| F52 | knowledge | (round 2) A fix agent "solved" F29 by promoting a stated decap distance over physics (`strength: strong`, exempt from `relations_vs_physics`) — a regression of physics-driven decoupling placement that the team had validated across many boards; nothing an agent reads said so, and haslamsynth's `source: "design"` on every relation made the promotion global. Caught by the user, reverted (`0eadda2`). | near-regression | rule now written where agents look: `llm-relations.md` (near to a fixed pin yields to physics), brief-to-board design rules ("leave decoupling to physics"); test asserts no promotion |
+| F53 | S7 | (round 2) A `limit` term needs a `rate`; my `T-SENS` limit term was caught by the build (1 error) and the scoring then failed loudly (`RESULT: FAILED eval`, exit 3) — the F41 fix working. The build's message names the fix. | 1 rebuild | none needed (checks worked) |
+| F54 | validation | (round 2) The placer (hard regions), scorer (hot-loop windows, interval parser, core facts) and router (power copper, repair clearance) changes could not be validated on the corpus: no `haslamq` and no board corpus in this container. CLAUDE.md requires sprint suites against `control-w48` before merging to main. | open | run `haslamres sprint` on `sprint-frontier.txt` + `sprint-quality.txt` (baseline/2026-w48 + this branch) on the shared host; boards without an intent file should be unchanged |
+| F55 | setup | (round 2) `bench/scripts/setup.sh` changes were checked with `bash -n`, shellcheck, the env-detection function and `doctor`, not by a fresh full setup run. | open | run `setup.sh` once on a fresh container |
+| F56 | intent | (round 2) Soft `region-MUX` (area:SENSE) still leaves 1 member (R28) just outside on the routed board; reported as unmet (F33 fix), not enforced (it is not `required`). | by design | mark it `required` if it matters |
+| F57 | fab | (round 2) `silk_refs.py` moves 24 of 90 references to F.Fab on the dense north end (66 on silk); readable, but the assembly drawing is the only place those refs appear. | cosmetic | a smaller text size option for dense areas, or a silk legend |

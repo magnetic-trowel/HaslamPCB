@@ -1,27 +1,60 @@
 {
- "board": "haslam-work/bme4/fab/board/bme280-array.kicad_pcb",
- "filled": "haslam-work/bme4/fab/out/bme280-array.kicad_pcb",
+ "board": "haslam-work/bme5/fab/board/bme280-array.kicad_pcb",
+ "filled": "haslam-work/bme5/fab/out/bme280-array.kicad_pcb",
  "drc": {
   "errors": 0,
   "by_type": {},
   "unconnected": 0
  },
+ "silk": {
+  "drc_items": 0,
+  "by_type": {},
+  "placed_by": "silk_refs.py",
+  "refs_on_silk": 66,
+  "refs_to_fab": [
+   "U3",
+   "U1",
+   "L2",
+   "U2",
+   "C1",
+   "Q5",
+   "C6",
+   "R20",
+   "R12",
+   "R10",
+   "R8",
+   "R13",
+   "R36",
+   "R17",
+   "R9",
+   "R26",
+   "R27",
+   "R14",
+   "R6",
+   "R33",
+   "R11",
+   "C5",
+   "C10",
+   "C2"
+  ]
+ },
+ "gate_warnings": [],
  "gate": "pass",
  "files": [
-  "haslam-work/bme4/fab/out/bme280-array-gerbers.zip",
-  "haslam-work/bme4/fab/out/bme280-array-cpl.csv",
-  "haslam-work/bme4/fab/out/bme280-array-bom.csv"
+  "haslam-work/bme5/fab/out/bme280-array-gerbers.zip",
+  "haslam-work/bme5/fab/out/bme280-array-cpl.csv",
+  "haslam-work/bme5/fab/out/bme280-array-bom.csv"
  ],
  "bom_lines": 27,
  "bom_without_lcsc": [],
  "left_out": {
   "JP1": "excluded from BOM",
-  "J1": "DNP",
-  "H1": "excluded from BOM",
-  "JP2": "excluded from BOM",
   "H2": "excluded from BOM",
+  "JP2": "excluded from BOM",
+  "H4": "excluded from BOM",
+  "H1": "excluded from BOM",
   "H3": "excluded from BOM",
-  "H4": "excluded from BOM"
+  "J1": "DNP"
  },
  "lcsc_unique": 27,
  "extended_or_unknown": 16,
@@ -42,5 +75,11 @@
   "C8492",
   "C86819",
   "C92489"
- ]
+ ],
+ "renders": [
+  "haslam-work/bme5/fab/out/bme280-array-top.png",
+  "haslam-work/bme5/fab/out/bme280-array-bottom.png",
+  "haslam-work/bme5/fab/out/bme280-array-iso.png"
+ ],
+ "renders_note": "no 3D models installed (kicad-packages3d): parts render as bare pads"
 }

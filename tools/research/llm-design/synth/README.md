@@ -38,9 +38,8 @@ pytest tests                                        # KiCad tests skip without k
 
 `ds` keeps PDFs and their `pdftotext -layout` text in `$HASLAMSYNTH_DS_CACHE` (default `~/.cache/haslamsynth/ds`);
 `--section` prints a numbered heading's body up to the next heading of its level (contents lines skipped), `--grep`
-the matching lines with page numbers. `check-board` reads the board with haslam's pure-Python loader: run it with
-`haslam/src` on `PYTHONPATH` and shapely installed (haslam's environment, e.g. `haslam/.venv/bin/python -m
-haslamsynth.cli check-board ...`).
+the matching lines with page numbers. `check-board` reads the board with haslam's pure-Python loader: `haslamsynth check-board DESIGN BOARD` with
+`haslam/src` on `PYTHONPATH` (as for the rules check; shapely is a haslamsynth dependency).
 
 `source ~/.cache/haslambench/env.sh` (written by `bench/scripts/setup.sh`) sets `KICAD10_SYMBOL_DIR` and
 `KICAD10_FOOTPRINT_DIR` (apt KiCad: `/usr/share/kicad/...`; container: the image's `usr/share/kicad/...`), and
