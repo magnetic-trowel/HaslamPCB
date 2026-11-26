@@ -31,6 +31,7 @@ make an inverting stage is topology_of's to say, not the equations'.
 """
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass, field
 
 ETA = (0.8, 0.9, 0.95)        # efficiency (lo, typ, hi) of a converter whose efficiency nobody states
@@ -262,11 +263,19 @@ def from_intent(cell, topology, leg=None, V_in=None, V_out=None, eta=None):
     e = e or (ETA[1], ETA[0], ETA[2])
     Vi, Vo = vi[0], vo[0]
     typ = operating(topology, Vi, Vo, Io[0], e[0], leg=leg)
-    lo = operating(topology, Vi, Vo, Io[1], e[2], leg=leg)       # low current at high efficiency
-    hi = operating(topology, Vi, Vo, Io[2], e[1], leg=leg)
-    Dv = (typ.D, min(lo.D, hi.D), max(lo.D, hi.D))
+    # the interval's ends over every corner of the stated intervals (I_out, eta, V_in, V_out): a boost's or an inverting
+    # stage's switch current and every duty move with the voltages too. Taken at the typical V_in and V_out only, a
+    # boost stated as 2.7-4.2 V in kept the current of its typical 3.7 V (its 2.7 V top, +37 %, was outside the
+    # interval) and a buck's duty interval was a point
+    ops = [operating(topology, a, b, i, k, leg=leg) for i, k, a, b in itertools.product(
+        (Io[1], Io[2]), (e[1], e[2]), {vi[1], vi[2]}, {vo[1], vo[2]}) if a and b]
+    ops = ops or [typ]
+    lo, hi = min(ops, key=lambda o: o.I_sw), max(ops, key=lambda o: o.I_sw)
+    Dv = (typ.D, min(o.D for o in ops), max(o.D for o in ops))
+    span = (f"V_in {vi[1]:g}-{vi[2]:g} V" if vi[1] != vi[2] else f"V_in {Vi:g} V") + ", " + \
+        (f"V_out {vo[1]:g}-{vo[2]:g} V" if vo[1] != vo[2] else f"V_out {Vo:g} V")
     basis = (f"{(leg + ' leg, ' + typ.mode + ' region') if leg else typ.mode}, from I_out {Io[1]:.3g}-{Io[2]:.3g} A at "
-             f"V_in {Vi:g} V, V_out {Vo:g} V, {ebasis}: I_sw {typ.I_sw:.3g} A, D {typ.D:.3g}, {typ.loop} loop "
+             f"{span}, {ebasis}: I_sw {typ.I_sw:.3g} A, D {typ.D:.3g}, {typ.loop} loop "
              f"({'; '.join(typ.basis)})")
     return CellCurrent((typ.I_sw, lo.I_sw, hi.I_sw), "physics", basis, D=Dv, eta=e, op=typ,
-                       I_L=(typ.I_L, lo.I_L, hi.I_L))
+                       I_L=(typ.I_L, min(o.I_L for o in ops), max(o.I_L for o in ops)))

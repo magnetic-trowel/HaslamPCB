@@ -207,3 +207,18 @@ def test_a_cells_duty_on_negative_rails_is_its_magnitudes(cls, Vbus, Vother):
 def test_an_inverting_cells_duty_without_intent():
     (typ, lo, hi), basis = _duty_without_intent("buck", 12.0, -5.0)
     assert typ == pytest.approx(5.0 / (12.0 * CV.ETA[1] + 5.0)) and 0 < lo < typ < hi < 1 and "inverting" in basis
+
+
+def test_a_converters_current_interval_spans_its_stated_voltages():
+    """from_intent took I_out and eta's ends at the typical V_in and V_out only. A boost stated 2.7-4.2 V in, 5 V out,
+    0.5 A out at eta 0.9: I_in = I_out V_out / (V_in eta), by hand 1.029 A at 2.7 V and 0.661 A at 4.2 V (typical 0.751 A
+    at 3.7 V); a buck's duty V_out / V_in spans 3.3/12 .. 3.3/9 over 9-12 V in."""
+    cc = CV.from_intent({"I_out_A": 0.5, "V_in_V": [2.7, 3.7, 4.2], "V_out_V": 5.0, "eta": 0.9}, "boost")
+    assert cc.I == pytest.approx((0.5 * 5 / (3.7 * 0.9), 0.5 * 5 / (4.2 * 0.9), 0.5 * 5 / (2.7 * 0.9)))
+    assert cc.D == pytest.approx((1 - 3.7 * 0.9 / 5, 1 - 4.2 * 0.9 / 5, 1 - 2.7 * 0.9 / 5))
+    bk = CV.from_intent({"I_out_A": [0.2, 1.0], "V_in_V": [9.0, 12.0], "V_out_V": 3.3}, "buck")
+    assert bk.D[1:] == pytest.approx((3.3 / 12.0, 3.3 / 9.0)) and bk.I[1:] == pytest.approx((0.2, 1.0))
+    # an inverting buck-boost: I_L = I_out / (1 - D), D = |V_out| / (V_in eta + |V_out|), largest at the lowest V_in
+    ib = CV.from_intent({"I_out_A": 0.1, "V_in_V": [10.0, 14.0], "V_out_V": -12.0, "eta": 0.85}, "inverting_buck_boost")
+    D_hi = 12 / (10 * 0.85 + 12)
+    assert ib.I[2] == pytest.approx(0.1 / (1 - D_hi)) and ib.D[2] == pytest.approx(D_hi)
