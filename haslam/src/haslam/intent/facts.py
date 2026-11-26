@@ -53,6 +53,9 @@ DEPRECATED_CELL_KEYS = {"V_max_V": "v_sw_max_V"}
 # a controller's facts that are its cells' too. Not I_A: parts.<ref>.I_A is the part's own supply draw
 # (haslam.excite.dc's load current, the operating facts' "load current"), not the current its cells commutate
 PART_CELL_KEYS = ("f_sw_Hz", "t_i_s", "v_sw_max_V")
+# a part's current per rail, {rail net: value} (haslam.excite.dc, heat): a connector's exports to a board that
+# draws its rails unequally; the rails it does not name share parts.<ref>.I_A / I_sustained_A by supply pads
+PART_BY_RAIL_KEYS = ("I_A_by_rail", "I_sustained_A_by_rail")
 SECTIONS = ("nets", "parts", "cells", "requirements")      # what apply() writes into the brief
 # sections other readers own, left to them here: the schematic's pin facts (haslam.board.pinfacts), the radios
 # (haslam.excite.observe, sources) and the compiler's citations. The physics set's operating facts carry them
@@ -174,7 +177,13 @@ def check_facts(f):
     normalize(f)                                 # a deprecated key that disagrees with its replacement
     for ref, d in (f.get("parts") or {}).items():
         for k, v in d.items():
-            if k != "why" and not isinstance(v, str):
+            if k in PART_BY_RAIL_KEYS:
+                # a part's current on each of its rails on its own (a connector's exports): {rail: value}
+                if not isinstance(v, dict) or not all(isinstance(r, str) for r in v):
+                    raise FactsError(f"facts.parts.{ref}.{k}: {{rail net: value}}, not {v!r}")
+                for r, x in v.items():
+                    _interval(x, f"facts.parts.{ref}.{k}.{r}")
+            elif k != "why" and not isinstance(v, str):
                 _interval(v, f"facts.parts.{ref}.{k}")
     return f
 
