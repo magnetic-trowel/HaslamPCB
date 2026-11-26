@@ -74,11 +74,15 @@ def provisional_brief(board):
     def nets(p):
         return {n for _, n, _, _ in p['pads'] if n}
 
+    def npins(p):
+        # pins, not pads: an exposed pad drawn as 9 pads, a tab beside its pin are one pin (critical_modules.pin_count)
+        return len({num for num, _, _, _ in p['pads'] if num}) or len(p['pads'])
+
     def is_cap(p):
         return len(p['pads']) == 2 and (_pfx(p['ref']) == 'C' or 'Capacitor' in p['lib'] or ':C_' in p['lib'])
 
     def is_ic(p):
-        return len(p['pads']) > 4 and _pfx(p['ref']) in ('U', 'IC', 'Q', 'VR', 'PS')
+        return npins(p) > 4 and _pfx(p['ref']) in ('U', 'IC', 'Q', 'VR', 'PS')
 
     caps_by_rail = defaultdict(list)
     for j, p in enumerate(parts):
@@ -224,10 +228,10 @@ def provisional_brief(board):
             pn = sorted(nets(p) & rails)
             vin = max((PR_volts(n) or 0) for n in pn) if pn else None
             vout = min((PR_volts(n) or 99) for n in pn) if pn else None
-            P, _ = PR.source_power_prior('ldo', vin, vout if vout != 99 else None, len(p['pads']), p['lib'])
+            P, _ = PR.source_power_prior('ldo', vin, vout if vout != 99 else None, npins(p), p['lib'])
             S.append(dict(id=f"heat:{p['ref']}", kind='heat_source', ref=p['uuid'], P_W=P, confidence=0.5))
-        elif len(p['pads']) > 32:
-            P, _ = PR.source_power_prior('mcu', n_pins=len(p['pads']))
+        elif npins(p) > 32:
+            P, _ = PR.source_power_prior('mcu', n_pins=npins(p))
             S.append(dict(id=f"heat:{p['ref']}", kind='heat_source', ref=p['uuid'], P_W=P, confidence=0.4))
     # thermal victims
     for j, p in enumerate(parts):
