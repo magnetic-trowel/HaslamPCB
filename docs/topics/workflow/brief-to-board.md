@@ -33,7 +33,7 @@ Environment for every stage: `source ~/.cache/haslambench/env.sh` (sets `HASLAM_
 - Readers without `--intent` fall back to it: `haslam.excite.evaluate`, `haslam.excite.wideband`, `haslam.em.pnr`, `haslam.route.critical_cli`.
 - Values: number, `[lo, hi]` (typical = geometric mean) or `[lo, typ, hi]`. State the typical operating point with the 3-element form: the brief's priorities and the placer's terms use it [M: 0.09 A from [0.01, 0.85] vs the intended 0.6 A].
 - A cell's switched bus must not reach 0 V: give the cell `V_V` its operating range (solar-small: `(4.5, 18, 25)` V), not the net's dark-panel 0 V floor.
-- Placement relations: `relations` (near, keep_away, group, edge) from `d.place`, priced by the placer ([intent-relations](../placement/intent-relations.md)); haslamsynth reports each relation it cannot write (`haslam_intent.relation_unused`). Every field and its haslam reader: [intent-file-fields](intent-file-fields.md).
+- Placement relations: `relations` (near, keep_away, group, on_edge, region, side, row) from `d.place`, in haslam's unified vocabulary, priced by the placer ([llm-relations](../placement/llm-relations.md), [relations-unified](../placement/relations-unified.md)); haslamsynth reports each relation it cannot write (`haslam_intent.relation_unused`). Every field and its haslam reader: [intent-file-fields](intent-file-fields.md).
 - Benchmarks: corpus boards carry no intent file, so tasks and baselines are unchanged; a method under test that reads it must be given the same file as its baseline.
 
 ## R. Rules and board size
