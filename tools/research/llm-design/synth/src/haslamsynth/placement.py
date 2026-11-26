@@ -57,6 +57,7 @@ class BoardSpec:
     min_track_mm: float = None
     min_clearance_mm: float = None
     notes: str = ""
+    quantity: int = None               # boards per order: bom.stock needs parts per board x quantity (default 5)
 
     def as_dict(self):
         d = {k: v for k, v in self.__dict__.items() if v not in (None, [], "")}

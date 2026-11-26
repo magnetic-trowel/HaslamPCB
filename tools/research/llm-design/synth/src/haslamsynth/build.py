@@ -167,6 +167,9 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
             findings.append(Finding("bom.no_lcsc", "warning",
                                     f"{len(left)} generic parts without an LCSC number (run `haslamsynth jlc`): "
                                     + ", ".join(r for r, _ in left[:12]) + (" ..." if len(left) > 12 else "")))
+        # stock vs parts per board x quantity, and setup fees, from the same cache (FRICTION F6, F44)
+        jlc.stock_findings(d, Path(design_path).resolve().parent / "jlc.json",
+                           lambda chk, sev, msg, objs=(): findings.append(Finding(chk, sev, msg, list(objs))))
     # fab minimums from the finest pitch when the design leaves them unset (haslamsynth.layout)
     from . import layout as LY
     if d.board_spec is not None and fplibs:
