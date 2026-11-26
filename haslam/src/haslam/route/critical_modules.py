@@ -60,6 +60,13 @@ class Module:
 DT_MAX_K = 10.0           # IPC-2221 temperature rise (K) of critical copper (high-current.md), opts dT_max_K
 
 
+def t_amb(ctx):
+    """The warmest ambient (C) the copper's heat hazards start from: the facts' requirements.thermal.T_amb_C top
+    (opts T_amb_C, critical.intent_opts), else critical_physics.T_AMB_MAX_C (50 C, excite.heat's prior's top)."""
+    from .critical_physics import T_AMB_MAX_C
+    return float(ctx.opts.get("T_amb_C", T_AMB_MAX_C))
+
+
 def dT_max(ctx, net=None):
     """The temperature rise (K) critical copper is sized for: the tightest heat.track bound of the
     intent that covers `net` (opts intent_heat, haslam.intent.uses; a stated requirements.dT_max_K when
@@ -773,14 +780,14 @@ def route_cell(ctx, m):
         if rt is not None:
             ok += 1
             t_min = min((ctx.sp.tcu.get(l_, 0.035) for l_, _, _ in rt.segs), default=t_l0)
-            hz = heat_hazard("copper_below_ipc_width", I, rt.width, t_min, dT_max(ctx, net), [net], where=where,
+            hz = heat_hazard("copper_below_ipc_width", I, rt.width, t_min, dT_max(ctx, net), [net], t_amb=t_amb(ctx), where=where,
                              w_ipc=track_width(I, dT=dT_max(ctx, net), t_mm=t_min))
         else:
             m.notes.append(f"hop {k} ({net}): no room at its IPC-2221 width {floor:.2f} mm for {I:.2f} A; "
                            f"left to the bridge")
             m.flags.append(dict(flag="ipc_floor_unroutable", hop=k, net=net, I_A=round(I, 3),
                                 floor_mm=round(floor, 3)))
-            hz = heat_hazard("rail_left_narrow", I, max(opt, mn), t_l0, dT_max(ctx, net), [net],
+            hz = heat_hazard("rail_left_narrow", I, max(opt, mn), t_l0, dT_max(ctx, net), [net], t_amb=t_amb(ctx),
                              where=where + " (left to the bridge at the class width)", w_ipc=w_ipc)
         if hz is not None:
             m.hazards.append(hz)
@@ -966,7 +973,7 @@ def _via_array(ctx, m, T, side):
         n = len(m.vias[key])
         if n < need:
             ref = getattr(ctx.fp.get(t.fp), "ref", t.fp)
-            hz = via_hazard(I, n, need, drill, plating, dT_max(ctx, net), [ref, net],
+            hz = via_hazard(I, n, need, drill, plating, dT_max(ctx, net), [ref, net], t_amb=t_amb(ctx),
                             where=f"{m.id} return vias at {ref} pad {t.pad}", per_via_a=per_via)
             if hz is not None:
                 m.hazards.append(hz)

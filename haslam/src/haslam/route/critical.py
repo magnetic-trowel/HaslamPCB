@@ -115,6 +115,12 @@ def intent_opts(intent):
     req = intent.get("requirements") or {}
     stated = {k: float(req[k]) for k in ("dT_max_K", "drop_share") if req.get(k) is not None}
     out.update(stated)
+    ta = (req.get("thermal") or {}).get("T_amb_C")
+    if ta is not None:
+        # the warmest ambient the facts state: the copper's heat hazards start there (critical_modules.t_amb), not at
+        # the fixed 50 C, which read a track that blocks at a stated 85 C as a warning
+        from haslam.intent.facts import interval
+        out["T_amb_C"] = float(interval(ta, "facts.requirements.thermal.T_amb_C")[2])
     if stated and (out.get("intent_heat") or out.get("intent_drop")):
         out["intent_req"] = stated       # a term's bound on a net is taken only where it is the tighter
     return out

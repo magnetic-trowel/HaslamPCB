@@ -1508,3 +1508,18 @@ def test_module_stage_never_lays_zero_width_copper(tmp_path, monkeypatch):
     assert tracks
     for it in tracks:
         assert it.width >= s.space.width_limits(it.net, next(iter(it.layers)))[0] - 1e-9 > 0, it.owner
+
+
+def test_the_copper_heat_hazards_start_from_the_stated_ambient():
+    """route.critical_physics' heat and via hazards started at a fixed 50 C whatever the facts stated: 2 A on a 0.25 mm
+    1 oz track (65 K rise) was a warning at 50 C but blocks at a stated 85 C (150 C > the laminate's 130 C)."""
+    from types import SimpleNamespace as NS
+
+    from haslam.route import critical_modules as CM
+    from haslam.route.critical import intent_opts
+    from haslam.route.critical_physics import T_AMB_MAX_C, heat_hazard
+    opts = intent_opts({"requirements": {"thermal": {"T_amb_C": [-40, 85]}}})
+    assert opts["T_amb_C"] == 85.0
+    assert CM.t_amb(NS(opts=opts)) == 85.0 and CM.t_amb(NS(opts={})) == T_AMB_MAX_C
+    assert heat_hazard("x", 2.0, 0.25, 0.035, 10, ["N"], t_amb=85.0)["severity"] == "block"
+    assert heat_hazard("x", 2.0, 0.25, 0.035, 10, ["N"])["severity"] == "warn"
