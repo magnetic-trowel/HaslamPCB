@@ -363,7 +363,10 @@ def test_a_negative_bus_is_rated_and_bounded_as_its_magnitude():
         assert (u_n, p_n) == (u_p, p_p)
         h_n = HA.overshoot_hazard("cell:x", ["U1"], [val], [30.0])
         h_p = HA.overshoot_hazard("cell:x", ["U1"], [dict(val, V_V=12.0)], [30.0])
-        assert h_n is not None and h_n == h_p and h_n["evidence"]["peak_V"] == 42.0
+        # the same severity, code and limits; the peak keeps the bus's sign (the ring runs away from ground)
+        assert h_n is not None and h_n["code"] == h_p["code"] and h_n["severity"] == h_p["severity"]
+        assert h_n["evidence"]["V_abs"] == h_p["evidence"]["V_abs"] and h_n["evidence"]["peak_V"] == -42.0
+        assert h_p["evidence"]["peak_V"] == 42.0
 
 
 @pytest.mark.parametrize("V", [5.0, -5.0])
