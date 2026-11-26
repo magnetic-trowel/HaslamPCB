@@ -167,3 +167,36 @@ def test_gated_off_term_places_like_control():
             pipeline.Problem.utilization = orig
         res.append(sorted((f.ref, round(f.x, 4), round(f.y, 4), round(f.rot, 2)) for f in b.footprints))
     assert res[0] == res[1]
+
+
+def test_header_gate_switches_the_term_off_only_for_a_header_that_fits_nowhere(monkeypatch):
+    from haslam.place import crowded
+    P, st = _problem()
+    opts = {"place_chan_header_gate": 1}
+    monkeypatch.setattr(crowded, "edge_headers", lambda P: {P.mov[0]: ("x", 14, 33.0)})
+    monkeypatch.setattr(crowded, "fits_nowhere", lambda P, st, i: True)
+    w, tab, rep, _ = _channel_weight(P, st, 3.0, None, {}, None, opts)
+    assert w == 0.0 and rep["stuck_headers"] == [P.parts[P.mov[0]].ref] and rep["w_set"] == 3.0
+    monkeypatch.setattr(crowded, "fits_nowhere", lambda P, st, i: False)    # a header row with room keeps the term
+    w, tab, rep, _ = _channel_weight(P, st, 3.0, None, {}, None, opts)
+    assert w == 3.0 and rep["stuck_headers"] == []
+    monkeypatch.setattr(crowded, "fits_nowhere", lambda P, st, i: True)
+    w, *_ = _channel_weight(P, st, 3.0, None, {}, None, {})                 # the gate off: never asked
+    assert w == 3.0
+
+
+def test_header_gate_survives_a_failing_detector(monkeypatch):
+    from haslam.place import crowded
+    P, st = _problem()
+
+    def boom(P):
+        raise ValueError("no outline")
+    monkeypatch.setattr(crowded, "edge_headers", boom)
+    w, tab, rep, _ = _channel_weight(P, st, 3.0, None, {}, None, {"place_chan_header_gate": 1})
+    assert w == 3.0 and rep["stuck_headers"] == []
+
+
+def test_channel_settings_default_off():
+    from haslam.route.constraints import DEFAULTS
+    assert DEFAULTS["place_w_chan"] == 0.0
+    assert DEFAULTS["place_chan_util_gate"] == 0 and DEFAULTS["place_chan_header_gate"] == 0
