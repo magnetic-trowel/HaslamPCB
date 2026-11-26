@@ -5,7 +5,12 @@
 Scope: verdicts of two pre-registered A/Bs on cells-first hot-loop routing: hotloop-sw round 4 (the choose-better portfolio P and the fixed cells-first C against the default N) and the inverting-cell A/B (`inverters`). Not here: the hot-loop design and rounds R1–R5 → [haslam-hot-loops](haslam-hot-loops.md); the restart portfolio's mechanism → [haslam-restart-portfolio](haslam-restart-portfolio.md); hot-loop rules → [hot-loops](../../topics/rules/power/hot-loops.md).
 Keys: hotloop-sw, round 4, hotloop-sw-r4, hotloop-sw-r4c, choose-better portfolio, alt-env, tiebreak, cellquote, cells-first, HASLAM_HOTLOOP_CELLS, hotloop_cell_kinds, partial cell, lost connection, inverting cell, HASLAM_CELLS_INVERTING, KAE_CELLS_INVERTING, inverters-fa046fe, return net ret, dual-rail, inverting buck
 
-**Status:** both decided "not adopted". Cells-first stays opt-in (`HASLAM_HOTLOOP_CELLS=1`); P does not become the default; `HASLAM_CELLS_INVERTING` stays off in the router. Code: cells-first on branch `hotloop-cells2` (d78e3291), inverting cells on `m1-signed-bus` (fa046fe7 / a5a12931 / bc16cabe); neither is on main yet.
+**Status:** open: the physics gains are real, and the cases that fail are being fixed. Neither change is adopted as tested: cells-first stays opt-in (`HASLAM_HOTLOOP_CELLS=1`), P is not yet the default, and `HASLAM_CELLS_INVERTING` stays off in the router. The failures have known causes on a few boards, not a loss of the gain:
+- partial cells kept with their copper locked (arvsom, nekoink);
+- a cell-kind filter that ran after routing (kestrel; fixed in the port, commit 27637b39);
+- inverter hops left unlaid or crowding completion (hv-probe, hvdc, glider, scopetrex).
+
+Fixes for these causes, with a new pre-registered re-test, are in progress on branch `physics/cells-robust` (experiment `cells-robust`). Code: ported to the new names as `physics/hotloop-cells` (on `physics/signed-rails`, on `physics/quick-physics`); originally `hotloop-cells2` (d78e3291) and `m1-signed-bus` (fa046fe7 / a5a12931 / bc16cabe).
 **Plans** (pre-registered, pre-rename paths): hotloop-sw `tools/kaeres/experiments/hotloop-sw/PLAN.md` § "Round 4" on `route-finish-ab` (2026-11-24); inverters `tools/kaeres/experiments/inverters/PLAN.md` on `m1-signed-bus`.
 **Earlier rounds:** [round 1](../../../bench/results/2026-11-19-hotloop-sw.md), [round 2](../../../bench/results/2026-11-22-hotloop-sw-round2.md), [round 3](../../../bench/results/2026-11-24-hotloop-sw-round3.md) (C‴ passes the gates; dense boards lose connections; not default).
 **Run folders** (benchmark host): `~/haslam-baselines/experiments/{hotloop-sw-r4-d78e329,hotloop-sw-r4c-d78e329,inverters-fa046fe}/VERDICT.md`, with the analysis scripts and their outputs.
