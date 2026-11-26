@@ -697,3 +697,19 @@ def test_alt_env_refuses_a_command_that_sets_the_same_variable(tmp_path):
         pass                    # no summary.json: nothing ran
     work = tmp_path / "work" / "restarts"
     assert not (work / "summary.json").exists() and not list(work.glob("a0"))
+
+
+def test_alt_final_both_gives_the_other_arm_a_final_pass_and_keeps_the_better(tmp_path):
+    """cells-robust2, nekoink: the paired portfolio kept arm B on its better pre-final rank, and only B's board got the
+    final pass, which ended worse than arm A's (the method alone) would have. With --alt-final-both A's best gets a
+    final pass too: here B leads before the passes (1 open against 3), A's final closes all and B's leaves 2."""
+    att = "echo \"(kicad_pcb OPEN=${OPENS:-3} arm=${HL:-A})\" > @OUT@"
+    fin = "if [ \"${HL:-A}\" = B ]; then echo '(kicad_pcb OPEN=2 final=B)' > @OUT@; else echo '(kicad_pcb OPEN=0 final=A)' > @OUT@; fi"
+    extra = ["--parallel", "2", "--max-attempts", "4", "--alt-env", "HL=B OPENS=1", "--alt-paired"]
+    r, out, summary = _run(tmp_path, att, fin, extra=extra + ["--alt-final-both"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "final=A" in out.read_text()
+    assert [d["k"] for d in summary["attempt_log"] if not isinstance(d["k"], int)] == ["final", "final-other"]
+    (tmp_path / "plain").mkdir()
+    r2, out2, s2 = _run(tmp_path / "plain", att, fin, extra=extra)
+    assert "OPEN=1" in out2.read_text() and "arm=B" in out2.read_text()   # B's final (2 open) was no better: B kept

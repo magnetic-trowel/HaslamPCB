@@ -1092,6 +1092,9 @@ def main():
                     help="with --alt-env: each arm runs the method's whole schedule (its own attempts, seeds, budgets "
                          "and resumes, as without --alt-env) side by side, twice --parallel attempts at once, so arm A "
                          "matches the method alone and arm B pairs with it seed for seed (about twice the CPU)")
+    ap.add_argument("--alt-final-both", action="store_true",
+                    help="with --alt-paired and --final: the other arm's best board gets a final pass too, and the "
+                         "better of the two passes' boards is kept (one more --final of work)")
     ap.add_argument("--alt-guard", default="",
                     help="with --alt-env: command (@IN@, @OUT@: JSON with 'refs', part references) run once on the "
                          "input; arm B's board never replaces arm A's that leaves fewer connections open at those "
@@ -1362,6 +1365,28 @@ def main():
         if fin.get("kept"):
             best = fin
             publish(best["out"], out)
+    if paired and a.alt_final_both and a.final and best is not None and best.get("arm"):
+        # --alt-final-both: the other arm's best board gets its own final pass, and the two passes' boards are
+        # judged as attempts are (rank, guard, tie-break). Only the kept arm's board had one: nekoink in
+        # cells-robust2 kept arm B at 97 open before the pass, where arm A's lineage, N's own, ends at 92 after it
+        other = arm_best.get("A" if best.get("arm") == "B" else "B")
+        if other is not None and other.get("rank") is not None and tuple(other["rank"][:2]) != (0, 0) and not TERM:
+            b2 = work_final_s(a) if WORK else max(20.0, end - time.monotonic() - FINAL_JUDGE_SLACK * judge_est - 10.0)
+            f2 = _one_pass(a, "final-other", a.final, other, inp, base, wd, end, b2, judge_est, meter, stop, cpu_s,
+                           (b0 or {}).get("overlaps", ()), keep_equal=False)
+            if f2 is not None:
+                judge_cpu += f2.pop("judge_cpu_s", 0.0)
+                judge_wall += f2.pop("judge_wall_s", 0.0)
+                cand = f2 if f2.get("kept") else other       # the pass's board, or its source when no better
+                f2["kept"] = False
+                if better(a, cand, best, tb_cache, ties):
+                    log(f"final pass on arm {other.get('arm')}'s #{other['k']}: {cand.get('rank')} beats the kept "
+                        f"{best.get('rank')}")
+                    best = cand
+                    if cand is f2:
+                        f2["kept"] = True
+                    publish(best["out"], out)
+                done.append(f2)
     cz, cz_hazards = None, []
     if a.clear:
         tc = time.monotonic()
