@@ -742,6 +742,13 @@ def fr_telemetry(log_path):
     return out
 
 
+def relations_summary(log_path):
+    """The intent relations an attempt's report measured on its board (haslam.joint.cli's and haslam place's
+    "relations"): {n, met, unmet, conflicts}, {} when it reports none (F24)."""
+    sm = ((_last_json(log_path).get("relations") or {}).get("summary") or {})
+    return {k: sm[k] for k in ("n", "met", "unmet", "conflicts") if k in sm}
+
+
 def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, stop, cpu_s, base_pairs, keep_equal):
     """Run `command` once on the kept board (in wd/kind) with `b` seconds, judge its board and say
     whether it replaces the kept one: when KiCad ranks it better, or (keep_equal) no worse."""
@@ -1233,6 +1240,8 @@ def main():
             info.update(rc=p.returncode, rank=rank)
             if (fr := fr_telemetry(info["out"].parent / "log")):
                 info["fr"] = fr
+            if (rs := relations_summary(info["out"].parent / "log")):
+                info["relations"] = rs
             if p.returncode:
                 info["failure"] = attempt_failure(info["out"].parent / "log")
             if sh is not None:
@@ -1333,6 +1342,8 @@ def main():
     summary = dict(work, attempt_log=[{k_: (v["id"] if k_ == "cand" else v) for k_, v in d.items()
                                        if k_ not in ("out", "t", "charge", "dead_at")}
                                       for d in done])
+    if best and best.get("relations"):
+        summary["relations"] = best["relations"]          # the kept board's intent relations (F24)
     if sh is not None:
         summary["halving"] = sh.summary()
     if alt:

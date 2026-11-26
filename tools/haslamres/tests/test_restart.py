@@ -620,3 +620,13 @@ def test_canonical_copper_order_reads_a_net_name_with_an_unbalanced_parenthesis(
         out = p.read_text()
         assert out.count("(segment") == 2 and out.count('Net-(U2-PA13(JTMS)') == 2 and out.rstrip().endswith(")")
         assert out.index("(start 0 0)") < out.index("(start 1 1)")         # sorted by content
+
+
+def test_relations_summary_reads_the_attempts_report(tmp_path):
+    """F24: an attempt's measured intent relations (the joint loop's report) reach summary.json."""
+    log = tmp_path / "log"
+    rel = dict(summary=dict(n=3, met=2, unmet=["r"], conflicts=[], measured_only=[]), rows=[])
+    log.write_text("progress\n" + json.dumps(dict(status="ok", relations=rel)) + "\n")
+    assert restart.relations_summary(log) == dict(n=3, met=2, unmet=["r"], conflicts=[])
+    log.write_text(json.dumps(dict(status="ok")) + "\n")
+    assert restart.relations_summary(log) == {}
