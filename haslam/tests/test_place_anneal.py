@@ -93,3 +93,14 @@ def test_channel_term_setting_is_reachable_from_joint_set():
     from haslam.route.constraints import DEFAULTS
     assert DEFAULTS["place_w_chan"] == 3.0
     assert _known_key("place_w_chan")
+
+
+def test_escape_demand_is_per_pin_not_per_pad():
+    """A QFN-16 whose exposed pad (pin 17) is drawn as 9 pads asked 9 escapes for one terminal: 50 mm of demand,
+    now 34 (16 pins + the EP, 2 mm each); an unnetted pad asks none."""
+    from types import SimpleNamespace as NS
+
+    from haslam.place.cost import escape_demand
+    pads = [NS(number=str(i), net="N") for i in range(1, 17)] + [NS(number="17", net="GND")] * 9 + [NS(number="", net="")]
+    e = escape_demand(pads, 2.0)
+    assert sum(e) == 34.0 and e[-1] == 0.0 and e[16] == 2.0 / 9

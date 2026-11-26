@@ -32,6 +32,17 @@ def _axis_weights(lo, hi, edges):
     return k0, np.maximum(w, 0.0)
 
 
+def escape_demand(pads, escape):
+    """Each pad's escape demand (mm): `escape` per pin with a net, shared over the pads of one number. Counted per pad,
+    an exposed pad drawn as 9 pads, or a SOT-223's tab beside its pin, was 9 (2) terminals to route out of: 18 mm of
+    demand in one bin for one terminal that leaves through its vias. An unnumbered pad with a net counts alone."""
+    same = {}
+    for pd in pads:
+        if pd.net and pd.number:
+            same[pd.number] = same.get(pd.number, 0) + 1
+    return [(escape / same[pd.number] if pd.number else escape) if pd.net else 0.0 for pd in pads]
+
+
 class Congestion:
     """RUDY congestion with pad blockage and pin escape, tied to an Annealer (its net pin
     lists `ann.nx`, `ann.ny` and part poses).
@@ -92,7 +103,8 @@ class Congestion:
         c = P.clr_min
         self.pad_blk, self.pad_esc = [], []
         for p in P.parts:
-            blk, esc = [], []
+            blk = []
+            esc = escape_demand(p.fp.pads, escape)
             for pd in p.fp.pads:
                 w, h = pd.size
                 if pd.shape == "circle":
@@ -101,7 +113,6 @@ class Congestion:
                     area = (w + 2 * c) * (h + 2 * c)
                 drilled = pd.kind in ("thru_hole", "np_thru_hole") or bool(pd.drill)
                 blk.append(area * (1.0 if drilled else 1.0 / layers))
-                esc.append(escape if pd.net else 0.0)
             self.pad_blk.append(np.array(blk))
             self.pad_esc.append(np.array(esc))
         for i in range(len(P.parts)):
