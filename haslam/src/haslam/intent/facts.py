@@ -125,10 +125,15 @@ def normalize(f):
     return out
 
 
-def _interval(v, what):
+def interval(v, what="value"):
+    """(typ, lo, hi) of a fact's value: a number, [lo, hi] (typical: their geometric mean, or their midpoint when lo
+    <= 0) or [lo, typ, hi]. The one reader of the value forms check_facts accepts: every consumer (haslam.excite's
+    dc, heat and ledger, haslam.intent) reads a value through it, so a form the checker passes cannot crash or be
+    dropped by one of them (dc.plan unpacked two values from a [lo, typ, hi] I_A; heat ignored a listed
+    I_sustained_A). FactsError names `what` for any other form."""
     if isinstance(v, (int, float)) and not isinstance(v, bool):
         return float(v), float(v), float(v)
-    if isinstance(v, list) and len(v) in (2, 3) and all(isinstance(x, (int, float)) for x in v):
+    if isinstance(v, list) and len(v) in (2, 3) and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
         if len(v) == 3:                          # [lo, typ, hi]: the typical operating point stated
             lo, typ, hi = (float(x) for x in v)
             if not lo <= typ <= hi:
@@ -138,6 +143,9 @@ def _interval(v, what):
         typ = math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2
         return typ, lo, hi
     raise FactsError(f"{what}: a value is a number, [lo, hi] or [lo, typ, hi], not {v!r}")
+
+
+_interval = interval
 
 
 def check_facts(f):
