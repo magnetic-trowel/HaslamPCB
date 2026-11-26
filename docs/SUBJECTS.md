@@ -605,7 +605,7 @@ Use: `grep -i '<term>' docs/SUBJECTS.md`. The first link is the likeliest main d
 - BuildCourtyardCaches: [kicad/transform-math-pitfalls#conventions-verified-against-pcbnew-1007](topics/kicad/transform-math-pitfalls.md#conventions-verified-against-pcbnew-1007)
 - bulk cap: [rules/power/motor-drivers#motor-driver-checks-to-emit](topics/rules/power/motor-drivers.md#motor-driver-checks-to-emit)
 - bump assignment: [routing/cross-domain-routing-transplants#other-physical-design-domains](topics/routing/cross-domain-routing-transplants.md#other-physical-design-domains)
-- bundle: [ideas/original/system-loop#s1-corridor-contract-between-placement-and-routing--novel-combination](ideas/original/system-loop.md#s1-corridor-contract-between-placement-and-routing--novel-combination); [placement/llm-relations#magnitudes](topics/placement/llm-relations.md#magnitudes)
+- Bundle: [placement/llm-relations#magnitudes](topics/placement/llm-relations.md#magnitudes); [ideas/original/system-loop#s1-corridor-contract-between-placement-and-routing--novel-combination](ideas/original/system-loop.md#s1-corridor-contract-between-placement-and-routing--novel-combination)
 - buried HV: [ideas/physics-first/thermal-hv-mfg](ideas/physics-first/thermal-hv-mfg.md); [physics/hv-and-manufacturing-physics](topics/physics/hv-and-manufacturing-physics.md)
 - bury the victim: [ideas/physics-first/lens-sy#c-nodes-and-loops-once-the-plane-breaks-duality](ideas/physics-first/lens-sy.md#c-nodes-and-loops-once-the-plane-breaks-duality)
 - bus detector: [research/routing/bus-yardstick-2611](research/routing/bus-yardstick-2611.md)

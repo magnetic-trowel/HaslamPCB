@@ -33,7 +33,7 @@ Effect on solar-small: the design's `d.place.near` relations and the inferred de
 | `sections` | `objective.evaluate`, `pnr.__init__` via `sections.apply` | not written by haslamsynth |
 | `relations` (new) | `circuit/brief.py:build` (`intent/relations.py:for_brief`) → `place/relations.py:from_brief` → `Bundle.rules` → `place/anneal.py`, `place/engine.py` (P, joint windows `joint/replace.py`); oracle `Bundle.status` (`python -m haslam.intent relations`) | **wired** ([relations-unified](../placement/relations-unified.md)) |
 | `relations[].category` | `place/relations.py:Bundle.full_weight` (`safety` keeps full weight against physics), `Bundle.hazards` (`safety` blocks unmet) | kept; haslamsynth writes none |
-| `relations[].requested` (bool) | `place/relations.py:Bundle.full_weight`: an explicit request of the user's keeps full weight against physics ([rule](../placement/llm-relations.md#physics-against-relations-who-keeps-full-weight)) | new; write it only for a relation the user asked for specifically; haslamsynth writes none |
+| `relations[].requested` (bool) | `place/relations.py:Bundle.full_weight`: an explicit request of the user's keeps full weight against physics, label-term pulls included ([rule](../placement/llm-relations.md#physics-against-relations-who-keeps-full-weight)) | new; write it only for a relation the user asked for specifically; haslamsynth writes none |
 
 ## A3. Terms
 

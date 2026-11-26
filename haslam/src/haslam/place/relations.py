@@ -551,8 +551,7 @@ class Bundle:
                     self.pins[u] = (x.place.geom, x.spec.get("facing", "out"), x.id, x.place.edge)
                     x.enforced, x.how = "hard", f"pinned on edge:{x.place.edge}, facing {x.spec.get('facing', 'out')}"
                 elif x.place.edge != "nearest":
-                    self.anchors.append((x.id, u, ("band", x.place.edge, self.edge_mm(x)),
-                                         self.weight(x.strength, [u], x)))
+                    self.anchors.append((x.id, u, ("band", x.place.edge, self.edge_mm(x)), x))
                     x.enforced, x.how = "soft", f"pulled into the {x.place.edge} edge band (label term)"
                 else:
                     x.enforced, x.how = "measured only", "a soft on_edge to the nearest edge is not optimized"
@@ -561,7 +560,7 @@ class Bundle:
                 for u in x.members:
                     regions_by.setdefault(u, []).append(x)
                 for u in movers:
-                    self.anchors.append((x.id, u, ("box", x.place.geom.bounds), self.weight(x.strength, [u], x)))
+                    self.anchors.append((x.id, u, ("box", x.place.geom.bounds), x))
                 x.enforced = "soft"
                 x.how = "label-term pull into the region's box" + (
                     "; required is placed soft until hard regions are built (phase 2)" if x.strength == "required"
@@ -570,7 +569,7 @@ class Bundle:
                 fixed_b = x.b.kind == "label" or all(by[u].locked or u in self.hold for u in x.b.parts)
                 mov_a = [u for u in x.a.parts if not by[u].locked and u not in self.hold]
                 if fixed_b and len(mov_a) == 1:
-                    self.anchors.append((x.id, mov_a[0], ("near", x), self.weight(x.strength, mov_a, x)))
+                    self.anchors.append((x.id, mov_a[0], ("near", x), x))
                     x.enforced, x.how = "soft", "label-term pull toward " + x.b.name
                 elif len(x.a.parts) == 1 and len(x.b.parts) == 1 and x.b.kind in ("part", "pins") and mov_a + [
                         u for u in x.b.parts if not by[u].locked and u not in self.hold]:
@@ -664,12 +663,20 @@ class Bundle:
                                    "drop one")
 
     # -------------------------------------------------------------- hooks (need the Problem)
+    def _anchors(self):
+        """The label-term pulls (rid, uuid, spec, weight, relation), heaviest first. Weighed here, not at compile,
+        so the physics demotion and its safety/requested exception (weight) apply as to every other
+        relation: call after set_physics."""
+        ws = [(rid, u, spec, self.weight(x.strength, [u], x), x) for rid, u, spec, x in self.anchors]
+        return sorted(ws, key=lambda t: -t[3])
+
     def anchors_for(self, P):
         """Label-term targets {part index: ([(X, Y) per rotation], (rx, ry) cells, weight)}: a part pulled
-        by several relations takes the heaviest (the others stay measured: the oracle shows them)."""
+        by several relations takes the heaviest (the others stay measured: the oracle shows them).
+        Weights follow relations_vs_physics, so set_physics must come first (pipeline._place_rung)."""
         by = {p.uuid: p for p in P.parts}
         out, src = {}, {}
-        for rid, u, spec, w in sorted(self.anchors, key=lambda t: -t[3]):
+        for rid, u, spec, w, x in self._anchors():
             p = by.get(u)
             if p is None or not p.movable or p.i in out:
                 if p is not None and p.i in out:
@@ -680,7 +687,9 @@ class Bundle:
                 continue
             out[p.i] = (tg, r, float(w))
             src[p.i] = rid
-            self.applied.setdefault(rid, []).append(f"{p.ref}: pulled (w {w:g})")
+            demoted = w < float(self.set[f"rel_w_{x.strength}"])
+            self.applied.setdefault(rid, []).append(
+                f"{p.ref}: pulled (w {w:g}" + ("; weak: physics prices it)" if demoted else ")"))
         return out
 
     def _target(self, P, p, spec):
@@ -739,7 +748,7 @@ class Bundle:
         or a fixed part, a region): the pin takes the edge spot nearest that point. The pull itself
         cannot act on a pinned part, so without this the two relations never meet together."""
         out = {}
-        for rid, u, spec, w in sorted(self.anchors, key=lambda t: -t[3]):
+        for rid, u, spec, _w, _x in self._anchors():
             if u not in self.pins or u in out:
                 continue
             if spec[0] == "box":

@@ -276,6 +276,50 @@ def test_safety_and_requested_relations_keep_their_weight_against_physics(board,
     assert r0["conflicts"][0]["winner"] == "physics" and "full_weight" not in r0
 
 
+@pytest.mark.parametrize("mark, why", [({}, None), (dict(category="safety"), "safety"),
+                                       (dict(requested=True), "requested")])
+def test_label_term_pulls_follow_the_physics_rule(board, brief, mark, why):
+    """Label-term pulls (region, soft on_edge, near a fixed part) are weighed after set_physics, like
+    every other relation: on a part the place terms price they weigh as weak, unless safety or requested;
+    on a part no place term prices they keep their strength. Before set_physics nothing is demoted."""
+    from types import SimpleNamespace
+
+    from haslam.place.problem import Problem
+    P = Problem.build(board)
+    i = next(p.i for p in P.parts if p.ref == "U1")
+    structs = [SimpleNamespace(src=dict(id="cell:buck:U1"), kind="commutation_cell", members={i})]
+    rels = [_rel(id="r", kind="region", members=["U1"], region="region:se", strength="strong", **mark),
+            _rel(id="e", kind="on_edge", part="U1", edge="edge:south", strength="medium", **mark),
+            _rel(id="n", kind="near", a="U1", b="U6", strength="strong", **mark),
+            _rel(id="free", kind="region", members=["U7"], region="region:sw", strength="strong")]
+    bun = _bundle(board, brief, *rels)
+    assert {a[0] for a in bun.anchors} == {"r", "e", "n", "free"}
+    w0 = {a[0]: a[3] for a in bun._anchors()}
+    assert w0 == dict(r=3.0, e=1.0, n=3.0, free=3.0)        # struct_parts unknown yet: own strength
+    bun.set_physics(P, structs)
+    w = {a[0]: a[3] for a in bun._anchors()}
+    keep = why is not None
+    assert w == dict(r=3.0 if keep else 0.3, e=1.0 if keep else 0.3, n=3.0 if keep else 0.3, free=3.0)
+    pulls = bun.anchors_for(P)
+    j = next(p.i for p in P.parts if p.ref == "U7")
+    assert pulls[i][2] == (3.0 if keep else 0.3) and pulls[j][2] == 3.0
+    assert bun.applied["r"] == [f"U1: pulled (w {3 if keep else 0.3:g}" + (")" if keep else "; weak: physics prices it)")]
+    assert bun.applied["n"] == ["U1: pulled by r instead"]       # r is first among equals and heaviest
+    assert not any("weak" in a for a in bun.applied["free"])
+    # status: unmet, the pulled part yields to physics, or keeps full weight and ties
+    row = {r["id"]: r for r in bun.status(board)["rows"]}["r"]
+    assert row["met"] is False
+    c = row["conflicts"][0]
+    if keep:
+        assert row["full_weight"] == why and "yielded_to" not in row and c["winner"] == "tie"
+    else:
+        assert row["yielded_to"] == ["cell:buck:U1"] and c["winner"] == "physics" and "full_weight" not in row
+    # relations_vs_physics 'tie': no demotion at all
+    tie = _bundle(board, brief, *rels, opts=dict(relations_vs_physics="tie"))
+    tie.set_physics(P, structs)
+    assert {a[0]: a[3] for a in tie._anchors()} == w0
+
+
 def test_requested_is_a_boolean():
     with pytest.raises(OB.IntentError, match="requested is true"):
         V.check([dict(id="a", kind="near", a="U1", b="U2", requested="yes", why="x")])
