@@ -332,6 +332,7 @@ class _Model:
         items = {(kind, side): ([], []) for kind in ("cy", "cu") for side in (0, 1)}
         edge_groups = {}
         cu_groups = {}
+        kin_groups = {}         # hard keep-ins (Problem.set_keep_in): {keep-in: [(courtyard box um, literal)]}
 
         def window(rects):
             """Grid origins (a, b, c, d) where `rects` (um, relative) lie inside the outline's box."""
@@ -396,6 +397,9 @@ class _Model:
                             for ru in disjoint([_um(r) for r in mine]):
                                 g[0].append(m.NewOptionalFixedSizeIntervalVar(sx + ru[0], ru[2] - ru[0], lt, ""))
                                 g[1].append(m.NewOptionalFixedSizeIntervalVar(sy + ru[1], ru[3] - ru[1], lt, ""))
+                t = getattr(P, "kin", {}).get(i)
+                if t is not None:
+                    kin_groups.setdefault((i, t), []).append((_um(P.parts[i].rots[k].kin_mm), lt))
                 if "edge" in drop:
                     continue
                 # the edge: the part's boxes against the outside only (one NoOverlap2D per part, or per
@@ -445,6 +449,18 @@ class _Model:
             for (i, side, net), (xs, ys) in cu_groups.items():
                 f = fx[(side, net)]
                 m.AddNoOverlap2D(xs + [a for a, _ in f], ys + [b for _, b in f])
+        for (i, t), its in kin_groups.items():
+            # a part with a hard keep-in: its courtyard box against everything outside the keep-in
+            g0 = P.kin_geom[t]
+            x0, y0, x1, y1 = P.outline.bounds
+            out_k = box(min(x0, g0.bounds[0]) - 5.0, min(y0, g0.bounds[1]) - 5.0, max(x1, g0.bounds[2]) + 5.0,
+                        max(y1, g0.bounds[3]) + 5.0).difference(g0)
+            ok_ = [(m.NewFixedSizeIntervalVar(ru[0], ru[2] - ru[0], ""), m.NewFixedSizeIntervalVar(ru[1], ru[3] - ru[1], ""))
+                   for ru in disjoint([_um(r) for r in cover_rects(out_k)])]
+            sx, sy = self.X[i] * G + OX, self.Y[i] * G + OY
+            xs = [m.NewOptionalFixedSizeIntervalVar(sx + ru[0], max(1, ru[2] - ru[0]), lt, "") for ru, lt in its]
+            ys = [m.NewOptionalFixedSizeIntervalVar(sy + ru[1], max(1, ru[3] - ru[1]), lt, "") for ru, lt in its]
+            m.AddNoOverlap2D(xs + [a for a, _ in ok_], ys + [b for _, b in ok_])
         if "edge" not in drop and edge_groups:
             ox = [(m.NewFixedSizeIntervalVar(ru[0], ru[2] - ru[0], ""), m.NewFixedSizeIntervalVar(ru[1], ru[3] - ru[1], ""))
                   for ru in disjoint([_um(r) for r in outside])]
@@ -694,7 +710,11 @@ def repack(P, st, time_s=30.0, seed=0, log=None, levels=LEVELS, max_parts=MAX_PA
         new = _check(E)
         att.update(findings=len(new), by_type=by_type(new), edge_waived=model.waived,
                    moved=sorted(P.parts[i].ref for i in S if poses[i] != saved[i]))
-        if len(new) < len(found):
+        kin_bad = [P.parts[i].ref for i in S if hasattr(P, "region_cells")
+                   and P.region_cells(i, int(st.X[i]), int(st.Y[i]), int(st.K[i]))]
+        if kin_bad:
+            att["keep_in_broken"] = kin_bad[:12]
+        if len(new) < len(found) and not kin_bad:
             att["kept"] = True
             rep["kept"] += 1
             found = new

@@ -104,7 +104,8 @@ def _overlaps(rects):
 def grid_violations(st, parts=None):
     """Grid-level violations of movable parts: {part: [reason, ...]}.
 
-    Reasons: ('overlap', other part), ('obstacle', why), ('outline', cells outside)."""
+    Reasons: ('overlap', other part), ('obstacle', why), ('outline', cells outside), ('region', cells
+    of its courtyard box outside its hard keep-in, Problem.set_keep_in)."""
     P = st.P
     mov = [i for i in (parts if parts is not None else P.mov)]
     out = {}
@@ -133,4 +134,7 @@ def grid_violations(st, parts=None):
         n = P.outside_cells_all(X, Y, P.parts[i].rots[st.K[i]].g_boards)
         if n:
             out.setdefault(i, []).append(("outline", n))
+        n = P.region_cells(i, X, Y, int(st.K[i])) if hasattr(P, "region_cells") else 0
+        if n:
+            out.setdefault(i, []).append(("region", n))
     return out

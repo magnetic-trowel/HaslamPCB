@@ -307,3 +307,15 @@ def part_arrays(p, ks=None):
             brd[k, m] = b
         brd_n[k] = len(bs)
     return own, own_n, opp, opp_n, brd, brd_n
+
+
+def with_rects(brd, brd_n, extra):
+    """(brd, brd_n) of part_arrays with one more board rectangle per rotation (extra[k])."""
+    nk, mb, _ = brd.shape
+    out = np.zeros((nk, mb + 1, 4), np.int64)
+    out[:, :mb] = brd
+    n = brd_n.copy()
+    for k in range(nk):
+        out[k, n[k]] = extra[k]
+        n[k] += 1
+    return out, n
