@@ -3,16 +3,17 @@
 # Brief to board: the pipeline for an LLM agent
 
 Scope: the steps, commands, gates and failure modes for taking a new design from a person's brief to a placed, routed, physics-scored KiCad board with this repo's tools, and the gaps still open. Not here: haslamsynth's API and checks -> [synth README](../../../tools/research/llm-design/synth/README.md); the intent document's semantics -> [intent-driven-objectives](../architecture/intent-driven-objectives.md); the queue -> [haslamq README](../../../tools/haslamq/README.md).
-Keys: brief to board, new design, end-to-end pipeline, haslamsynth, sch_to_board, haslam_intent.json, board intent file, facts, run_ab, eval_ab, solar-small, gates, smoke run, physics scoring
+Keys: brief to board, new design, end-to-end pipeline, haslamsynth, sch_to_board, haslam_intent.json, board intent file, facts, run_ab, eval_ab, solar-small, bme280-array, gates, smoke run, placement smoke, layout.sh, physics scoring, fab_outputs, silk_refs, silkscreen, render.sh, kicad-cli pcb render, HASLAM_KICAD_PYTHON, friction log
 
 **Results** (solar-small, 2026-11-17..20, 68 parts, 2 layers)
 - First end-to-end pass: schematic clean on the first build; the first routed board took four queue rounds, each lost to a different gap (§P).
 - 80 × 60 mm at 60 % courtyard density: 21 open connections, 10 of them caused by generated rules; 120 × 90 mm (27 %) with per-net-pair spacing: the default recipe routed clean in 22 min.
 - Without facts haslam's brief guessed every converter wrong (V unknown, f_sw 2 MHz for a 500 kHz part, I 1.2 A for 0.05-0.6 A); with `<board>.haslam_intent.json` all three cells read the designer's values.
+- bme280-array (2026-11-26, 90 parts, fresh container): 0 DRC errors / 0 unconnected after three 33-min layout rounds, two of them lost to a thermal floorplan the placer did not enforce (§P2).
 
 ## S. Stages, commands and outputs
 
-Environment for every stage: `source ~/.cache/haslambench/env.sh` (sets `HASLAM_KICAD_WRAP`), `export APPTAINER_BIND=<work dir root>`, a haslam venv with `haslam[fast]` and `PYTHONPATH=<repo>/haslam/src`, the haslamsynth venv (`synth/README.md`), `KICAD10_SYMBOL_DIR`/`KICAD10_FOOTPRINT_DIR` pointing into the KiCad image.
+Environment for every stage: `source ~/.cache/haslambench/env.sh` (written by `bench/scripts/setup.sh`: `HASLAM_KICAD_WRAP` for KiCad in a container, or `HASLAM_KICAD_PYTHON` for apt KiCad, plus `KICAD10_SYMBOL_DIR`/`KICAD10_FOOTPRINT_DIR`), a haslam venv with `haslam[fast]` and `PYTHONPATH=<repo>/haslam/src`, the haslamsynth venv (`synth/README.md`); container KiCad only: `export APPTAINER_BIND=<work dir root>`. `haslambench doctor` checks KiCad, its Python, the libraries, the KiCad version and the Freerouting pin. `$KPY` below: `$HASLAM_KICAD_PYTHON`, else `$HASLAM_KICAD_WRAP python3` (the PATH `python3` may lack `pcbnew`).
 
 | # | Stage | Command | Output | Gate (stop if it fails) |
 |---|---|---|---|---|
@@ -20,12 +21,13 @@ Environment for every stage: `source ~/.cache/haslambench/env.sh` (sets `HASLAM_
 | S2 | Circuit as code | write `designs/<slug>/parts.py`, `design.py`, custom footprints (`footprints/make_footprints.py`) | — | — |
 | S3 | Schematic and checks | `haslamsynth jlc designs/<slug>/design.py` (LCSC numbers of generic passives, network), then `haslamsynth build designs/<slug>/design.py -v` | `.kicad_sch`, `.kicad_pro`, `.kicad_dru`, `netlist.json`, `bom.csv`, `report.md`, `<slug>.haslam_intent.json` | 0 errors (incl. `rules.pin_escape`, `rules.pad_gap`), ERC clean, netlist round trip identical, intent accepted by haslam's loader; read `layout.density` |
 | S4 | Operating intent | net `v_typ=`, part-card `haslam=`, then `d.haslam.net/part/cell/cable/term(...)` for design choices (rebuilt by S3) | `<slug>.haslam_intent.json` (haslam.intent/1) | `haslam brief` shows `facts.unmatched == []` and the cells' V, I, f_sw as declared |
-| S5 | Unplaced board | `$HASLAM_KICAD_WRAP python3 synth/scripts/sch_to_board.py designs/<slug>/out designs/<slug>/board.json` | `<slug>.kicad_pcb` beside the project, with the fab's stackup (JLC standard 2-layer unless board.json `stackup` says otherwise) | `kicad-cli pcb drc --schematic-parity`: parity 0; no edge or courtyard error among the fixed parts |
-| S6 | Pre-flight | `python synth/scripts/preflight.py <board> --probe` (haslam venv, the job's environment) | PASS/FAIL/WARN per check, `blocked:` lines of a 3-minute probe | 0 FAIL; every converter a commutation cell with V, I, f_sw; read each WARN (a probe diagnosis at a wider-than-minimum track may still route) |
-| S7 | Smoke layout | one seed per arm through haslamq (`designs/solar-small/run_ab.sh ARM SEED RUN`), priority 1 | routed board, `restarts/` reports | a board written; `blocked:` lines read |
-| S8 | Physics scoring | in the layout job (`run_ab.sh` calls `eval_ab.sh`: DRC with parity, `haslam.excite.evaluate` under one intent, `haslam.intent status`) | `eval/drc.json`, `excite.json`, `status.json` | same intent file and project rules for every arm |
+| S5 | Unplaced board | `$KPY synth/scripts/sch_to_board.py designs/<slug>/out designs/<slug>/board.json` | `<slug>.kicad_pcb` beside the project, with the fab's stackup (JLC standard 2-layer unless board.json `stackup` says otherwise); every footprint library it used in the project's `fp-lib-table` | `kicad-cli pcb drc --schematic-parity`: parity 0; no edge or courtyard error among the fixed parts |
+| S6 | Pre-flight | `python synth/scripts/preflight.py <board> --probe` (haslam venv, the job's environment) | PASS/FAIL/WARN/SKIP per check; `intent.priors` (parts whose draw is a class prior); probe: relations met, connections routed / open, `blocked:` lines | 0 FAIL; every converter a commutation cell with V, I, f_sw; read each WARN (a probe diagnosis at a wider-than-minimum track may still route) |
+| S6b | Placement smoke | `python -m haslam.cli place <board> /tmp/p/<slug>.kicad_pcb --time 180` (project files beside the output, same stem) | `relations: N of M met; unmet [...]` in ~80 s | every relation that restates a brief requirement (regions, keep-aways) met; else fix the intent before S7 [M: bme280-array, F21-F28] |
+| S7 | Smoke layout | `synth/scripts/layout.sh <board> RUN/<arm>/s<seed> <seed>`, one seed per arm, through haslamq (priority 1) or, in an isolated container, directly in the background. `HASLAM_NO_INTENT=1`: lay out without the intent (A0); `HASLAM_EVAL_INTENT=F`: score every arm under one file; `HASLAM_TIME=60`: script smoke | routed `<stem>.kicad_pcb`, `work/restarts/` reports, `RESULT` (one `OK ...` / `FAILED ...` line) | exit 0 and `OK` in `RESULT` (exit 1: no board; exit 3: scoring crashed); `blocked:` lines read |
+| S8 | Physics scoring | in the layout job (`layout.sh`: DRC with parity, `haslam.excite.evaluate` under one intent, `haslam.intent status`) | `eval/drc.json`, `excite.json`, `status.json` | same intent file and project rules for every arm; `complete` true |
 | S9 | Campaign | ≥ 3 seeds per arm; `python synth/scripts/compare_ab.py RUN --md table.md` | comparison table (unconnected, DRC by type, intent tiers, term values) | effect with interval, not one seed |
-| S10 | Fabrication | `sch_to_board.py --update out ROUTED BOARD2` (fields after a part change), then `python synth/scripts/fab_outputs.py BOARD2 FABDIR` | gerber+drill zip, JLC CPL, JLC BOM, `fab-report.json` (extended parts = setup fees) | DRC after zone refill: 0 errors, 0 unconnected; every BOM line has an LCSC number |
+| S10 | Fabrication | `$KPY sch_to_board.py --update out ROUTED BOARD2` (fields after a part change), then `python synth/scripts/fab_outputs.py BOARD2 FABDIR` (runs `silk_refs.py`: references beside their parts or to F.Fab; then `render.sh`: top, bottom, isometric PNG, basic quality) | gerber+drill zip, JLC CPL, JLC BOM, `<stem>-{top,bottom,iso}.png`, `fab-report.json` (extended parts = setup fees; `silk`; `gate_warnings`) | DRC after zone refill: 0 errors, 0 unconnected; every BOM line has an LCSC number; `silk.drc_items` 0; look at the renders (3D bodies need `kicad-packages3d`: `setup.sh --3d`) |
 
 ## F. The board intent file
 
@@ -59,7 +61,7 @@ Rules for writing voltages: give switch nodes their datasheet swing (PVIN plus a
 | A1 | A0 with the intent file beside the input | yes, through the brief | 1 open (congestion), 55 min |
 | B1 | `haslam.cli place` → `haslam.em.pnr --lock` → `haslam.route.cli route` | yes (placer and pnr) | 6 open: 4 behind pnr's locked copper; pnr 2.1 h |
 
-Exact commands: `tools/research/llm-design/designs/solar-small/run_ab.sh`. `restart.py` budget: harness timeout `8000 s × √(footprints/40)`, of which `--time` is 9/40; the open-alt phase runs `parallel × time` nominal seconds and may take `4 ×` that in wall time: give haslamq a timeout ≥ 5 × `--time`.
+Exact commands: A0 and A1 for any design, `tools/research/llm-design/synth/scripts/layout.sh` (A0: `HASLAM_NO_INTENT=1`); B1, `tools/research/llm-design/designs/solar-small/run_ab.sh`. `restart.py` budget: harness timeout `8000 s × √(footprints/40)`, of which `--time` is 9/40; the open-alt phase runs `parallel × time` nominal seconds and may take `4 ×` that in wall time: give haslamq a timeout ≥ 5 × `--time`.
 
 ## P. Failures met on the way, and the check that catches each
 
@@ -75,6 +77,24 @@ Exact commands: `tools/research/llm-design/designs/solar-small/run_ab.sh`. `rest
 | P8 | XT60 polarity assumed (pad 1 = +); KiCad's footprint says pad 1 = − | caught in review | read the footprint's silkscreen and the maker's drawing |
 | P9 | pnr's copper locked: the completion router cannot rip it | 4 opens in B1 | open (§G7) |
 | P10 | committed with failing tests (the pipe hid pytest's status) | one bad commit | `pytest ... && git commit` |
+
+## P2. Failures met on bme280-array, and the check that catches each
+
+Ids are the [bme280-array friction log](../../../tools/research/llm-design/designs/bme280-array/FRICTION.md#log)'s; it has the full 49 entries.
+
+| # | Failure | Lost | Caught now by |
+|---|---|---|---|
+| F1, F16, F43 | apt KiCad: no symbol/footprint libraries; the PATH `python3` had no `pcbnew`, so S5 and S10 failed | setup steps, retries | `setup.sh` installs the libraries and writes `HASLAM_KICAD_PYTHON`; scripts honour it; `haslambench doctor` |
+| F2, F4 | no Freerouting pinned; the fork's ref named only in a README; Maven Central HTTP 429 | a build by hand | `setup.sh` builds and pins `FR_FORK_REF`; the installer retries |
+| F3 | KiCad 10.0.8, docs and drift tests written for 10.0.7 | drift tests by hand | `doctor` WARNs outside `KICAD_TESTED_VERSIONS` |
+| F18, F41 | layout scripts hard-coded solar-small and `$USER`; a crashed scoring exited 0 | 1 launch; a result found by luck | `layout.sh` (any board; exit 3 and `FAILED eval:` in `RESULT`) |
+| F21-F24, F27, F33, F42 | the thermal floorplan (power north of the slot) not enforced: `north` = northern third, no relation strength, physics demoted relations to weak, `required` regions soft, joint loop silent about relations | 2 of 3 layout rounds (~1 h) | S6b placement smoke (`relations: N of M met`); hard regions still open |
+| F35, F40 | `[lo, typ, hi]` intent values: typ dropped (6x current) or a crash in `excite/dc.py` | a 10-min evaluation | open in haslam (one shared interval parser) |
+| F36, F48 | parts without a stated draw scored as 10 mA cores: a 2 µA switch became the hottest part | misleading physics | pre-flight `intent.priors` (once `haslam.intent priors` exists) |
+| F6 | BME280: 1 in JLC stock for 16 needed | would have blocked the order | open (no stock check) |
+| F31, F45 | references left where the library put them: 32 silk_overlap + 16 silk_over_copper | unreadable assembly drawing | `fab_outputs.py` runs `silk_refs.py`; silk DRC counted and a gate warning |
+| F32 | a track bypassed the thermal bridge along the board edge | thermal intent broken quietly | copper keepouts on the edge strips (board.json); no crossing constraint yet |
+| F30 | no render step; no 3D models with apt KiCad | review by hand | `fab_outputs.py` / `render.sh`; `setup.sh --3d` |
 
 ## G. Gaps and improvements, in order of value
 
@@ -117,4 +137,5 @@ Exact commands: `tools/research/llm-design/designs/solar-small/run_ab.sh`. `rest
 ## Sources
 
 - Design and scripts: `tools/research/llm-design/designs/solar-small/` (`design.py`, `parts.py`, `board.json`, `run_ab.sh`, `eval_ab.sh`); builder `tools/research/llm-design/synth/scripts/sch_to_board.py`; facts `haslam/src/haslam/intent/facts.py`.
+- bme280-array: `tools/research/llm-design/designs/bme280-array/` (`DESIGN.md`, `FRICTION.md`, `fab/`); pipeline scripts `tools/research/llm-design/synth/scripts/` (`layout.sh`, `preflight.py`, `fab_outputs.py`, `silk_refs.py`, `render.sh`).
 - Commits on branch `solar-small`: `389702e9` (intent file), `1bad350b` (duty clip), `4976bb92` (last mile, restart output), `ae506e5d` (per-net-pair rules, fab minimums, 120 × 90 mm).

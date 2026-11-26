@@ -11,11 +11,15 @@ the saved board with `kicad-cli` under the board's own rules. Design rationale:
 ```bash
 git clone https://github.com/magnetic-trowel/HaslamPCB
 cd HaslamPCB
-bench/scripts/setup.sh          # KiCad 10 (PPA, no recommends), bench/.venv (and upstream Freerouting 2.5.0, explicit use only)
-tools/research/routing/install_freerouting_fork.sh <ref> --pin   # the Freerouting fork, pinned: the control
+bench/scripts/setup.sh          # KiCad 10 + symbol/footprint libraries, the Freerouting fork (pinned), bench/.venv
 source bench/.venv/bin/activate
-haslambench doctor
+haslambench doctor              # ok/WARN/FAIL per tool; WARN on an untested KiCad version or missing libraries
 ```
+
+What setup does, and its options:
+- KiCad with sudo on Ubuntu: `kicad kicad-symbols kicad-footprints` from the KiCad 10 PPA, no recommends; `--3d` adds `kicad-packages3d` (~5 GB; `kicad-cli pcb render` shows bare pads without it). `KICAD_APT_VERSION=10.0.8` pins the package; otherwise the PPA's newest is installed and `haslambench doctor` warns when it is not in `KICAD_TESTED_VERSIONS` (`bench/src/haslambench/tools.py`): then run `pytest haslam/tests/test_board_dru_check.py` (passed on 10.0.7 and 10.0.8) and add it.
+- `$HASLAM_HOME/env.sh` (sourced by the venv's activate script): `HASLAM_KICAD_WRAP` for the container set-up, or `HASLAM_KICAD_PYTHON` (KiCad's own Python, e.g. `/usr/bin/python3`: the PATH `python3` may be another interpreter without `pcbnew`) for a native KiCad; `KICAD10_SYMBOL_DIR`/`KICAD10_FOOTPRINT_DIR` (haslamsynth reads them) in both.
+- Freerouting: upstream 2.5.0 (explicit use only), and the magnetic-trowel fork at `FR_FORK_REF` (`06d2686`, the control of every stored baseline) built with `tools/research/routing/install_freerouting_fork.sh` and pinned in `$HASLAM_HOME/haslam-freerouting.pin`. The build needs git and network (Gradle fetches JDK 25; ~5 min) and retries rate-limited downloads; `--no-fork` skips it.
 
 **Without sudo** the same script still works:
 - KiCad runs from the official `kicad/kicad:10.0.7` image, unpacked into `~/.cache/haslambench` (~2.5 GB). It needs no root and no `/dev/fuse`.

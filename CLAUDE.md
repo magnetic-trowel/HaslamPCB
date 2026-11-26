@@ -50,6 +50,8 @@ haslambench report haslam-work/results/<run> haslam-work/results/<baseline-run>
 - Per-attempt artifacts: `haslam-work/results/<run>/<adapter>/<kind>/<id>/attempt-N/`
   (`attempt.json`, `adapter.log`, `score/drc.json`).
 - Long or heavy jobs on the shared host go through the `haslamq` queue (`tools/haslamq/README.md`), never run directly.
+  In an isolated container (no shared host, no `haslamq`, e.g. a fresh cloud session) run them directly as one
+  background command sized to the CPUs, and wait for its exit notification instead of polling.
   Results of every method on every board, with the code that made them: `tools/haslamres/README.md` (`~/haslam-baselines/boards/<id>/runs/`).
 - New methods plug in with `--command` (reads `{input}`, writes `{output}`) or a class in
   `bench/src/haslambench/adapters.py`.

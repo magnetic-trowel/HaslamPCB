@@ -30,9 +30,11 @@ haslamsynth fp 'TerminalBlock_Phoenix:.*5.08'         # search footprints; `hasl
 pytest tests                                        # KiCad tests skip without kicad-cli
 ```
 
-With KiCad from the container image (`bench/scripts/setup.sh`), `kicad-cli` runs through
-`HASLAM_KICAD_WRAP`; point `KICAD10_SYMBOL_DIR` and `KICAD10_FOOTPRINT_DIR` at the image's
-`usr/share/kicad/{symbols,footprints}`. The rules check imports `haslam.board.dru_check` (put
+`source ~/.cache/haslambench/env.sh` (written by `bench/scripts/setup.sh`) sets `KICAD10_SYMBOL_DIR` and
+`KICAD10_FOOTPRINT_DIR` (apt KiCad: `/usr/share/kicad/...`; container: the image's `usr/share/kicad/...`), and
+either `HASLAM_KICAD_WRAP` (container: `kicad-cli` and KiCad's Python run through it) or `HASLAM_KICAD_PYTHON`
+(apt: KiCad's own Python; the PATH `python3` may lack `pcbnew`). The scripts in `scripts/` that need KiCad's
+Python run as `$HASLAM_KICAD_PYTHON script.py` (else `$HASLAM_KICAD_WRAP python3 script.py`). The rules check imports `haslam.board.dru_check` (put
 `haslam/src` on `PYTHONPATH`); without it, the build runs haslamsynth's own lint only and says so.
 
 `build` exits non-zero while any unwaived error remains. Iterate until it is clean, then read
