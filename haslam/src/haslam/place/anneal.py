@@ -367,7 +367,8 @@ class Annealer:
         return tot + self._outline(i)
 
     def _outline(self, i):
-        return self.P.outside_cells_all(self.X[i], self.Y[i], self.brds[i][self.K[i]])
+        return self.P.outside_cells_all(self.X[i], self.Y[i], self.brds[i][self.K[i]]) + \
+            (self.P.region_cells(i, self.X[i], self.Y[i], self.K[i]) if hasattr(self.P, "region_cells") else 0)
 
     def _leg(self, S):
         """Legality cost of the parts in S (cells^2), each pair counted once."""

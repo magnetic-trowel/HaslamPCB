@@ -725,6 +725,12 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         board, pinned = _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log,
                                              auto=edge_mode >= 2, relations=rel)
         fixed = fixed | set(pinned)
+    if rel is not None and rel.near_pins:
+        # required near to a fixed part's pin (a decap at a locked sensor): placed first within its distance,
+        # then held like a fixed part (as an on_edge pin)
+        board, npin = _pin_near(board, brief, held, fixed, angle_step, rep, log, rel)
+        fixed = fixed | set(npin)
+        pinned = {**pinned, **npin}
     # header rows spanning a board side (Feather, ItsyBitsy, QT Py): pinned to a parallel edge,
     # then held like fixed parts (haslam.place.crowded; off by default)
     # and (place_edge_slot) every movable part whose courtyard cannot fit the board
@@ -738,9 +744,14 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     grid_step = None
 
     def build(b, frozen):
-        return Problem.build(b, grid=grid_step, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | frozen,
-                             angle_step=angle_step, severity=severity or _severity_mode(board, board_path, opts),
-                             part_rotations=rel.rotations if rel is not None else None)
+        P_ = Problem.build(b, grid=grid_step, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | frozen,
+                           angle_step=angle_step, severity=severity or _severity_mode(board, board_path, opts),
+                           part_rotations=rel.rotations if rel is not None else None)
+        if rel is not None and rel.kin:
+            # required regions: hard keep-ins every later stage honours (Problem.set_keep_in)
+            kin = P_.set_keep_in(rel.keep_in(P_))
+            rep["relations_applied"]["keep_in"] = sorted(P_.parts[i].ref for i in kin)
+        return P_
 
     P = build(board, fixed)
     # near capacity the grid's outward rounding costs the room that is missing: one step finer
@@ -1488,6 +1499,74 @@ def _pin_edge_connectors(board, brief, held, fixed, angle_step, seed, rep, log, 
         return board, {}
     by = {fp.uuid: fp.ref for fp in board.footprints}
     rep["edge_pinned"] = dict(pinned=sorted(by[u] for u in poses), failed=failed, uuids=sorted(poses))
+    return (edge_check.with_poses(board, poses) if poses else board), poses
+
+
+def _pin_near(board, brief, held, fixed, angle_step, rep, log, relations):
+    """Parts of required near relations to a fixed part (Bundle.near_pins) at the free spot nearest their
+    target that meets the relation (pad to pad or courtyard gap within its distance), on a throwaway
+    Problem with every other movable part off the board; returns (board with them moved there, {uuid:
+    pose}). A part with no such spot is left to the placer (the relation's pull, soft) and said so."""
+    from . import edge_check
+    from . import exact as exactmod
+    from .state import State
+    locked = {fp.uuid for fp in board.footprints if fp.locked}
+    want = {u: x for u, x in relations.near_pins.items() if u not in fixed and u not in locked}
+    if not want:
+        return board, {}
+    poses, failed = {}, {}
+    try:
+        P0 = Problem.build(board, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | set(fixed),
+                           angle_step=angle_step, part_rotations=relations.rotations)
+        P0.set_keep_in(relations.keep_in(P0))
+        st0 = State(P0)
+        by = {p.uuid: p for p in P0.parts}
+        E = exactmod.ExactModel(P0, st0)
+        for q in P0.mov:            # every movable part off the board: only fixed parts and pins placed so far count
+            E.set_pose(q, exactmod.PARK, exactmod.PARK, int(st0.K[q]))
+        done = []
+        for u, x in sorted(want.items(), key=lambda t: t[1].id):
+            p = by.get(u)
+            if p is None or not p.movable:
+                continue
+            tg, _r = relations._target(P0, p, ("near", x))
+            E.set_pose(p.i, tg[0][0], tg[0][1], 0)
+            S, pad = exactmod._tables(P0, st0, set(P0.mov) - set(done))
+            ks = list(range(len(p.rots)))
+            best = None
+            for k in ks:            # from the target of each rotation: the nearest grid-free spots
+                st0.X[p.i], st0.Y[p.i], st0.K[p.i] = tg[k][0], tg[k][1], k
+                for c, X, Y, kk in exactmod._candidates(P0, st0, p.i, S, pad, [k], 0.0, 400):
+                    st0.X[p.i], st0.Y[p.i], st0.K[p.i] = X, Y, kk
+                    d = relations.near_distance(x, P0, st0, p.i)
+                    if d > relations.target_mm(x) + 1e-6:
+                        continue
+                    if E.findings_at(p.i, X, Y, kk, first=True):
+                        continue
+                    key = (d, c)
+                    if best is None or key < best[0]:
+                        best = (key, X, Y, kk)
+                    break
+            if best is None:
+                failed[p.ref] = f"no clean spot within {relations.target_mm(x):.2f} mm of {x.b.name}"
+                E.set_pose(p.i, exactmod.PARK, exactmod.PARK, 0)
+                x.enforced = "soft"
+                x.how = f"label-term pull toward {x.b.name} (not pinned: {failed[p.ref]})"
+                relations.applied.setdefault(x.id, []).append(f"{p.ref}: not pinned ({failed[p.ref]})")
+                continue
+            E.set_pose(p.i, best[1], best[2], best[3])
+            done.append(p.i)
+            poses[u] = st0.pose(p.i)
+            relations.applied.setdefault(x.id, []).append(f"{p.ref}: pinned {best[0][0]:.2f} mm from {x.b.name}")
+    except Exception as e:      # noqa: BLE001 - placing without the pin beats not placing
+        rep["near_pinned"] = dict(error=f"{type(e).__name__}: {e}")
+        for x in want.values():
+            x.enforced, x.how = "soft", f"label-term pull toward {x.b.name} (pinning failed)"
+        return board, {}
+    refs = {fp.uuid: fp.ref for fp in board.footprints}
+    rep["near_pinned"] = dict(pinned=sorted(refs[u] for u in poses), failed=failed, uuids=sorted(poses))
+    if log and (poses or failed):
+        log(f"near pins: {len(poses)} placed at their fixed pin, {len(failed)} not ({', '.join(sorted(failed)[:6])})")
     return (edge_check.with_poses(board, poses) if poses else board), poses
 
 

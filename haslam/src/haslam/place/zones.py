@@ -545,8 +545,7 @@ def pin_packages(Z, P, objs, pos, min_pads=PIN_MIN, step_mm=0.5, rot_of=None):
                     break
                 xi, yi = np.unravel_index(f, key.shape)
                 Xc, Yc = int(Xs[xi]), int(Ys[yi])
-                if any(P.outside_cells_all(Xc + dx, Yc + dy, P.parts[i].rots[k].g_boards or (P.parts[i].rots[k].g_board,))
-                       for (i, dx, dy, k) in mem):
+                if any(P.part_outside(i, Xc + dx, Yc + dy, k) for (i, dx, dy, k) in mem):
                     key[xi, yi] = np.inf
                     continue
                 kk = (round(float(cost[xi, yi]), 9), float(dist[xi, yi]))

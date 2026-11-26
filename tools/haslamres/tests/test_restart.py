@@ -645,3 +645,13 @@ def test_judge_copies_keep_the_input_name_and_project_files(tmp_path):
         names = {p.name for p in d.iterdir()}
         assert {"mydesign.kicad_pcb", "mydesign.kicad_pro", "fp-lib-table"} <= names, names
         assert "board.kicad_pcb" not in names
+
+
+def test_relations_summary_reads_the_attempts_report(tmp_path):
+    """F24: an attempt's measured intent relations (the joint loop's report) reach summary.json."""
+    log = tmp_path / "log"
+    rel = dict(summary=dict(n=3, met=2, unmet=["r"], conflicts=[], measured_only=[]), rows=[])
+    log.write_text("progress\n" + json.dumps(dict(status="ok", relations=rel)) + "\n")
+    assert restart.relations_summary(log) == dict(n=3, met=2, unmet=["r"], conflicts=[])
+    log.write_text(json.dumps(dict(status="ok")) + "\n")
+    assert restart.relations_summary(log) == {}

@@ -16,6 +16,9 @@ as given; without one it is still used but marked `assumed` in the status. The r
 "forbid" rejects lengths outright (RAC's rule). `on_edge` takes a length too: how far its courtyard may
 sit from the edge (default EDGE_TOL, 1 mm).
 
+`check` fills in a missing strength with the kind's default and marks the relation `strength_default: true`
+(haslam.place.relations reads it: a datasheet length to a fixed pin defaults to strong instead).
+
 Physics wins by default (relations_vs_physics 'physics'): a soft relation on parts the place terms price
 weighs as weak. Two kinds of relation keep their own strength there (the user's rule, 2026-11-25): one
 with `category: "safety"`, and one the user asked for specifically, marked `requested: true`.
@@ -34,7 +37,7 @@ from . import units as U
 
 STRENGTHS = ("required", "strong", "medium", "weak")      # Cassowary order: each dominates the next
 MAGS = ("tight", "close", "loose")
-COMMON = ("id", "kind", "strength", "why", "source", "category", "requested", "note")
+COMMON = ("id", "kind", "strength", "why", "source", "category", "requested", "note", "strength_default")
 # kind: (required arguments, optional arguments, default strength)
 KINDS = {
     "near": (("a", "b"), ("mag",), "medium"),
@@ -209,7 +212,8 @@ def check(rels, mm_policy="sourced", defaults_off=None):
             raise _err(f"relation {rid}: edge {r['edge']!r}: use edge:north|south|east|west|nearest")
         if kind == "row" and "beside" in r and r["beside"] != "labels":
             raise _err(f"relation {rid}: row beside {r['beside']!r}: only 'labels'")
-        out.append(dict(r, strength=s))
+        # strength_default: the strength was not written (the kind's default filled in); a later check keeps it
+        out.append(dict(r, strength=s, **({"strength_default": True} if "strength" not in r else {})))
     return out
 
 
