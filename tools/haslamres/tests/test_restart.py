@@ -24,8 +24,12 @@ out = args[args.index("--output") + 1]
 board = open(args[-1]).read()
 m = re.search(r"OPEN=(\\d+)", board)
 n = int(m.group(1)) if m else 0
+f = re.search(r"FAR=(\\d+)", board)
+far = int(f.group(1)) if f else 0
 json.dump(dict(violations=[], unconnected_items=[dict(items=[dict(description=f"Pad 1 [N{i}] of U1")])
-                                                for i in range(n)]), open(out, "w"))
+                                                for i in range(n)]
+                                           + [dict(items=[dict(description=f"Pad 2 [F{i}] of U9 on F.Cu")])
+                                              for i in range(far)]), open(out, "w"))
 """
 
 
@@ -415,6 +419,50 @@ def test_the_final_pass_runs_with_the_kept_boards_arm(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     fin = summary["attempt_log"][-1]
     assert fin["k"] == "final" and fin["arm"] == "B" and "final=B" in out.read_text()
+
+
+GUARD_U1 = "python3 -c \"import json,sys; json.dump(dict(refs=['U1']), open(sys.argv[1], 'w'))\" @OUT@"
+
+
+def test_the_guard_refuses_arm_b_that_leaves_more_open_at_the_cells_parts(tmp_path):
+    """hotloop-sw round 4 (arvsom, nekoink): arm B's board has fewer open connections in all (1 against 3) but leaves
+    one open at a guarded part (U1) where arm A leaves none; with --alt-guard arm A's board is kept, without it B's."""
+    att = "echo \"(kicad_pcb OPEN=${OPENS:-0} FAR=${FARS:-3} arm=${HL:-A})\" > @OUT@"
+    r, out, summary = _run(tmp_path, att, "", extra=[
+        "--parallel", "2", "--max-attempts", "2", "--alt-env", "HL=B OPENS=1 FARS=0", "--alt-guard", GUARD_U1])
+    assert r.returncode == 0, r.stdout + r.stderr
+    cb = summary["choose_better"]
+    assert "arm=A" in out.read_text() and cb["kept_arm"] == "A" and cb["guard"] == ["U1"]
+    (t,) = [t for t in cb["ties"] if t.get("guard")]
+    assert {t["kept_guard"], t["other_guard"]} == {0, 1}
+    (tmp_path / "noguard").mkdir()
+    r2, out2, s2 = _run(tmp_path / "noguard", att, "", extra=[
+        "--parallel", "2", "--max-attempts", "2", "--alt-env", "HL=B OPENS=1 FARS=0"])
+    assert "arm=B" in out2.read_text() and s2["choose_better"]["kept_arm"] == "B"
+
+
+def test_the_guard_leaves_the_rank_to_decide_when_arm_b_is_no_worse_at_the_cells_parts(tmp_path):
+    """Arm B leaves 0 open at U1 and fewer in all: KiCad's rank keeps B, the guard records nothing."""
+    att = "echo \"(kicad_pcb OPEN=0 FAR=${FARS:-3} arm=${HL:-A})\" > @OUT@"
+    r, out, summary = _run(tmp_path, att, "", extra=[
+        "--parallel", "2", "--max-attempts", "2", "--alt-env", "HL=B FARS=1", "--alt-guard", GUARD_U1])
+    assert r.returncode == 0, r.stdout + r.stderr
+    cb = summary["choose_better"]
+    assert "arm=B" in out.read_text() and cb["kept_arm"] == "B"
+    assert not [t for t in cb["ties"] if t.get("guard")]
+
+
+def test_guard_count_reads_kicads_descriptions(tmp_path):
+    (tmp_path / "drc.json").write_text(json.dumps(dict(unconnected_items=[
+        dict(items=[dict(description="Pad 20 [Net-(L4-Pad1)] of U2 on F.Cu"), dict(description="Track [X] on F.Cu")]),
+        dict(items=[dict(description="Pad 5 [N] of U6 on F.Cu"), dict(description="Pad 1 [N] of R16 on F.Cu")]),
+        dict(items=[dict(description="Zone [GND] on B.Cu"), dict(description="Pad 3 [GND] of C1 on B.Cu")])])))
+    restart.GUARD["refs"] = {"U2", "R16"}
+    try:
+        assert restart.guard_count(dict(out=tmp_path / "board.kicad_pcb")) == 2
+        assert restart.guard_count(dict(out=tmp_path / "missing" / "b.kicad_pcb")) is None
+    finally:
+        restart.GUARD.clear()
 
 
 def test_choose_better_keeps_arm_a_when_the_tiebreak_cannot_decide(tmp_path):
