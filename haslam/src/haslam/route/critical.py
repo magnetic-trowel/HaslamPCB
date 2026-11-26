@@ -64,6 +64,10 @@ DEFAULTS = dict(
     via_array_max=8,       # with cell_via_array: vias per ground terminal at most
     cell_widest_fit=False, # a cell hop with no room at its IPC / intent width: the widest that fits, down to the
                            # class minimum, instead of leaving it to the bridge at the class width (haslam.route.hotloop)
+    cell_wall_fallback=True,  # a cell hop every route of which walls off another net's pin is still laid (the
+                           # first such route, GridRouter.boxes_in). The hot-loop stage turns it off (hotloop_cell_walls
+                           # 0): nekoink U1:3, open-authenticator U4, moto:bit U2, librewave U702/U703 lost exactly the
+                           # pins those hops walled off (cells-robust), and the reach check after the stage missed them
     complete_mm=8.0,       # join a critical net's pads within this distance of its critical copper (benchmark
                            # run crit-v3: A+B cp1 0.636 with joins vs 0.515 without; oasis 9 -> 1 unconnected)
     island_mm=20.0,        # and its islands of critical copper to each other within this distance

@@ -569,6 +569,36 @@ def test_a_board_with_a_buck_routed_without_cells_gets_the_decision_entry(tmp_pa
 
 
 # ----------------------------------------------------------------------------- cells-robust
+def _walls_vin(monkeypatch):
+    """Every route of a VIN hop walls off another net's pin (GridRouter.boxes_in), as nekoink U1:3's IPSOUT hop
+    walled in U1.8 and U1.10-13."""
+    from types import SimpleNamespace
+    from haslam.route.critical_grid import GridRouter
+    orig = GridRouter.boxes_in
+    pin = SimpleNamespace(geom=Point(0.0, 0.0).buffer(0.1), net="OTHER")
+    monkeypatch.setattr(GridRouter, "boxes_in", lambda self, rt, *a, **k: [(pin, "F.Cu")] if rt is not None and
+                        rt.net == "VIN" and rt.segs else orig(self, rt, *a, **k))
+    monkeypatch.setattr(CM, "_escape_gap", lambda *a, **k: 0.1)
+
+
+def test_a_cell_hop_that_walls_off_a_pin_is_not_laid_with_the_stages_setting(tmp_path, monkeypatch):
+    """cell_wall_fallback (hotloop_cell_walls 0 in the stage): a hop every route of which walls off another net's pin is
+    not laid, and its cell has a gap; with the old behaviour (True, critical's default) the first such route is laid
+    ("no alternative")."""
+    _walls_vin(monkeypatch)
+    s = F.session(tmp_path / "a", kinds=("cell",), rails="none", cell_wall_fallback=False)
+    s.route(budget_s=60)
+    (m,) = [m for m in s.modules if m.kind == "cell"]
+    assert any("walls off a pin of another net; not laid" in n for n in m.notes)
+    assert not any(it.net == "VIN" for it in m.copper) and m.status in ("partial", "failed")
+    assert any("VIN" in g for g in CM.cell_gaps(m))
+    s2 = F.session(tmp_path / "b", kinds=("cell",), rails="none", cell_wall_fallback=True)
+    s2.route(budget_s=60)
+    (m2,) = [m for m in s2.modules if m.kind == "cell"]
+    assert any("(no alternative)" in n for n in m2.notes) and any(it.net == "VIN" for it in m2.copper)
+    assert hotloop.settings()["cell_walls"] is False
+
+
 def test_a_closed_cell_has_no_gaps(tmp_path):
     s = F.session(tmp_path, kinds=("cell",), rails="none")
     s.route(budget_s=60)
