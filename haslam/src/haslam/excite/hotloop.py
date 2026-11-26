@@ -94,14 +94,20 @@ def window_pads(bd, s, o, freqs, edge=None, own=None):
     away takes little of it (its feed's inductance alone is several times a loop's 1-2 nH), and the truncation
     correction (board solve minus the window at the board's pitch) adds back what it takes. Near parts stay whether
     the brief names them or not: a window on the brief's loop pads alone moved L_loop by up to 16 % and was reverted
-    (docs/research/physics/hot-loop-evaluation-runs.md section 1)."""
+    (docs/research/physics/hot-loop-evaluation-runs.md section 1). Far parts with an injection pad (the cell solve's
+    Ja: ICs, connectors, modules, outside the copper model) stay too: the window solve cannot put their current
+    anywhere else."""
     if own is None:
         own = _own_window_default()
     out = set()
+    inj = set()          # pads where current enters the copper model in the cell's solve (Ja: ICs, connectors, the source)
     bde = _edge_bd(bd) if edge in freqs else bd
     for f in freqs:
         x = bde if f == edge else bd
         sol = x.circuit.solve(f, [s])[s.name]
+        ja = sol.get("Ja") or {}
+        top = max((abs(j) for j in ja.values()), default=0.0)
+        inj |= {p for p, j in ja.items() if top and abs(j) > 1e-6 * top}
         for J in (sol["J"], O.pattern(x, o, f)):
             big = max((abs(j) for j in J.values()), default=0.0)
             part = {}
@@ -127,7 +133,11 @@ def window_pads(bd, s, o, freqs, edge=None, own=None):
     by_part = {}
     for p in out:
         by_part.setdefault(p.rsplit(".", 1)[0], []).append(p)
-    return {p for ref, ps in by_part.items() if ref in refs or any(near(q) for q in ps) for p in ps}
+    # a far part where the cell's current enters the copper model (an injection pad: IC, connector, module) stays: left
+    # out, the window solve loses that current outright (dropped_injection; jin-neuron turtlepico's DRV8833 half
+    # bridge, whose supply comes in 25 mm away: 51 % dropped, R_loop at 5 f_sw -31 %). Only lumped far parts (a rail's
+    # decouplers, whose share the copper's feed inductance takes) are left to the truncation correction.
+    return {p for ref, ps in by_part.items() if ref in refs or any(near(q) or q in inj for q in ps) for p in ps}
 
 
 def _skin_R(net, f, nsub):
