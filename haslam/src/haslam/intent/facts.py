@@ -151,6 +151,17 @@ def interval(v, what="value"):
 _interval = interval
 
 
+def typical(v):
+    """The typical value of a fact (interval's), or None when v is absent or no value form: for readers that skip an
+    unreadable value rather than fail (the router's and placer's copper and heat sizing)."""
+    if v is None:
+        return None
+    try:
+        return interval(list(v) if isinstance(v, tuple) else v)[0]
+    except FactsError:
+        return None
+
+
 def check_facts(f):
     """Shape check of a facts dict; FactsError names the first problem and how to fix it."""
     for sec in f:
@@ -183,7 +194,7 @@ def check_facts(f):
                     raise FactsError(f"facts.parts.{ref}.{k}: {{rail net: value}}, not {v!r}")
                 for r, x in v.items():
                     _interval(x, f"facts.parts.{ref}.{k}.{r}")
-            elif k != "why" and not isinstance(v, str):
+            elif k != "why" and not isinstance(v, (str, bool)):      # a yes/no fact (cff_required) is no interval
                 _interval(v, f"facts.parts.{ref}.{k}")
     return f
 
