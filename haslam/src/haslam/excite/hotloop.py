@@ -40,6 +40,7 @@ Z(f_sw): L di/dt with the switch's edge time plus the fundamental's share, the s
 from __future__ import annotations
 
 import math
+import os
 import time
 
 import numpy as np
@@ -74,12 +75,18 @@ def _pad_box(bm, tokens):
     return (min(xs), min(ys), max(xs), max(ys)) if xs else None
 
 
-def window_pads(bd, s, o, freqs, edge=None, own=True):
+def _own_window_default():
+    """HASLAM_HOTLOOP_OWN_WINDOW=1 opts into the own-parts window (e360ef7); off by default until a corpus A/B shows it
+    leaves L_loop unbiased: a smaller window truncates coupling to nearby planes and copper (review of e360ef7)."""
+    return os.environ.get("HASLAM_HOTLOOP_OWN_WINDOW", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def window_pads(bd, s, o, freqs, edge=None, own=None):
     """The pads that set a cell's window: every pad of a part through which SHARE of the peak pad current of the
     cell's own pattern or of its overshoot observer's passes (half its pads' summed |J|: a connector or module
     takes its share over many pins), at any of `freqs`, in the copper-free circuit (the same for every layout; at f == edge its edge model).
 
-    own: of the other parts, only those with a pad within FAR_MM of the cell's own parts (bd.cell_refs: controller,
+    own (default: HASLAM_HOTLOOP_OWN_WINDOW, off): of the other parts, only those with a pad within FAR_MM of the cell's own parts (bd.cell_refs: controller,
     switches, the loop's parts, its hot-side caps, inductor, snubbers; their pad centres' box) when the brief names
     them and any of them passes. The copper-free circuit splits a rail's current over every parallel capacitor alike,
     wherever it sits: 16 sensor decouplers of a boost's output rail took 6 % each and stretched its window over a
@@ -88,6 +95,8 @@ def window_pads(bd, s, o, freqs, edge=None, own=True):
     correction (board solve minus the window at the board's pitch) adds back what it takes. Near parts stay whether
     the brief names them or not: a window on the brief's loop pads alone moved L_loop by up to 16 % and was reverted
     (docs/research/physics/hot-loop-evaluation-runs.md section 1)."""
+    if own is None:
+        own = _own_window_default()
     out = set()
     bde = _edge_bd(bd) if edge in freqs else bd
     for f in freqs:
