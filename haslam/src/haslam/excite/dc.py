@@ -759,7 +759,7 @@ def planned_injections(board, intent, brief=None, heat=None):
     PF.apply(board, (intent or {}).get("pins"))         # the schematic's pin facts, as the evaluator applies them
     brief = brief or B.build(board)
     bd = M.build(board, brief)
-    srcs = S.add_all(bd, brief)
+    srcs = S.add_all(bd, brief, intent=intent)
     P, _ = ledger_for(bd, brief, srcs, intent)
     pl = plan(board, brief, bd, P, srcs, intent)
     cv = {(p.subject, p.name): p.typ for p in pl.params}

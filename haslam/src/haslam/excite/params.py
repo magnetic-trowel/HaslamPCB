@@ -222,12 +222,43 @@ def switch_rating(intent, sid, ctrl_ref):
     return None
 
 
-def generic(L, s, kind):
-    """Cores and clocks: class priors as intervals around their meta values."""
+def generic(L, s, kind, intent=None):
+    """Cores and clocks: class priors as intervals around their meta values. A core's facts replace them
+    (parts.<ref>.core_I_A, core_t_s, core_f_Hz: docs/topics/workflow/intent-file-fields.md#a4b); without
+    core_I_A a stated supply draw parts.<ref>.I_A caps the class current by charge balance (core_cap)."""
     sid = s.name
+    ref = s.meta.get("ref") if kind == "core" else None
     I0 = float(s.meta.get("I") or 0.01)
     t0 = 1.0 / (math.pi * float(s.meta.get("f_e") or 1e8))
     f0 = float(s.meta.get("f_rep") or 25e6)
-    return {"I": L.add(Param(sid, "I_A", I0, I0 / 3, I0 * 3, "A", "prior", f"{kind} current, class value x/3")),
-            "t_i": L.add(Param(sid, "t_i_s", t0, t0 / 2, t0 * 3, "s", "prior", f"{kind} edge, class value /2 .. x3")),
-            "f_sw": L.add(Param(sid, "f_sw_Hz", f0, f0 / 2, f0 * 2, "Hz", "prior", f"{kind} repetition, class value"))}
+    t_iv = intent_value(intent, "parts", ref, "core_t_s") if ref else None
+    t = Param(sid, "t_i_s", *t_iv, "s", "intent", f"parts.{ref}.core_t_s (the intent file)") if t_iv else \
+        Param(sid, "t_i_s", t0, t0 / 2, t0 * 3, "s", "prior", f"{kind} edge, class value /2 .. x3")
+    f_iv = intent_value(intent, "parts", ref, "core_f_Hz") if ref else None
+    f = Param(sid, "f_sw_Hz", *f_iv, "Hz", "intent", f"parts.{ref}.core_f_Hz (the intent file)") if f_iv else \
+        Param(sid, "f_sw_Hz", f0, f0 / 2, f0 * 2, "Hz", "prior", f"{kind} repetition, class value")
+    i_iv = intent_value(intent, "parts", ref, "core_I_A") if ref else None
+    if i_iv:
+        i = Param(sid, "I_A", *i_iv, "A", "intent", f"parts.{ref}.core_I_A (the intent file)")
+    else:
+        i = core_cap(Param(sid, "I_A", I0, I0 / 3, I0 * 3, "A", "prior", f"{kind} current, class value x/3"),
+                     intent_value(intent, "parts", ref, "I_A") if ref else None, t.typ, f.typ, ref)
+    return {"I": L.add(i), "t_i": L.add(t), "f_sw": L.add(f)}
+
+
+def core_cap(p, draw, t, f, ref):
+    """A core's current step `p` capped by the part's stated supply draw `draw` (typ, lo, hi) A: a step I with
+    edge t repeated at f carries a mean current of about I t f, so a part drawing I_A on average has
+    I <= I_A / (t f), each end by the same end of I_A. Source `intent` when the cap binds at the typical point,
+    else the prior unchanged (its basis says the draw allows it); p itself when no draw is stated."""
+    if not draw or not t or not f:
+        return p
+    cap = [x / (t * f) for x in draw]                      # (typ, lo, hi)
+    typ, lo, hi = min(p.typ, cap[0]), min(p.lo, cap[1]), min(p.hi, cap[2])
+    how = f"parts.{ref}.I_A {draw[0]:.3g} A [{draw[1]:.3g}, {draw[2]:.3g}] / (edge {t:.3g} s x {f:.3g} Hz)"
+    if typ < p.typ:
+        return Param(p.subject, p.name, typ, lo, hi, p.unit, "intent",
+                     f"core current capped by the stated supply draw: {how} (charge balance; class value "
+                     f"{p.typ:.3g} A); state parts.{ref}.core_I_A, or core: false for a part with no clocked core")
+    return Param(p.subject, p.name, typ, lo, hi, p.unit, p.source,
+                 f"{p.basis}; within the stated supply draw ({how} = {cap[0]:.3g} A); state parts.{ref}.core_I_A")

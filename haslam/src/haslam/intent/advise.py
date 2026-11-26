@@ -121,7 +121,7 @@ class _Circuit:
     """The evaluator's circuit of the board (with the session's adopted edits), its observers, and adjoint
     patterns under further edits."""
 
-    def __init__(self, board, brief, edits=()):
+    def __init__(self, board, brief, edits=(), intent=None):
         from haslam.excite import evaluate as EV
         from haslam.excite import models as M
         from haslam.excite import observe as O
@@ -133,7 +133,7 @@ class _Circuit:
             EV.apply_edit(self.bd, board, spec)
         self.base_edits = list(edits)
         self.brief = brief
-        srcs = S.add_all(self.bd, brief)
+        srcs = S.add_all(self.bd, brief, intent=_facts(intent))
         self.srcs = srcs
         self.obs = {o.name: o for o in O.observers(self.bd, brief, srcs)}
         self.ref_of = {u: p["ref"] for u, p in brief["parts"].items()}
@@ -441,7 +441,7 @@ def advise(ev, intent, brief, board=None, limit=12, edits=(), solve_budget=0, so
     cir = None
     if board is not None:
         try:
-            cir = _Circuit(board, brief, edits)
+            cir = _Circuit(board, brief, edits, intent)
         except Exception as e:                                    # advice is optional: say why there is none
             out.append(dict(id="A0", kind="none", remedy=f"node what-ifs skipped: circuit not rebuilt ({e})"))
     wi = _WhatIf(pr, cir, obs, ok, corners) if cir is not None else None

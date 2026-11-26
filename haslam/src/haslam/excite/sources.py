@@ -39,10 +39,20 @@ CLOCK_C = 10e-12                 # load of a short clock net (receiver plus trac
 HIGH_SIDE = ("buck", "half_bridge", "motor_driver", "sepic", "flyback", "forward")
 
 
-def add_all(bd, brief, nl=None):
-    """Add every source to bd.circuit; returns the list of Source objects."""
+def no_core(intent):
+    """Parts whose facts say they have no clocked core (parts.<ref>.core: false): no core source."""
+    from haslam.intent.facts import facts_of
+    return {ref for ref, d in (facts_of(intent).get("parts") or {}).items() if isinstance(d, dict) and d.get("core") is False}
+
+
+def add_all(bd, brief, nl=None, intent=None):
+    """Add every source to bd.circuit; returns the list of Source objects. `intent`: the operating facts; a part
+    whose facts say core: false (a passive switch, a level shifter) gets no core source."""
     out = []
     uuid = {u: p["ref"] for u, p in brief["parts"].items()}
+    skip = no_core(intent)
+    for ref in sorted(skip & set(uuid.values())):
+        bd.assumptions.append(f"core:{ref}: no core source (facts parts.{ref}.core: false)")
     for s in brief.get("structures") or []:
         if s.get("kind") == "commutation_cell":
             src = _cell(bd, s, uuid)
@@ -50,7 +60,7 @@ def add_all(bd, brief, nl=None):
                 out.append(src)
     for ref, nodes in bd.ic_nodes.items():
         kind, sub, role = bd.part_kind.get(ref, ("ic", None, ""))
-        if sub not in DIGITAL and ref not in (getattr(bd, "radios", None) or {}):
+        if ref in skip or sub not in DIGITAL and ref not in (getattr(bd, "radios", None) or {}):
             continue                 # only clocked logic (and a radio: its digital core and PA) draws a core current
             #                          at its clock; a charger, a regulator or an analog part does not
         I, tr = DYNAMIC.get(sub or ("mcu" if ref in (getattr(bd, "radios", None) or {}) else ""), DYNAMIC[""])
@@ -68,7 +78,7 @@ def add_all(bd, brief, nl=None):
         seen = set()
         for tok in bd.pads_of.get(net, []):
             ref = tok.rsplit(".", 1)[0]
-            if ref in seen or bd.port.get(ref) != "module" or bd.pin_type.get(tok) == "power_out" or \
+            if ref in seen or ref in skip or bd.port.get(ref) != "module" or bd.pin_type.get(tok) == "power_out" or \
                     NOT_CLOCKED.search(text.get(ref, "")):
                 continue
             g = nearest_ground(bd, ref, tok)

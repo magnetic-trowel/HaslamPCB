@@ -41,6 +41,10 @@ CELL_KEYS = ("V_V", "I_A", "f_sw_Hz", "t_i_s", "v_sw_max_V", "vin", "vout", "why
 # a controller's facts that are its cells' too. Not I_A: parts.<ref>.I_A is the part's own supply draw
 # (haslam.excite.dc's load current, the operating facts' "load current"), not the current its cells commutate
 PART_CELL_KEYS = ("f_sw_Hz", "t_i_s", "v_sw_max_V")
+# a part's transient core source (haslam.excite.params.generic, sources.add_all): core false (none: a passive
+# switch), else its current step on each supply rail, the step's edge and its repetition
+# (docs/topics/workflow/intent-file-fields.md#a4b-core-sources-partsrefcore)
+PART_CORE_KEYS = ("core", "core_I_A", "core_t_s", "core_f_Hz")
 SECTIONS = ("nets", "parts", "cells", "requirements")      # what apply() writes into the brief
 # sections other readers own, left to them here: the schematic's pin facts (haslam.board.pinfacts), the radios
 # (haslam.excite.observe, sources) and the compiler's citations. The physics set's operating facts carry them
@@ -129,6 +133,12 @@ def check_facts(f):
             if k in d:
                 interval(d[k], f"facts.cells.{cid}.{k}")
     for ref, d in (f.get("parts") or {}).items():
+        if "core" in d and not isinstance(d["core"], bool):
+            raise FactsError(f"facts.parts.{ref}.core: true or false (false: the part has no clocked core source)")
+        for k in PART_CORE_KEYS[1:]:
+            lo = interval(d[k], f"facts.parts.{ref}.{k}")[1] if k in d else 1.0
+            if lo < 0 or lo == 0 and k != "core_I_A":
+                raise FactsError(f"facts.parts.{ref}.{k}: must be positive (core_I_A may be 0), not {d[k]!r}")
         for k, v in d.items():
             if k != "why" and not isinstance(v, (str, bool)):      # a flag (cff_required) is no value
                 interval(v, f"facts.parts.{ref}.{k}")
