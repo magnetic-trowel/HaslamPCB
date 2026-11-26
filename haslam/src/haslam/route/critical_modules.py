@@ -1060,14 +1060,15 @@ def cell_operating(ctx, m):
     cells = _intent_cell(ctx, m)
 
     def iv(key):
-        # typical value as haslam.excite.beliefs.intent_value takes it: an interval's geometric mean
+        # typical value through the facts' one parser (haslam.intent.facts.interval): [lo, typ, hi] keeps the
+        # stated typ (F35); a malformed value is no fact here, as before
+        from haslam.intent.facts import FactsError, interval
         v = cells.get(key)
+        if v is None:
+            return None
         try:
-            if isinstance(v, (list, tuple)) and v:
-                lo, hi = float(v[0]), float(v[-1])
-                return math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2
-            return float(v) if v is not None else None
-        except (TypeError, ValueError):
+            return interval(v, f"cells.{key}")[0]
+        except (FactsError, TypeError, ValueError):
             return None
     basis = []
     cc = _intent_converter(ctx, m)

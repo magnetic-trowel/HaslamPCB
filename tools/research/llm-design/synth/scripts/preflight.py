@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import shlex
 import shutil
@@ -244,9 +245,9 @@ def probe(board):
 def check_priors(board):
     """intent.priors: parts whose supply draw or heat is a class prior, not a stated fact (FRICTION F36: a 2 uA
     I2C switch scored as a 10 mA core became the board's hottest part). Runs `python -m haslam.intent priors
-    BOARD`, which prints one line per such part (nothing when every part is stated); skipped, not failed, while
-    that command does not exist in the haslam checkout."""
-    r = run([sys.executable, "-m", "haslam.intent", "priors", str(board)], timeout=900)
+    BOARD --json` (a list of {ref, kind, subtype, items: [{what, basis, fix}]}; [] when every part is stated);
+    skipped, not failed, while that command does not exist in the haslam checkout."""
+    r = run([sys.executable, "-m", "haslam.intent", "priors", str(board), "--json"], timeout=900)
     err = r.stderr.strip()
     if r.returncode != 0 and ("invalid choice" in err or "No module named" in err):
         rec("intent.priors", "SKIP", "haslam.intent has no 'priors' command in this checkout")
@@ -258,9 +259,17 @@ def check_priors(board):
     try:
         doc = json.loads(r.stdout)
         items = doc.get("parts", doc) if isinstance(doc, dict) else doc
-        lines = [json.dumps(x) if not isinstance(x, str) else x for x in items]
-    except ValueError:
-        lines = [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+        lines = []
+        for x in items:
+            if isinstance(x, str):
+                lines.append(x)
+                continue
+            what = "; ".join(f"{i.get('what', '')} ({i.get('basis', 'class prior')})"[:70] for i in x.get("items") or [])
+            fix = sorted({i.get("fix") for i in x.get("items") or [] if i.get("fix")})
+            lines.append(f"{x.get('ref')}: {what}" + (f" -> state {', '.join(fix)}" if fix else ""))
+    except ValueError:      # an older CLI without --json: its own lines, less the closing count
+        lines = [ln.strip() for ln in r.stdout.splitlines()
+                 if ln.strip() and not re.match(r"^\d+ part\(s\) on class priors", ln.strip())]
     rec("intent.priors", "PASS" if not lines else "WARN",
         "every part's draw is stated" if not lines else f"{len(lines)} parts on class priors:"
         + "".join("\n     " + ln[:160] for ln in lines[:12]) + ("\n     ..." if len(lines) > 12 else ""),
