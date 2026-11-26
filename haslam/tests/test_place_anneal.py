@@ -86,3 +86,14 @@ def test_make_annealer_keeps_congestion_with_a_blockage_beta():
     b, P, st = _legal_state()
     a = make_annealer(P, st.copy(), terms=None, seed=1, w_phys=0.0, cong_args=dict(beta=0.5))
     assert type(a) is Annealer and a.cong is not None and a.cong.beta == 0.5
+
+
+def test_escape_demand_is_per_pin_not_per_pad():
+    """A QFN-16 whose exposed pad (pin 17) is drawn as 9 pads asked 9 escapes for one terminal: 50 mm of demand,
+    now 34 (16 pins + the EP, 2 mm each); an unnetted pad asks none."""
+    from types import SimpleNamespace as NS
+
+    from haslam.place.cost import escape_demand
+    pads = [NS(number=str(i), net="N") for i in range(1, 17)] + [NS(number="17", net="GND")] * 9 + [NS(number="", net="")]
+    e = escape_demand(pads, 2.0)
+    assert sum(e) == 34.0 and e[-1] == 0.0 and e[16] == 2.0 / 9
