@@ -971,3 +971,20 @@ def test_a_cells_inductor_has_a_sampled_theta_jb_prior():
     ps = {(p.subject, p.name): p for p in H.params(bd, dcp, {}, {})}
     p = ps[("heat:L1", "theta_jb")]
     assert (p.typ, p.lo, p.hi, p.source) == (60.0, 30.0, 120.0, "prior")
+
+
+def test_a_regulator_whose_rail_voltage_is_unknown_is_not_priced_and_is_named():
+    """An LDO from 5 V into a rail of unknown voltage read the output as 0 V: 0.5 W at 0.1 A (the whole input dropped),
+    where its loads were heated at a 3.3 V rail; from an unknown input, no loss. Its loss is now left out and named."""
+    from types import SimpleNamespace as NS
+
+    from haslam.excite import heat as H
+    pl = DC.Plan()
+    pl.volts = {"VIN": 5.0, "VX": None}
+    pl.feeds = {"VX": dict(kind="linear", ref="U1", rin="VIN", out=["U1.2"], inp=["U1.1"], gnd=[])}
+    bd = NS(part_kind={"U1": ("ic", "regulator_linear", "")})
+    assert H.part_heat(bd, pl, {}, {}, {"U1.2": 0.1}) == {}
+    assert H.unpriced_feeds(bd, pl) == [("VX", "U1")]
+    pl.volts["VX"] = 3.3
+    assert H.part_heat(bd, pl, {}, {}, {"U1.2": 0.1}) == {"U1": pytest.approx(0.17)}
+    assert H.unpriced_feeds(bd, pl) == []

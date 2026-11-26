@@ -323,6 +323,8 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
         if f["kind"] == "linear":
             vi, vo = abs(dcp.volts.get(f["rin"]) or 0.0), abs(dcp.volts.get(r) or 0.0)
             kind = bd.part_kind.get(f["ref"], ("",))[0]
+            if (not vi or not vo) and kind not in ("diode", "transistor"):
+                continue            # its drop is unknown: not priced (unpriced_feeds says so), as the DC plan's own heat
             drop = val.get((f"heat:{f['ref']}", "V_f_V"), V_F[1]) if kind == "diode" else max(vi - vo, 0.0)
             if kind == "transistor":
                 # a load switch's channel: I^2 R_on (the facts' rail voltages are rounded, not its drop)
@@ -330,10 +332,28 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             if kind not in ("inductor", "ferrite", "resistor"):       # those dissipate in the DC copper model
                 add(f["ref"], drop * I_out)
         elif f["kind"] == "switching":
+            if not dcp.volts.get(r):
+                continue            # its output power is unknown: not priced (unpriced_feeds)
             eta = cv.get((f["eta"].subject, "eta"), 0.85)
             add(f["ref"], (1 / eta - 1) * abs(dcp.volts.get(r) or 0.0) * I_out)
     for ref, w in (ac_parts or {}).items():
         add(ref, w)
+    return out
+
+
+def unpriced_feeds(bd, dcp):
+    """[(rail, ref)]: linear and switching feeds whose loss part_heat cannot price because a rail's voltage is
+    unknown. A linear regulator's drop V_in - V_out read an unknown output as 0 V (the whole input dropped: 0.5 W
+    for 0.1 A from 5 V where its loads assumed a 3.3 V rail) and an unknown input as no loss; a switching one's
+    (1/eta - 1) V_out I read 0. They are left out and named, not guessed."""
+    out = []
+    for r, f in sorted(dcp.feeds.items()):
+        if f["kind"] == "linear" and bd.part_kind.get(f["ref"], ("",))[0] not in ("diode", "transistor", "inductor",
+                                                                                   "ferrite", "resistor"):
+            if not dcp.volts.get(f.get("rin")) or not dcp.volts.get(r):
+                out.append((r, f["ref"]))
+        elif f["kind"] == "switching" and not dcp.volts.get(r):
+            out.append((r, f["ref"]))
     return out
 
 
@@ -568,6 +588,10 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
     if ac_parts:
         ac_parts = {k: [w * ac_scale.get(k, [1.0] * ncp)[c] for c, w in enumerate(v)] for k, v in ac_parts.items()}
     m = bm.m
+    up = unpriced_feeds(bd, dcp)
+    if up:
+        notes.append("thermal: loss not computed (a rail's voltage is unknown; state nets.<rail>.V_V): "
+                     + ", ".join(f"{ref} feeding {r}" for r, ref in up))
     injs = [{q: a for q, a in DC.injections(dcp, cv).items() if q in m.terminals} for cv in cvs]
     from .evaluate import _solver_line, _solver_row
     t_band = time.time()
