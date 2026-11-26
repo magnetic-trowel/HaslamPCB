@@ -908,7 +908,7 @@ def _thermal(ctx, specs):
                 role = ((ctx.parts.get(s.get('part') or '') or {}).get('role') or '').lower()
                 kind = 'ldo' if 'ldo' in role else 'buck' if ('buck' in role or 'regulator' in role) else \
                     'fet' if ('fet' in role or 'transistor' in role) else 'mcu' if role in ('mcu', 'fpga', 'soc', 'processor') else 'generic'
-                pw = PR.source_power_prior(kind, n_pins=len(bv.parts[i].pad_num), pkg=bv.parts[i].lib_id)[0]
+                pw = PR.source_power_prior(kind, n_pins=n_pins(bv.parts[i]), pkg=bv.parts[i].lib_id)[0]
             c = cells.get(i)
             if c is not None and (c['diode'] is not None or c['inductor'] is not None or c['high'] is not None):
                 sp = PR.converter_loss_split(float(pw), c['v_in'], c['v_out'], c['i_out'], c['boost'],
@@ -966,3 +966,10 @@ def _layer_cov(bv, ly):
         if l2 == ly:
             out[n] = out.get(n, 0.0) + g.area / max(bv.area, 1e-9)
     return out
+
+
+def n_pins(part):
+    """A board-view part's pins: its distinct pad numbers (as route.critical_modules.pin_count). Counted per pad, a
+    QFN-40 whose exposed pad is drawn as 9 pads (49 pads) took the <= 100-pin class of the heat-source prior: 0.2 W
+    for an MCU instead of 0.05 W."""
+    return len({n for n in part.pad_num if n}) or len(part.pad_num)

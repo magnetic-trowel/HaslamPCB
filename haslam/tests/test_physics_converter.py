@@ -207,3 +207,12 @@ def test_a_cells_duty_on_negative_rails_is_its_magnitudes(cls, Vbus, Vother):
 def test_an_inverting_cells_duty_without_intent():
     (typ, lo, hi), basis = _duty_without_intent("buck", 12.0, -5.0)
     assert typ == pytest.approx(5.0 / (12.0 * CV.ETA[1] + 5.0)) and 0 < lo < typ < hi < 1 and "inverting" in basis
+
+
+def test_a_parts_pin_count_for_the_heat_prior_is_its_distinct_pad_numbers():
+    from haslam.physics import priors as PR
+    from haslam.physics.build import n_pins
+    qfn = SimpleNamespace(pad_num=[str(i) for i in range(1, 41)] + ["41"] * 9)
+    assert n_pins(qfn) == 41
+    assert PR.source_power_prior("mcu", n_pins=n_pins(qfn))[0] == PR.source_power_prior("mcu", n_pins=41)[0]
+    assert n_pins(SimpleNamespace(pad_num=["", ""])) == 2
