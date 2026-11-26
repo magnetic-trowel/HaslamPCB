@@ -3166,7 +3166,7 @@ def main():
                    help="method parameter of every arm over the control's (repeatable; e.g. parallel=8: the queue "
                         "reserves 8 CPUs for an arm whose router runs 8 threads)")
     s.add_argument("--note", help="appended to every arm's method description (e.g. a stage that runs on wall clock)")
-    s.add_argument("--control", default="control-w47", help="the tag's stored control experiment")
+    s.add_argument("--control", default="control-w48", help="the tag's stored control experiment")
     s.add_argument("--dry-run", action="store_true", help="register and create, write the job file, submit nothing")
     s.set_defaults(f=cmd_sprint)
     s = sub.add_parser("job", help="one board (what each queued job runs)")
