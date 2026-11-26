@@ -3313,7 +3313,6 @@ def main():
     s.add_argument("--control-method", metavar="ID", help="which of the control experiment's methods is the control (default: "
                    "its first of the base's kind); the BGA baseline: --control hybrid-bga-w47 --control-method <hybrid id> "
                    "(bench/suites/README.md)")
-    s.add_argument("--control", default="control-w47", help="the tag's stored control experiment")
     s.add_argument("--tier", choices=("sprint", "ladder"), default="sprint",
                    help="ladder: the same arms against the same stored control on a ladder suite, for a change that "
                         "passed sprint; the ladder lifts the total limit (keep to the plan's), --skip-over-cap still "
