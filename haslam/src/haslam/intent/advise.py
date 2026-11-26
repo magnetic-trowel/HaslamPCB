@@ -307,6 +307,14 @@ def _part_fact(intent, ref, name):
     return ((_facts(intent).get("parts") or {}).get(ref) or {}).get(name)
 
 
+def _part_num(intent, ref, name):
+    """A part's numeric fact, its typical value (haslam.intent.facts.interval: a number, [lo, hi] or
+    [lo, typ, hi]), or None."""
+    from .facts import interval
+    v = _part_fact(intent, ref, name)
+    return None if v is None else interval(v, f"facts.parts.{ref}.{name}")[0]
+
+
 def _need(field, ask, unit, known=None):
     d = dict(field=field, ask=ask, unit=unit)
     if known is not None:
@@ -734,7 +742,7 @@ def _coupling_c(pr, cir, o, e, other, net, run, et, eb, vout_net, intent, f_e):
     is_ff = et is not None and other == vout_net
     Rt = et.z(0.0).real if et is not None else None
     fz = 1 / (2 * math.pi * Rt * Cv) if (Rt and Cv) else None
-    fc = _part_fact(intent, ref, "f_c_Hz")
+    fc = _part_num(intent, ref, "f_c_Hz")
     needs_fc = _need(f"facts.parts.{ref}.f_c_Hz", f"{ref}'s loop crossover frequency (datasheet or a load-step "
                      f"measurement)", "Hz", fc)
     what = "feed-forward capacitor" if is_ff else "capacitor"
@@ -839,7 +847,7 @@ def _shunt_tradeoff(cir, o, net, C, intent):
     fp = 1 / (2 * math.pi * zdc * C) if zdc else None
     et, eb, vout = cir.divider(net)
     ref = (o.pb or "").rsplit(".", 1)[0]
-    fc = _part_fact(intent, ref, "f_c_Hz")
+    fc = _part_num(intent, ref, "f_c_Hz")
     ff = [e for e in cir.bd.circuit.elems if e.kind == "C" and net in (e.a, e.b) and vout in (e.a, e.b)]
     q = (f"a pole at {fp / 1e3:.3g} kHz in the regulator's feedback ({U.fmt(zdc, 'Ohm')} x {_fmt_c(C)}): keep it "
          f"well above the loop's crossover (datasheet), or use a feed-forward capacitor across the top resistor "
@@ -975,7 +983,7 @@ def _cout_check(cir, intent):
         if not near:
             continue
         tot = sum(r["F_eff"] for r in near)
-        need = _part_fact(intent, ref, "cout_min_eff_F")
+        need = _part_num(intent, ref, "cout_min_eff_F")
         listing = ", ".join(f"{r['part']} {r['nominal']} {r['rated_V'] or '?'}V {r['dielectric'] or ''} "
                             f"{r['size'] or ''} -> {r['effective']} ({r['dist_mm']} mm)" for r in near)
         e = dict(kind="datasheet.check", key=f"datasheet.check:cout:{ref}:{net}", source=ref,

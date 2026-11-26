@@ -88,13 +88,24 @@ def heatsinks(intent):
 
 
 def _rng(v):
-    """(typ, lo, hi) of a number or [lo, hi] (typ: geometric mean), or None."""
-    if isinstance(v, (int, float)) and v > 0:
-        return float(v), float(v), float(v)
-    if isinstance(v, list) and len(v) == 2 and all(isinstance(x, (int, float)) and x > 0 for x in v):
-        lo, hi = sorted(map(float, v))
-        return (lo * hi) ** 0.5, lo, hi
-    return None
+    """(typ, lo, hi) of a positive number, [lo, hi] or [lo, typ, hi] (haslam.intent.facts.interval), or None."""
+    from haslam.intent.facts import FactsError, interval
+    try:
+        r = interval(v)
+    except FactsError:
+        return None
+    return r if r[1] > 0 else None
+
+
+def _sustained(intent, ref):
+    """The typical draw a part's facts state, parts.<ref>.I_sustained_A (a number, or an interval's typical
+    value), or None."""
+    from haslam.intent.facts import interval
+    v = (((intent or {}).get("parts") or {}).get(ref) or {}).get("I_sustained_A")
+    if v is None:
+        return None
+    t = interval(v, f"facts.parts.{ref}.I_sustained_A")[0]
+    return t if t >= 0 else None
 
 
 def _theta_jb(npins):
@@ -470,8 +481,8 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
         if p.name != "I_A" or not str(p.subject).startswith("dc:"):
             continue
         ref = p.subject[3:].rsplit("@", 1)[0]
-        iv = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_sustained_A")
-        if isinstance(iv, (int, float)) and iv >= 0:      # the intent's typical draw (its datasheet's), this rail's share
+        iv = _sustained(intent, ref)
+        if iv is not None:      # the intent's typical draw (its datasheet's), this rail's share
             sustained[(p.subject, p.name)] = min(max(float(iv) * share_of.get((p.subject, p.name), 1.0), p.lo), p.hi)
         elif (p.subject, p.name) in exports and p.source == "prior":
             sustained[(p.subject, p.name)] = p.typ
@@ -489,8 +500,8 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
     def load_amps(ld):
         if ld.get("key"):
             return sustained.get(ld["key"], 0.0)
-        iv = ((intent or {}).get("parts") or {}).get(ld["ref"], {}).get("I_sustained_A")
-        if isinstance(iv, (int, float)) and iv >= 0:
+        iv = _sustained(intent, ld["ref"])
+        if iv is not None:
             return float(iv) * ld.get("part_share", 1.0)
         return ld.get("prior", 0.0)          # a connector's prior is already its unstated export (EXPORT_SHARE)
     cell_out = {}

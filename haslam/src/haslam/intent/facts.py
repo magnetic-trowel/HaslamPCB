@@ -15,7 +15,8 @@ project carries it (INTENT_EXT is in haslam.board.project.PROJECT_EXTS) and the 
       "requirements": {"thermal": {"T_amb_C": [-20, 60]}}
     }
 
-A value is a number, [lo, hi] (typical: their geometric mean) or [lo, typ, hi]. `apply(brief, facts)` writes them into the brief (haslam.brief/1) before any
+A value is a number, [lo, hi] (typical: their geometric mean) or [lo, typ, hi], read by `interval` (every reader
+of the facts goes through it). `apply(brief, facts)` writes them into the brief (haslam.brief/1) before any
 consumer reads it, so the placer's physics terms, the joint loop's recheck, the functional evaluator, the
 router and the default testbench all start from the same operating points:
 
@@ -83,10 +84,16 @@ def facts_of(doc):
     return doc.get("facts") or {} if doc.get("schema") == SCHEMA else doc
 
 
-def _interval(v, what):
-    if isinstance(v, (int, float)) and not isinstance(v, bool):
+def interval(v, what="value"):
+    """(typ, lo, hi) of an intent value: a number, [lo, hi] (typ: their geometric mean, their mean when lo <= 0)
+    or [lo, typ, hi] (the typical operating point stated). The one parser of every reader of the facts
+    (haslam.excite, haslam.physics.converter): a reader that took a 3-element list as [lo, hi] scored a stated
+    60 uA cell current as 0.354 mA, and one that unpacked `lo, hi = v` died on it. FactsError names `what` on any
+    other shape."""
+    num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+    if num(v):
         return float(v), float(v), float(v)
-    if isinstance(v, list) and len(v) in (2, 3) and all(isinstance(x, (int, float)) for x in v):
+    if isinstance(v, (list, tuple)) and len(v) in (2, 3) and all(num(x) for x in v):
         if len(v) == 3:                          # [lo, typ, hi]: the typical operating point stated
             lo, typ, hi = (float(x) for x in v)
             if not lo <= typ <= hi:
@@ -111,7 +118,7 @@ def check_facts(f):
             raise FactsError(f"facts.nets.{net}.V_V: the typical volts as a number; put the interval in range_V")
         for k in ("range_V", "eta", "I_A"):
             if k in d:
-                _interval(d[k], f"facts.nets.{net}.{k}")
+                interval(d[k], f"facts.nets.{net}.{k}")
         if d.get("kind") not in (None, "linear", "switching"):
             raise FactsError(f"facts.nets.{net}.kind: 'linear' or 'switching'")
     for cid, d in (f.get("cells") or {}).items():
@@ -120,11 +127,11 @@ def check_facts(f):
             raise FactsError(f"facts.cells.{cid}: unknown keys {bad}; use {CELL_KEYS}")
         for k in ("V_V", "I_A", "f_sw_Hz", "t_i_s", "v_sw_max_V"):
             if k in d:
-                _interval(d[k], f"facts.cells.{cid}.{k}")
+                interval(d[k], f"facts.cells.{cid}.{k}")
     for ref, d in (f.get("parts") or {}).items():
         for k, v in d.items():
-            if k != "why" and not isinstance(v, str):
-                _interval(v, f"facts.parts.{ref}.{k}")
+            if k != "why" and not isinstance(v, (str, bool)):      # a flag (cff_required) is no value
+                interval(v, f"facts.parts.{ref}.{k}")
     return f
 
 
@@ -147,7 +154,7 @@ def apply(brief, facts, origin="intent"):
         if "V_V" in d:
             before[name] = n.get("volts")
             v = float(d["V_V"])
-            lo, hi = _interval(d.get("range_V", v), name)[1:]
+            lo, hi = interval(d.get("range_V", v), name)[1:]
             rec["applied"].append(dict(what=f"nets.{name}.volts", value=v, was=n.get("volts")))
             n["volts"] = v
             n["volts_belief"] = {"value": v, "unit": "V", "exactness": "E4", "relative_to": f"{origin}: nets.{name}",
@@ -194,7 +201,7 @@ def apply(brief, facts, origin="intent"):
                                   ("t_i_s", "t_sw_ns", 1e9), ("v_sw_max_V", "V_abs", 1.0)):
             if key not in merged:
                 continue
-            typ, lo, hi = _interval(merged[key], f"{s['id']}.{key}")
+            typ, lo, hi = interval(merged[key], f"{s['id']}.{key}")
             if key == "v_sw_max_V":
                 typ = lo                     # a rating: the lowest stated value
             rec["applied"].append(dict(what=f"{s['id']}.excite.{field}", value=typ * scale, was=ex.get(field),
@@ -300,7 +307,7 @@ def _loss(m, ref, cells, nets, fn, fp, touched):
                                                                                   [abs(ex["V"])] * 2))
         pout = v * I * k
         if eta is not None:
-            et, elo, ehi = _interval(eta, f"nets.{vo_net}.eta")
+            et, elo, ehi = interval(eta, f"nets.{vo_net}.eta")
             P = (1 / et - 1) * pout
             lo, hi = (1 / ehi - 1) * vlo * ilo * k, (1 / elo - 1) * vhi * ihi * k
             how = f"(1/eta - 1) P_out, eta {et:.3g} [{elo:g}, {ehi:g}]"
@@ -322,7 +329,7 @@ def _loss(m, ref, cells, nets, fn, fp, touched):
         vo = volts(m.get("vout")) if m.get("vout") else m.get("vout_V")
         if not vi or vo is None:
             return None
-        I, ilo, ihi = _interval(iv, f"nets.{m['vout']}.I_A") if iv is not None else (m["I_A"], m["I_A"] / 3, m["I_A"] * 3)
+        I, ilo, ihi = interval(iv, f"nets.{m['vout']}.I_A") if iv is not None else (m["I_A"], m["I_A"] / 3, m["I_A"] * 3)
         d = max(abs(vi) - abs(vo), 0.0)
         return d * I, d * ilo, d * ihi, f"(Vin {abs(vi):g} - Vout {abs(vo):g}) V x {I:g} A", used
     return None
