@@ -32,14 +32,13 @@ def test_without_facts_a_core_is_its_class_prior():
     assert _gen({"parts": {"U9": {"core": False}}})["I"].source == "prior"
 
 
-def test_a_stated_supply_draw_caps_the_core_current_by_charge_balance():
-    p = _gen({"parts": {"U4": {"I_A": [1e-7, 2e-6, 1e-5]}}})["I"]
-    # I <= I_A / (t f): 2 uA / (2 ns x 50 MHz) = 20 uA, each end by the same end of I_A
-    assert p.typ == pytest.approx(2e-5) and p.lo == pytest.approx(1e-6) and p.hi == pytest.approx(1e-4)
-    assert p.source == "intent" and "parts.U4.I_A" in p.basis and "core_I_A" in p.basis
-    # an MCU whose stated draw allows the class step keeps it (cap 200 mA > 10 mA), and its basis says so
-    m = _gen({"parts": {"U4": {"I_A": 0.02}}})["I"]
-    assert (m.typ, m.source) == (0.01, "prior") and "within the stated supply draw" in m.basis
+def test_a_stated_supply_draw_does_not_cap_the_core_current():
+    """A core's edge currents are not bounded by its average draw: a stated I_A leaves the class step alone (only
+    core_I_A or core: false change it). The removed charge-balance cap understated supply noise on every board
+    that states I_A (review of 6379503)."""
+    for draw in ([1e-7, 2e-6, 1e-5], 0.02):
+        p = _gen({"parts": {"U4": {"I_A": draw}}})["I"]
+        assert (p.typ, p.source) == (0.01, "prior") and "core_I_A" in p.basis
 
 
 def test_core_facts_replace_the_class_values_and_the_basis_names_them():
@@ -48,9 +47,6 @@ def test_core_facts_replace_the_class_values_and_the_basis_names_them():
     assert (p["I"].typ, p["I"].source) == (1e-5, "intent") and "parts.U4.core_I_A" in p["I"].basis
     assert (p["t_i"].typ, p["t_i"].source) == (pytest.approx(1e-8), "intent") and "core_t_s" in p["t_i"].basis
     assert (p["f_sw"].typ, p["f_sw"].source) == (1e5, "intent") and "core_f_Hz" in p["f_sw"].basis
-    # the cap uses the stated edge and repetition: a 100 kHz core may draw far more per edge than at 50 MHz
-    q = _gen({"parts": {"U4": {"I_A": 2e-6, "core_f_Hz": 1e5}}})["I"]
-    assert q.typ == pytest.approx(0.01)
 
 
 @pytest.mark.parametrize("bad, msg", [
@@ -100,8 +96,9 @@ def test_parts_on_priors_names_the_parts_and_the_facts_that_fix_them(tmp_path):
     assert fixes == {"parts.U1.I_A", "parts.U1.core_I_A (or core: false)"}
     ln = PP.lines(rows)
     assert len(ln) == 1 and ln[0].startswith("U1") and "parts.U1.I_A" in ln[0] and "class prior" in ln[0]
-    # a stated draw: no supply prior, and it caps the core (source intent)
-    assert PP.parts_on_priors(b, {"parts": {"U1": {"I_A": [1e-7, 2e-6, 1e-5]}}}) == []
+    # a stated draw clears the supply prior but not the core's (an average draw does not bound edge currents)
+    rows = PP.parts_on_priors(b, {"parts": {"U1": {"I_A": [1e-7, 2e-6, 1e-5]}}})
+    assert [it["fix"] for it in rows[0]["items"]] == ["parts.U1.core_I_A (or core: false)"]
     # core: false and a stated draw: nothing on priors; core_I_A alone leaves the draw
     assert PP.parts_on_priors(b, {"parts": {"U1": {"I_A": 2e-6, "core": False}}}) == []
     rows = PP.parts_on_priors(b, {"parts": {"U1": {"core_I_A": 1e-5}}})

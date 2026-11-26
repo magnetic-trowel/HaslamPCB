@@ -103,11 +103,11 @@ An IC of a clocked class (`excite/sources.DIGITAL`, or a radio) and a clocked mo
 | Parameter | Fact (value form A4a) | Without the fact |
 |---|---|---|
 | — | `parts.<ref>.core: false` | the part has no core source (a passive I²C switch, a level shifter): `add_all` skips it and notes it in `assumptions` |
-| `I_A` | `parts.<ref>.core_I_A`: the core's current step on each supply rail | class value I₀ (`sources.DYNAMIC`: 10 mA generic, 50 mA MCU, `MODULE_I` 50 mA) x/3 .. x3, capped by a stated `parts.<ref>.I_A` (below) |
+| `I_A` | `parts.<ref>.core_I_A`: the core's current step on each supply rail | class value I₀ (`sources.DYNAMIC`: 10 mA generic, 50 mA MCU, `MODULE_I` 50 mA) x/3 .. x3 |
 | `t_i_s` | `parts.<ref>.core_t_s`: the step's edge | class t₀ /2 .. x3 |
 | `f_sw_Hz` | `parts.<ref>.core_f_Hz`: the step's repetition (core clock) | class 50 MHz (`CORE_F`) /2 .. x2 |
 
-Cap by the supply draw (charge balance): a step I repeated at f with edge t carries a mean current ≈ I·t·f, so a part that draws `I_A` on average has I ≤ I_A / (t·f), each end of the interval (lo, typ, hi) capped by the same end of `I_A`. A TCA9548A at `I_A` [0.1, 10] µA (t₀ 2 ns, f 50 MHz) gets a 10 µA typical step instead of 10 mA; an MCU stating 20 mA keeps its 50 mA class value (cap 200 mA). The parameter's `basis` names the fact it used: `parts.<ref>.core_I_A` (source `intent`), `core current capped by the stated supply draw: parts.<ref>.I_A ...` (source `intent`), or the class value (source `prior`).
+A stated supply draw `parts.<ref>.I_A` (an average) does not bound the core's current step: a clocked core's edge currents are far above its mean draw, so a cap by `I_A` (tried in 6379503) understated supply noise on every board that states `I_A`, and was removed. Only `core_I_A` (with `core_t_s`, `core_f_Hz`) or `core: false` replace the class value; the parameter's `basis` names the fact (source `intent`) or the class value (source `prior`).
 
 Parts whose supply draw, core source or cell current rests on a class prior: `python -m haslam.intent priors BOARD [--intent F] [--json]` (`haslam.excite.prior_parts.parts_on_priors`; the same ledger the evaluator builds, no field solve), one line per part with the fact key that would replace the prior.
 
@@ -116,7 +116,6 @@ Measured on bme280-array (routed board A1 s0, `evaluate --no-cells`; F48), the T
 | U4 facts | core I (source) | `supply.peak` from core:U4 | worst `supply.peak` of the board | U4 T_j |
 |---|---|---|---|---|
 | none (supply draw: 30 mA class prior) | 10 mA (prior) | 244.5 mV | 244.5 mV (U4 from core:U4) | 62.2 °C |
-| `I_A` [0.1, 2, 10] µA | 20 µA (intent, capped by `I_A`) | 0.68 mV | 19.3 mV (U2 VIN_P from cell:buck:U2) | 60.0 °C |
 | `I_A` and `core_I_A` [1, 10, 100] µA, `core_t_s` [5, 20] ns, `core_f_Hz` 100 kHz | 10 µA (intent) | 0.033 mV | 19.3 mV | 60.0 °C |
 | `I_A` and `core: false` | no source | — | 19.3 mV | 60.0 °C |
 

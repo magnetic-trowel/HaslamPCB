@@ -330,11 +330,14 @@ def operating(d):
            why="TPS629203 above 3.4 V: same load as U1")
     # supply draws: without them haslam.excite gives an IC a 10 mA class prior (U4 then "dissipated" 21 mW, the
     # largest heat source on the board, inside the sensor field; FRICTION F36)
-    k.part("U4", I_A=[1e-7, 1e-5], I_sustained_A=2e-6,
-           why="TCA9548A DS 5.5: ICC 2-4 uA at 1.65 V, 100 kHz; 0.1 uA standby")
+    k.part("U4", I_A=[1e-7, 1e-5], I_sustained_A=2e-6, core=False,
+           why="TCA9548A DS 5.5: ICC 2-4 uA at 1.65 V, 100 kHz; 0.1 uA standby. core false: a passive I2C switch "
+               "(pass FETs and a register), no clocked core; a stated I_A does not bound a core's edge currents")
     for ref in SENSORS:
-        k.part(ref, I_A=[1e-7, 7.14e-4], I_sustained_A=3.6e-6,
-               why="BME280 DS: 0.1 uA sleep, 3.6 uA at 1 Hz forced (T+P+H x1), 714 uA max while measuring pressure")
+        k.part(ref, I_A=[1e-7, 7.14e-4], I_sustained_A=3.6e-6, core_I_A=[1e-4, 3.4e-4, 7.14e-4],
+               why="BME280 DS: 0.1 uA sleep, 3.6 uA at 1 Hz forced (T+P+H x1), 714 uA max while measuring pressure. "
+                   "core_I_A: the measurement current as the core's step (assumed: the DS gives no core edge or "
+                   "clock; core_t_s and core_f_Hz stay class priors)")
     k.part("U3", I_A=[5.5e-6, 1.3e-5], I_sustained_A=6e-6, why="TPS3700 DS 6.5: IDD 6 uA typ, 13 uA max")
     k.cable("J1", 1.0, why="host lead < 1 m (A-2)")
     k.term("T-SENS", "hard", "temp.rise", where={"part": list(SENSORS)}, max="10 mK",
