@@ -370,6 +370,29 @@ def _xr(method, board, xc, kind="route"):
     return dict(_r(method, board, 0, False), xc=xc, kind=kind)
 
 
+def test_legal_h_is_not_worse_than_the_human_per_placement_kind():
+    # the human layout breaks the board's own rules: 34 pads within the edge clearance, 2 courtyard overlaps
+    drc = dict(errors_by_type=dict(copper_edge_clearance=34, courtyards_overlap=2, solder_mask_bridge=5))
+    row = dict(valid=True, unconnected=7, errors_by_type='{"copper_edge_clearance": 4, "courtyards_overlap": 2}')
+    assert haslamres.legal_vs_human(row, drc) is True                       # unconnected items do not matter
+    assert haslamres.legal_vs_human(dict(row, errors_by_type='{"courtyards_overlap": 3}'), drc) is False
+    assert haslamres.legal_vs_human(dict(row, errors_by_type='{"clearance": 1}'), drc) is False   # a kind the human has not
+    # kinds that are not placement errors never count
+    assert haslamres.legal_vs_human(dict(row, errors_by_type='{"solder_mask_bridge": 40, "track_width": 9}'), drc) is True
+    assert haslamres.legal_vs_human(dict(row, valid=False), drc) is False
+    assert haslamres.legal_vs_human(row, None) is None
+    assert haslamres.legal_vs_human(row, dict(errors_by_type=None)) is None
+    assert haslamres.legal_vs_human(dict(row, errors_by_type=None), drc) is None
+
+
+def test_legal_h_table_is_empty_without_legal_h():
+    rows = [dict(attempt=0, method="m", board="b", legal=True, legal_h=None)]
+    assert haslamres.legal_h_table(rows, ["m"]) == []
+    rows = [dict(attempt=0, method="m", board="b", legal=False, legal_h=True)]
+    out = "\n".join(haslamres.legal_h_table(rows, ["m"]))
+    assert "| m | 1 | 0.000 | 1.000 | 0 |" in out
+
+
 def test_xc_is_clean_net_of_the_route_inputs_errors():
     drc = dict(errors_by_type=dict(courtyards_overlap=2, solder_mask_bridge=1))
     row = dict(valid=True, unconnected=0, errors_by_type='{"courtyards_overlap": 2}')

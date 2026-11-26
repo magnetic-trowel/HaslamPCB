@@ -2156,6 +2156,23 @@ PLACEMENT_ERROR_TYPES = ("courtyards_overlap", "copper_edge_clearance", "clearan
                          "npth_inside_courtyard", "pth_inside_courtyard", "shorting_items")
 
 
+def legal_vs_human(row, input_drc):
+    """legal_h, "not worse than the human" (user decision 2026-11-22): for every placement-type DRC error kind
+    (PLACEMENT_ERROR_TYPES), the run has no more errors than the board's human layout has. The human counts are the
+    route task's input DRC (the human placement with its copper stripped), computed once per board when the task is
+    prepared and stored in its task record. On boards whose own human layout breaks the board's rules (courtyards
+    overlapping, header pads within the copper-to-edge clearance), `legal` asks more than the human met; this asks
+    for no more than that. Report-only: `legal` and `clean` are unchanged. None when the human layout's DRC is not
+    known or the run has no score."""
+    if input_drc is None or input_drc.get("errors_by_type") is None or row.get("errors_by_type") is None:
+        return None
+    if not row.get("valid"):
+        return False
+    base = input_drc["errors_by_type"]
+    errs = json.loads(row.get("errors_by_type") or "{}")
+    return all(errs.get(t, 0) <= base.get(t, 0) for t in PLACEMENT_ERROR_TYPES)
+
+
 def fixed_input_placement_errors(e, bid):
     """Placement-type DRC errors of a board's fixed input ({type: count}; `record.tasks["place-fixed"].input_drc` of the
     experiment's joint-fixed task, else its place-fixed task): the placed parts a task can never move. Non-empty means
@@ -2217,6 +2234,7 @@ def exp_rows(e):
             v["foreign_evaluator"] = use["drc"] is not None and use["drc"] != evs["drc"]  # scored, but by another scorer
             v["kind"] = _run_kind(r)
             v["xc"] = clean_net_of_input(v, route_drc if route_drc is not None else route_input_drc(e, bid, r))
+            v["legal_h"] = legal_vs_human(v, route_drc if route_drc is not None else route_input_drc(e, bid, r))
             v["winnable"] = None if fixed_errors is None else not fixed_errors
             b = read_json(bd / "board.json") or {}
             v.update(repo=task_meta.get("repo"), split=task_meta.get("split"), pads=(task_meta.get("reference") or {}).get("stats", {}).get("pads"),
@@ -2424,6 +2442,28 @@ def winnable_table(rows, names, spec=None):
     return out + [""]
 
 
+def legal_h_table(rows, names):
+    """Legal placements by the score's `legal` and by legal_h, "not worse than the human" (legal_vs_human), side by
+    side. Empty when no run has legal_h."""
+    rows = [r for r in rows if r["attempt"] == 0]
+    if not any(r.get("legal_h") is not None for r in rows):
+        return []
+    out = ["### Legal, and not worse than the human layout", "",
+           "legal_h (user decision 2026-11-22): for every placement-type DRC error kind, no more errors than the board's "
+           "human layout has (the route task's input DRC). On boards whose human layout breaks the board's own rules, "
+           "`legal` asks more than the human met. Report-only: `legal` and `clean` are unchanged, and the column is new, "
+           "so baselines show it once their reports are regenerated.", "",
+           "| method | boards | legal | legal_h | boards without a human DRC |", "|---|---|---|---|---|"]
+    for n in names:
+        rs = [r for r in rows if r["method"] == n]
+        if not rs:
+            continue
+        known = [r for r in rs if r.get("legal_h") is not None]
+        out.append(f"| {n} | {len(rs)} | {_f(_mean([1.0 if r.get('legal') else 0.0 for r in rs]))} | "
+                   f"{_f(_mean([1.0 if r['legal_h'] else 0.0 for r in known])) if known else '—'} | {len(rs) - len(known)} |")
+    return out + [""]
+
+
 def physics_table(rows, names):
     """physics_total beside the valued-only total and how many boards measured anything: a module with no value counts a
     flat 3 in physics_total, and a board with no observation counts only that (E6, E28), so per-board means here use only
@@ -2594,6 +2634,7 @@ def cmd_exp_report(a):
             "over modules routed in both (lower is better). The human method is the original copper scored the same way.", ""]
     rep += method_table(rows, names, "All boards")
     rep += winnable_table(rows, names, harness_task_spec(e["harness"]["commit"]))
+    rep += legal_h_table(rows, names)
     nonhuman = [n for n in names if not human or n != human["name"]]
     base = getattr(a, "baseline", None) or (nonhuman[0] if nonhuman else None)
     if base in names and len(nonhuman) > 1:

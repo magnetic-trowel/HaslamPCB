@@ -135,4 +135,4 @@ on every board-seed of every test.
     ee6b13ba5cb467280adae28fb0706af7ced5ff2c (`place_edge_header_pairs`: 5cc939e2);
   - crowded-ab4: `crowded-pinclear` (`place_edge_pose_clear`: df50f967), merged into main.
 - **Related:** the scoring follow-ups are score 13 (PR #137, merged), `haslamres rescore` (PR #138) and `legal_h`
-  (PR #136).
+  (report-only, user decision 2026-11-22: [haslamres README](../../../tools/haslamres/README.md); first PR #136 before the rename).
