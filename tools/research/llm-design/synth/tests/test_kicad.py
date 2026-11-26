@@ -35,6 +35,12 @@ def test_deterministic_output(tmp_path):
 @pytest.mark.kicad
 def test_barrier_rules_and_lib_parts(tmp_path):
     d, b, u = isolated_design(opto().with_(footprint="Package_DIP:SMDIP-4_W9.53mm"))
+    # Conformally coated (IPC-2221B B4): LED_K and L may differ by 340 V, which uncoated (B2) needs 2.5 mm inside
+    # MAINS. KiCad 10.0.8's regenerated footprints (version 20260206) leave 2.48 mm between the MKDS 5.08 terminal's
+    # 2.6 mm pads and 1.55 mm beside the SMDIP pads: a test sitting at the library's tolerance failed on a library
+    # revision. B4 asks 0.8 mm, so every pad here clears its rule by >= 0.7 mm; the checks themselves are unchanged
+    # (test_pad_rules_catch_uncoated_mains_pads keeps the uncoated case).
+    d.board(width_mm=60, height_mm=40, coating="acrylic conformal coat, IPC-CC-830")
     d.nets["L"].connect(u["A"])
     rl = b.add(R("100k", "2512", v_max=200), p_diss=0.15)      # (120 V - 2 V)^2 / 100k
     n_a = b.net("LED_K", domain="MAINS", v=(-170, 170))
@@ -63,6 +69,21 @@ def test_barrier_rules_and_lib_parts(tmp_path):
     assert 'Q_NMOS_G1S2D3' in lib
     errs = {f.check for f in findings if f.severity == "error" and not f.waived_by}
     assert not errs, [f.message for f in findings if f.severity == "error"]
+
+
+def test_pad_rules_catch_uncoated_mains_pads(tmp_path):
+    """The case test_barrier_rules_and_lib_parts steps away from: 340 V uncoated inside one domain needs 2.5 mm,
+    which the pads of a 2.54 mm-pitch SMDIP cannot give (their 1.78 mm height fills most of the pitch)."""
+    from conftest import HAVE_LIBS
+    if not HAVE_LIBS:
+        pytest.skip("needs KiCad footprint libraries")
+    d, b, u = isolated_design(opto())
+    d.nets["L"].connect(u["A"])
+    b.net("LED_K", domain="MAINS", v=(-170, 170)).connect(u["K"])
+    d.nets["IO"].connect(u["C"]); d.nets["GND"].connect(u["E"])
+    d.board(width_mm=60, height_mm=40)
+    _, findings, _, _ = build(d, tmp_path, use_kicad=False)
+    assert any(f.check == "rules.pin_escape" and "U101.1" in f.message for f in findings)
 
 
 def two_board_design(with_connector=True):
