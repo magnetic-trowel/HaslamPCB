@@ -6,6 +6,7 @@ Keys: board corpus, open boards, wide manifest, candidates, decap priors, near-d
 | Path | Status | One-line result | Page | Code |
 |---|---|---|---|---|
 | Wide open-board corpus: licence audit, robots policy, stats, DRC | worked (data infrastructure) | 14,318 boards from 8,757 repos; 2,449 (17%) DRC-clean as committed under their own rules | [board-corpus](board-corpus.md) | [tools/research/board-sourcing](../../../tools/research/board-sourcing/README.md) |
+| Stored DRC consistency: every corpus `drc.json` against its board text | worked (check) | 14,597 boards: stored DRC sound; 94 boards' unconnected lists capped at 499 (a lower bound) | [board-corpus](board-corpus.md#stored-drc-consistency-2026-11-23) | `tools/research/data/drc_consistency.py` |
 | Near-duplicate removal by content fingerprint (MinHash/LSH) | worked | 1,637 revisions, forks and mirrors dropped; ~600 near-empty boards excluded | [board-corpus](board-corpus.md#near-duplicate-removal) | `sig.py` |
 | Making foreign and old boards load in KiCad 10 | worked | Eagle 2,472, Altium 419, Allegro 32, PADS 14 imported; every accepted row loads | [board-corpus](board-corpus.md#import-and-load-fixes) | not ported (harness changes on the sourcing branch) |
 | Benchmark candidate set (first pass, 297 boards) | worked | 112 boards qualify on KiCad 10.0.7 | [open-board-sources](../../topics/data/open-board-sources.md), [harness](../../topics/verification/harness.md) | `bench/manifests/candidates.jsonl` |

@@ -90,7 +90,7 @@ haslam-boards/
   ```
 - Treat the folder as read-only: copy first (`boardfiles.copy_board("~/haslam-boards/boards/<id>", workdir)` or `cp -r`); filter on `license_tier` before anything leaves the machine.
 - KiCad: with the venv active, `$HASLAM_KICAD_WRAP kicad-cli pcb drc ...` runs `kicad-cli`, `$HASLAM_KICAD_WRAP python3` runs pcbnew (the venv sources `HASLAM_KICAD_WRAP`). Stats and placement ops: `haslambench.tools.run_ops(...)`. Run KiCad under `ulimit -v 40000000` and a timeout: a few boards are heavy.
-- Read DRC through [tools.summarize_drc](../../../bench/src/haslambench/tools.py): the benchmark's definition; ignores library-only checks. `drc.json` = board **as saved**, no zone refill. Many upstream boards carry DRC errors: compare before/after on the same board; 0 is not the expected state.
+- Read DRC through [tools.summarize_drc](../../../bench/src/haslambench/tools.py): the benchmark's definition; ignores library-only checks. `drc.json` = board **as saved**, no zone refill. Many upstream boards carry DRC errors: compare before/after on the same board; 0 is not the expected state. On 94 boards the stored unconnected list is capped at 499 items, a lower bound ([consistency check](../../research/data/board-corpus.md#stored-drc-consistency-2026-11-23)).
 - Benchmark tasks: `haslambench prepare`/`run` on `candidates.jsonl` ([bench/README](../../../bench/README.md)); the corpus does not replace the harness's scoring.
 
 ## Licensing
