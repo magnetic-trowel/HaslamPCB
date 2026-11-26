@@ -96,7 +96,7 @@ gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status
 | F52 | fixed | rule written in llm-relations.md and brief-to-board; test | — |
 | F53 | none | checks worked | — |
 | F54 | open | corpus sprint on the shared host | required before merging to main |
-| F55 | open | fresh-container setup run | — |
+| F55 | partial | `setup.sh` re-run on this host: exit 0, env.sh written with HASLAM_KICAD_PYTHON and library dirs, doctor all ok | a fresh container (first install) still untested |
 | F56 | by design | soft region reported | — |
 | F57 | open | dense-area silk legend or smaller text | cosmetic |
 
