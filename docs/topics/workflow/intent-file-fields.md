@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # The board intent file, field by field: who in haslam reads it
 
-Scope: every field haslamsynth writes into a design's intent, and every field of `haslam.intent/1`, with the haslam code that reads it. Rule: a field goes into the intent only if haslam uses it, correctly. Audit of 2026-11-24, haslam branch `intent-relations` and haslamsynth branch `haslamsynth-relations`; the gaps it found are fixed on haslam branch `intent-wiring` (A7). Not here: what the fields mean -> [intent-driven-objectives](../architecture/intent-driven-objectives.md); where the file sits and how stages use it -> [brief-to-board F](brief-to-board.md#f-the-board-intent-file); the relations' placer terms -> [intent-relations](../placement/intent-relations.md).
+Scope: every field haslamsynth writes into a design's intent, and every field of `haslam.intent/1`, with the haslam code that reads it. Rule: a field goes into the intent only if haslam uses it, correctly. Audit of 2026-11-24, haslam branch `intent-relations` and haslamsynth branch `haslamsynth-relations`; the gaps it found are fixed on haslam branch `intent-wiring` (A7). Not here: what the fields mean -> [intent-driven-objectives](../architecture/intent-driven-objectives.md); where the file sits and how stages use it -> [brief-to-board F](brief-to-board.md#f-the-board-intent-file); the relations' placer terms -> [llm-relations](../placement/llm-relations.md), [relations-unified](../placement/relations-unified.md).
 Keys: haslam_intent.json, haslam.intent/1, intent.yaml, pcb-intent/0.2, intent audit, unused fields, relations, facts, terms, knobs, environment, cables, producer, G14, requested, relations category
 
 Stages: **P** placer (`haslam.place`, the joint loop's place step and windows); **R** default router (`haslam.route.critical`, `critical_cli`); **PNR** `haslam.em.pnr` (not in the default recipe); **E** evaluator (`haslam.excite.evaluate`/`wideband`, `haslam.intent status`). Paths are under `haslam/src/haslam/`.
@@ -84,21 +84,25 @@ Non-blocking: tiers and completeness are the same whether a question is answered
 
 ## A5. Placement relations (`d.place`)
 
-| haslamsynth relation | Written as | Why not, when not |
+| haslamsynth relation | Written as (haslam's unified vocabulary, `haslam_intent.HaslamIntent.relations`) | Why not, when not |
 |---|---|---|
-| `near(a, b, strength, within_mm=)` | `near` (`mag` or `within_mm`) | a block, domain or net as a side: haslam relates parts and pads |
+| `near(a, b, strength, within_mm=)` | `near`, `mag` the strength (tight / close / loose) or `"<within_mm> mm"` (a datasheet distance, pad to pad) | a block, domain or net as a side: haslam relates parts and pads |
 | `far(a, b, strength)` | `keep_away` (`mag`) | same |
-| `group(block, strength)` | `group` of the block's parts on the board | — |
-| `edge(part, side)` | `edge` (north/south/east/west) | `any`: haslam pins user-facing connectors to the nearest edge itself (`connector_edge`) |
-| inferred decoupling (`placement.infer_decaps`) | `near` tight, `source: auto` | — |
+| `group(block, strength)` | `group` of the block's parts on the board | fewer than two parts on the board |
+| `edge(part, side)` | `on_edge`, `edge:north/south/east/west`, `any` as `edge:nearest`; no strength, so haslam pins the part, facing out | a pin rather than a part |
+| `region(block or members, where)` | `region`: a side as that edge's band, a corner as its cell, centre as `region:c` | another `where` |
+| `side(part, side)` | `side` | — |
+| `array`, `align` (`axis` x or y) | `row` (`array`'s pitch `equal` / `any` kept) | fewer than two parts, or no axis |
+| inferred decoupling (`placement.infer_decaps`) | `near` tight, `source: auto` | an explicit relation on the same pair wins |
 | inferred block groups (`source: auto`) | — | **dropped**: a schematic sheet is not a placement want |
 | `hot_loop` | — | a physical want: haslam finds the cell and prices its loop inductance |
 | `separate` | — | in the `.kicad_dru` barrier rules |
 | `keepout`, `keepout_around` | — | board rule areas (`board.json`), obstacles to haslam |
 | `fixed` | — | positions come from `board.json` `fixed` |
-| `side` | — | haslam never flips parts |
 | `thermal` | — | a fact (`d.haslam.part`), not a relation |
-| `region`, `orient`, `pins_toward`, `array`, `align`, `symmetric`, `custom` | — | no placer term yet ([llm-relations-input R7](../placement/llm-relations-input.md#r7-build-plan)) |
+| `orient`, `pins_toward`, `symmetric`, `custom` | — | no haslam spelling or placer term yet (`haslam_intent.UNUSED` gives each reason) |
+
+Every written relation carries `why` (the design's note) and `source` (`design` or `auto`); haslamsynth writes no `category` or `requested`, so where the place terms price a relation's parts it weighs as weak ([who keeps full weight](../placement/llm-relations.md#physics-against-relations-who-keeps-full-weight)). Relations are checked at build as haslam measures them (`layout.check_relations`): a row whose sides are all fixed is dropped (an error when the fixed parts break it); a datasheet distance the footprints cannot meet is `haslam_intent.relation_infeasible` (error).
 
 Every relation not written comes back as a build finding `haslam_intent.relation_unused` (warning) with its reason. Over the four other LLM-authored designs (leadacid-balancer, liion-balancer, prius-solar-mppt, rpi-mains-relay) haslamsynth now writes near 555 (most inferred decoupling), keep_away 39, group 32, edge 25; the largest unwritten groups are separate 90, hot_loop 80, thermal 80, region 61, pins_toward 52, keepout 44, and 50 custom kinds (204 rows) [M, haslamsynth build 2026-11-24].
 

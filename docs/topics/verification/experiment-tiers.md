@@ -1,7 +1,7 @@
 # Experiment tiers
 
 Scope: the four experiment tiers, their board suites and CPU limits, the weekly baseline tag, the rules. Not here: how the suites are built -> [bench/README](../../../bench/README.md#experiment-tier-suites); the guard's estimate -> [haslamres](../../../tools/haslamres/README.md#tiers).
-Keys: experiment tiers, tier, puzzles, sprint, ladder, canary, sprint-frontier, sprint-quality, tier guard, --tier, weekly tag, baseline tag, baseline/2026-w47, stored control, control-w47, undecided, near-miss closure, signal per CPU-hour
+Keys: experiment tiers, tier, puzzles, sprint, ladder, canary, sprint-frontier, sprint-quality, tier guard, --tier, weekly tag, baseline tag, baseline/2026-w48, baseline/2026-w47, stored control, control-w48, control-w47, undecided, near-miss closure, signal per CPU-hour
 
 ## Why tiers
 
@@ -26,9 +26,9 @@ Mechanism suites: an experiment on one mechanism (BGA escape, differential pairs
 
 ## Weekly tag and stored control
 
-- Tag: `baseline/<year>-w<week>` on main, with its Freerouting fork pin and evaluators. Current: `baseline/2026-w47` = `c2dd008a`.
+- Tag: `baseline/<year>-w<week>` on main, with its Freerouting fork pin and evaluators. Current: `baseline/2026-w48` = `dfbd333e` (first after the rename of #163; Freerouting fork `37b1a8b`). Before: `baseline/2026-w47` = `c2dd008a`.
 - An experiment is the tag plus one change. Queued or running work is not migrated when main or the fork pin moves. Adopted changes are confirmed again at the next tag.
-- Stored control: experiment `control-w<week>` (`tools/haslamres/experiments/control-tag.sh`) holds two control methods at the tag on both sprint suites, one attempt per seed, no restart wrapper, no operating facts, counted-work budgets (`HASLAM_BUDGET=work`), so runs are paired per board and seed. `control-w47`, seeds 0-1: bridge on the human placement `71e60a91475d`; staged place-and-route `716e9b11e0f4`.
+- Stored control: experiment `control-w<week>` (`tools/haslamres/experiments/control-tag.sh`) holds two control methods at the tag on both sprint suites, one attempt per seed, no restart wrapper, no operating facts, counted-work budgets (`HASLAM_BUDGET=work`), so runs are paired per board and seed. Current stored control: `control-w48`, seeds 0-1, 140 boards: bridge on the human placement `288a499c28d9`; staged place-and-route `85993b60a886`. It is the first control scored after #169's scorer changes (own-load currents; unstated connector exports at 1 % of rating; physics evaluator `3814c9157282`), so physics values of w47-era runs are not comparable to it; its DRC scorer is unchanged since the rename. The previous control `control-w47` (`71e60a91475d`, `716e9b11e0f4`) is pre-rename and cannot be run by main's haslamres; experiments made against it keep their stored results.
 - A sprint experiment (`haslamres sprint`) reuses the control's stored runs (`--reuse-runs`) and runs only its new arm.
 - Ladder runs use the restart-wrapped recipes (`RECIPE=restart`); these need operating facts, which only the 213 merit boards have.
 

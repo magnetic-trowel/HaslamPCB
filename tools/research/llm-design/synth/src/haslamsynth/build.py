@@ -13,7 +13,6 @@ from pathlib import Path
 from . import dru
 from .checks import Checker, Finding, summarize
 from .emit import netlist as nl
-from .emit.intent import intent_yaml
 from .emit.kicad_sch import SchematicWriter
 from .emit.project import NetClasses, dru_text, write_project
 from .emit.report import bom_csv, report_md
@@ -160,13 +159,38 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
     checker = Checker(d, symlibs, fplibs)
     findings = checker.run()
     fatal = [f for f in findings if f.check in ("lib.symbol_missing",) and not f.waived_by]
+    # LCSC numbers of the generic passives from designs/<slug>/jlc.json (`haslamsynth jlc`; no network here)
+    if not isinstance(design_path, Design):
+        from . import jlc
+        left = jlc.apply(d, Path(design_path).resolve().parent / "jlc.json")
+        if left:
+            findings.append(Finding("bom.no_lcsc", "warning",
+                                    f"{len(left)} generic parts without an LCSC number (run `haslamsynth jlc`): "
+                                    + ", ".join(r for r, _ in left[:12]) + (" ..." if len(left) > 12 else "")))
+    # fab minimums from the finest pitch when the design leaves them unset (haslamsynth.layout)
+    from . import layout as LY
+    if d.board_spec is not None and fplibs:
+        t, c, why = LY.board_minimums(d, fplibs)
+        if not (d.board_spec.min_track_mm and d.board_spec.min_clearance_mm):
+            d.board_spec.min_track_mm = d.board_spec.min_track_mm or t
+            d.board_spec.min_clearance_mm = d.board_spec.min_clearance_mm or c
+            findings.append(Finding("layout.fab_minimums", "info",
+                                    f"board minimums track {t:g} mm, clearance {c:g} mm ({why})"))
     netclasses = NetClasses(d, checker).build()
+    dru_info = {}
+    dru_body = dru_text(d, netclasses, dru_info)
+    if fplibs:
+        LY.check(d, fplibs, netclasses, dru_info.get("pair_mm", {}), set(dru_info.get("bridging", [])),
+                 lambda chk, sev, msg, objs=(): findings.append(Finding(chk, sev, msg, list(objs))))
+        checker.findings = findings
+        checker.apply_waivers()
+        findings = checker.findings
     kicad = {"ran": False, "reason": "not requested"}
     if symlibs and not fatal:
         writer = SchematicWriter(d, symlibs, title_date=date)
         writer.write(outdir)
         write_project(outdir, d, writer.st, netclasses, fplibs=fplibs)
-        (outdir / f"{d.slug}.kicad_dru").write_text(dru_text(d, netclasses))
+        (outdir / f"{d.slug}.kicad_dru").write_text(dru_body)
         if use_kicad:
             kicad = run_kicad(d, outdir, netclasses)
             for item in kicad.get("erc_items", []):
@@ -192,7 +216,6 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
                 write_project(sub, d, w.st, netclasses, slug=slug, parts=[p for b in blocks for p in b.parts],
                               fplibs=fplibs)
                 (sub / f"{slug}.kicad_dru").write_text(dru_text(d, netclasses))
-                (sub / "intent.yaml").write_text(intent_yaml(d, netclasses, board=name))
                 if use_kicad and kicad.get("ran"):
                     probs = parity(kicad_cli(), sub / f"{slug}.kicad_sch", d, netclasses, blocks)
                     kicad["boards"][name] = probs
@@ -207,10 +230,29 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
     if not d.haslam.empty():
         # the operating intent haslam reads beside the board (haslam.intent.facts): <slug>.haslam_intent.json
         from .haslam_intent import haslam_available
-        doc, problems = d.haslam.document()
+        rows = d.haslam.relations()[0]
+        if fplibs:
+            # board.json beside design.py holds the fixed parts and the outline (sch_to_board.py reads it)
+            bj = Path(design_path).resolve().parent / "board.json" if not isinstance(design_path, Design) else None
+            spec = json.loads(bj.read_text()) if bj is not None and bj.exists() else {}
+            outline = spec.get("outline") or ((d.board_spec.width_mm, d.board_spec.height_mm)
+                                              if d.board_spec and d.board_spec.width_mm else None)
+            rows = LY.check_relations(d, fplibs, rows, lambda chk, sev, msg, objs=(): findings.append(
+                Finding(chk, sev, msg, list(objs))), fixed=spec.get("fixed"), outline=outline)
+        doc, problems = d.haslam.document(relations=rows)
         (outdir / f"{d.slug}.haslam_intent.json").write_text(json.dumps(doc, indent=1) + "\n")
         for prob in problems:
             findings.append(Finding("haslam_intent.invalid", "error", prob))
+        for chk, msg, objs in d.haslam.warnings():
+            findings.append(Finding(chk, "warning", msg, list(objs)))
+        unused = {}
+        for r, why in d.haslam.relations()[1]:
+            unused.setdefault((r["kind"], why), []).append(r)
+        for (kind, why), rs in sorted(unused.items()):
+            findings.append(Finding("haslam_intent.relation_unused", "warning",
+                                    f"{len(rs)} d.place.{kind} relation(s) not written for haslam: {why}",
+                                    [str(r.get("a") or r.get("obj") or r.get("block") or r.get("members") or "")
+                                     for r in rs][:8]))
         if not haslam_available():
             findings.append(Finding("haslam_intent.unchecked", "warning", "haslam is not importable (put haslam/src on "
                                     "PYTHONPATH): the intent file was checked by haslamsynth only"))
@@ -218,7 +260,9 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
     checker.apply_waivers(final=True)
     findings = checker.findings
     (outdir / "netlist.json").write_text(json.dumps(nl.ir_netlist(d), indent=1) + "\n")
-    (outdir / "intent.yaml").write_text(intent_yaml(d, netclasses))
+    stale = outdir / "intent.yaml"          # retired (pcb-intent/0.2, read by nothing): relations are in the haslam intent
+    if stale.exists():
+        stale.unlink()
     (outdir / "bom.csv").write_text(bom_csv(d))
     s = summarize(findings)
     status = {"ok": s["error"] == 0, **s,
