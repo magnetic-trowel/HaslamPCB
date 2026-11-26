@@ -195,3 +195,16 @@ def test_placement_report_screens_with_the_place_terms_loops():
         out.append(r["rails"][0])
     # the far capacitor's loop is longer: a higher effective inductance at the top of the band
     assert out[1]["L_eff_nH"] > out[0]["L_eff_nH"] + 0.5
+
+
+def test_a_stated_draw_caps_the_transient_prior():
+    """rail_loads ignored the facts: a part stated at 20 mA was screened at its pin-count prior (150 mA for 48 pins).
+    A transient step cannot exceed the part's whole stated draw, so the prior is capped at its top; a larger stated
+    draw leaves the prior, and I_A_by_rail caps one rail on its own."""
+    bd = _bd()
+    (ld,) = pdn.rail_loads(bd, facts={"parts": {"U1": {"I_A": [0.005, 0.02]}}})["3V3"]
+    assert ld[1] == pytest.approx(0.02) and "capped" in ld[2]
+    (ld,) = pdn.rail_loads(bd, facts={"parts": {"U1": {"I_A": 2.0}}})["3V3"]
+    assert ld[1] == pytest.approx(0.15)
+    (ld,) = pdn.rail_loads(bd, facts={"parts": {"U1": {"I_A_by_rail": {"3V3": 0.01}}}})["3V3"]
+    assert ld[1] == pytest.approx(0.01)

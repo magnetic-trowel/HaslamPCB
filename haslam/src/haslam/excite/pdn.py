@@ -85,14 +85,28 @@ def _scaled(z, k):
     return lambda w: k * z(w)
 
 
-def rail_loads(bd, brief_parts=None):
+def rail_loads(bd, brief_parts=None, facts=None):
     """{rail: [(ref, I_A, basis)]}: each IC that draws from a rail (bd.ic_nodes), with its transient current
     split over its supply pins (priors.ic_current_prior by pin count). Regulators are not loads: their input
-    current is the converter's (the commutation and power-path terms)."""
+    current is the converter's (the commutation and power-path terms).
+
+    The supply pins are the package pins that join a rail to the IC's die node (haslam.excite.models._ic), not every
+    pin on the rail: an enable or mode pin tied high carried a share before. Where the operating facts state the
+    part's draw (parts.<ref>.I_A, or per rail I_A_by_rail), its transient cannot exceed it: a step larger than the
+    whole current the part ever draws is no step it makes, so the prior is capped at the stated top (a 256-pin FPGA
+    the facts give 20 mA was screened at the prior's 1 A: a target impedance 50x lower than its draw asks for)."""
+    from haslam.intent.facts import FactsError, interval
     from haslam.physics.priors import ic_current_prior
     pins = {}
     for t in bd.net_of:
         pins.setdefault(t.rsplit(".", 1)[0], []).append(t)
+    parts = (facts or {}).get("parts") or {}
+
+    def top(v):
+        try:
+            return interval(v)[2] if v is not None else None
+        except FactsError:
+            return None
     out = {}
     for ref, nodes in bd.ic_nodes.items():
         kind, sub, role = bd.part_kind.get(ref, ("ic", None, ""))
@@ -102,13 +116,22 @@ def rail_loads(bd, brief_parts=None):
         if not rails:
             continue
         own = pins.get(ref, [])
-        n_sup = {r: sum(1 for t in own if bd.net_of[t] == r) for r in rails}
+        n_sup = {r: sum(1 for e in bd.circuit.elems if e.kind == "pkg" and e.b == nodes[r] and
+                        str(e.name).startswith(f"{ref}.")) for r in rails}
+        if not sum(n_sup.values()):
+            n_sup = {r: sum(1 for t in own if bd.net_of[t] == r) for r in rails}
         tot = sum(n_sup.values()) or 1
-        I = ic_current_prior(len(own))
+        npins = len({t for t in own})
+        I = ic_current_prior(npins)
+        fd = parts.get(ref) or {}
+        cap, by = top(fd.get("I_A")), fd.get("I_A_by_rail") if isinstance(fd.get("I_A_by_rail"), dict) else {}
         for r in rails:
             share = n_sup[r] / tot
-            out.setdefault(r, []).append((ref, I * share, f"{I * 1e3:.0f} mA ({len(own)}-pin prior) x "
-                                                          f"{n_sup[r]}/{tot} supply pins"))
+            Ir, basis = I * share, f"{I * 1e3:.0f} mA ({npins}-pin prior) x {n_sup[r]}/{tot} supply pins"
+            cr = top(by.get(r)) if r in by else (cap * share if cap is not None else None)
+            if cr is not None and cr < Ir:
+                Ir, basis = cr, basis + f", capped at the facts' {cr * 1e3:.3g} mA draw"
+            out.setdefault(r, []).append((ref, Ir, basis))
     return out
 
 
@@ -277,7 +300,12 @@ def screen(board, brief=None, loops=None, bd=None, stage="placement", f_lo=F_LO,
         brief = B.build(board)
     if bd is None:
         bd = M.build(board, brief)
-    loads = rail_loads(bd)
+    from .beliefs import board_facts
+    try:
+        facts = board_facts(None, getattr(board, "path", None)) if getattr(board, "path", None) else {}
+    except Exception:  # noqa: BLE001 - a report-only screen: no facts is the prior's screen
+        facts = {}
+    loads = rail_loads(bd, facts=facts)
     try:
         planes = plane_pairs(board, list(bd.rails), bd.grounds)
     except Exception as e:  # noqa: BLE001 - a board without a usable stack-up still gets its rails screened
