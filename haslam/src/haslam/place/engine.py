@@ -1204,7 +1204,8 @@ def build(ann, hash_cap=None):
             gbrd[p.i, k] = r.g_board
         no = len(p.rots[0].g_opp)
         nb_ = len(p.rots[0].g_boards or (p.rots[0].g_board,))
-        kt = getattr(P, "kin", {}).get(p.i) if p.movable else None
+        kin = getattr(P, "kin", None)
+        kt = kin.get(p.i) if kin and getattr(p, "movable", True) else None   # no keep-in: the old path exactly
         npc = len(p.rots[0].g_own_rects or (p.rots[0].g_own,))
         for m in range(npc):
             ownp_list.append([(p.rots[min(k, nk - 1)].g_own_rects or (p.rots[min(k, nk - 1)].g_own,))[m]

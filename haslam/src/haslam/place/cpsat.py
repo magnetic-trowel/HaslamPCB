@@ -69,7 +69,9 @@ def _rects_of(P, item, v):
             out[1 - si].append((dx + a, dx + b, dy + c, dy + d))
         for (a, b, c, d) in (r.g_boards or (r.g_board,)):
             boards.append((dx + a, dx + b, dy + c, dy + d))
-        t = getattr(P, "kin", {}).get(i) if p.movable else None
+        kin = getattr(P, "kin", None)
+        # no required region (every board without an intent): nothing read here, the pre-keep-in path exactly
+        t = kin.get(i) if kin and getattr(p, "movable", True) else None
         if t is not None:
             # a hard keep-in (Problem.set_keep_in): the courtyard box inside the keep-in's own cover
             a, b, c, d = r.g_kin
