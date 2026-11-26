@@ -15,6 +15,6 @@ def test_custom_pad_copper_bounds_the_primitives():
     assert pad_lib_rect(q, custom=True) == pad_lib_rect(q)          # other shapes unchanged
 
 
-def test_custom_pad_copper_setting_defaults_off():
+def test_custom_pad_copper_is_on_by_default():
     from haslam.route.constraints import DEFAULTS
-    assert DEFAULTS["place_custom_pad_copper"] == 0
+    assert DEFAULTS["place_custom_pad_copper"] == 1
