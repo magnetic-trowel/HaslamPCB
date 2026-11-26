@@ -474,7 +474,7 @@ def board_key(step, board, project=None, opts=None, tool=None):
     """Key of a step on `board`: its bytes, the project files of `project` (default: beside the
     board), the haslam source (code_id), `opts` and the tool's identity (e.g. KiCad's version)."""
     b, pr = Path(board), Path(project or board)
-    files = dict(board=file_sha(b), **{e: file_sha(pr.with_suffix(e)) for e in (".kicad_pro", ".kicad_dru")
+    files = dict(board=file_sha(b), **{e: file_sha(pr.with_suffix(e)) for e in (".kicad_pro", ".kicad_dru", ".haslam_intent.json")
                                          if pr.with_suffix(e).exists()})
     return make_key(step, dict(input=files, opts=json.loads(json.dumps(opts or {}, sort_keys=True, default=str)),
                                code=code_id(), tool=tool))

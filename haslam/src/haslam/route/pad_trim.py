@@ -288,7 +288,7 @@ def run(input_path, output_path, overlap=None, workdir=None, timeout=1800, reend
     rep["drc_in"] = base
     cand = wd / "out" / "board.kicad_pcb"
     cand.parent.mkdir(parents=True, exist_ok=True)
-    for ext in (".kicad_pro", ".kicad_dru"):
+    for ext in (".kicad_pro", ".kicad_dru", ".haslam_intent.json"):
         if staged.with_suffix(ext).exists():
             shutil.copy2(staged.with_suffix(ext), cand.with_suffix(ext))
     skip = set()
@@ -333,7 +333,7 @@ def run(input_path, output_path, overlap=None, workdir=None, timeout=1800, reend
         rep["kept"] = 0
         rep["drc_out"] = base
         rep["stats_out"] = rep["stats_in"]
-    for ext in (".kicad_pro", ".kicad_dru"):
+    for ext in (".kicad_pro", ".kicad_dru", ".haslam_intent.json"):
         s_ = inp.with_suffix(ext)
         if s_.exists() and s_.resolve() != out.with_suffix(ext).resolve():
             shutil.copy2(s_, out.with_suffix(ext))

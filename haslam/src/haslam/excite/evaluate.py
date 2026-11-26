@@ -189,6 +189,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     if scope not in (None, "losses"):
         raise ValueError(f"scope {scope!r}: None or 'losses'")
     loops = scope == "losses"
+    from .beliefs import board_facts
+    intent = board_facts(intent, path)
     from haslam.board.kicad_file import load
     from haslam.circuit import brief as B
     from haslam.em import solve as ES
@@ -201,7 +203,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     # the schematic's pin facts the intent was compiled with (operating facts `pins`): the same circuit
     n_pins = PF.apply(b, (intent or {}).get("pins"))
     b.stackup, stack_hz, stack_text = assume_stackup(b)
-    brief = brief or B.build(b)
+    brief = brief or B.build(b, facts=intent or None)   # the same facts as the physics, not only the sidecar's
     bd = M.build(b, brief)
     bd.radios = dict((intent or {}).get("radios") or {})        # the operating facts' radios
     added = [apply_edit(bd, b, e) for e in [f"add:{a}" for a in add_parts] + [f"remove:{r}" for r in remove_parts]
@@ -209,6 +211,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     srcs = S.add_all(bd, brief)
     obs = O.observers(bd, brief, srcs)
     P, ledger = ledger_for(bd, brief, srcs, intent)
+    O.rate_overshoot(obs, P)
     if sources is not None:
         unknown = set(sources) - {s.name for s in srcs}
         if unknown:
@@ -1381,7 +1384,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     from .beliefs import load_intent
     r = evaluate(a.board, a.pitch, tuple(a.window) if a.window else None, nsub=a.nsub, log=lambda m: print(m, file=sys.stderr),
-                 lumped=not a.no_lumped, intent=load_intent(a.intent), seed=a.seed,
+                 lumped=not a.no_lumped, intent=load_intent(a.intent) if a.intent else None, seed=a.seed,
                  max_cells=int(a.max_cells) if a.max_cells else None, cells=not a.no_cells, cell_pitch=a.cell_pitch,
                  cell_skin=not a.no_cell_skin, drc=False if a.no_drc else a.drc, scope=a.scope,
                  add_parts=a.add_part, remove_parts=a.remove_part, edits=a.edit, sources=a.sources)

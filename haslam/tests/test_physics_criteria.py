@@ -111,3 +111,36 @@ def test_place_report_warns_when_the_input_voltage_is_a_prior():
     h = hot_loop_hazards([row])[0]
     assert h["severity"] == "warn" and h["evidence"]["V_in_source"] == "prior"
     assert hot_loop_hazards([dict(row, info=dict(row["info"], V_in_prior=False))])[0]["severity"] == "block"
+
+
+def _buck_ledger(intent, text=""):
+    from types import SimpleNamespace
+    from haslam.excite import params as PA
+    from haslam.excite.beliefs import Ledger
+    brief = {"parts": {"u-1": {"ref": "U1"}},
+             "structures": [{"id": "cell:buck:U1", "class": "buck", "rail": "VIN", "vout": "+3V3", "controller": "u-1"}],
+             "nets": {"VIN": {"volts": 18.0}, "+3V3": {"volts": 3.3}}}
+    s = SimpleNamespace(meta={"cell": "cell:buck:U1", "cls": "buck", "bus": "VIN"}, name="cell:cell:buck:U1")
+    return {s.name: PA.cell(Ledger(), s, brief, None, intent, text)}, s
+
+
+def test_the_facts_switch_rating_rates_the_overshoot():
+    from haslam.excite import observe as O
+    P, s = _buck_ledger({"parts": {"U1": {"v_sw_max_V": [27.5, 30], "why": "DS abs max"}}})
+    vm = P[s.name]["V_max"]
+    assert (vm.typ, vm.lo, vm.hi, vm.source) == (27.5, 27.5, 27.5, "intent")       # a rating: its lowest value
+    assert "parts.U1.v_sw_max_V" in vm.basis and "DS abs max" in vm.basis
+    # the cell's own fact wins over its controller's
+    P2, _ = _buck_ledger({"parts": {"U1": {"v_sw_max_V": 27.5}}, "cells": {"cell:buck:U1": {"v_sw_max_V": 32}}})
+    assert P2[s.name]["V_max"].typ == 32 and "cells.cell:buck:U1" in P2[s.name]["V_max"].basis
+    # the overshoot observer's reference names the rating and its source, not the 1.25 x V prior (24 V)
+    o = O.Observer("overshoot:cell:buck:U1", "overshoot", "SW", "GND", None, None, CR.overshoot_limits(18.0)[0],
+                   CR.overshoot_basis(18.0), "prior", dict(source=s.name))
+    O.rate_overshoot([o], P)
+    assert o.bound == pytest.approx(0.85 * 27.5 - 18.0) and o.src_class == "intent"
+    assert "27.5 V, the switch's rating" in o.basis and "parts.U1.v_sw_max_V" in o.basis
+    # without facts: the prior stays (and a part-table rating leaves the reference as it was)
+    P3, _ = _buck_ledger({})
+    o3 = O.Observer("o", "overshoot", "SW", "GND", None, None, 1.0, "prior basis", "prior", dict(source=s.name))
+    O.rate_overshoot([o3], P3)
+    assert "V_max" not in P3[s.name] and (o3.bound, o3.basis, o3.src_class) == (1.0, "prior basis", "prior")

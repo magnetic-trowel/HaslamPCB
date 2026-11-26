@@ -93,7 +93,8 @@ class PhysRouter:
         self.work = Path(work or tempfile.mkdtemp(prefix="haslam-pnr-"))
         self.work.mkdir(parents=True, exist_ok=True)
         b = load(path)
-        self.brief = B.build(b)
+        from haslam.intent import facts as F
+        self.brief = B.build(b, facts=F.facts_of(intent) or None)
         bd = self.bd = M.build(b, self.brief)
         self.srcs = S.add_all(bd, self.brief)
         self.obs = O.observers(bd, self.brief, self.srcs)
@@ -103,6 +104,7 @@ class PhysRouter:
         from haslam.excite.beliefs import corners
         from haslam.excite.evaluate import ledger_for
         self.P, self.ledger = ledger_for(bd, self.brief, self.srcs, intent)
+        O.rate_overshoot(self.obs, self.P)
         self.cval = {s.name: [{k[1]: v for k, v in c.items()} for c in corners(self.P[s.name].values(), n=n_corners, seed=seed)]
                      for s in self.srcs}
         for s in self.srcs:
@@ -183,7 +185,7 @@ class PhysRouter:
         if left:
             raise RuntimeError(f"pnr: rip-up left {left} tracks on the priced nets ({path}): the board's item ids "
                                f"were not matched; routing would see every net connected")
-        for ext in (".kicad_pro", ".kicad_dru"):
+        for ext in (".kicad_pro", ".kicad_dru", ".haslam_intent.json"):
             s_ = Path(path).with_suffix(ext)
             if s_.exists():
                 import shutil
@@ -207,7 +209,7 @@ class PhysRouter:
         from haslam.route import critical_write as W
         p = self.work / "state.kicad_pcb"
         W.append_items(self.base, p, tracks=self.tracks, vias=self.vias)
-        for ext in (".kicad_pro", ".kicad_dru"):
+        for ext in (".kicad_pro", ".kicad_dru", ".haslam_intent.json"):
             s_ = self.base.with_suffix(ext)
             if s_.exists():
                 import shutil
@@ -796,7 +798,7 @@ class PhysRouter:
         self.hazards = self._hazards(fields)
         from haslam.route import critical_write as W
         W.append_items(self.base, self.out, *self._written())
-        for ext in (".kicad_pro", ".kicad_dru"):
+        for ext in (".kicad_pro", ".kicad_dru", ".haslam_intent.json"):
             s_ = self.base.with_suffix(ext)
             if s_.exists():
                 import shutil
@@ -1412,6 +1414,9 @@ def main(argv=None):
     a = ap.parse_args(argv)
     from haslam.excite.beliefs import load_intent
     facts, goal = load_intent(a.intent), None
+    if not a.intent:                                     # the board's own intent file, when it has one
+        from haslam.intent.facts import for_board
+        facts = for_board(a.board)[0] or {}
     if facts.get("schema") == "haslam.intent/1":            # the commander's intent: its facts and its goal
         goal, facts = facts, facts.get("facts") or {}
     r = route_whole(a.board, a.out, passes=a.passes, pitch=a.pitch, lam=a.lam, plain=a.plain, refresh=a.refresh,

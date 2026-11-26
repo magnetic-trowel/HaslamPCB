@@ -490,7 +490,7 @@ def stage_board(src_board, project_board, dest_dir):
     dest_dir.mkdir(parents=True, exist_ok=True)
     dst = dest_dir / "board.kicad_pcb"
     shutil.copy2(src_board, dst)
-    for ext in (".kicad_pro", ".kicad_dru"):
+    for ext in (".kicad_pro", ".kicad_dru", ".haslam_intent.json"):
         src = Path(project_board).with_suffix(ext)
         tgt = dest_dir / f"board{ext}"
         if src.exists():

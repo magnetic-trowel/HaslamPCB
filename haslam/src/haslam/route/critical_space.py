@@ -390,6 +390,9 @@ class Space:
                 f = self._class_floor()
                 f = min(f, v[1]) if f > 0 and v[1] > 0 else (f or v[1])
                 v = (min(f, v[2]) if v[2] else f, v[1], v[2])
+            if self.opts.get("width_min_mm") or self.opts.get("width_max_mm"):
+                from haslam.intent.uses import width_knobs      # the intent's per-net width knobs, inside the rules
+                v = width_knobs(self.opts, net, *v)
             self._req_cache[key] = v
         return v
 

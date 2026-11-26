@@ -204,6 +204,16 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
         kicad = {"ran": False, "reason": "KiCad symbol libraries not found; schematic not written"}
     else:
         kicad = {"ran": False, "reason": "missing symbols; schematic not written"}
+    if not d.haslam.empty():
+        # the operating intent haslam reads beside the board (haslam.intent.facts): <slug>.haslam_intent.json
+        from .haslam_intent import haslam_available
+        doc, problems = d.haslam.document()
+        (outdir / f"{d.slug}.haslam_intent.json").write_text(json.dumps(doc, indent=1) + "\n")
+        for prob in problems:
+            findings.append(Finding("haslam_intent.invalid", "error", prob))
+        if not haslam_available():
+            findings.append(Finding("haslam_intent.unchecked", "warning", "haslam is not importable (put haslam/src on "
+                                    "PYTHONPATH): the intent file was checked by haslamsynth only"))
     checker.findings = findings
     checker.apply_waivers(final=True)
     findings = checker.findings

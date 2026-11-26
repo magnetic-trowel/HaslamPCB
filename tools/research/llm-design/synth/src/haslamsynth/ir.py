@@ -546,6 +546,15 @@ class Design:
         self._pin_cache = {}
         self.libs = None             # (SymbolLibs, FootprintLibs), set by finalize/build
         self.finalized = False
+        self._haslam = None
+
+    @property
+    def haslam(self):
+        """The design's operating intent for haslam (haslamsynth.haslam_intent.HaslamIntent): facts, environment, terms."""
+        if self._haslam is None:
+            from .haslam_intent import HaslamIntent
+            self._haslam = HaslamIntent(self)
+        return self._haslam
 
     # -- structure --------------------------------------------------------------------------
     def block(self, name, **kw):

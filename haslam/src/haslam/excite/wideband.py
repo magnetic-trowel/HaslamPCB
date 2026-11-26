@@ -82,6 +82,8 @@ def _wave_params(P, s, val):
 
 def evaluate(path, pitch=0.25, nsub=2, intent=None, n_corners=16, seed=0, log=print, tol=1e-3, capacitive=True,
              skin=True):
+    from .beliefs import board_facts
+    intent = board_facts(intent, path)
     from haslam.board import transform
     from haslam.board.kicad_file import load
     from haslam.circuit import brief as B
@@ -93,11 +95,12 @@ def evaluate(path, pitch=0.25, nsub=2, intent=None, n_corners=16, seed=0, log=pr
     from .evaluate import _dc_harms, ledger_for
     t0 = time.time()
     b = load(path)
-    brief = B.build(b)
+    brief = B.build(b, facts=intent or None)
     bd = M.build(b, brief)
     srcs = S.add_all(bd, brief)
     obs = O.observers(bd, brief, srcs)
     P, ledger = ledger_for(bd, brief, srcs, intent)
+    O.rate_overshoot(obs, P)
     dcp = DC.plan(b, brief, bd, P, srcs, intent)
     for p in dcp.params:
         ledger.add(p)
@@ -363,7 +366,7 @@ def main(argv=None):
     ap.add_argument("-o")
     a = ap.parse_args(argv)
     from .beliefs import load_intent
-    r = evaluate(a.board, a.pitch, nsub=a.nsub, intent=load_intent(a.intent), seed=a.seed, tol=a.tol, capacitive=not a.no_capacitive,
+    r = evaluate(a.board, a.pitch, nsub=a.nsub, intent=load_intent(a.intent) if a.intent else None, seed=a.seed, tol=a.tol, capacitive=not a.no_capacitive,
                  skin=not a.no_skin_correction,
                  log=lambda m: print(m, file=sys.stderr, flush=True))
     from .evaluate import print_total

@@ -66,6 +66,7 @@ def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max
         return []
     obs = O.observers(bd, brief, srcs)
     P, _ = ledger_for(bd, brief, srcs, intent)
+    O.rate_overshoot(obs, P)
     fills = fills_of(path)
     bw = board_window(b)
     n_cu = len(b.stackup.gaps) + 1 if getattr(b, "stackup", None) is not None else 2

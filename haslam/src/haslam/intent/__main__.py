@@ -6,6 +6,10 @@ observations (python -m haslam.excite.evaluate BOARD -o EVAL.json) are re-scored
     python -m haslam.intent catalog EVAL.json                 what haslam measures on this board, and its sections
     python -m haslam.intent status EVAL.json [--intent I.json] [--detailed] [--no-advice] [-o STATUS.json]
     python -m haslam.intent compare EVAL_A.json EVAL_B.json ... [--intent I.json]
+
+Without --intent the board's own intent file (`<board>.haslam_intent.json` beside the evaluated board,
+haslam.intent.facts.sidecar) supplies the terms, knobs, currency and facts, as it does for the evaluator and
+the brief; neutral/1 only when the board has none. The status names the intent it used (status["intent"]).
 """
 from __future__ import annotations
 
@@ -17,13 +21,27 @@ from . import objective as OB
 from . import sections as SE
 
 
-def _brief(ev):
+def resolve_intent(intent, ev):
+    """(intent path or None, where it came from): an explicit --intent, else the evaluated board's own intent
+    file beside it, else None (neutral/1). The same rule as the facts (haslam.excite.beliefs.board_facts)."""
+    if intent:
+        return intent, "--intent"
+    from haslam.intent import facts as F
+    _, path = F.for_board(ev.get("board"))
+    if path is not None:
+        return str(path), "the board's intent file"
+    return None, "none: neutral/1 defaults"
+
+
+def _brief(ev, intent=None):
+    """The board's brief with the intent's facts (the ones its evaluation was made with), else its own intent file."""
     from haslam.board.kicad_file import load
     from haslam.board import pinfacts as PF
     from haslam.circuit import brief as B
+    from haslam.intent import facts as F
     b = load(ev["board"])
     PF.apply(b, ev.get("pins"))         # the pin facts the evaluator used (operating facts `pins`)
-    return B.build(b)
+    return B.build(b, facts=F.facts_of(OB.load(intent)) or None if intent else None)
 
 
 def catalog(ev, brief):
@@ -47,6 +65,8 @@ def text(st, detailed=False):
         return f"{st.get('board')}: no score ({st.get('why_incomplete')})"
     t = st["tiers"]
     out.append(f"{st['board']}  [intent generation {st['observedGeneration']}, defaults {st['defaults']}]")
+    if st.get("intent"):
+        out.append(f"  intent: {st['intent'].get('path') or '(none)'} ({st['intent'].get('source')})")
     out.append(f"  hard violations {t['hard']:g}; limits {t['limit']:.4g} + costs {t['cost']:.4g} = "
                f"{t['limit'] + t['cost']:.4g} {st['currency']}")
     if st.get("not_computed"):
@@ -157,13 +177,19 @@ def main(argv=None):
     m.add_argument("--intent")
     a = ap.parse_args(argv)
     try:
+        if a.cmd in ("status", "compare"):
+            first = json.load(open(a.eval if a.cmd == "status" else a.evals[0]))
+            a.intent, src = resolve_intent(a.intent, first)
+            if src != "--intent":
+                print(f"intent: {a.intent or '(none)'} ({src})", file=sys.stderr)
         if a.cmd == "catalog":
             ev = json.load(open(a.eval))
             print(json.dumps(catalog(ev, _brief(ev)), indent=1))
         elif a.cmd == "status":
             ev = json.load(open(a.eval))
-            brief = _brief(ev)
+            brief = _brief(ev, a.intent)
             st = OB.evaluate(ev, a.intent, brief)
+            st["intent"] = dict(path=a.intent, source=src)
             if not a.no_advice:
                 from haslam.board.kicad_file import load
                 from . import advise as AD
@@ -173,7 +199,7 @@ def main(argv=None):
                 json.dump(st, open(a.o, "w"), indent=1, default=str)
         else:
             evs = [json.load(open(p)) for p in a.evals]
-            brief = _brief(evs[0])                 # versions of one board share its parts and structures
+            brief = _brief(evs[0], a.intent)       # versions of one board share its parts and structures
             sts = [OB.evaluate(ev, a.intent, brief) for ev in evs]
             common = OB.common_terms(sts)          # only the terms every layout computed
             dropped = sorted({r["id"] for s in sts for r in s["terms"]} - common)
