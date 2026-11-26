@@ -1,0 +1,46 @@
+{
+ "board": "haslam-work/bme4/fab/board/bme280-array.kicad_pcb",
+ "filled": "haslam-work/bme4/fab/out/bme280-array.kicad_pcb",
+ "drc": {
+  "errors": 0,
+  "by_type": {},
+  "unconnected": 0
+ },
+ "gate": "pass",
+ "files": [
+  "haslam-work/bme4/fab/out/bme280-array-gerbers.zip",
+  "haslam-work/bme4/fab/out/bme280-array-cpl.csv",
+  "haslam-work/bme4/fab/out/bme280-array-bom.csv"
+ ],
+ "bom_lines": 27,
+ "bom_without_lcsc": [],
+ "left_out": {
+  "JP1": "excluded from BOM",
+  "J1": "DNP",
+  "H1": "excluded from BOM",
+  "JP2": "excluded from BOM",
+  "H2": "excluded from BOM",
+  "H3": "excluded from BOM",
+  "H4": "excluded from BOM"
+ },
+ "lcsc_unique": 27,
+ "extended_or_unknown": 16,
+ "extended_lcsc": [
+  "C130026",
+  "C1518762",
+  "C173431",
+  "C20512",
+  "C26082",
+  "C26979",
+  "C2909335",
+  "C2933089",
+  "C2998185",
+  "C33002",
+  "C5159680",
+  "C5219295",
+  "C576403",
+  "C8492",
+  "C86819",
+  "C92489"
+ ]
+}
