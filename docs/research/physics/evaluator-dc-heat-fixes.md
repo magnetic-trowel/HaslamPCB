@@ -106,7 +106,7 @@ Fixed (each its own commit, with tests):
 | b | `excite/heat.py` region sinks | `T_C` ≤ 0 C fell back to ambient (`_rng` takes positive values) | f7b7d1f8 |
 | a | `route/critical_modules.py`, `critical_recheck.py` `npins` | pads counted, not pins: an EP drawn as several pads moved an IC up the current prior's 8/32/64/144-pin classes (the DC plan's IC load priors come from it) | 1babf835 |
 
-Not changed (uncertain, or a design question; reasons given):
+Not changed (uncertain, or a design question; reasons given; each decided in [evaluator-audit-2611](evaluator-audit-2611.md#1-suspects-of-the-last-sweep-verdicts)):
 
 | class | where | finding | why not changed |
 |---|---|---|---|
