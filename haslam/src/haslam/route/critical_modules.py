@@ -484,6 +484,12 @@ def route_hop(ctx, m, tag, net, sources, targets, widths, layers, via=False, via
         m.notes.append(f"{tag}: every route walls off a pin of another net; left out")
         m.hops[tag] = None
         return None
+    if fallback is not None and m.kind == "cell" and not _opt(ctx, "cell_wall_fallback"):
+        # the hot-loop stage (hotloop_cell_walls 0): a locked hop that walls a pin in is a lost connection the
+        # general router cannot win back; the caller tries its other layers and widths, then leaves the hop open
+        m.notes.append(f"{tag}: every route walls off a pin of another net; not laid")
+        m.hops[tag] = None
+        return None
     if fallback is not None:
         m.notes.append(f"{tag}: walls off a pin of another net (no alternative)")
         if fallback.segs or fallback.vias:
