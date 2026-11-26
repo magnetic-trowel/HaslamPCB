@@ -111,6 +111,10 @@ Held-out accuracy (`eval-permissive.md`), MAE of log d, board-averaged, with 95 
   - Opens Δlog1p +0.065 [+0.007, +0.124]; summed 2,477 → 2,672.
   - Decap + cell utilization ×1.21.
   - DRC, legality and CPU guards held.
+- Mechanism, Δ mean log d vs human, staged → springs:
+  - Gaps closed: feedback_divider +0.69 → +0.05, ferrite +0.28 → +0.03, bulk +0.18 → +0.10.
+  - Unchanged: inductors (+0.31; they sit in cell macros).
+  - Overshot past the human: pull_up → −0.17, pull_down → −0.28, filter_to_ground → −0.26, divider → −0.35.
 - See [dead-ends-2611d §13](../dead-ends-2611d.md#13-served-pin-springs-for-2-pad-passives-from-corpus-priors-place_passive_springs).
 
 ## Open questions
