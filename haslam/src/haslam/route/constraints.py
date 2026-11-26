@@ -232,6 +232,9 @@ DEFAULTS = dict(
                                    # full at <= 0.65, zero at >= 0.70 (haslam.place.pipeline.util_gate); chan-gate-guard
     place_chan_header_gate=1,      # placement: 1 switches the channel term off on a board with a movable edge header
                                    # that fits nowhere (haslam.place.pipeline.header_gate); chan-ladder
+    place_custom_pad_copper=0,     # placement: 1 models a custom pad by its anchor and primitives (problem.pad_lib_rect),
+                                   # not its anchor alone: a courtyard-less PCB antenna (dodgeclock A1) was invisible
+                                   # copper the placer put parts on; off until its A/B
     place_chan_edge=0,             # placement: 1 adds channels between pads and the board edge to the
                                    # channel term (haslam.place.exact.channel_edge_term); off until its A/B
     place_untangle=0,              # placement: 1 runs haslam.place.crossings.untangle after legalization (swaps of

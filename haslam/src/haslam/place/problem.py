@@ -137,11 +137,22 @@ def pad_corners(p):
     return np.column_stack([p.lx + u * c + v * s, p.ly - u * s + v * c])
 
 
-def pad_lib_rect(p):
-    """Library-frame bounding rectangle of a pad's copper and hole (custom pads: of their
-    anchor only; the courtyard covers the primitives, see Problem._part)."""
+def pad_lib_rect(p, custom=False):
+    """Library-frame bounding rectangle of a pad's copper and hole. Custom pads: of their anchor
+    only (the courtyard is assumed to cover the primitives, see Problem._part), unless `custom`,
+    when the rectangle bounds the anchor and its primitives (Pad.outline, as legalize.pad_shape
+    draws it; place_custom_pad_copper). A footprint without a courtyard otherwise has no model of
+    its primitives at all: dodgeclock's PCB antenna A1 (TI SWRU120B) is 25.6 x 8.6 mm of custom-pad
+    copper modelled as two 1-1.5 mm anchors, and the placer put passives on it (chan-ladder)."""
     c = pad_corners(p)
     r = (float(c[:, 0].min()), float(c[:, 1].min()), float(c[:, 0].max()), float(c[:, 1].max()))
+    if custom and p.shape == "custom" and getattr(p, "outline", None) is not None and not p.outline.is_empty:
+        from .legalize import pad_shape
+        try:
+            b = pad_shape(p).bounds
+            r = rect_union([r, (float(b[0]), float(b[1]), float(b[2]), float(b[3]))])
+        except Exception:       # noqa: BLE001 - the anchor rectangle is the fallback
+            pass
     return rect_union([r, hole_lib_rect(p)])
 
 
@@ -586,7 +597,7 @@ class Problem:
     # ------------------------------------------------------------------ construction
     @classmethod
     def build(cls, board, grid=None, net_kinds=None, rotations=ROTS, held=(), angle_step=None, severity=None,
-              part_rotations=None):
+              part_rotations=None, custom_pad_copper=False):
         """net_kinds: optional {net name: 'ground'|'power'|'signal'|role} (from the brief).
         held: footprint uuids kept where they are and left out of the nets (e.g. staged parts
         that carry Edge.Cuts, whose place on the board the task does not tell).
@@ -599,9 +610,11 @@ class Problem:
         HASLAM_PLACE_SEVERITY text variable, else the HASLAM_PLACE_SEVERITY environment variable,
         else PLACE_SEVERITY.
         part_rotations: {uuid: [angles]} the only rotations of those movable parts (an intent's orient
-        relation, haslam.place.relations; no angle_step extras for them)."""
+        relation, haslam.place.relations; no angle_step extras for them).
+        custom_pad_copper: model custom pads by their anchor and primitives (pad_lib_rect)."""
         P = cls()
         P.board = board
+        P.custom_pad_copper = bool(custom_pad_copper)
         P.held = set(held)
         P.angle_step = angle_step
         P._rules(board)
@@ -822,7 +835,7 @@ class Problem:
         # too full (a mechanical lid's body covered a whole interposer)
         cy = polys_lib_rect(fcy) or polys_lib_rect(fp.body)
         pads = fp.pads
-        pad_rects = [pad_lib_rect(p) for p in pads]
+        pad_rects = [pad_lib_rect(p, custom=getattr(self, "custom_pad_copper", False)) for p in pads]
         # pads inflated by the clearance they need from other copper (see module docstring)
         infl = []
         # a footprint without a courtyard gets the courtyard excess IPC-7351 would have drawn
