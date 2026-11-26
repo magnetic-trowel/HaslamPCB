@@ -379,7 +379,8 @@ def placement(d):
     pl.near(f("L1"), f("U1"), "tight", note="LX1/LX2 loop short")
     pl.near(f("L2"), f("U2"), "tight", note="SW node short")
     u2 = f("U2")
-    pl.near(f("C8"), "U2.6", within_mm=2.0, note="U2 CIN at VIN: the input hot loop (DS layout example)")
+    # no stated distances for decoupling/input caps: the converter cells (d.haslam.cell) and the build's inferred
+    # decoupling relations give haslam's physics terms what they need; a made-up length would override them
     for r in ("R12",):
         pl.near(f(r), "U1.4", within_mm=3.0, note="CFG2 (< 10 pF, DS 6.3): short (assumed 3 mm)")
     for r in ("R13", "R14"):
@@ -388,8 +389,6 @@ def placement(d):
         pl.near(f(r), f("U3"), "close", note="10 MOhm divider nodes short")
     for r in range(21, 37):
         pl.near(f(f"R{r}"), f("U4"), "close", note="channel pull-ups at the mux")
-    for i, s in enumerate(SENSORS):
-        pl.near(f(f"C{101 + i}"), f"{s}.8", within_mm=2.5, note="BME280 VDD 100 nF at the pin (assumed 2.5 mm)")
 
 
 def build():

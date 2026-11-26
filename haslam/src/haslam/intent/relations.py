@@ -17,7 +17,7 @@ as given; without one it is still used but marked `assumed` in the status. The r
 sit from the edge (default EDGE_TOL, 1 mm).
 
 `check` fills in a missing strength with the kind's default and marks the relation `strength_default: true`
-(haslam.place.relations reads it: a datasheet length to a fixed pin defaults to strong instead).
+(reported in the status, so a reader can tell a written strength from a default one).
 
 Physics wins by default (relations_vs_physics 'physics'): a soft relation on parts the place terms price
 weighs as weak. Two kinds of relation keep their own strength there (the user's rule, 2026-11-25): one

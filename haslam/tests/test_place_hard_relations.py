@@ -219,16 +219,17 @@ def test_required_is_never_demoted_by_physics_and_the_status_says_when_softer_on
 
 
 # ------------------------------------------------------------------------------- near to a fixed pin
-def test_a_datasheet_near_to_a_fixed_pin_is_strong_by_default_and_keeps_its_weight(board, brief):
-    """F29: a sourced length to a locked part's pin defaults to strong (not medium) and is not demoted by
-    physics; a written strength stays as written."""
+def test_a_length_near_to_a_fixed_pin_is_not_promoted_over_physics(board, brief):
+    """Decoupling placement is the physics terms' job: a near with a (sourced) length to a locked part's pin keeps
+    its written or default strength and gets no exemption from relations_vs_physics (F29's promotion reverted,
+    user's rule 2026-11-26: no regression of physics-driven decap placement)."""
     b = _bundle(board, brief, _rel(id="d", kind="near", a="Y1", b="U6.1", mag="3 mm", source="U6 datasheet"),
                 _rel(id="w", kind="near", a="U1", b="U6.2", mag="3 mm", source="ds", strength="weak"),
                 _rel(id="n", kind="near", a="U2", b="U6.3", mag="3 mm"))
     x = {r.id: r for r in b.rels}
-    assert x["d"].strength == "strong" and b.full_weight(x["d"]) == "datasheet"
-    assert x["w"].strength == "weak"
-    assert x["n"].strength == "medium" and b.full_weight(x["n"]) is None      # no source: not a datasheet length
+    assert x["d"].strength == "medium" and b.full_weight(x["d"]) is None
+    assert x["w"].strength == "weak" and b.full_weight(x["w"]) is None
+    assert x["n"].strength == "medium" and b.full_weight(x["n"]) is None
 
 
 def test_a_required_near_to_a_fixed_pin_is_placed_within_its_distance_and_held(tmp_path, board):

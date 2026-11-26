@@ -3,7 +3,7 @@
 # Placement relations: what `haslam place --intent` does
 
 Scope: the built phase 1 of the relations input: format checks, names, the compiler onto the placer's hooks, pre-checks, the oracle, the status rows and hazards, the settings. Not here: the design, vocabulary rationale and later phases -> [llm-relations-input](llm-relations-input.md); the hazard contract -> [hazards](../architecture/hazards.md); how this merged with the intent-relations design (relation term, pad metric, the board's own intent file) and why -> [relations-unified](relations-unified.md).
-Keys: haslam place --intent, haslam.intent.relations, haslam.place.relations, Bundle, relations status, hard region, keep-in, set_keep_in, KEEP_IN_TOL, REGION_TOL_MM, near_pins, near_pinned, datasheet near, strength_default, weighed_as, haslam.relations-status/1, relations_applied, D- rows, defaults_off, D-edge, D-label, D-order, measured only, REL_SEED_W, relations_mm, relations_vs_physics, relations_block, rel_w_strong, relation_conflict, relation_unmet, full_weight, requested, category safety, obey physics
+Keys: haslam place --intent, haslam.intent.relations, haslam.place.relations, Bundle, relations status, hard region, keep-in, set_keep_in, KEEP_IN_TOL, REGION_TOL_MM, near_pins, near_pinned, strength_default, weighed_as, haslam.relations-status/1, relations_applied, D- rows, defaults_off, D-edge, D-label, D-order, measured only, REL_SEED_W, relations_mm, relations_vs_physics, relations_block, rel_w_strong, relation_conflict, relation_unmet, full_weight, requested, category safety, obey physics
 
 ## Format and loading
 
@@ -36,7 +36,7 @@ Not built and refused at load: `hold` `as: relative` ([open question 6](llm-rela
 - Pulls also seed: each pulled part starts the seed at its target and the CP-SAT floorplan holds it there with displacement weight `REL_SEED_W` = 20 (other parts 1). Without it the annealer's local moves left a part 25 mm from its region at pull weight 8 on the fixture board, and met it at 3 with it [M].
 - A part pulled by several relations takes the heaviest; the others are measured only on that part (row `applied` says so). A relation pull replaces a silk-label default on the same part.
 - Required `keep_away`, and required `near` between movable parts or to a label, are placed soft at the required weight; the row says so.
-- A `near` with a sourced length to a fixed part's pin (`"mag": "2.5 mm", "source": ...`, a decap at a locked sensor's supply pin) is `strong` unless its strength is written (`haslam.intent.relations.check` marks an unwritten one `strength_default: true`), and keeps that weight against physics (`full_weight: "datasheet"`). F29: at medium, 4-12 of 16 sensor decaps ended 4-19 mm from their pin on bme280-array.
+- A `near` with a length to a fixed part's pin (a decap at a locked part's supply pin) keeps its written strength (default medium) and yields to physics like any other relation (`relations_vs_physics`): decoupling placement is priced by the physics terms, and a stated length is not promoted over them. Only `strength: required` pins it (placed first within its distance, then held). The F29 promotion to strong with `full_weight: "datasheet"` was reverted (user's rule 2026-11-26) to keep physics-driven decap placement from regressing across boards.
 - Weights per strength (`rel_w_weak/medium/strong/required` = 0.3 / 1 / 3 / 10) are label-term weights; the silk-label default for numbered rows is 1.0.
 - `haslam.joint` windows price every pairwise relation between parts or pins (near, group, keep_away) with the relation term: a window has no label term or soft-overlap grid (`rules(P, scope="window")`).
 - `on_edge` takes a length `mag`: the courtyard may sit that far from the edge (default 1 mm); the band pull is that much deeper.
@@ -56,7 +56,6 @@ A `required` region is a hard keep-in (`Problem.set_keep_in`, from `Bundle.keep_
 |---|---|---|
 | members with courtyard outside `area:POWER` | 17 / 4 / 6 | 0 / 0 / 0 |
 | legal | 3/3 | 3/3 |
-| sensor decaps (`near` 2.5 mm, sourced) farther than 5 mm from their pin | 2 / 8 / 8 of 16 (max 23 mm), medium | 0 / 0 / 0 (max 3.1 mm), strong by default |
 | the same decaps marked required (seed 0) | | 16/16 pinned, all ≤ 1.1 mm, legal |
 
 ## Magnitudes
@@ -116,7 +115,6 @@ Rule (user, 2026-11-25: "mostly we just want to obey physics"). A `required` rel
 |---|---|---|---|
 | safety | `"category": "safety"` (existing field, Q5) | `full_weight: "safety"` | `relation_conflict` with `winner: tie`, `full_weight`; blocks (`relations_block safety`) |
 | explicit request | `"requested": true` (the user asked for this relation specifically; not for relations the LLM or haslamsynth infers) | `full_weight: "requested"` | `relation_conflict` with `winner: tie`, `full_weight`; warns |
-| datasheet length to a fixed pin | a `near` with a length `mag` and a `source`, to pins of a part that does not move | `full_weight: "datasheet"` | `relation_conflict` with `winner: tie`; warns |
 | any other | - | `yielded_to` the structures, `weighed_as: "weak"` | `relation_conflict` with `winner: physics`; warns |
 
 `requested` is a boolean (`haslam.intent.relations.check` rejects anything else). Intents with neither mark weigh exactly as before the rule: same boards and status rows on #141's six fixtures [M: [relations-unified results](relations-unified.md#results)]. The rule covers label-term pulls (region, soft on_edge, near to a fixed part or label) too: `compile_intent` stores the relation with each pull and `Bundle.anchors_for` weighs it after `set_physics`, so a pull on a physics-priced part weighs as weak unless safety or requested, and its `applied` note says `weak: physics prices it` [I, `pipeline._place_rung`; T: `test_label_term_pulls_follow_the_physics_rule`;]. Measured (`haslam place`, counted work, seeds 0-2, #141's six fixtures with `--intent`): two fixture rows change weight, both medium regions on a part the place terms price (barsy ah3 `mcu-c`, owr-502 `can-mcu-c`, 1 -> 0.3); barsy writes the same board, owr-502 moves 23-25 of 28 parts with `can-mcu-c` unmet and `yielded_to` on both arms (HPWL 160.9/162.8/161.7 -> 172.4/165.6/153.3 mm, legality and relations met unchanged); the four other fixtures, the four corpus boards without an intent and solar-small (20 near rows, all on the relation term) write the same board [M] (`~/haslam-baselines/experiments/label-terms-physics/VERDICT.md`).

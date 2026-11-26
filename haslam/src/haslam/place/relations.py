@@ -40,9 +40,9 @@ Measured but not optimized yet (the row says so): near with a section or net on 
 exclusive, orient pins_toward, side (haslam never flips: a part on the other side is a proven
 conflict). Required keep_away, and required near between movable parts or to a label, are placed soft at
 the required weight; when unmet they are reported, never dropped silently. A required relation is never
-demoted by relations_vs_physics; a soft one that is says so in its row (weighed_as). A near with a sourced
-length to a fixed part's pin is strong unless its strength is written, and keeps its weight (full_weight
-'datasheet'). A region is met only when every member's courtyard is inside it (REGION_TOL_MM).
+demoted by relations_vs_physics; a soft one that is says so in its row (weighed_as). A near with a length to a
+fixed part's pin (a decap at a locked part's pin) keeps its written strength and yields to physics like any other
+relation: decoupling placement is the physics terms' job. A region is met only when every member's courtyard is inside it (REGION_TOL_MM).
 
 Board rules outrank every relation. haslam never applies a relaxation: rows offer them, the LLM
 decides in its next generation.
@@ -67,8 +67,7 @@ FACE_MIN = 0.3               # cos: facing out (edge_check.FACE_MIN)
 REGION_TOL = 0.02            # exclusive regions and groups: share of the area other parts may take
 REGION_TOL_MM = 0.05         # mm a member's courtyard may cross its region's edge (rounding; problem.KEEP_IN_TOL)
 REGION_AREA_EPS = 1e-3       # mm2: a member is outside when its courtyard leaves the grown region by more
-FULL_WEIGHT_WHY = {"safety": "category safety", "requested": "an explicit request (requested: true)",
-                   "datasheet": "a datasheet length to a fixed part's pin"}
+FULL_WEIGHT_WHY = {"safety": "category safety", "requested": "an explicit request (requested: true)"}
 GROUP_RATIO = {"tight": 1.5, "close": 2.5, "loose": 4.0}   # bbox area / sum of courtyard areas
 COMPASS = {"nw": (0, 0), "n": (1, 0), "ne": (2, 0), "w": (0, 1), "c": (1, 1), "e": (2, 1),
            "sw": (0, 2), "s": (1, 2), "se": (2, 2)}
@@ -364,8 +363,7 @@ class Rel:
     place: Obj = None               # region / edge / area target
     mag: tuple = None               # ('mag', name) | ('mm', value)
     default: bool = False
-    explicit: bool = True           # the strength was written (else the kind's default, or a datasheet near's)
-    datasheet_pin: bool = False     # a sourced length to a fixed part's pin: keeps its weight against physics
+    explicit: bool = True           # the strength was written (else the kind's default)
     enforced: str = ""              # hard | soft | strong rule | measured only | not applied
     how: str = ""
     conflicts: list = field(default_factory=list)
@@ -487,8 +485,6 @@ class Bundle:
             return "safety"
         if x.spec.get("requested") is True:
             return "requested"
-        if getattr(x, "datasheet_pin", False):
-            return "datasheet"
         return None
 
     def weight(self, strength, uuids=(), x=None):
@@ -597,13 +593,9 @@ class Bundle:
             elif x.kind == "near":
                 fixed_b = x.b.kind == "label" or all(by[u].locked or u in self.hold for u in x.b.parts)
                 mov_a = [u for u in x.a.parts if not by[u].locked and u not in self.hold]
-                if fixed_b and x.b.kind == "pins" and x.mag and x.mag[0] == "mm" and x.spec.get("source"):
-                    # a datasheet length to a fixed part's pin (a decap at a locked sensor's supply pin): it
-                    # keeps its weight against physics (it is physics, written down), and is strong unless
-                    # the intent says otherwise (F29: medium lost to wire length on bme280-array)
-                    x.datasheet_pin = True
-                    if not x.explicit and x.strength == "medium":
-                        x.strength = "strong"
+                # a length to a fixed pin (a decap at a locked part's supply pin) keeps its written strength and
+                # yields to physics like any other relation: decoupling placement is priced by the physics terms,
+                # and a stated length is not promoted over them (user's rule 2026-11-26; F29 reverted)
                 if fixed_b and len(mov_a) == 1:
                     self.anchors.append((x.id, mov_a[0], ("near", x), x))
                     if x.strength == "required" and x.b.kind in ("part", "pins") and len(x.a.parts) == 1 \
