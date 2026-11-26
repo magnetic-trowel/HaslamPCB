@@ -71,6 +71,7 @@ from pathlib import Path
 from haslam.budget import now as clock_now
 
 from . import constraints as CN
+from .critical_modules import cell_return
 
 HL_PREFIX = "haslam-hl:"          # pours this stage writes (kept in the output)
 GUARD_PREFIX = "haslam-crit:"     # keep-outs (critical_write.GUARD_PREFIX; dropped from the output)
@@ -190,7 +191,7 @@ def keepout_plan(s, mods, margin, log=_log):
             continue
         T = m.spec["_T"]
         c = region.centroid
-        h, pl, pn = s.ctx.plane(s.ctx.side_layer(T[0].fp), c.x, c.y, gnd=True)
+        h, pl, pn = s.ctx.plane(s.ctx.side_layer(T[0].fp), c.x, c.y, gnd=True, nets=cell_return(s.ctx, m.spec))
         refs = sorted({getattr(s.ctx.fp.get(t.fp), "ref", "") for t in T} - {""})
         if pl is None:
             hz.append(H.make(
@@ -854,6 +855,133 @@ def pour_check(s, input_path, info, mods, workdir, log=_log, before=None):
     return out, gone
 
 
+REACH_WINDOW = 2.5     # mm around a pad within which reach_check looks for its way to its net
+
+
+def _reach(pad, cop, layer, items, info, window):
+    """Whether pad (copper `cop` on `layer`) has a way to its net within `window` past `items` (Space
+    items on that layer): the free room a track of its net's width can use (other nets' copper kept at
+    its clearance) that holds the pad and meets another piece of its net, a zone of its net, or the
+    window's edge (a way on that the window does not see), or a place for a via of its net (a way
+    on another layer, beside or in the pad; the fixture buck's U1.1 sits inside its own cell's loop
+    and leaves by a via)."""
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+    net = pad.get("net")
+    clr, w = CN._class_of(info, net)
+    win = box(*window)
+    ncs = info.get("netclasses") or {}
+    nc = ncs.get(((info.get("nets") or {}).get(net) or {}).get("netclass") or "Default") or ncs.get("Default") or {}
+    via_r = max(float(nc.get("via_diameter") or 0.0), float((info.get("settings") or {}).get("min_via") or 0.0), 0.3) / 2
+    obst, own, raw = [], [], []
+    for it in items:
+        if it.kind == "corridor" or (it.kind == "keepout" and it.vias_only):
+            continue
+        x0, y0, x1, y1 = it.bbox
+        if x1 < window[0] or x0 > window[2] or y1 < window[1] or y0 > window[3]:
+            continue
+        g = it.geom.buffer(it.r) if it.r else it.geom
+        if it.net == net and net:
+            own.append(g)
+        else:
+            obst.append(g.buffer(clr + w / 2))
+            raw.append(g)
+    for z in info.get("zones") or []:
+        if z.get("net") == net and layer in (z.get("layers") or []) and not z.get("rule_area"):
+            # the zone where it can still pour past the other nets' copper here (its clearance, then its minimum
+            # width): open-authenticator's U4.2 reached its L1-Pad2 zone's outline at a corner the cell's +3V3 hop
+            # had left too thin to pour, and was left unconnected
+            zg = unary_union([x for x in (CN._poly(r) for r in z["rings"]) if x is not None]).intersection(win)
+            if zg.is_empty:
+                continue
+            zc, mt = float(z.get("clearance") or 0.0), max(float(z.get("min_thickness") or 0.0), 0.05)
+            pour = zg.difference(unary_union([g.buffer(zc) for g in raw])) if raw else zg
+            pour = pour.buffer(-mt / 2).buffer(mt / 2)
+            if not pour.is_empty:
+                own.append(pour)
+    free = win.difference(unary_union(obst)) if obst else win
+    seed = cop.buffer(-min(w / 2, 0.05)) if not cop.buffer(-min(w / 2, 0.05)).is_empty else cop.centroid.buffer(1e-3)
+    comps = [c for c in getattr(free, "geoms", [free]) if c.intersects(seed)]
+    if not comps:
+        return False
+    room = unary_union(comps).buffer(w / 2)
+    targets = [g for g in own if not g.equals(cop) and g.intersection(cop).area < 0.9 * cop.area]
+    if targets and room.intersects(unary_union(targets)):
+        return True
+    if room.intersects(win.exterior.buffer(w)):
+        return True
+    # a via beside the pad or in it: the last mile leaves a walled-in pad through a via in the pad
+    # (olimex urc: C' joined U1.3 to R4 that way, between the cell's GND copper and U1's other pins)
+    vfree = win.difference(unary_union([g.buffer(clr + via_r) for g in raw])) if raw else win
+    return unary_union(comps).intersects(vfree)
+
+
+def reach_check(s, info, mods, log=_log):
+    """The post-cells reachability check: every pad of a net that has a way to its net on the input
+    (its zone, another of its pads, or on out of the window) still has one past the cells' other-net
+    copper, checked on the cells' Space within REACH_WINDOW of the pad (_reach). A pad that lost its
+    way reverts the cells whose other-net copper lies in its window, and a `hotloop_cell_blocks_pin`
+    hazard says so. Catches what the escape lanes and pour links do not foresee (open-authenticator:
+    the cell's GND via between U4's L1 pins and their zones). Returns (hazards, pads still blocked)."""
+    from haslam import hazards as H
+    from .critical_joint import _rip
+    cell_items = {id(it): m for m in mods for it in m.copper}
+    if not cell_items:
+        return [], []
+    sp = s.space
+    near = {}
+    for m in mods:
+        for it in m.copper:
+            for l in it.layers:
+                near.setdefault(l, []).append(it)
+    found = []
+    for pad in info.get("pads") or []:
+        net = pad.get("net")
+        if not net:
+            continue
+        for l, cop in (CN._pad_shapes(pad)[1] or {}).items():
+            if cop is None or cop.is_empty or l not in sp.items:
+                continue
+            x0, y0, x1, y1 = cop.bounds
+            window = (x0 - REACH_WINDOW, y0 - REACH_WINDOW, x1 + REACH_WINDOW, y1 + REACH_WINDOW)
+            mine = [it for it in near.get(l, ()) if it.net != net and not (it.bbox[2] < window[0] or it.bbox[0] > window[2]
+                                                                          or it.bbox[3] < window[1] or it.bbox[1] > window[3])]
+            if not mine:
+                continue
+            base = [it for it in sp.items[l] if id(it) not in cell_items]
+            if not _reach(pad, cop, l, base, info, window) or _reach(pad, cop, l, sp.items[l], info, window):
+                continue
+            hit = []
+            for it in mine:
+                if all(cell_items[id(it)] is not m for m in hit):
+                    hit.append(cell_items[id(it)])
+            found.append((pad, l, net, hit, cop, window))
+    if not found:
+        return [], []
+    for pad, l, net, hit, *_ in found:
+        for m in hit:
+            if m.status != "reverted":
+                log(f"hotloop: {m.id} closed {pad.get('ref')}.{pad.get('number')} ({net})'s way to its net on {l}; reverted")
+                _rip(s, m)
+                m.status = "reverted"
+                m.notes = [f"reverted: its copper closed {pad.get('ref')}.{pad.get('number')} ({net})'s way to its net on {l}"]
+    still = [(pad.get("uuid"), l) for pad, l, net, hit, cop, window in found
+             if not _reach(pad, cop, l, sp.items[l], info, window)]
+    out = []
+    for pad, l, net, hit, *_ in found:
+        name = f"{pad.get('ref')}.{pad.get('number')}"
+        ok = (pad.get("uuid"), l) not in still
+        out.append(H.make(
+            "hotloop_cell_blocks_pin", "warn", "electrical",
+            f"{name} ({net}) had a way to its net on {l} on the input, and the hot-loop cells' other-net copper "
+            f"closed it; {', '.join(m.id for m in hit)} reverted, the general router lays those loops"
+            + (", and the pin has its way again." if ok else "; the pin is still closed in after the revert."),
+            objects=[name, *(m.id for m in hit)],
+            evidence=dict(net=net, layer=l, reverted=[m.id for m in hit], restored=ok),
+            fix="Room between the cell and the pin's way to its net, or route the loop by hand."))
+    return out, still
+
+
 def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
     """The hot-loop stage on a task input. Returns None when every option is off, else a report
     with `board` (the work board the bridge routes; None when nothing was added), `guards` (the
@@ -875,14 +1003,20 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
             rep["hazards"] += s.hazards() + cell_hazards(mods)
             hz, rep["pour_cut"] = pour_check(s, input_path, s.info, mods, wd, log=log)
             rep["hazards"] += hz
+            hz, rep["pin_blocked"] = reach_check(s, s.info, mods, log=log)
+            rep["hazards"] += hz
         else:
             mods = _plan_cells(s)
             s.modules = mods
         for m in mods:
             ph = dict(m.physics or {})
-            rep["cells"].append(dict(id=m.id, status=m.status, items=len(m.copper),
-                                     L_nH=ph.get("value"), R_mohm=ph.get("R_mohm"), W_loop=ph.get("W_loop"),
-                                     W_loop_ac=ph.get("W_loop_ac"), notes=m.notes[:4]))
+            row = dict(id=m.id, status=m.status, items=len(m.copper),
+                       L_nH=ph.get("value"), R_mohm=ph.get("R_mohm"), W_loop=ph.get("W_loop"),
+                       W_loop_ac=ph.get("W_loop_ac"), notes=m.notes[:4])
+            if m.spec.get("class") == "inverting":     # its return net and where its reference plane came from
+                row.update(ret=ph.get("ret") or m.spec.get("ret"), plane_net=ph.get("plane_net"),
+                           plane_src=ph.get("plane_src"))
+            rep["cells"].append(row)
         zones = []
         if st["keepout"]:
             s.hotloop_pours_on = st["keepout_pours"]
@@ -1035,7 +1169,7 @@ def clear_regions(s, mods, margin):
             continue
         region = unary_union([t.geom for t in T]).convex_hull.buffer(margin)
         c = region.centroid
-        _h, pl, pn = s.ctx.plane(s.ctx.side_layer(T[0].fp), c.x, c.y, gnd=True)
+        _h, pl, pn = s.ctx.plane(s.ctx.side_layer(T[0].fp), c.x, c.y, gnd=True, nets=cell_return(s.ctx, m.spec))
         loop_nets = {t.net for t in T if t.net} | {n for n in (m.spec.get("sw"), m.spec.get("rail")) if n}
         # the cell parts' other pins (the IC's STAT, TS, FB...): their copper on the parts' own layer is their
         # fan-out and stays; on the return layer under the loop it is what cut bq25306's plane (8 tracks of U1's

@@ -119,3 +119,42 @@ def test_a_negative_bus_cells_loop_is_judged_open_as_the_positive_ones():
     # 1 ohm of loop at f_sw against a 12 V / 2 A = 6 ohm load passes; 10 ohm does not, on either sign
     for R, bad in ((1.0, False), (10.0, True)):
         assert bool(CQ.unphysical(1e-9, R, -12.0, 2.0, 1e6)) == bool(CQ.unphysical(1e-9, R, 12.0, 2.0, 1e6)) == bad
+
+
+# ----------------------------------------------------------------------------- the placer's and router's rail reads
+def _ctx(**nets):
+    return SimpleNamespace(terms=None, nets={n: {"volts": v} for n, v in nets.items()},
+                           volts=lambda n: abs(nets[n]) if nets.get(n) else None)
+
+
+@pytest.mark.parametrize("where", ["excite", "net"])
+def test_a_negative_bus_cell_gets_the_positive_ones_hot_loop_prior(where):
+    from haslam.sim.budget import prior_of
+
+    def prior(V):
+        st = {"id": "c1", "kind": "commutation_cell", "class": "buck", "rail": "BUS",
+              "excite": {"V": V} if where == "excite" else {}}
+        return prior_of({"structures": [st], "nets": {"BUS": {"volts": V}} if where == "net" else {}}, "c1")
+    assert prior(-12.0) == pytest.approx(prior(12.0)) and prior(12.0) != pytest.approx(prior(1.0))
+
+
+@pytest.mark.parametrize("kind", ["cell", "path"])
+def test_a_negative_bus_module_gets_the_positive_ones_allocation(kind):
+    from haslam.route.critical_modules import allocation
+
+    def alloc(V):
+        spec = {"class": "buck", "rail": "BUS", "rail_in": "BUS", "excite": {"V": V, "I": 2.0}}
+        return allocation(_ctx(BUS=V), SimpleNamespace(id="m1", kind=kind, spec=spec)).value
+    assert alloc(-12.0) == pytest.approx(alloc(12.0))
+
+
+def test_a_negative_bus_bucks_input_current_is_the_positive_ones():
+    from haslam.route.critical_rails import load_current
+
+    def i_in(V, Vo):
+        ctx = _ctx(BUS=V, OUT=Vo)
+        ctx.parts = {"U1": {"kind": "ic", "subtype": "regulator"}}
+        cells = {"U1": {"rail": "BUS", "class": "buck", "vout": "OUT", "excite": {"V": V, "I": 2.0}}}
+        return load_current(ctx, "U1", "BUS", cells)
+    # 2 A out at 5 V from 12 V: about 1 A in, on either sign (a -12 V -> -5 V buck is the mirror image)
+    assert i_in(-12.0, -5.0) == pytest.approx(i_in(12.0, 5.0)) and i_in(12.0, 5.0) < 1.2

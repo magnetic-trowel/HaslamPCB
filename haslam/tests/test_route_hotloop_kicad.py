@@ -146,3 +146,48 @@ def test_a_cell_that_cuts_a_pin_off_its_pour_is_reverted(tmp_path, monkeypatch):
     assert hz and hz[0]["evidence"]["reverted"] == [rep["cells"][0]["id"]] and hz[0]["evidence"]["restored"]
     assert rep.get("pour_cut") == []
     assert rep["board"] is None or _touches_pour(rep["board"], 119.69, 109.05)
+
+
+# open-authenticator, minimal copy: a pin that does not touch its own net's zone but joins it by a short
+# track. There the cell's GND via between U4's L1 pins and their L1 zones closed that gap and both pins
+# were left unconnected; here a +3V3 zone sits 0.38 mm right of U1.1, across the cell's GND hop under U1.
+GAP_ZONE = POUR.replace("(xy 120.2 108.6) (xy 121.6 108.6) (xy 121.6 109.5) (xy 120.2 109.5)",
+                        "(xy 120.6 108.6) (xy 121.6 108.6) (xy 121.6 109.5) (xy 120.6 109.5)")
+# U1.1's straight way to the zone (pad edge 120.22 to zone edge 120.6, the 0.2 mm track width), with
+# the 0.2 mm clearance other nets keep from it
+GAP_LANE = (120.22, 108.95, 120.6, 109.15)
+
+
+def _gap_board(d):
+    src = F.write_board(d)
+    text, tail = src.read_text(), "\t(embedded_fonts no)\n)\n"
+    src.write_text(text[:-len(tail)] + GAP_ZONE + tail)
+    return src
+
+
+def _other_net_copper(path, net="+3V3"):
+    from shapely.geometry import Point
+    from haslam.board.kicad_file import load
+    b = load(path)
+    out = [LineString([t.start, t.end]).buffer(t.width / 2) for t in b.tracks if t.net != net and t.layer == "F.Cu"]
+    out += [Point(v.x, v.y).buffer(v.size / 2) for v in b.vias if v.net != net]
+    return out
+
+
+def test_cells_keep_a_pins_short_way_to_its_zone(tmp_path):
+    """Escape lanes: the cell's other-net copper keeps the clearance from U1.1's straight way to its
+    +3V3 zone and from the zone's landing beyond it, so the zone still pours there. The GND hop that
+    crossed this 1 mm pour finds no other room: the cell is left partial (the general router joins
+    that hop), not routed through the pour."""
+    from shapely.geometry import box
+    src = _gap_board(tmp_path / "in")
+    info = pcbnew_io.export_dsn(src, tmp_path / "b.dsn")
+    rep = hotloop.stage(src, info, tmp_path / "w", CELLS, log=lambda *a: None)
+    assert not rep.get("error") and rep["board"]
+    assert rep["cells"][0]["status"] in ("routed", "partial"), rep["cells"]
+    lane = box(*GAP_LANE).buffer(0.2 - 1e-3)
+    assert not [g for g in _other_net_copper(rep["board"]) if g.intersects(lane)]
+    fills = [Polygon(r[0], r[1:]) for z in pcbnew_io.zone_fills(rep["board"])["zones"] if z["net"] == "+3V3"
+             for r in z["layers"].get("F.Cu", [])]
+    assert any(f.intersects(box(120.6, 108.6, 121.0, 109.5)) for f in fills)    # it pours beside the pin
+

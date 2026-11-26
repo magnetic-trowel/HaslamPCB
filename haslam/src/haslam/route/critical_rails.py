@@ -142,11 +142,21 @@ def load_current(ctx, u, net, cells, draws=None):
     if u in cells:                            # a buck's input: its output power / (eta V_in) (haslam.physics.converter)
         c = cells[u]
         ex = c.get("excite") or {}
-        vin = ex.get("V") or v
+        vin = abs(ex.get("V") or v)        # a -12 V -> -5 V buck draws what a +12 V -> +5 V one does
         vout = ctx.volts(c.get("vout")) or 0.5 * vin
         i_out = float(ex.get("I") or 1.0)
         if c.get("rail") == net and c.get("class") in ("buck", None):
             return CV.input_current("buck", max(vin, 0.5), vout, i_out)
+        if c.get("rail") == net and c.get("class") == "inverting":
+            # its input: |V_out| I_out / (V_in eta) (TI SLVA721). Its excitation V is the switch's swing, so V_in is
+            # the input rail's own voltage; its excitation I is the switch's (the inductor's), I_out / (1 - D)
+            vo = ctx.volts(c.get("vout"))
+            if not vo:
+                return i_out
+            if c.get("topology") == "inverting_buck":       # its excitation I is its output current (I_L = I_out)
+                return CV.input_current("inverting_buck", max(v, 0.5), vo, i_out)
+            D = CV.duty("inverting_buck_boost", max(v, 0.5), vo)
+            return CV.input_current("inverting_buck_boost", max(v, 0.5), vo, i_out * (1 - D))
         if c.get("rail") == net:
             return i_out
     if kind == "inductor":

@@ -138,3 +138,72 @@ def test_overshoot_edge_term_at_the_turnoff_current():
     from haslam.excite import harm as HA
     v, vf, ve = HA.peak(0.01, 1e-9, 1.0, 0.5, 2e-9, I_off=1.2)
     assert ve == pytest.approx(1e-9 * 1.2 / 2e-9) and vf == pytest.approx(0.01 * 2 / 3.141592653589793 * 1.0)
+
+
+def _op_tuple(o):
+    return (o.mode, o.D, o.I_in, o.I_L, o.I_sw, o.V_bus, o.loop, o.dI)
+
+
+@pytest.mark.parametrize("top,Vi,Vo,leg", [
+    ("buck", 12.0, 5.0, None),                     # a -12 V -> -5 V buck is the mirror image of 12 -> 5
+    ("boost", 5.0, 12.0, None),                    # a -5 V -> -12 V boost of 5 -> 12
+    ("inverting_buck_boost", 12.0, -5.0, None),    # -12 V -> +5 V inverts as 12 V -> -5 V does
+    ("sepic", 5.0, 12.0, None),
+    ("buck_boost_4switch", 12.0, 5.0, "buck"),
+    ("buck_boost_4switch", 5.0, 12.0, "boost"),
+])
+def test_a_converter_on_negative_rails_runs_as_its_magnitudes(top, Vi, Vo, leg):
+    pos = CV.operating(top, Vi, Vo, 2.0, 0.9, L=10e-6, f_sw=1e6, leg=leg)
+    neg = CV.operating(top, -Vi, -Vo, 2.0, 0.9, L=10e-6, f_sw=1e6, leg=leg)
+    assert pos.D > CV.D_MIN and pos.I_in > 0 and pos.V_bus > 0
+    p, n = _op_tuple(pos), _op_tuple(neg)
+    assert (n[0], n[6]) == (p[0], p[6]) and [n[i] for i in (1, 2, 3, 4, 5, 7)] == pytest.approx([p[i] for i in (1, 2, 3, 4, 5, 7)])
+
+
+@pytest.mark.parametrize("vo,vi,top", [
+    (-5.0, 12.0, "inverting_buck_boost"),
+    (5.0, -12.0, "inverting_buck_boost"),
+    (-5.0, -12.0, "buck"),                         # a negative buck: rails of one sign
+    (5.0, 12.0, "buck"),
+    (-5.0, None, "inverting_buck_boost"),          # input unknown: a negative output taken as inverting
+])
+def test_a_buck_cell_inverts_only_between_rails_of_opposite_signs(vo, vi, top):
+    assert CV.topology_of("buck", {}, vo, vi)[0] == top
+    st = {"class": "buck", "rail": "IN", "vout": "OUT"}
+    nets = {"IN": {"volts": vi}, "OUT": {"volts": vo}}
+    assert DC.cell_topology(st, nets) == top
+
+
+def test_the_router_classifies_a_cell_by_its_rails_signs():
+    from haslam.route.critical_modules import _intent_converter
+
+    def conv(Vi, Vo):
+        nets = {"IN": {"volts": Vi}, "OUT": {"volts": Vo}}
+        ctx = SimpleNamespace(opts={"intent": {"cells": {"c1": {"I_out_A": 0.5, "eta": 0.9}}}}, nets=nets,
+                              volts=lambda n: abs(nets[n]["volts"]) if n in nets else None, brief={})
+        return _intent_converter(ctx, SimpleNamespace(id="c1", spec={"class": "buck", "rail": "IN", "vout": "OUT"}))
+    inv = conv(5.0, -5.0)
+    assert inv.op.topology == "inverting_buck_boost" and inv.I[0] == pytest.approx(0.5 / (1 - 5.0 / 9.5))
+    assert conv(-12.0, -5.0).op.topology == "buck" and conv(-12.0, -5.0).I[0] == pytest.approx(0.5)
+
+
+def _duty_without_intent(cls, Vbus, Vother):
+    """The no-intent duty of a cell: its bus Vbus (a buck's input, a boost's output) and its other rail."""
+    other = "vout" if cls == "buck" else "vin"
+    brief = {"structures": [{"id": "c1", "class": cls, "rail": "BUS", other: "OTHER"}],
+             "nets": {n: {"volts": v, "volts_belief": {"interval": sorted((0.95 * v, 1.05 * v))}}
+                      for n, v in (("BUS", Vbus), ("OTHER", Vother))}}
+    s = SimpleNamespace(meta={"cell": "c1", "cls": cls, "bus": "BUS"}, name="c1")
+    D = PA.cell(Ledger(), s, brief, None, None, "")["D"]
+    return (D.typ, D.lo, D.hi), D.basis
+
+
+@pytest.mark.parametrize("cls,Vbus,Vother", [("buck", 12.0, 5.0), ("boost", 12.0, 5.0)])
+def test_a_cells_duty_on_negative_rails_is_its_magnitudes(cls, Vbus, Vother):
+    pos, neg = _duty_without_intent(cls, Vbus, Vother), _duty_without_intent(cls, -Vbus, -Vother)
+    assert neg[0] == pytest.approx(pos[0]) and neg[1] == pos[1] and "clipped" not in neg[1]
+
+
+def test_an_inverting_cells_duty_without_intent():
+    (typ, lo, hi), basis = _duty_without_intent("buck", 12.0, -5.0)
+    assert typ == pytest.approx(5.0 / (12.0 * CV.ETA[1] + 5.0)) and 0 < lo < typ < hi < 1 and "inverting" in basis

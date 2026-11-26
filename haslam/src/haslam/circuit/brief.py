@@ -36,14 +36,15 @@ from pathlib import Path
 
 from .evidence import evidence_json
 from .netlist import Netlist
-from .roles import ZDIFF, ZDIFF_SRC, infer_roles
+from .roles import ZDIFF, ZDIFF_SRC, cells_inverting, infer_roles
 from .structures import EXTERNAL, find_structures
 
 SCHEMA = 'haslam.brief/1'
 REF_FIELDS = {'controller', 'inductor', 'ic', 'crystal', 'connector', 'part', 'shunt', 'amp', 'bootstrap_cap', 'series_r',
               'feedback_r', 'caps', 'hf_caps', 'bulk_caps', 'load_caps', 'load_caps_xin', 'load_caps_xout', 'protection', 'series', 'match', 'output_caps',
               'input_caps', 'filter', 'phase_shunts', 'top', 'bottom', 'feedforward_cap', 'high', 'low', 'rectifier', 'bond',
-              'series_shunt', 'bootstrap_r', 'charge_pump_caps', 'caps_in', 'caps_out'}
+              'series_shunt', 'bootstrap_r', 'charge_pump_caps', 'caps_in', 'caps_out', 'in_high', 'in_low', 'out_high',
+              'out_low'}
 PAIR_FIELDS = {'loop', 'chain', 'feed', 'loads', 'ic_pins'}
 GROUP_FIELDS = {'snubbers', 'stages'}   # lists of reference groups: [[r, c], ...], [[q1, q2], [q3, q4]]
 KEYED_FIELDS = {'caps_p', 'caps_p_all'}
@@ -203,12 +204,13 @@ def _priority(s: dict) -> tuple[float, str]:
 
 
 # ------------------------------------------------------------------------------- build
-def build(board, *, use_sheets: bool = True, facts=None) -> dict:
-    """The brief for a haslam.board Board (or any object with Contract 1 field names).
+def build(board, *, use_sheets: bool = True, facts=None, inverting: bool | None = None) -> dict:
+    """The brief for a haslam.board Board (or any object with Contract 1 field names). inverting: recognise inverting
+    buck-boost cells (None: HASLAM_CELLS_INVERTING, off by default; haslam.circuit.roles.cells_inverting).
 
     facts: the commander's operating facts (haslam.intent.facts), applied before priorities are set. None reads
     the board's own intent file (`<board>.haslam_intent.json` beside it) when there is one; False ignores it."""
-    b = _build(board, use_sheets=use_sheets)
+    b = _build(board, use_sheets=use_sheets, inverting=inverting)
     if facts is False:
         return b
     from haslam.intent import facts as F
@@ -232,13 +234,15 @@ def build(board, *, use_sheets: bool = True, facts=None) -> dict:
     return b
 
 
-def _build(board, *, use_sheets: bool = True) -> dict:
+def _build(board, *, use_sheets: bool = True, inverting: bool | None = None) -> dict:
     t0 = time.perf_counter()
+    if inverting is None:
+        inverting = cells_inverting(False)
     nl = Netlist.from_board(board)
     if not use_sheets:
         for p in nl.parts.values():
             p.sheet = None
-    roles = infer_roles(nl)
+    roles = infer_roles(nl, inverting=inverting)
     st = find_structures(nl, roles)
     ids = _Ids(nl)        # part key -> footprint uuid, for every part reference the brief emits
     sroles = _structure_roles(st)
