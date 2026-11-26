@@ -693,3 +693,14 @@ def test_rescore_runs_finds_each_task_kinds_drc_reports(tmp_path):
     assert set(mod.drc_reports(tmp_path, "joint-fixed")) == {"placement"}
     assert set(mod.drc_reports(tmp_path, "place-fixed")) == {"placement"}
     assert set(mod.drc_reports(tmp_path, "route")) == {"drc"}
+
+
+def test_work_reads_the_last_work_line_under_the_new_and_the_pre_rename_tag(tmp_path):
+    """restart.py's last `HASLAM_WORK {json}` line (`KAE_WORK` from code pinned before the rename of PR #163)."""
+    log = tmp_path / "adapter.log"
+    log.write_text('noise\nHASLAM_WORK {"attempts": 1}\nHASLAM_WORK {"attempts": 3, "cpu_s": 12.5}\n')
+    assert haslamres._work(tmp_path) == {"attempts": 3, "cpu_s": 12.5}
+    log.write_text('KAE_WORK {"attempts": 2}\n')
+    assert haslamres._work(tmp_path) == {"attempts": 2}
+    log.write_text("HASLAM_WORK {not json\n")
+    assert haslamres._work(tmp_path) is None
