@@ -258,7 +258,8 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             if "I_q_A" in v:
                 # its rail has no load (heat.evaluate): the converter idles; its controller draws its quiescent
                 # current from the input and turns all of it into heat (it delivers nothing)
-                add(c["ctrl"], (dcp.volts.get(c.get("vin")) or V) * v["I_q_A"])
+                # in magnitude: on a -12 V input the signed product was negative and add() dropped it
+                add(c["ctrl"], abs(dcp.volts.get(c.get("vin")) or V) * v["I_q_A"])
                 continue
             ron = val.get((f"heat:{c['ctrl']}", "R_on_ohm"), R_ON[1])
             # the switch conducts I_L for D; with no rectifier part the synchronous one inside the
