@@ -79,3 +79,34 @@ def test_a_three_value_eta_and_sustained_current_are_read(tmp_path):
     assert H.sustained_A(intent, "J2") == pytest.approx(0.15)
     assert beliefs.intent_value(intent, "parts", "J2", "I_A") == pytest.approx(((0.1 * 0.3) ** 0.5, 0.1, 0.3))
 
+
+def _split_export_board(tmp_path):
+    """+-12 V in at J1 (VP, VN, PGND); J2 exports VP and VN with its return on AGND, a ground net no part joins to
+    PGND on the board (the cable does): duanestorey's J9 (DC_POS, DC_NEG, AGND_INT)."""
+    nets = ["VP", "VN", "PGND", "AGND"]
+    fps = [_fp("J1", "Conn_01x03", "Connector:Header_1x03", 5,
+               [_pad("1", 0, 1, "VP"), _pad("2", 1, 3, "PGND"), _pad("3", 2, 2, "VN")], 1),
+           _fp("J2", "Conn_01x03", "Connector:Header_1x03", 40,
+               [_pad("1", 0, 1, "VP"), _pad("2", 1, 4, "AGND"), _pad("3", 2, 2, "VN")], 2)]
+    intent = {"nets": {"VP": {"source": "J1", "V_V": 12.0}, "VN": {"source": "J1", "V_V": -12.0}},
+              "parts": {"J2": {"I_A": [0.05, 0.2]}}}
+    return _board(tmp_path, nets, fps), intent
+
+
+def test_a_load_across_two_rails_balances_at_every_corner(tmp_path):
+    """J2's two rails' currents are sampled apart, and AGND carries their difference off the board. _offboard decided
+    the pieces joined off the board at the typical point, where that difference is 0, so AGND was not one of them
+    and every corner that sampled the rails apart failed KCL (duanestorey: "-0.0198 A left on AGND_INT", the DC
+    band not computed). Decided over the parameters' ends, every corner balances."""
+    from haslam.excite.beliefs import corners
+    b, intent = _split_export_board(tmp_path)
+    pl, _, _, _ = _plan(b, intent)
+    keys = sorted(ld["key"] for ld in pl.loads if ld["ref"] == "J2")
+    assert len(keys) == 2
+    assert "AGND" in pl.offboard
+    pts = corners(pl.params, n=16, seed=1)
+    assert any(abs(c[keys[0]] - c[keys[1]]) > 1e-3 for c in pts)
+    for cv in pts:
+        lost = []
+        inj = DC.injections(pl, cv, lost)
+        assert DC.imbalance(pl, inj, lost) == [], cv

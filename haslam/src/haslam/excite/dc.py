@@ -746,22 +746,38 @@ def _offboard(pl, bd, P, cells, connectors):
     whose ground pins sit on two ground nets (a Nucleo's GND and its CN10 GND, joined inside it), sends a load's return
     into a piece where its source's ground is not: in the copper that current has no way out, and the DC band was void
     on a board KiCad finds fully connected. Where the plan's flow balances over the whole board but not per piece (at
-    every parameter's typical value), and every unbalanced piece has a way out, the current between the pieces is
+    the typical point or with any one parameter at its other end), and every unbalanced piece has a way out, the current between the pieces is
     taken through it (pl.offboard; injections() moves each piece's excess there): the ground pads of a part whose
     ground pads sit in several pieces (joined inside it), else the piece's connector ground pads (joined off the board).
     Anything else that does not balance is left unbalanced, for imbalance() to report."""
     pl.piece = _pieces(pl.pads, bd.circuit.elems)
     cv0 = {c["src"]: {k: p.typ for k, p in (P.get(c["src"]) or {}).items()} for c in cells.values()}
     cv0.update({(p.subject, p.name): p.typ for p in pl.params})
-    inj = injections(pl, cv0)
-    big = max((abs(a) for a in inj.values()), default=0.0)
-    if big == 0:
-        return
-    bal = {}
-    for t, a in inj.items():
-        bal[pl.piece.get(t)] = bal.get(pl.piece.get(t), 0.0) + a
-    off = sorted(r for r, b in bal.items() if abs(b) > EPS * big)
-    if not off or abs(sum(bal.values())) > EPS * big:
+    # which pieces are joined off the board is decided over the corners, not at the typical point alone: a load
+    # across two rails (duanestorey's J9 on DC_POS and DC_NEG, returning through AGND_INT) leaves its ground piece
+    # balanced at the typical point, where its two rails' currents are equal, but every corner that samples them
+    # apart sends their difference into that piece, and those corners failed KCL. Each piece's balance moves with
+    # each parameter on its own, so the typical point plus one point per parameter at its other end finds every
+    # piece some corner can unbalance (injections() then moves each corner's own excess off the board)
+    probes = [cv0]
+    for p in pl.params:
+        alt = p.hi if p.hi != p.typ else p.lo
+        if alt != p.typ:
+            probes.append({**cv0, (p.subject, p.name): alt})
+    off = set()
+    for cv in probes:
+        inj = injections(pl, cv)
+        big = max((abs(a) for a in inj.values()), default=0.0)
+        if big == 0:
+            continue
+        bal = {}
+        for t, a in inj.items():
+            bal[pl.piece.get(t)] = bal.get(pl.piece.get(t), 0.0) + a
+        if abs(sum(bal.values())) > EPS * big:
+            return
+        off |= {r for r, b in bal.items() if abs(b) > EPS * big}
+    off = sorted(off)
+    if not off:
         return
     gp = {ref: [(f"{ref}.{n}", net) for n, net, _, _ in pl.pads[ref] if net in pl.grounds] for ref in sorted(pl.pads)}
     inside = {ref: g for ref, g in gp.items() if ref not in connectors and len({pl.piece[t] for t, _ in g}) > 1}
