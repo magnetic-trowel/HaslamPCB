@@ -79,7 +79,8 @@ MARGIN_WHY = ("a return at height h spreads as h / (x^2 + h^2): a 1 mm band hold
               "to 86 % (h 0.2 mm) of an edge conductor's return; the hull covers the loop's interior")
 SETTINGS = ("hotloop_keepout", "hotloop_keepout_mm", "hotloop_cells", "hotloop_vias", "hotloop_pours",
             "hotloop_budget_s", "hotloop_keepout_pours", "hotloop_lift", "hotloop_keepout_loopvias", "hotloop_clear",
-            "hotloop_clear_force", "hotloop_cell_kinds", "hotloop_cell_walls", "hotloop_cell_partial")
+            "hotloop_clear_force", "hotloop_cell_kinds", "hotloop_cell_walls", "hotloop_cell_partial",
+            "hotloop_cells_max_pads")
 
 
 def _log(msg):
@@ -101,6 +102,7 @@ def settings(board_path=None, opts=None):
     out["cells"] = out["cells"] or out["vias"] or out["pours"]
     out["cell_kinds"] = tuple(k.strip() for k in str(g["hotloop_cell_kinds"] or "").split(",") if k.strip())
     out["cell_walls"] = bool(float(g["hotloop_cell_walls"] or 0))
+    out["cells_max_pads"] = float(g["hotloop_cells_max_pads"] or 0)
     out["cell_partial"] = "keep" if str(g["hotloop_cell_partial"] or "").strip() == "keep" else "rip"
     return out
 
@@ -1090,6 +1092,29 @@ def reach_check(s, info, mods, log=_log):
     return out, still
 
 
+def density_gate(input_path, st):
+    """hotloop_cells_max_pads (0: off): the cells stage is not run on a board with more pads than this. Cells first
+    lost connections on dense boards that the default keeps, mostly by search path far from any cell (inverters A/B:
+    hvdc 28 -> 38, glider 71 -> 119 unconnected, 1,387 and 1,821 pads), and gained nothing there that offsets it.
+    None when the gate does not apply, else (row, info hazard)."""
+    from haslam import hazards as H
+    cap = float(st.get("cells_max_pads") or 0)
+    if not st.get("cells") or cap <= 0:
+        return None
+    try:
+        pads = Path(input_path).read_text(encoding="utf-8", errors="replace").count("(pad ")
+    except OSError:
+        return None
+    if pads <= cap:
+        return None
+    why = f"cells first skipped: {pads} pads, above hotloop_cells_max_pads {cap:g}"
+    return (dict(pads=pads, max_pads=cap, why=why),
+            H.make("hotloop_cells_density_gate", "info", "electrical",
+                   f"{why}; the general router lays the converters' loops.",
+                   objects=["hotloop"], evidence=dict(pads=pads, max_pads=cap),
+                   fix="Raise or clear hotloop_cells_max_pads to lay the cells first on this board."))
+
+
 def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
     """The hot-loop stage on a task input. Returns None when every option is off, else a report
     with `board` (the work board the bridge routes; None when nothing was added), `guards` (the
@@ -1101,6 +1126,15 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
     wd = Path(workdir)
     wd.mkdir(parents=True, exist_ok=True)
     rep = dict(settings=st, board=None, guards=[], cells=[], hazards=[])
+    gate = density_gate(input_path, st)
+    if gate is not None:
+        st = dict(st, cells=False)
+        rep["settings"], rep["density_gate"] = st, gate[0]
+        rep["hazards"].append(gate[1])
+        log(f"hotloop: {gate[0]['why']}")
+        if not active(st):
+            rep["seconds"] = round(clock_now() - t0, 2)
+            return rep
     try:
         # pour links only where cells are laid (stage, cells on); clear's session plans without them
         s = _session(input_path, info, st, opts, log, pour_links=bool(st["cells"]))

@@ -3,6 +3,7 @@
 """haslam.route.hotloop and the cell stage's options (R1-R5 of haslam-hot-loops), on the synthetic
 buck board of critical_fixtures, without KiCad."""
 import math
+from pathlib import Path
 
 import pytest
 from shapely.geometry import Point, Polygon
@@ -634,3 +635,18 @@ def test_a_partial_cell_whose_only_open_hop_returns_through_the_plane_is_kept(tm
     m.copper = [s.space.add_track("VIN", "F.Cu", 0.2, (130.0, 120.0), (130.0, 121.0), owner=("hop", 0))]
     hotloop.drop_cells(s, [m], ("buck", "boost"), log=lambda *a: None, partial="rip")
     assert m.status == "partial" and m.copper
+
+
+def test_the_density_gate_skips_the_cells_stage_on_a_board_with_more_pads(tmp_path, monkeypatch):
+    """hotloop_cells_max_pads (off by default): above it the stage lays no cell and says why."""
+    p = F.write_board(tmp_path)
+    pads = Path(p).read_text().count("(pad ")
+    st = dict(hotloop.settings(p), cells=True)
+    assert hotloop.density_gate(p, st) is None                          # 0: no gate
+    assert hotloop.density_gate(p, dict(st, cells_max_pads=pads)) is None
+    row, hz = hotloop.density_gate(p, dict(st, cells_max_pads=pads - 1))
+    assert row["pads"] == pads and hz["code"] == "hotloop_cells_density_gate"
+    monkeypatch.setenv("HASLAM_HOTLOOP_CELLS", "1")
+    monkeypatch.setenv("HASLAM_HOTLOOP_CELLS_MAX_PADS", str(pads - 1))
+    rep = hotloop.stage(p, F.synth_info(load(p)), tmp_path / "w", {}, log=lambda *a: None)
+    assert rep["density_gate"]["pads"] == pads and rep["board"] is None and rep["cells"] == []
