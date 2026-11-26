@@ -1,0 +1,61 @@
+{
+  "$schema": "https://schemas.kicad.org/erc.v1.json",
+  "coordinate_units": "mm",
+  "ignored_checks": [
+    {
+      "description": "Global label only appears once in the schematic",
+      "key": "single_global_label"
+    },
+    {
+      "description": "Four connection points are joined together",
+      "key": "four_way_junction"
+    },
+    {
+      "description": "SPICE model issue",
+      "key": "simulation_model_issue"
+    },
+    {
+      "description": "Assigned footprint doesn't match footprint filters",
+      "key": "footprint_filter"
+    }
+  ],
+  "included_severities": [
+    "error",
+    "warning",
+    "exclusion"
+  ],
+  "kicad_version": "10.0.7",
+  "sheets": [
+    {
+      "path": "/",
+      "uuid_path": "/3ff252b5-e154-55f8-9b29-3f7989f14a33",
+      "violations": []
+    },
+    {
+      "path": "/PV/",
+      "uuid_path": "/3ff252b5-e154-55f8-9b29-3f7989f14a33/ea1fd275-18a9-507d-9e4a-7cc81996aef0",
+      "violations": []
+    },
+    {
+      "path": "/CHG/",
+      "uuid_path": "/3ff252b5-e154-55f8-9b29-3f7989f14a33/35208fda-b587-589b-b8e0-50cc8da8ee24",
+      "violations": []
+    },
+    {
+      "path": "/BAT/",
+      "uuid_path": "/3ff252b5-e154-55f8-9b29-3f7989f14a33/80e7f183-fb46-5e8e-910c-be27aabbc107",
+      "violations": []
+    },
+    {
+      "path": "/PWR/",
+      "uuid_path": "/3ff252b5-e154-55f8-9b29-3f7989f14a33/c87540b3-4f95-5764-9612-7d096bda3e60",
+      "violations": []
+    },
+    {
+      "path": "/CTL/",
+      "uuid_path": "/3ff252b5-e154-55f8-9b29-3f7989f14a33/63f86780-ff90-5596-abf0-a2f7c4b3ad9f",
+      "violations": []
+    }
+  ],
+  "source": "solar-small.kicad_sch"
+}
