@@ -93,7 +93,7 @@ Rule (user, 2026-11-25: "mostly we just want to obey physics"). With `relations_
 | explicit request | `"requested": true` (the user asked for this relation specifically; not for relations the LLM or haslamsynth infers) | `full_weight: "requested"` | `relation_conflict` with `winner: tie`, `full_weight`; warns |
 | any other | - | `yielded_to` the structures | `relation_conflict` with `winner: physics`; warns |
 
-`requested` is a boolean (`haslam.intent.relations.check` rejects anything else). Intents with neither mark weigh exactly as before the rule [M: [relations-unified](relations-unified.md#results)]. Label-term pulls (region, soft on_edge, near to a fixed part or label) are weighed when the intent is compiled, before the placer knows which parts physics prices, so neither the demotion nor this exception reaches them: they keep their strength, as since #141 [I, `pipeline._place_rung`: `compile_intent` before `set_physics`].
+`requested` is a boolean (`haslam.intent.relations.check` rejects anything else). Intents with neither mark weigh exactly as before the rule: same boards and status rows on #141's six fixtures [M: [relations-unified results](relations-unified.md#results)]. Label-term pulls (region, soft on_edge, near to a fixed part or label) are weighed when the intent is compiled, before the placer knows which parts physics prices, so neither the demotion nor this exception reaches them: they keep their strength, as since #141 [I, `pipeline._place_rung`: `compile_intent` before `set_physics`].
 
 ## Settings
 
