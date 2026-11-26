@@ -79,7 +79,9 @@ New source files should start with:
 
 | Program | Version used | License (from its source tree) | How |
 |---|---|---|---|
-| [TraceMaker](https://github.com/DingoOz/TraceMaker) | v0.12.1, commit `db5950f4b8710d322ecaea3599077688a158ebfb` | GPL-3.0-or-later, with a GPLv3 §7 permission to link NVIDIA's CUDA runtime (our build has no CUDA) | Built from upstream by `tools/research/routing/tracemaker/install_tracemaker.sh` outside this repository; run as a subprocess by `haslam.route.tracemaker` and `tm_route.sh` (board files in and out). No TraceMaker source or binary is in this repository |
+| [TraceMaker](https://github.com/DingoOz/TraceMaker) | v0.12.1, commit `db5950f4b8710d322ecaea3599077688a158ebfb` | GPL-3.0-or-later, with a GPLv3 §7 permission to link NVIDIA's CUDA runtime (our build has no CUDA) | Built from upstream by `tools/research/routing/tracemaker/install_tracemaker.sh` outside this repository; run as a subprocess by `haslam.route.tracemaker` (bridge option `first_router`, default off; board files in and out). No TraceMaker source or binary is in this repository; `tools/research/routing/tracemaker/patches/thread-cpu-clock.patch` is a small patch to its source and keeps its copyright line |
+
+The user approved this integration on 2026-11-25: both projects are GPL-3.0-or-later.
 
 Porting its code (e.g. its pin-first search) into haslam keeps our files GPL-3.0-or-later. Porting it into the
 Freerouting fork makes that combination GPL-3.0 only, as the fork already is. Either way, ported files keep

@@ -33,7 +33,8 @@ TraceMaker hybrid, not the bridge: on `mech/bga-pitch-0.4` it left 15.2 fewer op
 [-29.7, -3.2] (experiment `tm-hybrid`). Its stored runs are in experiment `hybrid-bga-w47` (method `76e995d20a60`):
 
 - Recipe: the bridge control at the tag plus `first_router=tracemaker, tracemaker=db5950f4-thread-cpu-clock,
-  ball_escapes=false, tm_clock=cpu, tm_seconds=500`, `--param parallel=8`. Code: branch `hybrid-baseline-w47`.
+  ball_escapes=false, tm_clock=cpu, tm_seconds=500`, `--param parallel=8`. Code: branch `hybrid-baseline-w47`, made before the
+  rename (#163); keep it, the stored runs pin it. The same code is on main (`haslam.route.tracemaker`).
 - Clock: each of TraceMaker's 8 variants stops after 500 CPU-seconds of its own thread, not wall time
   (`haslam.route.tracemaker`, tm_clock "cpu"). The build comes from
   `PATCH=thread-cpu-clock tools/research/routing/tracemaker/install_tracemaker.sh`.
@@ -41,7 +42,7 @@ TraceMaker hybrid, not the bridge: on `mech/bga-pitch-0.4` it left 15.2 fewer op
   search had converged (solokeys). Where it was still improving they differed by 1 open of 86, with the same vias
   (logicbone). On the old wall clock, how much search a variant gets depends on host load.
   Details: `$HASLAM_RESULTS/experiments/hybrid-bga-w47/REPEAT.md`. Exact repeats need TraceMaker's `--work` budget.
-- An arm on top of it: `haslamres sprint NAME --base bridge --control hybrid-bga-w47 --control-method `76e995d20a60`
+- An arm on top of it: `haslamres sprint NAME --base bridge --control hybrid-bga-w47 --control-method 76e995d20a60
   --commit SHA --set ... --suite mech/bga-pitch-0.4 --param parallel=8 --allow-over-cap "BGA boards are the mechanism"`.
   The arm is the hybrid's recipe with your settings, paired against the stored hybrid runs. The hybrid costs about
   1 CPU-h per run, so the per-board limit needs `--allow-over-cap`.

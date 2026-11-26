@@ -42,7 +42,7 @@ Licences verified from LICENSE files by the licensing survey, 2026-10-20 [P].
 | Freerouting (Java) | GPL-3.0 (no "or later" notice found); npm MCP package GPL-3.0-only | IN / PROC | Vendoring, forking or JVM bridging is allowed; the combination is distributed under GPL-3.0. Pass `-da` (analytics). Provenance is cloudy, so don't upstream Freerouting-derived code into KiCad |
 | freerouting-client 2.3.0 | MIT | DEP | |
 | fastroute | GPL-3.0-or-later | IN | Rust Freerouting derivative |
-| TraceMaker v0.12.1 (`db5950f4`) | GPL-3.0-or-later, plus a GPLv3 §7 permission to link NVIDIA's CUDA runtime | PROC today; IN allowed | Run as a separate program, not distributed: [TraceMaker](#tracemaker) |
+| TraceMaker v0.12.1 (`db5950f4`) | GPL-3.0-or-later, plus a GPLv3 §7 permission to link NVIDIA's CUDA runtime | PROC (integration approved 2026-11-25); IN allowed | Run as a separate program, not distributed: [TraceMaker](#tracemaker) |
 | EasyEDA local router | GPL-3.0 | IN | Freerouting fork |
 | route-rnd | GPL-2+ (bundled libs PD, LGPL-2.1+, BSD-3) | IN | "or later" makes it GPLv3-compatible |
 | Horizon EDA (embeds KiCad router 6.0.4), LibrePCB | GPL-3.0 | IN | |
@@ -108,7 +108,8 @@ Read from its source tree at v0.12.1 = `db5950f4b8710d322ecaea3599077688a158ebfb
 
 How we use it (PROC):
 - `tools/research/routing/tracemaker/install_tracemaker.sh` builds it from upstream, outside the repository.
-- `haslam.route.tracemaker` (bridge option `first_router`) and `tm_route.sh` run it as a separate program. They exchange files with it: `.kicad_pcb` in, `.kicad_pcb` and JSON out.
+- `haslam.route.tracemaker` (bridge option `first_router`, default off) runs it as a separate program. They exchange files with it: `.kicad_pcb` in, `.kicad_pcb` and JSON out.
+- `patches/thread-cpu-clock.patch` (the CPU clock, `tm_clock=cpu`) changes its source: it carries TraceMaker's copyright line beside ours and stays GPL-3.0-or-later.
 - We distribute neither its source nor a binary. Its routed boards are benchmark outputs of third-party boards and are never committed.
 
 If we port its pin-first (crowded-source) strict search:
@@ -118,7 +119,9 @@ If we port its pin-first (crowded-source) strict search:
 | haslam (GPL-3.0-or-later) | Both are GPL-3.0-or-later, so the result can stay GPL-3.0-or-later | Keep "Copyright (C) 2026 The TraceMaker authors" and its SPDX line on ported files; mark them modified, with a date (GPLv3 §5a) |
 | Freerouting fork (GPL-3.0, no "or later" found) | TraceMaker's code may be used under version 3, one of the versions it offers. The fork as a whole is then conveyed under GPL-3.0 only, as it already is | The same; a ported file may keep its own "or later" header |
 
-Uncertain; for the user to decide (these are not legal conclusions):
+Decision (user, 2026-11-25): the integration is approved, since both projects are GPL-3.0-or-later; the notice rules above apply to anything ported.
+
+Still open (these are not legal conclusions):
 - Is a port from its documents (`docs/`, `report/`) rather than its code a derivative work? The licence text does not say. Treat it as derived and keep the notices.
 - Does haslam calling it through files make one combined program? GPLv3 §5 covers "aggregates", and the FSF FAQ gives an opinion on separate programs. This matters only if we distribute both together, and both are GPL-3.0-or-later anyway.
 - If we ever ship the built binary, §6 (the source offer) and the dependencies' notices apply. Its `libstdc++` is linked statically, under the GCC Runtime Library Exception.
