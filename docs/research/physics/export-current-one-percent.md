@@ -42,7 +42,7 @@ Same 12 physics-set boards and solar-small A0 as gfix-dc-loads, compiled-9867d0b
 - No board loses its score or completeness; sbarabe keeps its score (rule B lost it), qubik stays copper open (rule B made it complete with an empty DC band).
 - Only DC-band terms move (loss.copper, drop.rail, heat.track), all down except four sub-0.1 mV drops of other rails that move a few µV either way (robertpheller D0 63 → 98 µV, moto-bit D2/D3).
 - **Heat band unchanged on every board:** `part_power_W` and every temp.junction term identical in both arms (the sustained export current is 1 % of the rating in both).
-- **robertpheller U401:** 32.5 mW in both arms. Rule B heated it at 510 mW (Tj 44 → 100 C): its rail /E5V, fed by cell:buck:U401, had no load left, so `heat.evaluate` took the cell's ledger low end (`pi.lo`). With 1 % the rail keeps CN7's export (50 mA of a 5 A rating, the question's `might_differ`: only load, power connector, cell-fed), so the cell current follows its loads. The no-load branch itself is unchanged: a cell rail without any load is still heated at its ledger's low end.
+- **robertpheller U401:** 32.5 mW in both arms. Rule B heated it at 510 mW (Tj 44 → 100 C): its rail /E5V, fed by cell:buck:U401, had no load left, so `heat.evaluate` took the cell's ledger low end (`pi.lo`). With 1 % the rail keeps CN7's export (50 mA of a 5 A rating, the question's `might_differ`: only load, power connector, cell-fed), so the cell current follows its loads. The no-load branch itself is unchanged: a cell rail without any load is still heated at its ledger's low end. (Since fixed: such a cell idles at V_in I_q, [heat-noload-rail](heat-noload-rail.md).)
 - Cost: both arms 26 evaluations, about 4.8 CPU-h.
 
 ## 3. The question back
