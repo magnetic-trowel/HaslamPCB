@@ -78,9 +78,10 @@ and charged seconds go to summary.json and HASLAM_WORK (step_cache).
 Records of every attempt, kept or discarded (records only: no schedule, judgement or output depends on them). Each
 record in summary.json's attempt_log has `trace` (attempt_trace, about 1 kB: its report's stage seconds, the opens and
 errors after each stage, the nets still open in the judge's DRC report), `budget_ledger` (its `[haslam.budget]` charged
-seconds by kind) and `diagnosis` (haslam.route.blocked on its board with the judge's report, DIAGNOSE_S nominal seconds of
+seconds by kind) and, with --diagnose (off by default: it costs up to DIAGNOSE_S of work per attempt with open
+connections), `diagnosis` (haslam.route.blocked on its board with the judge's report, DIAGNOSE_S nominal seconds of
 counted work whatever the run's mode, so twins get the same diagnosis; run after the last pass, when the output is
-written, and not charged to the run's budget: summary.json's `diagnose` says what it cost). `cpu_total_s` is the run's
+written, and not charged to the run's budget: summary.json's `diagnose` says what it cost, or {"off": true}). `cpu_total_s` is the run's
 one CPU figure: method, judges, the input's DRC, diagnoses and this wrapper. A completion-first run's summary.json has
 `phase_logs` (every phase's attempts) and the --open-alt phase's CPU (null before).
 """
@@ -898,7 +899,7 @@ def diagnose_attempts(done, inp, until, lanes, budget_s=DIAGNOSE_S):
                 cmd[cmd.index("--drc"):cmd.index("--drc") + 2] = []
             (d / "blocked.json").unlink(missing_ok=True)
             p = subprocess.Popen(cmd, cwd=d, stdout=open(d / "blocked.log", "w"), stderr=subprocess.STDOUT,
-                                 start_new_session=True, env=_haslam_env())
+                                 start_new_session=True, env=dict(_haslam_env(), **deadline_env(until - time.monotonic())))
             ATTEMPT_PIDS.add(p.pid)
             running[p] = (info, time.monotonic(), {})
         time.sleep(0.2)
@@ -933,6 +934,12 @@ def diagnose_attempts(done, inp, until, lanes, budget_s=DIAGNOSE_S):
     tot.update(cpu_s=round(tot["cpu_s"], 1), charged_s=round(tot["charged_s"], 2),
                wall_s=round(time.monotonic() - t0, 1))
     return tot
+
+
+def diagnose_until(t0, budget_s):
+    """The monotonic time after which no diagnosis starts or runs on: the wall time a run of this budget may take
+    (work mode: half the wall ceiling) less 15 s, and never past this wrapper's HASLAM_DEADLINE (less 15 s)."""
+    return min(t0 + (0.5 * WORK_CEILING * budget_s if WORK else budget_s), time.monotonic() + wall_left()) - 15
 
 
 def _causes(res):
@@ -1261,6 +1268,10 @@ def main():
     ap.add_argument("--open-rest-alt", action="store_true",
                     help="with --open-rest: when the kept board is clean, that run is --alt (kept when no worse)")
     ap.add_argument("--alt", default="", help="completion-first: the command of the second run on a clean board")
+    ap.add_argument("--diagnose", action="store_true",
+                    help="records: after the output is written, run haslam.route.blocked (DIAGNOSE_S nominal seconds of "
+                         "counted work, uncharged) on every judged attempt's board with open connections and keep its "
+                         "diagnosis in summary.json; off by default (traces, ledgers and cpu_total_s are always kept)")
     ap.add_argument("command", nargs=argparse.REMAINDER)
     a = ap.parse_args()
     signal.signal(signal.SIGTERM, _on_term)
@@ -1534,7 +1545,8 @@ def main():
     # attempt's board, until the wall time a run of this budget may take (work mode: half the wall ceiling)
     for d_ in done:
         record_attempt(d_)
-    diag = diagnose_attempts(done, inp, t0 + (0.5 * WORK_CEILING * a.time if WORK else a.time) - 15, a.parallel)
+    diag = (diagnose_attempts(done, inp, diagnose_until(t0, a.time), a.parallel) if a.diagnose
+            else dict(off=True, cpu_s=0.0))
     work.update(input_judge_cpu_s=round(input_cpu, 1), diagnose=diag,
                 cpu_total_s=round(work["method_cpu_s"] + judge_cpu + input_cpu + diag["cpu_s"] + self_cpu(), 1),
                 cpu_total_note="method + judges + input DRC + diagnoses (uncharged records) + this wrapper")
@@ -1730,10 +1742,9 @@ def run_policy(ap, a):
                 wall_s=round(time.monotonic() - t0, 1), best_rank=best["rank"], budget_s=a.time,
                 **({"killed": True} if TERM else {}))
     oa = next((p for p in phases if p["work"].get("trace") is not None), None)   # the --open-alt phase
-    if oa is not None:   # its board's diagnosis, as every restart attempt's (records, after the output is kept)
+    if oa is not None and a.diagnose:   # its board's diagnosis, as every restart attempt's (records, after the output is kept)
         rec = dict(out=oa["out"], rank=oa["rank"])
-        oa["work"]["diagnose"] = diagnose_attempts([rec], inp, t0 + (0.5 * WORK_CEILING * a.time if WORK else a.time)
-                                                   - 15, 1)
+        oa["work"]["diagnose"] = diagnose_attempts([rec], inp, diagnose_until(t0, a.time), 1)
         oa["work"]["diagnosis"] = rec.get("diagnosis")
         oa["work"]["cpu_total_s"] = round(oa["work"]["cpu_total_s"] + oa["work"]["diagnose"]["cpu_s"], 1)
     work.update(policy_cpu_total(phases, input_cpu))

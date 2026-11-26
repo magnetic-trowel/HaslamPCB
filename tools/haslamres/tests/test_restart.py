@@ -481,7 +481,7 @@ def test_work_mode_judge_keeps_its_report_beside_the_board_with_the_boards_uuids
 def test_completion_first_runs_alt_on_a_clean_board_and_keeps_it_when_no_worse(tmp_path):
     """Phase 1 routes everything (OPEN=0, clean): the second run is --alt, kept when it ranks no worse."""
     r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=0 first)' > @OUT@", None, time_s=200,
-                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@"))
+                     extra=("--diagnose", "--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@"))
     assert r.returncode == 0, r.stdout + r.stderr
     assert s["second"] == "alt" and s["kept"] == 2 and "alt" in out.read_text()
 
@@ -490,7 +490,7 @@ def test_completion_first_restarts_again_when_the_first_board_is_open(tmp_path):
     """Phase 1 leaves opens: the second run is COMMAND again with the next seed (never --alt); the better is kept."""
     r, out, s = _run(tmp_path, "if [ @SEED@ -ge 1000 ]; then echo '(kicad_pcb OPEN=1 second)' > @OUT@; "
                                "else echo '(kicad_pcb OPEN=3 first)' > @OUT@; fi", None, time_s=200,
-                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@"))
+                     extra=("--diagnose", "--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@"))
     assert r.returncode == 0, r.stdout + r.stderr
     assert s["second"] == "restart" and s["kept"] == 2 and "second" in out.read_text()
     assert [p["seed"] for p in s["phases"]] == [0, 1]
@@ -508,7 +508,7 @@ def test_completion_first_open_alt_works_on_the_first_board_when_it_is_open(tmp_
     """Phase 1 leaves opens: with --open-alt the second run works on phase 1's board (@BEST@), not a fresh restart;
     kept when no worse."""
     r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=3 first)' > @OUT@", None, time_s=200,
-                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
+                     extra=("--diagnose", "--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
                             "--open-alt", "grep -q first @BEST@ && echo '(kicad_pcb OPEN=1 polished)' > @OUT@"))
     assert r.returncode == 0, r.stdout + r.stderr
     assert s["second"] == "open-alt" and s["kept"] == 2 and "polished" in out.read_text()
@@ -521,7 +521,7 @@ def test_open_rest_spends_the_windows_unused_budget(tmp_path):
     cmd = ("if [ @SEED@ -ge 2 ]; then echo '(kicad_pcb OPEN=1 third)' > @OUT@; "
            "else echo '(kicad_pcb OPEN=3 first)' > @OUT@; fi")
     r, out, s = _run(tmp_path, cmd, None, time_s=600,
-                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
+                     extra=("--diagnose", "--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
                             "--open-alt", win, "--open-rest"))
     assert r.returncode == 0, r.stdout + r.stderr
     assert s["second"] == "open-alt" and s["third"] == "restart" and s["kept"] == 3 and "third" in out.read_text()
@@ -531,7 +531,7 @@ def test_open_rest_spends_the_windows_unused_budget(tmp_path):
 def test_open_rest_alt_runs_alt_on_a_board_the_windows_completed(tmp_path):
     win = "echo '(kicad_pcb OPEN=0 win)' > @OUT@ && echo '{\"seconds\": 10}' > @REPORT@"
     r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=3 first)' > @OUT@", None, time_s=600,
-                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
+                     extra=("--diagnose", "--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
                             "--open-alt", win, "--open-rest", "--open-rest-alt"))
     assert r.returncode == 0, r.stdout + r.stderr
     assert s["third"] == "alt" and s["kept"] == 3 and "alt" in out.read_text()
@@ -692,7 +692,7 @@ def test_every_attempt_keeps_its_trace_ledger_and_diagnosis_and_the_run_one_cpu_
     (the judge's DRC report, a counted budget); the run has cpu_total_s. The output is the same as without them."""
     monkeypatch.setenv("HASLAM_DIAGNOSE_PY", str(_diag_py(tmp_path)))
     att = f"""echo '{LEDGER}'; echo '{{"status": "routed", "router": {{"seconds": 5}}}}'; echo '(kicad_pcb OPEN=2)' > @OUT@"""
-    r, out, s = _run(tmp_path, att, "echo '(kicad_pcb OPEN=3)' > @OUT@")
+    r, out, s = _run(tmp_path, att, "echo '(kicad_pcb OPEN=3)' > @OUT@", extra=("--diagnose",))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "OPEN=2" in out.read_text()                        # the final pass (worse) was not kept, as before
     a0, fin = s["attempt_log"]
@@ -711,9 +711,25 @@ def test_every_attempt_keeps_its_trace_ledger_and_diagnosis_and_the_run_one_cpu_
     assert work["cpu_total_s"] == s["cpu_total_s"]
 
 
+def test_without_diagnose_no_diagnosis_runs_and_the_free_records_stay(tmp_path, monkeypatch):
+    """--diagnose is off by default: no haslam.route.blocked runs (it would cost up to DIAGNOSE_S of work per attempt
+    with opens), while every attempt still has its trace and ledger and the run its cpu_total_s."""
+    bad = tmp_path / "must-not-run"
+    bad.write_text("#!/bin/sh\ntouch \"$0.ran\"\nexit 1\n")
+    bad.chmod(0o755)
+    monkeypatch.setenv("HASLAM_DIAGNOSE_PY", str(bad))
+    att = f"""echo '{LEDGER}'; echo '{{"status": "routed"}}'; echo '(kicad_pcb OPEN=2)' > @OUT@"""
+    r, out, s = _run(tmp_path, att, "")
+    assert r.returncode == 0 and "OPEN=2" in out.read_text()
+    a0 = s["attempt_log"][0]
+    assert "diagnosis" not in a0 and not (tmp_path / "must-not-run.ran").exists()
+    assert a0["trace"]["open_net_count"] == 2 and a0["budget_ledger"]["charged_s"] == 12.0
+    assert s["diagnose"] == {"off": True, "cpu_s": 0.0} and s["cpu_total_s"] >= s["cpu_s"]
+
+
 def test_a_clean_board_is_not_diagnosed(tmp_path, monkeypatch):
     monkeypatch.setenv("HASLAM_DIAGNOSE_PY", str(_diag_py(tmp_path)))
-    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=0)' > @OUT@", "")
+    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=0)' > @OUT@", "", extra=("--diagnose",))
     assert s["attempt_log"][0]["diagnosis"] == {"skipped": "nothing open"} and s["diagnose"]["ran"] == 0
 
 
@@ -722,7 +738,7 @@ def test_a_diagnosis_that_fails_is_recorded_and_changes_nothing(tmp_path, monkey
     bad.write_text("#!/bin/sh\necho 'ModuleNotFoundError: No module named haslam' >&2\nexit 1\n")
     bad.chmod(0o755)
     monkeypatch.setenv("HASLAM_DIAGNOSE_PY", str(bad))
-    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=2)' > @OUT@", "")
+    r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=2)' > @OUT@", "", extra=("--diagnose",))
     assert r.returncode == 0 and "OPEN=2" in out.read_text()
     d = s["attempt_log"][0]["diagnosis"]
     assert d["rc"] == 1 and "ModuleNotFoundError" in d["error"] and s["diagnose"]["failed"] == 1
@@ -734,7 +750,7 @@ def test_completion_first_open_alt_phase_has_cpu_and_every_phases_attempts(tmp_p
     monkeypatch.setenv("HASLAM_DIAGNOSE_PY", str(_diag_py(tmp_path)))
     burn = "python3 -c 'import time\nt=time.process_time()\nwhile time.process_time()-t<0.5: pass'"
     r, out, s = _run(tmp_path, "echo '(kicad_pcb OPEN=3 first)' > @OUT@", None, time_s=200,
-                     extra=("--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
+                     extra=("--diagnose", "--policy", "completion-first", "--alt", "echo '(kicad_pcb OPEN=0 alt)' > @OUT@",
                             "--open-alt", f"{burn}; echo '{LEDGER}'; grep -q first @BEST@ && "
                                           "echo '(kicad_pcb OPEN=1 polished)' > @OUT@"))
     assert r.returncode == 0, r.stdout + r.stderr
