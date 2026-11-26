@@ -177,6 +177,7 @@ class HaslamStages:
         info = dict(place=dict(seconds=round(clock_now() - t0, 1), legal=legal, hpwl=rep.get("hpwl"),
                                scorecard=(rep.get("scorecard") or {}).get("total"), budget_s=rep.get("budget_s"),
                                crossings=rep.get("crossings"), untangle=rep.get("untangle"),
+                               hpwl_outliers=rep.get("hpwl_outliers"),
                                input_locked_errors=rep.get("input_locked_errors"),
                                stops=place_stops(rep)))
         return Layout(board=str(out), poses=self._all_poses(b), info=info)
