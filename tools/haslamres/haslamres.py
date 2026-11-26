@@ -1740,9 +1740,11 @@ def _work(adir):
     if not log.exists():
         return None
     for line in reversed(log.read_text(errors="replace").splitlines()):
-        if line.startswith("HASLAM_WORK "):
+        # KAE_WORK: what restart.py printed before the rename of PR #163; pinned pre-rename methods still do
+        tag, _, rest = line.partition(" ")
+        if tag in ("HASLAM_WORK", "KAE_WORK"):
             try:
-                return json.loads(line[9:])
+                return json.loads(rest)
             except ValueError:
                 return None
     return None
@@ -3108,7 +3110,8 @@ def main():
     s.add_argument("--kicad-threads", type=int, default=2)
     s.add_argument("--build", help="how the binary was built, e.g. a script and ref")
     s.add_argument("--allow-dirty", action="store_true", help="allow uncommitted or unpushed code (snapshot + patch)")
-    s.set_defaults(f=cmd_method_add)
+    # cmd_method_add returns the id for `sprint`; the command line exits 0 (sys.exit of a str would exit 1)
+    s.set_defaults(f=lambda a: cmd_method_add(a) and None)
     s = mp.add_parser("list")
     s.set_defaults(f=cmd_method_list)
     s = mp.add_parser("show")
@@ -3165,7 +3168,7 @@ def main():
                    help="method parameter of every arm over the control's (repeatable; e.g. parallel=8: the queue "
                         "reserves 8 CPUs for an arm whose router runs 8 threads)")
     s.add_argument("--note", help="appended to every arm's method description (e.g. a stage that runs on wall clock)")
-    s.add_argument("--control", default="control-w47", help="the tag's stored control experiment")
+    s.add_argument("--control", default="control-w48", help="the tag's stored control experiment")
     s.add_argument("--dry-run", action="store_true", help="register and create, write the job file, submit nothing")
     s.set_defaults(f=cmd_sprint)
     s = sub.add_parser("job", help="one board (what each queued job runs)")

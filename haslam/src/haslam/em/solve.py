@@ -26,6 +26,8 @@ import scipy.fft as sfft
 import scipy.sparse as sp
 import scipy.sparse.linalg as sla
 
+from haslam import budget
+
 from . import blas as BL
 from . import kernels as KN
 from .mesh import MM, Network
@@ -150,6 +152,7 @@ class Operator:
                     w_ = PATCH - 1
                     near = T[m.ny - 1 - w_:m.ny + w_, m.nx - 1 - w_:m.nx + w_] if m.ny > w_ and m.nx > w_ else None
                     Operator._cache[key] = (sfft.rfft2(C, workers=WORKERS), near)
+                    budget.charge("em_kernel", (2 * m.ny - 1) * (2 * m.nx - 1))   # units: kernel-table entries
                 kh, c0 = Operator._cache[key]
                 out[(r, s)] = kh
                 centre[(r, s)] = centre[(s, r)] = c0      # (2 PATCH - 1)^2 table around offset 0
@@ -202,14 +205,18 @@ class Operator:
             if not n:
                 continue
             seg = I2[a0:a0 + n]                                       # (n, P)
-            G = np.zeros((P, 2, S, self.Ny, self.Nx))
+            # the currents fill only the ny x nx corner of the (Ny, Nx) circulant grid, and only that corner of the
+            # product is read: rfft2 as its two passes, the first over the ny filled rows only, irfft2 likewise with
+            # its last pass over the ny rows read (irfft2_rows; the same transforms, a quarter less FFT work)
+            ny, nx = self.ny, self.nx
+            G = np.zeros((P, 2, S, ny, nx))
             G[:, 0, slot, f["j"], f["i"]] = seg.real.T
             G[:, 1, slot, f["j"], f["i"]] = seg.imag.T
-            G = G.reshape(2 * P, S, self.Ny, self.Nx)
-            X = sfft.rfft2(G, workers=WORKERS)                       # (2P, S, Ny, Nx/2+1)
-            sh = X.shape
+            G = G.reshape(2 * P, S, ny, nx)
+            X = sfft.fft(sfft.rfft(G, n=self.Nx, axis=-1, workers=WORKERS), n=self.Ny, axis=-2, workers=WORKERS)
+            sh = X.shape                                              # (2P, S, Ny, Nx/2+1)
             Y = _kmul(Kh, np.ascontiguousarray(X.reshape(2 * P, S, -1))).reshape(sh)
-            Y = irfft2_rows(Y, self.Ny, self.Nx, self.ny).reshape(P, 2, S, self.ny, self.Nx)
+            Y = irfft2_rows(Y, self.Ny, self.Nx, ny)[..., :nx].reshape(P, 2, S, ny, nx)
             out[a0:a0 + n] = (Y[:, 0, slot, f["j"], f["i"]] + 1j * Y[:, 1, slot, f["j"], f["i"]]).T
         nv = len(net.vseg)
         if nv:
@@ -264,6 +271,7 @@ class System:
         rows, cols, vals = [], [], []
         C0 = {}
         b = PATCH
+        dense = 0
         for o in ("x", "y"):
             C0[o] = np.zeros((len(net.subs), len(net.subs), 2 * b - 1, 2 * b - 1))
             for (r, q), c in op.centre[o].items():
@@ -294,6 +302,7 @@ class System:
                     stack[:, np.arange(size), np.arange(size)] = False
                     B += 1j * w * stack * f["Lc"][idx][:, :, None]
                 Bi = np.linalg.inv(B * self.kap)
+                dense += int(grp.shape[0]) * int(size) ** 3
                 gi = a0 + idx
                 rows.append(np.repeat(gi, size, axis=1).ravel())
                 cols.append(np.tile(gi, (1, size)).ravel())
@@ -308,12 +317,14 @@ class System:
                 rows.append(np.arange(lo, hi)), cols.append(np.arange(lo, hi)), vals.append(1 / (self.kap * d))
         self.Zn_inv = sp.csr_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
                                     shape=(net.n_br, net.n_br))
+        budget.charge("em_precond", dense)          # units: (block size)^3 per PATCH block inverted
         Sn = (self.DT @ self.Zn_inv @ self.D).tocsc()
         t = time.time()
         # Sn is structurally symmetric: a symmetric ordering with diagonal pivots (threshold 0.1) fills
         # 2.9x less than COLAMD, factors 4-6x and solves ~2x faster at equal residuals
         self.lu = sla.splu(Sn, permc_spec="MMD_AT_PLUS_A", options=dict(SymmetricMode=True, DiagPivotThresh=0.1))
         self.t_factor = time.time() - t
+        budget.charge("em_factor", self.lu.L.nnz + self.lu.U.nnz)    # units: nonzeros of the Schur complement's LU
 
     @property
     def nbytes(self):
@@ -416,7 +427,10 @@ class System:
         bn[bn == 0] = 1.0
         act = np.linalg.norm(r, axis=0) > tol * bn
         its = np.zeros(P, int)
+        n_unk = nb + self.nfree
+        warm = 1 if X0 is not None else 0
         if not act.any():
+            budget.charge("em_iter", (1 + warm) * P * n_unk)     # units: unknown-iterations (P columns x unknowns)
             return (x, its, ~act) if with_converged else (x, its)
         z = self.psolve(r)
         p = z.copy()
@@ -437,6 +451,8 @@ class System:
             beta = np.where(act, rzn / np.where(act, rz, 1.0), 0.0)
             p = z + beta * p
             rz = np.where(act, rzn, rz)
+        # units: unknown-iterations (the iterations run, the start and a warm start's correction; P columns x unknowns)
+        budget.charge("em_iter", (int(its.max()) + 1 + warm) * P * n_unk)
         return (x, its, ~act) if with_converged else (x, its)
 
     def solve(self, s, tol=1e-8, maxiter=1000):
@@ -448,7 +464,9 @@ class System:
         x = self.psolve(rhs)
         r = rhs - self.matvec(x)
         bn = np.linalg.norm(rhs)
+        n_unk = len(rhs)
         if np.linalg.norm(r) <= tol * bn:
+            budget.charge("em_iter", n_unk)  # units: unknown-iterations (the start only)
             return x, 0, 0                   # the preconditioner is exact here (e.g. DC)
         z = self.psolve(r)
         p = z.copy()
@@ -459,11 +477,13 @@ class System:
             x += a * p
             r -= a * q
             if np.linalg.norm(r) <= tol * bn:
+                budget.charge("em_iter", (it + 1) * n_unk)      # units: unknown-iterations (iterations and the start)
                 return x, 0, it
             z = self.psolve(r)
             rz_new = r @ z
             p = z + (rz_new / rz) * p
             rz = rz_new
+        budget.charge("em_iter", (maxiter + 1) * n_unk)         # units: unknown-iterations (iterations and the start)
         return x, 1, maxiter
 
     def injection(self, plus, minus):
@@ -572,7 +592,7 @@ def open_islands(net, injections, open_):
 
 
 def potentials_many(mesh, inj_list, f, read=None, tol=TOL, net=None, op=None, warm=None, light=False, system=None,
-                    x0=None, leak=1e-3):
+                    x0=None, leak=1e-3, keep_state=False, skip_open=False):
     """potentials() for several injection sets at once (one batched COCG). Returns a list of
     ({terminal: V}, info) in the order given; an unbalanced set returns (None, info). light: the infos keep
     only the system's diagonal (info["sys"].zdiag), not the system with its factorization, and no warm-start
@@ -582,12 +602,29 @@ def potentials_many(mesh, inj_list, f, read=None, tol=TOL, net=None, op=None, wa
     a starting solution on this same network (or None), e.g. the same source solved at another frequency.
     Each info's `converged` is False where the solve stopped at its iteration limit above tol. leak: an island whose
     injections do not balance by more than this share of the largest injection is open; a smaller imbalance is taken
-    from the island's largest injection (a window that cut off a pad carrying less). One value, or one per injection set."""
+    from the island's largest injection (a window that cut off a pad carrying less). One value, or one per injection set.
+    keep_state: light infos keep the solution's position-keyed state too (info["state"], for `warm`). skip_open:
+    when every set is open, return their verdicts without building the system or solving (the infos then carry
+    only unbalanced, open_terms, open_islands)."""
     net = net or Network(mesh)
+    leaks = list(leak) if isinstance(leak, (list, tuple)) else [leak] * len(inj_list)
+    if skip_open:
+        # every set open (a window whose copper leaves the loop open): no system, no solve, the same verdicts
+        res = []
+        for injections, leak_ in zip(inj_list, leaks):
+            bal = {}
+            for t, cur in injections.items():
+                c = net.comp[net.term_node[t]]
+                bal[c] = bal.get(c, 0) + cur
+            big = max((abs(c) for c in injections.values()), default=1.0) or 1.0
+            open_ = [c for c, b in bal.items() if abs(b) > leak_ * big]
+            res.append(dict(unbalanced=len(open_), open_terms=[t for t in injections if net.comp[net.term_node[t]] in open_],
+                            open_islands=open_islands(net, injections, open_)))
+        if all(r["unbalanced"] for r in res):
+            return [(None, r) for r in res]
     op = op or Operator(net)
     sysm = system if system is not None else System(op, f)
     cols, infos = [], []
-    leaks = list(leak) if isinstance(leak, (list, tuple)) else [leak] * len(inj_list)
     for injections, leak_ in zip(inj_list, leaks):
         bal = {}
         for t, cur in injections.items():
@@ -631,6 +668,8 @@ def potentials_many(mesh, inj_list, f, read=None, tol=TOL, net=None, op=None, wa
         info["converged"] = bool(conv[q])
         if light:
             info.update(iters=int(its[q]), net=net, op=op, sys=SimpleNamespace(zdiag=sysm.zdiag), x=x, I=x[:net.n_br])
+            if keep_state:                   # position-keyed (System.warm): a later solve of a changed copy starts here
+                info["state"] = sysm.state_of(x)
         else:
             info.update(iters=int(its[q]), net=net, op=op, sys=sysm, x=x, I=x[:net.n_br], state=sysm.state_of(x))
         if info["unbalanced"]:

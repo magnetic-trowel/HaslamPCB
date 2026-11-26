@@ -22,6 +22,7 @@ from . import dc as DC
 from . import harm as HA
 from . import models as M
 from . import observe as O
+from . import quantity as QT
 from . import sources as S
 
 
@@ -419,7 +420,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     # keep-out read L -19388 nH, R 99 kOhm): it is an open cell, priced at its caps, never reported as a value
     for pr in [pr for pr in pairs if pr["o"].kind == "overshoot" and pr["s"].kind == "cell"]:
         s, Pc = pr["s"], P[pr["s"].name]
-        V, I = (Pc["V"].typ if "V" in Pc else 0.0), (Pc["I"].typ if "I" in Pc else 0.0)
+        # the load V / I is a magnitude: a -12 V cell is checked as a +12 V one (signed, it was never judged open)
+        V, I = (abs(Pc["V"].typ) if "V" in Pc else 0.0), (Pc["I"].typ if "I" in Pc else 0.0)
         if not (V > 0 and I > 0):
             continue
         z_load = V / I
@@ -488,7 +490,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                             f"(copper)")
             ob["scope"]["kind"] = "loop_loss"
             ob["scope"]["L_loop_H"] = pr["Le"]
-            observations.append(ob)
+            observations.append(QT.check(ob))
             # the hot loop's copper resistance at the switching frequency (the layout's share, Re Z at the
             # fundamental) carrying the loop's pulsed current: AC RMS I sqrt(D (1 - D)). The raster has no
             # skin or proximity effect, so above a few MHz this is a lower bound.
@@ -504,7 +506,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                             f"at f_sw (board solve, fundamental; replaced per harmonic below)")
             ob["scope"]["kind"] = "loop_ac_loss"
             ob["scope"]["R_loop_ohm"] = R
-            observations.append(ob)
+            observations.append(QT.check(ob))
     observations += _ripple_observations(bd, brief, bm, net, op, srcs, obs, bands, cps, ncp, uncomputed, notes, key, nsub,
                                          log)
     for name, where in open_cells.items():
@@ -545,7 +547,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                       label=f"switch-node capacitance loss of {name}: 1/2 C_sw V^2 f_sw, C_sw {C * 1e12:.3g} pF (copper)")
             ob["scope"]["kind"] = "swnode_loss"
             ob["scope"]["C_sw_F"] = C
-            observations.append(ob)
+            observations.append(QT.check(ob))
     part_power = {}
     tcr = {}                 # hazards: the list above (overshoot); TCR and mesh hazards append to it
     if dcp:
@@ -628,27 +630,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         ob["label"] = (f"hot-loop AC conduction loss of {name}: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and "
                        f"proximity crowding, R_loop {hs[0]['R_mohm']:.3g} mOhm at f_sw, {hs[-1]['R_mohm']:.3g} at "
                        f"{hs[-1]['n']} f_sw ({where})")
-    # a closed cell's layout losses above LOOP_LOSS_FRAC of its throughput V I are no working converter's: the inputs
-    # are wrong (the cell's I, V or circuit), not the copper. Flagged implausible and capped there (haslam.intent
-    # prices the cap, the same for every layout, and lists them), never reported as a layout's loss
-    for ob in observations:
-        if ob["id"] not in ("loss.loop", "loss.loop_ac", "loss.copper_ac") or ob.get("open"):
-            continue
-        name = ob["scope"].get("source")
-        if name not in cps:
-            continue
-        caps = []
-        for c in range(len(ob["values"])):
-            val = {k[1]: v for k, v in cps[name][c].items()}
-            caps.append(LOOP_LOSS_FRAC * val.get("V_V", 0.0) * val.get("I_A", 0.0))
-        over = [v > cp for v, cp in zip(ob["values"], caps) if cp > 0]
-        if any(over):
-            w = max(range(len(caps)), key=lambda c: ob["values"][c] / caps[c] if caps[c] > 0 else 0.0)
-            ob["implausible"] = (f"{ob['values'][w]:.3g} W exceeds {LOOP_LOSS_FRAC:.0%} of the cell's throughput "
-                                 f"V I = {caps[w] / LOOP_LOSS_FRAC:.3g} W: beyond any working converter (are the "
-                                 f"cell's I, V and switches right?)")
-            ob["cap_values"] = caps
-            notes.append(f"{name}: {ob['id']} implausible, capped: {ob['implausible']}")
+        QT.check(ob)
+    cap_implausible_losses(observations, cps, notes)
     # each cell's parasitic ring: its copper loop with the switch node's capacitance
     rings = []
     for pr in pairs:
@@ -668,6 +651,13 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
                      f"{bad[0]['label']}: {bad[0]['implausible']}")
     if any(n.startswith(DC_VOID) for n in notes):
         uncomputed.append("dc")
+    for ob in observations:              # every value as finally reported (TCR, harmonics and caps applied) is typed
+        QT.check(ob)
+    # in production a value its type forbids marks its observation invalid (haslam.excite.quantity.check): listed once
+    bad = [ob for ob in observations if ob.get("invalid_why")]
+    if bad:
+        notes.append(f"{len(bad)} observation(s) fail their type, marked invalid and left unpriced (haslam.excite.quantity): "
+                     + "; ".join(ob["invalid_why"] for ob in bad[:8]) + (" ..." if len(bad) > 8 else ""))
     return dict(board=path, pitch=pitch, window=window, seconds=round(time.time() - t0, 1), seed=seed,
                 total=totals(tot, uncomputed),
                 ledger=ledger.rows(), questions=_questions(ledger, dcp),
@@ -1003,19 +993,22 @@ def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes,
                     scope=dict(kind="dc_loss", nets=sorted(set(dcp.feeds) | set(dcp.grounds))),
                     reference=dict(value=loss[0][2], basis=f"{dcp.loss_share:.0%} of the delivered power"),
                     label="copper dissipation" + (" (DC and switching harmonics)" if ac_copper is not None else " (DC)")))
+    QT.check(obs[-1])
     rows[0]["_tcr"]["obs"] = obs[-1]
     for (ref, rail), vals in drops.items():
         u_ = [v[0] if v else 0.0 for v in vals]
         for c in range(ncp):
             tot[c] += HA.phi(u_[c])
         v0 = vals[0] or (0.0, 0.0, 0.0, 0.0)
-        # values >= 0 (haslam.excite.dc.observe); signed: rail plus ground difference as solved, negative where the
-        # load's ground sits below its source's (another rail's return current in shared ground copper)
+        # values >= 0, a Clamp (haslam.excite.quantity): max(sigma dv, 0) at haslam.excite.dc.observe (sigma the rail's sign),
+        # not |dv|; signed: rail plus ground difference as solved, of the other sign where the load's ground sits below
+        # its source's (another rail's return current in shared ground copper)
         obs.append(dict(id="drop.rail", unit="V", values=[v[1] if v else 0.0 for v in vals], u=u_,
                         signed=[v[3] if v else 0.0 for v in vals],
                         scope=dict(kind="dc_drop", load=ref, rail=rail, parts=[ref], nets=[rail]),
                         reference=dict(value=v0[2], basis=f"{dcp.drop_share:.0%} of the rail's voltage"),
                         label=f"DC drop from {rail}'s source to {ref}"))
+        QT.check(obs[-1])
         rows.append(dict(observer=f"dc:drop:{ref}@{rail}", source="dc", kind="dc_drop", u=u_[0], u_lo=min(u_), u_hi=max(u_),
                          dV_mV=round(v0[1] * 1e3, 3), budget_mV=round(v0[2] * 1e3, 2),
                          _tcr=dict(us=list(u_), vals=[v[1] if v else 0.0 for v in vals], nets=[rail] + sorted(dcp.grounds),
@@ -1033,6 +1026,7 @@ def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes,
                         reference=dict(value=dcp.dT_max, basis="IPC-2221 rise"),
                         label=f"temperature rise of the hottest track (worst corner: {tr.net} on {tr.layer}, "
                               f"{tr.width} mm)"))
+        QT.check(obs[-1])
         rows.append(dict(observer=f"dc:heating:{tr.net}@{tr.layer}", source="dc", kind="dc_heat", u=u_[0], u_lo=min(u_),
                          u_hi=max(u_), dT_K=round(h0[2], 2) if h0 else None, I_A=round(abs(worst[3]), 3),
                          track=dict(net=tr.net, layer=tr.layer, width=tr.width, start=tr.start, end=tr.end),
@@ -1135,7 +1129,7 @@ def _ripple_observations(bd, brief, bm, net, op, srcs, obs, bands, cps, ncp, unc
         ob["scope"]["kind"] = "copper_ac_loss"
         ob["scope"]["R_eff_ohm"] = [2 * x for x in t["P"]]
         ob["scope"]["L_H"] = t["L"]
-        out.append(ob)
+        out.append(QT.check(ob))
     if todo:
         log(f"ripple: {len(out)} cells' inductor ripple through the copper in {time.time() - t0:.1f}s")
     return out
@@ -1204,6 +1198,14 @@ CELL_LEAK = 0.01             # share of a cell's current an island may hold befo
 
 # a working converter's hot-loop and AC copper losses stay far below its throughput; above this share they are flagged
 LOOP_LOSS_FRAC = 0.1
+
+
+def loss_cap(val):
+    """The most a working cell's layout may lose at one corner (val: {param: value}): LOOP_LOSS_FRAC of its throughput
+    |V| I. A dissipation: a negative bus (-12 V) caps at its magnitude; a signed cap read negative and the `cap > 0`
+    guard then switched the check off on that bus."""
+    return LOOP_LOSS_FRAC * QT.Magnitude.bound(val.get("V_V", 0.0)) * val.get("I_A", 0.0)
+
 # a loop whose copper resistance at f_sw exceeds this share of the load's V / I is open: it closes through a part, not
 # copper (largest working loop seen: 0.031; kestrel's 20 kHz half bridges, working, 0.11-0.16). Between, a loss above
 # LOOP_LOSS_FRAC of V I is flagged implausible instead
@@ -1211,6 +1213,31 @@ OPEN_R_FRAC = 1.0
 
 # what an open cell is priced in, each at its cap (haslam.intent counts them; its other harms stay not computed)
 OPEN_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac")
+
+
+def cap_implausible_losses(observations, cps, notes):
+    """A closed cell's layout losses above LOOP_LOSS_FRAC of its throughput |V| I are no working converter's: the
+    inputs are wrong (the cell's I, V or circuit), not the copper. Flagged implausible and capped there (haslam.intent
+    prices the cap, the same for every layout, and lists them), never reported as a layout's loss. The throughput
+    is a magnitude: a -12 V cell's signed cap was negative, so its losses were never checked."""
+    for ob in observations:
+        if ob["id"] not in ("loss.loop", "loss.loop_ac", "loss.copper_ac") or ob.get("open"):
+            continue
+        name = ob["scope"].get("source")
+        if name not in cps:
+            continue
+        caps = []
+        for c in range(len(ob["values"])):
+            val = {k[1]: v for k, v in cps[name][c].items()}
+            caps.append(loss_cap(val))
+        over = [v > cp for v, cp in zip(ob["values"], caps) if cp > 0]
+        if any(over):
+            w = max(range(len(caps)), key=lambda c: ob["values"][c] / caps[c] if caps[c] > 0 else 0.0)
+            ob["implausible"] = (f"{ob['values'][w]:.3g} W exceeds {LOOP_LOSS_FRAC:.0%} of the cell's throughput "
+                                 f"|V| I = {caps[w] / LOOP_LOSS_FRAC:.3g} W: beyond any working converter (are the "
+                                 f"cell's I, V and switches right?)")
+            ob["cap_values"] = caps
+            notes.append(f"{name}: {ob['id']} implausible, capped: {ob['implausible']}")
 
 
 def open_cell_observations(bd, o, s, vals, where):
@@ -1221,12 +1248,15 @@ def open_cell_observations(bd, o, s, vals, where):
     loss is far below it: 1/2 L I^2 f_sw = V I needs L = 2 V / (I f_sw), microhenries). Each layout with the cell
     open prices alike, at most what any closed loop could; haslam.intent prices them and lists them as open."""
     why = f"hot loop open: {where}"
-    V = [v.get("V_V", s.meta.get("V", 0.0)) for v in vals]
+    # the bus's magnitude: a -12 V cell's throughput is 12 V x I (a dissipation, never negative)
+    V = [QT.Magnitude.bound(v.get("V_V", s.meta.get("V", 0.0))) for v in vals]
     ov = [CR.overshoot_limits(Vc, v.get("V_max_V"))[1] for Vc, v in zip(V, vals)]
     us = [x / max(HA.overshoot_bound(v, o.bound), 1e-9) for x, v in zip(ov, vals)]
     out = [O.observation(bd, o, s, ov, us)]
     out[0]["label"] = f"{o.name} <- {s.name}: OPEN, at the switch's absolute maximum"
-    P_ = [Vc * v.get("I_A", 0.0) for Vc, v in zip(V, vals)]
+    # the throughput |V| I: a negative bus (-12 V) converts as much power as a positive one (the signed bus
+    # priced an open -12 V cell's losses negative, below any closed layout's)
+    P_ = [abs(Vc) * v.get("I_A", 0.0) for Vc, v in zip(V, vals)]
     for id_, kind in (("loss.loop", "loop_loss"), ("loss.loop_ac", "loop_ac_loss")):
         ob = O.observation(bd, o, s, list(P_), [0.0] * len(vals))
         ob.update(id=id_, unit="W", reference=dict(value=None, basis="none: a loss is priced, not bounded"),
@@ -1237,6 +1267,7 @@ def open_cell_observations(bd, o, s, vals, where):
     for ob in out:
         ob["open"] = why
         ob["capped_at"] = max(ob["values"], default=0.0)
+        QT.check(ob)
     return out
 
 
@@ -1340,6 +1371,7 @@ def apply_tcr(rows, tcr, tot, notes, hazards):
             if "signed" in ob:
                 ob["signed"] = [v * f for v, f in zip(ob["signed"], fs)]
             ob["label"] += " (copper at its temperature)"
+            QT.check(ob)
     for rw in (tcr or {}).get("runaway", []):
         if not rw["runaway"]:
             continue

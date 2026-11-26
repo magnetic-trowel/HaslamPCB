@@ -96,8 +96,9 @@ def victim_rc(circuit, o, t_e):
 
 def swing(v, V0):
     """(V, t_v) of an aggressor at one corner's values v: a cell's bus and voltage edge, else its meta
-    voltage V0 and its edge t_i."""
-    return float(v.get("V_V") or V0), float(v.get("t_v_s") or v.get("t_i_s") or 1e-9)
+    voltage V0 and its edge t_i. V is the swing's magnitude: a negative bus's edge moves |V| volts (dV/dt couples
+    through C_m whatever the rail's sign)."""
+    return abs(float(v.get("V_V") or V0)), float(v.get("t_v_s") or v.get("t_i_s") or 1e-9)
 
 
 def edge_gain(V, t_v, R, C):

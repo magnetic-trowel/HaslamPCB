@@ -60,7 +60,9 @@ def p1(net, sol_I, f, nsub):
 def ripple_amplitude(val, L):
     """dI (A peak to peak) at one corner's values."""
     from haslam.physics.converter import ripple_pp
-    dI = ripple_pp(val.get("V_V", 0.0), val.get("D", 0.5), L, val.get("f_sw_Hz", 0.0))
+    # dI = |V| D (1 - D) / (L f_sw): the inductor sees the bus's magnitude, so a -12 V cell ripples as a +12 V one
+    # (the signed bus gave a negative dI that escaped the 2 I bound and that turnoff_current dropped)
+    dI = ripple_pp(abs(val.get("V_V", 0.0)), val.get("D", 0.5), L, val.get("f_sw_Hz", 0.0))
     if dI is None:
         return 0.0
     I = val.get("I_A")

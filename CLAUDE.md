@@ -73,8 +73,8 @@ Every experiment runs on the sprint suites first; details: `docs/topics/verifica
   passed sprint, `--tier ladder`), `canary.txt` (big boards, weekly, `--tier canary`).
 - `haslamres exp create|submit` print the estimated CPU-hours and refuse a sprint over 40 CPU-h or with a board whose
   history is over 0.5 CPU-h per method-run. The refusal's second line says what to do.
-- Procedure: `bench/suites/README.md`. Build on the weekly tag (`baseline/2026-w47`) plus one change; `haslamres sprint`
-  runs only the new arm against the stored control (`control-w47`). Don't migrate queued work when main moves.
+- Procedure: `bench/suites/README.md`. Build on the weekly tag (`baseline/2026-w48`) plus one change; `haslamres sprint`
+  runs only the new arm against the stored control (`control-w48`). Don't migrate queued work when main moves.
 - "Undecided" is a valid verdict. Queue sprint campaigns at priority 5 (`haslamq prio 5 --owner exp-NAME`).
 
 ## Rules for closed-loop work

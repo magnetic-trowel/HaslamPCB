@@ -31,6 +31,8 @@ import numpy as np
 import scipy.fft as sfft
 from scipy.special import j0
 
+from haslam import budget
+
 EPS0 = 8.8541878128e-12
 MM = 1e-3
 WORKERS = int(os.environ.get("HASLAM_EM_THREADS", "8"))
@@ -225,6 +227,7 @@ class Electrostatic:
                 C = np.zeros((self.Ny, self.Nx))
                 C[np.ix_(jy, ix)] = self.table(l, ls)
                 K[l, ls] = K[ls, l] = sfft.rfft2(C, workers=WORKERS)     # reciprocity: symmetric
+                budget.charge("em_kernel", (2 * m.ny - 1) * (2 * m.nx - 1))   # units: Green's-function table entries
         return K
 
     def apply(self, Q):
@@ -280,9 +283,11 @@ class Electrostatic:
             q += a * p_
             r -= a * Ap
             if np.linalg.norm(r) <= tol * bn:
+                budget.charge("em_static_iter", it * len(idx[0]))        # units: copper-cell iterations
                 return q, it
             z = r * dinv
             rzn = r @ z
             p_ = z + (rzn / rz) * p_
             rz = rzn
+        budget.charge("em_static_iter", maxiter * len(idx[0]))           # units: copper-cell iterations
         return q, maxiter

@@ -5,9 +5,9 @@
 # The stored control of a weekly baseline tag (docs/topics/verification/experiment-tiers.md): registers the two
 # control methods at the tag's commit and creates one experiment for them. Submits nothing.
 #
-#   TAG=baseline/2026-w47 FORK=37b1a8b NAME=control-w47 BOARDS=boards.txt ATTEMPTS=2 TIER=ladder \
+#   TAG=baseline/2026-w48 FORK=37b1a8b NAME=control-w48 BOARDS=boards.txt ATTEMPTS=2 TIER=ladder \
 #     bash tools/haslamres/experiments/control-tag.sh          # DRY=1 prints the commands and changes nothing
-#   python3 tools/haslamres/haslamres.py exp submit control-w47 [--only ids] && haslamq prio 5 --owner exp-control-w47
+#   python3 tools/haslamres/haslamres.py exp submit control-w48 [--only ids] && haslamq prio 5 --owner exp-control-w48
 #
 # Both methods: counted-work budgets (HASLAM_BUDGET=work PYTHONHASHSEED=0 HASLAM_WORKERS=1), nominal 900 s x
 # sqrt(footprints/40), the haslambench timeout as the 4x wall ceiling, the tag's Freerouting fork named in the command.
@@ -28,7 +28,7 @@
 set -euo pipefail
 TAG=${TAG:?tag or commit of the baseline, pushed}
 FORK=${FORK:?short sha of the Freerouting fork pin, installed as haslam-freerouting-fork-<sha>}
-NAME=${NAME:?experiment name, e.g. control-w47}
+NAME=${NAME:?experiment name, e.g. control-w48}
 BOARDS=${BOARDS:?file of board ids}
 ATTEMPTS=${ATTEMPTS:-4}
 TIER=${TIER:-sprint}

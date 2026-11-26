@@ -1401,7 +1401,7 @@ def run_policy(ap, a):
         work = None
         for line in (d / "log").read_text(errors="replace").splitlines():
             if line.startswith("HASLAM_WORK "):
-                work = json.loads(line[9:])
+                work = json.loads(line[len("HASLAM_WORK "):])
         rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() and not TERM else None
         log(f"policy phase {k}: rc {r.returncode}, rank {rank}")
         return dict(k=k, seed=seed, out=o, dir=d, rank=rank, work=work or {}, command=command[:200])
