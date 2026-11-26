@@ -600,7 +600,10 @@ def test_a_converter_whose_rail_has_no_load_idles_at_its_quiescent_draw():
     assert (p.subject, p.name, p.source) == ("heat:U1", "I_q_A", "prior")
     assert (p.lo, p.typ, p.hi) == H.NOLOAD_IQ_A and "parts.U1.I_A" in p.basis
     nlc = corners(nlp, n=2, seed=3)
-    cvs, scale = H.cell_points(pl, [src], cps, own, {"cell:c": (cell, 0.0)}, nlc)
+    bd = SimpleNamespace(part_kind={"U1": ("ic", "regulator_switching", "switching_regulator")})
+    assert H.idle_cells(bd, {"cell:c": (cell, 0.0)}) == [cell]
+    assert H.idle_cells(bd, {"cell:c": (cell, 0.1)}) == []
+    cvs, scale = H.cell_points(pl, [src], cps, own, {"cell:c": (cell, 0.0)}, nlc, [cell])
     assert all(cv["cell:c"]["I_A"] == 0.0 for cv in cvs) and scale["U1"] == [0.0] * 5
     for cv, q in zip(cvs, nlc):
         heat = H.part_heat(SimpleNamespace(part_kind={}), pl, cv, {("heat:U1", "R_on_ohm"): 0.3}, {})
@@ -612,6 +615,22 @@ def test_a_converter_whose_rail_has_no_load_idles_at_its_quiescent_draw():
     # a rail with a load keeps its operating point from the demand, and no I_q
     cvs, scale = H.cell_points(pl, [src], cps, own, {"cell:c": (cell, 0.1)}, [{}] * 5)
     assert all(cv["cell:c"]["I_A"] == pytest.approx(0.1) and "I_q_A" not in cv["cell:c"] for cv in cvs)
+
+
+def test_a_charger_with_no_rail_load_still_charges_its_battery():
+    """buildacubesat: the BQ25306's output rail is its battery, with no load on it; a charger is not idle, so it keeps
+    the low end of its ledger current (the facts' charge current 0.3 .. 1 A), not a quiescent draw."""
+    from types import SimpleNamespace
+
+    from haslam.excite import heat as H
+    from haslam.excite.beliefs import Param
+    cell, pl, src = _idle_buck()
+    bd = SimpleNamespace(part_kind={"U1": ("ic", "charger", "switching_regulator")})
+    assert H.idle_cells(bd, {"cell:c": (cell, 0.0)}) == []
+    P = {"cell:c": {"I_A": Param("cell:c", "I_A", 0.55, 0.3, 1.0, "A", "intent", "the intent file")}}
+    cps = {"cell:c": [{("cell:c", "I_A"): 0.55, ("cell:c", "D"): 0.42}] * 3}
+    cvs, _ = H.cell_points(pl, [src], cps, [{}] * 3, {"cell:c": (cell, 0.0)}, [{}] * 3, [], P)
+    assert all(cv["cell:c"]["I_A"] == 0.3 and "I_q_A" not in cv["cell:c"] for cv in cvs)
 
 
 def _board_plan(intent, dnp=False, rev=False):
