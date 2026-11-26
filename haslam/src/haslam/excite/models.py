@@ -137,6 +137,23 @@ class Board:
     #                                                circuitry off this board's model
 
 
+R_SHUNT, L_SHUNT = 0.02, 5e-9   # a jumper shunt on a 2.54 mm header: contact resistance, its loop over the pins
+
+
+def header_link(bd, kind, pins):
+    """(pin, pin) of a connector that is a jumper between two rails: exactly two pins with distinct numbers, no ground
+    pin, on two rails of the brief whose voltages are known and equal (within 1 %); else None."""
+    if kind != "connector" or len(pins) != 2 or pins[0].number == pins[1].number:
+        return None
+    a, b = pins
+    if a.net == b.net or a.net in bd.grounds or b.net in bd.grounds:
+        return None
+    va, vb = bd.rails.get(a.net), bd.rails.get(b.net)
+    if not va or not vb or abs(va - vb) > 0.01 * max(abs(va), abs(vb)):
+        return None
+    return a, b
+
+
 def port_kind(kind, part, pads):
     """"connector" or "module" when the part is a port (module docstring), else None. pads: its pad count."""
     if kind in ("connector", "module"):
@@ -186,6 +203,17 @@ def build(board, brief=None):
             bd.pin_fn[tok] = p.fn or ""
             bd.pads_of.setdefault(p.net, []).append(tok)
         in_cell = uuid_of.get(ref) in cell_parts
+        link = header_link(bd, kind, pins)
+        if link:
+            # a 2-pin header between two rails of one voltage, no ground pin: a jumper (duanestorey's J10, 12V_OUT ->
+            # 12V). As a port it joined nothing: the rail behind it lost its converter at AC (the DC band already reads
+            # it as a series link, haslam.excite.dc). A cable cannot bring a rail in on it (no return pin), and two
+            # rails of different voltages are never jumpered, so the link is safe to assume
+            a, b_ = link
+            c.z(ref, a.net, b_.net, _rl(R_SHUNT, L_SHUNT), f"{ref}.{a.number}", f"{ref}.{b_.number}", "short")
+            bd.assumptions.append(f"{ref}: a 2-pin header between {a.net} and {b_.net} (one voltage, no ground pin): a "
+                                  f"jumper shunt, {R_SHUNT * 1e3:g} mOhm and {L_SHUNT * 1e9:g} nH")
+            continue
         pk = port_kind(kind, part, len(pins))
         if pk:
             bd.port[ref] = pk
