@@ -28,6 +28,8 @@ Row fields (mm, degrees):
   grp        served part + serving net: caps sharing a group are checked for value ordering
   through    (far net not a ground) cos between the pad axis (served pad -> far pad) and served pad -> centroid of
              the far net's other pads: 1 the part points where its far net goes, -1 it points back
+  ahead      (same nets) cos between served pin -> passive centre and served pin -> far centroid: 1 the
+             passive sits on the way from the pin to where its far net goes
 """
 from __future__ import annotations
 
@@ -207,6 +209,13 @@ def analyse(board, roles=None, structures=None):
                 if la > 1e-9 and lf > 1e-9:
                     row['through'] = round((ax * fx + ay * fy) / (la * lf), 3)
                     row['far_n'] = len(far)
+                # ahead: is the passive on the far net's side of the served pin? cos between served pin ->
+                # passive centre and served pin -> far centroid
+                px, py = (sp.x + op.x) / 2 - cp.x, (sp.y + op.y) / 2 - cp.y
+                gx, gy = fx + sp.x - cp.x, fy + sp.y - cp.y
+                lp, lg = math.hypot(px, py), math.hypot(gx, gy)
+                if lp > 1e-9 and lg > 1e-9:
+                    row['ahead'] = round((px * gx + py * gy) / (lp * lg), 3)
         gp = op if op.net in grounds else None
         if gp is not None:
             gpins = [p for p in sfp.pads if p.net == gp.net]

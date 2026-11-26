@@ -90,7 +90,7 @@ def summary(rows, ref='human', arm='staged'):
     hum = {(r['board'], r['ref']): r for r in rows if r['layout'] == ref}
     out = []
     head = ('| role | n (human) | med d H | med d A | Δ log d A−H [95 %] | ≤3 mm H/A | same side H/A | facing H/A | '
-            'radial H/A | relrot∈{0,90} H/A | g H/A | loop mm² H/A | through>0.5 H/A | through<0 H/A |')
+            'radial H/A | relrot∈{0,90} H/A | g H/A | loop mm² H/A | through>0.5 H/A | through<0 H/A | ahead>0 H/A |')
     out.append(head)
     out.append('|' + '---|' * head.count('|')[:-1] if False else '|' + '|'.join(['---'] * (head.count('|') - 1)) + '|')
     roles = [r for r in ROLE_ORDER if by.get((ref, r))] + sorted({k[1] for k in by if k[0] == ref} - set(ROLE_ORDER))
@@ -120,6 +120,7 @@ def summary(rows, ref='human', arm='staged'):
                        both(lambda X: med([r.get('loop') for r in X])),
                        both(lambda X: share([r['through'] > 0.5 for r in X if r.get('through') is not None])),
                        both(lambda X: share([r['through'] < 0 for r in X if r.get('through') is not None])),
+                       both(lambda X: share([r['ahead'] > 0 for r in X if r.get('ahead') is not None])),
                    ]) + ' |')
     oh, nh = ordering([r for r in rows if r['layout'] == ref])
     oa, na = ordering([r for r in rows if r['layout'].split('.')[0] == arm])
