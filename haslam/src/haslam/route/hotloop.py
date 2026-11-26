@@ -773,12 +773,15 @@ def cell_hazards(mods):
 SPOKES_MIN = 2           # contacts (thermal spokes) a pad keeps with its fill before KiCad calls it starved_thermal
 
 
-def _pad_fill_contacts(path, info, spokes=False):
+def _pad_fill_contacts(path, info, spokes=False, tracks=None):
     """{(pad uuid, layer)} of the pads on a zone's net whose copper touches their net's zone fill on
     `path` (refilled as kicad-cli's DRC does), this stage's own pours and keep-outs left out. With `spokes`, also
     (pad uuid, layer, "spokes") for a pad that touches its fill in at least SPOKES_MIN separate places (its thermal
     spokes), so a pad the cells starve of spokes is lost too (nekoink, cells-robust: 4 of C's 8 new starved_thermal
-    pads within 3 mm of a cell's parts, U1's exposed pad among them)."""
+    pads within 3 mm of a cell's parts, U1's exposed pad among them). `tracks`: {(net, layer): geometry} of the
+    board's same-net tracks and vias, taken out of the fill before the spokes are counted: KiCad counts only the
+    zone's own spokes, and a track of the pad's net on the pad takes a spoke's place (sporniket xl4005, cells-robust2:
+    the buck's ground hop on U101.1 left it one spoke, starved_thermal; the fill still touched the pad round it)."""
     from shapely.ops import unary_union
     from haslam.board import pcbnew_io as PIO
     fills = {}
@@ -796,7 +799,9 @@ def _pad_fill_contacts(path, info, spokes=False):
             if f is not None and g is not None and not g.is_empty and g.intersection(f).area > 1e-4:
                 out.add((pad.get("uuid"), l))
                 if spokes:
-                    touch = g.buffer(0.02).intersection(f).difference(g.buffer(-0.02))
+                    t_ = (tracks or {}).get((net, l))
+                    f_ = f.difference(t_) if t_ is not None and not t_.is_empty else f
+                    touch = g.buffer(0.02).intersection(f_).difference(g.buffer(-0.02))
                     parts = [x for x in getattr(touch, "geoms", [touch]) if x.area > 1e-5]
                     if len(parts) >= SPOKES_MIN:
                         out.add((pad.get("uuid"), l, "spokes"))
@@ -829,9 +834,25 @@ def pour_check(s, input_path, info, mods, workdir, log=_log, before=None, revert
     from .critical_joint import _rip
     if not any(m.copper for m in mods):
         return [], []
-    contacts = (lambda path: _pad_fill_contacts(path, info, spokes=True)) if spokes else \
-        (lambda path: _pad_fill_contacts(path, info))
-    before = contacts(input_path) if before is None else before
+    def same_net(with_cells):
+        """{(net, layer): union of the space's tracks and vias} (the cells' own items only `with_cells`)."""
+        from shapely.ops import unary_union as U
+        cell_ids = {id(it) for m in mods for it in m.copper}
+        acc = {}
+        sp = getattr(s, "space", None)
+        for l_, its in (getattr(sp, "items", None) or {}).items():
+            for it in its:
+                if it.kind not in ("track", "via") or not it.net or (not with_cells and id(it) in cell_ids):
+                    continue
+                acc.setdefault((it.net, l_), []).append(it.geom.buffer((it.width or 0.0) / 2) if it.kind == "track"
+                                                        else it.geom)
+        return {k: U(v) for k, v in acc.items()}
+
+    if spokes:
+        contacts = lambda path, cells=True: _pad_fill_contacts(path, info, spokes=True, tracks=same_net(cells))
+    else:
+        contacts = lambda path, cells=True: _pad_fill_contacts(path, info)
+    before = contacts(input_path, cells=False) if before is None else before
     probe = Path(workdir) / "hotloop-pourcheck.kicad_pcb"
     s.write(probe)
     lost_keys = before - contacts(probe)
@@ -854,9 +875,20 @@ def pour_check(s, input_path, info, mods, workdir, log=_log, before=None, revert
         clr = max([float(z.get("clearance") or 0.0) for z in zones if z["net"] == net] + [0.0])
         area = unary_union([r for r in rings if r is not None]).buffer(clr + 0.05) if rings else None
         hit = []
+        starved = (u, l, "spokes") in lost_keys and (u, l) not in lost_keys
+        try:
+            pg = (CN._pad_shapes(pad)[1] or {}).get(l)
+        except Exception:  # noqa: BLE001 - a pad without geometry (a test's)
+            pg = None
         for m in mods:
             for it in m.copper:
-                if it.net == net or l not in (it.layers or ()):
+                if l not in (it.layers or ()):
+                    continue
+                if it.net == net:
+                    # starved of spokes: the pad's own net's cell copper on the pad takes a spoke's place
+                    if starved and pg is not None and it.geom.buffer((it.width or 0.0) / 2).distance(pg) < 0.05:
+                        hit.append(m)
+                        break
                     continue
                 if area is not None and it.geom.buffer((it.width or 0.0) / 2).intersects(area):
                     hit.append(m)

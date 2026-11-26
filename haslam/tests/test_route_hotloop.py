@@ -695,6 +695,15 @@ def test_pad_fill_contacts_counts_thermal_spokes(monkeypatch):
         got = hotloop._pad_fill_contacts("x", dict(pads=[pad]), spokes=True)
         assert ("p1", "F.Cu") in got and (("p1", "F.Cu", "spokes") in got) is want, n
         assert hotloop._pad_fill_contacts("x", dict(pads=[pad])) == {("p1", "F.Cu")}
+    # sporniket xl4005 (cells-robust2): a same-net track over three of the four spokes leaves one, which KiCad counts
+    fill = [relief] + spokes
+    monkeypatch.setattr(PIO, "zone_fills", lambda path: dict(zones=[dict(name="", net="GND", layers={"F.Cu": fill})]))
+    over = box(-0.4, -0.4, 1.4, 0.15).union(box(-0.4, 0.85, 1.4, 1.4))      # covers the spokes at the top and bottom
+    got = hotloop._pad_fill_contacts("x", dict(pads=[pad]), spokes=True, tracks={("GND", "F.Cu"): over})
+    assert ("p1", "F.Cu", "spokes") in got                                   # left and right spokes remain: 2
+    over3 = over.union(box(-0.4, 0.3, 0.15, 0.7))
+    got = hotloop._pad_fill_contacts("x", dict(pads=[pad]), spokes=True, tracks={("GND", "F.Cu"): over3})
+    assert ("p1", "F.Cu") in got and ("p1", "F.Cu", "spokes") not in got
     assert hotloop.settings()["pour_spokes"] is False
 
 
@@ -708,7 +717,7 @@ def test_pour_check_reverts_a_cell_that_starves_a_pad_of_spokes(tmp_path, monkey
     cell = NS(id="cell:buck:U1:3", status="routed", notes=[], copper=[NS(net="IPSOUT", layers=("F.Cu",), width=0.3,
                                                                           geom=LineString([(1.2, 0.5), (3, 0.5)]))])
     full = {("p49", "F.Cu"), ("p49", "F.Cu", "spokes")}
-    monkeypatch.setattr(hotloop, "_pad_fill_contacts", lambda path, info, spokes=False:
+    monkeypatch.setattr(hotloop, "_pad_fill_contacts", lambda path, info, spokes=False, tracks=None:
                         full if cell.status == "reverted" or path is None else {("p49", "F.Cu")})
     monkeypatch.setattr(critical_joint, "_rip", lambda s, m: setattr(m, "copper", []))
     hz, gone = hotloop.pour_check(NS(write=lambda p: None), None, info, [cell], tmp_path, log=lambda *a: None,
