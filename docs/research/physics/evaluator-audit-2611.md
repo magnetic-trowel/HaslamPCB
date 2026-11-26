@@ -3,7 +3,7 @@
 # Evaluator audit 2026-11: the last sweep's suspects, a wider hunt, and ground truth
 
 **Status:** scorer and router changes, each its own commit with a test; measured old against new; checked against closed forms, hand-solved boards and datasheet points (model against model and against published formulas, no hardware).
-**First published:** 2026-11-26 on branch `fix/evaluator-audit`, built on `fix/evaluator-dc-heat-main` (PR #190, head 658ff34f).
+**First published:** 2026-11-26 on branch `fix/evaluator-audit`, then split from main b798c5bc: `fix/evaluator-audit-scoring` (the evaluator, scoring and labelling commits, the ground-truth tests, the corner fix of 4.4) and `fix/evaluator-audit-route-place` (router and placer commits; sprint A/B in experiments `evaudit-escape`, `evaudit-pins`). Commit hashes in the tables are those of `fix/evaluator-audit`; the split branches carry the same commits by subject.
 Scope: every suspect the [evaluator-dc-heat-fixes](evaluator-dc-heat-fixes.md#3-sweep-the-same-classes-elsewhere) sweep left open (pin and current allocation, facts consumption, typical-point-only values, classification, even splits), a wider hunt of the same kinds (units, signs, temperatures, double counting, silent priors, pricing what was not computed), and a validation set with known answers. Not here: the field solver's own convergence study -> [field-solver-accuracy](field-solver-accuracy.md); the published anchors -> [anchors-2611](anchors-2611.md).
 Keys: evaluator audit, ground truth, core current split, core_split, header_link, jumper shunt, R_SHUNT, cell eta, feed_eta, rail_demand, from_intent corners, unpriced_feeds, winding_R, C_sw prior, R_sink prior, REQUIREMENT_LIMITS, t_amb, escape_demand, n_pins, paint_line bias, hairpin inductance, test_evaluator_ground_truth
 
@@ -132,7 +132,43 @@ Method: `PYTHONHASHSEED=0`; old = 658ff34f (#190's head; its `haslam/src` differ
 | sparkfunx qwiic-power | 0 / 3200 / 413.7 | identical | - |
 | therealeuax | 0 / 2400 / 273.7 | identical | - |
 
-Corners and parameters: the bands draw their corners by seeded sampling over the ledger's parameters (`beliefs.corners`); adding a parameter re-draws every corner of that band. On martinberlin this moved a worst-corner temperature by 16 K with no change in physics: the robust and worst totals of one board carry that sampling noise, and old-new deltas at corners smaller than it are not evidence. (The typical point, and the parameter values, are unchanged.)
+Corners and parameters: before 4.4's fix, the bands drew their corners from one stream over all their parameters, so adding a parameter re-drew every corner. On martinberlin this moved a worst-corner temperature by 16 K with no change in physics (the typical point and the parameter values were unchanged). Section 4.4 fixes it and measures the residual.
+
+### 4.4 Corner sampling: name-keyed streams and the adverse vertex
+
+Defect: each band's corners (`beliefs.corners`) were the typical point, n = 16 Latin-hypercube samples from one random stream over all its parameters, and the all-low and all-high vertices. Adding any parameter re-drew every other parameter's samples. The worst corner was also a random variable: for a harm whose parameters push it in mixed directions (a junction temperature is worst at high ambient, theta and current but low cooling), neither fixed vertex is the worst, and a sample has every parameter in its harmful fifth with probability 0.2^k.
+
+Fix (one scoring commit, `excite.beliefs.corners`):
+1. Each parameter's hypercube column comes from its own stream, keyed by (seed, subject, name) through crc32. Its samples do not depend on the band's other parameters or their order.
+2. Two vertices join the all-low and all-high ones: the benign and the adverse vertex, with each parameter at the end that does the band less (more) harm. A band has n + 5 points (was n + 3).
+3. The harmful end is measured one parameter at a time from the typical point where the band scores a point analytically (each aggressor's pair harms). Elsewhere it follows the parameter's name: an efficiency, a cooling coefficient or an edge time is harmful at its low end, everything else at its high end.
+
+Why this design:
+- For a harm monotone in each parameter, the adverse vertex is its exact worst over the stated box, identical for every seed; temperatures, drops, losses and supply bounce are monotone.
+- A non-monotone harm (an emission in the switching frequency) keeps both ends of each parameter through the all-low and all-high vertices and the hypercube.
+- The cost is 2 points per band and 2k cheap analytic scores per aggressor.
+- Rejected: one-at-a-time vertices as corners (2k points per band, and the per-corner totals of the bands must align); a larger n (the tail error of the maximum of n samples shrinks only as about 1/n, and the worst stays seed-dependent).
+- Limits:
+  - A parameter that raises one observer of a band and lowers another takes the band total's direction.
+  - The heat band takes the cell parameters (t_i, C_sw) at the AC band's adverse ends, which are not always the heat band's.
+
+Measurement: the 12-board set (14 inputs) and duanestorey, `--no-cells --no-drc`, seeds 0 to 4, old = the scoring branch before the fix, new = with it (`$HOME/haslam-baselines/experiments/evaluator-audit/seeds/`, `seedstat.py`).
+
+| | old | new |
+|---|---|---|
+| worst T_j spread over 5 seeds, per part (133 parts): median / p90 / max | 0.55 / 3.6 / 17.7 K | 0.00 / 0.00 / 2.8 K |
+| boards whose hard tier flips between zero and nonzero across seeds | 1 (martinberlin) | 0 |
+| limit-tier spread across seeds, median / max over boards | 25 % / 89 % | 0 % / 0.6 % |
+| cost-tier spread, median / max | 7.0 % / 60 % | 5.6 % / 16 % |
+
+Per board, the limit-tier range across seeds, old -> new: solar-small 5524-9555 -> 22517; robertpheller 2104-5132 -> 6571; shazmeenshz 16304-20618 -> 23781; jrsteensen 183-240 -> 342; buildacubesat 23-35 -> 71; martinberlin 445-619 -> 896-901; adafruit magtag 2372-3206 -> 3717; sparkfun moto-bit 25123-26339 -> 28946-29009. The other boards' limit tier is 0 or one value in both arms.
+
+1. **The worst corner is stable.** A per-part worst temperature no longer moves with the seed (the 2.8 K left is martinberlin's D1, whose heat takes the AC band's cell ends), and no hard tier flips.
+2. **The worst is higher.** The adverse vertex is the box's true worst: limit tiers rise 1.2-4x where the box rests on wide priors.
+   - Two boards now have a hard term at every seed. buildacubesat's J1 reads 100.5 C against the 85 C module class rating (ambient 40 C stated; theta_jb's 30-120 K/W prior at its top). martinberlin's D1 reads 142 C against 125 C.
+   - Before, these violations were visible only to a lucky draw. Each rests on priors the evaluation now asks for (`questions`).
+3. **The cost tier keeps some seed noise** (median 5.6 %): its terms average the worst fifth of the corners, which includes hypercube samples.
+4. **The totals change for this reason too.** `robust` now averages 5 of 21 points instead of 4 of 19.
 
 ### 4.3 intent-213 (DC plan and typical part loss)
 
