@@ -229,6 +229,8 @@ DEFAULTS = dict(
                                    # until its A/B: one board's evidence so far (paw3395)
     place_chan_util_gate=0,        # placement: 1 scales place_w_chan by the board's movable-part utilization:
                                    # full at <= 0.65, zero at >= 0.70 (haslam.place.pipeline.util_gate); off until its A/B
+    place_chan_header_gate=0,      # placement: 1 switches the channel term off on a board with a movable edge header
+                                   # that fits nowhere (haslam.place.pipeline.header_gate); off until its A/B
     place_chan_edge=0,             # placement: 1 adds channels between pads and the board edge to the
                                    # channel term (haslam.place.exact.channel_edge_term); off until its A/B
     place_untangle=0,              # placement: 1 runs haslam.place.crossings.untangle after legalization (swaps of
