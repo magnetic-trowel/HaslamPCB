@@ -47,6 +47,8 @@ def cmd_doctor(a):
         except tools.ToolError as e:
             ok = False
             print(f"FAIL {name}: {e}")
+    for line in kicad_checks():
+        print(line)
     # Only --command methods need the sandbox, so a missing bwrap is a warning, not a failure.
     bwrap = shutil.which("bwrap")
     works = bwrap and subprocess.run([bwrap, "--ro-bind", "/", "/", "--dev", "/dev", "--unshare-net", "true"],
@@ -58,6 +60,46 @@ def cmd_doctor(a):
               + "; --command methods need it, or --no-sandbox (results then marked unsandboxed)")
     print(json.dumps(tools.versions(), indent=1))
     return 0 if ok else 1
+
+
+def kicad_checks():
+    """WARN/ok lines for what haslambench itself does not need but the design flow does: a KiCad version the
+    docs and drift tests were checked on, and KiCad's symbol and footprint libraries (haslamsynth, S3/S5)."""
+    out = []
+    try:
+        r = subprocess.run([*tools.kicad_cli(), "version"], capture_output=True, text=True, timeout=120)
+        ver = r.stdout.strip().split()[-1] if r.stdout.strip() else ""
+    except (tools.ToolError, OSError, subprocess.TimeoutExpired):
+        ver = ""
+    if ver:
+        if ver in tools.KICAD_TESTED_VERSIONS:
+            out.append(f"ok   kicad version: {ver} (tested)")
+        else:
+            out.append(f"WARN kicad version: {ver} is not one the docs and drift tests were checked on "
+                       f"({', '.join(tools.KICAD_TESTED_VERSIONS)}): run pytest haslam/tests/test_board_dru_check.py "
+                       "and follow docs/topics/kicad/drc-rule-language-reference.md"
+                       "#keeping-the-checker-in-sync-with-kicad, then add it to KICAD_TESTED_VERSIONS "
+                       "(bench/src/haslambench/tools.py)")
+    wrap = tools._env_cmd("HASLAM_KICAD_WRAP") or []
+    # the container set-up's wrapper ends with the unpacked image's directory
+    roots = [Path(wrap[-1]) / "usr/share/kicad"] if wrap and Path(wrap[-1]).is_dir() else []
+    roots += [Path("/usr/share/kicad"), Path("/Applications/KiCad/KiCad.app/Contents/SharedSupport")]
+    for var, sub, what in (("KICAD10_SYMBOL_DIR", "symbols", "symbol"), ("KICAD10_FOOTPRINT_DIR", "footprints",
+                                                                         "footprint")):
+        env = os.environ.get(var)
+        if env:
+            d = Path(env)
+            n = len(list(d.glob("*.kicad_sym" if sub == "symbols" else "*.pretty"))) if d.is_dir() else 0
+            out.append(f"ok   kicad {what} libraries: {var}={d} ({n} libraries)" if n else
+                       f"WARN kicad {what} libraries: {var}={d} holds none: fix {var} in $HASLAM_HOME/env.sh")
+            continue
+        found = next((r / sub for r in roots if (r / sub).is_dir()), None)
+        if found:
+            out.append(f"ok   kicad {what} libraries: {found} (haslamsynth: export {var}={found})")
+        else:
+            out.append(f"WARN kicad {what} libraries: none found; haslamsynth needs them: install kicad-{sub} "
+                       f"(bench/scripts/setup.sh --kicad apt does) or export {var}=<dir>")
+    return out
 
 
 def _entries(a):

@@ -2,15 +2,21 @@
 # SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Set up a haslambench host (Ubuntu 22.04/24.04 x86_64): KiCad 10, Freerouting 2.5.0 (explicit use only), venv.
+# Set up a haslambench host (Ubuntu 22.04/24.04 x86_64): KiCad 10 with its symbol and footprint libraries,
+# Freerouting 2.5.0 (explicit use only) and the pinned Freerouting fork (the control, FR_FORK_REF), venv.
 # Works without sudo: KiCad then runs from the official kicad/kicad image via
 # Apptainer/Singularity (installed rootless into HASLAM_HOME if absent; needs unprivileged
 # user namespaces), and the venv comes from uv if python3-venv is missing.
 #
-#   bench/scripts/setup.sh [--kicad auto|apt|container|none] [--no-freerouting] [--venv DIR]
+#   bench/scripts/setup.sh [--kicad auto|apt|container|none] [--3d] [--no-freerouting] [--no-fork] [--venv DIR]
 #
+# --3d installs KiCad's 3D models too (apt: kicad-packages3d, ~5 GB): `kicad-cli pcb render` shows bare pads
+# without them. --no-fork skips building the Freerouting fork (needs git, network, ~5 min; Gradle fetches JDK 25).
 # Environment: HASLAM_HOME (default ~/.cache/haslambench) holds Freerouting, the KiCad image
-# and env.sh (sourced by the venv's activate script). KICAD_IMAGE_TAG (default 10.0.7).
+# and env.sh (sourced by the venv's activate script; it exports HASLAM_KICAD_WRAP or HASLAM_KICAD_PYTHON and
+# KICAD10_SYMBOL_DIR / KICAD10_FOOTPRINT_DIR). KICAD_IMAGE_TAG (default 10.0.7). KICAD_APT_VERSION pins the apt
+# package (e.g. 10.0.8; default: whatever the PPA has now, and `haslambench doctor` warns when that is not a
+# version the docs and drift tests were checked on, KICAD_TESTED_VERSIONS in bench/src/haslambench/tools.py).
 set -euo pipefail
 
 BENCH_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,6 +26,11 @@ KICAD_MODE=auto
 DO_FR=1
 FR_VERSION="2.5.0"
 FR_ZIP_SHA256="e8ffca14914e5307a2fa9aea723fb93d11b99bebda20d126472da5460c03196e"
+# the magnetic-trowel/freerouting fork build that is the control (haslamres baselines, tools/haslamres/README.md)
+FR_FORK_REF="06d2686"
+DO_FORK=1
+DO_3D=0
+KICAD_APT_VERSION="${KICAD_APT_VERSION:-}"
 KICAD_IMAGE_TAG="${KICAD_IMAGE_TAG:-10.0.7}"
 APPTAINER_VERSION="1.5.4"
 APPTAINER_INSTALLER_SHA256="a097956eafa6ab3dd843ee429d0b774ed029753bfadf013b8046556228fac6f2"
@@ -29,6 +40,8 @@ while [ $# -gt 0 ]; do
     --kicad) KICAD_MODE="$2"; shift ;;
     --no-kicad) KICAD_MODE=none ;;
     --no-freerouting) DO_FR=0 ;;
+    --no-fork) DO_FORK=0 ;;
+    --3d) DO_3D=1 ;;
     --venv) VENV="$2"; shift ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
@@ -66,9 +79,28 @@ install_apptainer_unpriv() {
   rm -rf "$inst" "$shims"
 }
 
+# KiCad's Python (the one that imports pcbnew) and its libraries, for a native install (apt, or one found on
+# PATH): the PATH python3 may be another interpreter without pcbnew (a venv, a newer Python), so env.sh names
+# KiCad's own as HASLAM_KICAD_PYTHON; scripts run "$HASLAM_KICAD_PYTHON script.py" (else $HASLAM_KICAD_WRAP python3).
+native_kicad_env() {
+  local py d
+  for py in /usr/bin/python3 /usr/bin/python3.12 /usr/bin/python3.11 /usr/bin/python3.10; do
+    if [ -x "$py" ] && "$py" -c "import pcbnew" 2>/dev/null; then
+      ENV_LINES+=("export HASLAM_KICAD_PYTHON=\"$py\"")
+      break
+    fi
+  done
+  for d in SYMBOL:symbols FOOTPRINT:footprints 3DMODEL:3dmodels; do
+    if [ -d "/usr/share/kicad/${d#*:}" ]; then ENV_LINES+=("export KICAD10_${d%%:*}_DIR=/usr/share/kicad/${d#*:}"); fi
+  done
+}
+
 install_kicad_apt() {
   . /etc/os-release
-  echo "Installing KiCad 10 from ppa:kicad/kicad-10.0-releases (no recommends)"
+  local pkgs=(kicad kicad-symbols kicad-footprints) v=""
+  if [ "$DO_3D" = 1 ]; then pkgs+=(kicad-packages3d); fi
+  if [ -n "$KICAD_APT_VERSION" ]; then v="=$KICAD_APT_VERSION*"; fi
+  echo "Installing KiCad 10 ${KICAD_APT_VERSION:-(latest)} from ppa:kicad/kicad-10.0-releases: ${pkgs[*]} (no recommends)"
   FP=$(curl -fsSL "https://api.launchpad.net/1.0/~kicad/+archive/ubuntu/kicad-10.0-releases" |
        python3 -c "import json,sys; print(json.load(sys.stdin)['signing_key_fingerprint'])")
   curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x$FP" |
@@ -76,7 +108,9 @@ install_kicad_apt() {
   echo "deb [signed-by=/usr/share/keyrings/kicad-10.gpg] https://ppa.launchpadcontent.net/kicad/kicad-10.0-releases/ubuntu ${VERSION_CODENAME} main" |
     $SUDO tee /etc/apt/sources.list.d/kicad-10.list >/dev/null
   $SUDO apt-get update -qq
-  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends kicad
+  # the libraries are separate packages (recommends): without them haslamsynth finds no symbols or footprints
+  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${pkgs[@]/%/$v}"
+  native_kicad_env
 }
 
 install_kicad_container() {
@@ -97,12 +131,17 @@ install_kicad_container() {
   local n
   for n in $(seq 1 "$(getconf _NPROCESSORS_ONLN)"); do printf '0-%d\n' $((n - 1)) > "$HASLAM_HOME/cpus/$n"; done
   ENV_LINES+=("export HASLAM_KICAD_WRAP=\"$HASLAM_HOME/kicad-exec $tool $dir\"")
+  # the image's libraries, for haslamsynth on the host side
+  local d
+  for d in SYMBOL:symbols FOOTPRINT:footprints 3DMODEL:3dmodels; do
+    if [ -d "$dir/usr/share/kicad/${d#*:}" ]; then ENV_LINES+=("export KICAD10_${d%%:*}_DIR=$dir/usr/share/kicad/${d#*:}"); fi
+  done
 }
 
 case "$KICAD_MODE" in
   none)  # keep any KiCad wrapper configured by an earlier run
     if [ -f "$ENV_FILE" ]; then
-      while IFS= read -r line; do ENV_LINES+=("$line"); done < <(grep '^export HASLAM_KICAD_' "$ENV_FILE" || true)
+      while IFS= read -r line; do ENV_LINES+=("$line"); done < <(grep -E '^export (HASLAM_KICAD_|KICAD10_)' "$ENV_FILE" || true)
     fi ;;
   apt) install_kicad_apt ;;
   container)
@@ -114,6 +153,16 @@ case "$KICAD_MODE" in
   auto)
     if [ "$(kicad_major || echo 0)" -ge 10 ] 2>/dev/null; then
       echo "KiCad $(kicad-cli version) already installed"
+      if [ "$HAVE_SUDO" = 1 ] && command -v apt-get >/dev/null; then
+        missing=()
+        if [ ! -d /usr/share/kicad/footprints ]; then missing+=(kicad-symbols kicad-footprints); fi
+        if [ "$DO_3D" = 1 ] && [ ! -d /usr/share/kicad/3dmodels ]; then missing+=(kicad-packages3d); fi
+        if [ ${#missing[@]} -gt 0 ]; then
+          echo "Installing KiCad's ${missing[*]} (haslamsynth needs the libraries, renders the 3D models)"
+          $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${missing[@]}"
+        fi
+      fi
+      native_kicad_env
     elif [ "$HAVE_SUDO" = 1 ] && grep -q '^ID=ubuntu' /etc/os-release 2>/dev/null; then
       install_kicad_apt
     elif [ -n "$(container_tool)" ]; then
@@ -153,8 +202,15 @@ if [ "$DO_FR" = 1 ]; then
   fi
   # upstream 2.5.0 is for explicit use only (HASLAM_FREEROUTING). haslambench and the bridge run the build
   # pinned in $HASLAM_HOME/haslam-freerouting.pin, the magnetic-trowel fork (the control):
-  if [ ! -s "$HASLAM_HOME/haslam-freerouting.pin" ]; then
-    echo "No Freerouting pinned yet: run tools/research/routing/install_freerouting_fork.sh <ref> --pin"
+  FORK_SH="$BENCH_DIR/../tools/research/routing/install_freerouting_fork.sh"
+  if [ -s "$HASLAM_HOME/haslam-freerouting.pin" ]; then
+    echo "Freerouting pinned: $(cat "$HASLAM_HOME/haslam-freerouting.pin")"
+  elif [ "$DO_FORK" = 1 ]; then
+    echo "Building the Freerouting fork $FR_FORK_REF (the control) and pinning it"
+    HASLAM_HOME="$HASLAM_HOME" bash "$FORK_SH" "$FR_FORK_REF" --pin ||
+      echo "WARN: the fork build failed; re-run: $FORK_SH $FR_FORK_REF --pin" >&2
+  else
+    echo "No Freerouting pinned yet: run $FORK_SH $FR_FORK_REF --pin"
   fi
 fi
 

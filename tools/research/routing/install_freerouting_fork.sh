@@ -49,7 +49,20 @@ fi
 if [ -z "${JAVA_HOME:-}" ] && ! command -v java > /dev/null; then
   for d in "$HASLAM_HOME"/jdk-25*; do [ -x "$d/bin/java" ] && export JAVA_HOME=$d && break; done
 fi
-(cd "$SRC" && ./gradlew -q executableJar)
+# Maven Central and the Gradle/JDK downloads rate-limit shared egress (HTTP 429): retry with backoff, and try
+# --offline once a cache exists (a failed attempt may have fetched everything already)
+build() { (cd "$SRC" && ./gradlew -q "$@" executableJar); }
+ok=0
+for wait in 30 90 240; do
+  if build; then ok=1; break; fi
+  if [ -d "$HOME/.gradle/caches/modules-2" ] && build --offline; then ok=1; break; fi
+  echo "gradle build failed (rate limit or network?): retrying in ${wait}s" >&2
+  sleep "$wait"
+done
+if [ "$ok" = 0 ] && ! build; then
+  echo "gradle build failed 4 times; see the output above" >&2
+  exit 1
+fi
 JAR=$(ls "$SRC"/build/libs/*-executable.jar)
 # jlink from a JDK 25: the toolchain gradle provisioned, else JAVA_HOME (gradle uses it when it is 25)
 JDK=$( (ls -d "$HOME"/.gradle/jdks/*25*/ 2>/dev/null || true) | grep -v '\.tar' | head -1 || true)

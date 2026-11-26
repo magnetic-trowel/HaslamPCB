@@ -21,6 +21,11 @@ HASLAM_HOME = Path(os.environ.get("HASLAM_HOME", Path.home() / ".cache" / "hasla
 # Violation types that depend on the local library setup, not on the board.
 ENV_DEPENDENT_CHECKS = ("lib_footprint_issues", "lib_footprint_mismatch")
 
+# KiCad versions the docs, the DRC-rule checker's drift tests (haslam/tests/test_board_dru_check.py) and the
+# container image were checked on; `haslambench doctor` warns on any other. Add a version here only after
+# those tests pass on it (10.0.8: 60 passed, 1 skipped, bme280-array FRICTION F20).
+KICAD_TESTED_VERSIONS = ("10.0.7", "10.0.8")
+
 
 class ToolError(RuntimeError):
     pass
