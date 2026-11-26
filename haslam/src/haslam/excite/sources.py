@@ -53,10 +53,8 @@ def add_all(bd, brief, nl=None):
         if sub not in DIGITAL and ref not in (getattr(bd, "radios", None) or {}):
             continue                 # only clocked logic (and a radio: its digital core and PA) draws a core current
             #                          at its clock; a charger, a regulator or an analog part does not
-        I, tr = DYNAMIC.get(sub or ("mcu" if ref in (getattr(bd, "radios", None) or {}) else ""), DYNAMIC[""])
-        for rail, v in nodes.items():
-            if rail == "g":
-                continue
+        I_tot, tr = DYNAMIC.get(sub or ("mcu" if ref in (getattr(bd, "radios", None) or {}) else ""), DYNAMIC[""])
+        for rail, v, I in core_split(bd, ref, nodes, I_tot):
             src = bd.circuit.src(f"core:{ref}:{rail}", v, nodes["g"], kind="core", ref=ref, rail=rail,
                                  I=I, didt=I / tr, f_e=1 / (math.pi * tr), V=bd.rails.get(rail) or 3.3, f_rep=CORE_F)
             out.append(src)
@@ -118,6 +116,20 @@ def add_all(bd, brief, nl=None):
                              f_rep=(d.get("f_Hz") or CLOCK_F))
         out.append(src)
     return out
+
+
+def core_split(bd, ref, nodes, I):
+    """[(rail, die node, A)]: an IC's dynamic core current I over the rails it draws from, by their share of its
+    supply pins (the package pins that join each rail to its die node). The class current is the part's whole core
+    current: it was drawn in full from every rail, so an MCU on 3V3, VDDA and VBAT made three 50 mA aggressors (150 mA
+    in all, its RTC battery pin as loud as its core supply). Which rail feeds the core is the part's own (its
+    datasheet); without it the supply pins are the evidence the board gives, as haslam.excite.dc and pdn split a
+    part's current. The sum over the rails is I."""
+    rails = [(r, v) for r, v in nodes.items() if r != "g"]
+    n = {r: sum(1 for e in bd.circuit.elems if e.kind == "pkg" and e.b == v and str(e.name).startswith(f"{ref}."))
+         for r, v in rails}
+    tot = sum(n.values())
+    return [(r, v, I * (n[r] / tot if tot else 1 / len(rails))) for r, v in rails]
 
 
 DRIVES = ("output", "tri_state", "power_out")      # pin types that drive a net
