@@ -26,6 +26,8 @@ Row fields (mm, degrees):
   loop       (rail-to-ground caps) area of the polygon served pin, cap rail pad, cap ground pad, served ground pin
   via        (rail-to-ground caps) ground pad -> nearest via on the ground net (None if the layout has none)
   grp        served part + serving net: caps sharing a group are checked for value ordering
+  through    (far net not a ground) cos between the pad axis (served pad -> far pad) and served pad -> centroid of
+             the far net's other pads: 1 the part points where its far net goes, -1 it points back
 """
 from __future__ import annotations
 
@@ -126,6 +128,12 @@ def analyse(board, roles=None, structures=None):
         for pd in fp.pads:
             if pd.net and pd.kind != 'np_thru_hole':
                 cand.setdefault(pd.net, []).append((k, pd))
+    pads_by_net = {}
+    for kk, f2 in fp_of.items():
+        if f2.on_board:
+            for q in f2.pads:
+                if q.net:
+                    pads_by_net.setdefault(q.net, []).append((kk, q.x, q.y))
     vias_by_net = {}
     for v in board.vias:
         n = getattr(v, 'net', '')
@@ -188,6 +196,17 @@ def analyse(board, roles=None, structures=None):
             row['farads'] = V.capacitance(part.value)
         elif kd == 'resistor':
             row['ohms'] = V.resistance(part.value)
+        # through: does the far pad point where its own net goes? cos between the pad axis (served pad ->
+        # far pad) and served pad -> centroid of the far net's other pads (signal and rail far nets only)
+        if op.net not in grounds:
+            far = [(x, y) for kk, x, y in pads_by_net.get(op.net, ()) if kk != k]
+            if far:
+                fx = sum(x for x, _ in far) / len(far) - sp.x
+                fy = sum(y for _, y in far) / len(far) - sp.y
+                lf = math.hypot(fx, fy)
+                if la > 1e-9 and lf > 1e-9:
+                    row['through'] = round((ax * fx + ay * fy) / (la * lf), 3)
+                    row['far_n'] = len(far)
         gp = op if op.net in grounds else None
         if gp is not None:
             gpins = [p for p in sfp.pads if p.net == gp.net]
