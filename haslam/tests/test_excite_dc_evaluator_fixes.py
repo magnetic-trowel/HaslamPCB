@@ -160,3 +160,39 @@ def test_the_facts_can_still_make_such_a_connector_the_rails_input(tmp_path):
     check_facts(intent)
     pl, _, _, _ = _plan(b, intent)
     assert (pl.feeds["12V"]["kind"], pl.feeds["12V"]["ref"]) == ("external", "J10")
+
+
+def test_a_connectors_current_can_be_stated_per_rail(tmp_path):
+    """duanestorey's J7 exports 5V and 3V3 (one pad each) and parts.J7.I_A was split equally by supply pads: an
+    unequal draw could not be stated. parts.<ref>.I_A_by_rail states a rail's current on its own (the heat band's
+    I_sustained_A_by_rail likewise); a rail it does not name keeps its share of I_A."""
+    from haslam.intent.facts import FactsError, check_facts
+    nets = ["VIN", "GND", "+5V", "+3V3", "+12V"]
+    fps = [_fp("J1", "Conn_01x02", "Connector:Header_1x02", 5, [_pad("1", 0, 1, "VIN"), _pad("2", 1, 2, "GND")], 1),
+           _fp("U1", "AMS1117-5.0", "Package_TO_SOT_SMD:SOT-223-3_TabPin2", 15,
+               [_pad("1", 0, 2, "GND", "GND", "power_in"), _pad("2", 1, 3, "+5V", "VO", "power_out"),
+                _pad("3", 2, 1, "VIN", "VI", "power_in")], 2),
+           _fp("U2", "AMS1117-3.3", "Package_TO_SOT_SMD:SOT-223-3_TabPin2", 25,
+               [_pad("1", 0, 2, "GND", "GND", "power_in"), _pad("2", 1, 4, "+3V3", "VO", "power_out"),
+                _pad("3", 2, 3, "+5V", "VI", "power_in")], 3),
+           _fp("J7", "Conn_01x04", "Connector:Header_1x04", 45,
+               [_pad("1", 0, 3, "+5V"), _pad("2", 1, 2, "GND"), _pad("3", 2, 4, "+3V3"), _pad("4", 3, 1, "VIN")], 4)]
+    intent = {"nets": {"VIN": {"source": "J1", "V_V": 12.0},
+                       "+5V": {"source": "U1", "from": "VIN", "kind": "linear", "V_V": 5.0},
+                       "+3V3": {"source": "U2", "from": "+5V", "kind": "linear", "V_V": 3.3}},
+              "parts": {"J7": {"I_A": 0.3, "I_A_by_rail": {"+5V": [0.05, 0.1, 0.2], "+3V3": 0.02},
+                               "I_sustained_A": 0.3, "I_sustained_A_by_rail": {"+5V": 0.08}}}}
+    check_facts(intent)
+    pl, _, _, _ = _plan(_board(tmp_path, nets, fps), intent)
+    I = {p.subject: (p.typ, p.lo, p.hi) for p in pl.params if p.subject.startswith("dc:J7@")}
+    assert I["dc:J7@+5V"] == pytest.approx((0.1, 0.05, 0.2))
+    assert I["dc:J7@+3V3"] == pytest.approx((0.02, 0.02, 0.02))
+    assert I["dc:J7@VIN"] == pytest.approx((0.3, 0.3, 0.3))        # the only rail left: all of I_A
+    share = {ld["rail"]: ld["part_share"] for ld in pl.loads if ld["ref"] == "J7"}
+    assert H.sustained_A(intent, "J7", "+5V", share["+5V"]) == pytest.approx(0.08)
+    assert H.sustained_A(intent, "J7", "+3V3", share["+3V3"]) is None      # the DC typical stands
+    assert H.sustained_A(intent, "J7", "VIN", share["VIN"]) == pytest.approx(0.3)
+    with pytest.raises(FactsError, match="I_A_by_rail"):
+        check_facts({"parts": {"J7": {"I_A_by_rail": [0.1, 0.2]}}})
+    with pytest.raises(FactsError, match=r"I_A_by_rail\.\+5V"):
+        check_facts({"parts": {"J7": {"I_A_by_rail": {"+5V": "lots"}}}})

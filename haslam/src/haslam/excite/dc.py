@@ -581,10 +581,17 @@ def plan(board, brief, bd, P, srcs, intent=None):
         k, sb = p.get("kind"), p.get("subtype")
         return (k == "module" and sb not in LINEAR + SWITCHING + ("charge_pump",)) or (k == "ic" and sb in CONSUMER_SUB)
 
+    def by_rail(ref):
+        """{rail: value} the facts state per rail for part ref (parts.<ref>.I_A_by_rail)."""
+        v = (((intent or {}).get("parts") or {}).get(ref) or {}).get("I_A_by_rail")
+        return v if isinstance(v, dict) else {}
+
     def part_share(ref, r, skip=None):
-        """Rail r's share of part ref's supply pads over the fed rails it draws from (not one it feeds, nor `skip`)."""
+        """Rail r's share of part ref's supply pads over the fed rails it draws from (not one it feeds, nor `skip`,
+        nor one whose current the facts state on its own: parts.<ref>.I_A_by_rail)."""
+        own = set(by_rail(ref))
         n = {r2: len(supply(ref, r2)) for r2 in pl.feeds if pl.feeds[r2].get("ref") != ref and r2 != skip
-             and any(net == r2 for _, net, _, _ in pads.get(ref, []))}
+             and r2 not in own and any(net == r2 for _, net, _, _ in pads.get(ref, []))}
         return n.get(r, 0) / sum(n.values()) if sum(n.values()) else 1.0
     # loads: parts that draw from a rail and return at their own ground
     # an export through a connector without a ground pad of its own returns through the board's other connectors'
@@ -602,7 +609,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
             if kind not in LOAD_KINDS:
                 continue
             g = gnd_pads(ref)
-            stated = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_A") is not None
+            stated = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_A") is not None or r in by_rail(ref)
             if not g and kind == "connector" and stated and conn_g_all:
                 g = [t for t in conn_g_all if not t.startswith(ref + ".")]
                 if g:
@@ -642,6 +649,14 @@ def plan(board, brief, bd, P, srcs, intent=None):
             # supply pads (an MCU's 3V3 pins carry its current, not its VBUS-detect pin as well); a split-supply
             # part's whole current crosses both its rails
             ld["part_share"] = share = part_share(ref, r, skip=ret)
+            what = f"facts.parts.{ref}.I_A"
+            if r in by_rail(ref):
+                # the facts state this rail's current on its own (a connector exporting 5V and 3V3 to a board that
+                # draws them unequally): no share of the part's whole current. Split by supply pads, J7's 5V and
+                # 3V3 exports could only be stated equal
+                iv, share, what = by_rail(ref)[r], 1.0, f"facts.parts.{ref}.I_A_by_rail.{r}"
+                ld["part_share"] = 1.0
+                ld["by_rail"] = True
             sub = (parts.get(u) or {}).get("subtype")
             tab = lookup_part(f"{(parts.get(u) or {}).get('value') or ''} {(parts.get(u) or {}).get('lib_id') or ''}") \
                 if kind in ("ic", "module") else {}
@@ -649,9 +664,10 @@ def plan(board, brief, bd, P, srcs, intent=None):
             # loads take (haslam.excite.heat sets its operating current from them), not a current its rail's loads
             # share out (solar-small's LTC2959 coulomb counter, < 1 uA, took the whole LTC3130 output: 1.5 W)
             if iv is not None:
-                typ, lo, hi = (x * share for x in fact_interval(iv, f"facts.parts.{ref}.I_A"))
+                typ, lo, hi = (x * share for x in fact_interval(iv, what))
                 p = Param(f"dc:{ref}@{r}", "I_A", typ, lo, hi, "A", "intent",
-                          "the intent file" + (f" ({share:.0%} of the part's current: its share of supply pads)" if share < 1 else ""))
+                          "the intent file" + (f" ({share:.0%} of the part's current: its share of supply pads)" if share < 1 else "")
+                          + (" (its current on this rail)" if ld.get("by_rail") else ""))
             elif "I_supply_A" in tab:
                 typ, lo, hi, src = tab["I_supply_A"]
                 p = Param(f"dc:{ref}@{r}", "I_A", typ * share, lo * share, hi * share, "A", "part_table", src)

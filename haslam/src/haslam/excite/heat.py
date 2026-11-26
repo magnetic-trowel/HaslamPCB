@@ -100,14 +100,24 @@ def _rng(v):
     return t if t[1] > 0 else None
 
 
-def sustained_A(intent, ref):
-    """The facts' typical draw of part ref (parts.<ref>.I_sustained_A: a number, [lo, hi] or [lo, typ, hi], its
-    typical value), or None. A listed one was ignored and the load's DC-band typical used instead."""
-    v = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_sustained_A")
-    if v is None:
+def sustained_A(intent, ref, rail=None, share=1.0):
+    """The facts' typical draw (A) of part ref on rail `rail`, or None: its own on that rail
+    (parts.<ref>.I_sustained_A_by_rail.<rail>), else `share` (the rail's share of its supply pads, haslam.excite.dc)
+    of its whole draw (parts.<ref>.I_sustained_A), except on a rail whose DC current the facts state on its own
+    (I_A_by_rail; there the DC band's typical stands). Each a number, [lo, hi] or [lo, typ, hi], its typical value: a
+    listed one was ignored."""
+    from haslam.intent.facts import interval
+    d = ((intent or {}).get("parts") or {}).get(ref) or {}
+    br = d.get("I_sustained_A_by_rail")
+    if rail is not None and isinstance(br, dict) and br.get(rail) is not None:
+        t = interval(br[rail], f"facts.parts.{ref}.I_sustained_A_by_rail.{rail}")
+        return t[0] if t[0] >= 0 else None
+    if rail is not None and rail in (d.get("I_A_by_rail") or {}):
         return None
-    t = intent_value(intent, "parts", ref, "I_sustained_A")
-    return t[0] if t[0] >= 0 else None
+    if d.get("I_sustained_A") is None:
+        return None
+    t = interval(d["I_sustained_A"], f"facts.parts.{ref}.I_sustained_A")
+    return t[0] * share if t[0] >= 0 else None
 
 
 def _theta_jb(npins):
@@ -486,9 +496,9 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
         if p.name != "I_A" or not str(p.subject).startswith("dc:"):
             continue
         ref = p.subject[3:].rsplit("@", 1)[0]
-        iv = sustained_A(intent, ref)
+        iv = sustained_A(intent, ref, p.subject.rsplit("@", 1)[1], share_of.get((p.subject, p.name), 1.0))
         if iv is not None:      # the intent's typical draw (its datasheet's), this rail's share
-            sustained[(p.subject, p.name)] = min(max(iv * share_of.get((p.subject, p.name), 1.0), p.lo), p.hi)
+            sustained[(p.subject, p.name)] = min(max(iv, p.lo), p.hi)
         elif (p.subject, p.name) in exports and p.source == "prior":
             sustained[(p.subject, p.name)] = p.typ
     for c in range(len(own)):
@@ -505,9 +515,9 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
     def load_amps(ld):
         if ld.get("key"):
             return sustained.get(ld["key"], 0.0)
-        iv = sustained_A(intent, ld["ref"])
+        iv = sustained_A(intent, ld["ref"], ld["rail"], ld.get("part_share", 1.0))
         if iv is not None:
-            return iv * ld.get("part_share", 1.0)
+            return iv
         return ld.get("prior", 0.0)          # a connector's prior is already its unstated export (EXPORT_SHARE)
     cell_out = {}
     for f in dcp.feeds.values():
