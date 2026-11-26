@@ -579,9 +579,12 @@ def _excite_current(s):
     """The current a loop's copper is sized for: the upper bound of the brief's excitation
     interval when it states one (a power path's I_belief), else its value, else 1 A."""
     ex = s.get("excite") or {}
-    iv = ((ex.get("I_belief") or {}).get("interval") or [])
-    if len(iv) == 2 and iv[1]:
-        return float(iv[1])
+    # a cell's stated interval is where haslam.intent.facts.apply writes it (excite.interval.I); I_belief is a power
+    # path's. Reading only I_belief, every cell's copper was sized for its typical current (the geometric mean of the
+    # facts' [0.3, 1.0]: 0.55 A, not 1 A) wherever the router had no intent of its own (_intent_current)
+    iv = (ex.get("interval") or {}).get("I") or (ex.get("I_belief") or {}).get("interval") or []
+    if len(iv) == 2 and max(iv):
+        return float(max(iv))
     return float(ex.get("I") or 1.0)
 
 
@@ -631,8 +634,15 @@ def _intent_converter(ctx, m):
         so = _signed_volts(ctx, sib.get("rail")) if sib.get("rail") else None
         vi, vo = (v("rail"), so) if cls == "buck" else (so, v("rail"))
     top, leg = CV.topology_of(cls, s, vo, vi)
+    # the rail's efficiency, as haslam.excite.params.cell passes it (a boost's input current I_out V_out / (V_in eta)
+    # at the class 0.8 instead of a stated 0.6 sized its copper for 25 % less than the evaluator prices)
+    from haslam.excite.beliefs import intent_value
+    intent = ctx.opts.get("intent") or {}
+    facts = intent.get("facts") if isinstance(intent, dict) and intent.get("schema") == "haslam.intent/1" else intent
+    eta_n = intent_value(facts if isinstance(facts, dict) else {}, "nets",
+                         s.get("vout") or (s.get("rail") if cls == "boost" else None) or "", "eta")
     try:
-        return CV.from_intent(cell, top, leg, vi, vo)
+        return CV.from_intent(cell, top, leg, vi, vo, eta_n)
     except (TypeError, ValueError, ZeroDivisionError):
         return None
 
