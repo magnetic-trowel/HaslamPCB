@@ -34,6 +34,7 @@ Not from `mechsuites.py`; each was chosen for one experiment's plan.
 | `place-fixable-le400` | 35 | design 2 stage 0 (`tools/research/joint/place_fixable.py`): placement-fixable boards up to 400 footprints |
 | `ground-pour-2layer` | 65 | ground-side-ab: the 2-layer boards of both sprint suites on which `haslam.route.ground_side` names a pour side |
 | `layer-oracle-multilayer` | 70 | layer-oracle: the first 70 of its candidates (4+ layers, DRC-clean human layout, opens under the fork alone) |
+| `thermal-ring` | 39 | gfix-thermal-ring-2: `tools/haslamres/mechscreen.py --screen thermal-ring` count 4 or more over 725 boards (other nets' pads that the tag's thermal-spoke corridors cover and 3eb6a72f's do not), history under 0.5 CPU-h per method-run |
 
 ## How a suite is built
 
