@@ -667,6 +667,12 @@ def test_a_converter_whose_rail_has_no_load_idles_at_its_quiescent_draw():
         heat = H.part_heat(SimpleNamespace(part_kind={}), pl, cv, {("heat:U1", "R_on_ohm"): 0.3}, {})
         assert heat == {"U1": pytest.approx(12.0 * q[("heat:U1", "I_q_A")])}      # no rectifier heat
     assert max(12.0 * q[("heat:U1", "I_q_A")] for q in nlc) <= 12.0 * 1e-2 + 1e-12        # at most 120 mW
+    # on a -12 V input the same idle draw heats it as much (the signed product was dropped as a negative heat)
+    vin = cell["vin"]
+    pl.volts[vin] = -pl.volts[vin]
+    heat = H.part_heat(SimpleNamespace(part_kind={}), pl, cvs[0], {("heat:U1", "R_on_ohm"): 0.3}, {})
+    assert heat == {"U1": pytest.approx(12.0 * nlc[0][("heat:U1", "I_q_A")])}
+    pl.volts[vin] = -pl.volts[vin]
     # a stated own draw is the controller's quiescent current
     (p,) = H.noload_params(pl, [cell], {"parts": {"U1": {"I_A": 2.5e-5}}})
     assert (p.typ, p.source) == (2.5e-5, "intent")
