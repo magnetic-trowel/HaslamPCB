@@ -316,6 +316,8 @@ def waivers(d):
     w("protect.threat", r"(NTC_SNS|SDA_EXT|SCL_EXT|ADC_EXT|GPIO_A|GPIO_B|TX_EXT|RX_EXT) declares threat 'esd'",
       "Short in-enclosure leads; ESP32-C6 pins have on-die ESD (2 kV HBM) and NTC_SNS has C204 (100 nF). Add an ESD "
       "array if leads leave the enclosure")
+    w("bom.stock", r"^(C684231|C7459683) ", "Q-2 (user 2026-11-17): the ADI parts JLC does not stock, U101 LTC3130 "
+      "and U201 LTC2959, are pre-ordered through JLC global sourcing")
 
 
 def calcs(d):
