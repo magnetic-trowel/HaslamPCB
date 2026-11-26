@@ -1583,6 +1583,8 @@ def test_kicad_flag_sources_the_environment_and_submit_hints_when_it_is_missing(
     assert joblog(tmp_path / "jobs" / "1" / "log").split() == ["w=wrapped"]
     submit(kq, "python -m haslam.route.cli route a b", name="h", live=True, cwd=str(tmp_path))
     assert "--kicad" in capsys.readouterr().err                                     # needs KiCad, loads nothing
+    submit(kq, "haslambench run --adapter x", name="b", live=True, cwd=str(tmp_path))
+    assert "--kicad" in capsys.readouterr().err                                     # the harness's renamed CLI too
     submit(kq, f"source {script}; kicad-cli pcb drc x", name="s", live=True, cwd=str(tmp_path))
     submit(kq, "echo hi", name="e", live=True, cwd=str(tmp_path))
     assert "hint" not in capsys.readouterr().err

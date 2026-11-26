@@ -1740,9 +1740,11 @@ def _work(adir):
     if not log.exists():
         return None
     for line in reversed(log.read_text(errors="replace").splitlines()):
-        if line.startswith("HASLAM_WORK "):
+        # KAE_WORK: what restart.py printed before the rename of PR #163; pinned pre-rename methods still do
+        tag, _, rest = line.partition(" ")
+        if tag in ("HASLAM_WORK", "KAE_WORK"):
             try:
-                return json.loads(line[9:])
+                return json.loads(rest)
             except ValueError:
                 return None
     return None
