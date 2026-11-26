@@ -85,7 +85,7 @@ Hazards (`Bundle.hazards`, then `haslam.hazards.finalize`):
 
 ## Physics against relations: who keeps full weight
 
-Rule (user, 2026-11-25: "mostly we just want to obey physics"). With `relations_vs_physics physics` (the default), a soft relation on a part the place terms price (a part of a brief section the physics arm builds a structure for) weighs as `weak` in the keep-away grid and the relation term (placer and joint windows). Two relations keep their own strength there (`Bundle.full_weight`):
+Rule (user, 2026-11-25: "mostly we just want to obey physics"). With `relations_vs_physics physics` (the default), a soft relation on a part the place terms price (a part of a brief section the physics arm builds a structure for) weighs as `weak` in the label term (region, soft on_edge, near a fixed part or label), the keep-away grid and the relation term (placer and joint windows). Two relations keep their own strength there (`Bundle.full_weight`):
 
 | Relation | Marked by | Status row | Unmet |
 |---|---|---|---|
@@ -93,7 +93,7 @@ Rule (user, 2026-11-25: "mostly we just want to obey physics"). With `relations_
 | explicit request | `"requested": true` (the user asked for this relation specifically; not for relations the LLM or haslamsynth infers) | `full_weight: "requested"` | `relation_conflict` with `winner: tie`, `full_weight`; warns |
 | any other | - | `yielded_to` the structures | `relation_conflict` with `winner: physics`; warns |
 
-`requested` is a boolean (`haslam.intent.relations.check` rejects anything else). Intents with neither mark weigh exactly as before the rule: same boards and status rows on #141's six fixtures [M: [relations-unified results](relations-unified.md#results)]. Label-term pulls (region, soft on_edge, near to a fixed part or label) are weighed when the intent is compiled, before the placer knows which parts physics prices, so neither the demotion nor this exception reaches them: they keep their strength, as since #141 [I, `pipeline._place_rung`: `compile_intent` before `set_physics`].
+`requested` is a boolean (`haslam.intent.relations.check` rejects anything else). Intents with neither mark weigh exactly as before the rule: same boards and status rows on #141's six fixtures [M: [relations-unified results](relations-unified.md#results)]. The rule covers label-term pulls (region, soft on_edge, near to a fixed part or label) too: `compile_intent` stores the relation with each pull and `Bundle.anchors_for` weighs it after `set_physics`, so a pull on a physics-priced part weighs as weak unless safety or requested, and its `applied` note says `weak: physics prices it` [I, `pipeline._place_rung`; T: `test_label_term_pulls_follow_the_physics_rule`;]. Measured (`haslam place`, counted work, seeds 0-2, #141's six fixtures with `--intent`): two fixture rows change weight, both medium regions on a part the place terms price (barsy ah3 `mcu-c`, owr-502 `can-mcu-c`, 1 -> 0.3); barsy writes the same board, owr-502 moves 23-25 of 28 parts with `can-mcu-c` unmet and `yielded_to` on both arms (HPWL 160.9/162.8/161.7 -> 172.4/165.6/153.3 mm, legality and relations met unchanged); the four other fixtures, the four corpus boards without an intent and solar-small (20 near rows, all on the relation term) write the same board [M] (`~/haslam-baselines/experiments/label-terms-physics/VERDICT.md`).
 
 ## Settings
 
