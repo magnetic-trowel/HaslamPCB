@@ -17,7 +17,8 @@ Architecture (DESIGN.md has the numbers):
 import importlib.util
 from pathlib import Path
 
-from haslamsynth import Design, Hole
+from haslamsynth import Design, Hole, SlotBarrier
+from haslamsynth.lib import ReversePMOS
 
 _spec = importlib.util.spec_from_file_location("bme280_array_parts", Path(__file__).with_name("parts.py"))
 P = importlib.util.module_from_spec(_spec)
@@ -111,14 +112,12 @@ def intent(d):
 def host(d):
     b = Blk(d, "IN", "Host connector and reverse-polarity protection",
             "Q1 conducts when VIN is the right way round (Vgs = -VIN_P, clamped to -10 V by D2). D1 after Q1.")
-    d.domain("Q1G", ref="VIN_P", kind="elv", description="Q1 gate, relative to its source VIN_P")
-    b.b.net("Q1_G", v=(-10.6, 0), kind="signal", domain="Q1G")
     b.add(P.HOST_HDR, "J1", {"VIN": "VIN_RAW", "GND": "GND", "VIO": "VIO", "SCL": "SCL_H", "SDA": "SDA_H",
                              "RST_N": "RST_H"}, notes="host: 1 VIN, 2 GND, 3 VIO, 4 SCL, 5 SDA, 6 RST_N")
-    b.add(P.AO3401A, "Q1", {"D": "VIN_RAW", "S": "VIN_P", "G": "Q1_G"}, notes="reverse-polarity PMOS")
-    b.R("R1", 10e6, "Q1_G", "GND", note="Q1 on: gate to GND; 1.3 uA at 13.2 V")
-    b.add(P.BZT52C10, "D2", {"1": "VIN_P", "2": "Q1_G"}, i_through=1e-5, p_diss=1e-5,
-          notes="clamps Q1 VGS to -10.5 V (AO3401A +/-12 V); (13.2 - 10.5) V / R1 = 0.27 uA")
+    # the stock pattern: Q1 gate to GND through R1 (1.3 uA at 13.2 V), clamped to VIN_P at -10.5 V by D2 (AO3401A
+    # +/-12 V); it declares V(D-S) in [-13.2, 0.7] V and Q1_G's own domain on VIN_P (no waivers)
+    ReversePMOS(b.b, P.AO3401A, "VIN_RAW", "VIN_P", "GND", ref="Q1", r_gate=P.res(10e6), r_ref="R1",
+                zener=P.BZT52C10, z_ref="D2", gate="Q1_G", gate_domain="Q1G")
     b.add(P.SMAJ15A, "D1", {"1": "VIN_P", "2": "GND"}, notes="TVS after Q1 (a reversed host cannot drive it)")
     b.C("C1", "10uF", 25, "VIN_P", "GND", pkg="0805", diel="X5R", note="VIN bulk; TPS629203 CIN >= 3 uF eff.",
         fields={"Ceff": "~3.5 uF at 13.2 V (X5R 0805 25 V, typical vendor curve) [S]"})
@@ -181,8 +180,8 @@ def level(d):
     b.add(P.SJ_BRIDGED, "JP1", {"A": "VIO", "B": "VIO_PU"}, notes="host-side pull-ups on (cut to disable)")
     b.add(P.SJ_OPEN, "JP2", {"A": "VIO", "B": "VIN_P"},
           notes="bridge for 4-wire hosts (VIO = VIN); open by default")
-    b.R("R15", 4.7e3, "VIO_PU", "SDA_H", note="2.5 mA at 12 V (I2C 3 mA)", p_diss=0.019)
-    b.R("R16", 4.7e3, "VIO_PU", "SCL_H", note="13.2^2 / 4.7 k x 50 % low time", p_diss=0.019)
+    b.R("R15", 4.7e3, "VIO_PU", "SDA_H", note="2.5 mA at 12 V (I2C 3 mA)")
+    b.R("R16", 4.7e3, "VIO_PU", "SCL_H", note="13.2^2 / 4.7 k: 18.5 mW at the default 50 % low time (pull-up)")
     b.R("R17", 100e3, "VIO", "RST_H", note="host RST_N may float")
     b.C("C10", "100nF", 25, "VIO", "GND")
     b.R("R18", 4.7e3, "+1V8", "SDA_L")
@@ -246,15 +245,11 @@ def waivers(d):
       "surge to D1")
     w("protect.entry_fuse", r"VIN_RAW", "Load < 15 mA; the host's own supply limits fault current; a fuse adds drop "
       "at 1.8 V")
-    w("rating.voltage", r"Q1 .*V\(D-S\)", "Interval sum overstates it: forward, VIN_RAW and VIN_P differ by the "
-      "channel drop; reversed, VIN_P holds 0 V, so |VDS| <= 13.2 V < 30 V")
     w("rating.voltage", r"Q1 .*V\(G-S\)", "D2 clamps VGS at 10.5 V max (BZT52C10 9.5-10.5 V); 88 % of 12 V is the "
       "clamp's own tolerance, only above VIN 10.5 V")
     w("protect.entry_fuse", r"VIO", "VIO feeds only the 4.7 k host pull-ups (<= 2.8 mA each) and JP2")
     w("kicad.erc.pin_to_pin", r"SDO, Bidirectional.*Power output", "BME280 SDO is an address strap in I2C mode "
       "(DS 6.2): tied to GND or VDDIO on purpose")
-    w("rating.voltage", r"D2 \(BZT52C10\)", "a zener works at its breakdown by design: D2 clamps Q1's VGS at "
-      "10.5 V; the current is (13.2 - 10.5) V / 10 MOhm")
 
 
 def calcs(d):
@@ -296,16 +291,23 @@ def calcs(d):
     p_loss = 1.8 * i_peak * (1 / 0.80 - 1) + 13.2 * i_over_12
     c("converter_loss_worst", p_loss * 1e3, "mW", "1.8 V x 11.4 mA x (1/0.8 - 1) + 13.2 V x overheads", limit=10)
     # 1.6 mm FR4 bridge 10 mm wide, 15 mm long (k 0.3 W/mK) plus 5 traces 0.2 mm x 35 um copper (k 390)
+    # `haslamsynth check-board design.py BOARD` re-evaluates both from the tracks that cross the slot line on the
+    # routed board (FRICTION F47: as built, 10 tracks crossed, not 5)
     g_fr4 = 0.3 * (10e-3 * 1.6e-3) / 15e-3
-    g_cu = 390 * 5 * (0.2e-3 * 35e-6) / 15e-3
-    g_b = g_fr4 + g_cu
-    c("bridge_conductance", g_b * 1e3, "mW/K", "FR4 bridge + 5 tracks (+1V8, GND, SDA, SCL, RST) across the slot")
+    g_tracks = lambda width_mm: 390 * (width_mm * 1e-3 * 35e-6) / 15e-3        # copper, k 390, 35 um, 15 mm long
+    g_b = g_fr4 + g_tracks(5 * 0.2)
+    d.measure("bridge", "tracks_crossing", barrier="SLOT")
+    d.measure("sense_gnd", "copper_area", area="SENSE", nets=["GND"])          # F46: minimal copper among sensors
+    c("bridge_conductance", g_b * 1e3, "mW/K", "FR4 bridge + 5 tracks (+1V8, GND, SDA, SCL, RST) across the slot",
+      board=lambda m: (g_fr4 + g_tracks(m["bridge"]["width_mm"])) * 1e3)
     # still air, both faces, h ~ 10 W/m^2K: north end 50 x 19.5 mm, south 50 x 57 mm
     g_n, g_s = 10 * 2 * 50e-3 * 19.5e-3, 10 * 2 * 50e-3 * 57e-3
     rise_n = p_loss / g_n
+    rise_s = lambda g: rise_n * g / (g + g_s) * 1e3
     c("heat_rise_north", rise_n * 1e3, "mK", "worst loss / (h A) of the north end, h 10 W/m^2K both faces")
-    c("heat_rise_sensors", rise_n * g_b / (g_b + g_s) * 1e3, "mK", "north rise x g_bridge / (g_bridge + h A_south)",
-      limit=10, note="BME280 temperature accuracy +/-0.5 C (DS Table 2): 50x below it")
+    c("heat_rise_sensors", rise_s(g_b), "mK", "north rise x g_bridge / (g_bridge + h A_south)",
+      limit=10, note="BME280 temperature accuracy +/-0.5 C (DS Table 2): 50x below it",
+      board=lambda m, k: rise_s(k["bridge_conductance"] * 1e-3))
     c("i2c_sink_12v", (12 - 0.4) / 4.7e3 * 1e3, "mA", "(VIO - VOL) / R15", limit=3.0)
     c("i2c_rise_ch", 0.8473 * 10e3 * 40e-12 * 1e9, "ns", "0.8473 R C, 10 k, 40 pF per channel (2 sensors + track)",
       limit=1000, note="I2C standard mode 1000 ns; fast mode (300 ns) needs 3.3 k")
@@ -342,26 +344,38 @@ def operating(d):
            source="BME280 DS: -40..85 C operating", why="sensors and ICs share the board")
 
 
+SLOT_Y, BRIDGE = 20.25, (20.0, 30.0)     # slot centre line (1.5 mm wide: y 19.5-21) and the bridge (x 20-30)
+SENSOR_XY = [(x, y) for y in (35.0, 46.0, 57.0, 68.0) for x in (7.5, 19.0, 31.0, 42.5)]   # 4 x 4, U101 first
+
+
 def board(d):
-    d.board("main", width_mm=50, height_mm=78, layers=2, thickness_mm=1.6, copper_oz=1.0,
+    """All board geometry (sch_to_board.py reads the out/board.json the build writes from this)."""
+    d.board("main", width_mm=50, height_mm=78, layers=2, thickness_mm=1.6, copper_oz=1.0, quantity=5,
             holes=[Hole(3.5, 3.5, 3.2), Hole(46.5, 3.5, 3.2), Hole(3.5, 74.5, 3.2), Hole(46.5, 74.5, 3.2)],
+            # the thermal break: slots y 19.5-21 from 2.5 mm off each edge to the bridge, no copper on the edge
+            # strips beside them (copper crosses only at the bridge, F32), rule areas POWER (north) and SENSE
+            cuts=[SlotBarrier("y", SLOT_Y, width_mm=1.5, bridges=[BRIDGE], edge_mm=2.5, sides=("POWER", "SENSE"),
+                              name="SLOT", note="REQ-4: converter heat reaches the sensors only through the bridge")],
+            zones=[{"net": "GND", "layer": "B.Cu", "name": "GND_N", "rect": [0, 0, 50, 19.5]}],   # no pour south
+            seed_area=(3, 6, 47, 76),
             notes="North (y < 19.5): host connector, protection, converters, level shifters, GND pour on B.Cu. "
                   "Slots y 19.5-21 leave a 10 mm bridge at x 20-30. South: mux and the 4 x 4 sensor array, no pour.")
+    d.place.fixed("J1", 18.65, 3.5, rotation=90, source="host header on the north edge, pins 1-6 west to east")
+    for ref, (x, y) in zip(SENSORS, SENSOR_XY):
+        d.place.fixed(ref, x, y, source="sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)")
 
 
 def placement(d):
     pl = d.place
     f = d.find_part
-    # the power section lives in rule area POWER (board.json: north of the slot), required: haslam's 'north' is the
-    # board's northern third (26 mm here), which reaches past the 19.5 mm slot, and a default-strength region lost
-    # to wire length on the first layout (U1, U2, L1, L2 placed among the sensors). requested=True: by default
-    # haslam weighs a relation on a physics-priced part (the converter cells) as weak; the user asked for this one
-    for blk in ("IN", "PWR", "LVL"):
-        pl.region(f"block:{blk}", "area:POWER", level="required", requested=True, category="thermal", note="power and host side north of the slot (REQ-4)")
+    # the power section in rule area POWER (the slot barrier's north side; haslam's 'north' is the board's northern
+    # third, 26 mm here, past the 19.5 mm slot: layout.region_crosses_slot), required, and requested through REQ-4:
+    # by default haslam weighs a relation on a physics-priced part (the converter cells) as weak. The converters
+    # keep away from the sensor row next to the slot (U101-U104)
+    pl.thermal_isolate(["block:IN", "block:PWR", "block:LVL"], SENSORS, area="POWER",
+                       hot=["U1", "U2", "L1", "L2", "U3", "Q2"], level="strong", req="REQ-4",
+                       note="converter heat stays north of the slot, away from the sensors")
     pl.region("block:MUX", "area:SENSE", note="mux south of the slot: only 5 tracks cross the bridge (REQ-4)")
-    for hot in ("U1", "U2", "L1", "L2", "U3", "Q2"):
-        for s in (SENSORS[0], SENSORS[3]):       # the nearest row
-            pl.far(f(hot), f(s), "close", level="strong", requested=True, category="thermal", note="converter heat away from the sensors (REQ-4)")
     pl.near(f("L1"), f("U1"), "tight", note="LX1/LX2 loop short")
     pl.near(f("L2"), f("U2"), "tight", note="SW node short")
     u2 = f("U2")
