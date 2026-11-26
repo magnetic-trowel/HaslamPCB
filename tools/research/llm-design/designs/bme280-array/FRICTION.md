@@ -9,6 +9,30 @@ Keys: friction log, end-to-end test, brief to board, setup, haslamsynth, bme280-
 
 Environment: fresh cloud container (4 CPU, 15 GB), no haslamq dispatcher, no board corpus, root user.
 
+## Summary (ranked by what it cost or would have cost)
+
+1. **The thermal floorplan the user asked for was not enforced** (F21-F24, F27, F33, F42): region `north` meant the board's
+   northern third, relation strength could not be set from haslamsynth, physics demotes relations on priced parts to
+   weak unless `requested`, `required` regions are still soft, and the joint loop never reports relations. Three
+   30-min layouts to get the power section north of the slot; two small parts still escaped. Needed: hard regions,
+   relation status in the joint report, `requested` by default for relations that restate a brief requirement.
+2. **Intent value parsing is inconsistent across haslam** (F35, F40): `[lo, typ, hi]` is documented and accepted, but
+   `physics/converter._iv` drops typ (6x wrong cell current) and `excite/dc.py` crashes on it. One shared parser.
+3. **Physics priors masquerade as findings** (F36, F48): unstated IC currents become 10 mA cores; a 2 uA I2C switch was
+   the board's hottest part and still shows a 245 mV supply transient. Pre-flight should list parts on priors.
+4. **Sourcing is unchecked** (F5, F6, F44): BME280 had 1 unit at JLC for 16 needed; no IC lookup tool; 16 of 27 parts
+   extended.
+5. **Layout features the design needed were missing** (F10, F32, F37, F46, F47): slots, area-limited pours, "cross only
+   at the bridge", "minimal copper here", temperature rise above ambient, calcs re-checked on the routed board.
+6. **Fab output quality** (F31, F45): references not placed; silk overlaps unchecked. `silk_refs.py` written here.
+7. **Environment and scripts** (F1-F4, F16, F18, F41, F43): apt KiCad path lacks libraries and KiCad-Python plumbing;
+   layout scripts hardcode solar-small; a crashed evaluation reports success.
+
+Outcome: a 2-layer 50 x 78 mm board, 0 DRC errors / 0 unconnected / parity 0, JLC gerbers, CPL and BOM (27 lines, all
+with LCSC numbers) in `fab/`; physics: 0 hard violations, sensor rise <= 2.5 mK (evaluator) / 9.9 mK (hand bound).
+
+## Log
+
 | # | Stage | Issue | Cost | Suggested fix |
 |---|---|---|---|---|
 | F1 | setup | `setup.sh --kicad auto` as root on Ubuntu takes the apt path and installs KiCad **10.0.8** with `--no-install-recommends`: no `kicad-symbols`/`kicad-footprints`, so haslamsynth has no libraries. Docs, synth README and brief-to-board assume the 10.0.7 container image (`KICAD10_SYMBOL_DIR` into the image). | 1 extra step, found only by `ls` | apt path: also install `kicad-symbols kicad-footprints`; `doctor` should check the library dirs |
@@ -58,3 +82,5 @@ Environment: fresh cloud container (4 CPU, 15 GB), no haslamq dispatcher, no boa
 | F45 | S10 | The silk pass (F31) is not part of `fab_outputs.py`; I ran `silk_refs.py` before it by hand. Fab report does not mention silk DRC (warnings), so a board with unreadable silk passes the gate. | manual step | run silk_refs in fab_outputs, report silk_* counts |
 | F46 | routing | haslam widened GND to 0.6-3.0 mm (75 segments, unlocked: the router/repair stages, not the net class's 0.25 mm) as stubs among the sensors, where the design asked for minimal copper (no pour south of the slot). Electrically fine, DRC-legal; thermally it adds copper between sensors. The intent has no "minimal copper in area X" term, and the copper-loss term wants width even at 60 uA. | thermal intent diluted | a copper-area (or thermal-coupling) cost for an area; skip loss-driven widening when the net's current is uA |
 | F47 | thermal | As built, 10 tracks cross the bridge (F42): bridge 2.15 mW/K, worst-case sensor rise 9.9 mK vs the 10 mK budget (5.8 mK designed with 5 tracks). The check had to be redone by hand from track widths; haslamsynth's calc uses designed numbers and nothing re-checks a calc against the routed board. | margin gone, found by hand | let `d.calc` name a board measurement (tracks crossing a line, copper area in a rule area) re-evaluated after layout |
+| F48 | physics | `parts.<ref>.I_A` reaches the DC and heat models but not the transient "core" source: `excite/params.generic` builds every IC core from class priors (10 mA, 2 ns edges, 50 MHz) and reads no intent. The TCA9548A, a passive I2C switch with no clock, still shows a 245 mV `supply.peak` on +1V8 (x2.7 its reference; 351 mV before F36's facts). Unpriced, so it changes no score, but it is the evaluation's largest "finding" on this board and it is fiction. | misleading report | let `parts.<ref>` carry `core_I_A`, `core_f_Hz` (or `core: false` for passive switches); haslam.circuit could know analog switches have no core |
+| F49 | physics | Final evaluation (bme4 board, part facts, 2-element I_A): 0 hard violations, T-SENS met (hottest sensor within 2.5 mK of ambient), copper loss 19 uW DC + 16 uW AC; 7.7 min, of which 7.7 min are the three hot-loop solves (U2's window 50.8 x 26.4 mm at 0.0625 mm: 366 s). | — | see F39 |

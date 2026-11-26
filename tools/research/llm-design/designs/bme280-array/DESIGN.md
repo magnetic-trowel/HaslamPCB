@@ -72,7 +72,24 @@ the sensors do not share a copper plane with the power section (or with each oth
 - Slots y 19.5-21 mm leave a bridge at x 20-30 mm.
 - South: 4 x 4 sensors fixed at 11.5 x 11 mm pitch (`board.json`), mux and pull-ups placed by haslam.
 
-## 5. Open points
+## 5. As built (layout bme4, haslam A1 recipe, seed 0)
+
+| Check | Result |
+|---|---|
+| KiCad DRC after zone refill | 0 errors, 0 unconnected, schematic parity 0 (warnings: silk, library paths) |
+| Power section | U1, U2, U3, L1, L2 and their parts north of the slot; Q1 and R1 (reverse PMOS) south of it (F42) |
+| Slot crossings | 10 tracks, all inside the 10 mm bridge (edge strips kept clear) |
+| Bridge conductance, sensor rise (hand) | 2.15 mW/K, 9.9 mK worst case (designed 5.8 mK with 5 tracks) |
+| haslam.excite (intent with part facts) | 0 hard violations; hottest sensor within 2.5 mK of ambient; copper loss 19 uW DC + 16 uW AC |
+| Silkscreen | `synth/scripts/silk_refs.py`: 80 references on silk, 10 on F.Fab, 0 silk DRC |
+| Fab package (`fab/`) | gerbers + drill zip, JLC CPL, JLC BOM (27 lines, all with LCSC numbers; 16 extended parts) |
+
+Layout took three rounds; FRICTION.md F21-F42 says why. Layout time per round ~33 min on 4 CPUs, scoring ~8 min.
+
+Before ordering: check the BME280/BMP280 stock (Q-1), check rotations of U1-U4, U101-U116, Q1-Q6 and D1/D2 in JLC's
+assembly preview, and solder J1 (DNP header pads) by hand.
+
+## 6. Open points
 
 1. Q-1: BME280 stock (1 at JLC on 2026-11-26); BMP280 fits the same pads.
 2. Not simulated: the Q2/C5 hot-plug timing deserves a bench test (13.2 V step, scope on VLO).
