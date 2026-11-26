@@ -162,7 +162,7 @@ Keys: dead ends 2611, place_phys_hinge, satisficing physics, part slides, cut ov
 - **Evidence** [C]: ground within 1 mm on the same layer or directly opposite (`cov_any`): bridge − human −1.3 points [−3.2, +0.5], within noise. Ground directly under the track (`cov_opp`): bridge −3.7 [−6.3, −1.0], staged −9.8 [−13.7, −6.1]. 2-10 % of opens involve a zone, so a skeleton buys no completion.
 - **Why dead:** the gap is `cov_opp`, which the price form closes: `ground-side-ab` +8.4 points [+5.5, +11.6] (0.507 → 0.591), adopted as candidate. On the 6 of 43 boards with no ground zone the human is no reference (`cov_any` 5 %); the skeleton's value there rests on a secondary source only.
 - **Reopen if:** the ground-side cost fails its completion guard on the ladder, or a measured return-path row shows a gap on plane-less boards.
-- **Code:** design-session scratch, not committed (no tag); the ground-side cost is the live `ground-side-*` line.
+- **Code:** design-session scratch, not committed (no tag); the ground-side cost (default 2 since ground-side-ladder): [ground-side-ladder-2611](routing/ground-side-ladder-2611.md).
 
 ## 15. More budget and seed restarts for big boards
 
