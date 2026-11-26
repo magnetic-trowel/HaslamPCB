@@ -1108,15 +1108,10 @@ def cell_operating(ctx, m):
     cells = _intent_cell(ctx, m)
 
     def iv(key):
-        # typical value as haslam.excite.beliefs.intent_value takes it: an interval's geometric mean
-        v = cells.get(key)
-        try:
-            if isinstance(v, (list, tuple)) and v:
-                lo, hi = float(v[0]), float(v[-1])
-                return math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2
-            return float(v) if v is not None else None
-        except (TypeError, ValueError):
-            return None
+        # typical value as haslam.excite.beliefs.intent_value takes it (haslam.intent.facts.interval: a stated
+        # [lo, typ, hi]'s typ, an interval's geometric mean)
+        from haslam.intent.facts import typical
+        return typical(cells.get(key))
     basis = []
     cc = _intent_converter(ctx, m)
     if cc is None:
