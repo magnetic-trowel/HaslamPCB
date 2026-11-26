@@ -168,11 +168,30 @@ def export_questions(pl):
 def _pads(board):
     """{ref: [(number, net, pintype, pinfunction)]}. Footprints that share a reference are one part (a module's
     edge pins and its back pins, a split symbol): their pads are merged, as the copper model's pad tokens (REF.NUM,
-    haslam.em.kicad) merge them. Keeping only the last footprint lost a Teensy's supply and ground pins."""
-    out = {}
+    haslam.em.kicad) merge them. Keeping only the last footprint lost a Teensy's supply and ground pins.
+
+    One pin is one entry: pads that share a number and net (a SOT-223's or DPAK's tab beside its pin, an exposed pad
+    drawn as several pads, a THT pin on two layers) are one terminal of the copper model (REF.NUM, its copper on
+    every pad: the field solve splits the pin's current over them by their conductance), so they are listed once.
+    Listed twice, every token list built from them named the pin twice: a regulator's output `[U4.2, U4.2]` summed
+    its injection twice in its heat (2x the loss of a SOT-223 LDO), and a part's supply pads were over-counted in its
+    rails' shares. The entry keeps the first non-empty pin type and function among the pads."""
+    out, at = {}, {}
     for f in board.footprints:
-        out.setdefault(f.ref, []).extend((p.number, p.net, p.pintype or "", (p.pinfunction or "").split("/")[0].strip())
-                                         for p in f.pads if p.net)
+        out.setdefault(f.ref, [])            # a part with no pad on a net is still a part (no copper of its own)
+        for p in f.pads:
+            if not p.net:
+                continue
+            e = (p.number, p.net, p.pintype or "", (p.pinfunction or "").split("/")[0].strip())
+            k = (f.ref, p.number, p.net)
+            if k in at:
+                lst, i = at[k]
+                n0, nt0, pt0, fn0 = lst[i]
+                lst[i] = (n0, nt0, pt0 or e[2], fn0 or e[3])
+                continue
+            lst = out[f.ref]
+            at[k] = (lst, len(lst))
+            lst.append(e)
     return out
 
 
