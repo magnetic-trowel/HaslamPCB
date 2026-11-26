@@ -102,6 +102,7 @@ Ids are the [bme280-array friction log](../../../tools/research/llm-design/desig
 | F36, F48 | parts without a stated draw scored as 10 mA cores: a 2 µA switch became the hottest part | misleading physics | pre-flight `intent.priors` (once `haslam.intent priors` exists) |
 | F6 | BME280: 1 in JLC stock for 16 needed | would have blocked the order | open (no stock check) |
 | F31, F45 | references left where the library put them: 32 silk_overlap + 16 silk_over_copper | unreadable assembly drawing | `fab_outputs.py` runs `silk_refs.py`; silk DRC counted and a gate warning |
+| F57 | `silk_refs.py` sent 24 of 90 bme280-array references to F.Fab (courtyards hard, 0.8 mm only) and placed none on boards outlined by one Edge.Cuts rectangle | refs missing from silk | `silk_refs.py` rewrite: real outline, bodies not courtyards, unambiguous-nearest rule, 1.0 mm (JLC minimum) falling back to 0.8 mm; bme5 90/90 on silk, 0 silk DRC; 10-board before/after in its docstring |
 | F32 | a track bypassed the thermal bridge along the board edge | thermal intent broken quietly | copper keepouts on the edge strips (board.json); no crossing constraint yet |
 | F30 | no render step; no 3D models with apt KiCad | review by hand | `fab_outputs.py` / `render.sh`; `setup.sh --3d` |
 

@@ -98,7 +98,7 @@ gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status
 | F54 | open | corpus sprint on the shared host | required before merging to main |
 | F55 | partial | `setup.sh` re-run on this host: exit 0, env.sh written with HASLAM_KICAD_PYTHON and library dirs, doctor all ok | a fresh container (first install) still untested |
 | F56 | by design | soft region reported | — |
-| F57 | open | dense-area silk legend or smaller text | cosmetic |
+| F57 | fixed | `silk_refs.py` rewrite: bodies not courtyards, real outline, unambiguous-nearest rule, more spots, 1.0 mm text falling back to 0.8 mm, one eviction; tested on 10 boards (docstring table) | bme5: 90 of 90 on silk, 0 silk DRC, gate pass |
 
 Keep this table current: a new friction point gets a log row (next F number) and a resolution row in the same commit.
 

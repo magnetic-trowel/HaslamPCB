@@ -132,7 +132,8 @@ def main(argv=None):
             sby[v["type"]] = sby.get(v["type"], 0) + 1
     rep["silk"] = dict(drc_items=sum(sby.values()), by_type=sby,
                        placed_by="silk_refs.py" if silk is not None else "unchanged (--no-silk)",
-                       refs_on_silk=(silk or {}).get("silk"), refs_to_fab=(silk or {}).get("to_fab"))
+                       refs_on_silk=(silk or {}).get("silk"), refs_to_fab=(silk or {}).get("to_fab"),
+                       refs_below_jlc_min_height=(silk or {}).get("below_jlc_min_height"))
     rep["gate_warnings"] = [f"silkscreen: {sum(sby.values())} DRC items {sby}: references overlap or are clipped "
                             "(run without --no-silk, or move them in KiCad)"] if sby else []
     ok = not errs and not opens
