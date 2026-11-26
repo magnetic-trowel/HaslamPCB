@@ -676,3 +676,41 @@ def test_the_density_gate_skips_the_cells_stage_on_a_board_with_more_pads(tmp_pa
     monkeypatch.setenv("HASLAM_HOTLOOP_CELLS_MAX_PADS", str(pads - 1))
     rep = hotloop.stage(p, F.synth_info(load(p)), tmp_path / "w", {}, log=lambda *a: None)
     assert rep["density_gate"]["pads"] == pads and rep["board"] is None and rep["cells"] == []
+
+
+def test_pad_fill_contacts_counts_thermal_spokes(monkeypatch):
+    """hotloop_pour_spokes: a pad joined to its fill by four spokes keeps its "spokes" key; with three of them cut by
+    other-net copper only the plain contact is left, so the pour check sees a starved pad (nekoink, cells-robust)."""
+    from shapely.geometry import box
+    from haslam.board import pcbnew_io as PIO
+    sq = lambda x0, y0, x1, y1: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+    pad = dict(uuid="p1", net="GND", layers=["F.Cu"], poly=[[sq(0.0, 0.0, 1.0, 1.0)]])
+    relief = box(-3, -3, 4, 4).difference(box(-0.3, -0.3, 1.3, 1.3))
+    spokes = [box(0.4, -0.3, 0.6, 0.1), box(0.4, 0.9, 0.6, 1.3), box(-0.3, 0.4, 0.1, 0.6), box(0.9, 0.4, 1.3, 0.6)]
+    monkeypatch.setattr(PIO, "_polys", lambda rl: rl)
+    for n, want in ((4, True), (1, False)):
+        fill = [relief] + spokes[:n]
+        monkeypatch.setattr(PIO, "zone_fills", lambda path, fill=fill: dict(zones=[dict(name="", net="GND",
+                                                                                       layers={"F.Cu": fill})]))
+        got = hotloop._pad_fill_contacts("x", dict(pads=[pad]), spokes=True)
+        assert ("p1", "F.Cu") in got and (("p1", "F.Cu", "spokes") in got) is want, n
+        assert hotloop._pad_fill_contacts("x", dict(pads=[pad])) == {("p1", "F.Cu")}
+    assert hotloop.settings()["pour_spokes"] is False
+
+
+def test_pour_check_reverts_a_cell_that_starves_a_pad_of_spokes(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+    from shapely.geometry import LineString
+    from haslam.route import critical_joint
+    sq = lambda x0, y0, x1, y1: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+    pad = dict(uuid="p49", ref="U1", number="49", net="GND", layers=["F.Cu"], poly=[[sq(0.0, 0.0, 1.0, 1.0)]])
+    info = dict(pads=[pad], zones=[dict(net="GND", layers=["F.Cu"], rings=[[sq(-50, -50, 50, 50)]], clearance=0.2)])
+    cell = NS(id="cell:buck:U1:3", status="routed", notes=[], copper=[NS(net="IPSOUT", layers=("F.Cu",), width=0.3,
+                                                                          geom=LineString([(1.2, 0.5), (3, 0.5)]))])
+    full = {("p49", "F.Cu"), ("p49", "F.Cu", "spokes")}
+    monkeypatch.setattr(hotloop, "_pad_fill_contacts", lambda path, info, spokes=False:
+                        full if cell.status == "reverted" or path is None else {("p49", "F.Cu")})
+    monkeypatch.setattr(critical_joint, "_rip", lambda s, m: setattr(m, "copper", []))
+    hz, gone = hotloop.pour_check(NS(write=lambda p: None), None, info, [cell], tmp_path, log=lambda *a: None,
+                                  revert_mode="nearest", spokes=True)
+    assert cell.status == "reverted" and gone == [] and hz[0]["evidence"]["restored"]
