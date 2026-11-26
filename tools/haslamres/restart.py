@@ -955,14 +955,62 @@ def tiebreak_score(a, info, cache):
     return score
 
 
+GUARD = {}          # --alt-guard: {"refs": set of the parts whose open connections are counted}
+_DESC_REF = re.compile(r" of (\S+)(?: on |$)")
+
+
+def guard_count(info):
+    """--alt-guard: the connections an attempt's board leaves open at the guarded parts (the judge's drc.json beside
+    the board: unconnected pairs with an item on one of GUARD's refs), cached in `info`; None when unreadable."""
+    if "guard" in info:
+        return info["guard"]
+    n = None
+    try:
+        r = json.loads(Path(info["out"]).with_name("drc.json").read_text())
+        n = sum(1 for u in r.get("unconnected_items") or []
+                if any((m := _DESC_REF.search(it.get("description") or "")) and m.group(1) in GUARD["refs"]
+                       for it in u.get("items") or []))
+    except (OSError, ValueError, TypeError, KeyError):
+        n = None
+    info["guard"] = n
+    return n
+
+
+def guard_refuses(a, new, best, ties):
+    """--alt-guard: whether the comparison of `new` with `best` (boards of different arms) is decided by the guard:
+    the alternative arm's board (B) loses to the method's (A) when it leaves more connections open at the guarded
+    parts, whatever KiCad's rank (hotloop-sw round 4: a cells-first board with fewer open connections in all kept
+    though its partial cells' locked copper cut switch nodes the default closes, arvsom and nekoink). Returns None
+    when the guard does not decide, else whether `new` wins (the comparison goes to `ties`)."""
+    if not GUARD.get("refs") or not new.get("arm") or not best.get("arm") or new["arm"] == best["arm"]:
+        return None
+    gn, gb = guard_count(new), guard_count(best)
+    if gn is None or gb is None:
+        return None
+    ga, gB = (gn, gb) if new["arm"] == "A" else (gb, gn)
+    if gB <= ga:
+        return None
+    win = new["arm"] == "A"
+    ties.append(dict(guard=True, rank=list(new["rank"]), kept=best["k"], kept_arm=best.get("arm"), kept_guard=gb,
+                     other=new["k"], other_arm=new.get("arm"), other_guard=gn, switched=win))
+    log(f"guard: #{new['k']} (arm {new['arm']}) leaves {gn} open at the cells' parts, #{best['k']} (arm "
+        f"{best['arm']}) {gb}: #{new['k'] if win else best['k']} kept")
+    return win
+
+
 def better(a, new, best, cache, ties):
     """Whether attempt `new` replaces `best`: a better KiCad rank; with --alt-env and --tiebreak, both clean, of
     different arms, and a tie-break score lower by more than --tiebreak-margin, or, when the scores do not decide
-    (closer than the margin, or one missing), `new` being arm A (each comparison goes to `ties`)."""
+    (closer than the margin, or one missing), `new` being arm A (each comparison goes to `ties`). With --alt-guard,
+    first: arm B's board never replaces (and is replaced by) arm A's that leaves fewer connections open at the
+    guarded parts (guard_refuses)."""
     if new.get("rank") is None:
         return False
     if best is None or best.get("rank") is None:
         return True
+    g = guard_refuses(a, new, best, ties) if a.alt_env else None
+    if g is not None:
+        return g
     if tuple(new["rank"]) != tuple(best["rank"]) or not (a.alt_env and a.tiebreak) or tuple(new["rank"][:2]) != (0, 0):
         # only clean boards are compared by the tie-break: an open board's lineage and final pass still change
         # its copper, and a quote of a big board can take minutes (the loop waits for it)
@@ -1040,6 +1088,10 @@ def main():
     ap.add_argument("--tiebreak-margin", type=float, default=0.1,
                     help="a score must be lower by more than this to win a tie-break")
     ap.add_argument("--tiebreak-s", type=float, default=600.0, help="time limit of one tie-break command")
+    ap.add_argument("--alt-guard", default="",
+                    help="with --alt-env: command (@IN@, @OUT@: JSON with 'refs', part references) run once on the "
+                         "input; arm B's board never replaces arm A's that leaves fewer connections open at those "
+                         "parts (for haslam: python -m haslam.route.cellguard @IN@ --out @OUT@, the cells' parts)")
     ap.add_argument("--policy", default="", choices=("", "completion-first"),
                     help="completion-first: two runs of this wrapper in --time (half each). The second is --alt "
                          "(e.g. the module stage) when the first run's board is clean, else another run of COMMAND "
@@ -1099,6 +1151,17 @@ def main():
     best = None
     alt = parse_env(a.alt_env)
     arm_best, tb_cache, ties, no_new = {}, {}, [], [False]   # per-arm best; tie-break scores; comparisons
+    if alt and a.alt_guard:
+        go = wd / "guard.json"
+        c = a.alt_guard.replace("@IN@", shlex.quote(str(inp))).replace("@OUT@", shlex.quote(str(go)))
+        t_g = time.monotonic()
+        try:
+            with open(wd / "guard.log", "w") as f:
+                run_group(["sh", "-c", c], 600.0, cwd=wd, stdout=f, stderr=subprocess.STDOUT)
+            GUARD["refs"] = set(json.loads(go.read_text()).get("refs") or [])
+        except (OSError, ValueError):
+            GUARD["refs"] = set()
+        log(f"guard: {len(GUARD['refs'])} part(s) guarded ({time.monotonic() - t_g:.0f}s)")
     meter, judge_cpu, judge_wall = Meter(), 0.0, 0.0
     fast_fails = 0  # attempts in a row that died within seconds without a board: a broken command
 
@@ -1337,6 +1400,7 @@ def main():
         summary["halving"] = sh.summary()
     if alt:
         summary["choose_better"] = dict(alt_env=alt, kept_arm=best and best.get("arm"), ties=ties,
+                                        guard=sorted(GUARD.get("refs") or []),
                                         arm_best={k_: dict(k=v["k"], rank=list(v["rank"])) for k_, v in arm_best.items()})
     if (fr_raw := keep_fr_raw(wd, summary)):
         summary["fr_raw"] = fr_raw
