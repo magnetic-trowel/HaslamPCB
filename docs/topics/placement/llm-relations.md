@@ -3,7 +3,7 @@
 # Placement relations: what `haslam place --intent` does
 
 Scope: the built phase 1 of the relations input: format checks, names, the compiler onto the placer's hooks, pre-checks, the oracle, the status rows and hazards, the settings. Not here: the design, vocabulary rationale and later phases -> [llm-relations-input](llm-relations-input.md); the hazard contract -> [hazards](../architecture/hazards.md); how this merged with the intent-relations design (relation term, pad metric, the board's own intent file) and why -> [relations-unified](relations-unified.md).
-Keys: haslam place --intent, haslam.intent.relations, haslam.place.relations, Bundle, relations status, haslam.relations-status/1, relations_applied, D- rows, defaults_off, D-edge, D-label, D-order, measured only, REL_SEED_W, relations_mm, relations_vs_physics, relations_block, rel_w_strong, relation_conflict, relation_unmet
+Keys: haslam place --intent, haslam.intent.relations, haslam.place.relations, Bundle, relations status, haslam.relations-status/1, relations_applied, D- rows, defaults_off, D-edge, D-label, D-order, measured only, REL_SEED_W, relations_mm, relations_vs_physics, relations_block, rel_w_strong, relation_conflict, relation_unmet, full_weight, requested, category safety, obey physics
 
 ## Format and loading
 
@@ -83,6 +83,18 @@ Hazards (`Bundle.hazards`, then `haslam.hazards.finalize`):
 | either | block | `category: safety` and `relations_block safety` (default; `required` also blocks unmet required, `never` never) ([Q5](llm-relations-input.md#open-questions)) |
 | `relation_check_failed` | warn | the oracle raised; the placement is still written |
 
+## Physics against relations: who keeps full weight
+
+Rule (user, 2026-11-25: "mostly we just want to obey physics"). With `relations_vs_physics physics` (the default), a soft relation on a part the place terms price (a part of a brief section the physics arm builds a structure for) weighs as `weak` in the keep-away grid and the relation term (placer and joint windows). Two relations keep their own strength there (`Bundle.full_weight`):
+
+| Relation | Marked by | Status row | Unmet |
+|---|---|---|---|
+| safety | `"category": "safety"` (existing field, Q5) | `full_weight: "safety"` | `relation_conflict` with `winner: tie`, `full_weight`; blocks (`relations_block safety`) |
+| explicit request | `"requested": true` (the user asked for this relation specifically; not for relations the LLM or haslamsynth infers) | `full_weight: "requested"` | `relation_conflict` with `winner: tie`, `full_weight`; warns |
+| any other | - | `yielded_to` the structures | `relation_conflict` with `winner: physics`; warns |
+
+`requested` is a boolean (`haslam.intent.relations.check` rejects anything else). Intents with neither mark weigh exactly as before the rule [M: [relations-unified](relations-unified.md#results)]. Label-term pulls (region, soft on_edge, near to a fixed part or label) are weighed when the intent is compiled, before the placer knows which parts physics prices, so neither the demotion nor this exception reaches them: they keep their strength, as since #141 [I, `pipeline._place_rung`: `compile_intent` before `set_physics`].
+
 ## Settings
 
 `haslam.route.constraints.DEFAULTS` (project `HASLAM_<NAME>` text variable, else opts):
@@ -90,7 +102,7 @@ Hazards (`Bundle.hazards`, then `haslam.hazards.finalize`):
 | Setting | Default | Meaning |
 |---|---|---|
 | `relations_mm` | `sourced` | Q1: lengths allowed, `assumed` without a source; `forbid` |
-| `relations_vs_physics` | `physics` | Q2, answered: physics wins; a pull or keep-away on parts the place terms price weighs as weak, and unmet it is a `relation_conflict` naming the physics, the row `yielded_to` it; `tie`: relations keep their weight (still a conflict when unmet) |
+| `relations_vs_physics` | `physics` | Q2, answered: physics wins; a pull or keep-away on parts the place terms price weighs as weak, and unmet it is a `relation_conflict` naming the physics, the row `yielded_to` it; except the two kinds of relation below, which keep their strength; `tie`: relations keep their weight (still a conflict when unmet) |
 | `relations_block` | `safety` | Q5, answered as built: as above |
 | `rel_<mag>_decap`, `rel_<mag>_scale`, `rel_gap_min` | 2.5/4.9/15, 0.5/2/6, 0.5 | magnitudes |
 | `rel_w_<strength>` | 0.3/1/3/10 | pull and keep-away weights |
