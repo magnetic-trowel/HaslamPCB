@@ -97,3 +97,8 @@ def test_setting_from_opts_and_board(tmp_path):
     pcb.with_suffix(".kicad_pro").write_text(json.dumps({"text_variables": {"HASLAM_GROUND_SIDE_COST": "3"}}))
     assert constraints.setting("ground_side_cost", pcb, dict(ground_side_cost=4)) == 3.0
     assert constraints.setting("ground_side_cost", pcb, {}) == 3.0
+
+
+def test_repair_rounds_route_without_the_price_by_default():
+    assert constraints.setting("ground_side_repair", None, {}) == 0.0
+    assert constraints.setting("ground_side_repair", None, dict(ground_side_repair=1)) == 1.0   # the old behaviour
