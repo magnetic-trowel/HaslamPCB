@@ -18,7 +18,7 @@ Environment for every stage: `source $HASLAM_HOME/env.sh` (default `~/.cache/has
 | # | Stage | Command | Output | Gate (stop if it fails) |
 |---|---|---|---|---|
 | S1 | Requirements and part research | `haslamsynth ds MPN\|Cnnn\|URL --section "Absolute Maximum"` (or `--grep RX`): vendor PDF, else LCSC's copy, cached, printed with page numbers (render figures with pdftoppm and read them); `haslamsynth jlc --search MPN 'keywords' [--match '1.8V~5.5V'] [--min-stock N] [--basic]` for stock and basic/extended | numbers with page citations; part cards with an `LCSC` field | every typed fact has a source; every IC in stock for the build quantity |
-| S2 | Circuit as code | write `designs/<slug>/parts.py`, `design.py`, custom footprints (`footprints/make_footprints.py`) | — | — |
+| S2 | Circuit as code | write `designs/<slug>/parts.py`, `design.py`, custom footprints (`footprints/make_footprints.py`); placement intent per [layout-intent-from-datasheets](layout-intent-from-datasheets.md) (facts and terms, not datasheet distances) | — | — |
 | S3 | Schematic and checks | `haslamsynth jlc designs/<slug>/design.py` (LCSC numbers of generic passives; stock and basic flags of every part with an LCSC field, cached in `jlc.json`), then `haslamsynth build designs/<slug>/design.py -v` | `.kicad_sch`, `.kicad_pro`, `.kicad_dru`, `netlist.json`, `bom.csv`, `report.md`, `<slug>.haslam_intent.json`, `board.json` (from `d.board(...)` and `d.place.fixed(...)`) | 0 errors (incl. `rules.pin_escape`, `rules.pad_gap`, `bom.stock` against `d.board(quantity=)`, `layout.fab_minimums` incl. footprint drills, `board.geometry`), ERC clean, netlist round trip identical, intent accepted by haslam's loader; read `layout.density`, `bom.setup_fees`, `layout.region_crosses_slot`, `haslam_intent.supply_prior` |
 | S4 | Operating intent | net `v_typ=`, part-card `haslam=`, then `d.haslam.net/part/cell/cable/term(...)` for design choices (rebuilt by S3) | `<slug>.haslam_intent.json` (haslam.intent/1) | `haslam brief` shows `facts.unmatched == []` and the cells' V, I, f_sw as declared |
 | S5 | Unplaced board | `$KPY synth/scripts/sch_to_board.py designs/<slug>/out` (reads the build's `out/board.json`; a hand `board.json` as 2nd argument must agree with the design) | `<slug>.kicad_pcb` beside the project, with the fab's stackup (JLC standard 2-layer unless board.json `stackup` says otherwise); every footprint library it used in the project's `fp-lib-table` | `kicad-cli pcb drc --schematic-parity`: parity 0; no edge or courtyard error among the fixed parts |
@@ -36,7 +36,7 @@ place a block in a part of the board with `d.place.region(..., "area:NAME")`, ne
 the board's third); tie a relation that restates a requirement to it (`req="REQ-n"`: `requested`, so physics does not
 outweigh it), or use `d.place.thermal_isolate(...)`; a `required` region is a hard keep-in for every member. State
 every IC's supply draw (`I_A`, `I_sustained_A`, or `core_*`/`core: false`) so physics prices facts, not class priors.
-Leave decoupling to physics: no made-up distances.
+Datasheet layout numbers are physics proxies: give haslam the facts and terms, not the distances ([layout-intent-from-datasheets](layout-intent-from-datasheets.md)).
 
 ## F. The board intent file
 

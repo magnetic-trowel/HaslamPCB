@@ -112,7 +112,7 @@ gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status
 
 Keep this table current: a new friction point gets a log row (next F number) and a resolution row in the same commit.
 | F68 | fixed (process) | review round: 10 concerns, all addressed (see "Review of the fixes" below); CLAUDE.md neutrality rule | — |
-
+| F69 | fixed (docs) | `docs/topics/workflow/layout-intent-from-datasheets.md`: one page mapping datasheet layout advice to the physics it proxies, what haslam prices, what to state instead, and when a relation is right; linked from README Part 1, CLAUDE.md, brief-to-board S2, the synth README and datasheet-to-constraints | bme280-array itself still has soft proxy nears (L1/L2 at their ICs, S-CONF/VSET, the TPS3700 divider, channel pull-ups): remove and re-validate with one layout |
 
 ## Review of the fixes (2026-11-26, a second session's audit)
 
@@ -203,3 +203,4 @@ Goal restated by the user: improve haslam for every board, never hurt other boar
 | F66 | tests | (round 3) `test_proc.py::test_a_timeout_kills_the_whole_group` fails in this container on the pre-change code too. | — | open: check on the shared host |
 | F67 | docs | (round 3) designs/README.md listed leadacid, liion and prius as "Checks pass" while haslamsynth main gives them 1, 32 and 323 `rules.*` errors (checks added after their review). | stale claim | corrected |
 | F68 | process | (review) Several fixes changed a default for every board to solve one board's problem (fork pin, core cap, hot-loop window, uW-net skip, pull-up duty) or duplicated work already on main (#190's parser); a second session's audit caught them. A fix for one design must be opt-in or shown neutral on other boards first (CLAUDE.md rule), and the branch must be merged with main before parallel fixes start. | review round | rule in CLAUDE.md; merge main first |
+| F69 | knowledge | (user, 2026-11-26) The root of F29/F52 and several hand relations: the LLM read datasheets and took their layout numbers as requirements. Datasheets are right about facts and direction; their layout numbers are proxies written for engineers without a solver (the genealogy docs show most are loop-inductance proxies, some anti-conservative on 2-layer boards). The repo held that knowledge (160 rules with verdicts, place-terms) but nothing pointed a design LLM to it at the moment it read a datasheet, and reading it all would flood the context. | many hand relations, one near-regression | a one-page translation guide at the entry points, with grep pointers to single rule rows |

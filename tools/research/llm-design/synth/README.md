@@ -178,6 +178,10 @@ declares `i_through=` (amps, or `{pin: amps}` per winding/pin).
 
 ### Placement relations (`d.place.*`; ordinal magnitudes, never coordinates)
 
+Read [layout intent from datasheets](../../../../docs/topics/workflow/layout-intent-from-datasheets.md) first: most datasheet layout advice (cap distances,
+"as close as possible") is priced by haslam's physics from facts (`d.haslam.cell/part/term`); write relations for
+mechanics, the user's requirements (`req=`), safety and board geometry.
+
 `group(block)`, `region(block | part | [parts], "north")`, `pins_toward(part, ["A1", "A2"], "south")`
 (rotate so those pins face that side — use it instead of free-text orientation), `near(a, b, "tight|close|loose")`, `far(a, b)`,
 `hot_loop([pins...])`, `edge(part, "north|south|east|west|any")`, `orient(part, facing)`,

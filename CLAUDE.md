@@ -8,6 +8,8 @@ CC-BY-4.0 (see `LICENSING.md`). New source files carry SPDX headers.
 - Look up a term with `grep -i '<term>' docs/SUBJECTS.md` (idea ids: `grep -w XD113 docs/IDS.md`)
   and open only the linked section; otherwise start at `docs/INDEX.md`. Don't bulk-read
   `research_notes/`; it is raw evidence cited by the topic docs.
+- Designing a board (design.py, intent files): read `docs/topics/workflow/layout-intent-from-datasheets.md` (one page) before writing placement relations:
+  datasheet layout numbers are physics proxies; give haslam facts, not distances.
 - When writing docs, follow `docs/CONVENTIONS.md`: reference-text style (formulas, tables,
   numbered facts), each fact once with links elsewhere, `Scope:`/`Keys:` header lines.
   Re-run `python3 tools/docs/subjects.py` after editing docs.
