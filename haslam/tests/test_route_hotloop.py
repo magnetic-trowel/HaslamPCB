@@ -566,3 +566,41 @@ def test_a_board_with_a_buck_routed_without_cells_gets_the_decision_entry(tmp_pa
     assert h["decision"]["setting"] == "hotloop_cells" and "HASLAM_HOTLOOP_CELLS=1" in h["message"]
     assert any("buck" in c for c in h["evidence"]["cells"])
     assert hotloop.cells_hint(p, dict(hotloop_cells=1)) == []
+
+
+# ----------------------------------------------------------------------------- cells-robust
+def test_a_closed_cell_has_no_gaps(tmp_path):
+    s = F.session(tmp_path, kinds=("cell",), rails="none")
+    s.route(budget_s=60)
+    (m,) = [m for m in s.modules if m.kind == "cell"]
+    assert m.status == "routed" and CM.cell_gaps(m) == []
+
+
+def test_a_hop_with_no_common_layer_is_a_gap_and_its_partial_cell_is_ripped(tmp_path, monkeypatch):
+    """arvsom U6 (round 4): hop 0 had no common copper layer, the cell was kept partial with 8 items locked, and the
+    general router could not reach L6.1 and U6.5 past them. Its gap is recorded, and drop_cells with partial "rip"
+    (hotloop_cell_partial, the stage's default) rips it; "keep" leaves it as before."""
+    orig = CM.hop_layers
+    monkeypatch.setattr(CM, "hop_layers", lambda ctx, ta, tb, prefer=None: [] if ta.net == "VIN" and tb.net == "VIN"
+                        else orig(ctx, ta, tb, prefer=prefer))
+    s = F.session(tmp_path, kinds=("cell",), rails="none")
+    s.route(budget_s=60)
+    (m,) = [m for m in s.modules if m.kind == "cell"]
+    assert m.status == "partial" and m.copper
+    assert any("no common copper layer" in g for g in CM.cell_gaps(m))
+    hotloop.drop_cells(s, [m], ("buck", "boost"), log=lambda *a: None, partial="keep")
+    assert m.status == "partial" and m.copper
+    hotloop.drop_cells(s, [m], ("buck", "boost"), log=lambda *a: None, partial="rip")
+    assert m.status == "failed" and not m.copper and not s.space.routed
+    assert m.notes[0].startswith("partial, ripped: hop")
+    assert hotloop.settings()["cell_partial"] == "rip"
+
+
+def test_a_partial_cell_whose_only_open_hop_returns_through_the_plane_is_kept(tmp_path):
+    """nekoink U3: the ground hop left to the plane, its return vias laid: no gap, the cell stays."""
+    s = F.session(tmp_path, kinds=("cell",), rails="none")
+    m = CM.Module(id="cell:buck:U9", kind="cell", spec={"_gaps": []}, parts=[], status="partial")
+    m.notes = ["hop 2 (GND): returns through the plane"]
+    m.copper = [s.space.add_track("VIN", "F.Cu", 0.2, (130.0, 120.0), (130.0, 121.0), owner=("hop", 0))]
+    hotloop.drop_cells(s, [m], ("buck", "boost"), log=lambda *a: None, partial="rip")
+    assert m.status == "partial" and m.copper
