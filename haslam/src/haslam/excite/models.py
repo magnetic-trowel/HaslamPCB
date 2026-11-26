@@ -408,7 +408,12 @@ def _part(bd, ref, part, pins, kind, sub, role, rec, in_cell):
         c.z(ref, a.net, b.net, _rl(FUSE_R, 2e-9), tok(a), tok(b), "R")
         bd.assumptions.append(f"{ref}: fuse at {FUSE_R * 1e3:g} mOhm cold resistance (class prior)")
     elif kind == "inductor" and len(tw) == 2:
-        L = V.inductance(part.value) or 10e-6
+        L = V.inductance(part.value)
+        if L is None:
+            # a part number for a value (XAL4020-222MEC, SRN6045-4R7M) reads as nothing: the stand-in sets the cell's
+            # ripple and so its peak current and AC losses, and was assumed without a word
+            L = 10e-6
+            bd.assumptions.append(f"{ref}: value '{part.value}' unread; 10 uH assumed")
         a, b = tw
         # an inductor is open at the edges of a switching cell: winding capacitance carries it
         c.z(ref, a.net, b.net, _par(_rl(0.05, L), _rlc(0, 0, 5e-12)), tok(a), tok(b), "L")
