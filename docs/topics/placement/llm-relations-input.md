@@ -39,7 +39,7 @@ No source counts coverage [S]; the 76% comes from one LLM's designs.
 No coordinates and no millimetres, except datasheet distances with a `source` ([open questions](#open-questions)).
 
 **Magnitudes** `tight | close | loose` resolve on the solver side:
-- 0402 decaps use the corpus priors ([measured priors](../data/measured-priors.md#decoupling-distance-priors)): tight ≤ 2.5 mm (median), close ≤ 4.9 mm (p90), loose ≤ 15 mm, centre to centre.
+- 0402 decaps use the corpus priors ([measured priors](../data/measured-priors.md#decoupling-distance-priors)): tight ≤ 2.5 mm (median), close ≤ 4.9 mm (p90), loose ≤ 15 mm, pad to pad (the cap's pad on the rail to the pin, as the priors measure; [relations-unified](relations-unified.md#aspect-by-aspect)).
 - Other parts scale with s = √(courtyard area of the smaller member): tight gap ≤ max(0.5 mm, 0.5·s), close ≤ 2·s, loose ≤ 6·s.
 - Overridable as `HASLAM_REL_<MAG>_<CLASS>` [I].
 
@@ -47,7 +47,7 @@ No coordinates and no millimetres, except datasheet distances with a `source` ([
 
 | Kind | Arguments | Measured by the oracle | Default |
 |---|---|---|---|
-| `near` | a, b (part, pin, section, label), mag | named pins: centre distance; parts: courtyard gap | medium |
+| `near` | a, b (part, pin, section, label), mag | named pins and 0402 decaps: shortest pad to pad (a bare part's pads on the pin's net); parts: courtyard gap | medium |
 | `group` | members or section, mag, `exclusive` | bbox area ÷ Σ courtyard area ≤ 1.5 / 2.5 / 4 (tight / close / loose); exclusive: no other courtyard in the hull | medium |
 | `region` | members, region (`area:`, `region:`, `edge:`), `exclusive` | member courtyard area outside the region; exclusive: other parts' area inside it | strong |
 | `on_edge` | part, edge, `facing: out|along|any` | courtyard ≤ 1 mm from that edge; body faces out (cos ≥ 0.3) | required |
@@ -216,7 +216,7 @@ Judge B on obeying cheaply, not routing better: coarse hints barely move routing
 ## Open questions
 
 1. **Datasheet millimetres.** May the LLM write "C5 within 2 mm of U1 pin 7" when a datasheet says so? Proposed: only with a `source`, else marked `assumed`. RAC forbids metric values outright.
-2. **Physics against relations.** Answered (user, 2026-11-22): physics wins by default and the collision is reported as a conflict; tie stays a switch ([llm-relations](llm-relations.md#settings)).
+2. **Physics against relations.** Answered (user, 2026-11-22): physics wins by default and the collision is reported as a conflict; tie stays a switch ([llm-relations](llm-relations.md#settings)). Refined (user, 2026-11-25, "mostly we just want to obey physics"): relations with `category: safety` or an explicit request (`requested: true`) keep their full weight ([who keeps full weight](llm-relations.md#physics-against-relations-who-keeps-full-weight)).
 3. **Rooms as DRC rules.** `enclosedByArea` assertions would make KiCad's DRC, and the benchmark score, see rooms: a scoring change needing its own commit and re-run baselines. Wanted?
 4. **Side flips.** Is `side` worth the writer work, or does "put it on the bottom" stay a human step for now?
 5. **Blocking.** Answered (user, 2026-11-22): an unmet required relation warns; only `category: safety` blocks.

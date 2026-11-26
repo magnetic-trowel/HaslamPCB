@@ -3,7 +3,7 @@
 # The board intent file, field by field: who in haslam reads it
 
 Scope: every field haslamsynth writes into a design's intent, and every field of `haslam.intent/1`, with the haslam code that reads it. Rule: a field goes into the intent only if haslam uses it, correctly. Audit of 2026-11-24, haslam branch `intent-relations` and haslamsynth branch `haslamsynth-relations`; the gaps it found are fixed on haslam branch `intent-wiring` (A7). Not here: what the fields mean -> [intent-driven-objectives](../architecture/intent-driven-objectives.md); where the file sits and how stages use it -> [brief-to-board F](brief-to-board.md#f-the-board-intent-file); the relations' placer terms -> [intent-relations](../placement/intent-relations.md).
-Keys: haslam_intent.json, haslam.intent/1, intent.yaml, pcb-intent/0.2, intent audit, unused fields, relations, facts, terms, knobs, environment, cables, producer, G14
+Keys: haslam_intent.json, haslam.intent/1, intent.yaml, pcb-intent/0.2, intent audit, unused fields, relations, facts, terms, knobs, environment, cables, producer, G14, requested, relations category
 
 Stages: **P** placer (`haslam.place`, the joint loop's place step and windows); **R** default router (`haslam.route.critical`, `critical_cli`); **PNR** `haslam.em.pnr` (not in the default recipe); **E** evaluator (`haslam.excite.evaluate`/`wideband`, `haslam.intent status`). Paths are under `haslam/src/haslam/`.
 
@@ -31,7 +31,9 @@ Effect on solar-small: the design's `d.place.near` relations and the inferred de
 | `environment.cables[].shield, why` | nobody | **removed** (`why` stays in design.py, required by `d.haslam.cable`) |
 | `knobs` | `route.Policy` reads `route.area_cost`, `route.width.min_mm/max_mm` (PNR); `route.width.*` also narrow the critical router's per-net width limits (R, `intent/uses.py:width_knobs` in `critical_space.width_limits`; the board's rules win) | written only when the design sets one (solar-small: none). `route.area_cost` is PNR-only: the critical router sizes by IPC-2221 and the drop budget, with no area price |
 | `sections` | `objective.evaluate`, `pnr.__init__` via `sections.apply` | not written by haslamsynth |
-| `relations` (new) | `circuit/brief.py:build` → `intent/relations.py:resolve` → `place/relations.py:rules` → `place/anneal.py`, `place/engine.py` (P, joint windows `joint/replace.py`); oracle `intent/relations.py:measure` | **wired** (A6) |
+| `relations` (new) | `circuit/brief.py:build` (`intent/relations.py:for_brief`) → `place/relations.py:from_brief` → `Bundle.rules` → `place/anneal.py`, `place/engine.py` (P, joint windows `joint/replace.py`); oracle `Bundle.status` (`python -m haslam.intent relations`) | **wired** ([relations-unified](../placement/relations-unified.md)) |
+| `relations[].category` | `place/relations.py:Bundle.full_weight` (`safety` keeps full weight against physics), `Bundle.hazards` (`safety` blocks unmet) | kept; haslamsynth writes none |
+| `relations[].requested` (bool) | `place/relations.py:Bundle.full_weight`: an explicit request of the user's keeps full weight against physics ([rule](../placement/llm-relations.md#physics-against-relations-who-keeps-full-weight)) | new; write it only for a relation the user asked for specifically; haslamsynth writes none |
 
 ## A3. Terms
 
@@ -117,4 +119,4 @@ Boards without an intent file run none of this: their briefs, router options and
 
 Branch `facts-everywhere` (off `intent-wiring`): a stated `v_sw_max_V` always sets the hot-loop budgets; converter and regulator losses (brief `P_W`, heat sources) are re-sized after `facts.apply` from the applied cell V/I, the output rail's `V_V` and `eta`, a linear's rails and `nets.<vout>.I_A` (the law in the brief's `parts.<uuid>.P_W_model`, the basis and replaced value in `brief.facts.applied`); `parts.I_A` stays the part's own draw. Open, found by the same survey: `nets.range_V` without `V_V` sets no volts; a cell's `t_sw_ns` class default is not re-derived when the facts change its bus V; rails that inherit volts through a series part keep the pre-facts reading; the critical router ignores `parts.I_A`, `nets.eta` and `requirements.thermal.T_amb_C` (its `T_AMB_MAX_C` is 50 C); `place/heat.py`, `route/power_copper.py` and `thermal_vias.py` read `HASLAM_OPERATING`, not the intent file; overshoot budgets price the typical V and t_sw, not the interval's worst corner.
 
-Open: the relations of `haslam.intent/1` exist twice. Main's (`haslam place --intent`, kinds `near`, `on_edge`, `region`, ... with `mag`) and `intent-relations`' (resolved from the board's own file into the brief, kinds `near`, `keep_away`, `group`, `edge` with `within_mm`) share the key with different vocabularies: main's loader rejects the file haslamsynth now writes (`edge`). One vocabulary has to be chosen before either branch's relations reach a board's own intent file.
+Resolved: the relations of `haslam.intent/1` existed twice (main's `haslam place --intent` with `mag`, and `intent-relations`' with `within_mm` and `edge`); [relations-unified](../placement/relations-unified.md) keeps one vocabulary and reads the other spelling for a transition.

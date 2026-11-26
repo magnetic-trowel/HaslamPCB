@@ -166,6 +166,13 @@ def cmd_place(a):
     res.report["total_s"] = round(clock_now() - t0, 2)
     legal = not res.report.get("exact") and not res.report.get("outline_incomplete") and kicad_clean is not False
     res.report["legal"] = bool(legal)
+    if bundle is None and getattr(res, "relations", None) is not None:
+        bundle = res.relations           # the board's own intent file (<stem>.haslam_intent.json), via the brief
+    if res.report.get("relations_error"):
+        res.report.setdefault("hazards", []).append(dict(
+            code="relation_check_failed", severity="warn", category="data",
+            message=f"the board's intent file relations were not applied: {res.report['relations_error']}",
+            objects=[], fix="fix the names in the intent file (the message lists what exists)"))
     if bundle is not None:
         # the oracle: every relation measured on the board as written, re-read from the file
         try:
