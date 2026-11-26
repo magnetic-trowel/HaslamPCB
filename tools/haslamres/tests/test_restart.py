@@ -668,3 +668,19 @@ def test_canonical_copper_order_reads_a_net_name_with_an_unbalanced_parenthesis(
         out = p.read_text()
         assert out.count("(segment") == 2 and out.count('Net-(U2-PA13(JTMS)') == 2 and out.rstrip().endswith(")")
         assert out.index("(start 0 0)") < out.index("(start 1 1)")         # sorted by content
+
+
+def test_alt_paired_gives_each_arm_the_methods_own_schedule(tmp_path):
+    """--alt-paired: arm A's attempts have the seeds, budgets and count the method alone would (j = 0, 1, ...), and arm
+    B's j-th attempt shares its seed; twice --parallel run at once."""
+    att = "echo \"(kicad_pcb OPEN=${OPENS:-2} arm=${HL:-A} s=@SEED@ t=@TIME@)\" > @OUT@"
+    r, out, summary = _run(tmp_path, att, "", time_s=400, extra=[
+        "--parallel", "2", "--max-attempts", "8", "--first-s", "25", "--alt-env", "HL=B OPENS=2", "--alt-paired"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    log = [d for d in summary["attempt_log"] if isinstance(d["k"], int)]
+    A = [d for d in log if d["arm"] == "A"]
+    B = [d for d in log if d["arm"] == "B"]
+    assert [d["seed"] for d in A] == list(range(len(A))) and [d["seed"] for d in B] == list(range(len(B)))
+    assert [d["budget"] for d in A[:2]] == [25, 25] and all(d["budget"] == 50 for d in A[2:4])
+    assert all(d["resumed_from"] is None or next(x for x in log if x["k"] == d["resumed_from"])["arm"] == d["arm"]
+               for d in log)

@@ -1088,6 +1088,10 @@ def main():
     ap.add_argument("--tiebreak-margin", type=float, default=0.1,
                     help="a score must be lower by more than this to win a tie-break")
     ap.add_argument("--tiebreak-s", type=float, default=600.0, help="time limit of one tie-break command")
+    ap.add_argument("--alt-paired", action="store_true",
+                    help="with --alt-env: each arm runs the method's whole schedule (its own attempts, seeds, budgets "
+                         "and resumes, as without --alt-env) side by side, twice --parallel attempts at once, so arm A "
+                         "matches the method alone and arm B pairs with it seed for seed (about twice the CPU)")
     ap.add_argument("--alt-guard", default="",
                     help="with --alt-env: command (@IN@, @OUT@: JSON with 'refs', part references) run once on the "
                          "input; arm B's board never replaces arm A's that leaves fewer connections open at those "
@@ -1150,6 +1154,7 @@ def main():
     running, done, k = {}, [], 0
     best = None
     alt = parse_env(a.alt_env)
+    paired = bool(alt and a.alt_paired)
     arm_best, tb_cache, ties, no_new = {}, {}, [], [False]   # per-arm best; tie-break scores; comparisons
     if alt and a.alt_guard:
         go = wd / "guard.json"
@@ -1174,10 +1179,13 @@ def main():
             b = min(b, left())
             frm = next(x for x in done if x["k"] == src_k) if src_k is not None else None
         else:
-            b = min(a.first_s * a.growth ** (k // a.parallel), left())
-            src_best = (arm_best.get("B" if k % 2 else "A") or best) if alt else best
-            frm = src_best if (a.resume > 0 and k >= a.parallel and src_best is not None and src_best["rank"] is not None
-                               and k % a.parallel < round(a.resume * a.parallel)) else None
+            # --alt-paired: each arm runs the method's own schedule (j, the arm's attempt index, as k would be
+            # without --alt-env), so arm A gets the attempts, seeds and resumes the method alone would
+            j = k // 2 if paired else k
+            b = min(a.first_s * a.growth ** (j // a.parallel), left())
+            src_best = (arm_best.get("B" if k % 2 else "A") or (None if paired else best)) if alt else best
+            frm = src_best if (a.resume > 0 and j >= a.parallel and src_best is not None and src_best["rank"] is not None
+                               and j % a.parallel < round(a.resume * a.parallel)) else None
         if b < 20 or (a.max_attempts and k >= a.max_attempts) or no_new[0] or TERM:
             return False
         arm = (frm.get("arm") if frm is not None else ("B" if k % 2 else "A")) if alt else None
@@ -1185,7 +1193,7 @@ def main():
         d = wd / f"a{k}"
         d.mkdir(exist_ok=True)
         o = d / "board.kicad_pcb"
-        s = a.seed * 1000 + k
+        s = a.seed * 1000 + (k // 2 if paired else k)       # --alt-paired: both arms' j-th attempts share a seed
         src, resume = inp, False
         if frm is not None:
             src, resume = d / "best_in.kicad_pcb", True
@@ -1245,7 +1253,7 @@ def main():
         """Start attempts while slots are free (work mode: a whole batch, only when none is running)."""
         if WORK and running:
             return
-        while len(running) < a.parallel and launch():
+        while len(running) < a.parallel * (2 if paired else 1) and launch():
             pass
         if WORK and running:
             plan_used[0] += max(i["budget"] for i in running.values())
