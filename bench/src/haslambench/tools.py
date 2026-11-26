@@ -24,7 +24,12 @@ ENV_DEPENDENT_CHECKS = ("lib_footprint_issues", "lib_footprint_mismatch")
 # KiCad versions the docs, the DRC-rule checker's drift tests (haslam/tests/test_board_dru_check.py) and the
 # container image were checked on; `haslambench doctor` warns on any other. Add a version here only after
 # those tests pass on it (10.0.8: 60 passed, 1 skipped, bme280-array FRICTION F20).
-KICAD_TESTED_VERSIONS = ("10.0.7", "10.0.8")
+KICAD_TESTED_VERSIONS = ("10.0.7", "10.0.8")   # the design flow (docs, DRU drift tests) was checked on these
+# Benchmark comparability: the stored baselines (control-w48) ran on this KiCad and this Freerouting fork
+# (tools/haslamres/experiments/control-tag.sh: FORK=37b1a8b). Results from a host with another KiCad or fork are not
+# comparable with them (DRC differs between KiCad versions); doctor warns. Update both when a new control is frozen.
+BASELINE_KICAD = "10.0.7"
+CONTROL_FORK = "37b1a8b"
 
 
 class ToolError(RuntimeError):

@@ -82,12 +82,26 @@ def kicad_checks():
     if ver:
         if ver in tools.KICAD_TESTED_VERSIONS:
             out.append(f"ok   kicad version: {ver} (tested)")
+            if ver != tools.BASELINE_KICAD:
+                out.append(f"WARN kicad version for benchmarks: {ver} is fine for design work, but the stored baselines "
+                           f"ran on {tools.BASELINE_KICAD} and DRC differs between versions: compare benchmark results "
+                           f"only on {tools.BASELINE_KICAD} (bench/scripts/setup.sh --kicad container)")
         else:
             out.append(f"WARN kicad version: {ver} is not one the docs and drift tests were checked on "
                        f"({', '.join(tools.KICAD_TESTED_VERSIONS)}): run pytest haslam/tests/test_board_dru_check.py "
                        "and follow docs/topics/kicad/drc-rule-language-reference.md"
                        "#keeping-the-checker-in-sync-with-kicad, then add it to KICAD_TESTED_VERSIONS "
                        "(bench/src/haslambench/tools.py)")
+    try:
+        fr = " ".join(tools.freerouting_cmd())
+        if "haslam-freerouting-fork-" in fr and f"fork-{tools.CONTROL_FORK}" not in fr:
+            out.append(f"WARN freerouting fork: pinned {fr} is not the control's fork {tools.CONTROL_FORK}: benchmark "
+                       f"results are not comparable with the baselines; pin it: "
+                       f"tools/research/routing/install_freerouting_fork.sh {tools.CONTROL_FORK} --pin")
+        elif "haslam-freerouting-fork-" in fr:
+            out.append(f"ok   freerouting fork: the control's ({tools.CONTROL_FORK})")
+    except tools.ToolError:
+        pass                        # cmd_doctor already reports a missing pin
     wrap = tools._env_cmd("HASLAM_KICAD_WRAP") or []
     # the container set-up's wrapper ends with the unpacked image's directory
     roots = [Path(wrap[-1]) / "usr/share/kicad"] if wrap and Path(wrap[-1]).is_dir() else []

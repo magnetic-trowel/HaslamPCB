@@ -28,8 +28,9 @@ KICAD_MODE=auto
 DO_FR=1
 FR_VERSION="2.5.0"
 FR_ZIP_SHA256="e8ffca14914e5307a2fa9aea723fb93d11b99bebda20d126472da5460c03196e"
-# the magnetic-trowel/freerouting fork build that is the control (haslamres baselines, tools/haslamres/README.md)
-FR_FORK_REF="06d2686"
+# the magnetic-trowel/freerouting fork build that is the control: the fork the stored baselines ran on (control-w48:
+# tools/haslamres/experiments/control-tag.sh FORK=; haslambench.tools.CONTROL_FORK, which doctor checks the pin against)
+FR_FORK_REF="37b1a8b"
 DO_FORK=1
 DO_3D=0
 KICAD_APT_VERSION="${KICAD_APT_VERSION:-}"

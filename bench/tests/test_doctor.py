@@ -39,3 +39,18 @@ def test_a_kicad_cli_that_does_not_run_fails(monkeypatch):
     assert any(ln.startswith("FAIL kicad version") and "did not run" in ln for ln in lines)
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 255, "", "FATAL: no image\n"))
     assert any(ln.startswith("FAIL kicad version") and "no image" in ln for ln in cli.kicad_checks())
+
+
+def test_benchmark_comparability_warns_on_another_kicad_or_fork(monkeypatch):
+    """The stored baselines ran on BASELINE_KICAD with CONTROL_FORK: doctor says when a host differs (review of F2/F3)."""
+    _fake_cli(monkeypatch, "10.0.8")
+    monkeypatch.setattr(tools, "freerouting_cmd", lambda: ["/h/haslam-freerouting-fork-06d2686/bin/freerouting"])
+    lines = cli.kicad_checks()
+    assert any(ln.startswith("WARN kicad version for benchmarks") and tools.BASELINE_KICAD in ln for ln in lines)
+    assert any(ln.startswith("WARN freerouting fork") and tools.CONTROL_FORK in ln for ln in lines)
+    _fake_cli(monkeypatch, tools.BASELINE_KICAD)
+    monkeypatch.setattr(tools, "freerouting_cmd",
+                        lambda: [f"/h/haslam-freerouting-fork-{tools.CONTROL_FORK}/bin/freerouting"])
+    lines = cli.kicad_checks()
+    assert not any(ln.startswith("WARN kicad version for benchmarks") or ln.startswith("WARN freerouting") for ln in lines)
+    assert any(ln.startswith("ok   freerouting fork") for ln in lines)
