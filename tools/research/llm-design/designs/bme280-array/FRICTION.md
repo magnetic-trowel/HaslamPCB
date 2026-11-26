@@ -43,8 +43,8 @@ gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status
 | # | Status | Fix (commit) | Evidence / remaining |
 |---|---|---|---|
 | F1 | fixed | setup installs kicad-symbols/footprints, env.sh carries library dirs; doctor checks them (521ec6b) | doctor ok on this host |
-| F2 | fixed | `FR_FORK_REF=06d2686` in setup.sh, built and pinned (521ec6b) | setup not re-run (F55) |
-| F3 | fixed | `KICAD_TESTED_VERSIONS`, doctor WARN on others; optional apt pin (521ec6b) | bench tests 7 passed |
+| F2 | fixed (corrected) | setup pins the CONTROL's fork 37b1a8b (was 06d2686, an old README example: review concern 1); doctor warns on any other (5498b05) | this host re-pinned to 37b1a8b |
+| F3 | fixed (corrected) | 10.0.8 is tested for the design flow only; doctor warns that benchmark comparisons need the baselines' 10.0.7 (5498b05, review concern 9) | — |
 | F4 | fixed | gradle retries 30/90/240 s, `--offline` fallback (521ec6b) | fake-gradlew test |
 | F5 | fixed | `haslamsynth jlc --search` (f4a775d) | live lookups |
 | F6 | fixed | `bom.stock` check vs `d.board(quantity=)` (f4a775d) | test: 1 in stock for 80 -> warning |
@@ -54,7 +54,7 @@ gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status
 | F10 | fixed | `slots`, zone `rect`, `SlotBarrier`, areas (785ae04, earlier sch_to_board) | rect-for-rect match |
 | F11 | fixed | `lib.Zener` (d5f8e81) | waiver removed |
 | F12 | fixed | `Design.v_rel`, `lib.ReversePMOS` (d5f8e81) | Q1 V(D-S) waiver removed |
-| F13 | fixed | pull-up 50 % low default (d5f8e81) | R15/R16 p_diss removed |
+| F13 | reverted | pull-up default back to held-low (worst case) for every design; the designer states p_diss (5d03f710, review concern 10) | bme280 R15/R16 state 50 % with the reason |
 | F14 | fixed | `d.place.thermal_isolate` (785ae04) | used in bme280 |
 | F15 | fixed | footprint drills in `layout.fab_minimums` (785ae04) | `_ThermalVias` test |
 | F16 | fixed | `HASLAM_KICAD_PYTHON` in env.sh and every script; MountingHole in fp-lib-table (eb8338f) | 0 lib_footprint_issues |
@@ -62,9 +62,9 @@ gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status
 | F18 | fixed | `layout.sh` documented S7, `${USER:-...}` (e4cc432) | acceptance run without `$USER` |
 | F19 | fixed | CLAUDE.md: isolated-container rule (1c62259) | — |
 | F20 | fixed | drift tests pass on 10.0.8 | — |
-| F21 | fixed | hard regions (c6d719a) | acceptance: power section north on every run |
+| F21 | fixed | hard regions only for explicitly `required` region relations (c6d719a); only bme280-array writes any (stored relation fixtures have none); boards without one take the pre-change path exactly (a5f1ea7) | corpus + fixture A/B in F54 (review concern 5) |
 | F22 | fixed | `layout.region_crosses_slot` warning (785ae04) | — |
-| F23 | fixed | `req="REQ-n"` -> requested (785ae04) | — |
+| F23 | fixed, verified opt-in | `req=` / `requested=` per relation only; test pins it (5d03f710, review concern 7) | — |
 | F24 | fixed | joint loop and restart summary report relations (c6d719a, 6ac7f7e, 1b2f94c) | log line in joint runs |
 | F25 | fixed | judge copies named by the input, project files beside (e4cc432) | restart tests |
 | F26 | fixed | test robust to 10.0.8 footprints (d00b47a) | 67 synth tests pass; 10.0.7 pads not compared |
@@ -73,23 +73,23 @@ gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status
 | F29 | by design | decaps are physics-driven; the promotion was reverted (0eadda2); only `strength: required` pins a cap | see F52 |
 | F30 | fixed | `render.sh`, called by fab_outputs (eb8338f) | 3 PNGs |
 | F31 | fixed | `silk_refs.py` in fab_outputs (e323858, eb8338f) | 0 silk DRC items |
-| F32 | fixed | `SlotBarrier` strip keep-outs (785ae04); repair stage no longer crosses rule areas (4398cfa) | acceptance: crossings only at the bridge |
+| F32 | fixed | `SlotBarrier` strip keep-outs; repair binds only rule areas that forbid tracks/vias (copper across them is a KiCad DRC error anyway), areas that allow routing are not obstacles (review concern 8: no completion lost that DRC accepts) | — |
 | F33 | fixed | per-member region status (c6d719a) | R28 reported (F56) |
 | F34 | fixed | `hpwl_outliers` in the place report (7cad586) | mux buses flagged |
-| F35 | fixed | one interval parser for every reader (0ba06cd, ad982e7) | cells read 60 uA |
+| F35 | fixed by main | main's #190 `facts.interval` is the one reader; this branch's duplicate parser was dropped in the merge (eba0142, review concern 6) | — |
 | F36 | fixed | `haslam.intent priors`, pre-flight WARN, haslamsynth `supply_prior` (f36ec18, bc95994, ad982e7, 785ae04) | pre-flight PASS on bme280 |
 | F37 | fixed | `temp.rise` observable (f686563) | T-SENS hard 3.8 mK |
 | F38 | fixed | lists and globs in term targets, tested (785ae04) | — |
-| F39 | fixed | hot-loop windows from the loop's own parts (e360ef7) | eval 1059 -> 457 s; corpus check F54 |
-| F40 | fixed | shared parser (0ba06cd) | 3-element I_A evaluates |
+| F39 | opt-in | own-parts window behind HASLAM_HOTLOOP_OWN_WINDOW=1; default is main's window (faae92a8, review concern 3) | default only after a corpus A/B (F54) |
+| F40 | fixed by main | #190 (dc.plan reads [lo, typ, hi]) | — |
 | F41 | fixed | `RESULT` OK/FAILED line, exit 3 on a scoring crash (e4cc432) | F53 |
 | F42 | fixed | hard regions (c6d719a) | acceptance: Q1/R1 north |
 | F43 | fixed | fab_outputs KiCad-Python resolution (eb8338f) | ran with a pcbnew-less python first on PATH |
 | F44 | partial | `bom.setup_fees` lists extended parts and movable passives (f4a775d) | fees not in currency |
 | F45 | fixed | silk counts and gate warning in fab-report (eb8338f) | — |
-| F46 | fixed | no widening of uW nets; `minimal_copper` areas (bf7a5de) | GND copper 394 -> 79 mm2 |
+| F46 | fixed, guarded | no widening of uW nets only when every load current on the net is stated (0ebfad6a, review concern 4); `minimal_copper` areas | GND copper 394 -> 79 mm2 on bme280 |
 | F47 | fixed | `d.measure`, `calc(board=)`, `check-board` (4c42464) | 9.9 mK as built |
-| F48 | fixed | core sources read `core_*`/`core: false`, capped by `I_A` (6379503) | U4 supply.peak 245 -> 0.7 mV |
+| F48 | fixed (corrected) | core sources read `core_*` / `core: false`; the cap by `I_A` was removed: an average draw does not bound edge currents (51d1737, review concern 2) | bme280 states core: false for the TCA9548A |
 | F49 | fixed | see F39 | — |
 | F50 | fixed | this round (see log) | check-board from haslamsynth CLI |
 | F51 | fixed | CLAUDE.md: fix agents start from the working branch and own disjoint files; round-3 agents briefed so | — |
@@ -111,6 +111,25 @@ gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status
 | F67 | fixed | designs README status corrected (3 designs had errors on main while listed "Checks pass"); bme280-array row added | — |
 
 Keep this table current: a new friction point gets a log row (next F number) and a resolution row in the same commit.
+| F68 | fixed (process) | review round: 10 concerns, all addressed (see "Review of the fixes" below); CLAUDE.md neutrality rule | — |
+
+
+## Review of the fixes (2026-11-26, a second session's audit)
+
+Goal restated by the user: improve haslam for every board, never hurt other boards. Each concern, what was done:
+
+| # | Concern | Verdict | Action (commit) |
+|---|---|---|---|
+| 1 | setup pinned fork 06d2686; baselines use 37b1a8b | right | setup pins 37b1a8b (CONTROL_FORK); doctor warns on another fork; host re-pinned (5498b05) |
+| 2 | core current capped by an average I_A | right: edge currents exceed the mean | cap removed; only core_* / core: false (51d1737) |
+| 3 | hot-loop window trimmed: may bias L_loop; no corpus check | right | opt-in HASLAM_HOTLOOP_OWN_WINDOW; default = main (faae92a8) |
+| 4 | uW-net skip may key on a prior current | right | quiet only when every load current is stated (0ebfad6a) |
+| 5 | hard required regions change placement where regions are required | partly: only explicit `required` region/near/keep_away, written by no stored intent but bme280's; the code path touched every board (F65, fixed) | corpus + relation-fixture A/B with intents (F54 agent) |
+| 6 | duplicate parser vs main's #190 | right | merged main, took #190's reader everywhere, dropped ours; a shadowing `_eta` removed (eba0142) |
+| 7 | `req=` must be opt-in | already opt-in | test pins it (5d03f710) |
+| 8 | repair rule-area fix may lower completion | no: only areas that forbid tracks/vias bind, and copper across them fails DRC anyway | none |
+| 9 | 10.0.8 accepted as tested | right for benchmarks | doctor: design flow ok, benchmarks need 10.0.7 (5498b05) |
+| 10 | pull-up 50 % default less conservative everywhere | right | default back to worst case; designers state p_diss (5d03f710) |
 
 ## Log
 
@@ -183,3 +202,4 @@ Keep this table current: a new friction point gets a log row (next F number) and
 | F65 | regression | (round 3) The full haslam suite (1874 passed) caught a placer regression no targeted test had: the hard-region code read `p.movable` on every board even without a keep-in (`cpsat.py:72`, same in `engine.py`), breaking a cluster test's stand-in problem; a board path that must be byte-identical for intent-less boards touched new attributes. | 52 min suite | fixed; run the FULL suite before merging placer changes, not only the touched files |
 | F66 | tests | (round 3) `test_proc.py::test_a_timeout_kills_the_whole_group` fails in this container on the pre-change code too. | — | open: check on the shared host |
 | F67 | docs | (round 3) designs/README.md listed leadacid, liion and prius as "Checks pass" while haslamsynth main gives them 1, 32 and 323 `rules.*` errors (checks added after their review). | stale claim | corrected |
+| F68 | process | (review) Several fixes changed a default for every board to solve one board's problem (fork pin, core cap, hot-loop window, uW-net skip, pull-up duty) or duplicated work already on main (#190's parser); a second session's audit caught them. A fix for one design must be opt-in or shown neutral on other boards first (CLAUDE.md rule), and the branch must be merged with main before parallel fixes start. | review round | rule in CLAUDE.md; merge main first |
