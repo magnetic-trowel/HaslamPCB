@@ -684,3 +684,16 @@ def test_alt_paired_gives_each_arm_the_methods_own_schedule(tmp_path):
     assert [d["budget"] for d in A[:2]] == [25, 25] and all(d["budget"] == 50 for d in A[2:4])
     assert all(d["resumed_from"] is None or next(x for x in log if x["k"] == d["resumed_from"])["arm"] == d["arm"]
                for d in log)
+
+
+def test_alt_env_refuses_a_command_that_sets_the_same_variable(tmp_path):
+    """cells-robust stage 1: the portfolio's attempt command ran `env HASLAM_HOTLOOP_CELLS=0 ...`, so its arm B
+    (HASLAM_HOTLOOP_CELLS=1) ran cells off. restart.py now stops before any attempt."""
+    r, out, summary = None, None, None
+    try:
+        r, out, summary = _run(tmp_path, "env HL=A sh -c 'echo \"(kicad_pcb OPEN=0)\" > @OUT@'", "", extra=[
+            "--parallel", "2", "--max-attempts", "2", "--alt-env", "HL=B"])
+    except FileNotFoundError:
+        pass                    # no summary.json: nothing ran
+    work = tmp_path / "work" / "restarts"
+    assert not (work / "summary.json").exists() and not list(work.glob("a0"))

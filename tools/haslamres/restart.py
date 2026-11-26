@@ -1155,6 +1155,13 @@ def main():
     best = None
     alt = parse_env(a.alt_env)
     paired = bool(alt and a.alt_paired)
+    # a variable the attempt command sets itself (`env K=V ...`) overrides the arm-B environment: arm B would run as
+    # arm A (cells-robust stage 1's portfolio set HASLAM_HOTLOOP_CELLS=0 in its command, and its cells arm ran off)
+    clash = sorted(k_ for k_ in alt if re.search(r"(?<![\w])" + re.escape(k_) + r"=", cmd))
+    if clash:
+        log(f"--alt-env {', '.join(clash)}: the attempt command sets {'it' if len(clash) == 1 else 'them'} itself, "
+            f"which overrides arm B's setting; remove {'it' if len(clash) == 1 else 'them'} from the command")
+        sys.exit(2)
     arm_best, tb_cache, ties, no_new = {}, {}, [], [False]   # per-arm best; tie-break scores; comparisons
     if alt and a.alt_guard:
         go = wd / "guard.json"
