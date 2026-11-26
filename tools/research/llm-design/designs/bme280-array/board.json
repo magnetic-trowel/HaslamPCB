@@ -188,6 +188,40 @@
    "no": [],
    "name": "SENSE",
    "note": "named rule area: the sensor field (mux, pull-ups, sensors)"
+  },
+  {
+   "rect": [
+    0.2,
+    18.5,
+    2.5,
+    22.0
+   ],
+   "layers": [
+    "F.Cu",
+    "B.Cu"
+   ],
+   "no": [
+    "copper"
+   ],
+   "name": "STRIP_W",
+   "note": "no copper on the edge strip beside the west slot: power-to-sensor copper crosses only at the bridge (REQ-4, F32)"
+  },
+  {
+   "rect": [
+    47.5,
+    18.5,
+    49.8,
+    22.0
+   ],
+   "layers": [
+    "F.Cu",
+    "B.Cu"
+   ],
+   "no": [
+    "copper"
+   ],
+   "name": "STRIP_E",
+   "note": "same, east"
   }
  ]
 }
