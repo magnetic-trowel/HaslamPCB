@@ -58,3 +58,13 @@ def test_a_heat_sink_at_or_below_0_C_keeps_its_temperature():
     for v, t in ((0, (0.0, 0.0, 0.0)), ([-10, 0], (-5.0, -10.0, 0.0)), (20, (20.0, 20.0, 20.0))):
         assert intent_value({"s": {"h": {"T_C": v}}}, "s", "h", "T_C") == pytest.approx(t)
     assert '_rng(hs.get("T_C"))' not in inspect.getsource(H.evaluate)
+
+
+def test_a_requirement_limit_is_one_number():
+    """requirements.dT_max_K as [10, 20] passed check_facts and then crashed the DC band (float() of a list)."""
+    check_facts({"requirements": {"dT_max_K": 20, "drop_share": 0.03}})
+    for k in ("dT_max_K", "drop_share", "copper_loss_share", "quiescent_max_A"):
+        with pytest.raises(FactsError, match=k):
+            check_facts({"requirements": {k: [10, 20]}})
+    with pytest.raises(FactsError):
+        check_facts({"requirements": {"dT_max_K": True}})

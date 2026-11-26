@@ -57,6 +57,8 @@ PART_CELL_KEYS = ("f_sw_Hz", "t_i_s", "v_sw_max_V")
 # draws its rails unequally; the rails it does not name share parts.<ref>.I_A / I_sustained_A by supply pads
 PART_BY_RAIL_KEYS = ("I_A_by_rail", "I_sustained_A_by_rail")
 SECTIONS = ("nets", "parts", "cells", "requirements")      # what apply() writes into the brief
+# requirements that are limits: one number each (haslam.excite.dc, haslam.route.critical, haslam.intent.advise)
+REQUIREMENT_LIMITS = ("dT_max_K", "drop_share", "copper_loss_share", "quiescent_max_A")
 # sections other readers own, left to them here: the schematic's pin facts (haslam.board.pinfacts), the radios
 # (haslam.excite.observe, sources) and the compiler's citations. The physics set's operating facts carry them
 # all (intent-213/compiled-*), and refusing them failed every evaluation of those boards
@@ -185,6 +187,12 @@ def check_facts(f):
         for k in CELL_VALUE_KEYS + tuple(DEPRECATED_CELL_KEYS):
             if k in d:
                 _interval(d[k], f"facts.cells.{cid}.{k}")
+    req = f.get("requirements") or {}
+    for k in REQUIREMENT_LIMITS:
+        # a limit is one number (the DC band's float() and the router's raised TypeError on a list after the
+        # facts had passed this check)
+        if k in req and (isinstance(req[k], bool) or not isinstance(req[k], (int, float))):
+            raise FactsError(f"facts.requirements.{k}: a limit is one number, not {req[k]!r}")
     normalize(f)                                 # a deprecated key that disagrees with its replacement
     for ref, d in (f.get("parts") or {}).items():
         for k, v in d.items():
