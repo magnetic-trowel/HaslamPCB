@@ -286,7 +286,11 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
                 if c["rect"]:
                     rw = min(loss, val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * CV.rectifier_current(top, IL, D))
                     add(c["rect"], rw)
-                add(c["ctrl"], loss - rw)
+                # the stated efficiency counts every loss of the converter, its inductor's winding too; that one is
+                # heat at the inductor already (lumped_heat, I_L^2 DCR from the DC flow), so the controller takes the
+                # rest. Counted at both, a 5 V 2 A converter at eta 0.9 put 1.31 W into the board for its 1.11 W loss
+                lw = min(loss - rw, IL ** 2 * winding_R(bd, c.get("ind")))
+                add(c["ctrl"], loss - rw - lw)
                 continue
             if c["cls"] == "buckboost":
                 # a 4-switch buck-boost: one switch of each leg is on at any time (two R_on in the inductor's path);
@@ -328,6 +332,14 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
     for ref, w in (ac_parts or {}).items():
         add(ref, w)
     return out
+
+
+def winding_R(bd, ref):
+    """The DC resistance of the circuit model's inductor `ref` (0 without one)."""
+    for e in getattr(getattr(bd, "circuit", None), "elems", None) or []:
+        if e.name == ref and e.kind == "L":
+            return float(e.z(1.0).real)         # at 1 rad/s: the winding capacitance in parallel is open
+    return 0.0
 
 
 LUMP_HEAT_KINDS = ("R", "L", "FB")     # lumped parts whose own DC loss is heat at their pads (a diode's is V_f I

@@ -934,3 +934,26 @@ def test_a_cells_own_stated_efficiency_sets_its_input_current_at_every_corner_an
     assert inj["J1.1"] == pytest.approx(3.3 / (0.8 * 12.0))
     heat = H.part_heat(NS(part_kind={}), pl, cv, {}, inj)
     assert heat["U1"] == pytest.approx((1 / 0.8 - 1) * 3.3)
+
+
+def test_a_stated_efficiency_is_not_counted_twice_at_the_inductor():
+    """With the facts' eta the controller took the whole (1/eta - 1) P_out, while the inductor's winding loss I_L^2 DCR
+    is heat at the inductor already (lumped_heat): 5 V, 2 A at eta 0.9 is 1.111 W of loss, 0.2 W of it the inductor's
+    (4 A^2 x 50 mOhm), so the controller takes 0.911 W, and the two together the stated loss."""
+    from types import SimpleNamespace as NS
+
+    from haslam.excite import heat as H
+    from haslam.excite.beliefs import Param
+    from haslam.excite.circuit import Circuit
+    from haslam.excite.models import _par, _rl, _rlc
+    cell = dict(id="c", cls="buck", src="cell:c", vin="VIN", vout="5V", sw="SW", ctrl="U1", rect=None, ind="L1",
+                parts=set())
+    pl = DC.Plan()
+    pl.volts = {"VIN": 12.0, "5V": 5.0}
+    pl.feeds = {"5V": dict(kind="cell", cell=cell, ref="U1", eta=Param("dc:U1", "eta", 0.9, 0.9, 0.9, "", "intent", "t"))}
+    c = Circuit("GND")
+    c.z("L1", "SW", "5V", _par(_rl(0.05, 2.2e-6), _rlc(0, 0, 5e-12)), "L1.1", "L1.2", "L")
+    heat = H.part_heat(NS(part_kind={}, circuit=c), pl, {"cell:c": {"I_A": 2.0, "D": 5 / 12}}, {}, {})
+    loss = (1 / 0.9 - 1) * 5.0 * 2.0
+    assert heat["U1"] == pytest.approx(loss - 2.0 ** 2 * 0.05)
+    assert H.winding_R(NS(circuit=c), "L1") == pytest.approx(0.05)
