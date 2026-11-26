@@ -1,14 +1,14 @@
 # SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """A part's core source reads its facts (bme280-array F48: a 2 uA TCA9548A I2C switch kept a 10 mA, 50 MHz class
-core and showed a 245 mV supply.peak)."""
+core and showed a 245 mV supply.peak), and haslam says which parts run on class priors (F36)."""
 import math
 from types import SimpleNamespace as NS
 
 import pytest
 
 from haslam.circuit import brief as B
-from haslam.excite import models as M, params as PA, sources as S
+from haslam.excite import models as M, params as PA, prior_parts as PP, sources as S
 from haslam.excite.beliefs import Ledger
 from haslam.intent import facts as F
 
@@ -90,3 +90,33 @@ def test_core_false_removes_the_core_source(tmp_path):
     bd = M.build(b, br)
     doc = {"schema": F.SCHEMA, "facts": {"parts": {"U1": {"core": False}}}}
     assert not [s for s in S.add_all(bd, br, intent=doc) if s.kind == "core"]
+
+
+def test_parts_on_priors_names_the_parts_and_the_facts_that_fix_them(tmp_path):
+    b = _i2c_switch_board(tmp_path)
+    rows = PP.parts_on_priors(b, {})
+    assert [r["ref"] for r in rows] == ["U1"]
+    fixes = {it["fix"] for it in rows[0]["items"]}
+    assert fixes == {"parts.U1.I_A", "parts.U1.core_I_A (or core: false)"}
+    ln = PP.lines(rows)
+    assert len(ln) == 1 and ln[0].startswith("U1") and "parts.U1.I_A" in ln[0] and "class prior" in ln[0]
+    # a stated draw: no supply prior, and it caps the core (source intent)
+    assert PP.parts_on_priors(b, {"parts": {"U1": {"I_A": [1e-7, 2e-6, 1e-5]}}}) == []
+    # core: false and a stated draw: nothing on priors; core_I_A alone leaves the draw
+    assert PP.parts_on_priors(b, {"parts": {"U1": {"I_A": 2e-6, "core": False}}}) == []
+    rows = PP.parts_on_priors(b, {"parts": {"U1": {"core_I_A": 1e-5}}})
+    assert [it["fix"] for it in rows[0]["items"]] == ["parts.U1.I_A"]
+
+
+def test_the_priors_cli_prints_one_line_per_part(tmp_path, capsys):
+    import json
+
+    from haslam.intent.__main__ import main
+    _i2c_switch_board(tmp_path)
+    f = tmp_path / "facts.json"
+    f.write_text(json.dumps({"parts": {}}))
+    assert main(["priors", str(tmp_path / "t.kicad_pcb"), "--intent", str(f)]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith("U1") and out[-1].startswith("1 part(s) on class priors")
+    assert main(["priors", str(tmp_path / "t.kicad_pcb"), "--intent", str(f), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)[0]["ref"] == "U1"
