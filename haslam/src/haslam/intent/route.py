@@ -16,6 +16,7 @@ import fnmatch
 import math
 
 from haslam import materials as MAT
+from haslam.excite import quantity as QT
 
 from . import objective as OB
 from . import units as U
@@ -90,7 +91,7 @@ class Policy:
         for t in OB.resolve([t for t in self.drop if t["tier"] == "cost" and _net_matches(t, net, self.secs, "dc_drop")],
                             net):
             r, _ = U.rate(t["rate"], self.cur)                 # currency per V
-            k += r * max(abs(x) for x in I)
+            k += r * max(QT.Magnitude.bound(x) for x in I)      # the corners' peak current magnitude
             why.append(t["id"])
         return k, why
 
@@ -108,7 +109,7 @@ class Policy:
         lo = max(w_lo, float(self.wmin.get(net, 0.0)))
         hi = min(w_hi if w_hi is not None else math.inf, float(self.wmax.get(net, math.inf)))
         dT, ht = self.dT_max(net, with_term=True)
-        Imax = max((abs(x) for x in I), default=0.0)
+        Imax = max((QT.Magnitude.bound(x) for x in I), default=0.0)
         if dT is not None and Imax > 0:
             from haslam.route.critical_physics import ipc2221_width
             w_ipc = ipc2221_width(Imax, dT, t_mm, internal=internal)

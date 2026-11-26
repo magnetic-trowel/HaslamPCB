@@ -14,6 +14,8 @@ import math
 
 import numpy as np
 
+from haslam import budget
+
 from .mesh import Layer, Mesh
 
 
@@ -189,6 +191,7 @@ class BoardMesh:
                     x, y = transform.pad_xy(fp_of[tok], p)
                     if win.contains(Point(x, y)):
                         m.via(x, y, ls, p.net, drill=p.drill)
+        budget.charge("em_paint", m.nx * m.ny * len(m.layers))           # units: raster cell-layers painted
         # the raster against the board's own connectivity (haslam.em.topology): splits bridged, joins reported
         self.topology = None
         if topology:

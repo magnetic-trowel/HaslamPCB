@@ -51,6 +51,7 @@ import numpy as np
 
 from haslam.physics import converter as CV
 
+from . import quantity as QT
 from .beliefs import Param
 from .beliefs import lookup as lookup_part
 
@@ -239,7 +240,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
         if isinstance(fv, (int, float)) and fv > 0:
             return float(fv)
         v = (nets.get(net) or {}).get("volts")
-        return abs(float(v)) if v else None
+        return QT.Magnitude.bound(float(v)) if v else None      # a rail's magnitude: -5 V budgets as 5 V
 
     def input_connector(r):
         """Where a rail without a source part is fed: the facts state its voltage (V_V or range_V, an input the
@@ -817,11 +818,13 @@ def observe(pl, cv, V, info, tracks=None):
         if gs is not None and gl is not None:
             dv += gl - gs
         b = pl.drop_share * (pl.volts.get(ld["rail"]) or 3.3)
-        # the drop is what the load loses of its source's voltage, so never below 0. The signed sum can be negative
-        # by physics, not by a reference choice: another rail's return current through shared ground copper (or a
-        # source whose own ground pin carries current) puts the load's ground below the source's, and the load then
-        # sees more than the source's voltage. That is no drop (and no credit against one); the signed value is kept
-        # for the reader (`drops_signed`).
+        # the drop is what the load loses of its rail's magnitude, so never below 0: max(sigma dv, 0) with sigma the
+        # rail's sign once rails carry their real sign (a -12 V rail drops toward 0 V as a +12 V one does; with
+        # magnitudes in the plan sigma is 1). The other sign can occur by physics, not by a reference choice:
+        # another rail's return current through shared ground copper (or a source whose own ground pin carries
+        # current) puts the load's ground below the source's, and the load then sees more than its source. That is
+        # no drop (and no credit against one); the signed value is kept for the reader (`drops_signed`). A one-sided
+        # clamp, not |dv|: drop.rail is typed Clamp (haslam.excite.quantity).
         out["drops_signed"].append((ld["ref"], ld["rail"], dv))
         d = max(dv, 0.0)
         out["drops"].append((ld["ref"], ld["rail"], d / b, d, b))
