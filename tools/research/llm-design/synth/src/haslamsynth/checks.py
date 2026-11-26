@@ -30,6 +30,10 @@ class Finding:
         return d
 
 
+# fraction of time a pulled-up signal line is held low, for a pull-up's default dissipation: I2C and open-drain
+# lines idle high, and a byte with its ACK is at most about half low [I]; a line held low longer needs p_diss=
+PULLUP_DUTY = 0.5
+
 SERIES_CATEGORIES = ("fuse", "ptc", "connector", "relay", "inductor", "switch", "mosfet", "diode",
                      "transformer", "led", "bjt")
 
@@ -48,6 +52,7 @@ class Checker:
     def run(self):
         d = self.d.finalize()
         self.check_domains()
+        self.check_vrels()
         self.check_boards()
         self.check_connectivity()
         self.check_pin_types()
@@ -158,7 +163,42 @@ class Checker:
             x0, x1 = c * v[0], c * v[1]
             lo += min(x0, x1)
             hi += max(x0, x1)
+        for rl, rh in self._rels(a, b):          # Design.v_rel: a stated correlation narrows the sum
+            lo, hi = (max(lo, rl), min(hi, rh)) if max(lo, rl) <= min(hi, rh) else (rl, rh)   # disjoint: check_vrels
         return (lo, hi)
+
+    def _rels(self, a, b):
+        """[(lo, hi)] the design states for V(a) - V(b) (Design.v_rel), either way round."""
+        out = []
+        for na, nb, lo, hi, _ in self.d.v_rels:
+            if (na, nb) == (a.full_name, b.full_name):
+                out.append((lo, hi))
+            elif (na, nb) == (b.full_name, a.full_name):
+                out.append((-hi, -lo))
+        return out
+
+    def check_vrels(self):
+        """Every Design.v_rel names two nets of one root (a statement about anything else is a typo)."""
+        for na, nb, lo, hi, why in self.d.v_rels:
+            try:
+                a, b = self.d.net_by_name(na), self.d.net_by_name(nb)
+            except DesignError as e:
+                self.add("net.v_rel", "error", f"v_rel({na}, {nb}): {e}", [na, nb])
+                continue
+            if self.root(a) is None or self.root(a) is not self.root(b):
+                self.add("net.v_rel", "error", f"v_rel({na}, {nb}): the nets are not in one galvanic root", [na, nb])
+                continue
+            rels, self.d.v_rels = self.d.v_rels, []
+            try:
+                raw = self.vdiff(a, b)
+            finally:
+                self.d.v_rels = rels
+            if raw and (hi < raw[0] or lo > raw[1]):
+                self.add("net.v_rel", "error", f"v_rel({na}, {nb}) = [{lo:g}, {hi:g}] V lies outside the nets' own "
+                         f"ranges [{raw[0]:.3g}, {raw[1]:.3g}] V: one of them is wrong", [na, nb])
+            else:
+                self.add("net.v_rel", "info", f"V({na}) - V({nb}) held to [{lo:g}, {hi:g}] V (interval sum "
+                         f"[{raw[0]:.3g}, {raw[1]:.3g}] V): {why}", [na, nb])
 
     def vmax_between(self, nets_a, nets_b):
         worst, pair = 0.0, None
@@ -452,8 +492,8 @@ class Checker:
                 continue
             for r in n.pins:
                 p = r.part
-                if p.defn.category not in SERIES_CATEGORIES or id(p) in declared:
-                    continue
+                if p.defn.category not in SERIES_CATEGORIES or id(p) in declared or p.defn.ratings.v_clamp:
+                    continue          # a clamp is a shunt: its current is i_through (check_power says so)
                 rat = p.defn.ratings
                 lim = None
                 for k in (r.pin.number, r.pin.name):
@@ -467,6 +507,16 @@ class Checker:
     def check_power(self):
         for p in self.d.all_parts():
             rat = p.defn.ratings
+            if rat.v_clamp and p.p_diss is None:
+                i = p.i_through if not isinstance(p.i_through, dict) else max(p.i_through.values(), default=None)
+                if i is None:
+                    self.add("rating.power", "warning",
+                             f"{p.ref} ({p.value}) is a {rat.v_clamp[1]:.3g} V clamp with no clamp current: set "
+                             f"i_through= (A, from your calculation) so its power Vz x I is checked", [p.ref])
+                else:
+                    self._rate("rating.power", p, rat.v_clamp[1] * i, rat.p_max,
+                               f"clamp power {rat.v_clamp[1]:.3g} V x {i:.3g} A (W)")
+                continue
             if p.p_diss is not None:
                 if rat.p_max:
                     self._rate("rating.power", p, p.p_diss, rat.p_max, "dissipation (W)")
@@ -481,12 +531,22 @@ class Checker:
                 rng = self.vdiff(a, b)
                 if ohms and rng:
                     v = max(abs(rng[0]), abs(rng[1]))
-                    pw = v * v / ohms
+                    duty = PULLUP_DUTY if self._pullup(a, b) else 1.0
+                    pw = v * v / ohms * duty
+                    how = (f" averaged over a {duty:.0%} low time (a pull-up on a signal line; set p_diss= for "
+                           f"another duty)" if duty < 1 else "")
                     if pw > rat.p_max * self._derate("power", "resistor"):
                         self.add("rating.power", "warning" if pw <= rat.p_max else "error",
-                                 f"{p.ref} ({p.value}): worst case {v:.3g} V across it gives {pw:.3g} W vs "
+                                 f"{p.ref} ({p.value}): worst case {v:.3g} V across it gives {pw:.3g} W{how} vs "
                                  f"rating {rat.p_max:g} W — set p_diss from a calculation or fix the net ranges",
                                  [p.ref])
+
+    @staticmethod
+    def _pullup(a, b):
+        """A resistor from a supply (power) net to a signal or clock net: the line sits at the supply most of the
+        time and is pulled low only while a device drives it (I2C, open-drain resets)."""
+        kinds = {a.kind, b.kind}
+        return "power" in kinds and bool(kinds & {"signal", "clock"})
 
     def check_library(self):
         if self.sym is None:

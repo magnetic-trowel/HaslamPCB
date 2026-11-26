@@ -111,6 +111,9 @@ class Ratings:
     polarity: tuple = None         # (positive pin, negative pin) for polarized parts
     t_min: float = None
     t_max: float = None
+    # a clamp (Zener): (Vz min, Vz max). It conducts at its breakdown by design, so its check is the clamp power
+    # Vz max x i_through against p_max, not the net envelope against a blocking rating (lib.Zener)
+    v_clamp: tuple = None
 
 
 CATEGORIES = ("resistor", "capacitor", "capacitor_ceramic", "capacitor_electrolytic", "capacitor_film",
@@ -543,6 +546,7 @@ class Design:
         self.hazards = []
         self.calcs = []
         self.waivers = []
+        self.v_rels = []             # (net a, net b, lo, hi, why): V(a) - V(b) in [lo, hi] (Design.v_rel)
         self.derating = dict(DEFAULT_DERATING)
         self.boards = {}             # name -> BoardSpec, in declaration order
         from .placement import Placement
@@ -609,6 +613,18 @@ class Design:
         c = Calc(name, value, unit, expr, note, limit, op, severity)
         self.calcs.append(c)
         return value
+
+    def v_rel(self, a, b, lo, hi, why):
+        """State that V(a) - V(b) always lies in [lo, hi] volts: a correlation the per-net intervals cannot hold
+        (a reverse-polarity FET's drain and source move together; a gate is either at its source or clamped).
+        Every check that takes the difference of the two nets (ratings, spacing) uses the intersection with the
+        interval sum. `why` is required: it stands where a waiver would have stood."""
+        if not why:
+            raise DesignError(f"v_rel({a}, {b}): say why the two nets are tied")
+        if lo > hi:
+            raise DesignError(f"v_rel({a}, {b}): lo {lo} > hi {hi}")
+        name = lambda n: n.full_name if isinstance(n, Net) else str(n)
+        self.v_rels.append((name(a), name(b), float(lo), float(hi), why))
 
     def waive(self, check, match, reason, by="designer"):
         self.waivers.append(Waiver(check, match, reason, by))
