@@ -245,3 +245,19 @@ def test_a_required_near_to_a_fixed_pin_is_placed_within_its_distance_and_held(t
     assert rep["near_pinned"]["pinned"] == ["Y1"]
     row = rep["relations"]["rows"][0]
     assert row["enforced"] == "hard" and row["met"] is True, row
+
+
+def test_the_joint_report_carries_the_relations_status(tmp_path, board, brief):
+    """F24: haslam.joint.cli measures the intent's relations on its output, as `haslam place` does."""
+    from types import SimpleNamespace
+
+    from haslam.joint.cli import _relations
+    b = _bundle(board, brief, _rel(id="se", kind="region", members=["U1"], region="region:se", strength="required"))
+    stages = SimpleNamespace(relations_error=None, relations_status=lambda out: b.status(board))
+    rep = {}
+    _relations(rep, stages, tmp_path / "out.kicad_pcb")
+    assert rep["relations"]["summary"]["unmet"] == ["se"] and rep["relations"]["rows"][0]["outside"] == ["U1"]
+    assert any(h["code"] == "relation_unmet" and h["severity"] == "warn" for h in rep["hazards"])
+    rep = {}
+    _relations(rep, SimpleNamespace(relations_error="x: no part", relations_status=lambda out: None), tmp_path)
+    assert "relations" not in rep and rep["hazards"][0]["code"] == "relation_check_failed"
