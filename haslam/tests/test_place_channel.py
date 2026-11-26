@@ -203,3 +203,17 @@ def test_channel_term_is_on_by_default_with_both_gates():
     assert DEFAULTS["place_w_chan"] == 3.0
     assert DEFAULTS["place_chan_util_gate"] == 1 and DEFAULTS["place_chan_header_gate"] == 1
     assert DEFAULTS["place_chan_edge"] == 0
+
+
+def test_unfit_gate_switches_the_term_off_only_with_a_part_that_cannot_fit(monkeypatch):
+    from haslam.place import crowded
+    P, st = _problem()
+    off = {"place_chan_util_gate": 0, "place_chan_header_gate": 0}
+    monkeypatch.setattr(crowded, "not_fitting", lambda P: {P.mov[0]: (0, 4, 40.0)})
+    w, tab, rep, _ = _channel_weight(P, st, 3.0, None, {}, None, dict(off, place_chan_unfit_gate=1))
+    assert w == 0.0 and rep["unfit_parts"] == [P.parts[P.mov[0]].ref]
+    w, *_ = _channel_weight(P, st, 3.0, None, {}, None, off)                       # gate off by default
+    assert w == 3.0
+    monkeypatch.setattr(crowded, "not_fitting", lambda P: {})
+    w, tab, rep, _ = _channel_weight(P, st, 3.0, None, {}, None, dict(off, place_chan_unfit_gate=1))
+    assert w == 3.0 and rep["unfit_parts"] == []

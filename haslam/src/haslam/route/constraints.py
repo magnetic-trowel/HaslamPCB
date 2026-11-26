@@ -232,6 +232,8 @@ DEFAULTS = dict(
                                    # full at <= 0.65, zero at >= 0.70 (haslam.place.pipeline.util_gate); chan-gate-guard
     place_chan_header_gate=1,      # placement: 1 switches the channel term off on a board with a movable edge header
                                    # that fits nowhere (haslam.place.pipeline.header_gate); chan-ladder
+    place_chan_unfit_gate=0,       # placement: 1 switches the channel term off on a board with a movable part whose
+                                   # courtyard cannot fit the board (haslam.place.pipeline.unfit_parts); off until its A/B
     place_chan_edge=0,             # placement: 1 adds channels between pads and the board edge to the
                                    # channel term (haslam.place.exact.channel_edge_term); off until its A/B
     place_untangle=0,              # placement: 1 runs haslam.place.crossings.untangle after legalization (swaps of

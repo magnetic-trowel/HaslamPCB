@@ -419,6 +419,18 @@ def header_gate(P, st):
         return []
 
 
+def unfit_parts(P):
+    """The movable parts whose courtyard does not fit the board at all (haslam.place.crowded.not_fitting), by
+    reference; empty when there are none. place_chan_unfit_gate switches the channel term off on such a board:
+    its floorplan is infeasible with or without the term, the case the header gate covers for edge headers only.
+    A failing detector leaves the term on."""
+    from . import crowded
+    try:
+        return sorted(P.parts[i].ref for i in crowded.not_fitting(P))
+    except Exception:       # noqa: BLE001 - a gate, never lose the placement over it
+        return []
+
+
 def _channel_weight(P, st, w_chan, zone_tab, kw, board_path, opts):
     """The routing-channel term's weight, its pad-to-edge table (place_chan_edge 1:
     exact.channel_edge_term, else None), its report (the halo overlap of pairs with a movable
@@ -443,12 +455,18 @@ def _channel_weight(P, st, w_chan, zone_tab, kw, board_path, opts):
         stuck = header_gate(P, st)
         if stuck:
             w_chan = 0.0
+    unfit_gate = float(setting("place_chan_unfit_gate", board_path, opts) or 0.0) > 0
+    unfit = None
+    if unfit_gate and w_chan > 0:
+        unfit = unfit_parts(P)
+        if unfit:
+            w_chan = 0.0
     A0 = exactmod.mean_part_area(P)
     ov0, np0 = exactmod.channel_overlap(P, exactmod.channel_grid(P, weight=1.0), st.X, st.Y, st.K)
     c = zone_tab.c if zone_tab is not None else zonesmod.raster_cell(P)
     e1 = exactmod.channel_edge_term(P, 1.0, A0, c) if edge_on else None
     edge0 = float(sum(e1.part(i, st.X[i], st.Y[i], st.K[i]) for i in P.mov)) if e1 is not None else 0.0
-    rep = dict(w_chan=w_chan, w_set=w_set, util_gate=gate, util=util, header_gate=hdr_gate, stuck_headers=stuck,
+    rep = dict(w_chan=w_chan, w_set=w_set, util_gate=gate, util=util, header_gate=hdr_gate, stuck_headers=stuck, unfit_gate=unfit_gate, unfit_parts=unfit,
                edge=edge_on, A0=round(A0, 3), seed_overlap=round(ov0 / A0, 5), seed_pairs=np0,
                seed_edge=round(edge0, 5))
     edge_tab = None
