@@ -80,7 +80,7 @@ MARGIN_WHY = ("a return at height h spreads as h / (x^2 + h^2): a 1 mm band hold
 SETTINGS = ("hotloop_keepout", "hotloop_keepout_mm", "hotloop_cells", "hotloop_vias", "hotloop_pours",
             "hotloop_budget_s", "hotloop_keepout_pours", "hotloop_lift", "hotloop_keepout_loopvias", "hotloop_clear",
             "hotloop_clear_force", "hotloop_cell_kinds", "hotloop_cell_walls", "hotloop_cell_partial",
-            "hotloop_cells_max_pads", "hotloop_pour_revert")
+            "hotloop_cells_max_pads", "hotloop_pour_revert", "hotloop_pour_spokes")
 
 
 def _log(msg):
@@ -103,6 +103,7 @@ def settings(board_path=None, opts=None):
     out["cell_kinds"] = tuple(k.strip() for k in str(g["hotloop_cell_kinds"] or "").split(",") if k.strip())
     out["cell_walls"] = bool(float(g["hotloop_cell_walls"] or 0))
     out["cells_max_pads"] = float(g["hotloop_cells_max_pads"] or 0)
+    out["pour_spokes"] = bool(float(g["hotloop_pour_spokes"] or 0))
     out["pour_revert"] = "all" if str(g["hotloop_pour_revert"] or "").strip() == "all" else "nearest"
     out["cell_partial"] = "keep" if str(g["hotloop_cell_partial"] or "").strip() == "keep" else "rip"
     return out
@@ -765,9 +766,15 @@ def cell_hazards(mods):
     return out
 
 
-def _pad_fill_contacts(path, info):
+SPOKES_MIN = 2           # contacts (thermal spokes) a pad keeps with its fill before KiCad calls it starved_thermal
+
+
+def _pad_fill_contacts(path, info, spokes=False):
     """{(pad uuid, layer)} of the pads on a zone's net whose copper touches their net's zone fill on
-    `path` (refilled as kicad-cli's DRC does), this stage's own pours and keep-outs left out."""
+    `path` (refilled as kicad-cli's DRC does), this stage's own pours and keep-outs left out. With `spokes`, also
+    (pad uuid, layer, "spokes") for a pad that touches its fill in at least SPOKES_MIN separate places (its thermal
+    spokes), so a pad the cells starve of spokes is lost too (nekoink, cells-robust: 4 of C's 8 new starved_thermal
+    pads within 3 mm of a cell's parts, U1's exposed pad among them)."""
     from shapely.ops import unary_union
     from haslam.board import pcbnew_io as PIO
     fills = {}
@@ -784,6 +791,11 @@ def _pad_fill_contacts(path, info):
             f = fills.get((net, l))
             if f is not None and g is not None and not g.is_empty and g.intersection(f).area > 1e-4:
                 out.add((pad.get("uuid"), l))
+                if spokes:
+                    touch = g.buffer(0.02).intersection(f).difference(g.buffer(-0.02))
+                    parts = [x for x in getattr(touch, "geoms", [touch]) if x.area > 1e-5]
+                    if len(parts) >= SPOKES_MIN:
+                        out.add((pad.get("uuid"), l, "spokes"))
     return out
 
 
@@ -799,7 +811,7 @@ def _dist_to_pad(m, pad, layer):
     return min(ds) if ds else math.inf
 
 
-def pour_check(s, input_path, info, mods, workdir, log=_log, before=None, revert_mode="all"):
+def pour_check(s, input_path, info, mods, workdir, log=_log, before=None, revert_mode="all", spokes=False):
     """The post-cells check: the cells' copper written to a probe board and every zone refilled; a pad
     of a zone's net whose copper touched its pour on the input and no longer does has been cut off
     by a cell's other-net copper (giacobot: +BATT, +3V3 and GND cell tracks beside U2's LX pins
@@ -813,12 +825,18 @@ def pour_check(s, input_path, info, mods, workdir, log=_log, before=None, revert
     from .critical_joint import _rip
     if not any(m.copper for m in mods):
         return [], []
-    before = _pad_fill_contacts(input_path, info) if before is None else before
+    contacts = (lambda path: _pad_fill_contacts(path, info, spokes=True)) if spokes else \
+        (lambda path: _pad_fill_contacts(path, info))
+    before = contacts(input_path) if before is None else before
     probe = Path(workdir) / "hotloop-pourcheck.kicad_pcb"
     s.write(probe)
-    lost = sorted(before - _pad_fill_contacts(probe, info))
-    if not lost:
+    lost_keys = before - contacts(probe)
+    if not lost_keys:
         return [], []
+    lost = sorted({k[:2] for k in lost_keys})
+
+    def back(u, l, now):        # every contact (and the spokes) the pad had on the input is there again
+        return not any(k[:2] == (u, l) and k not in now for k in before)
     pads = {p.get("uuid"): p for p in info.get("pads") or []}
     zones = [z for z in info.get("zones") or [] if not z.get("rule_area") and z.get("net")
              and not hard_zone(z.get("name"))]
@@ -852,19 +870,19 @@ def pour_check(s, input_path, info, mods, workdir, log=_log, before=None, revert
         # nothing and still spent its time); the cell beside the pad is nearly always the one that cut it
         now = None
         for u, l, pad, net, hit in found:
-            if now is not None and (u, l) in now:
+            if now is not None and back(u, l, now):
                 continue
             for m in sorted(hit, key=lambda m_: _dist_to_pad(m_, pad, l)):
                 if m.status == "reverted":
                     continue
                 revert(m, pad, net, l)
                 s.write(probe)
-                now = _pad_fill_contacts(probe, info)
-                if (u, l) in now:
+                now = contacts(probe)
+                if back(u, l, now):
                     break
         for f in found:                 # a hazard names the cells actually reverted
             f[4][:] = [m for m in f[4] if m.status == "reverted"]
-        gone = sorted(before - now) if now is not None else lost
+        gone = sorted({k[:2] for k in before - now}) if now is not None else lost
     else:
         for u, l, pad, net, hit in found:
             for m in hit:
@@ -872,7 +890,7 @@ def pour_check(s, input_path, info, mods, workdir, log=_log, before=None, revert
                     revert(m, pad, net, l)
         if any(hit for *_, hit in found):
             s.write(probe)
-            gone = sorted(before - _pad_fill_contacts(probe, info))
+            gone = sorted({k[:2] for k in before - contacts(probe)})
         else:
             gone = lost
     still = set(gone)
@@ -1182,7 +1200,8 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
             mods = [m for m in s.modules if m.kind == "cell"]
             rep["hazards"] += s.hazards() + cell_hazards(mods)
             drop_cells(s, mods, st["cell_kinds"], log=log, partial=st["cell_partial"])
-            hz, rep["pour_cut"] = pour_check(s, input_path, s.info, mods, wd, log=log, revert_mode=st["pour_revert"])
+            hz, rep["pour_cut"] = pour_check(s, input_path, s.info, mods, wd, log=log, revert_mode=st["pour_revert"],
+                                             spokes=st["pour_spokes"])
             rep["hazards"] += hz
             hz, rep["pin_blocked"] = reach_check(s, s.info, mods, log=log)
             rep["hazards"] += hz

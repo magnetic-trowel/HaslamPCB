@@ -375,6 +375,8 @@ DEFAULTS = dict(
     hotloop_pour_revert="nearest", # a pad the cells cut off its pour reverts the cells nearest it one at a time until
                                    # the refill reaches it again; "all": every cell with copper in that zone at once
                                    # (as before cells-robust: hvdc's one GND pad reverted all four cells)
+    hotloop_pour_spokes=0,         # 1: the pour check also reverts cells that leave a pad fewer than 2 thermal spokes
+                                   # into its fill (hotloop.SPOKES_MIN; nekoink's starved_thermal +8 in cells-robust)
     hotloop_cells_max_pads=0,      # the cells stage is skipped on a board with more pads than this (0: no gate;
                                    # hotloop.density_gate: dense boards lost connections far from any cell)
     hotloop_cell_walls=0,          # 1 lays a cell hop whose every route walls off another net's pin (the first such
