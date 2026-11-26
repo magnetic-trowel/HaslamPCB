@@ -179,6 +179,6 @@ Cells first is off by default.
 - *Turn it on:* `HASLAM_HOTLOOP_CELLS=1`, or the setting `hotloop_cells`.
 - *What it buys:* on 2–4 layer boards it cut the buck and boost loops' inductance by about 18 % and their loop losses by about 20 % against the default. It costs about +20 % routing CPU on regulator boards.
 - *What it risks:* connections on dense boards (6+ layers, many nets crossing the converter area).
-- *Half bridges:* no gain, so `hotloop_cell_kinds` defaults to `buck,boost`.
+- *Half bridges:* no gain, so `hotloop_cell_kinds` defaults to `buck,boost,inverting` (inverting cells are recognised only with `HASLAM_CELLS_INVERTING=1`, off by default).
 - *Hazard:* a board with buck or boost cells routed with it off gets an info hazard, `hotloop_cells_available`, carrying this trade-off and the setting.
 - Results: `bench/results/2026-11-24-hotloop-sw-round3.md` on the route-finish-ab branch.
