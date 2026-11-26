@@ -157,6 +157,12 @@ class _Space:
                 continue
             if it[3] is not None and it[3] != layer:
                 continue
+            if it[2] == "keepout":
+                # a rule area forbids overlap, not proximity (KiCad's disallow test): its need of 1e-6 less the
+                # tolerance below was 0, so copper across one passed (a widened track or a spoke through it)
+                if geom.intersects(it[0]) and geom.intersection(it[0]).area > 1e-9:
+                    return False
+                continue
             if geom.distance(it[0]) < self._need(net, layer, it) - 1e-6:
                 return False
         return True
