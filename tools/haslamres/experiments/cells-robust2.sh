@@ -9,7 +9,7 @@
 #   r4 stage (operating facts intent-r3/compiled-r3-bfc6583), as hotloop-sw.sh round 4:
 #     N    cr default    HASLAM_HOTLOOP_CELLS=0
 #     C    cr2 cells     HASLAM_HOTLOOP_CELLS=1 + X (X: the three new settings below)
-#     P    cr2 paired    N with restart.py --alt-env 'HASLAM_HOTLOOP_CELLS=1 X' --alt-paired --tiebreak (cellquote)
+#     P    cr2 paired    N with restart.py --alt-env 'HASLAM_HOTLOOP_CELLS=1 X' --alt-paired ${FINAL_BOTH:+--alt-final-both} --tiebreak (cellquote)
 #                        --alt-guard (haslam.route.cellguard)
 #   inv stage (operating facts intent-inv/compiled-39e63fb), as inverters.sh:
 #     IN   cr2 inv N     HASLAM_HOTLOOP_CELLS=1 X HASLAM_CELLS_INVERTING=0
@@ -45,6 +45,7 @@ POST="; rc=\$?; for f in summary report; do test -f restarts/\$f.json && echo RF
 CP="cp -r $KH/$NUMBA numba 2>/dev/null;"
 OP="--set operating=\$RFAB_OP"
 
+# FINAL_BOTH=1 (cells-robust4): P also runs restart.py --alt-final-both, as method "cr2 paired final-both".
 # P's attempt command must not set HASLAM_HOTLOOP_CELLS or X itself: `env K=V` in the command overrides the arm-B
 # environment restart.py passes (cells-robust stage 1's P set HASLAM_HOTLOOP_CELLS=0 there, and its arm B ran cells off)
 add() {  # NAME DESCRIPTION ENV PORTFOLIO(0/1)
@@ -55,7 +56,7 @@ add() {  # NAME DESCRIPTION ENV PORTFOLIO(0/1)
   if [ "$port" = 1 ]; then
     # the choose-better portfolio as round 4's P, plus the guard: arm B (cells first) never replaces arm A's board
     # when it leaves more connections open at the cells' parts
-    cb="--alt-env 'HASLAM_HOTLOOP_CELLS=1 $X' --alt-paired --tiebreak '$CP $E -m haslam.excite.cellquote @BOARD@ --score-out @OUT@ --intent \$RFAB_OP' --alt-guard '$E -m haslam.route.cellguard @IN@ --out @OUT@ $OP'"
+    cb="--alt-env 'HASLAM_HOTLOOP_CELLS=1 $X' --alt-paired ${FINAL_BOTH:+--alt-final-both} --tiebreak '$CP $E -m haslam.excite.cellquote @BOARD@ --score-out @OUT@ --intent \$RFAB_OP' --alt-guard '$E -m haslam.route.cellguard @IN@ --out @OUT@ $OP'"
   fi
   local wrap; wrap=$(rs --final "'$LM'" $cb --finish "'$FN'")
   local inner="$CP if [ \"\$HASLAM_RESUME\" = 1 ]; then $E -m haslam.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@ $OP; else $E -m haslam.route.cli route @IN@ @OUT@ --seed @SEED@ --time @TIME@ $OP; fi"
@@ -70,7 +71,7 @@ X="HASLAM_HOTLOOP_CELL_REF_CHECK=inverting HASLAM_HOTLOOP_REACH_VIAS=1 HASLAM_HO
 D=cells-robust2-$STAGE-$S7${NAME:+-$NAME}
 case "$STAGE" in
   r4)
-    N="cr2 default $S7 (restarts)"; C="cr2 cells $S7 (restarts)"; P="cr2 paired $S7 (restarts)"
+    N="cr2 default $S7 (restarts)"; C="cr2 cells $S7 (restarts)"; P="cr2 paired${FINAL_BOTH:+ final-both} $S7 (restarts)"
     add "$N" "haslam.route.cli at $S7, cells off (hot-loop options all 0, set explicitly)" "$Z HASLAM_HOTLOOP_CELLS=0" 0
     add "$C" "as '$N' with HASLAM_HOTLOOP_CELLS=1 and $X" "$Z HASLAM_HOTLOOP_CELLS=1 $X" 0
     add "$P" "as '$N' with the paired choose-better portfolio (arm B HASLAM_HOTLOOP_CELLS=1 $X, both arms the whole schedule), the cells' quote between clean boards, and the cell guard" "$Z" 1
