@@ -18,9 +18,12 @@ Checks, each PASS / FAIL / WARN with the fix:
   and capacitances then assume KiCad's default 1.6 mm FR-4, not the fab's board)
 - intent.facts: the board's intent file loads, its facts match the board (brief["facts"]["unmatched"] empty),
   and every commutation cell has V, I and f_sw (WARN when one rests on a class default)
-- probe (--probe): `haslam place` for 60 s and `haslam.route.cli route` for 120 s on a copy, so a rule that blocks
-  routing shows up as `blocked:` lines in minutes, not after a campaign
-Exit status 0 when nothing FAILs.
+- intent.priors: the parts whose supply draw is a class prior, not a fact (`python -m haslam.intent priors BOARD`;
+  SKIP when this haslam has no such command)
+- probe (--probe): `haslam place` for 60 s (its "relations: N of M met" line) and `haslam.route.cli route` for
+  120 s on a copy, so a rule that blocks routing shows up as `blocked:` lines in minutes, not after a campaign;
+  probe.route prints how many connections the probe routed and how many KiCad still finds open
+Exit status 0 when nothing FAILs (SKIP and WARN do not fail).
 """
 from __future__ import annotations
 
@@ -181,31 +184,87 @@ def check_intent(board):
         "state them as cell or part facts")
 
 
+def open_connections(board):
+    """KiCad's unconnected-item count of `board` after a zone refill (its project files beside it); None when the
+    DRC does not run."""
+    w = wrap()
+    cli = [os.environ["HASLAM_KICAD_CLI"]] if os.environ.get("HASLAM_KICAD_CLI") else w + ["kicad-cli"]
+    out = board.with_name(board.stem + "-drc.json")
+    try:
+        run(cli + ["pcb", "drc", "--format", "json", "--severity-all", "--refill-zones", "-o", str(out), str(board)],
+            timeout=1800)
+        return len(json.loads(out.read_text()).get("unconnected_items") or [])
+    except Exception:  # noqa: BLE001 - reported as unknown
+        return None
+
+
 def probe(board):
     wd = Path(tempfile.mkdtemp(prefix="preflight-probe-", dir=board.parent))
     try:
-        src = wd / board.name
+        # every stage's board keeps the input's name in its own folder, with the project files beside it: haslam
+        # and KiCad find .kicad_pro/.kicad_dru/.haslam_intent.json by stem (a placed.kicad_pcb ran on defaults)
+        src, placed, routed = (wd / d / board.name for d in ("in", "placed", "routed"))
+        for b in (src, placed, routed):
+            b.parent.mkdir()
+            for ext in (".kicad_pro", ".kicad_dru", ".haslam_intent.json"):
+                if board.with_suffix(ext).exists():
+                    shutil.copy2(board.with_suffix(ext), b.with_suffix(ext))
+            if (board.parent / "fp-lib-table").exists():
+                shutil.copy2(board.parent / "fp-lib-table", b.parent / "fp-lib-table")
         shutil.copy2(board, src)
-        for ext in (".kicad_pro", ".kicad_dru", ".haslam_intent.json"):
-            if board.with_suffix(ext).exists():
-                shutil.copy2(board.with_suffix(ext), src.with_suffix(ext))
-        placed, routed = wd / "placed.kicad_pcb", wd / "routed.kicad_pcb"
         env = dict(os.environ, HASLAM_WORKERS="1", OMP_NUM_THREADS="1")     # a probe, not a job: one core
         r = run([sys.executable, "-m", "haslam.cli", "place", str(src), str(placed), "--time", "60"], timeout=900, env=env)
         if r.returncode != 0 or not placed.exists():
             rec("probe.place", "FAIL", (r.stdout + r.stderr).strip().splitlines()[-1][:160] if r.stdout + r.stderr
                 else "no output", "read the placer's report")
             return
+        rel = next((ln.split("relations:", 1)[1].strip() for ln in (r.stdout + r.stderr).splitlines()
+                    if "relations:" in ln), None)
+        rec("probe.place", "PASS", "placed in 60 s" + (f"; relations: {rel[:200]}" if rel else ""))
         r = run([sys.executable, "-m", "haslam.route.cli", "route", str(placed), str(routed), "--time", "120"],
                 timeout=1800, env=env)
         lines = [ln for ln in (r.stdout + r.stderr).splitlines() if "blocked:" in ln]
         rules = [ln for ln in lines if "congestion" not in ln and "connections the rules block" not in ln]
-        summ = next((ln for ln in lines if "connections the rules block" in ln), "no blocked summary")
-        rec("probe.route", "PASS" if not rules else "WARN", summ.split("blocked:", 1)[-1].strip()[:160]
+        summ = next((ln for ln in lines if "connections the rules block" in ln), None)
+        before = open_connections(placed)
+        after = open_connections(routed) if routed.exists() else None
+        if before is None or after is None:
+            counts = "routed/open counts unknown (" + ("no routed board" if not routed.exists() else "KiCad DRC failed") + ")"
+        else:
+            counts = f"{before - after} of {before} connections routed, {after} open (KiCad DRC)"
+        blocked = summ.split("blocked:", 1)[-1].strip()[:160] if summ else \
+            ("no blocked diagnosis (nothing left open)" if after == 0 else "no blocked diagnosis")
+        rec("probe.route", "PASS" if not rules else "WARN", f"{counts}; {blocked}"
             + ("".join("\n     " + ln.split("blocked:", 1)[-1].strip()[:180] for ln in rules[:8])),
             "a rule-blocked connection is a rule to fix before the campaign")
     finally:
         shutil.rmtree(wd, ignore_errors=True)
+
+
+def check_priors(board):
+    """intent.priors: parts whose supply draw or heat is a class prior, not a stated fact (FRICTION F36: a 2 uA
+    I2C switch scored as a 10 mA core became the board's hottest part). Runs `python -m haslam.intent priors
+    BOARD`, which prints one line per such part (nothing when every part is stated); skipped, not failed, while
+    that command does not exist in the haslam checkout."""
+    r = run([sys.executable, "-m", "haslam.intent", "priors", str(board)], timeout=900)
+    err = r.stderr.strip()
+    if r.returncode != 0 and ("invalid choice" in err or "No module named" in err):
+        rec("intent.priors", "SKIP", "haslam.intent has no 'priors' command in this checkout")
+        return
+    if r.returncode != 0:
+        rec("intent.priors", "WARN", f"haslam.intent priors exit {r.returncode}: "
+            + ((err.splitlines() or ["no output"])[-1][:160]), "run it by hand: python -m haslam.intent priors BOARD")
+        return
+    try:
+        doc = json.loads(r.stdout)
+        items = doc.get("parts", doc) if isinstance(doc, dict) else doc
+        lines = [json.dumps(x) if not isinstance(x, str) else x for x in items]
+    except ValueError:
+        lines = [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+    rec("intent.priors", "PASS" if not lines else "WARN",
+        "every part's draw is stated" if not lines else f"{len(lines)} parts on class priors:"
+        + "".join("\n     " + ln[:160] for ln in lines[:12]) + ("\n     ..." if len(lines) > 12 else ""),
+        "state their supply current (part-card haslam=, or d.haslam.part(REF, I_A=...)) so physics prices facts")
 
 
 def main(argv=None):
@@ -220,6 +279,7 @@ def main(argv=None):
     check_drc(board)
     check_stackup(board)
     check_intent(board)
+    check_priors(board)
     if a.probe:
         probe(board)
     fails = [r for r in RESULTS if r["status"] == "FAIL"]
