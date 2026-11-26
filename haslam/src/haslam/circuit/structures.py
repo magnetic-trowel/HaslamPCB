@@ -2599,11 +2599,16 @@ def power_paths(b: _B, cells, groups=None) -> tuple[list, list]:
                                                      else (round(p['ron'] * 0.5, 6), round(p['ron'] * 2.0, 6)))),
                                 'P_W': P_}))
         for st_ in p['stages']:
+            rons = {q: ((p['ron'], p['ron_basis']) if p['ic'] else _fet_ron(b, q)) for q in st_}
+            g_sum = sum(1 / max(r, 1e-9) for r, _ in rons.values())
             for q in st_:
-                r1, rbasis = (p['ron'], p['ron_basis']) if p['ic'] else _fet_ron(b, q)
-                Pq = round((I_ / len(st_)) ** 2 * r1, 4)
+                r1, rbasis = rons[q]
+                # parallel switches share the current by their conductance (equal R_on: I/n each); an even split put
+                # a 20 mOhm FET's beside a 10 mOhm one at 0.5 W instead of 0.22 W and over-counted the stage's loss
+                Iq = I_ * (1 / max(r1, 1e-9)) / g_sum
+                Pq = round(Iq ** 2 * r1, 4)
                 if Pq >= 0.05:
-                    basis = f"(I/n)^2 x R_on: I {I_:g} A ({ibasis}) over {len(st_)} parallel, {rbasis}"
+                    basis = f"I_q^2 x R_on: I {I_:g} A ({ibasis}) over {len(st_)} parallel by conductance ({Iq:.3g} A), {rbasis}"
                     heat_s.append(_struct('heat_source', f"heat:{q}", [ev('derived', basis, MODERATE)], conf_cap=0.6, prior=0.0,
                                           part=q, P_W=Pq, P_W_belief={'value': Pq, 'unit': 'W', 'class': 'E5', 'basis': basis,
                                                                       'interval': [round(Pq / 9, 4), round(Pq, 4)]}))
