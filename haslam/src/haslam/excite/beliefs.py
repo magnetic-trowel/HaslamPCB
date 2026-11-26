@@ -145,16 +145,12 @@ def lookup(text):
 
 
 def intent_value(intent, section, key, name):
-    """(typ, lo, hi) from the intent file, or None."""
+    """(typ, lo, hi) from the intent file, or None: haslam.intent.facts.interval, the checker's own reader."""
+    from haslam.intent.facts import interval
     v = ((intent or {}).get(section) or {}).get(key, {}).get(name)
     if v is None:
         return None
-    if isinstance(v, list) and len(v) == 3:          # [lo, typ, hi] (haslam.intent.facts)
-        return (float(v[1]), float(v[0]), float(v[2]))
-    if isinstance(v, list):
-        lo, hi = float(v[0]), float(v[-1])
-        return (math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2, lo, hi)
-    return (float(v), float(v), float(v))
+    return interval(v, f"facts.{section}.{key}.{name}")
 
 
 def corners(params, n=16, seed=0):

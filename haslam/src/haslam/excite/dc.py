@@ -94,6 +94,22 @@ SUPPLY_PIN = re.compile(r"^(V(CC|DD|IN|BAT|BUS|S|M|PP|IO|CORE|DDA|DDIO|USB|SYS|P
 VOLT_PIN = re.compile(r"^\+?\d+V\d*$|^\+?\d+(\.\d+)?V$", re.I)     # '3V3', '5V', '+1.8V': a supply pin by its voltage
 
 
+def fact_interval(v, what="value"):
+    """(typ, lo, hi) of an operating fact's value: haslam.intent.facts.interval, the reader of every form the
+    facts' checker accepts (a number, [lo, hi], [lo, typ, hi])."""
+    from haslam.intent.facts import interval
+    return interval(v, what)
+
+
+def _eta(v, what):
+    """(typ, lo, hi) of a stated efficiency, None when absent or outside (0, 1]. A [lo, typ, hi] eta was ignored
+    (only [lo, hi] was read) and the regulator fell back to its class prior."""
+    if v is None:
+        return None
+    t = fact_interval(v, what)
+    return t if 0 < t[1] <= t[2] <= 1 else None
+
+
 def draws_from(pp, net, rails):
     """Whether an IC or module with pads pp [(number, net, pintype, pinfunction)] takes supply current
     from rail `net`: a pad on it typed power_in or named as a supply (VCC, VDD, 3V3...), or, on a board
@@ -338,11 +354,10 @@ def plan(board, brief, bd, P, srcs, intent=None):
             pi = next((p for p in (P.get(cell["src"]) or {}).values() if getattr(p, "name", "") == "I_A"), None)
             if pi is not None and pi.hi > 0:
                 pl.feeds[r]["I_hi"] = float(pi.hi)
-            fe = (facts.get(r) or {}).get("eta")
-            if isinstance(fe, list) and len(fe) == 2 and 0 < min(fe) <= max(fe) <= 1:
+            fe = _eta((facts.get(r) or {}).get("eta"), f"facts.nets.{r}.eta")
+            if fe:
                 # the facts' efficiency: the input takes P_out / eta (without it the cell's duty, lossless)
-                pl.feeds[r]["eta"] = Param(f"dc:{cell['ctrl']}", "eta", (fe[0] + fe[1]) / 2, fe[0], fe[1], "", "intent",
-                                           "the intent file")
+                pl.feeds[r]["eta"] = Param(f"dc:{cell['ctrl']}", "eta", *fe, "", "intent", "the intent file")
                 pl.params.append(pl.feeds[r]["eta"])
             continue
         if src_ref is None or src_ref not in pads:
@@ -381,10 +396,9 @@ def plan(board, brief, bd, P, srcs, intent=None):
                      ref=src_ref, rin=rin, out=outs,
                      inp=tok(src_ref, [n for n, net in ins if net == rin]), gnd=gnd_pads(src_ref))
             if f["kind"] == "switching":
-                fe = (facts.get(r) or {}).get("eta")
-                if isinstance(fe, list) and len(fe) == 2 and 0 < min(fe) <= max(fe) <= 1:
-                    f["eta"] = Param(f"dc:{src_ref}", "eta", (fe[0] + fe[1]) / 2, fe[0], fe[1], "", "intent",
-                                     "the intent file")
+                fe = _eta((facts.get(r) or {}).get("eta"), f"facts.nets.{r}.eta")
+                if fe:
+                    f["eta"] = Param(f"dc:{src_ref}", "eta", *fe, "", "intent", "the intent file")
                 else:
                     f["eta"] = Param(f"dc:{src_ref}", "eta", ETA[1], ETA[0], ETA[2], "", "prior",
                                      "efficiency of a switching regulator without a cell model (class range)")
@@ -609,9 +623,8 @@ def plan(board, brief, bd, P, srcs, intent=None):
             # loads take (haslam.excite.heat sets its operating current from them), not a current its rail's loads
             # share out (solar-small's LTC2959 coulomb counter, < 1 uA, took the whole LTC3130 output: 1.5 W)
             if iv is not None:
-                lo, hi = (iv if isinstance(iv, list) else [iv, iv])
-                lo, hi = lo * share, hi * share
-                p = Param(f"dc:{ref}@{r}", "I_A", math.sqrt(lo * hi) if lo > 0 else hi, lo, hi, "A", "intent",
+                typ, lo, hi = (x * share for x in fact_interval(iv, f"facts.parts.{ref}.I_A"))
+                p = Param(f"dc:{ref}@{r}", "I_A", typ, lo, hi, "A", "intent",
                           "the intent file" + (f" ({share:.0%} of the part's current: its share of supply pads)" if share < 1 else ""))
             elif "I_supply_A" in tab:
                 typ, lo, hi, src = tab["I_supply_A"]
@@ -644,8 +657,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
         u = uuid_of.get(ref)
         iv = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_A")
         if iv is not None:
-            lo, hi = iv if isinstance(iv, list) else [iv, iv]
-            p = Param(f"dc:{ref}@{r}", "I_A", math.sqrt(lo * hi) if lo > 0 else hi, lo, hi, "A", "intent",
+            p = Param(f"dc:{ref}@{r}", "I_A", *fact_interval(iv, f"facts.parts.{ref}.I_A"), "A", "intent",
                       "the intent file (the part's own draw, from its own input)")
         else:
             a = load_current(ctx, u, r, {}, draws=True)

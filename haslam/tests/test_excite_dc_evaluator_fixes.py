@@ -42,3 +42,40 @@ def test_a_tab_pad_that_repeats_its_pin_counts_the_pin_once(tmp_path):
     assert inj["U1.2"] == pytest.approx(0.1)
     heat = H.part_heat(bd, pl, cv, {}, inj)
     assert heat["U1"] == pytest.approx((5.0 - 3.3) * 0.1)
+
+
+@pytest.mark.parametrize("form,typ", [(0.1, 0.1), ([0.05, 0.2], 0.1), ([0.05, 0.12, 0.2], 0.12), ([0.0, 0.2], 0.1)])
+def test_every_value_form_the_checker_accepts_is_read_by_the_dc_plan(tmp_path, form, typ):
+    """check_facts accepts parts.<ref>.I_A as a number, [lo, hi] or [lo, typ, hi]; dc.plan unpacked two values and
+    crashed on three (duanestorey's first run). Both read through haslam.intent.facts.interval now, with one
+    typical value: [0, hi] is the midpoint (the plan took hi)."""
+    from haslam.intent.facts import check_facts, interval
+    b, intent = _ldo_board(tmp_path)
+    intent["parts"]["J2"] = {"I_A": form, "I_sustained_A": form}
+    intent["nets"]["+3V3"]["eta"] = [0.8, 0.85, 0.9]
+    check_facts(intent)
+    pl, _, _, _ = _plan(b, intent)
+    p = next(p for p in pl.params if p.subject == "dc:J2@+3V3")
+    assert (p.typ, p.lo, p.hi) == pytest.approx(interval(form))
+    assert p.typ == pytest.approx(typ)
+
+
+def test_a_three_value_eta_and_sustained_current_are_read(tmp_path):
+    """nets.<rail>.eta as [lo, typ, hi] was ignored by dc.plan (it read only [lo, hi]) and the regulator took its class
+    prior; a listed parts.<ref>.I_sustained_A was ignored by the heat band."""
+    from haslam.excite import beliefs
+    nets = ["VIN", "GND", "+5V"]
+    fps = [_fp("J1", "Conn_01x02", "Connector:Header_1x02", 5, [_pad("1", 0, 1, "VIN"), _pad("2", 1, 2, "GND")], 1),
+           _fp("U1", "MP1584", "Package_TO_SOT_SMD:SOT-23-6", 20,
+               [_pad("1", 0, 2, "GND", "GND", "power_in"), _pad("2", 1, 3, "+5V", "VOUT", "power_out"),
+                _pad("3", 2, 1, "VIN", "VIN", "power_in")], 2),
+           _fp("J2", "Conn_01x02", "Connector:Header_1x02", 40, [_pad("1", 0, 3, "+5V"), _pad("2", 1, 2, "GND")], 3)]
+    intent = {"nets": {"VIN": {"source": "J1", "V_V": 12.0},
+                       "+5V": {"source": "U1", "from": "VIN", "kind": "switching", "V_V": 5.0, "eta": [0.8, 0.88, 0.9]}},
+              "parts": {"J2": {"I_A": [0.1, 0.3], "I_sustained_A": [0.1, 0.15, 0.3]}}}
+    pl, _, _, _ = _plan(_board(tmp_path, nets, fps), intent)
+    eta = pl.feeds["+5V"]["eta"]
+    assert (eta.source, eta.typ, eta.lo, eta.hi) == ("intent", 0.88, 0.8, 0.9)
+    assert H.sustained_A(intent, "J2") == pytest.approx(0.15)
+    assert beliefs.intent_value(intent, "parts", "J2", "I_A") == pytest.approx(((0.1 * 0.3) ** 0.5, 0.1, 0.3))
+

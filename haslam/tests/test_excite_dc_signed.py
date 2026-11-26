@@ -182,13 +182,14 @@ def _positive_board(tmp_path):
            _fp("J2", "Conn_01x02", "Connector:Header_1x02", 50, [_pad("1", 0, 3, "+5V"), _pad("2", 1, 2, "GND")], 6)]
     intent = {"nets": {"+12V": {"source": "J1", "V_V": 12.0},
                        "+5V": {"source": "U1", "from": "+12V", "kind": "linear", "V_V": 5.0},
-                       "+3V3": {"source": "U2", "from": "+12V", "kind": "switching", "eta": [0.8, 0.9], "V_V": 3.3}},
+                       "+3V3": {"source": "U2", "from": "+12V", "kind": "switching", "eta": [0.8, (0.8 + 0.9) / 2, 0.9], "V_V": 3.3}},
               "parts": {"U3": {"I_A": [0.01, 0.04]}, "U4": {"I_A": [0.05, 0.2]}, "J2": {"I_A": [0.1, 0.3]}}}
     return _plan(_board(tmp_path, nets, fps), intent)[0]
 
 
 # the injections of _positive_board at its parameters' typical values, from the code before rails carried signs
-# (46593d4b), to the last bit
+# (46593d4b), to the last bit. Its eta states the typical 0.85 the plan then took for [0.8, 0.9] (the mean); a
+# [lo, hi] fact now has the facts' one typical value, the geometric mean (haslam.intent.facts.interval)
 POSITIVE_BEFORE = {"J1.1": 0.22555802193335833, "J1.2": -0.22555802193335833, "J2.1": -0.17320508075688773,
                    "J2.2": 0.17320508075688773, "U1.1": -0.19320508075688772, "U1.3": 0.19320508075688772,
                    "U2.1": -0.032352941176470584, "U2.2": -0.06764705882352942, "U2.3": 0.1, "U3.4": -0.02,
