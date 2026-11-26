@@ -160,8 +160,15 @@ def test_a_rails_demand_follows_its_loads_through_regulators():
     pl.loads = [dict(ref="U3", rail="5V", key=("dc:U3@5V", "I_A")), dict(ref="U4", rail="3V3", key=("dc:U4@3V3", "I_A"))]
     amps = {("dc:U3@5V", "I_A"): 0.2, ("dc:U4@3V3", "I_A"): 0.05}
     assert HT.rail_demand(pl, "5V", lambda ld: amps[ld["key"]]) == pytest.approx(0.25)
-    # the 12 V input carries the buck's output power over 88% efficiency
-    assert HT.rail_demand(pl, "VIN", lambda ld: amps[ld["key"]]) == pytest.approx(0.25 * 5 / (0.88 * 12))
+    # the 12 V input carries the buck's output power over its efficiency: the class prior (converter.ETA's 0.9; it
+    # was a fixed 0.88 whatever the facts said), else the stated one
+    from haslam.excite.beliefs import Param
+    from haslam.physics import converter as CV
+    assert HT.rail_demand(pl, "VIN", lambda ld: amps[ld["key"]]) == pytest.approx(0.25 * 5 / (CV.ETA[1] * 12))
+    pl.feeds["5V"]["eta"] = Param("dc:U1", "eta", 0.7, 0.6, 0.8, "", "intent", "test")
+    assert HT.rail_demand(pl, "VIN", lambda ld: amps[ld["key"]]) == pytest.approx(0.25 * 5 / (0.7 * 12))
+    pl.feeds["3V3"] = dict(kind="switching", ref="U2", rin="5V", eta=Param("dc:U2", "eta", 0.75, 0.7, 0.8, "", "intent", "t"))
+    assert HT.rail_demand(pl, "5V", lambda ld: amps[ld["key"]]) == pytest.approx(0.2 + 0.05 * 3.3 / (0.75 * 5))
 
 
 def test_part_patterns_match_from_a_word_boundary_and_the_most_specific_wins():
