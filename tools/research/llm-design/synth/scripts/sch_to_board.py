@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Build an unplaced .kicad_pcb from a haslamsynth project: KiCad's own Python does the work.
 
-Run with KiCad's Python (pcbnew), e.g. `$HASLAM_KICAD_WRAP python3 sch_to_board.py OUT_DIR BOARD_JSON`.
+Run with KiCad's Python (pcbnew), e.g. `$HASLAM_KICAD_WRAP python3 sch_to_board.py OUT_DIR [BOARD_JSON]`; BOARD_JSON
+defaults to OUT_DIR/board.json, which `haslamsynth build` writes from d.board(...) and d.place.fixed(...)
+(haslamsynth.boardgeom: slots and edge-strip keep-outs from a SlotBarrier, named rule areas, pours by area).
 
 OUT_DIR is a `haslamsynth build` output folder (<slug>.kicad_pro, .kicad_sch, fp-lib-table). The netlist comes from
 `kicad-cli sch export netlist` on the schematic, so the board carries exactly what KiCad reads from the sheets
@@ -336,4 +338,4 @@ def update(out_dir, board_in, board_out):
 if __name__ == "__main__":
     if sys.argv[1] == "--update":                    # --update OUT_DIR BOARD_IN BOARD_OUT
         sys.exit(update(sys.argv[2], sys.argv[3], sys.argv[4]))
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else Path(sys.argv[1]) / "board.json")

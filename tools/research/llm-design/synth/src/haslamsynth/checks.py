@@ -743,7 +743,12 @@ class Checker:
         for u in sorted(set(unknown)):
             self.add("place.unknown_object", "warning",
                      f"placement relation names {u!r}, which is not a part, domain, block or net", [u])
+        reqs = {r.id for r in d.requirements}
         for rel in d.place.relations:
+            if rel.get("req") and rel["req"] not in reqs:
+                self.add("place.unknown_requirement", "error",
+                         f"d.place.{rel['kind']}(..., req={rel['req']!r}): no requirement with that id "
+                         f"(d.require ids: {', '.join(sorted(reqs)) or 'none'})", [rel["req"]])
             if rel["kind"] == "separate":
                 a, b = rel["a"].removeprefix("domain:"), rel["b"].removeprefix("domain:")
                 for x in (a, b):

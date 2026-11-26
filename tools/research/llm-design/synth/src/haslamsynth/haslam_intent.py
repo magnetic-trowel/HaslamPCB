@@ -28,10 +28,13 @@ haslam.intent.facts.check_facts): its errors are build findings.
 from __future__ import annotations
 
 import json
+import math
 
 from .emit.project import kicad_net_name
 
 CELL_CLASSES = ("buck", "boost", "half_bridge")
+# facts that state a part's supply draw (haslam.excite reads I_A for DC and heat, core_I_A for the transient core)
+SUPPLY_KEYS = ("I_A", "I_sustained_A", "core_I_A")
 # design relations haslam does not read, and why they are not written to the intent file
 UNUSED = {
     "hot_loop": "a physical want: haslam.circuit finds the commutation cell and the placer's terms price its loop "
@@ -39,7 +42,7 @@ UNUSED = {
     "separate": "domain spacing is in the .kicad_dru barrier rules haslamsynth writes, which the router and DRC enforce",
     "keepout": "a keep-out is a board rule area (board.json keepouts), which haslam treats as an obstacle",
     "keepout_around": "a keep-out is a board rule area (board.json keepouts), which haslam treats as an obstacle",
-    "fixed": "positions come from board.json `fixed` (sch_to_board locks those parts)",
+    "fixed": "positions go to out/board.json `fixed` (haslamsynth.boardgeom; sch_to_board locks those parts)",
     "thermal": "dissipation is a fact (d.haslam.part), not a relation; the placer's heat terms read the brief",
     "orient": "haslam's orient takes a rotation set (allowed); a facing direction has no haslam spelling yet",
     "pins_toward": "haslam's pins_toward points pins at a place, not at a side of the part's own body",
@@ -136,7 +139,26 @@ class HaslamIntent:
                                 f"{min(rs):g} V): the term bounds the ring above the bus, so it never binds, and the "
                                 f"rating already reaches haslam from the facts. Restate it as the ring limit V_abs - "
                                 f"V_bus,max less a margin, or drop it", [ref]))
+        out += self.supply_priors(parts)
         return out
+
+    def supply_priors(self, parts):
+        """`haslam_intent.supply_prior` (warning), one per part card: ICs and modules on the board whose facts state
+        no supply draw (SUPPLY_KEYS), so haslam.excite gives each a 10 mA class-prior core (FRICTION F36, F48: a
+        2 uA I2C switch became the board's hottest part). Converter controllers (a d.haslam.cell or a net's
+        source=) are left out: their draw is the power they convert."""
+        ctrl = {cid.split(":")[-1] for cid in self.cells} | {f.get("source") for f in self.nets.values()}
+        by_card = {}
+        for p in self.d.all_parts():
+            if not (p.on_board and p.ref and p.defn.in_bom and p.defn.category in ("ic", "module")) or p.ref in ctrl:
+                continue
+            if not any(k in (parts.get(p.ref) or {}) for k in SUPPLY_KEYS):
+                by_card.setdefault(p.defn.mpn or p.defn.value, []).append(p.ref)
+        return [("haslam_intent.supply_prior",
+                 f"{', '.join(refs[:8])}{' ...' if len(refs) > 8 else ''} ({card}): no supply-draw fact, so haslam "
+                 f"models a 10 mA class-prior core; state the datasheet's on the part card, haslam=dict(I_A=[lo, hi], "
+                 f"I_sustained_A=typ, why=...) (core_I_A / core: false for its transient core), or d.haslam.part",
+                 refs) for card, refs in sorted(by_card.items())]
 
     # -- emit -----------------------------------------------------------------------------------
     def _net(self, name, problems, what):
@@ -176,13 +198,20 @@ class HaslamIntent:
                 parts[p.ref] = f
         return nets, parts
 
-    def relations(self):
+    def relations(self, geometry=None):
         """(haslam.intent/1 relations, [(relation, why it is not written)]): the design's d.place relations and
-        the decoupling nears the circuit implies (an explicit relation on the same pair wins)."""
+        the decoupling nears the circuit implies (an explicit relation on the same pair wins). geometry: the
+        board.json dict (haslamsynth.boardgeom) thermal_isolate picks the nearest victims from; d.place.fixed is
+        written there, not here."""
         from .placement import infer_decaps
         d = self.d
         parts = {p.ref: p for p in d.all_parts() if p.ref}
-        explicit = [dict(r, source="design") for r in d.place.resolve()]
+        explicit = []
+        for r in d.place.resolve():
+            if r["kind"] == "fixed":
+                continue                      # board.json `fixed` (haslamsynth.boardgeom)
+            explicit += expand_thermal(d, r, geometry) if r["kind"] == "thermal_isolate" else [r]
+        explicit = [dict(r, source=r.get("source", "design")) for r in explicit]
         pairs = {(r.get("a"), r.get("b")) for r in explicit}
         rows, skipped, ids = [], [], set()
 
@@ -202,6 +231,8 @@ class HaslamIntent:
         for r in explicit + [a for a in infer_decaps(d) if (a["a"], a["b"]) not in pairs]:
             k = r["kind"]
             why = r.get("note") or f"design.py d.place.{k}"
+            if r.get("req") and r["req"] not in why:
+                why = f"{why} ({r['req']})"
             row = None
             if k in ("near", "far"):
                 if not (ref_ok(r["a"]) and ref_ok(r["b"])):
@@ -299,7 +330,8 @@ class HaslamIntent:
             self._ref(ref, problems, f"haslam.part {ref}")
             if not f.get("why"):
                 problems.append(f"haslam.part {ref}: say why (datasheet, page)")
-            parts[ref] = {k: (_iv(v) if k != "why" else v) for k, v in f.items()}
+            # numbers and intervals as haslam reads them; flags and names (core: false, a class) as given
+            parts[ref] = {k: (v if k == "why" or isinstance(v, (bool, str)) else _iv(v)) for k, v in f.items()}
         cells = {}
         for cid, f in self.cells.items():
             ctrl = cid.split(":")[-1]
@@ -346,6 +378,47 @@ class HaslamIntent:
             doc["knobs"] = dict(self.knobs)
         problems += haslam_check(doc)
         return doc, problems
+
+
+HOT_CATEGORIES = ("ic", "module", "inductor", "transformer", "mosfet", "bjt", "diode")
+
+
+def expand_thermal(d, r, geometry=None):
+    """d.place.thermal_isolate (resolved) as the region and far relations it stands for (placement.py)."""
+    common = dict(requested=r.get("requested", False), category="thermal", req=r.get("req"),
+                  note=r.get("note") or "thermal isolation (d.place.thermal_isolate)")
+    out = []
+    parts = {p.ref: p for p in d.all_parts() if p.ref and p.on_board}
+    src_parts = []
+    for s in r["sources"]:
+        if str(s).startswith("block:"):
+            blk = str(s).removeprefix("block:")
+            src_parts += [p.ref for b in d.blocks if b.name == blk for p in b.parts if p.ref in parts]
+            if r.get("area"):
+                out.append(dict(kind="region", block=s, where=f"area:{r['area']}", level="required", **common))
+        elif s in parts:
+            src_parts.append(s)
+            if r.get("area"):
+                out.append(dict(kind="region", members=[s], where=f"area:{r['area']}", level="required", **common))
+    fixed = (geometry or {}).get("fixed") or {}
+    victims = [v for v in r["victims"] if v in parts]
+    if r.get("victim_area"):
+        free = [v for v in victims if v not in fixed]
+        if free:
+            out.append(dict(kind="region", members=free, where=f"area:{r['victim_area']}", level="required", **common))
+    hot = r.get("hot") or [x for x in src_parts if parts[x].defn.category in HOT_CATEGORIES]
+    rect = next((k["rect"] for k in (geometry or {}).get("keepouts") or [] if k.get("name") == r.get("area")), None)
+    near = victims
+    if rect and victims and all(v in fixed for v in victims):
+        def dist(v):
+            x, y = fixed[v]["x"], fixed[v]["y"]
+            return math.hypot(max(rect[0] - x, 0, x - rect[2]), max(rect[1] - y, 0, y - rect[3]))
+        dmin = min(dist(v) for v in victims)
+        near = [v for v in victims if dist(v) <= dmin + 1.0]       # the row next to the hot area
+    for h in hot:
+        for v in near:
+            out.append(dict(kind="far", a=h, b=v, strength=r.get("strength", "close"), level=r.get("level"), **common))
+    return out
 
 
 def haslam_check(doc):
