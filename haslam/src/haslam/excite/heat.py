@@ -441,7 +441,8 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
              log=print, ledger=None, obs_out=None, power_out=None, system=None, tcr_out=None):
     """Thermal harms per part at every corner, added into the per-corner totals. ac_parts: {ref: [W per
     corner]} from the switching harmonics. obs_out: a list that gets haslam.intent observations: each
-    dissipating part's junction temperature (temp.junction, C) and its loss (loss.part, W) per corner.
+    dissipating part's junction temperature (temp.junction, C), its rise above that corner's ambient (temp.rise, K)
+    and its loss (loss.part, W) per corner.
     power_out: a dict that gets each part's sustained dissipation at the typical point (W: its loss, or what a
     load turns into heat), for the placer (operating facts parts.<ref>.P_sustained_W, write_part_power.py)."""
     import time
@@ -581,7 +582,7 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
             js, is_ = [q[1] for q in cells], [q[2] for q in cells]
             a = max(a, (max(js) - min(js) + 1) * (max(is_) - min(is_) + 1) * m.pitch ** 2)
         areas[fp.ref] = a
-    U, Tj, Lp = {}, {}, {}
+    U, Tj, Rj, Lp = {}, {}, {}, {}
     th_cache = {}
     for c in range(ncp):
         val = hc[c]
@@ -677,6 +678,7 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
             dT = float(np.mean([T[l, j, i] for (l, j, i) in cells])) + tj * w * mods.get(ref, 1.0)
             U.setdefault(ref, [0.0] * ncp)[c] = dT / max(Tmax - Tamb, 1.0)
             Tj.setdefault(ref, [0.0] * ncp)[c] = Tamb + dT
+            Rj.setdefault(ref, [0.0] * ncp)[c] = max(dT, 0.0)
     rows = []
     for ref, us in U.items():
         for c in range(ncp):
@@ -694,6 +696,15 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
                                                     for t, ly, n, G in relieved.get(ref, [])]),
                                 reference=dict(value=T_MAX.get(kind, 85.0), basis=f"{kind or 'part'} class rating"),
                                 label=f"junction temperature of {ref}"))
+            QT.check(obs_out[-1])
+            # the same junction's rise above the corner's ambient (Tj - T_amb): a bound that must hold at every
+            # ambient (a sensor's self-heating error, "no more than 10 mK from board heat") is a rise, which an
+            # absolute temp.junction bound can only fake at one ambient
+            obs_out.append(dict(id="temp.rise", unit="K", values=[float(t) for t in Rj[ref]], u=[0.0] * ncp,
+                                scope=dict(kind="heat", observer=f"heat:{ref}", source="dc", part=ref, parts=[ref],
+                                           part_kind=kind),
+                                reference=dict(value=None, basis="none: a rise is bounded by the intent"),
+                                label=f"junction rise of {ref} above ambient"))
             QT.check(obs_out[-1])
         for ref, ws in Lp.items():
             obs_out.append(dict(id="loss.part", unit="W", values=[float(w) for w in ws], u=[0.0] * ncp,

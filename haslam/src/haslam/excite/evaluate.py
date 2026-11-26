@@ -1141,7 +1141,7 @@ def _ripple_observations(bd, brief, bm, net, op, srcs, obs, bands, cps, ncp, unc
 # (supply.peak, pickup.peak, cable_cm.v) and every non-cell source's solves. No board-level AC copper loss outside
 # the cells exists in this evaluator (haslam.excite.wideband has it), so none is kept or dropped.
 SCOPE_KINDS = ("overshoot.peak", "loss.loop", "loss.loop_ac", "loss.swnode", "loss.copper", "loss.copper_ac",
-               "loss.part", "drop.rail", "heat.track", "temp.junction")
+               "loss.part", "drop.rail", "heat.track", "temp.junction", "temp.rise")
 
 
 def load_drc(path, drc=None):

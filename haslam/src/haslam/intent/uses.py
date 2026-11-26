@@ -45,6 +45,8 @@ EVAL_ONLY = {
                       "excite V_abs); a bound on the ring itself is judged on the solved board",
     "temp.junction": "the placer's thermal term spreads heat sources by a class budget; a junction limit needs "
                      "the board's heat solve",
+    "temp.rise": "the placer's thermal term spreads heat sources by a class budget and keeps thermal victims "
+                 "from them by class; a rise bound per part needs the board's heat solve",
     "cable_cm.v": "the placer's world common-mode term has a class budget per connector, not per cable pair",
     "emission.cable_E": "a field at 10 m needs the cables the intent declares; only the evaluator models them",
 }
