@@ -84,6 +84,35 @@ def cmd_ds(a):
     return 0
 
 
+def cmd_check_board(a):
+    import json
+    from pathlib import Path
+    from . import boardcheck, boardgeom
+    from .build import load_design
+    d = load_design(a.design).finalize()
+    geometry = boardgeom.board_json(d)[0]
+    hand = Path(a.design).resolve().parent / "board.json"
+    if hand.exists():
+        geometry = boardgeom.merge(geometry, json.loads(hand.read_text()))[0]
+    meas, rows, failed = boardcheck.check_board(d, a.board, geometry)
+    print(f"{d.slug}: {a.board}")
+    for name, m in meas.items():
+        print(f"  measure {name}: " + ", ".join(f"{k} {v}" for k, v in m.items() if v not in ([], None)))
+    print(f"  {'calc':28s} {'designed':>12s} {'as built':>12s}  limit")
+    for c, v, ok in rows:
+        if v is None and not a.all:
+            continue
+        lim = f"{c.op} {c.limit:g}" if c.limit is not None else ""
+        built = f"{v:.4g}" if v is not None else "-"
+        flag = "" if ok is None or v is None else ("  ok" if ok else "  FAIL")
+        print(f"  {c.name:28s} {c.value:12.4g} {built:>12s}  {lim} {c.unit}{flag}")
+    if not any(v is not None for _, v, _ in rows):
+        print("  no calc has board= (d.calc(..., board=lambda m: ...)); nothing re-evaluated")
+    if failed:
+        print(f"{d.slug}: {len(failed)} calc limit(s) broken on the board: {', '.join(failed)}")
+    return 1 if failed else 0
+
+
 def cmd_sym(a):
     libs = SymbolLibs()
     if ":" in a.query and libs.has(a.query):
@@ -171,6 +200,13 @@ def main(argv=None):
     x.add_argument("--lines", type=int, default=80, help="--section: at most this many lines per section")
     x.add_argument("--max-blocks", type=int, default=12)
     x.set_defaults(fn=cmd_ds)
+    k = sub.add_parser("check-board", help="re-evaluate the design's calcs that have board= on a laid-out board "
+                                           "(tracks crossing a barrier, copper area in a rule area); exit 1 on a "
+                                           "broken limit")
+    k.add_argument("design", help="designs/<slug>/design.py")
+    k.add_argument("board", help="the laid-out .kicad_pcb")
+    k.add_argument("--all", action="store_true", help="also list calcs without board= (designed values)")
+    k.set_defaults(fn=cmd_check_board)
     s = sub.add_parser("sym", help="search KiCad symbols by regex, or show pins of Lib:Name")
     s.add_argument("query")
     s.add_argument("--lib")

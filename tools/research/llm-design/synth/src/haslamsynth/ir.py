@@ -438,6 +438,15 @@ class Calc:
     limit: float = None
     op: str = "<="              # value <op> limit must hold
     severity: str = "error"
+    board: object = None        # f(measurements) or f(measurements, as-built calcs): the value on the laid-out board
+
+
+@dataclass
+class Measure:
+    """A board measurement `haslamsynth check-board` takes on the laid-out board (haslamsynth.boardcheck)."""
+    name: str
+    kind: str                   # tracks_crossing | copper_area
+    args: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -547,6 +556,7 @@ class Design:
         self.calcs = []
         self.waivers = []
         self.v_rels = []             # (net a, net b, lo, hi, why): V(a) - V(b) in [lo, hi] (Design.v_rel)
+        self.measures = {}           # name -> Measure (Design.measure; haslamsynth check-board)
         self.derating = dict(DEFAULT_DERATING)
         self.boards = {}             # name -> BoardSpec, in declaration order
         from .placement import Placement
@@ -609,10 +619,24 @@ class Design:
     def hazard(self, id, text, mitigation, parts=(), **kw):
         self.hazards.append(Hazard(id, text, mitigation, list(parts), **kw))
 
-    def calc(self, name, value, unit="", expr="", note="", limit=None, op="<=", severity="error"):
-        c = Calc(name, value, unit, expr, note, limit, op, severity)
+    def calc(self, name, value, unit="", expr="", note="", limit=None, op="<=", severity="error", board=None):
+        """A calculation (checked against `limit` at build). `board`: the same calculation from measurements of the
+        laid-out board, f(m) or f(m, calcs) (m: {measure name: result}, calcs: as-built values of the calcs
+        before), which `haslamsynth check-board` re-evaluates (haslamsynth.boardcheck)."""
+        c = Calc(name, value, unit, expr, note, limit, op, severity, board)
         self.calcs.append(c)
         return value
+
+    def measure(self, name, kind, **args):
+        """Name a board measurement for calc(..., board=): kind "tracks_crossing" (barrier="NAME" | line=((x0, y0),
+        (x1, y1)), nets=, layers=) or "copper_area" (area="NAME" | rect=(x0, y0, x1, y1), nets=, layers=)."""
+        from .boardcheck import KINDS
+        if kind not in KINDS:
+            raise DesignError(f"measure {name}: kind {kind!r} not in {KINDS}")
+        if name in self.measures:
+            raise DesignError(f"duplicate measure {name}")
+        self.measures[name] = Measure(name, kind, args)
+        return name
 
     def v_rel(self, a, b, lo, hi, why):
         """State that V(a) - V(b) always lies in [lo, hi] volts: a correlation the per-net intervals cannot hold

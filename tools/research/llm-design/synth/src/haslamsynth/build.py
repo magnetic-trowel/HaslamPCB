@@ -237,6 +237,8 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
     design_dir = Path(design_path).resolve().parent if not isinstance(design_path, Design) else None
     geometry = boardgeom.write(d, design_dir, outdir, add)
     boardgeom.check_regions(d, geometry, add)
+    from .boardcheck import check_measures
+    check_measures(d, geometry, add)
     if fplibs:
         LY.check_footprint_holes(d, fplibs, add)
     if not d.haslam.empty():
