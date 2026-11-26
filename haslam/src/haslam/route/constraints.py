@@ -152,6 +152,7 @@ class Plan:
     pad_entry: str = "centreline"                      # where the grid router ends tracks at pads (pad_entry_mode)
     arc_policy: str = "arcs"                           # "arcs" or "keep45" (arc_policy)
     ground_side_cost: float | None = None              # two-layer ground-side trace cost (haslam.route.ground_side); None: off
+    ground_side_repair: float = 0.0                    # > 0: repair rounds keep the ground-side price (ground_side_repair)
     pad_rules: dict = field(default_factory=dict)      # info pad index -> PadRule (every pad routing may end on)
     process: str = "reflow"                            # soldering process (power_copper.process_of)
     hazards: list = field(default_factory=list)        # haslam.hazards entries the plan raises (land_enlarged_by_track)
@@ -328,6 +329,9 @@ DEFAULTS = dict(
                                    # 2 since ground-side-ladder (84 two-layer ladder boards): cov_opp +9.4 points
                                    # [+6.7, +12.4], clean net of input -6.0 [-11.9, 0.0] (the guard's bound), vias
                                    # x1.00 [1.00, 1.09]; at 4 clean fell -8.3 [-15.5, -2.4]
+    ground_side_repair=0.0,        # routing (haslam.route.repair): 0: the DRC repair rounds re-route ripped and open
+                                   # nets with the ground-side price off, so only the first Freerouting pass keeps
+                                   # signals off the pour side; > 0: every round keeps the price (as before)
     zone_keepout=1.0,              # placement: weight of pads whose mask opening would bridge another net's
                                    # fixed outer-layer zone or sit in a board-level mask aperture with another
                                    # net (each 0.1 x this; gecko5: all staged DRC errors, 14 -> 0); 0: off
@@ -522,6 +526,7 @@ def plan(info, board_path, opts=None):
     p.pad_entry = pad_entry_mode(board_path, opts)
     p.arc_policy = arc_policy(board_path, opts)
     p.ground_side_cost = setting("ground_side_cost", board_path, opts)
+    p.ground_side_repair = setting("ground_side_repair", board_path, opts)
     sev = opts.get("severities") or {}
     s = info["settings"]
 

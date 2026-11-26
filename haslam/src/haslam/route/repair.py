@@ -801,7 +801,16 @@ def loop(input_path, output_path, wd, plan, info, opts, deadline, log=print):
             plan.outer_surcharge = opts.get("outer_surcharge")
             plan.pad_shapes = opts.get("pad_shapes") or "kicad"
             rec["planes"] = plan.plane_policy
-            translate.apply(tree, plan, info)
+            # the ground-side price shapes the first pass; a repair round closes what is left without it
+            # (ground_side_repair 0), since the price there cost completion on congested boards (ground-side-ladder)
+            gs_cost = getattr(plan, "ground_side_cost", None)
+            if gs_cost is not None and not getattr(plan, "ground_side_repair", 0.0):
+                plan.ground_side_cost = None
+                rec["ground_side"] = "off in repair"
+            try:
+                translate.apply(tree, plan, info)
+            finally:
+                plan.ground_side_cost = gs_cost
             translate.permute(tree, round_seed(opts.get("seed"), k))
             if use_split:
                 now = {u: r for u, r in copper.items() if u not in rip}   # the board as exported
