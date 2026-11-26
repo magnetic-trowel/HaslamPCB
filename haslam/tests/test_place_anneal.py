@@ -91,5 +91,5 @@ def test_make_annealer_keeps_congestion_with_a_blockage_beta():
 def test_channel_term_setting_is_reachable_from_joint_set():
     from haslam.joint.cli import _known_key
     from haslam.route.constraints import DEFAULTS
-    assert DEFAULTS["place_w_chan"] == 0.0
+    assert DEFAULTS["place_w_chan"] == 3.0
     assert _known_key("place_w_chan")

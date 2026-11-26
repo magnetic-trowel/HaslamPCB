@@ -224,13 +224,14 @@ DEFAULTS = dict(
                                    # merit boards, k=2) found 0 / 10 / 30 equal (cp1 0.305 / 0.310 / 0.305,
                                    # completion 0.941-0.943), so the simpler setting wins; RUDY also ranks PCB
                                    # routability near chance (docs/research/placement/haslam-routability-estimators.md)
-    place_w_chan=0.0,              # placement: weight of the annealer's routing-channel term (pad halos of
-                                   # two parts overlapping / mean part area; haslam.place.exact.channel_grid). Off
-                                   # until its A/B: one board's evidence so far (paw3395)
-    place_chan_util_gate=0,        # placement: 1 scales place_w_chan by the board's movable-part utilization:
-                                   # full at <= 0.65, zero at >= 0.70 (haslam.place.pipeline.util_gate); off until its A/B
-    place_chan_header_gate=0,      # placement: 1 switches the channel term off on a board with a movable edge header
-                                   # that fits nowhere (haslam.place.pipeline.header_gate); off until its A/B
+    place_w_chan=3.0,              # placement: weight of the annealer's routing-channel term (pad halos of
+                                   # two parts overlapping / mean part area; haslam.place.exact.channel_grid). On with
+                                   # both gates below: chan-ladder (96 fresh boards, k 3) opens -13.6 % [-17.7, -9.4],
+                                   # legality and DRC guards held (experiments/chan-ladder/VERDICT.md); 0 off
+    place_chan_util_gate=1,        # placement: 1 scales place_w_chan by the board's movable-part utilization:
+                                   # full at <= 0.65, zero at >= 0.70 (haslam.place.pipeline.util_gate); chan-gate-guard
+    place_chan_header_gate=1,      # placement: 1 switches the channel term off on a board with a movable edge header
+                                   # that fits nowhere (haslam.place.pipeline.header_gate); chan-ladder
     place_chan_edge=0,             # placement: 1 adds channels between pads and the board edge to the
                                    # channel term (haslam.place.exact.channel_edge_term); off until its A/B
     place_untangle=0,              # placement: 1 runs haslam.place.crossings.untangle after legalization (swaps of
