@@ -64,6 +64,12 @@ DEFAULTS = dict(
     via_array_max=8,       # with cell_via_array: vias per ground terminal at most
     cell_widest_fit=False, # a cell hop with no room at its IPC / intent width: the widest that fits, down to the
                            # class minimum, instead of leaving it to the bridge at the class width (haslam.route.hotloop)
+    cell_ref_check=(),     # cell kinds whose laid loop is kept only when it quotes no worse than the same loop routed
+                           # as the general router would lay it (Session.ref_quote); the hot-loop stage passes
+                           # hotloop_cell_ref_check
+    cell_ref_tol=0.1,      # cell_ref_check rips a laid loop quoting above (1 + this) x its router-style reference:
+                           # the reference is optimistic (class width, no other net's later copper), so a margin
+    cell_mimic_router=False,  # route_cell lays a cell as the general router would (the reference of cell_ref_check)
     cell_wall_fallback=True,  # a cell hop every route of which walls off another net's pin is still laid (the
                            # first such route, GridRouter.boxes_in). The hot-loop stage turns it off (hotloop_cell_walls
                            # 0): nekoink U1:3, open-authenticator U4, moto:bit U2, librewave U702/U703 lost exactly the
@@ -208,7 +214,12 @@ class Session:
                 m.status = "skipped"
                 m.notes.append("time budget spent")
                 continue
+            ref = None
+            if m.kind == "cell" and cell_kind(m.id) in tuple(self.opts.get("cell_ref_check") or ()):
+                ref = self.ref_quote(m)
             route_module(self.ctx, m)
+            if ref is not None:
+                self.ref_judge(m, ref)
             m.physics["seconds"] = round(clock_now() - t1, 3)
             self.log(f"{m.id}: {m.status}, {len(m.copper)} items, "
                      f"{m.physics.get('value')} {m.physics.get('unit', '')} (u {m.physics.get('u')})"
@@ -229,6 +240,49 @@ class Session:
             self.joins = self.join_at_corners()
         self.t_route = clock_now() - t0
         return self
+
+    def ref_quote(self, m):
+        """cell_ref_check: the quote of cell `m` routed as the general router would lay it (critical_modules.
+        route_cell with cell_mimic_router: the class width, every layer with vias at a low cost, no widest fit),
+        before `m` itself is routed; the copper is ripped again. None when that route leaves a hop open or does not
+        quote."""
+        import copy
+        from .critical_joint import _rip
+        ref = copy.copy(m)
+        ref.spec, ref.copper, ref.hops, ref.vias, ref.notes, ref.flags, ref.hazards, ref.physics = \
+            dict(m.spec), [], {}, {}, [], [], [], {}
+        saved = self.ctx.opts.get("cell_mimic_router")
+        self.ctx.opts["cell_mimic_router"] = True
+        val, status = None, "error"
+        try:
+            route_module(self.ctx, ref)
+            val, status = (ref.physics or {}).get("value"), ref.status
+        except Exception as e:  # noqa: BLE001 - no reference, no check
+            self.log(f"{m.id}: router-style reference failed: {type(e).__name__}: {e}")
+        finally:
+            if saved is None:
+                self.ctx.opts.pop("cell_mimic_router", None)
+            else:
+                self.ctx.opts["cell_mimic_router"] = saved
+            _rip(self, ref)
+        self.log(f"{m.id}: router-style reference {status}, {val}")
+        return val if status == "routed" else None
+
+    def ref_judge(self, m, ref):
+        """cell_ref_check: rip a laid cell whose quote is worse than its router-style reference's (hvdc U21 in
+        cells-robust: the stage's inverting loop came out at 1.24x the L the general router made); the general
+        router then lays it."""
+        from .critical_joint import _rip
+        val = (m.physics or {}).get("value")
+        tol = float(self.opts.get("cell_ref_tol", 0.1))
+        if val is None or ref is None or not m.copper or val <= ref * (1 + tol):
+            if ref is not None:
+                m.notes.append(f"router-style reference {ref:.4g}, laid {val if val is None else round(val, 4)}: kept")
+            return
+        unit = (m.physics or {}).get("unit", "")
+        _rip(self, m)
+        m.status = "failed"
+        m.notes = [f"laid loop quotes {val:.4g} {unit}, a router-style route {ref:.4g}: left to the general router"]
 
     def thermal_spokes(self):
         """Manual thermal spokes, laid first, for the pads the placement already starves:

@@ -714,3 +714,22 @@ def test_pour_check_reverts_a_cell_that_starves_a_pad_of_spokes(tmp_path, monkey
     hz, gone = hotloop.pour_check(NS(write=lambda p: None), None, info, [cell], tmp_path, log=lambda *a: None,
                                   revert_mode="nearest", spokes=True)
     assert cell.status == "reverted" and gone == [] and hz[0]["evidence"]["restored"]
+
+
+def test_the_router_style_reference_keeps_a_loop_no_worse_and_rips_a_worse_one(tmp_path, monkeypatch):
+    """cell_ref_check (hotloop_cell_ref_check): hvdc U21 in cells-robust, a laid inverting loop at 1.24x the L the
+    general router made. The fixture's buck is laid wide and short, so it quotes no worse than its class-width
+    reference and is kept; against a reference that quotes lower it is ripped and left to the router."""
+    s = F.session(tmp_path / "a", kinds=("cell",), rails="none", cell_ref_check=("buck",))
+    s.route(budget_s=60)
+    (m,) = [m for m in s.modules if m.kind == "cell"]
+    assert m.status == "routed" and m.copper and any("router-style reference" in n and n.endswith("kept")
+                                                     for n in m.notes)
+    from haslam.route import critical
+    monkeypatch.setattr(critical.Session, "ref_quote", lambda self, m: 1e-6)
+    s2 = F.session(tmp_path / "b", kinds=("cell",), rails="none", cell_ref_check=("buck",))
+    s2.route(budget_s=60)
+    (m2,) = [m for m in s2.modules if m.kind == "cell"]
+    assert m2.status == "failed" and not m2.copper and not s2.space.routed
+    assert "left to the general router" in m2.notes[0]
+    assert hotloop.settings()["cell_ref_check"] == ()

@@ -725,6 +725,10 @@ def route_cell(ctx, m):
         if ctx.opts.get("rail_over_cap") and w_ipc > cap:
             hi = max(hi, w_ipc)             # A/B arm (decide C2): the IPC width first, the cap the floor
         widths = sorted(set(round(w, 4) for w in width_ladder(hi, floor, 5)), reverse=True)
+        mimic = bool(ctx.opts.get("cell_mimic_router"))
+        if mimic:
+            # the general router's way (Session.ref_quote): the class width, any layer, vias cheap
+            widths = [round(max(opt, mn), 4)]
         # a ground hop over its own plane has the vias as its return: a detour on the surface
         # buys nothing, so it is routed only when it stays short
         max_len = None
@@ -747,8 +751,12 @@ def route_cell(ctx, m):
                         gaps.append(f"hop {k} ({net}): return left to the general router (no via site at {refs_})")
                         continue
         m.spec.setdefault("_floor", {})[f"hop{k}"] = max(mn, w_cur)    # what the current needs: trim_widths' floor
-        rt = route_hop(ctx, m, f"hop{k}", net, [anchor(ta)], [anchor(tb)], widths, [L0], via=False, max_len=max_len,
-                       optional=max_len is not None)
+        if mimic:
+            rt = route_hop(ctx, m, f"hop{k}", net, [anchor(ta)], [anchor(tb)], widths, list(ctx.sp.cu), via=True,
+                           via_cost=1.0, max_len=max_len, optional=max_len is not None)
+        else:
+            rt = route_hop(ctx, m, f"hop{k}", net, [anchor(ta)], [anchor(tb)], widths, [L0], via=False,
+                           max_len=max_len, optional=max_len is not None)
         if rt is None and max_len is not None:
             m.notes.append(f"hop {k} ({net}): returns through the plane")
             plane_hops.append((k, net))
@@ -758,7 +766,7 @@ def route_cell(ctx, m):
             rt = route_hop(ctx, m, f"hop{k}", net, [anchor(ta)], [anchor(tb)], widths[-3:], outer, via=True,
                            via_cost=4.0)
         narrowed = None
-        if rt is None and _opt(ctx, "cell_widest_fit") and floor > mn + 1e-6:
+        if rt is None and not mimic and _opt(ctx, "cell_widest_fit") and floor > mn + 1e-6:
             # no room at the width the current asks: the widest width that fits, down to the class minimum,
             # rather than the bridge's class width (bq25306: a 1.7 mm VIN hop with no room went to Freerouting
             # at 0.2 mm). The shortfall stays a heat hazard below (copper_below_ipc_width).

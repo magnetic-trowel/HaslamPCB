@@ -80,7 +80,8 @@ MARGIN_WHY = ("a return at height h spreads as h / (x^2 + h^2): a 1 mm band hold
 SETTINGS = ("hotloop_keepout", "hotloop_keepout_mm", "hotloop_cells", "hotloop_vias", "hotloop_pours",
             "hotloop_budget_s", "hotloop_keepout_pours", "hotloop_lift", "hotloop_keepout_loopvias", "hotloop_clear",
             "hotloop_clear_force", "hotloop_cell_kinds", "hotloop_cell_walls", "hotloop_cell_partial",
-            "hotloop_cells_max_pads", "hotloop_pour_revert", "hotloop_pour_spokes")
+            "hotloop_cells_max_pads", "hotloop_pour_revert", "hotloop_pour_spokes",
+            "hotloop_cell_ref_check")
 
 
 def _log(msg):
@@ -103,6 +104,7 @@ def settings(board_path=None, opts=None):
     out["cell_kinds"] = tuple(k.strip() for k in str(g["hotloop_cell_kinds"] or "").split(",") if k.strip())
     out["cell_walls"] = bool(float(g["hotloop_cell_walls"] or 0))
     out["cells_max_pads"] = float(g["hotloop_cells_max_pads"] or 0)
+    out["cell_ref_check"] = tuple(k.strip() for k in str(g["hotloop_cell_ref_check"] or "").split(",") if k.strip())
     out["pour_spokes"] = bool(float(g["hotloop_pour_spokes"] or 0))
     out["pour_revert"] = "all" if str(g["hotloop_pour_revert"] or "").strip() == "all" else "nearest"
     out["cell_partial"] = "keep" if str(g["hotloop_cell_partial"] or "").strip() == "keep" else "rip"
@@ -138,6 +140,7 @@ def _session(board_path, info, st, opts, log, pour_links=False):
     copts = dict(kinds=("cell",), rails="none", complete_mm=0.0, island_mm=0.0, thermal_spokes=False,
                  place_allocs=False, guards=(), cell_price="W", cell_via_array=bool(st["vias"]), cell_widest_fit=True,
                  pour_links=pour_links, cell_kinds=st["cell_kinds"], cell_wall_fallback=st.get("cell_walls", False),
+                 cell_ref_check=st.get("cell_ref_check", ()),
                  intent=intent, **intent_opts(intent))
     return Session(board_path, info=info, opts=copts, log=log, board=board)
 
