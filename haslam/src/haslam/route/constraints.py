@@ -369,6 +369,9 @@ DEFAULTS = dict(
                                    # bridges gained nothing, L 1.06, and on kestrel esc their copper walled in the gate
                                    # nets). Inverting cells exist only with HASLAM_CELLS_INVERTING=1 (off by default)
     hotloop_budget_s=120.0,        # s: the cell stage stops starting cells after this (and after 15 % of the budget)
+    hotloop_cell_partial="rip",    # a partial cell with a gap (a hop not laid, a return not closed; critical_modules.
+                                   # cell_gaps) is ripped like a failed one; "keep" keeps its laid hops locked (as
+                                   # before cells-robust: arvsom U6, nekoink U1, hv-probe U21 lost connections or L)
 )
 
 

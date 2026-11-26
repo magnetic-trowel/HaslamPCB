@@ -157,11 +157,26 @@ def test_a_return_with_no_via_site_at_one_end_is_left_to_the_general_router(tmp_
     """The -5V pour stops short of the input capacitor (as hv-probe's -10V plane did of C72): the return hop's vias
     have no legal site at C1. The stage locked a surface return round the parts as the loop's whole return (hv-probe
     U21: 10.3 mm, 3.56 nH where the general router made 2.05 nH with vias into the plane); it now leaves that hop to
-    the general router and says so."""
+    the general router and says so (hotloop_cell_partial "keep": the partial cell's other hops stay)."""
     monkeypatch.setenv("HASLAM_CELLS_INVERTING", "1")
+    monkeypatch.setenv("HASLAM_HOTLOOP_CELL_PARTIAL", "keep")
     p = write_inverting_board(tmp_path / "in", "direct", routed=False, neg_pour=(119.0, 106.0, 136.0, 116.0))
     rep = hotloop.stage(p, F.synth_info(load(p)), tmp_path / "w", ALL, log=lambda *a: None)
     (c,) = [c for c in rep["cells"] if c["id"] == CELL]
     assert any("no legal return-via site at C1.2; left to the general router" in n for n in c["notes"])
     tracks = [t for t in load(Path(rep["board"])).tracks if t.net == "-5V"]
     assert not any(min(t.start[0], t.end[0]) < 118.0 for t in tracks)       # nothing locked to C1's -5V pad
+
+
+def test_an_inverter_whose_return_is_left_to_the_router_is_ripped_whole(tmp_path, monkeypatch):
+    """hv-probe U21 (inverters A/B): with its -10V return left to the general router the stage kept the other hops
+    locked, and the loop the router closed round them came out at 1.29x N's L. A cell whose return the stage cannot
+    close is now ripped (hotloop_cell_partial "rip", the default): the general router lays the whole loop."""
+    monkeypatch.setenv("HASLAM_CELLS_INVERTING", "1")
+    p = write_inverting_board(tmp_path / "in", "direct", routed=False, neg_pour=(119.0, 106.0, 136.0, 116.0))
+    rep = hotloop.stage(p, F.synth_info(load(p)), tmp_path / "w", ALL, log=lambda *a: None)
+    (c,) = [c for c in rep["cells"] if c["id"] == CELL]
+    assert c["status"] == "failed" and c["items"] == 0
+    assert any(n.startswith("partial, ripped: hop") and "return left to the general router" in n for n in c["notes"])
+    if rep["board"]:
+        assert not [t for t in load(Path(rep["board"])).tracks if t.net in ("-5V", "SW", "VIN")]

@@ -79,7 +79,7 @@ MARGIN_WHY = ("a return at height h spreads as h / (x^2 + h^2): a 1 mm band hold
               "to 86 % (h 0.2 mm) of an edge conductor's return; the hull covers the loop's interior")
 SETTINGS = ("hotloop_keepout", "hotloop_keepout_mm", "hotloop_cells", "hotloop_vias", "hotloop_pours",
             "hotloop_budget_s", "hotloop_keepout_pours", "hotloop_lift", "hotloop_keepout_loopvias", "hotloop_clear",
-            "hotloop_clear_force", "hotloop_cell_kinds")
+            "hotloop_clear_force", "hotloop_cell_kinds", "hotloop_cell_partial")
 
 
 def _log(msg):
@@ -100,6 +100,7 @@ def settings(board_path=None, opts=None):
     out["lift"] = g["hotloop_lift"] if g["hotloop_lift"] in LIFT_LEVELS else "plane"
     out["cells"] = out["cells"] or out["vias"] or out["pours"]
     out["cell_kinds"] = tuple(k.strip() for k in str(g["hotloop_cell_kinds"] or "").split(",") if k.strip())
+    out["cell_partial"] = "keep" if str(g["hotloop_cell_partial"] or "").strip() == "keep" else "rip"
     return out
 
 
@@ -968,13 +969,16 @@ def cells_hint(board_path, opts=None):
                                  setting="hotloop_cells"))]
 
 
-def drop_cells(s, mods, kinds, log=_log):
+def drop_cells(s, mods, kinds, log=_log, partial="keep"):
     """Rip the copper of cells the stage does not keep: a topology not in `kinds` (hotloop_cell_kinds, default buck
     and boost: hotloop-sw round 3, half bridges gained nothing, L 1.06, and on kestrel esc their copper walled in
     the motor gate nets), and a failed cell, whose hops are no loop (kestrel: failed half-bridge cells' locked hops).
-    The general router lays those nets."""
+    With `partial` "rip" (hotloop_cell_partial, the stage's default) a partial cell with a gap (critical_modules.
+    cell_gaps: a hop it could not lay, a return it could not close) goes the same way: its laid hops, locked, walled
+    in the hops it left to the router (arvsom U6: L6.1 and U6.5 open; hv-probe U21: a loop 1.29x N's). The general
+    router lays those nets."""
     from .critical_joint import _rip
-    from .critical_modules import cell_kind
+    from .critical_modules import cell_gaps, cell_kind
     for m in mods:
         kind = cell_kind(m.id)
         if kinds and kind not in kinds:
@@ -990,6 +994,11 @@ def drop_cells(s, mods, kinds, log=_log):
             log(f"hotloop: {m.id} failed; its {len(m.copper)} item(s) ripped")
             _rip(s, m)
             m.status, m.notes = "failed", ["failed: its partial copper ripped"]
+        elif m.status == "partial" and partial == "rip" and cell_gaps(m):
+            gaps = cell_gaps(m)
+            log(f"hotloop: {m.id} partial ({'; '.join(gaps[:3])}); its {len(m.copper)} item(s) ripped")
+            _rip(s, m)
+            m.status, m.notes = "failed", [f"partial, ripped: {g}" for g in gaps[:3]]
 
 
 def reach_check(s, info, mods, log=_log):
@@ -1099,7 +1108,7 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
             s.route(budget_s=budget)
             mods = [m for m in s.modules if m.kind == "cell"]
             rep["hazards"] += s.hazards() + cell_hazards(mods)
-            drop_cells(s, mods, st["cell_kinds"], log=log)
+            drop_cells(s, mods, st["cell_kinds"], log=log, partial=st["cell_partial"])
             hz, rep["pour_cut"] = pour_check(s, input_path, s.info, mods, wd, log=log)
             rep["hazards"] += hz
             hz, rep["pin_blocked"] = reach_check(s, s.info, mods, log=log)

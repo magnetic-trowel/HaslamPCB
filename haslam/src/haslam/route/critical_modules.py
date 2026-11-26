@@ -686,10 +686,12 @@ def route_cell(ctx, m):
     # forward hops first, the ground hop last (its return may also go through the plane)
     hops.sort(key=lambda h: (h[3] in R, h[0]))
     ok = 0
+    gaps, plane_hops = [], []       # the loop's hops this stage leaves open (cell_gaps)
     for k, ta, tb, net in hops:
         layers = hop_layers(ctx, ta, tb, prefer=side)
         if not layers:
             m.notes.append(f"hop {k}: no common copper layer")
+            gaps.append(f"hop {k} ({net}): no common copper layer")
             continue
         L0 = layers[0]
         ux, uy = tb.x - ta.x, tb.y - ta.y
@@ -736,12 +738,14 @@ def route_cell(ctx, m):
                         refs_ = ", ".join(f"{getattr(ctx.fp.get(t.fp), 'ref', t.fp)}.{t.pad}" for t in bad)
                         m.notes.append(f"hop {k} ({net}): no legal return-via site at {refs_}; left to the general router")
                         m.spec.setdefault("_left", []).append(k)
+                        gaps.append(f"hop {k} ({net}): return left to the general router (no via site at {refs_})")
                         continue
         m.spec.setdefault("_floor", {})[f"hop{k}"] = max(mn, w_cur)    # what the current needs: trim_widths' floor
         rt = route_hop(ctx, m, f"hop{k}", net, [anchor(ta)], [anchor(tb)], widths, [L0], via=False, max_len=max_len,
                        optional=max_len is not None)
         if rt is None and max_len is not None:
             m.notes.append(f"hop {k} ({net}): returns through the plane")
+            plane_hops.append((k, net))
             continue
         if rt is None and len(ctx.sp.cu) > 1:
             outer = [ctx.sp.cu[0], ctx.sp.cu[-1]]
@@ -775,6 +779,7 @@ def route_cell(ctx, m):
         else:
             m.notes.append(f"hop {k} ({net}): no room at its IPC-2221 width {floor:.2f} mm for {I:.2f} A; "
                            f"left to the bridge")
+            gaps.append(f"hop {k} ({net}): not laid")
             m.flags.append(dict(flag="ipc_floor_unroutable", hop=k, net=net, I_A=round(I, 3),
                                 floor_mm=round(floor, 3)))
             hz = heat_hazard("rail_left_narrow", I, max(opt, mn), t_l0, dT_max(ctx, net), [net],
@@ -785,9 +790,21 @@ def route_cell(ctx, m):
     _return_vias(ctx, m, T, side)
     if _opt(ctx, "cell_via_array"):
         _via_array(ctx, m, T, side)
+    if plane_hops and not any(m.vias.values()) and "no legal return-via site" in m.notes:
+        # a return left to the plane with no via into it at either end: nothing this stage laid closes the loop
+        gaps += [f"hop {k} ({net}): returns through the plane, but no legal return-via site" for k, net in plane_hops]
+    m.spec["_gaps"] = gaps
     m.status = "routed" if ok == len(hops) else ("partial" if ok else "failed")
     quote(ctx, m)
     return m
+
+
+def cell_gaps(m):
+    """The hops of a routed cell's loop that the stage left open (route_cell): a hop with no common copper layer, one
+    with no room (or walled in) left to the bridge, an inverter's return left to the general router, a return left
+    to the plane with no legal via site. [] for a closed loop, and for one whose only open hop is a ground hop
+    returning through its plane by the stage's vias (nekoink U3)."""
+    return list((m.spec or {}).get("_gaps") or [])
 
 
 def _ground_hop(ctx, T, nets=None):
