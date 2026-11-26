@@ -85,6 +85,9 @@ the sensors do not share a copper plane with the power section (or with each oth
 | Fab package (`fab/`) | gerbers + drill zip, JLC CPL, JLC BOM (27 lines, all with LCSC numbers; 16 extended parts) |
 
 Layout took three rounds; FRICTION.md F21-F42 says why. Layout time per round ~33 min on 4 CPUs, scoring ~8 min.
+Reproduce with the generic script (the design's own `run.sh`/`eval.sh`, copies of solar-small's, are retired):
+`synth/scripts/layout.sh out/bme280-array.kicad_pcb RUN/A1/s0 0`; the fab package with
+`synth/scripts/fab_outputs.py RUN/A1/s0/bme280-array.kicad_pcb fab` (silk pass and renders included).
 
 Before ordering: check the BME280/BMP280 stock (Q-1), check rotations of U1-U4, U101-U116, Q1-Q6 and D1/D2 in JLC's
 assembly preview, and solder J1 (DNP header pads) by hand.

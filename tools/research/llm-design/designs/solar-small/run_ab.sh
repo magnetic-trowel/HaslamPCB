@@ -20,7 +20,7 @@ mkdir -p "$D/out" "$D/work"
 cd "$D/work"
 export PYTHONPATH=$REPO/haslam/src PYTHONHASHSEED=0 OMP_NUM_THREADS=1 HASLAM_WORKERS=1
 export NUMBA_CACHE_DIR=${NUMBA_CACHE_DIR:-$RUN/numba} HASLAM_BRIDGE_FREEROUTING=$FORK
-export APPTAINER_BIND=${APPTAINER_BIND:-/var/tmp/$USER}
+export APPTAINER_BIND=${APPTAINER_BIND:-/var/tmp/${USER:-$(id -un)}}
 source "$HOME/.cache/haslambench/env.sh"            # HASLAM_KICAD_WRAP: kicad-cli and KiCad's Python for every stage
 # main's default timeout for a 68-footprint board: 8000 s x sqrt(68/40), of which restart.py gets 9/40
 T=$(python3 -c "import math; print(int(8000 * math.sqrt(68 / 40) * 9 / 40))")
@@ -59,5 +59,5 @@ ls -l "$OUT"
 # intent file, the intent's status (eval_ab.sh). EVAL=0 skips it.
 if [ "${EVAL:-1}" = 1 ] && [ -f "$OUT" ]; then
   cd "$REPO" && bash tools/research/llm-design/designs/solar-small/eval_ab.sh "$ARM" "$SEED" "$RUN" > "$D/eval.log" 2>&1 \
-    || echo "eval failed: see $D/eval.log" >&2
+    || { echo "FAILED eval: see $D/eval.log" >&2; exit 3; }   # a crashed scoring is not a success
 fi

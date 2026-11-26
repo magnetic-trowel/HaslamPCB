@@ -620,3 +620,28 @@ def test_canonical_copper_order_reads_a_net_name_with_an_unbalanced_parenthesis(
         out = p.read_text()
         assert out.count("(segment") == 2 and out.count('Net-(U2-PA13(JTMS)') == 2 and out.rstrip().endswith(")")
         assert out.index("(start 0 0)") < out.index("(start 1 1)")         # sorted by content
+
+
+def test_judge_copies_keep_the_input_name_and_project_files(tmp_path):
+    """input/ and aN/ boards are named as the input, with its project files and fp-lib-table beside them."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "kicad-cli").write_text(FAKE_CLI)
+    (bin_ / "kicad-cli").chmod(0o755)
+    inp = tmp_path / "in" / "mydesign.kicad_pcb"
+    inp.parent.mkdir()
+    inp.write_text("(kicad_pcb OPEN=1)\n")
+    inp.with_suffix(".kicad_pro").write_text("{}")
+    (inp.parent / "fp-lib-table").write_text("(fp_lib_table)\n")
+    work = tmp_path / "work"
+    work.mkdir()
+    env = dict(os.environ, PATH=f"{bin_}:{os.environ['PATH']}", HASLAM_KICAD_WRAP="")
+    r = subprocess.run([sys.executable, str(RESTART), "--input", str(inp), "--output", str(tmp_path / "o.kicad_pcb"),
+                        "--time", "200", "--parallel", "1", "--first-s", "25", "--max-attempts", "1", "--",
+                        "echo '(kicad_pcb OPEN=0)' > @OUT@"], cwd=work, env=env, capture_output=True, text=True,
+                       timeout=300)
+    assert r.returncode == 0, r.stdout + r.stderr
+    for d in (work / "restarts" / "input", work / "restarts" / "a0"):
+        names = {p.name for p in d.iterdir()}
+        assert {"mydesign.kicad_pcb", "mydesign.kicad_pro", "fp-lib-table"} <= names, names
+        assert "board.kicad_pcb" not in names
