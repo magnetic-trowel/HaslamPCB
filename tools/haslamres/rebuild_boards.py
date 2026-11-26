@@ -10,12 +10,16 @@ named with --joint placed the parts too: its poses go onto the input first, then
 placement (as score_joint_task does; the place input differs from the route input only in which parts
 are locked and where unplaced parts wait, and every part takes the output's pose).
 
+A run named with --reference-run is the human layout: its output is the reference this tool has just
+rebuilt from the board (what haslambench's `reference` adapter hands the scorer), not a stored file, so
+the human layout is measured as this harness prepares it, whatever harness first scored it.
+
 The tool is newer than some venvs it runs in: a harness from before score v10 has no `_rebuild(flags=...)`,
 and its scorer transplanted without `--zones`, so that is how those runs are rebuilt too. If no run
 could be rebuilt the tool exits 2, so a job cannot read an empty manifest as "nothing to do".
 
   python rebuild_boards.py --board-dir CORPUS/boards/<id> --work DIR --run NAME=OUTPUT.kicad_pcb[.gz] ... [--joint NAME ...]
-                           --out MANIFEST.json
+                           [--reference-run NAME] --out MANIFEST.json
 Writes MANIFEST: {"input": path, "reference": path, "board_sha256": ..., "task_spec": N,
 "runs": {NAME: {"board": path} | {"error": ...}}}.
 """
@@ -43,6 +47,8 @@ def main():
     ap.add_argument("--work", required=True)
     ap.add_argument("--run", action="append", default=[], metavar="NAME=OUTPUT")
     ap.add_argument("--joint", action="append", default=[], metavar="NAME", help="a run of a joint task")
+    ap.add_argument("--reference-run", action="append", default=[], metavar="NAME",
+                    help="a run whose output is the rebuilt reference (the human layout)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     from haslambench import prepare, score, tools
@@ -65,7 +71,7 @@ def main():
     tools.run_ops("strip-routing", board_path(ref), board_path(inp))
     man = dict(input=str(board_path(inp)), reference=str(board_path(ref)), board_sha256=fetched.get("pcb_sha256"),
                task_spec=prepare.TASK_SPEC, runs={})
-    for spec in a.run:
+    for spec in a.run + [f"{n}={board_path(ref)}" for n in a.reference_run]:
         name, _, out = spec.partition("=")
         try:
             src = work / "outputs" / name / "board.kicad_pcb"
@@ -88,10 +94,10 @@ def main():
         except Exception as e:  # noqa: BLE001
             man["runs"][name] = dict(error=f"{type(e).__name__}: {e}"[:500], traceback=traceback.format_exc()[-2000:])
     Path(a.out).write_text(json.dumps(man, indent=1))
-    if a.run and not any(r.get("board") for r in man["runs"].values()):
+    if man["runs"] and not any(r.get("board") for r in man["runs"].values()):
         for name, r in man["runs"].items():
             print(f"{name}: {r.get('error')}", file=sys.stderr)
-        print(f"rebuild_boards: none of {len(a.run)} runs could be rebuilt", file=sys.stderr)
+        print(f"rebuild_boards: none of {len(man['runs'])} runs could be rebuilt", file=sys.stderr)
         return 2
     return 0
 

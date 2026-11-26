@@ -201,6 +201,14 @@ $K rescore submit NAME --harness <pushed commit> [--only ids|@file] [--limit N] 
   stored `output.kicad_pcb.gz` is scored by `tools/haslamres/rescore_runs.py`, with `haslambench.runner._score`, the
   job's own scoring code. It is scored on the task the run was made on, prepared again by the harness that prepared
   it (from the task cache when it can).
+- **The human layout** (`--human`; the `reference` method) is re-measured with the job's own harness, never the
+  one that first scored it: no method code is involved, and many human runs were registered by pre-rename harnesses
+  with no venv here. The job prepares the board's route task with its harness and scores that task's reference
+  board once, as haslambench's `reference` adapter hands it to the scorer; every human run of the board made on the
+  same board file gets that evaluation, with `human_from: "board"` and the `task_id` it was scored on.
+- **Physics** (`$K rephysics submit NAME --harness H --haslam K`, `rephysics-job`) re-measures the same way: a
+  method's output is rebuilt by the harness that scored it, the human layout by the job's harness
+  (`rebuild_boards.py --reference-run`, the reference it rebuilds from the board), `human_from: "board"`.
 - **What is written.** A new `evals/<eid>.json` (`rescored: true`, `rescored_with`, `task_prepared_by`,
   `score_version`), beside the old one, never in its place. A place run keeps its old probe, labelled `probe_from`.
 - **Reports.** The experiment's `evaluators.drc_current` points at the new scorer, and `drc_history` lists both.
