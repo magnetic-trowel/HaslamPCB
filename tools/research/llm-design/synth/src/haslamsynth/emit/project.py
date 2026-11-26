@@ -34,7 +34,8 @@ def ipc2221b_spacing(volts, column="B2"):
 
 
 def ipc2221_width_mm(amps, rise_c=10.0, oz=1.0, external=True):
-    """IPC-2221 trace width for a current and temperature rise (conservative vs IPC-2152)."""
+    """IPC-2221 trace width for a current and temperature rise (IPC-2152 asks for wider outer tracks
+    above about 1.25 A at 10 K on 1 oz: docs/research/physics/anchors-2611.md)."""
     if not amps:
         return None
     k = 0.048 if external else 0.024

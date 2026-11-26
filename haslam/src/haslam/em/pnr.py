@@ -32,7 +32,7 @@ import numpy as np
 
 from haslam import materials as MAT
 from haslam.excite import dc as DC
-from haslam.route.critical_physics import RHO_CU, ipc2221_width
+from haslam.route.critical_physics import RHO_CU, track_width
 
 from . import solve as ES
 from . import t1 as T1
@@ -730,7 +730,7 @@ class PhysRouter:
         except Exception:                     # noqa: BLE001 - a clearance only weighs the area
             s = 0.2
         ext = L in (0, len(self.mesh.layers) - 1)
-        w_ipc = ipc2221_width(Imax, self.dcp.dT_max, t, internal=not ext)
+        w_ipc = track_width(Imax, self.dcp.dT_max, t, internal=not ext)
         lo = max(w0, mn, w_ipc)
         if mx is not None and lo > mx + 1e-9:
             return mx, f"IPC width {w_ipc:.2f} mm for {Imax:.2f} A exceeds the class maximum {mx:g} mm"
