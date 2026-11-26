@@ -4,7 +4,7 @@
 **First published:** 2026-10-21, commit [c03ad19](https://github.com/magnetic-trowel/HaslamPCB/commit/c03ad199c26ea51932bd798bc05d00d068d9dfb0) on branch `claude/compassionate-ramanujan-lo56ee`.
 
 Scope: method and results of the second sourcing pass: 14,318 open-hardware boards from 8,757 repos, each pinned by commit or sha256, licence read, de-duplicated by content, loaded in KiCad 10.0.7 with stats and DRC; ≈17% DRC-clean as committed under their own rules. Not here: licence policy table and source sectors -> [wide-board-corpus](../../topics/data/wide-board-corpus.md); building and using the local folder -> [local-board-corpus](../../topics/data/local-board-corpus.md).
-Keys: board sourcing, sig.py, MinHash, LSH, Jaccard 0.75, union-find, near-duplicate, enrich.py, merge.py, load fixes, PYTHONHASHSEED
+Keys: board sourcing, sig.py, MinHash, LSH, Jaccard 0.75, union-find, near-duplicate, enrich.py, merge.py, load fixes, PYTHONHASHSEED, drc_consistency.py, stored DRC consistency, unconn_capped, 499 unconnected cap
 
 ## Idea and how it works
 
@@ -79,6 +79,24 @@ Source: wide-corpus and local-corpus docs at [c03ad19](https://github.com/magnet
 | Top licences | MIT 3,223; GPL-3.0 1,988; CC-BY-SA-4.0 1,975; CERN-OHL-S 1,156; CC-BY-SA-3.0 999; CERN-OHL-1.2 794; Apache 668; CC-BY-NC-SA-4.0 568 |
 
 Local-build counts (14,597 on the sourcing host incl. 297 candidates and 760 pre-tag robots-restricted boards; ≈13,837 fresh; per-tier counts) -> [local-board-corpus](../../topics/data/local-board-corpus.md#hosts-and-robotstxt).
+
+### Stored DRC consistency (2026-11-23)
+
+`tools/research/data/drc_consistency.py CORPUS [--workdir W] [--suite NAME=FILE]` checks every stored `boards/<id>/drc.json` against the board text it claims to describe (no KiCad; the board is parsed as text). Flags: report missing, unreadable or older than the board; another enrich input; `row.json` notes or stats that disagree; 0 unconnected yet a multi-footprint net without copper; fewer unconnected items than the copper-less nets need; exactly 499 unconnected items.
+
+Local corpus, 14,597 boards [C]:
+
+| Flag | Boards |
+|---|---|
+| any | 243 |
+| `unconn_capped` (exactly 499 unconnected) | 94 |
+| `stats_mismatch` (tracks/vias/zones in `row.json` differ from the board text) | 71 |
+| `zero_unconn_unrouted` (0 unconnected, a multi-footprint net without copper) | 69 |
+| `unconn_below_min` (fewer unconnected than the bare nets need) | 14 |
+| `drc_older_same_bytes` (report older than the file, but the file is upstream's bytes unchanged) | 7 |
+| missing, unreadable, other source or input, notes mismatch, `drc_older` | 0 |
+
+Verdict (handoff 2026-11-24): stored DRC is sound. The one caveat: on the 94 capped boards kicad-cli's unconnected list stops at 499 items, so their stored count is a lower bound (read it as ≥ 499); re-run DRC on the board where the exact count matters.
 
 ## Verdict
 
