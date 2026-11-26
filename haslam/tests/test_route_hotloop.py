@@ -733,3 +733,32 @@ def test_the_router_style_reference_keeps_a_loop_no_worse_and_rips_a_worse_one(t
     assert m2.status == "failed" and not m2.copper and not s2.space.routed
     assert "left to the general router" in m2.notes[0]
     assert hotloop.settings()["cell_ref_check"] == ()
+
+
+def test_a_via_site_counts_only_where_the_via_is_legal():
+    """hotloop_reach_vias: glider U9.4 (cells-robust) had room for a via's copper and no legal via; the reach check
+    now asks the router's own via rule at grid points of the pin's room."""
+    from shapely.geometry import box
+    area = box(0, 0, 1, 1)
+    assert hotloop._legal_via_in(area, "N", lambda net, x, y: x > 0.8 and y > 0.8)
+    assert not hotloop._legal_via_in(area, "N", lambda net, x, y: False)
+    assert not hotloop._legal_via_in(box(0, 0, 0, 0), "N", lambda net, x, y: True)
+    big = box(0, 0, 100, 100)
+    calls = []
+    hotloop._legal_via_in(big, "N", lambda net, x, y: calls.append(1) or False)
+    assert len(calls) <= 1.2 * hotloop.VIA_SAMPLES
+    assert hotloop.settings()["reach_vias"] is False
+
+
+def test_reach_check_asks_the_via_rule_with_vias_on(tmp_path, monkeypatch):
+    s, pad = _walled_bst(tmp_path)
+    m = CM.Module(id="cell:test:U1", kind="cell", spec={}, parts=[], status="routed")
+    m.copper = [s.space.add_track("VIN", "F.Cu", 0.2, (124.6, 108.2), (124.6, 109.6), owner=("hop", "x"))]
+    seen = []
+    orig = hotloop._reach
+    monkeypatch.setattr(hotloop, "_reach", lambda *a, **k: seen.append(k.get("via_ok")) or orig(*a, **k))
+    hotloop.reach_check(s, s.info, [m], log=lambda *a: None)
+    assert seen and all(v is None for v in seen)
+    seen.clear()
+    hotloop.reach_check(s, s.info, [m], log=lambda *a: None, vias=True)
+    assert seen and all(callable(v) for v in seen)

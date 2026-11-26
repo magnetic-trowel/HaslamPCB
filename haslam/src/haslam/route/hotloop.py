@@ -81,7 +81,7 @@ SETTINGS = ("hotloop_keepout", "hotloop_keepout_mm", "hotloop_cells", "hotloop_v
             "hotloop_budget_s", "hotloop_keepout_pours", "hotloop_lift", "hotloop_keepout_loopvias", "hotloop_clear",
             "hotloop_clear_force", "hotloop_cell_kinds", "hotloop_cell_walls", "hotloop_cell_partial",
             "hotloop_cells_max_pads", "hotloop_pour_revert", "hotloop_pour_spokes",
-            "hotloop_cell_ref_check")
+            "hotloop_cell_ref_check", "hotloop_reach_vias")
 
 
 def _log(msg):
@@ -104,6 +104,7 @@ def settings(board_path=None, opts=None):
     out["cell_kinds"] = tuple(k.strip() for k in str(g["hotloop_cell_kinds"] or "").split(",") if k.strip())
     out["cell_walls"] = bool(float(g["hotloop_cell_walls"] or 0))
     out["cells_max_pads"] = float(g["hotloop_cells_max_pads"] or 0)
+    out["reach_vias"] = bool(float(g["hotloop_reach_vias"] or 0))
     out["cell_ref_check"] = tuple(k.strip() for k in str(g["hotloop_cell_ref_check"] or "").split(",") if k.strip())
     out["pour_spokes"] = bool(float(g["hotloop_pour_spokes"] or 0))
     out["pour_revert"] = "all" if str(g["hotloop_pour_revert"] or "").strip() == "all" else "nearest"
@@ -974,7 +975,29 @@ def _room(net, layer, items, info, window, cache=None, tag=None):
     return out
 
 
-def _reach(pad, cop, layer, items, info, window, cache=None, tag=None):
+VIA_SAMPLES = 400      # at most this many grid points tried as via sites in a pin's room (_reach, via_ok)
+
+
+def _legal_via_in(area, net, via_ok, step=0.1):
+    """Whether `area` (a pin's free room past the cells' copper) holds a point where `via_ok(net, x, y)` allows a via
+    of the net's class: the router's own via rules (critical_space.Space.via_violations), not just room for a via's
+    copper. Grid points over the area's bounds, coarsened to VIA_SAMPLES."""
+    import numpy as np
+    from shapely.geometry import Point
+    if area is None or area.is_empty:
+        return False
+    x0, y0, x1, y1 = area.bounds
+    n = max(1, int(((x1 - x0) / step + 1) * ((y1 - y0) / step + 1)))
+    if n > VIA_SAMPLES:
+        step *= (n / VIA_SAMPLES) ** 0.5
+    for x in np.arange(x0 + step / 2, x1, step):
+        for y in np.arange(y0 + step / 2, y1, step):
+            if area.contains(Point(x, y)) and via_ok(net, float(x), float(y)):
+                return True
+    return False
+
+
+def _reach(pad, cop, layer, items, info, window, cache=None, tag=None, via_ok=None):
     """Whether pad (copper `cop` on `layer`) has a way to its net within `window` past `items`: the free room
     (_room) that holds the pad meets another piece of its net, a zone of its net where it can pour, the window's
     edge (a way on that the window does not see), or a via site (a way on another layer; the fixture buck's U1.1
@@ -992,6 +1015,10 @@ def _reach(pad, cop, layer, items, info, window, cache=None, tag=None):
         return True
     if room.intersects(win.exterior.buffer(w)):
         return True
+    if via_ok is not None:
+        # hotloop_reach_vias: a via site counts only where the router may put the net's via (glider U9.4,
+        # cells-robust: room for a via's copper, none legal, the pin walled in by U9's loop and left open)
+        return _legal_via_in(cu.intersection(vfree), pad.get("net"), via_ok)
     return cu.intersects(vfree)
 
 
@@ -1063,7 +1090,16 @@ def drop_cells(s, mods, kinds, log=_log, partial="keep"):
             m.status, m.notes = "failed", [f"partial, ripped: {g}" for g in gaps[:3]]
 
 
-def reach_check(s, info, mods, log=_log):
+class _ById:
+    """`in` by identity (Space.via_violations' ignore): the cells' own items."""
+    def __init__(self, ids):
+        self.ids = ids
+
+    def __contains__(self, it):
+        return id(it) in self.ids
+
+
+def reach_check(s, info, mods, log=_log, vias=False):
     """The post-cells reachability check: every pin near the cells that has a way to its net on the input (another
     piece of its net, a zone of it where it can pour, a via site, or on out of the window) still has one past the
     cells' other-net copper. The window is each cell's copper grown by REACH_MARGIN (merged where they overlap),
@@ -1099,6 +1135,13 @@ def reach_check(s, info, mods, log=_log):
                 break
     windows = [tuple(b) for b in boxes]
     cache = {}
+    ok_before = ok_after = None
+    if vias:
+        # hotloop_reach_vias: a via site counts only where Space.via_violations allows the net's via, judged without
+        # the cells' copper before and with it after
+        mine_ids = _ById(set(cell_items))
+        ok_before = lambda net, x, y: not sp.via_violations(net, x, y, ignore=mine_ids, first=True)
+        ok_after = lambda net, x, y: not sp.via_violations(net, x, y, first=True)
     found = []
     for pad in info.get("pads") or []:
         net = pad.get("net")
@@ -1117,8 +1160,8 @@ def reach_check(s, info, mods, log=_log):
             if not mine:
                 continue
             base = [it for it in sp.items[l] if id(it) not in cell_items]
-            if not _reach(pad, cop, l, base, info, window, cache, "before") \
-                    or _reach(pad, cop, l, sp.items[l], info, window, cache, "after"):
+            if not _reach(pad, cop, l, base, info, window, cache, "before", via_ok=ok_before) \
+                    or _reach(pad, cop, l, sp.items[l], info, window, cache, "after", via_ok=ok_after):
                 continue
             hit = []
             for it in mine:
@@ -1135,7 +1178,7 @@ def reach_check(s, info, mods, log=_log):
                 m.status = "reverted"
                 m.notes = [f"reverted: its copper closed {pad.get('ref')}.{pad.get('number')} ({net})'s way to its net on {l}"]
     still = [(pad.get("uuid"), l) for pad, l, net, hit, cop, window in found
-             if not _reach(pad, cop, l, sp.items[l], info, window)]
+             if not _reach(pad, cop, l, sp.items[l], info, window, via_ok=ok_after)]
     out = []
     for pad, l, net, hit, *_ in found:
         name = f"{pad.get('ref')}.{pad.get('number')}"
@@ -1206,7 +1249,7 @@ def stage(input_path, info, workdir, opts=None, log=_log, time_s=None):
             hz, rep["pour_cut"] = pour_check(s, input_path, s.info, mods, wd, log=log, revert_mode=st["pour_revert"],
                                              spokes=st["pour_spokes"])
             rep["hazards"] += hz
-            hz, rep["pin_blocked"] = reach_check(s, s.info, mods, log=log)
+            hz, rep["pin_blocked"] = reach_check(s, s.info, mods, log=log, vias=st["reach_vias"])
             rep["hazards"] += hz
         else:
             mods = _plan_cells(s)

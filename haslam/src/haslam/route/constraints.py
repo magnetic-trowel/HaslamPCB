@@ -377,6 +377,8 @@ DEFAULTS = dict(
                                    # (as before cells-robust: hvdc's one GND pad reverted all four cells)
     hotloop_cell_ref_check="",     # cell kinds (e.g. "inverting") kept only when the laid loop quotes no worse than the
                                    # same loop routed as the general router would (critical.Session.ref_quote)
+    hotloop_reach_vias=0,          # 1: the reach check counts a via site in a pin's room only where the net's via is legal
+                                   # (Space.via_violations), not wherever a via's copper fits (glider U9.4)
     hotloop_pour_spokes=0,         # 1: the pour check also reverts cells that leave a pad fewer than 2 thermal spokes
                                    # into its fill (hotloop.SPOKES_MIN; nekoink's starved_thermal +8 in cells-robust)
     hotloop_cells_max_pads=0,      # the cells stage is skipped on a board with more pads than this (0: no gate;
