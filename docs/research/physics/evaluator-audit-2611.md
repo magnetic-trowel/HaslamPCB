@@ -163,7 +163,7 @@ Measurement: the 12-board set (14 inputs) and duanestorey, `--no-cells --no-drc`
 
 Per board, the limit-tier range across seeds, old -> new: solar-small 5524-9555 -> 22517; robertpheller 2104-5132 -> 6571; shazmeenshz 16304-20618 -> 23781; jrsteensen 183-240 -> 342; buildacubesat 23-35 -> 71; martinberlin 445-619 -> 896-901; adafruit magtag 2372-3206 -> 3717; sparkfun moto-bit 25123-26339 -> 28946-29009. The other boards' limit tier is 0 or one value in both arms.
 
-1. **The worst corner is stable.** A per-part worst temperature no longer moves with the seed (the 2.8 K left is martinberlin's D1, whose heat takes the AC band's cell ends), and no hard tier flips.
+1. **The worst corner is stable.** A per-part worst temperature no longer moves with the seed (the 2.8 K left: at seed 1 one hypercube sample reads martinberlin's D1 at 145.0 C, R1 105.0 C, R2 100.1 C, above the adverse vertex's 142.2 / 102.8 / 99.3 C; their heat follows the boost's switching loss, whose t_i and C_sw the heat band takes at the AC band's adverse ends, the limit named above), and no hard tier flips.
 2. **The worst is higher.** The adverse vertex is the box's true worst: limit tiers rise 1.2-4x where the box rests on wide priors.
    - Two boards now have a hard term at every seed. buildacubesat's J1 reads 100.5 C against the 85 C module class rating (ambient 40 C stated; theta_jb's 30-120 K/W prior at its top). martinberlin's D1 reads 142 C against 125 C.
    - Before, these violations were visible only to a lucky draw. Each rests on priors the evaluation now asks for (`questions`).
