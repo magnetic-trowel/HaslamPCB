@@ -222,3 +222,25 @@ def test_a_converters_current_interval_spans_its_stated_voltages():
     ib = CV.from_intent({"I_out_A": 0.1, "V_in_V": [10.0, 14.0], "V_out_V": -12.0, "eta": 0.85}, "inverting_buck_boost")
     D_hi = 12 / (10 * 0.85 + 12)
     assert ib.I[2] == pytest.approx(0.1 / (1 - D_hi)) and ib.D[2] == pytest.approx(D_hi)
+
+
+def test_a_class_range_switch_node_capacitance_is_a_prior_the_ledger_asks_for():
+    """C_sw from the class ranges (C_oss 30-1000 pF with no R_on, a small Schottky's C_j) was labelled 'physics', so
+    the ledger never asked for it, though its C V^2 f is often the controller's largest loss."""
+    P, _ = _boost_cell({})
+    assert P["C_sw"].source == "prior"
+
+
+def test_a_heat_sinks_resistance_with_a_prior_theta_jc_is_a_prior():
+    """R_sink = theta_JC + theta_CS + theta_SA was 'intent' whenever theta_SA was stated, though theta_JC (5 K/W) and
+    theta_CS (0.5 K/W) were class priors: 7.5 K/W of which the facts gave 2."""
+    from haslam.excite import heat as H
+    dcp = SimpleNamespace(loads=[], self_loads=[], feeds={})
+    bd = SimpleNamespace(part_kind={}, net_of={})
+    ps = {(p.subject, p.name): p for p in H.params(bd, dcp, {}, {"requirements": {"thermal": {"heatsinks": [
+        {"part": "U1", "theta_sa_C_W": 2.0}]}}})}
+    p = ps[("heat:U1", "R_sink")]
+    assert (p.typ, p.source) == (pytest.approx(7.5), "prior")
+    ps = {(p.subject, p.name): p for p in H.params(bd, dcp, {}, {"requirements": {"thermal": {"heatsinks": [
+        {"part": "U1", "theta_sa_C_W": 2.0, "theta_cs_C_W": 0.3, "theta_jc_C_W": 1.0}]}}})}
+    assert ps[("heat:U1", "R_sink")].source == "intent" and ps[("heat:U1", "R_sink")].typ == pytest.approx(3.3)

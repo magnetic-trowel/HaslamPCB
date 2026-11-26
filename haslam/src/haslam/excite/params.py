@@ -164,7 +164,11 @@ def cell(L, s, brief, bd, intent, text, rect_text="", vin_net=None):
         dbasis = (f"rectifier C_j {cd[0]*1e12:.0f}-{cd[1]*1e12:.0f} pF" +
                   (f" ({rt['cj_F'][3]})" if "cj_F" in rt else " (small Schottky class range)"))
         lo, hi = co[0] + cd[0], co[1] + cd[1]
-        out["C_sw"] = _p(L, sid, "C_sw_F", math.sqrt(lo * hi), lo, hi, "F", "physics", f"{cbasis}; {dbasis}")
+        # derived by physics only where both halves rest on data (R_on from the part table, the rectifier's C_j);
+        # a class range in either is a prior, and the ledger then asks for it (it sets the C V^2 f switching loss,
+        # often the controller's largest term: 40 mW typical, 190 mW at its top, at 12 V and 1 MHz)
+        src = "physics" if "r_on_ohm" in tab and "cj_F" in rt else "prior"
+        out["C_sw"] = _p(L, sid, "C_sw_F", math.sqrt(lo * hi), lo, hi, "F", src, f"{cbasis}; {dbasis}")
     if "r_on_ohm" in tab:
         t, lo, hi, src = tab["r_on_ohm"]
         out["R_on"] = _p(L, sid, "R_on_ohm", t, lo, hi, "ohm", "part_table", src)
