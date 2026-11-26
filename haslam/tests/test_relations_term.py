@@ -188,7 +188,10 @@ def test_brief_carries_relations_only_with_an_intent_file(tmp_path):
     bun, err = RL.from_brief(load(src), build(load(src)), str(src))
     assert bun is None and "Q99" in err
     (tmp_path / "board.haslam_intent.json").write_text("{ not json")
-    assert "error" in build(load(src))["relations"]
+    from haslam.intent.relations import for_brief
+    assert "error" in for_brief(str(src))
+    with pytest.raises(ValueError):       # the brief reads the file strictly (haslam.intent.facts.for_board)
+        build(load(src))
 
 
 def test_the_oracle_on_the_command_line(tmp_path, capsys):

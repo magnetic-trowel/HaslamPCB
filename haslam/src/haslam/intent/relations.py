@@ -214,7 +214,7 @@ def defaults_on(rid, defaults_off):
 def for_brief(board_path):
     """The relations part of the board's own intent file, for the brief (haslam.circuit.brief.build):
     {origin, intent: {relations, defaults_off, sections, terms, generation}}, or {origin, error} when the file
-    does not load; None without a file or without relations. Never raises: the brief has many readers."""
+    does not load; None without a file or without relations. Never raises (the brief itself reads the same file strictly first: haslam.intent.facts.for_board)."""
     if not board_path:
         return None
     from .facts import sidecar           # the one place the file's name is defined (facts.INTENT_EXT)
