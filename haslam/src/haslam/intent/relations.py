@@ -16,6 +16,10 @@ as given; without one it is still used but marked `assumed` in the status. The r
 "forbid" rejects lengths outright (RAC's rule). `on_edge` takes a length too: how far its courtyard may
 sit from the edge (default EDGE_TOL, 1 mm).
 
+Physics wins by default (relations_vs_physics 'physics'): a soft relation on parts the place terms price
+weighs as weak. Two kinds of relation keep their own strength there (the user's rule, 2026-11-25): one
+with `category: "safety"`, and one the user asked for specifically, marked `requested: true`.
+
 The intent-relations spelling (haslamsynth's first emitter) is read for a transition (`normalize`, a note on
 the row says so): `within_mm: 5` / `min_mm: 5` is `mag: "5 mm"`, and `{"kind": "edge", "edge": "west"}` is
 `{"kind": "on_edge", "edge": "edge:west", "facing": "any", "strength": "medium"}` (a soft pull: that
@@ -30,7 +34,7 @@ from . import units as U
 
 STRENGTHS = ("required", "strong", "medium", "weak")      # Cassowary order: each dominates the next
 MAGS = ("tight", "close", "loose")
-COMMON = ("id", "kind", "strength", "why", "source", "category", "note")
+COMMON = ("id", "kind", "strength", "why", "source", "category", "requested", "note")
 # kind: (required arguments, optional arguments, default strength)
 KINDS = {
     "near": (("a", "b"), ("mag",), "medium"),
@@ -166,6 +170,9 @@ def check(rels, mm_policy="sourced", defaults_off=None):
             raise _err(f"relation {rid}: strength {s!r} unknown; use one of {STRENGTHS}")
         if r.get("category") is not None and r["category"] not in CATEGORIES:
             raise _err(f"relation {rid}: category {r['category']!r} unknown; use one of {CATEGORIES}")
+        if "requested" in r and not isinstance(r["requested"], bool):
+            raise _err(f"relation {rid}: requested is true (the user asked for this relation specifically) "
+                       f"or false, not {r['requested']!r}")
         for k, vals in VALUES.items():
             if k in r and r[k] not in vals:
                 if k == "as" and r[k] == "relative":

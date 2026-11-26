@@ -459,10 +459,25 @@ class Bundle:
                 out.append(t["id"])
         return out
 
-    def weight(self, strength, uuids=()):
+    @staticmethod
+    def full_weight(x):
+        """Why relation `x` keeps its own strength against physics, or None (it yields): 'safety' for
+        `category: safety`, 'requested' for `requested: true` (a specific request of the user's). The
+        user's rule (2026-11-25): obey physics, except for an explicit safety reason or explicit request."""
+        if x is None:
+            return None
+        if x.spec.get("category") == "safety":
+            return "safety"
+        if x.spec.get("requested") is True:
+            return "requested"
+        return None
+
+    def weight(self, strength, uuids=(), x=None):
         """Annealer weight of a soft relation at `strength`; with relations_vs_physics 'physics', a
-        relation on a part of a physics structure (a brief section) weighs as weak."""
-        if self.set["relations_vs_physics"] == "physics" and any(u in self.struct_parts for u in uuids):
+        relation on a part of a physics structure (a brief section) weighs as weak, unless it is
+        relation `x` with a safety category or an explicit request (full_weight)."""
+        if self.set["relations_vs_physics"] == "physics" and any(u in self.struct_parts for u in uuids) \
+                and not self.full_weight(x):
             strength = "weak"
         return float(self.set[f"rel_w_{strength}"])
 
@@ -537,7 +552,7 @@ class Bundle:
                     x.enforced, x.how = "hard", f"pinned on edge:{x.place.edge}, facing {x.spec.get('facing', 'out')}"
                 elif x.place.edge != "nearest":
                     self.anchors.append((x.id, u, ("band", x.place.edge, self.edge_mm(x)),
-                                         self.weight(x.strength, [u])))
+                                         self.weight(x.strength, [u], x)))
                     x.enforced, x.how = "soft", f"pulled into the {x.place.edge} edge band (label term)"
                 else:
                     x.enforced, x.how = "measured only", "a soft on_edge to the nearest edge is not optimized"
@@ -546,7 +561,7 @@ class Bundle:
                 for u in x.members:
                     regions_by.setdefault(u, []).append(x)
                 for u in movers:
-                    self.anchors.append((x.id, u, ("box", x.place.geom.bounds), self.weight(x.strength, [u])))
+                    self.anchors.append((x.id, u, ("box", x.place.geom.bounds), self.weight(x.strength, [u], x)))
                 x.enforced = "soft"
                 x.how = "label-term pull into the region's box" + (
                     "; required is placed soft until hard regions are built (phase 2)" if x.strength == "required"
@@ -555,7 +570,7 @@ class Bundle:
                 fixed_b = x.b.kind == "label" or all(by[u].locked or u in self.hold for u in x.b.parts)
                 mov_a = [u for u in x.a.parts if not by[u].locked and u not in self.hold]
                 if fixed_b and len(mov_a) == 1:
-                    self.anchors.append((x.id, mov_a[0], ("near", x), self.weight(x.strength, mov_a)))
+                    self.anchors.append((x.id, mov_a[0], ("near", x), self.weight(x.strength, mov_a, x)))
                     x.enforced, x.how = "soft", "label-term pull toward " + x.b.name
                 elif len(x.a.parts) == 1 and len(x.b.parts) == 1 and x.b.kind in ("part", "pins") and mov_a + [
                         u for u in x.b.parts if not by[u].locked and u not in self.hold]:
@@ -781,7 +796,7 @@ class Bundle:
                 d = self.target_mm(x, self.R.by_uuid[p.uuid]) + P.g     # a cell more: grid rounding stays outside
                 x0, y0, x1, y1 = p._lib["crt"]
                 e = entry(p)
-                w = self.weight(x.strength, [p.uuid])
+                w = self.weight(x.strength, [p.uuid], x)
                 for kk, rt in enumerate(p.rots):
                     e[1][kk] += [r + (cls, w) for r in _grid_rects(P, p, [(x0 - d, y0 - d, x1 + d, y1 + d)], rt.rot)]
             for q in B:
@@ -909,7 +924,7 @@ class Bundle:
                 ps = [(by[u], ks) for u, ks in sides if u in by]
                 if len(ps) != len(sides) or not any(p.movable for p, _ in ps) or not all(ks for _, ks in ps):
                     continue
-                w = RULE_W * self.weight(x.strength, [u for u, _ in sides])
+                w = RULE_W * self.weight(x.strength, [u for u, _ in sides], x)
                 out.append(Rule(rid, KIND[kind], tuple((p.i, list(ks)) for p, ks in ps), float(d), float(w), -1, 0.0))
                 n += 1
             if n:
@@ -1209,6 +1224,8 @@ class Bundle:
             row["why"] = x.spec["why"]
         if x.spec.get("source"):
             row["source"] = x.spec["source"]
+        if self.full_weight(x):
+            row["full_weight"] = self.full_weight(x)     # keeps its strength where physics prices its parts
         if x.mag and x.mag[0] == "mm" and not x.spec.get("source"):
             row["assumed"] = True        # a length nobody sourced (open question 1): used, but marked
         if self.applied.get(x.id):
@@ -1226,7 +1243,14 @@ class Bundle:
             # the relation weighed as weak there; 'tie': both at their strength, the placer traded
             terms = self._physics_terms(mem, secs)
             names = ", ".join(secs[:3]) + (f"; intent terms {', '.join(terms[:3])}" if terms else "")
-            if self.set["relations_vs_physics"] == "physics":
+            fw = self.full_weight(x)
+            if self.set["relations_vs_physics"] == "physics" and fw:
+                # the user's exception (2026-11-25): a safety reason or an explicit request keeps its weight
+                why = (f"its parts are also priced by physics (place terms of {names}); as "
+                       f"{'category safety' if fw == 'safety' else 'an explicit request (requested: true)'} it kept "
+                       f"its full {x.strength} weight against them, and the placer still traded it")
+                fix = "raise its strength, or relax the physics terms of those sections"
+            elif self.set["relations_vs_physics"] == "physics":
                 row["yielded_to"] = secs[:6]
                 why = (f"its parts are priced by physics (place terms of {names}), which wins by default "
                        f"(relations_vs_physics 'physics'): the relation yielded and is not met")
@@ -1236,8 +1260,8 @@ class Bundle:
                        f"(relations_vs_physics 'tie'): the placer traded this relation for them")
                 fix = "raise its strength, or relax the physics terms of those sections"
             cf.append(dict(ids=[x.id], with_physics=secs[:6], physics_terms=terms[:6], proof="measured",
-                           winner="physics" if self.set["relations_vs_physics"] == "physics" else "tie",
-                           why=why, fix=fix))
+                           winner="physics" if self.set["relations_vs_physics"] == "physics" and not fw else "tie",
+                           why=why, fix=fix, **({"full_weight": fw} if fw else {})))
         if cf:
             row["conflicts"] = cf
         row["proof"] = "precheck" if any(c["proof"] in ("precheck", "capacity") for c in cf) else "measured"

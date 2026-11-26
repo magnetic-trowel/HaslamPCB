@@ -235,6 +235,53 @@ def test_physics_wins_by_default_and_the_collision_is_a_reported_conflict(board,
         _bundle(board, brief, rel, opts=dict(relations_vs_physics="always"))
 
 
+@pytest.mark.parametrize("mark, why", [(dict(category="safety"), "safety"), (dict(requested=True), "requested")])
+def test_safety_and_requested_relations_keep_their_weight_against_physics(board, brief, mark, why):
+    """The user's rule (2026-11-25), "mostly we just want to obey physics": a relation on parts the place
+    terms price weighs as weak, except one with category safety or one the user asked for specifically
+    (requested: true), which keeps its own strength (keep-away grid, relation term)
+    and, unmet, is a conflict the placer traded (winner tie) rather than one it yielded to physics."""
+    from types import SimpleNamespace
+
+    from haslam.place.problem import Problem
+    P = Problem.build(board)
+    i = next(p.i for p in P.parts if p.ref == "U1")
+    structs = [SimpleNamespace(src=dict(id="cell:buck:U1"), kind="commutation_cell", members={i})]
+    term = dict(id="T1", tier="hard", obs="loss.loop", where=dict(section="cell:buck:*"), max="5 mW",
+                why="hot loop")
+    plain = _rel(id="p", kind="near", a="U1", b="U2", mag="tight", strength="strong")
+    marked = _rel(id="m", kind="near", a="U1", b="U2", mag="tight", strength="strong", **mark)
+    reg = _rel(id="r", kind="region", members=["U1"], region="region:se", strength="strong", **mark)
+    bun = _bundle(board, brief, plain, marked, reg, terms=[term])
+    bun.set_physics(P, structs)
+    x = {r.id: r for r in bun.rels}
+    u = P.parts[i].uuid
+    assert bun.full_weight(x["p"]) is None and bun.full_weight(x["m"]) == why
+    assert bun.weight("strong", [u], x["p"]) == 0.3 and bun.weight("strong", [u], x["m"]) == 3.0
+    ws = {r.id: float(r.w) for r in bun.rules(P)}
+    assert ws["m"] == pytest.approx(RL.RULE_W * 3.0) and ws["p"] == pytest.approx(RL.RULE_W * 0.3)
+    st = bun.status(board)
+    row = {r["id"]: r for r in st["rows"]}["r"]
+    assert row["met"] is False and row["full_weight"] == why and "yielded_to" not in row
+    c = row["conflicts"][0]
+    assert c["winner"] == "tie" and c["full_weight"] == why and c["with_physics"] == ["cell:buck:U1"]
+    hz = [h for h in st["hazards"] if h["code"] == "relation_conflict" and "U1" in h["objects"]
+          and h["evidence"].get("winner") == "tie"]
+    assert hz and hz[0]["severity"] == ("block" if why == "safety" else "warn")
+    # without the mark, the same region yields to physics as before
+    st0 = _bundle(board, brief, _rel(id="r", kind="region", members=["U1"], region="region:se", strength="strong"),
+                  terms=[term])
+    st0.set_physics(P, structs)
+    r0 = st0.status(board)["rows"][0]
+    assert r0["conflicts"][0]["winner"] == "physics" and "full_weight" not in r0
+
+
+def test_requested_is_a_boolean():
+    with pytest.raises(OB.IntentError, match="requested is true"):
+        V.check([dict(id="a", kind="near", a="U1", b="U2", requested="yes", why="x")])
+    V.check([dict(id="a", kind="near", a="U1", b="U2", requested=False, why="x")])
+
+
 def test_magnitudes_scale_with_the_smaller_part_and_decaps_use_the_corpus_priors(board, brief):
     b = _bundle(board, brief, _rel(id="t", kind="near", a="U1", b="U2", mag="tight"),
                 _rel(id="l", kind="near", a="U1", b="U2", mag="loose"))
