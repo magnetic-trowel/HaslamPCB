@@ -1,0 +1,19 @@
+{
+ "adafruit-adafruit-fona-800-gsm-breakout-pcb-adafruit-fona-800-gsm-breakout": "tier mid: the held human poses add placement errors over the task input's own: copper_edge_clearance 1",
+ "atlantis-specialist-technologies-can485-sparkfun-ast-can485": "tier mid: the held human poses add placement errors over the task input's own: copper_edge_clearance 30",
+ "glydrfreak-vspeed-vario-adafruit-feather-zero-ble-rev-b": "tier mid: the held human poses add placement errors over the task input's own: copper_edge_clearance 4",
+ "greatscottgadgets-ubertooth-ubertooth-one": "tier mid: the held human poses add placement errors over the task input's own: copper_edge_clearance 6",
+ "lenaschimmel-bestelampe-controller": "tier big: the held human poses add placement errors over the task input's own: courtyards_overlap 2; tier mid: the held human poses add placement errors over the task input's own: courtyards_overlap 2",
+ "sparkfun-nrf52840-breakout-mdbt50q-nrf52840-breakout-mdbt50q": "tier big: the held human poses add placement errors over the task input's own: copper_edge_clearance 2; tier mid: the held human poses add placement errors over the task input's own: copper_edge_clearance 2",
+ "sparkfunx-sparkx-smol-esp32-sparkx-smol-esp32": "tier mid: the held human poses add placement errors over the task input's own: copper_edge_clearance 2",
+ "unaldevelopment-rf-design-rf-design": "tier mid: the held human poses add placement errors over the task input's own: copper_edge_clearance 2",
+ "adafruit-adafruit-metro-m7-with-microsd-pcb-adafruit-metro-m7-with-microsd": "pose-transplant-3 oracle, tier small: the held human poses add placement errors over the task input's own: copper_edge_clearance 1",
+ "adafruit-adafruit-servo-hat-bonnet-pcb-servo-bonnet-rev-b": "pose-transplant-3 oracle, tier small: the held human poses add placement errors over the task input's own: copper_edge_clearance 1",
+ "alloyed-kitsblips-csfilter": "pose-transplant-3 oracle, tier small: the held human poses add placement errors over the task input's own: copper_edge_clearance 7, courtyards_overlap 1, shorting_items 2",
+ "pickleddog-rc-1024k-rc-1024k": "pose-transplant-3 oracle, tier small: the held human poses add placement errors over the task input's own: courtyards_overlap 1",
+ "protocentral-protocentral-max30205-pc-max30205-brk": "pose-transplant-3 oracle, tier small: the held human poses add placement errors over the task input's own: copper_edge_clearance 1",
+ "protocentral-protocentral-tinyecg-max30001-pc-tinyecg-max30001": "pose-transplant-3 oracle, tier small: the held human poses add placement errors over the task input's own: clearance 1, courtyards_overlap 9",
+ "smchunn-ergogen-smcboard-mono": "pose-transplant-3 oracle, tier small: the held human poses add placement errors over the task input's own: shorting_items 17",
+ "sparkfun-sparkfun-three-phase-motor-driver-tmc6300-sparkfun-tmc6300-breakout": "pose-transplant-3 oracle, tier small: the held human poses add placement errors over the task input's own: clearance 1, copper_edge_clearance 1",
+ "watterott-rpi-display-rpi-display-bplus-v10": "pose-transplant-3 oracle, tier small: the held human poses add placement errors over the task input's own: courtyards_overlap 5"
+}

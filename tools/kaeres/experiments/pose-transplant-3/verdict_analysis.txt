@@ -1,0 +1,53 @@
+K: runs 36, legal 36, excess-error runs 0, outside runs 0, held-moved runs 0
+big: runs 36, legal 34, excess-error runs 2, outside runs 0, held-moved runs 0
+   illegal {'board': 'adafruit-adafruit-1-3in-color-tft-bonnet-pcb-adafruit-1-3in-color-tft-bonnet', 'run': 'a0', 'exc': {'clearance': 4, 'shorting_items': 5}, 'outside': 0, 'held_bad': 0, 'legal': False}
+   illegal {'board': 'adafruit-adafruit-1-3in-color-tft-bonnet-pcb-adafruit-1-3in-color-tft-bonnet', 'run': 'a1', 'exc': {'clearance': 4, 'shorting_items': 2}, 'outside': 0, 'held_bad': 0, 'legal': False}
+mid: runs 36, legal 35, excess-error runs 1, outside runs 0, held-moved runs 0
+   illegal {'board': 'adafruit-adafruit-1-3in-color-tft-bonnet-pcb-adafruit-1-3in-color-tft-bonnet', 'run': 'a0', 'exc': {'shorting_items': 3}, 'outside': 0, 'held_bad': 0, 'legal': False}
+P: runs 36, legal 36, excess-error runs 0, outside runs 0, held-moved runs 0
+pairs 36, boards 18, owners 16
+K-H: +1.123 [+0.688, +1.553]
+K-B: +0.241 [+0.039, +0.495]
+K-M: +0.303 [+0.072, +0.555]
+K-P: +0.373 [+0.093, +0.642]
+g_B: +0.214 [+0.033, +0.504]
+g_M: +0.270 [+0.071, +0.526]
+g_P: +0.332 [+0.096, +0.600]
+g_M+g_P: +0.602 [+0.267, +0.998]
+opens sum K,H,B,M,P: [453, 183, 375, 336, 348]
+P better/same/worse than K: 23 3 10
+K zero-open runs 0 1-5 opens 9
+H zero-open runs 15 1-5 opens 10
+B zero-open runs 4 1-5 opens 11
+M zero-open runs 3 1-5 opens 15
+P zero-open runs 1 1-5 opens 15
+per board (seed0, seed1) opens K/H/B/M/P:
+  adafruit-adafruit-1-3in-color-tft-bonnet-pcb-adafr [[13, 0, 15, 11, 6], [14, 0, 12, 14, 6]]
+  adafruit-adafruit-tpa2012-or-ts2012-breakout-pcb-a [[7, 0, 5, 4, 2], [6, 0, 7, 3, 2]]
+  bcecoop-bce-pcb-rmlv1616a-bce-pcb-rmlv1616a [[3, 2, 2, 2, 3], [2, 2, 2, 2, 2]]
+  berkeleyauv-robosub-hw-noggin [[20, 1, 18, 10, 6], [13, 4, 19, 16, 6]]
+  buildacubesat-archive-bac-hardware-tpsm5d1806-buck [[7, 0, 2, 2, 2], [2, 0, 4, 4, 2]]
+  buildacubesat-project-bac-hardware-bq25306-charger [[3, 0, 3, 3, 1], [3, 0, 2, 3, 1]]
+  cmnybo-chip-lcd-dip-chip-lcd-dip [[13, 15, 14, 14, 20], [12, 19, 15, 17, 15]]
+  fm4dd-pmod-i2c24io-i2c24io-2 [[14, 0, 19, 19, 12], [15, 0, 19, 19, 13]]
+  freesurfer-rge-slothpu16-comparator [[6, 0, 0, 0, 9], [5, 0, 0, 0, 6]]
+  gitberthe-berthevario-berthevario213-shema [[3, 0, 5, 0, 0], [6, 0, 6, 4, 1]]
+  kata0510-rp2040-8key-rp2040-8key [[12, 3, 14, 11, 15], [14, 6, 15, 18, 13]]
+  kelu124-pic0rick-max14866-pmod [[10, 6, 8, 8, 12], [6, 7, 5, 5, 7]]
+  len42-synth-mixer2 [[22, 18, 22, 21, 18], [20, 18, 20, 22, 18]]
+  protocentral-protocentral-pulse-express-hardware-p [[13, 4, 8, 5, 4], [11, 4, 9, 7, 4]]
+  sparkfun-edison-micro-sd-block-micro-sd-block [[49, 19, 21, 19, 54], [47, 19, 26, 19, 44]]
+  sparkfun-sparkfun-thing-plus-rp2040-rp2040-thing-p [[32, 12, 23, 18, 17], [33, 13, 27, 21, 18]]
+  tinkrmind-programmable-air-radical-pneu [[1, 1, 0, 1, 4], [1, 0, 0, 4, 3]]
+  zynthian-zynthian-hw-zynthian-allinone [[7, 5, 3, 5, 1], [8, 5, 5, 5, 1]]
+
+legal P board-seeds only:
+pairs 36, boards 18, owners 16
+K-H: +1.123 [+0.688, +1.553]
+K-B: +0.241 [+0.039, +0.495]
+K-M: +0.303 [+0.072, +0.555]
+K-P: +0.373 [+0.093, +0.642]
+g_B: +0.214 [+0.033, +0.504]
+g_M: +0.270 [+0.071, +0.526]
+g_P: +0.332 [+0.096, +0.600]
+g_M+g_P: +0.602 [+0.267, +0.998]
