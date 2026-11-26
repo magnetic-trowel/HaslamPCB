@@ -481,10 +481,15 @@ def pad_currents(operating, pads, power, ground):
             own = typical(f.get("I_sustained_A"))
         own = float(own) if isinstance(own, (int, float)) and own > 0 else 0.0
         s = set(nets)
-        series = len(nets) == 2 and not s & set(ground) and s & set(power)
+        pw = s & set(power)
+        # in series with a rail: no ground pad, and its pads on two nets (one of them power), or on two power nets
+        # beside others (a P-FET's source and drain with its gate). Pads were counted, not nets: a 4-pad fuse holder
+        # (VIN, VIN, +5V, +5V) or a FET's tab beside its drain pin carried 0 A and was necked as a signal part
+        two = len(s) == 2 and pw
+        series = not s & set(ground) and (two or len(pw) == 2)
         for net in s:
             if series:
-                i = max(rail.get(n, 0.0) for n in s)
+                i = max(rail.get(n, 0.0) for n in pw) if (two or net in pw) else 0.0
             elif net in power or (net in ground and s & set(power)):
                 i = own
             else:

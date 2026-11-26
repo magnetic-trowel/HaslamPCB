@@ -218,3 +218,17 @@ def test_via_on_tracks_keeps_neck_clear():
     for d, x, y in c:
         assert y == pytest.approx(0.0)                        # on the routed track: no second entry
         assert 0.8 - 1e-6 <= Point(x, y).distance(land) <= 1.3 + 1e-6
+
+
+def test_a_series_part_is_found_by_its_nets_not_its_pad_count():
+    """pad_currents took 'series with a rail' as exactly two pads: a 4-pad fuse holder (VIN, VIN, +5V, +5V) and a
+    P-FET switch with its drain tab (VIN, GATE, +5V, +5V) carried 0 A. Now: no ground pad and two nets (one power),
+    or two power nets beside a gate; the rail current shared over each net's pads, none on the gate."""
+    from haslam.route.power_copper import pad_currents
+    op = {"parts": {"U1": {"I_A": 2.0}}}
+    pads = [("U1", "+5V"), ("U1", "GND"), ("F1", "VIN"), ("F1", "VIN"), ("F1", "+5V"), ("F1", "+5V"),
+            ("Q1", "VIN"), ("Q1", "GATE"), ("Q1", "+5V"), ("Q1", "+5V")]
+    cur = pad_currents(op, pads, {"VIN", "+5V"}, {"GND"})
+    assert cur[("F1", "VIN")] == pytest.approx(1.0) and cur[("F1", "+5V")] == pytest.approx(1.0)
+    assert cur[("Q1", "VIN")] == pytest.approx(2.0) and cur[("Q1", "+5V")] == pytest.approx(1.0)
+    assert cur[("Q1", "GATE")] == 0.0
