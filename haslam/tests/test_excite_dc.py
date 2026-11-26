@@ -957,3 +957,17 @@ def test_a_stated_efficiency_is_not_counted_twice_at_the_inductor():
     loss = (1 / 0.9 - 1) * 5.0 * 2.0
     assert heat["U1"] == pytest.approx(loss - 2.0 ** 2 * 0.05)
     assert H.winding_R(NS(circuit=c), "L1") == pytest.approx(0.05)
+
+
+def test_a_cells_inductor_has_a_sampled_theta_jb_prior():
+    """A cell's inductor heats (I_L^2 DCR at its pads), but heat.params gave it no theta_jb: its junction took the
+    2-pin class value at the typical point at every corner, and the ledger never asked for it."""
+    from types import SimpleNamespace as NS
+
+    from haslam.excite import heat as H
+    cell = dict(id="c", cls="buck", src="cell:c", vin="VIN", vout="5V", sw="SW", ctrl="U1", rect=None, ind="L1")
+    dcp = NS(loads=[], self_loads=[], feeds={"5V": dict(kind="cell", cell=cell, ref="U1")})
+    bd = NS(part_kind={}, net_of={"L1.1": "SW", "L1.2": "5V", "U1.1": "VIN"})
+    ps = {(p.subject, p.name): p for p in H.params(bd, dcp, {}, {})}
+    p = ps[("heat:L1", "theta_jb")]
+    assert (p.typ, p.lo, p.hi, p.source) == (60.0, 30.0, 120.0, "prior")

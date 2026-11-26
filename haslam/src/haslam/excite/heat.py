@@ -175,7 +175,10 @@ def params(bd, dcp, P, intent=None):
     hot = {ld["ref"] for ld in dcp.loads if bd.part_kind.get(ld["ref"], ("",))[0] != "connector"}
     hot |= {sl["ref"] for sl in getattr(dcp, "self_loads", [])}
     for f in dcp.feeds.values():
-        hot |= {f["cell"]["ctrl"], f["cell"]["rect"]} if f["kind"] == "cell" else ({f["ref"]} if f["kind"] in ("linear", "switching") else set())
+        # a cell's inductor heats by its winding's DC loss (lumped_heat): its theta_jb is a prior like any part's (it
+        # took the 2-pin class value at its typical point only, never sampled and never asked for)
+        hot |= {f["cell"]["ctrl"], f["cell"]["rect"], f["cell"].get("ind")} if f["kind"] == "cell" else \
+            ({f["ref"]} if f["kind"] in ("linear", "switching") else set())
     for ref in sorted(r for r in hot if r):
         iv = intent_value(intent, "parts", ref, "theta_jb_C_W")       # from the part's datasheet, via the facts
         if iv:
