@@ -912,6 +912,19 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
                     path=[(P.parts[i].uuid, list(ks)) for i, ks in rule], why="protected connector chain"))
         order = kept + rel.order_for(P)
         P.order_rules = order
+    # served-pin springs (haslam.place.springs): 2-pad passives outside the macros tied to the pin they
+    # serve, priced by every stage that prices nets
+    w_spring = float(setting("place_passive_springs", board_path, opts))
+    if w_spring > 0:
+        from . import springs as springsmod
+        rs = str(setting("place_passive_springs_roles", board_path, opts) or "").strip()
+        sroles = tuple(r.strip() for r in rs.split(",") if r.strip()) or springsmod.ROLES
+        ncu = sum(1 for nm in (board.layers or {}) if str(nm).endswith(".Cu")) or None
+        spr = springsmod.served_springs(P, brief, base=w_spring, roles=sroles,
+                                        exclude={i for m in macros for i in m.members}, layers=ncu)
+        springsmod.add_springs(P, spr)
+        rep["passive_springs"] = dict(springsmod.summary(P, spr), base=w_spring)
+        log(f"passive springs: {len(spr)} (base weight {w_spring:g})")
     # the intent's pulls (regions, near a label or a fixed part, soft edges): the seed starts each pulled
     # part at its target and the floorplan holds it there (displacement weight REL_SEED_W), since the
     # annealer's local moves rarely carry a part across the board; the annealer then prices them

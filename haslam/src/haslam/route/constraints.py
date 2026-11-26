@@ -230,6 +230,10 @@ DEFAULTS = dict(
     place_w_xing=2.0,              # placement: mm of weighted HPWL one ratsnest crossing costs in the annealer
                                    # (haslam.place.crossings). On: xing-ext-m6 cut crossings to 0.62x with opens,
                                    # DRC and legality unharmed (user decision 2026-11-21: adopted on crossings); 0 off
+    place_passive_springs=0.0,     # placement: base weight of the served-pin springs (haslam.place.springs): each
+                                   # 2-pad passive outside a physics macro tied to the pin it serves by a virtual
+                                   # two-pin net, weighted by the learned passive priors; 0 off (A/B passive-priors)
+    place_passive_springs_roles="",  # placement: comma-separated roles that get a spring ('' = springs.ROLES)
     place_xing_from=0.25,          # placement: fraction of the anneal schedule after which the crossing term prices
     place_anneal_hard_fixed=1,     # placement: 1 the annealer rejects a move that adds overlap with fixed obstacles or
                                    # cells outside the outline (only the part itself could undo it); 0 a penalty only
