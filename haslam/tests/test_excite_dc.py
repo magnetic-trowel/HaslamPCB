@@ -572,6 +572,48 @@ def test_a_cells_prior_loss_stays_within_a_working_converters():
     assert heat["U1"] == pytest.approx((1 / DC.ETA[0] - 1) * 3.3 * 0.35)
 
 
+
+def _idle_buck():
+    from types import SimpleNamespace
+    cell = dict(id="c", cls="buck", src="cell:c", vin="VIN", vout="OUT", sw="SW", ctrl="U1", rect="D1", parts=set())
+    pl = DC.Plan()
+    pl.volts = {"VIN": 12.0, "OUT": 5.0}
+    pl.feeds = {"OUT": dict(kind="cell", cell=cell, ref="U1")}
+    pl.loads = []
+    return cell, pl, SimpleNamespace(kind="cell", name="cell:c")
+
+
+def test_a_converter_whose_rail_has_no_load_idles_at_its_quiescent_draw():
+    """robertpheller: U401's rail lost its loads (rule B) and the cell was heated at its ledger's low-end current
+    through the class switching priors (42 -> 510 mW). With no load it carries no inductor current, its hot loop
+    no loss, and its controller dissipates V_in I_q: the facts' parts.<ctrl>.I_A, else NOLOAD_IQ_A."""
+    from types import SimpleNamespace
+
+    from haslam.excite import heat as H
+    from haslam.excite.beliefs import corners
+    cell, pl, src = _idle_buck()
+    cps = {"cell:c": [{("cell:c", "I_A"): 0.3, ("cell:c", "D"): 0.42, ("cell:c", "V_V"): 48.0,
+                       ("cell:c", "C_sw_F"): 1.3e-9, ("cell:c", "f_sw_Hz"): 2e6, ("cell:c", "t_i_s"): 1e-8}] * 5}
+    own = [{}] * 5
+    nlp = H.noload_params(pl, [cell])
+    (p,) = nlp
+    assert (p.subject, p.name, p.source) == ("heat:U1", "I_q_A", "prior")
+    assert (p.lo, p.typ, p.hi) == H.NOLOAD_IQ_A and "parts.U1.I_A" in p.basis
+    nlc = corners(nlp, n=2, seed=3)
+    cvs, scale = H.cell_points(pl, [src], cps, own, {"cell:c": (cell, 0.0)}, nlc)
+    assert all(cv["cell:c"]["I_A"] == 0.0 for cv in cvs) and scale["U1"] == [0.0] * 5
+    for cv, q in zip(cvs, nlc):
+        heat = H.part_heat(SimpleNamespace(part_kind={}), pl, cv, {("heat:U1", "R_on_ohm"): 0.3}, {})
+        assert heat == {"U1": pytest.approx(12.0 * q[("heat:U1", "I_q_A")])}      # no rectifier heat
+    assert max(12.0 * q[("heat:U1", "I_q_A")] for q in nlc) <= 12.0 * 1e-2 + 1e-12        # at most 120 mW
+    # a stated own draw is the controller's quiescent current
+    (p,) = H.noload_params(pl, [cell], {"parts": {"U1": {"I_A": 2.5e-5}}})
+    assert (p.typ, p.source) == (2.5e-5, "intent")
+    # a rail with a load keeps its operating point from the demand, and no I_q
+    cvs, scale = H.cell_points(pl, [src], cps, own, {"cell:c": (cell, 0.1)}, [{}] * 5)
+    assert all(cv["cell:c"]["I_A"] == pytest.approx(0.1) and "I_q_A" not in cv["cell:c"] for cv in cvs)
+
+
 def _board_plan(intent, dnp=False, rev=False):
     """A board fed by connector J1 on VIN (no source part; with `rev`, through a reverse-polarity P-FET Q2 from
     VRAW), LDO U1 VIN -> 3V3, P-FET Q1 3V3 -> 3V3_SW, an MCU U2 on 3V3 and a sensor header J2 on 3V3_SW

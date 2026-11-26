@@ -14,7 +14,9 @@ Heat, per corner of the ledger (the DC band's operating point, haslam.excite.dc)
                  conduction I_L^2 R_on (1 - D) at the controller's pads too (one R_on for both switches);
                  a 4-switch buck-boost: 2 I_L^2 R_on, and the switching of the leg that switches;
                  with the facts' efficiency (nets.<rail>.eta): (1/eta - 1) P_out instead; without it,
-                 at most (1/0.75 - 1) P_out (haslam.excite.dc.ETA's low end: a working converter)
+                 at most (1/0.75 - 1) P_out (haslam.excite.dc.ETA's low end: a working converter);
+                 a cell whose rail has no load at all: V_in I_q at the controller (its quiescent draw, NOLOAD_IQ_A
+                 or the facts' parts.<ctrl>.I_A), no inductor current, no switching or hot-loop loss
     load         V I of every load at its pads (an export through a connector leaves the board)
     ac           each part's loss from the switching harmonics (haslam.excite.spectrum), when given
 
@@ -39,6 +41,13 @@ R_ON = (0.03, 0.1, 0.3)         # ohm, an integrated switch's on-resistance with
 # (a charger's or regulator's own loss is its conversion loss, haslam.excite.dc's feeds)
 PASS_ON = ("charger", "regulator_linear", "regulator_switching", "regulator_module", "pmic", "load_switch",
            "charge_pump")
+
+
+# A switching converter's input current with no load (A: lo, typ, hi), its controller's quiescent draw where the facts
+# give none: at no load it skips pulses (PFM, burst) or idles, so the class switching priors, sized for a current it
+# commutes, do not apply. Range from datasheets: LTC3130 1.6 uA (Burst Mode), TPS62933 12 uA, LM2596 5 mA typ and
+# 10 mA max (a non-skipping buck); typical the geometric mean of 1 uA .. 10 mA.
+NOLOAD_IQ_A = (1e-6, 1e-4, 1e-2)
 
 
 MODULE_AREA_MM2 = 1500.0   # a part this large (its body, else its footprint) has a board of its own that cools it
@@ -153,6 +162,21 @@ def params(bd, dcp, P, intent=None):
     return out
 
 
+def noload_params(dcp, cells, intent=None):
+    """Ledger parameters for the converter cells whose rail has no load at all (cells: their dicts): each
+    controller's quiescent current, I_q (A), from the facts (parts.<ctrl>.I_A, the part's own supply draw) or
+    NOLOAD_IQ_A."""
+    out = []
+    for ctrl in sorted({c["ctrl"] for c in cells if c.get("ctrl")}):
+        iv = intent_value(intent, "parts", ctrl, "I_A")
+        lo, typ, hi = NOLOAD_IQ_A
+        out.append(Param(f"heat:{ctrl}", "I_q_A", *iv, "A", "intent", "the intent file (the part's own supply draw)")
+                   if iv else Param(f"heat:{ctrl}", "I_q_A", typ, lo, hi, "A", "prior",
+                                    "a switching converter's no-load input current (quiescent, pulse-skipping; "
+                                    "class range 1 uA .. 10 mA); state parts.%s.I_A" % ctrl))
+    return out
+
+
 def switching_loss(V, IL, v):
     """A hard-switched cell's switching loss (W): V I_L t_i f_sw for the current's commutation, plus the switch
     node's charge, V I_L t_v f_sw with t_v = C_sw V / I_L (haslam.excite.params' law), i.e. C_sw V^2 f_sw, at the
@@ -191,6 +215,11 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             c = f["cell"]
             v = cv.get(c["src"]) or {}
             IL, D, V = v.get("I_A", 1.0), min(max(v.get("D", 0.5), 0.02), 0.98), v.get("V_V", dcp.volts.get(r) or 5.0)
+            if "I_q_A" in v:
+                # its rail has no load (heat.evaluate): the converter idles; its controller draws its quiescent
+                # current from the input and turns all of it into heat (it delivers nothing)
+                add(c["ctrl"], (dcp.volts.get(c.get("vin")) or V) * v["I_q_A"])
+                continue
             ron = val.get((f"heat:{c['ctrl']}", "R_on_ohm"), R_ON[1])
             # the switch conducts I_L for D; with no rectifier part the synchronous one inside the
             # controller conducts it for the rest (1 - D), as the DC flow injects it (haslam.excite.dc)
@@ -346,6 +375,42 @@ def _net_factors(m, Qc, Qc0):
     return out
 
 
+def cell_points(dcp, srcs, cps, own, cell_out, nlc):
+    """Each corner's DC point (own[c], the cells' values cps[name][c]) with each converter cell's inductor current
+    set from its rail's sustained demand (cell_out: {cell source: (cell, A)}); a cell whose rail has no load at all
+    carries none and takes its controller's quiescent current I_q_A from nlc[c] (noload_params' corners).
+    Returns (the corners' points, {controller: [(I_L / I_L ledger)^2 per corner]}, its hot-loop losses' scale)."""
+    from . import dc as DC
+    ncp = len(own)
+    cvs, ac_scale = [], {}
+    for c in range(ncp):
+        cv = dict(own[c])
+        for s in srcs:
+            if s.kind == "cell":
+                cv[s.name] = {k[1]: v for k, v in cps[s.name][c].items()}
+                cell, demand = cell_out.get(s.name, (None, 0.0))
+                il0 = cv[s.name].get("I_A")
+                if cell is None or il0 is None:
+                    continue
+                if demand > 0:
+                    D = min(max(cv[s.name].get("D", 0.5), 0.02), 0.98)
+                    if cell["cls"] == "buckboost":
+                        il = demand * max(1.0, DC._ratio(dcp, cell["vout"], cv)) if cell["vout"] in dcp.feeds else demand
+                    else:
+                        il = CV.inductor_from_output(cell.get("top") or cell["cls"], demand, D)
+                    # no more than its operating range's top (the DC flow current-limits its loads there too)
+                    il = min(il, (dcp.feeds.get(cell["vout"]) or {}).get("I_hi") or il)
+                else:
+                    il = 0.0
+                    if s.name == cell["src"] and (f"heat:{cell['ctrl']}", "I_q_A") in nlc[c]:
+                        cv[s.name]["I_q_A"] = nlc[c][(f"heat:{cell['ctrl']}", "I_q_A")]
+                cv[s.name]["I_A"] = il
+                if cell.get("ctrl") and il0 > 0:
+                    ac_scale.setdefault(cell["ctrl"], [1.0] * ncp)[c] = (il / il0) ** 2
+        cvs.append(cv)
+    return cvs, ac_scale
+
+
 def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes, intent=None, ac_parts=None,
              log=print, ledger=None, obs_out=None, power_out=None, system=None, tcr_out=None):
     """Thermal harms per part at every corner, added into the per-corner totals. ac_parts: {ref: [W per
@@ -389,8 +454,11 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
         own[c].update({k: v for k, v in sustained.items() if k[1] == "I_A" and str(k[0]).startswith("dc:")})
     # A converter cell's current is what its rail's loads sustain, not its own class prior or a guessed
     # operating point (a 600 mA buck feeding a microcontroller was heated as if it carried 2 A). Loads count at
-    # their sustained draw (connector exports nobody states at 1 % of their rating); a cell whose rail has no known
-    # load takes the low end of its own range. Its hot-loop losses (ac_parts) scale with the current squared.
+    # their sustained draw (connector exports nobody states at 1 % of their rating); a cell whose rail has no
+    # load at all carries no inductor current: it idles and its controller dissipates V_in I_q (noload_params), not
+    # the class switching priors at a guessed current (the low end of its ledger range heated robertpheller's U401
+    # at 510 mW instead of 42 mW once its rail lost its loads). Its hot-loop losses (ac_parts) scale with the
+    # current squared.
     def load_amps(ld):
         if ld.get("key"):
             return sustained.get(ld["key"], 0.0)
@@ -404,31 +472,12 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
             cell_out[f["cell"]["src"]] = (f["cell"], rail_demand(dcp, f["cell"]["vout"], load_amps))
             if f["cell"].get("src2"):          # a buck-boost's output leg carries the same inductor current
                 cell_out[f["cell"]["src2"]] = cell_out[f["cell"]["src"]]
-    cvs, ac_scale = [], {}
-    for c in range(ncp):
-        cv = dict(own[c])
-        for s in srcs:
-            if s.kind == "cell":
-                cv[s.name] = {k[1]: v for k, v in cps[s.name][c].items()}
-                cell, demand = cell_out.get(s.name, (None, 0.0))
-                il0 = cv[s.name].get("I_A")
-                if cell is None or il0 is None:
-                    continue
-                if demand > 0:
-                    D = min(max(cv[s.name].get("D", 0.5), 0.02), 0.98)
-                    if cell["cls"] == "buckboost":
-                        il = demand * max(1.0, DC._ratio(dcp, cell["vout"], cv)) if cell["vout"] in dcp.feeds else demand
-                    else:
-                        il = CV.inductor_from_output(cell.get("top") or cell["cls"], demand, D)
-                    # no more than its operating range's top (the DC flow current-limits its loads there too)
-                    il = min(il, (dcp.feeds.get(cell["vout"]) or {}).get("I_hi") or il)
-                else:
-                    pi = next((p for p in (P.get(s.name) or {}).values() if getattr(p, "name", "") == "I_A"), None)
-                    il = pi.lo if pi is not None else il0
-                cv[s.name]["I_A"] = il
-                if cell.get("ctrl") and il0 > 0:
-                    ac_scale.setdefault(cell["ctrl"], [1.0] * ncp)[c] = (il / il0) ** 2
-        cvs.append(cv)
+    idle = [cell for cell, demand in {id(v[0]): v for v in cell_out.values()}.values() if demand <= 0]
+    nlp = noload_params(dcp, idle, intent)
+    for p in nlp if ledger is not None else []:
+        ledger.add(p)
+    nlc = corners(nlp, n=n_corners, seed=seed + 3) if nlp else [{}] * ncp   # own samples: the others stay as they were
+    cvs, ac_scale = cell_points(dcp, srcs, cps, own, cell_out, nlc)
     if ac_parts:
         ac_parts = {k: [w * ac_scale.get(k, [1.0] * ncp)[c] for c, w in enumerate(v)] for k, v in ac_parts.items()}
     m = bm.m
