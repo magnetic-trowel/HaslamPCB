@@ -511,8 +511,13 @@ def cell_points(dcp, srcs, cps, own, cell_out, nlc, idle=(), P=None):
                     pi = cell_current_param(P or {}, s.name)
                     il = pi.lo if pi is not None else il0
                 cv[s.name]["I_A"] = il
-                if cell.get("ctrl") and il0 > 0:
-                    ac_scale.setdefault(cell["ctrl"], [1.0] * ncp)[c] = (il / il0) ** 2
+                if il0 > 0:
+                    # every part of the cell takes its harmonic heat at this current: its controller, and the capacitors
+                    # and switches of its loop (wideband's ac_parts are keyed by every part; only the controller's
+                    # scaled, an input capacitor's ESR heat stayed at the ledger's current, an idle cell's too)
+                    for ref in {cell.get("ctrl")} | set(cell.get("parts") or ()):
+                        if ref:
+                            ac_scale.setdefault(ref, [1.0] * ncp)[c] = (il / il0) ** 2
         cvs.append(cv)
     return cvs, ac_scale
 
