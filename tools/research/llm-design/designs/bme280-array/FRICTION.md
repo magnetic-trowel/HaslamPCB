@@ -92,13 +92,13 @@ gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status
 | F48 | fixed | core sources read `core_*`/`core: false`, capped by `I_A` (6379503) | U4 supply.peak 245 -> 0.7 mV |
 | F49 | fixed | see F39 | — |
 | F50 | fixed | this round (see log) | check-board from haslamsynth CLI |
-| F51 | open | process: spawn fix agents from the working branch | — |
-| F52 | fixed | rule written in llm-relations.md and brief-to-board; test | — |
+| F51 | fixed | CLAUDE.md: fix agents start from the working branch and own disjoint files; round-3 agents briefed so | — |
+| F52 | fixed | rule written in llm-relations.md, brief-to-board and CLAUDE.md (invariant); test | — |
 | F53 | none | checks worked | — |
-| F54 | open | corpus sprint on the shared host | required before merging to main |
-| F55 | partial | `setup.sh` re-run on this host: exit 0, env.sh written with HASLAM_KICAD_PYTHON and library dirs, doctor all ok | a fresh container (first install) still untested |
+| F54 | in progress | round 3: A/B neutrality on a fetched sprint-suite sample (place, excite, route, joint) | full sprint still on the shared host |
+| F55 | in progress | `setup.sh` re-run on this host: exit 0, env.sh written with HASLAM_KICAD_PYTHON and library dirs, doctor all ok | a fresh container (first install) still untested |
 | F56 | by design | soft region reported | — |
-| F57 | open | dense-area silk legend or smaller text | cosmetic |
+| F57 | in progress | round 3: silk_refs.py improved on a multi-board test set | — |
 
 Keep this table current: a new friction point gets a log row (next F number) and a resolution row in the same commit.
 

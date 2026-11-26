@@ -90,3 +90,9 @@ Every experiment runs on the sprint suites first; details: `docs/topics/verifica
 - A router's own log is not a score; only `kicad-cli` on the re-opened board counts.
 - `haslam-work/` is git-ignored. Commit code, manifests, suites and summarized results,
   never boards (third-party licences).
+- A haslam change made while fixing one design must be neutral for every other board: A/B it (before/after code,
+  `HASLAM_BUDGET=work`, same seeds) on boards without that design's intent file, and explain every difference.
+- Decoupling placement is physics-driven: never promote a stated decap distance over the physics terms
+  (`docs/topics/placement/llm-relations.md`); only an explicit `strength: required` pins a part.
+- Sub-agents that fix code start from the session's working branch (`git reset --hard <branch>` in a fresh worktree),
+  not `main`, and each owns a disjoint set of files.
