@@ -15,9 +15,10 @@ exists for a method on a board is reused by every later experiment.
   haslamres method add NAME --adapter freerouting --binary DIR/bin/freerouting --code router=SRC_OR_URL@REF [...]
   haslamres method add human --reference
   haslamres method list | show ID
-  haslamres exp create NAME --method NAME_OR_ID [...] [--boards @FILE] [--harness REF] [--haslam REF]
+  haslamres exp create NAME --method NAME_OR_ID [...] [--boards @FILE] [--harness REF] [--haslam REF] [--tier TIER]
   haslamres exp submit NAME [--limit N] [--only ids|@FILE]    # queue one haslamq job per board that lacks runs
   haslamres exp status NAME | report NAME | install-timer NAME
+  haslamres sprint NAME --base bridge|staged --commit REF [--set K=V] [--arm N:K=V,...] [--suite S]   # arms vs the tag's stored control
   haslamres board ID                                          # every run and score of one board
   haslamres rerun RUN_DIR [--submit]                          # how to reproduce a run (or queue it again)
   haslamres index                                             # index.sqlite over every run and evaluation
@@ -340,7 +341,7 @@ def cmd_method_add(a):
     if path.exists():
         m = read_json(path)
         print(f"already registered: {mid} {m['name']!r}")
-        return
+        return mid
     m = dict(schema=SCHEMA, id=mid, name=a.name, slug=slugify(a.name), description=a.description or "",
              created=now(), recipe=recipe, code=comps, build=a.build)
     if runner["type"] == "haslambench-adapter":  # keep a copy of the exact binary, so the method can run again later
@@ -369,6 +370,7 @@ def cmd_method_add(a):
     write_json(path, m)
     print(f"registered {mid} {a.name!r}")
     print(json.dumps(m, indent=1))
+    return mid
 
 
 def cmd_method_list(a):
@@ -661,6 +663,88 @@ def load_exp(name):
     return e
 
 
+# Experiment tiers (docs/topics/verification/experiment-tiers.md): a sprint campaign is small and on cheap
+# boards; the other tiers lift both limits and are recorded in experiment.json.
+TIERS = {"sprint": dict(total_cpu_h=40.0, board_cpu_h=0.5), "ladder": None, "canary": None}
+
+
+def control_costs(method_id, boards):
+    """board -> mean CPU-h per run of one method on it, from its stored runs (run.json, not the index): the
+    stored control's own single-attempt runs, the cost a sprint arm of the same base recipe is priced at.
+    Boards without such a run are left out (the guard falls back to their history)."""
+    out = {}
+    for b in boards:
+        if not board_dir(b).exists():
+            continue
+        cpu = [c for _, r in board_runs(b) if r["method_id"] == method_id and not r.get("repro_of")
+               for c in [method_cpu_s(r)] if c]
+        if cpu:
+            out[b] = sum(cpu) / len(cpu) / 3600
+    return out
+
+
+def board_prices(boards, costs):
+    """(known, hist, est): known = board -> CPU-h per method-run from `costs` (the control's own runs) or else
+    its history in the index, for the boards that have either; hist and est as suites.history/estimator.
+    None without an index and without costs."""
+    import suites
+    index = STORE / "index.sqlite"
+    if index.exists():
+        c = suites.open_index(index)
+        hist = suites.history(c)
+        est = suites.estimator(hist, dict(c.execute("SELECT id, footprints FROM boards")))
+        c.close()
+    elif costs:
+        hist, est = {}, (lambda b: (0.0, False))
+    else:
+        return None
+    return {b: costs.get(b, hist.get(b)) for b in boards if b in costs or b in hist}, hist, est
+
+
+def tier_guard(tier, runs, what, costs=None, over_cap=None, arms=1):
+    """Print the CPU-hours `what` is estimated to cost and exit unless it fits its tier. runs: board ->
+    method-runs to make. A board costs `costs[board]` (CPU-h per method-run from the stored control's own
+    runs, control_costs) when given; else its mean CPU-h per method-run in the index (suites.history); one
+    with neither, the mean of its footprint band, and the per-board limit does not apply to it.
+    over_cap: the reason the per-board limit is lifted (a board the question needs is over it); recorded by
+    the caller. arms: treatment arms in the campaign; the total limit is per arm. Returns
+    dict(cpu_h, over) for the record, or None without an index."""
+    costs = costs or {}
+    priced = board_prices(runs, costs)
+    if priced is None:
+        print(f"{what}: no {STORE / 'index.sqlite'}, so no CPU estimate and no check of tier {tier}; `haslamres index` builds it")
+        return None
+    known, hist, est = priced
+    cost = lambda b: costs[b] if b in costs else est(b)[0]  # noqa: E731
+    total = sum(cost(b) * n for b, n in runs.items())
+    src = (f"{sum(b in costs for b in runs)} from the control's own runs, "
+           f"{sum(b not in costs and b in hist for b in runs)} from board history, the others by size") if costs \
+        else f"{sum(b in hist for b in runs)} with history, the others by size"
+    print(f"{what}: estimated {total:.1f} CPU-h from board history ({sum(runs.values())} method-runs on {len(runs)} boards, "
+          f"{src}); tier {tier}")
+    lim = TIERS[tier]
+    over = sorted((b for b, n in runs.items() if n and known.get(b, 0) > (lim or {}).get("board_cpu_h", math.inf)),
+                  key=lambda b: (-known[b], b))
+    rec = dict(cpu_h=round(total, 1), over={b: round(known[b], 2) for b in over})
+    if not lim:
+        return rec
+    cap_total = lim["total_cpu_h"] * max(1, arms)
+    if over and over_cap:
+        print(f"{what}: the per-board limit of {lim['board_cpu_h']:g} CPU-h is lifted for {len(over)} boards "
+              f"({', '.join(f'{b} {known[b]:.2f}' for b in over[:5])}{', ...' if len(over) > 5 else ''}): {over_cap}")
+        over = []
+    if total > cap_total or over:
+        worst = f" and {len(over)} boards are over ({', '.join(f'{b} {known[b]:.1f}' for b in over[:3])}{', ...' if len(over) > 3 else ''})"
+        per = f" ({lim['total_cpu_h']:g} per treatment arm, {arms} arms)" if arms > 1 else ""
+        raise SystemExit(f"refused: tier {tier} allows {cap_total:g} CPU-h in all{per} and {lim['board_cpu_h']:g} CPU-h per "
+                         f"method-run on a board; this is {total:.1f} CPU-h{worst if over else ''}.\n"
+                         "Do this: run it on bench/suites/sprint-frontier.txt or sprint-quality.txt (--boards @FILE) with fewer "
+                         "methods or attempts (haslamres sprint: --skip-over-cap leaves the boards over the limit out; "
+                         "--allow-over-cap \"REASON\" keeps them when the question needs them, and the reason is recorded); "
+                         "once it has passed sprint, add --tier ladder (--tier canary for the big boards).")
+    return rec
+
+
 def cmd_exp_create(a):
     d = exp_dir(a.name)
     if (d / "experiment.json").exists():
@@ -696,6 +780,15 @@ def cmd_exp_create(a):
         raise SystemExit(f"methods prepared with a harness of another task spec than {harness[:7]}'s ({want}): "
                          + "; ".join(f"{n} {i} (spec {s})" for n, i, s in off)
                          + ". Register them again with --harness at this experiment's harness.")
+    todo = [(m["id"], k) for m in ms if m["recipe"]["runner"]["type"] != "reference" for k in range(a.attempts)]
+
+    def have(b):  # with --reuse-runs, the stored runs (a stored control) are not made again
+        return {(r["method_id"], r["attempt"]) for _, r in board_runs(b)} if a.reuse_runs and board_dir(b).exists() else ()
+    # a sprint prices its boards from the stored control's own runs (cost_from) and may lift the per-board
+    # limit for a stated reason (allow_over_cap); both are recorded, so exp submit applies the same guard
+    cost_from, over_cap, arms = getattr(a, "cost_from", None), getattr(a, "allow_over_cap", None), getattr(a, "arms", None) or 1
+    guard = tier_guard(a.tier, {b: len(set(todo) - set(have(b))) for b in boards}, f"experiment {a.name}",
+                       costs=control_costs(cost_from, boards) if cost_from else None, over_cap=over_cap, arms=arms)
     # runs made at another time are not comparable: on this shared host the same code, seeds and time
     # budget left 13.9 % more open connections a few days later (zone-keepout-ab2 against zone-ab's base
     # runs, 47 boards, p < 0.001), more than the effects the A/Bs measure; so an experiment makes all of
@@ -718,12 +811,16 @@ def cmd_exp_create(a):
     evs = evaluators_for(harness, haslam, kicad)
     e = dict(schema=SCHEMA, name=a.name, reuse_runs=bool(a.reuse_runs), description=a.description or "", created=now(),
              session=os.environ.get("HASLAMQ_SESSION") or os.environ.get("CLAUDE_CODE_SESSION_ID"),  # who looks after it
-             methods=[dict(id=m["id"], name=m["name"]) for m in ms], attempts=a.attempts,
+             methods=[dict(id=m["id"], name=m["name"]) for m in ms], attempts=a.attempts, tier=a.tier,
              harness=dict(commit=harness, link=github_link("https://github.com/magnetic-trowel/HaslamPCB", harness)),
              haslam=dict(commit=haslam, link=github_link("https://github.com/magnetic-trowel/HaslamPCB", haslam)),
              kicad=kicad, evaluators=evs, corpus=str(CORPUS), corpus_manifest_sha256=sha256_file(CORPUS / "manifest.jsonl"),
-             boards=len(boards), **({"env": exp_env(a)} if a.env else {}))
-    d.mkdir(parents=True)
+             boards=len(boards), **({"env": exp_env(a)} if a.env else {}),
+             **({"suite": a.suite} if getattr(a, "suite", None) else {}),
+             **({"cost_from": cost_from} if cost_from else {}), **({"arms": arms} if arms > 1 else {}),
+             **({"over_cap": dict(reason=over_cap, boards=(guard or {}).get("over", {}))} if over_cap else {}),
+             **(getattr(a, "record", None) or {}))
+    d.mkdir(parents=True, exist_ok=True)  # it may hold the experiment's PLAN.md already
     (d / "boards.txt").write_text("\n".join(boards) + "\n")
     write_json(d / "experiment.json", e)
     write_json(STORE / "config.json", dict(read_json(STORE / "config.json", {}), repo=repo))
@@ -782,7 +879,7 @@ def cmd_exp_submit(a):
     ms = {m["id"]: find_method(m["id"]) for m in e["methods"]}
     script = code_dir(e["harness"]["commit"]) / "tools" / "haslamres" / "haslamres.py"
     py = code_dir(e["harness"]["commit"]).with_name(code_dir(e["harness"]["commit"]).name + ".venv") / "bin" / "python"
-    jobs = []
+    jobs, runs = [], {}
     boards.sort(key=lambda b: hashlib.sha1(b.encode()).hexdigest())  # sizes mixed over the run
     for bid in boards:
         if bid not in rows:
@@ -790,6 +887,7 @@ def cmd_exp_submit(a):
         need = missing(e, bid)
         if not need or (prepare_failed(e, bid) and not a.redo):
             continue
+        runs[bid] = sum(ms[m]["recipe"]["runner"]["type"] != "reference" for m, _ in need)
         cost = {m: method_timeout(ms[m], rows[bid]) for m, _ in need}
         chunks = plan_chunks(need, cost, job_overhead_s(board_size_mb(rows[bid])))
         for i, ch in enumerate(chunks):
@@ -801,9 +899,15 @@ def cmd_exp_submit(a):
             jobs.append(dict(cmd=f"{py} {script} job --experiment {a.name} --board {bid}{sel}",
                              name=f"{a.name}:{bid}" + (f":{i}" if len(chunks) > 1 else ""),
                              cpus=max([2] + [method_cpus(ms[m]) for m, _ in ch]),
-                             mem=est["mem"], disk=est["disk"], timeout=est["timeout"], size_mb=est["size_mb"]))
+                             mem=est["mem"], disk=est["disk"], timeout=est["timeout"], size_mb=est["size_mb"],
+                             **({} if getattr(a, "prio", None) is None else {"prio": a.prio})))
         if a.limit and len(jobs) >= a.limit:
             break
+    tier = a.tier or e.get("tier") or "sprint"  # an experiment from before the tiers is a sprint until told otherwise
+    tier_guard(tier, runs, f"submit {a.name}", costs=control_costs(e["cost_from"], runs) if e.get("cost_from") else None,
+               over_cap=(e.get("over_cap") or {}).get("reason"), arms=e.get("arms", 1))
+    if tier != e.get("tier") and not a.dry_run:
+        write_json(exp_dir(a.name) / "experiment.json", dict(e, tier=tier))
     jobs = spread_large(jobs, lambda j: j["size_mb"] > LARGE_MB)  # haslamq runs them in this order
     f = exp_dir(a.name) / f"jobs-{datetime.now().strftime('%Y%m%dT%H%M%S')}.jsonl"
     f.write_text("".join(json.dumps(j) + "\n" for j in jobs))
@@ -812,6 +916,141 @@ def cmd_exp_submit(a):
         # benchmark runs: methods' results depend on the time they get, so never paused (haslamq class timed)
         subprocess.run(["haslamq", "submit", "--jobs", str(f), "--owner", f"exp-{a.name}", "--tag", a.name, "--live",
                         "--class", "timed", "--cwd", str(code_dir(e["harness"]["commit"])), "--retries", "1"], check=True)
+
+
+# ------------------------------------------------------------------ sprint: one command for a sprint experiment
+SPRINT_BASES = {"bridge": "route", "staged": "joint-fixed"}  # base -> the kind of the stored control's method
+SPRINT_SUITES = ("sprint-frontier.txt", "sprint-quality.txt")
+SUITES_DIR = HERE.parents[1] / "bench" / "suites"
+
+
+def suite_file(name):
+    """A suite by name: a file in bench/suites/ or bench/suites/mech/ ('sprint-quality', 'mech/bga', 'bga',
+    with or without .txt)."""
+    n = name if name.endswith(".txt") else f"{name}.txt"
+    for p in (SUITES_DIR / n, SUITES_DIR / "mech" / n):
+        if p.resolve().parent in (SUITES_DIR.resolve(), (SUITES_DIR / "mech").resolve()) and p.is_file():
+            return p
+    raise SystemExit(f"no suite {name!r}: a file in bench/suites/ or bench/suites/mech/ (ls {SUITES_DIR})")
+
+
+def suite_boards(p):
+    """Board ids of a suite file: the first word of each line, '#' comments left out, in file order."""
+    out = []
+    for ln in p.read_text().splitlines():
+        w = ln.split("#", 1)[0].split()
+        if w and w[0] not in out:
+            out.append(w[0])
+    return out
+
+
+def parse_arm(spec):
+    """'name:k=v,k=v' (or 'name:' for the commit alone) -> (name, ['k=v', ...])."""
+    name, _, kvs = spec.partition(":")
+    sets = [kv for kv in kvs.split(",") if kv]
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name) or not _ or any("=" not in kv for kv in sets):
+        raise SystemExit(f"--arm {spec!r}: give NAME:KEY=VALUE[,KEY=VALUE...] (NAME: letters, digits, - _ .)")
+    return name, sets
+
+
+def cmd_sprint(a):
+    """A sprint experiment in one command (bench/suites/README.md): each arm is the stored control's recipe
+    of `--base` at `--commit` with its settings; they run on one suite (--suite; default the two sprint
+    suites) with the control's seeds, against the control's stored runs (not run again), tier sprint, queue
+    priority 5. Boards of the suite without a stored control run get the control run in the same campaign,
+    stored like the control's own for later sprints. Cost and the per-board limit come from the control's
+    own runs of the same base recipe."""
+    d = exp_dir(a.name)
+    if not (d / "PLAN.md").exists():
+        raise SystemExit(f"refused: no {d / 'PLAN.md'} (the question, the one change, what will decide it).\n"
+                         "Do this: write it, then run the same command again.")
+    c = load_exp(a.control)
+    ctl = next(m for m in (find_method(m["id"]) for m in c["methods"]) if m["recipe"]["kind"] == SPRINT_BASES[a.base])
+    tag, repo = c["harness"]["commit"], main_repo()
+    commit = git(repo, "rev-parse", f"{a.commit}^{{commit}}")
+    common = list(a.set or [])
+    arms = [parse_arm(s) for s in a.arm or []] or [(None, [])]
+    if len({n for n, _ in arms}) < len(arms):
+        raise SystemExit("--arm: two arms with one name")
+    attempts = a.attempts or c["attempts"]
+    if not 1 <= attempts <= c["attempts"]:
+        raise SystemExit(f"--attempts {attempts}: the control {a.control} stores seeds 0-{c['attempts'] - 1}")
+    extra = list(getattr(a, "param", None) or [])
+    note = getattr(a, "note", None)
+    if any("=" not in kv for kv in extra):
+        raise SystemExit("--param: give K=V")
+    # the arm's code goes under the name the control's template uses ({py:NAME}): a control stored before the
+    # rename of PR #163 (control-w47) names it kae, a later one haslam
+    cname = next((k for k in ctl.get("code") or {} if k != "harness"), "haslam")
+    mids = []
+    for arm, own in arms:
+        sets = "".join(f" --set {kv}" for kv in common + own)
+        if commit == tag and not sets:
+            raise SystemExit(f"refused: at {tag[:7]} without --set the arm is the control itself.\n"
+                             "Do this: give --commit (the tag plus one change, pushed) or --set KEY=VALUE.")
+        label = f"{a.name}{'-' + arm if arm else ''}"
+        # the control's recipe, with a numba cache of its own checkout (a cache serves only the code that made it)
+        template = ctl["recipe"]["runner"]["template"].replace(f"numba-default-{tag[:7]}", f"numba-default-{commit[:7]}") + sets
+        # --param: method parameters over the control's (e.g. parallel=8 for an arm whose router runs 8 threads,
+        # so the queue reserves them); they are part of the arm's identity, not haslam settings
+        params = dict(ctl["recipe"]["params"], **dict(kv.split("=", 1) for kv in extra))
+        mids.append(cmd_method_add(argparse.Namespace(
+            name=f"{label} {a.base} {commit[:7]}{sets}",
+            description=f"sprint arm {arm or ''} of {a.name}: {ctl['name']!r} at {commit[:7]}{sets}"
+                        + (f"; {note}" if note else ""),
+            reference=False, adapter=None, binary=None, command=template, kind=ctl["recipe"]["kind"], code=[f"{cname}={repo}@{commit}"],
+            harness=tag, param=[f"{k}={v}" for k, v in params.items()], timeout=900,
+            kicad_threads=ctl["recipe"]["environment"]["kicad_threads"], build=None, allow_dirty=False)))
+    if a.suite:
+        files = [suite_file(a.suite)]
+    else:
+        files = [SUITES_DIR / f for f in SPRINT_SUITES]
+    boards = list(dict.fromkeys(b for f in files for b in suite_boards(f)))
+    suite = a.suite or "+".join(Path(f).stem for f in SPRINT_SUITES)
+    cost = control_costs(ctl["id"], boards)
+    record = dict(control=dict(experiment=a.control, method=ctl["id"], name=ctl["name"]))
+    if a.skip_over_cap:
+        cap = TIERS["sprint"]["board_cpu_h"]
+        known = (board_prices(boards, cost) or ({},))[0]   # the guard's prices: the control's runs, else history
+        skipped = {b: round(known[b], 2) for b in boards if known.get(b, 0) > cap}
+        boards = [b for b in boards if b not in skipped]
+        record["skipped_over_cap"] = skipped
+        print(f"{a.name}: left out {len(skipped)} boards whose control runs (else history) cost over {cap:g} CPU-h: "
+              + (", ".join(f"{b} {v}" for b, v in skipped.items()) or "none"))
+    # boards of the suite the control has not run on, at the seeds used: the control runs there in this campaign
+    stored = {b for b in boards if board_dir(b).exists()
+              and {k for _, r in board_runs(b) if r["method_id"] == ctl["id"] and not r.get("repro_of")
+                   for k in [r["attempt"]]} >= set(range(attempts))}
+    fill = [b for b in boards if b not in stored]
+    record["control_fill"] = fill
+    if fill:
+        print(f"{a.name}: {len(fill)} of {len(boards)} boards have no stored run of {ctl['name']!r} on seeds 0-{attempts - 1}: "
+              "the control runs on them in this campaign, stored for reuse by later sprints")
+    if a.allow_over_cap is not None and not a.allow_over_cap.strip():
+        raise SystemExit("--allow-over-cap needs the reason (why the question needs the boards over the limit)")
+    cmd_exp_create(argparse.Namespace(
+        name=a.name, description=f"sprint on {suite}: {ctl['name']!r} against itself at {commit[:7]} ("
+                                 + "; ".join(f"{n or 'arm'}:{','.join(common + s)}" for n, s in arms)
+                                 + f"); control runs of {a.control} reused",
+        method=[ctl["id"], *mids], boards=",".join(boards), attempts=attempts, harness=tag, haslam=tag, env=None,
+        reuse_runs=True, tier="sprint", suite=suite, cost_from=ctl["id"], allow_over_cap=a.allow_over_cap,
+        arms=len(mids), record=dict(record, arm_methods={(n or "arm"): mid for (n, _), mid in zip(arms, mids)})))
+    if fill and not a.dry_run:
+        f = exp_dir(a.control) / "control-fill.jsonl"   # who added runs to the stored control, where
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with open(f, "a") as fh:
+            fh.write(json.dumps(dict(experiment=a.name, method=ctl["id"], attempts=attempts, boards=fill, when=now())) + "\n")
+    only = None
+    if a.smoke:
+        # the cheapest boards first, one of them needing the control's run if any does, so both paths are tried
+        rank = sorted(boards, key=lambda b: (cost.get(b, math.inf), b))
+        pick = ([b for b in rank if b in fill][:1] if fill else []) + [b for b in rank if b not in fill]
+        only = ",".join(pick[:a.smoke])
+        print(f"smoke: {only}")
+    cmd_exp_submit(argparse.Namespace(name=a.name, only=only, limit=None, redo=False, dry_run=a.dry_run, tier=None, prio=5))
+    if a.smoke:
+        print(f"after the smoke, the rest: haslamres exp submit {a.name} --prio 5")
+    print(f"verdict, once the jobs are done:\n  haslamres exp report {a.name} && haslamres quality {a.name} --control '{ctl['name']}'")
 
 
 # ------------------------------------------------------------------ the per-board job
@@ -2881,6 +3120,9 @@ def main():
     s.add_argument("--method", action="append", required=True)
     s.add_argument("--boards", help="ids or @FILE (default: the whole corpus)")
     s.add_argument("--attempts", type=int, default=1)
+    s.add_argument("--tier", choices=sorted(TIERS), default="sprint",
+                   help="sprint: at most 40 CPU-h, no board over 0.5 CPU-h per method-run (estimated from the index); "
+                        "ladder and canary lift the limits")
     s.add_argument("--harness", default="HEAD", help="revision for prepare, the human reference and physics briefs")
     s.add_argument("--haslam", default="origin/claude/vigilant-mayer-i91rrr", help="revision with the haslam package (physics)")
     s.add_argument("--env", action="append", metavar="KEY=VALUE",
@@ -2892,6 +3134,8 @@ def main():
     s = ep.add_parser("submit")
     s.add_argument("name"), s.add_argument("--only"), s.add_argument("--limit", type=int)
     s.add_argument("--redo", action="store_true", help="also retry boards whose prepare failed")
+    s.add_argument("--tier", choices=sorted(TIERS), help="change the experiment's tier (default: the one it was created with)")
+    s.add_argument("--prio", type=int, help="haslamq priority of the jobs (higher runs first; sprint campaigns: 5)")
     s.add_argument("--dry-run", action="store_true")
     s.set_defaults(f=cmd_exp_submit)
     for n, f in (("status", cmd_exp_status), ("report", cmd_exp_report), ("install-timer", cmd_exp_timer)):
@@ -2901,6 +3145,29 @@ def main():
             s.add_argument("--baseline", help="method name the others are paired against (default: the experiment's first)")
             s.add_argument("--intent", metavar="DIR", help="also report external intent evaluations from DIR/<board>/<run>.status.json (tools/research/physics/eval_intent.sh)")
         s.set_defaults(f=f)
+    s = sub.add_parser("sprint", help="a sprint experiment in one command: arms against the tag's stored control")
+    s.add_argument("name", help="experiment name; its folder must hold a PLAN.md")
+    s.add_argument("--base", choices=sorted(SPRINT_BASES), required=True, help="which control recipe the arm is: bridge | staged")
+    s.add_argument("--commit", required=True, help="pushed commit with the change (the baseline tag plus one change)")
+    s.add_argument("--set", action="append", metavar="KEY=VALUE", help="haslam setting of every arm (repeatable)")
+    s.add_argument("--arm", action="append", metavar="NAME:K=V[,K=V]",
+                   help="a named treatment arm with its own settings (repeatable: several arms in one campaign; "
+                        "the total limit is per arm); without it, one arm of --set")
+    s.add_argument("--suite", help="one suite: a file in bench/suites/ or bench/suites/mech/ (default: sprint-frontier + "
+                                   "sprint-quality, when they fit the limits)")
+    s.add_argument("--attempts", type=int, help="seeds 0..N-1 (default: all the control stores)")
+    s.add_argument("--skip-over-cap", action="store_true",
+                   help="leave out the suite's boards whose control runs cost over the per-board limit (recorded)")
+    s.add_argument("--allow-over-cap", metavar="REASON",
+                   help="keep boards over the per-board limit because the question needs them; the reason is recorded")
+    s.add_argument("--smoke", type=int, metavar="N", help="submit only N cheap boards now; the rest with exp submit later")
+    s.add_argument("--param", action="append", metavar="K=V",
+                   help="method parameter of every arm over the control's (repeatable; e.g. parallel=8: the queue "
+                        "reserves 8 CPUs for an arm whose router runs 8 threads)")
+    s.add_argument("--note", help="appended to every arm's method description (e.g. a stage that runs on wall clock)")
+    s.add_argument("--control", default="control-w47", help="the tag's stored control experiment")
+    s.add_argument("--dry-run", action="store_true", help="register and create, write the job file, submit nothing")
+    s.set_defaults(f=cmd_sprint)
     s = sub.add_parser("job", help="one board (what each queued job runs)")
     s.add_argument("--experiment"), s.add_argument("--board", required=True)
     s.add_argument("--method", action="append", help="run these methods (default: the experiment's missing ones)")

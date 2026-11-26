@@ -54,6 +54,49 @@ boards whose human layout is not clean.
 - `qualified-kicad-10.0.7.txt`: the 112 manifest boards that qualified on KiCad 10.0.7.
 - `pcbworld-d3{a,b,c}-test.txt` are PCBWorld's D3 eval splits (99 / 10 / 10).
 
+### Experiment-tier suites
+
+How to run an experiment on them: [suites/README.md](suites/README.md).
+
+Four lists for the [experiment tiers](../docs/topics/verification/experiment-tiers.md), plus `merit-213.txt` (the 213
+merit boards, an archived regression set). Built by `python3 tools/haslamres/suites.py --tags DIR` (seed 20261120) on
+2026-11-20 from the results index (100,968 runs), the board-tag suites and the corpus manifest; the same inputs give
+the same lists. Rebuild monthly, with a new seed for the random part.
+
+| suite | boards | 4+ layers | footprints, median (range) | CPU-h per method-run of all | boards with own history |
+|---|---|---|---|---|---|
+| `sprint-frontier` | 60 | 22 | 61 (14-257) | 14 | 60 |
+| `sprint-quality` | 80 | 40 | 64 (17-149) | 26 | 24 |
+| `ladder` | 300 | 154 | 80 (5-400) | 198 | 94 |
+| `canary` | 28 | 20 | 476 (195-2056) | 30 | 22 |
+
+- Shared rules: one board per owner (the account of the board's repository in the corpus manifest), and no owner
+  shared between the two sprint suites and the ladder. Human-clean: tag `human_drc_errors.clean` and a prepared task
+  whose human layout is clean and complete (`usable_with_reference`).
+- `sprint-frontier`: 48 boards that responded in past two-arm A/Bs (open connections differed in at least a third of
+  3+ board-seed pairs; mean 0.73), ranked by response per CPU-hour, at most 0.5 CPU-h per run and 400 footprints, a
+  quarter with 4+ layers; plus 12 boards drawn at random from the same cost and footprint range. All have run as
+  route and place tasks.
+- `sprint-quality`: human-clean, 15-150 footprints, 2 or 4 layers, drawn evenly over the tags `pw_dcdc`,
+  `pw_cell_buck`, `dec_rich`, `an_crystal` × layer count.
+- `ladder`: human-clean, drawn evenly over six footprint bands (5-20, 21-50, 51-100, 101-150, 151-250, 251-400) ×
+  (under 4 layers, 4+); 79 boards have over 150 footprints.
+- `canary`: the 10 merit boards over 1,000 pads and the 18 human-clean boards over 400 footprints.
+- CPU-h: the sum of each board's mean CPU-h per method-run in the index (corpus sweeps and the human reference left
+  out); a board without history gets the mean of its footprint band. This mixes cheap and costly methods. At the
+  rates of the restart-wrapped `s2-merit213` controls, one seed of `sprint-frontier` is about 54 CPU-h (bridge) or
+  69 (staged place-and-route); `haslamres exp create` prints the estimate it uses.
+
+### Mechanism suites and coverage
+
+- `suites/mech/<name>.txt`: one list per mechanism and per standard kind of circuit (54: `bga` and its ball-count and pitch
+  bands, `fine-pitch`, `diffpairs`, `buck`, `pours`, `usb`, ...), for experiments on that mechanism:
+  [suites/mech/README.md](suites/mech/README.md). Built by `python3 tools/haslamres/mechsuites.py --tags DIR`.
+- [suites/COVERAGE.md](suites/COVERAGE.md): per kind, the usable boards, human-clean boards and owners in the corpus and
+  the kind's boards in each suite, by size and layer count; the holes. Built by `python3 tools/haslamres/coverage.py --tags DIR`,
+  which also writes `sprint-quality-additions.txt` and `ladder-additions.txt`: boards of kinds the two suites held
+  too few of. They are separate lists; the original suites are unchanged.
+
 ### Reproducing PCBWorld's routing baseline
 
 PCBWorld's D3 boards are PCBench boards run through PCBWorld's own chain: KiCad 5→9.0.8 conversion, DRC repair, guide generation. Build them with that chain, then import them:

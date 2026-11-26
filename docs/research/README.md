@@ -13,7 +13,7 @@ Purposes: (1) spare others dead ends: failures are written up as carefully as su
 | **partial** | Won on one axis or one split and lost on another, or won by less than seed noise |
 | **did not work** | Built and run, no gain over its control or worse; or killed by a pre-registered test on stored data (the page says which) |
 | **not finished** | Built; the deciding run is missing or still running |
-| **undecided** | Run as planned; the effect's interval includes both a gain and none, so nothing is adopted or dropped. A valid final verdict: the page gives the estimate, its interval and the run that would decide it ([audit-2611b](audit-2611b.md#six-conclusions)) |
+| **undecided** | Run as planned; the effect's interval includes both a gain and none, so nothing is adopted or dropped. A valid final verdict: the page gives the estimate, its interval and the run that would decide it ([audit-2611b](audit-2611b.md#six-conclusions); [experiment tiers](../topics/verification/experiment-tiers.md#rules)) |
 | **untested idea** | Mechanism written down; nothing built or run |
 
 - Page headers give when and where a method first appeared (date, commit, branch).
