@@ -3,7 +3,7 @@
 # Intent-driven objectives: how the commander tells haslam what "better" means
 
 Scope: design of haslam's internal objective, set by the commander's declared intent. Not here: router changes, build status and acceptance tests -> [intent-driven-objectives-build](intent-driven-objectives-build.md); operating conditions as a SPICE testbench -> [intent-interchange](intent-interchange.md); geometric constraints and specificity -> [constraint-ir](constraint-ir.md); W × Z decomposition -> [physics-driven-design](physics-driven-design.md); reduced-model frequency range -> [physics-frequency-coverage](physics-frequency-coverage.md).
-Keys: intent, objective, exchange rate, mW_eq, lexicographic tiers, ε-constraint, CVaR20, catalogue, observable, knob, what_if, status, elicitation, neutral/1, sections, boundaries, haslam.intent/1, phi(u), PHI_SLOPE_CAP, MCP, CEL, out_of_model
+Keys: intent, objective, temp.rise, exchange rate, mW_eq, lexicographic tiers, ε-constraint, CVaR20, catalogue, observable, knob, what_if, status, elicitation, neutral/1, sections, boundaries, haslam.intent/1, phi(u), PHI_SLOPE_CAP, MCP, CEL, out_of_model
 
 Tags: [P] primary source read, [S] secondary or search summary, [M] measured here, [I] our inference.
 
@@ -109,7 +109,7 @@ Top-level keys: `schema`, `generation`, `currency`, `defaults`, `environment`, `
 
 Rules:
 - Every term says why (`why` or `source`). A bound without a `source` is priced as written but marked `assumed` in its row and in `assumed_limits`. A `limit` needs a `rate`; an unpriced bound is a `report` term (`load` rejects a rate-less limit rather than downgrade it). A `hard` term takes no rate.
-- Temperatures: °C is absolute for `temp.junction`, a rise for `heat.track` (IPC-2221's wording); K is a rise only, rejected against an absolute temperature.
+- Temperatures: °C is absolute for `temp.junction`, a rise for `heat.track` (IPC-2221's wording) and `temp.rise`; K is a rise only, rejected against an absolute temperature. `temp.rise` is the same junction less the corner's ambient (Tj − T_amb): a bound that must hold at every ambient, e.g. a sensor's self-heating error `{"obs": "temp.rise", "where": {"part": ["U101"]}, "max": "10 mK"}`, which an absolute `temp.junction` bound could only fake at one ambient corner.
 - Specificity: part-scoped term > section-scoped > board-scoped, as in [constraint-ir](constraint-ir.md#eight-design-rules). Ties are errors, returned with both term ids. Terms compete only within one tier and bound side, so a `min` and a `max` term make a window (`objective.resolve` lists which `where` keys are part or section scope).
 - Exchange rates are explicit and local: "20 mW_eq/dB" = paying 20 mW of loss for 1 dB of GNSS margin is acceptable. haslam checks only units and sign. Lacking a rate, the LLM reads each term's marginal cost along the knobs from `evaluate` and answers pairwise ("is 1 dB worth more than 20 mW?"), Keeney–Raiffa style [I].
 

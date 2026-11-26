@@ -5674,6 +5674,7 @@ Use: `grep -i '<term>' docs/SUBJECTS.md`. The first link is the likeliest main d
 - Tellegen attribution: [physics/lens-cd#1-principles](topics/physics/lens-cd.md#1-principles); [research/physics/first-principles-lenses#idea-and-how-it-works](research/physics/first-principles-lenses.md#idea-and-how-it-works); [research/physics/physics-critics-and-passports#idea-and-how-it-works](research/physics/physics-critics-and-passports.md#idea-and-how-it-works); [physics/real-board-passports](topics/physics/real-board-passports.md)
 - Tellegen Kelvin proof: [ideas/physics-first/lens-cd#e-manufacturing-thermal-and-the-rest-of-the-passport](ideas/physics-first/lens-cd.md#e-manufacturing-thermal-and-the-rest-of-the-passport)
 - TEMP: [ideas/physics-first/lens-th#b-every-loss-is-a-noise-source](ideas/physics-first/lens-th.md#b-every-loss-is-a-noise-source)
+- temp.rise: [architecture/intent-driven-objectives#intent-document](topics/architecture/intent-driven-objectives.md#intent-document)
 - template-first: [rules/placement-methodology#placement-methodology-rules](topics/rules/placement-methodology.md#placement-methodology-rules)
 - tensor field: [routing/cross-domain-routing-transplants](topics/routing/cross-domain-routing-transplants.md)
 - tenting: [rules/thermal#thermal-rules](topics/rules/thermal.md#thermal-rules)

@@ -4,6 +4,7 @@
 import pytest
 
 from haslam.excite import harm as HA
+from haslam.excite import quantity as QT
 from haslam.intent import objective as OB
 from haslam.intent import units as U
 
@@ -488,6 +489,25 @@ def test_celsius_is_absolute_for_junctions_and_a_rise_for_tracks():
     # kelvin against an absolute temperature is refused, not read as 398 C
     with pytest.raises(OB.IntentError, match="absolute temperature"):
         OB.evaluate(ev, {"terms": [{"id": "J", "tier": "hard", "obs": "temp.junction", "max": "398 K", "why": "w"}]},
+                    BRIEF)
+
+
+def test_a_sensor_rise_above_ambient_is_bounded_in_millikelvin():
+    """temp.rise (Tj - T_amb at the same corner) holds a thermal-isolation bound at every ambient; an absolute
+    temp.junction bound could only fake it at one ambient corner (bme280-array F37)."""
+    ev = {"board": "synthetic", "total": {"complete": True}, "questions": [], "observations": [
+        _ob("temp.junction", "C", [25.004, 60.012], kind="heat", observer="heat:U101", source="dc", parts=["U101"]),
+        _ob("temp.rise", "K", [0.004, 0.012], kind="heat", observer="heat:U101", source="dc", parts=["U101"]),
+        _ob("temp.rise", "K", [0.001, 0.002], kind="heat", observer="heat:U102", source="dc", parts=["U102"])]}
+    it = {"terms": [{"id": "S", "tier": "limit", "obs": "temp.rise", "where": {"part": ["U10*"]}, "max": "10 mK",
+                     "rate": "1 mW_eq/K", "why": "sensor self-reading error"}]}
+    st = OB.evaluate(ev, it, BRIEF)
+    r = st["terms"][0]
+    assert r["matched"] == 2 and r["met"] is False
+    assert r["contribution"] == pytest.approx(0.002, rel=1e-6)        # 2 mK over at 1 mW_eq/K
+    assert QT.type_of({"id": "temp.rise"}) is QT.Rise
+    with pytest.raises(OB.IntentError, match="cost"):                  # a rise is bounded, never a cost
+        OB.evaluate(ev, {"terms": [{"id": "C", "tier": "cost", "obs": "temp.rise", "rate": "1 mW_eq/K", "why": "w"}]},
                     BRIEF)
 
 

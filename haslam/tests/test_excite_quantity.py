@@ -283,7 +283,12 @@ def test_every_observation_of_an_evaluation_is_typed_and_check_changes_no_number
     ids = {o["id"] for o in ev["observations"]}
     assert ev["observations"] and ids <= set(calls)
     if dc:
-        assert {"loss.copper", "drop.rail", "heat.track", "temp.junction", "loss.part"} <= ids, ids
+        assert {"loss.copper", "drop.rail", "heat.track", "temp.junction", "temp.rise", "loss.part"} <= ids, ids
+        # temp.rise is the same junction less the corner's ambient: Tj - rise is one T_amb per corner for every part
+        tj = {o["scope"]["part"]: o["values"] for o in ev["observations"] if o["id"] == "temp.junction"}
+        rs = {o["scope"]["part"]: o["values"] for o in ev["observations"] if o["id"] == "temp.rise"}
+        assert set(tj) == set(rs)
+        assert len({tuple(round(a - b, 6) for a, b in zip(tj[r], rs[r])) for r in tj}) == 1
     for ob in ev["observations"]:
         assert real(ob) is ob
     monkeypatch.setattr(QT, "check", lambda ob: ob)

@@ -16,7 +16,10 @@ vias. This pass changes only routing, and only on power and ground nets:
    Beyond the board's own clearance, the grown copper keeps `signal_gap` from ordinary signal
    copper (a 3W-like rule: twice the board clearance and twice the signal's width) and
    `victim_gap` from sensitive nets (clocks, high-speed, analog, RF, crystals, feedback and sense
-   nodes, antennas), on its own layer and on the adjacent ones. Rule sources: the crosstalk
+   nodes, antennas), on its own layer and on the adjacent ones. A net whose routed copper
+   dissipates under widen_min_loss_uW at the DC plan's typical point (`quiet_nets`) is not
+   widened (it would save less than that), and nothing grows inside the rule areas the
+   minimal_copper setting names (haslam.route.constraints.DEFAULTS). Rule sources: the crosstalk
    budget K = 1/(1+(D/h)^2) of docs/topics/rules/si-fundamentals.md (D = h*sqrt(1/K-1)), the
    power-copper waveform classes of docs/topics/physics/power-copper.md (pour freely on quiet
    nodes, keep SW copper small).
@@ -130,6 +133,12 @@ def ipc_width(current_a, dt_k=10.0, t_mm=MAT.CU_1OZ_MM, external=True):
     k = 0.048 if external else 0.024
     area_mil2 = (current_a / (k * dt_k ** 0.44)) ** (1.0 / 0.725)
     return area_mil2 / (t_mm / 0.0254) * 0.0254
+
+
+def _area_on(k, layer):
+    """Whether rule area `k` (haslam.board.model.Keepout) covers copper `layer`: "*.Cu" and "F&B.Cu" cover theirs."""
+    ls = k.layers or []
+    return layer in ls or "*.Cu" in ls or ("F&B.Cu" in ls and layer in ("F.Cu", "B.Cu"))
 
 
 def net_currents(operating, pads_by_ref, power, ground):
@@ -792,6 +801,10 @@ class PowerCopper:
         self.vias = []         # (net, x, y, size, drill, uuid, kind)
         self.tracks = []       # (net, layer, w, a, b, uuid, owner)
         self.stats = dict(widened=0, widened_mm=0.0, ground_vias=0, stitch_vias=0)
+        self._quiet = None        # {net: W} nets too quiet to widen (quiet_nets; computed when growing)
+        self.min_cu, self.min_cu_names = self._minimal_copper()
+        if self.min_cu_names:
+            self.stats["minimal_copper_areas"] = self.min_cu_names
         self.t_setup = clock_now() - t0
         log(f"[power-copper] currents {dict((k, round(v, 3)) for k, v in self.current.items())}")
         log(f"[power-copper] {len(self.power)} rails, {len(self.ground)} grounds, {len(self.switch)} switch nodes, "
@@ -822,6 +835,11 @@ class PowerCopper:
         x0, y0, x1, y1 = geom.bounds
         out = []
         seen = set()
+        mc = self.min_cu.get(layer)
+        if mc is not None and mc.intersects(shapely.box(x0 - reach, y0 - reach, x1 + reach, y1 + reach)):
+            # a minimal-copper rule area (setting minimal_copper): grown copper keeps out of it entirely; the routed
+            # track inside keeps its width (power copper never narrows)
+            out.append((mc, 0.0, 0.0, 1.0))
         for l in [layer] + self.adj[layer]:
             for it in self.sp.query(l, (x0, y0, x1, y1), reach):
                 if id(it) in seen or it in ignore:
@@ -907,8 +925,8 @@ class PowerCopper:
     # ---------------------------------------------------------------- 1. widen
     def widen(self):
         sp = self.sp
-        nets = self.power | self.ground
-        by_uuid = {it.uuid: it for it in sp.existing if it.kind == "track"}
+        nets = (self.power | self.ground) - set(self.quiet_nets())
+        by_uuid ={it.uuid: it for it in sp.existing if it.kind == "track"}
         ladder = self.o["ladder"]
         order = sorted(self.board.tracks, key=lambda t: (-self.current.get(t.net, 0.0), t.net in self.ground))
         for t in order:
@@ -1090,14 +1108,80 @@ class PowerCopper:
         self.stats["widened_arcs"] = self.stats.get("widened_arcs", 0) + 1
         self.stats["widened_mm"] += sum(abs(rad * sw * (x1 - x0) / L) for x0, x1, w in merged if w > t.width + 1e-9)
 
+    def _minimal_copper(self):
+        """({layer: shape}, [names]) of the rule areas the minimal_copper setting names (glob patterns, comma-separated:
+        project text variable HASLAM_MINIMAL_COPPER, opts, else none): power copper grows nothing inside them."""
+        import fnmatch
+        from . import constraints as CN
+        v = CN.setting("minimal_copper", self.path, self.o)
+        pats = [p.strip() for p in (v if isinstance(v, (list, tuple)) else str(v or "").split(",")) if p.strip()]
+        if not pats:
+            return {}, []
+        hit = [k for k in getattr(self.board, "keepouts", []) or []
+               if k.name and any(fnmatch.fnmatch(k.name, p) for p in pats)
+               and k.outline is not None and not k.outline.is_empty]
+        if not hit:
+            self.log(f"[power-copper] minimal_copper {pats}: no rule area of that name")
+            return {}, []
+        out = {}
+        for layer in self.sp.cu:
+            shapes = [k.outline for k in hit if _area_on(k, layer)]
+            if shapes:
+                out[layer] = unary_union(shapes)
+        names = sorted({k.name for k in hit})
+        self.log(f"[power-copper] minimal copper in rule areas {names}: no growth there")
+        return out, names
+
+    def quiet_nets(self):
+        """{net: W}: the power and ground nets whose routed copper dissipates less than widen_min_loss_uW under the
+        evaluator's DC plan of the board's facts (haslam.excite.dc.planned_injections at the typical point; operating
+        facts, else the board's intent file): widening saves at most that loss, so they are not grown. The loss is
+        sum I^2 R over each net's tracks (branch_currents, 1 oz copper; vias and fills join at no resistance). A net
+        without planned current, or a board without a plan, is not quiet (grown as before)."""
+        if self._quiet is not None:
+            return self._quiet
+        self._quiet = {}
+        from . import constraints as CN
+        thr = float(CN.setting("widen_min_loss_uW", self.path, self.o)) * 1e-6
+        if thr <= 0:
+            return self._quiet
+        from haslam.board.kicad_file import load
+        from haslam.excite import dc as DC
+        from haslam.excite.beliefs import board_facts
+        try:
+            facts = board_facts(self.op, str(self.path))
+            inj = DC.planned_injections(load(self.path), facts) if facts else {}
+        except Exception as e:      # noqa: BLE001 - no plan: grow as before, never a failed pass
+            self.log(f"[power-copper] quiet nets: no DC plan ({type(e).__name__}: {e})")
+            return self._quiet
+        if not inj:
+            return self._quiet
+        nets = self.power | self.ground
+        pads = {}
+        for fps in self.sp.pads_by_fp.values():
+            for p in fps:
+                if p.kind == "pad" and p.net in nets and isinstance(p.owner, tuple):
+                    pads.setdefault(p.net, []).append((f"{p.owner[0]}.{p.owner[1]}", p.geom, p.layers))
+        r_sq = MAT.RHO_CU_OHM_MM / MAT.CU_1OZ_MM         # ohm per square of 1 oz copper
+        vias = getattr(self.board, "vias", []) or []
+        for net in sorted(nets):
+            if not any(abs(inj.get(tok, 0.0)) > 0 for tok, _g, _l in pads.get(net, [])):
+                continue
+            st = {}
+            branch_currents(net, self.board.tracks, vias, pads.get(net, []), self.fills.get(net) or {}, inj, stats=st)
+            w = st.get("loss_sq", 0.0) * r_sq
+            if w < thr:
+                self._quiet[net] = w
+        if self._quiet:
+            self.stats["quiet_nets"] = {n: round(w * 1e6, 4) for n, w in sorted(self._quiet.items())}
+            self.log(f"[power-copper] not widened, routed loss under {thr * 1e6:g} uW (uW): {self.stats['quiet_nets']}")
+        return self._quiet
+
     def _pour_keepouts(self, layer):
         """The rule areas on `layer` that forbid copper pours (haslam.board.model.Keepout.copperpour), grown by VTOL,
         as one shape; None when there are none. A rule area on "*.Cu" or "F&B.Cu" covers its layers."""
-        def on(k):
-            ls = k.layers or []
-            return layer in ls or "*.Cu" in ls or ("F&B.Cu" in ls and layer in ("F.Cu", "B.Cu"))
         shapes = [k.outline for k in getattr(self.board, "keepouts", []) or []
-                  if k.copperpour and on(k) and k.outline is not None and not k.outline.is_empty]
+                  if k.copperpour and _area_on(k, layer) and k.outline is not None and not k.outline.is_empty]
         return unary_union(shapes).buffer(VTOL) if shapes else None
 
     # ---------------------------------------------------------------- 1b. vector growth
@@ -1119,7 +1203,7 @@ class PowerCopper:
         self.vector_share = {}
         for layer in sp.cu:
             cand = {}
-            for net in sorted(nets if nets is not None else self.power | self.ground):
+            for net in sorted(nets if nets is not None else (self.power | self.ground) - set(self.quiet_nets())):
                 own = [it for it in sp.items[layer] if it.net == net and it.kind in ("track", "pad")]
                 if not any(it.kind == "track" for it in own):
                     continue

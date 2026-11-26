@@ -1305,6 +1305,11 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     rep["hpwl"] = round(st.hpwl(), 2)
     rep["hpwl_signal"] = round(st.hpwl(signal_only=True), 2)
     try:
+        from .hpwl_report import outliers as hpwl_outliers
+        rep["hpwl_outliers"] = hpwl_outliers(P, st)     # signal nets stretched across the board (read-only)
+    except Exception as e:      # noqa: BLE001 - a report field; never lose the placement
+        rep["hpwl_outliers"] = f"error: {type(e).__name__}: {e}"
+    try:
         from .crossings import count as crossing_count
         rep["crossings"] = crossing_count(P, st)       # ratsnest crossings of the placement, HPWL's blind spot
     except Exception as e:      # noqa: BLE001 - a report field; never lose the placement

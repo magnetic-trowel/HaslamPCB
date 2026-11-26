@@ -135,6 +135,8 @@ class Board:
     pad_xy: dict = field(default_factory=dict)     # pad -> (x, y) mm on the board
     port: dict = field(default_factory=dict)       # ref -> "connector" | "module": where the copper meets
     #                                                circuitry off this board's model
+    cell_refs: dict = field(default_factory=dict)  # commutation cell id -> the refs of its own hot loop (controller,
+    #                                                switches, its loop's parts, hot-side caps, inductor, snubbers)
 
 
 def port_kind(kind, part, pads):
@@ -172,6 +174,13 @@ def build(board, brief=None):
             for u, _ in s.get("loop") or []:
                 cell_parts.setdefault(u, s)
     uuid_of = {p["ref"]: u for u, p in brief["parts"].items()}
+    ref_of = {u: p["ref"] for u, p in brief["parts"].items()}
+    for s in brief.get("structures") or []:
+        if s.get("kind") == "commutation_cell" and s.get("id"):
+            us = [s.get(k) for k in ("controller", "inductor", "bootstrap_cap")]
+            us += list((s.get("switches") or {}).values())
+            us += [u for u, _ in s.get("loop") or []] + list(s.get("caps") or []) + list(s.get("snubbers") or [])
+            bd.cell_refs[s["id"]] = {ref_of[u] for u in us if isinstance(u, str) and u in ref_of}
     for ref, part in nl.parts.items():
         if part.dnp:
             continue
