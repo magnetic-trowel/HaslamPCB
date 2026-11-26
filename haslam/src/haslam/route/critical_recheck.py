@@ -683,8 +683,9 @@ class _AllocCtx:
         return Ctx.volts(self, net)
 
     def npins(self, u):
+        from .critical_modules import pin_count
         f = self.rb.fp.get(u)
-        return len(f.pads) if f is not None else 2
+        return pin_count(f) if f is not None else 2
 
 
 def fills_of(board_path):

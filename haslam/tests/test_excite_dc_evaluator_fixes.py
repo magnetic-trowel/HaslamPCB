@@ -196,3 +196,13 @@ def test_a_connectors_current_can_be_stated_per_rail(tmp_path):
         check_facts({"parts": {"J7": {"I_A_by_rail": [0.1, 0.2]}}})
     with pytest.raises(FactsError, match=r"I_A_by_rail\.\+5V"):
         check_facts({"parts": {"J7": {"I_A_by_rail": {"+5V": "lots"}}}})
+
+
+def test_an_exposed_pad_drawn_as_several_pads_is_one_pin(tmp_path):
+    """The IC current prior goes by pin count (critical_rails.ic_current_prior: 8/32/64/144); Ctx.npins counted pads,
+    so a QFN's exposed pad drawn as several pads and a part's unnumbered mounting pads moved it up a class."""
+    from types import SimpleNamespace as NS
+    from haslam.route.critical_modules import pin_count
+    pads = [NS(number=str(k)) for k in range(1, 33)] + [NS(number="33")] * 9 + [NS(number="")] * 2
+    assert pin_count(NS(pads=pads)) == 33
+    assert pin_count(NS(pads=[NS(number=""), NS(number="")])) == 2

@@ -103,6 +103,14 @@ def modules_from_brief(brief, kinds=("cell", "path", "decap", "rgroup", "crystal
 
 
 # ----------------------------------------------------------------------------- context
+
+def pin_count(f):
+    """A footprint's pins: its distinct pad numbers (an exposed pad drawn as several pads, a SOT-223's tab beside its
+    pin, a THT pin on two layers are one pin; an unnumbered mounting or NPTH pad is none). Counted per pad, an EP's
+    subdivisions moved a QFN into a higher pin class of the IC current prior (critical_rails.ic_current_prior)."""
+    nums = {p.number for p in f.pads if p.number}
+    return len(nums) or len(f.pads)
+
 class Ctx:
     """What module routing needs: the Space, a GridRouter, the brief and board, options."""
 
@@ -150,7 +158,7 @@ class Ctx:
 
     def npins(self, fp_uuid):
         f = self.fp.get(fp_uuid)
-        return len(f.pads) if f is not None else 2
+        return pin_count(f) if f is not None else 2
 
     def volts(self, net):
         r = self.nets.get(net) or {}
