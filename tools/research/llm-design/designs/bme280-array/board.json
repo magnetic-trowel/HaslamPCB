@@ -1,0 +1,161 @@
+{
+ "outline": [
+  50,
+  78
+ ],
+ "holes": [
+  [
+   3.5,
+   3.5
+  ],
+  [
+   46.5,
+   3.5
+  ],
+  [
+   3.5,
+   74.5
+  ],
+  [
+   46.5,
+   74.5
+  ]
+ ],
+ "slots": [
+  [
+   2.5,
+   19.5,
+   20.0,
+   21.0
+  ],
+  [
+   30.0,
+   19.5,
+   47.5,
+   21.0
+  ]
+ ],
+ "fixed": {
+  "J1": {
+   "x": 18.65,
+   "y": 3.5,
+   "rot": 90,
+   "note": "host header on the north edge, pins 1-6 west to east"
+  },
+  "U101": {
+   "x": 7.5,
+   "y": 35.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U102": {
+   "x": 19.0,
+   "y": 35.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U103": {
+   "x": 31.0,
+   "y": 35.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U104": {
+   "x": 42.5,
+   "y": 35.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U105": {
+   "x": 7.5,
+   "y": 46.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U106": {
+   "x": 19.0,
+   "y": 46.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U107": {
+   "x": 31.0,
+   "y": 46.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U108": {
+   "x": 42.5,
+   "y": 46.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U109": {
+   "x": 7.5,
+   "y": 57.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U110": {
+   "x": 19.0,
+   "y": 57.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U111": {
+   "x": 31.0,
+   "y": 57.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U112": {
+   "x": 42.5,
+   "y": 57.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U113": {
+   "x": 7.5,
+   "y": 68.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U114": {
+   "x": 19.0,
+   "y": 68.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U115": {
+   "x": 31.0,
+   "y": 68.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  },
+  "U116": {
+   "x": 42.5,
+   "y": 68.0,
+   "rot": 0,
+   "note": "sensor array: 4 x 4 at 11.5 x 11 mm pitch (measurement geometry, REQ-3/4)"
+  }
+ },
+ "zones": [
+  {
+   "net": "GND",
+   "layer": "B.Cu",
+   "name": "GND_N",
+   "rect": [
+    0,
+    0,
+    50,
+    19.5
+   ]
+  }
+ ],
+ "seed_area": [
+  3,
+  6,
+  47,
+  76
+ ]
+}

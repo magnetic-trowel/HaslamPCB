@@ -13,7 +13,8 @@ BOARD_JSON (all lengths mm, KiCad board coordinates, y down, origin at the outli
   {"outline": [W, H],
    "holes": [[x, y], ...],                                  # M3 mounting holes, locked
    "fixed": {"REF": {"x":..,"y":..,"rot":..,"side":"top"}}, # placed and locked (connectors, modules)
-   "zones": [{"net": "GND", "layer": "B.Cu"}, ...],         # whole-board pours
+   "zones": [{"net": "GND", "layer": "B.Cu"}, ...],         # pours: whole board, or "rect": [x0,y0,x1,y1]
+   "slots": [[x0, y0, x1, y1], ...],                        # interior Edge.Cuts cut-outs (milled slots)
    "keepouts": [{"rect": [x0,y0,x1,y1], "layers": ["F.Cu","B.Cu"], "name": "...", "no": ["copper","vias"]}],
    "seed_area": [x0, y0, x1, y1]}                           # where unlocked parts start (a grid; the placer moves them)
 Writes OUT_DIR/<slug>.kicad_pcb and prints a JSON summary.
@@ -170,6 +171,10 @@ def main(out_dir, board_json):
 
     W, H = spec["outline"]
     add_rect(board, pcbnew.Edge_Cuts, 0, 0, W, H)
+    for x0, y0, x1, y1 in spec.get("slots", []):            # interior cut-outs: KiCad reads closed inner rings
+        if not (0 < x0 < x1 < W and 0 < y0 < y1 < H):
+            raise SystemExit(f"slot {[x0, y0, x1, y1]} is not strictly inside the {W} x {H} outline")
+        add_rect(board, pcbnew.Edge_Cuts, x0, y0, x1, y1)
 
     fixed = spec.get("fixed", {})
     sx0, sy0, sx1, sy1 = spec.get("seed_area", [2, 2, W - 2, H - 2])
@@ -256,7 +261,7 @@ def main(out_dir, board_json):
         board.Add(fp)
 
     for z in spec.get("zones", []):
-        zone(board, [0, 0, W, H], [z["layer"]], net=z["net"], name=z.get("name", ""))
+        zone(board, z.get("rect", [0, 0, W, H]), [z["layer"]], net=z["net"], name=z.get("name", ""))
     for k in spec.get("keepouts", []):
         zone(board, k["rect"], k["layers"], keepout=set(k.get("no", ["copper"])), name=k.get("name", ""))
 

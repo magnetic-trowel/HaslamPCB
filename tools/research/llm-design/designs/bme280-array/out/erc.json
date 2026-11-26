@@ -1,0 +1,430 @@
+{
+  "$schema": "https://schemas.kicad.org/erc.v1.json",
+  "coordinate_units": "mm",
+  "ignored_checks": [
+    {
+      "description": "Global label only appears once in the schematic",
+      "key": "single_global_label"
+    },
+    {
+      "description": "Four connection points are joined together",
+      "key": "four_way_junction"
+    },
+    {
+      "description": "SPICE model issue",
+      "key": "simulation_model_issue"
+    },
+    {
+      "description": "Assigned footprint doesn't match footprint filters",
+      "key": "footprint_filter"
+    }
+  ],
+  "included_severities": [
+    "error",
+    "warning",
+    "exclusion"
+  ],
+  "kicad_version": "10.0.8",
+  "sheets": [
+    {
+      "path": "/",
+      "uuid_path": "/efa5058b-4540-544a-9961-cc728f9fc661",
+      "violations": []
+    },
+    {
+      "path": "/IN/",
+      "uuid_path": "/efa5058b-4540-544a-9961-cc728f9fc661/cce349cb-9063-5c77-a2c4-2105e1faa819",
+      "violations": []
+    },
+    {
+      "path": "/PWR/",
+      "uuid_path": "/efa5058b-4540-544a-9961-cc728f9fc661/8ab84af8-a79d-57b8-9907-6762014e242d",
+      "violations": []
+    },
+    {
+      "path": "/LVL/",
+      "uuid_path": "/efa5058b-4540-544a-9961-cc728f9fc661/7512c416-b87c-5a9c-bb63-08b7e9cad999",
+      "violations": []
+    },
+    {
+      "path": "/MUX/",
+      "uuid_path": "/efa5058b-4540-544a-9961-cc728f9fc661/c4c960eb-4a51-59cd-a8e5-833546d44328",
+      "violations": []
+    },
+    {
+      "path": "/SNS/",
+      "uuid_path": "/efa5058b-4540-544a-9961-cc728f9fc661/53c0dc1d-e305-527d-92d0-2b3b413b62ee",
+      "violations": [
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U101 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 53.34,
+                "y": 48.26
+              },
+              "uuid": "ae423907-957e-524e-bda3-e59a4b99f68a"
+            },
+            {
+              "description": "Symbol #FLG01 Pin 1 [Power output, Line]",
+              "pos": {
+                "x": 27.94,
+                "y": 58.42
+              },
+              "uuid": "688a0fa5-9662-527a-968a-491787f544c3"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U110 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 53.34,
+                "y": 200.66
+              },
+              "uuid": "6ee46a04-062f-5de9-9a26-2a676c56c429"
+            },
+            {
+              "description": "Symbol U1 Pin 6 [VOUT, Power output, Line]",
+              "pos": {
+                "x": 210.82,
+                "y": 30.48
+              },
+              "uuid": "2765195a-0d3e-5ce8-a676-4ea1687c74fe"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U111 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 104.14,
+                "y": 200.66
+              },
+              "uuid": "9c9293b0-1684-507c-ad3b-82e77da81061"
+            },
+            {
+              "description": "Symbol #FLG01 Pin 1 [Power output, Line]",
+              "pos": {
+                "x": 27.94,
+                "y": 58.42
+              },
+              "uuid": "688a0fa5-9662-527a-968a-491787f544c3"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U112 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 157.48,
+                "y": 200.66
+              },
+              "uuid": "c0b79ee1-858c-54fb-ae14-0614497ad626"
+            },
+            {
+              "description": "Symbol U1 Pin 6 [VOUT, Power output, Line]",
+              "pos": {
+                "x": 210.82,
+                "y": 30.48
+              },
+              "uuid": "2765195a-0d3e-5ce8-a676-4ea1687c74fe"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U102 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 165.1,
+                "y": 48.26
+              },
+              "uuid": "32995bdb-1815-5187-ab88-6877557824ff"
+            },
+            {
+              "description": "Symbol U1 Pin 6 [VOUT, Power output, Line]",
+              "pos": {
+                "x": 210.82,
+                "y": 30.48
+              },
+              "uuid": "2765195a-0d3e-5ce8-a676-4ea1687c74fe"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U113 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 208.28,
+                "y": 200.66
+              },
+              "uuid": "93f325cd-dd26-5563-9ebb-7b830b061420"
+            },
+            {
+              "description": "Symbol #FLG01 Pin 1 [Power output, Line]",
+              "pos": {
+                "x": 27.94,
+                "y": 58.42
+              },
+              "uuid": "688a0fa5-9662-527a-968a-491787f544c3"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U103 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 215.9,
+                "y": 48.26
+              },
+              "uuid": "d2690468-dad2-5700-bfd3-51d6e876f1fe"
+            },
+            {
+              "description": "Symbol #FLG01 Pin 1 [Power output, Line]",
+              "pos": {
+                "x": 27.94,
+                "y": 58.42
+              },
+              "uuid": "688a0fa5-9662-527a-968a-491787f544c3"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U114 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 259.08,
+                "y": 200.66
+              },
+              "uuid": "84092fad-ba17-50c7-acef-6de68acd6df7"
+            },
+            {
+              "description": "Symbol U1 Pin 6 [VOUT, Power output, Line]",
+              "pos": {
+                "x": 210.82,
+                "y": 30.48
+              },
+              "uuid": "2765195a-0d3e-5ce8-a676-4ea1687c74fe"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U104 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 266.7,
+                "y": 48.26
+              },
+              "uuid": "fb1d6bbf-a84f-5a5d-98c3-76c12e60f042"
+            },
+            {
+              "description": "Symbol U1 Pin 6 [VOUT, Power output, Line]",
+              "pos": {
+                "x": 210.82,
+                "y": 30.48
+              },
+              "uuid": "2765195a-0d3e-5ce8-a676-4ea1687c74fe"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U115 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 309.88,
+                "y": 200.66
+              },
+              "uuid": "9ebf1da4-e30c-5cfe-9893-e0ae3459dae9"
+            },
+            {
+              "description": "Symbol #FLG01 Pin 1 [Power output, Line]",
+              "pos": {
+                "x": 27.94,
+                "y": 58.42
+              },
+              "uuid": "688a0fa5-9662-527a-968a-491787f544c3"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U105 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 320.04,
+                "y": 48.26
+              },
+              "uuid": "472b46d9-8482-56d7-bca3-eb70e1a79e26"
+            },
+            {
+              "description": "Symbol #FLG01 Pin 1 [Power output, Line]",
+              "pos": {
+                "x": 27.94,
+                "y": 58.42
+              },
+              "uuid": "688a0fa5-9662-527a-968a-491787f544c3"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U116 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 363.22,
+                "y": 200.66
+              },
+              "uuid": "63deda74-becd-5a46-968f-12dca66a701b"
+            },
+            {
+              "description": "Symbol U1 Pin 6 [VOUT, Power output, Line]",
+              "pos": {
+                "x": 210.82,
+                "y": 30.48
+              },
+              "uuid": "2765195a-0d3e-5ce8-a676-4ea1687c74fe"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U106 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 370.84,
+                "y": 48.26
+              },
+              "uuid": "4d0731d8-3341-5939-88c5-9bfb94b91121"
+            },
+            {
+              "description": "Symbol U1 Pin 6 [VOUT, Power output, Line]",
+              "pos": {
+                "x": 210.82,
+                "y": 30.48
+              },
+              "uuid": "2765195a-0d3e-5ce8-a676-4ea1687c74fe"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U107 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 421.64,
+                "y": 48.26
+              },
+              "uuid": "75d5704d-b697-5394-908e-b8e80c905770"
+            },
+            {
+              "description": "Symbol #FLG01 Pin 1 [Power output, Line]",
+              "pos": {
+                "x": 27.94,
+                "y": 58.42
+              },
+              "uuid": "688a0fa5-9662-527a-968a-491787f544c3"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U108 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 472.44,
+                "y": 48.26
+              },
+              "uuid": "35cb63fe-16f7-59d2-a8c8-fa6def14b019"
+            },
+            {
+              "description": "Symbol U1 Pin 6 [VOUT, Power output, Line]",
+              "pos": {
+                "x": 210.82,
+                "y": 30.48
+              },
+              "uuid": "2765195a-0d3e-5ce8-a676-4ea1687c74fe"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        },
+        {
+          "description": "Pins of type Bidirectional and Power output are connected",
+          "items": [
+            {
+              "description": "Symbol U109 Pin 5 [SDO, Bidirectional, Line]",
+              "pos": {
+                "x": 525.78,
+                "y": 48.26
+              },
+              "uuid": "4caf978d-fd4d-57f7-bd45-2c0a212e582e"
+            },
+            {
+              "description": "Symbol #FLG01 Pin 1 [Power output, Line]",
+              "pos": {
+                "x": 27.94,
+                "y": 58.42
+              },
+              "uuid": "688a0fa5-9662-527a-968a-491787f544c3"
+            }
+          ],
+          "severity": "warning",
+          "type": "pin_to_pin"
+        }
+      ]
+    }
+  ],
+  "source": "bme280-array.kicad_sch"
+}
