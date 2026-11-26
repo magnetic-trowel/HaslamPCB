@@ -383,9 +383,13 @@ def plan(board, brief, bd, P, srcs, intent=None):
             pi = next((p for p in (P.get(cell["src"]) or {}).values() if getattr(p, "name", "") == "I_A"), None)
             if pi is not None and pi.hi > 0:
                 pl.feeds[r]["I_hi"] = float(pi.hi)
-            fe = _eta((facts.get(r) or {}).get("eta"), f"facts.nets.{r}.eta")
+            # the facts' efficiency: the rail's (nets.<rail>.eta), else the cell's own (cells.<id>.eta, which the
+            # facts compiler writes). The cell's own was read only as its typical (the ledger's D), so a buck's input
+            # current held it at every corner and its heat ignored it (class R_on and C_sw priors instead)
+            fe = _eta((facts.get(r) or {}).get("eta"), f"facts.nets.{r}.eta") or \
+                _eta((((intent or {}).get("cells") or {}).get(cell["id"]) or {}).get("eta"), f"facts.cells.{cell['id']}.eta")
             if fe:
-                # the facts' efficiency: the input takes P_out / eta (without it the cell's duty, lossless)
+                # the input takes P_out / eta (without it the cell's duty, lossless)
                 pl.feeds[r]["eta"] = Param(f"dc:{cell['ctrl']}", "eta", *fe, "", "intent", "the intent file")
                 pl.params.append(pl.feeds[r]["eta"])
             continue
