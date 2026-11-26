@@ -405,6 +405,20 @@ def util_gate(P):
     return min(1.0, max(0.0, (CHAN_UTIL_OFF - u) / (CHAN_UTIL_OFF - CHAN_UTIL_FULL)))
 
 
+def header_gate(P, st):
+    """The movable edge headers (haslam.place.crowded: header_row) with no grid-legal spot on the board
+    (fits_nowhere), by reference; empty when there are none. place_chan_header_gate switches the
+    channel term off on such a board: its placement is infeasible with or without the term, and in
+    chan-gated-m6 every extra part-to-part short of the term was such a header stacked on another
+    part (xenon HEAD1, qt-py JP1/JP3, itsybitsy-rp2040 JP4; chan-gate-guard: itsybitsy-m0 JP4 at
+    utilization 0.674, inside the utilization ramp). A failing detector leaves the term on."""
+    from . import crowded
+    try:
+        return sorted(P.parts[i].ref for i in crowded.edge_headers(P) if crowded.fits_nowhere(P, st, i))
+    except Exception:       # noqa: BLE001 - a gate, never lose the placement over it
+        return []
+
+
 def _channel_weight(P, st, w_chan, zone_tab, kw, board_path, opts):
     """The routing-channel term's weight, its pad-to-edge table (place_chan_edge 1:
     exact.channel_edge_term, else None), its report (the halo overlap of pairs with a movable
@@ -423,12 +437,19 @@ def _channel_weight(P, st, w_chan, zone_tab, kw, board_path, opts):
     if gate:
         w_chan = w_chan * util_gate(P)
         util = round(max_movable_utilization(P), 4)
+    hdr_gate = float(setting("place_chan_header_gate", board_path, opts) or 0.0) > 0
+    stuck = None
+    if hdr_gate and w_chan > 0:
+        stuck = header_gate(P, st)
+        if stuck:
+            w_chan = 0.0
     A0 = exactmod.mean_part_area(P)
     ov0, np0 = exactmod.channel_overlap(P, exactmod.channel_grid(P, weight=1.0), st.X, st.Y, st.K)
     c = zone_tab.c if zone_tab is not None else zonesmod.raster_cell(P)
     e1 = exactmod.channel_edge_term(P, 1.0, A0, c) if edge_on else None
     edge0 = float(sum(e1.part(i, st.X[i], st.Y[i], st.K[i]) for i in P.mov)) if e1 is not None else 0.0
-    rep = dict(w_chan=w_chan, w_set=w_set, util_gate=gate, util=util, edge=edge_on, A0=round(A0, 3), seed_overlap=round(ov0 / A0, 5), seed_pairs=np0,
+    rep = dict(w_chan=w_chan, w_set=w_set, util_gate=gate, util=util, header_gate=hdr_gate, stuck_headers=stuck,
+               edge=edge_on, A0=round(A0, 3), seed_overlap=round(ov0 / A0, 5), seed_pairs=np0,
                seed_edge=round(edge0, 5))
     edge_tab = None
     if e1 is not None and w_chan > 0:
