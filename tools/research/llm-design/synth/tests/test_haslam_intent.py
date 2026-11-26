@@ -107,3 +107,24 @@ def test_part_card_facts_pass_through_unvalidated():
     d.all_parts()[0].defn = card
     f = d.haslam.document()[0]["facts"]["parts"]["U1"]
     assert f["core"] is False and f["core_I_A"] == [1e-6, 2e-6] and f["core_f_Hz"] == 1e5
+
+
+def test_no_supply_prior_nag_without_physics_facts():
+    """A design that states no haslam facts (leadacid-balancer, rpi-mains-relay: placement relations only) is not
+    taken through haslam's physics: no supply_prior warning per IC. One fact anywhere opts it in."""
+    d = Design("plain")
+    d.net("GND", v=0, kind="ground")
+    d.domain("LV", ref="GND")
+    d.net("V", domain="LV", v=(0, 5), kind="power")
+    b = d.block("b")
+    card = PartDef(mpn="OPAMP", category="ic", footprint="Package_TO_SOT_SMD:SOT-23-5",
+                   pins=[PinDef("1", "V"), PinDef("2", "GND")])
+    u1, u2 = b.add(card, ref="U1"), b.add(card, ref="U2")
+    for u in (u1, u2):
+        d.nets["V"].connect(u["V"]); d.nets["GND"].connect(u["GND"])
+    d.place.near("U1", "U2", note="layout")
+    d.finalize()
+    assert not d.haslam.empty()                   # it still gets an intent file (its relations)
+    assert not [x for x in d.haslam.warnings() if x[0] == "haslam_intent.supply_prior"]
+    d.haslam.part("U1", I_A=[1e-4, 1e-3], why="DS")
+    assert [x[2] for x in d.haslam.warnings() if x[0] == "haslam_intent.supply_prior"] == [["U2"]]

@@ -72,3 +72,20 @@ def test_pullup_on_signal_line_defaults_to_half_duty():
         return d
     assert not _msgs(design("signal"), "rating.power")        # 18.5 mW vs 62.5 mW x 50 % derating
     assert _msgs(design("analog"), "rating.power")            # not a pull-up: full time
+
+
+def test_divider_top_leg_is_not_a_pullup():
+    """A rail-to-enable divider (prius-solar-mppt R107/R108, rpi-mains-relay R24/R25) has its voltage all the
+    time: the 50 % pull-up duty must not halve its dissipation."""
+    def design(with_bottom):
+        d = _base()
+        d.net("EN", domain="LV", v=(0, 13.2), kind="signal")
+        b = d.block("b")
+        top = b.add(R("4.7k", "0402").with_(symbol=None, pins=[PinDef("1"), PinDef("2")]))
+        d.nets["VIN_P"].connect(top[1]); d.nets["EN"].connect(top[2])
+        if with_bottom:
+            bot = b.add(R("1M", "0402").with_(symbol=None, pins=[PinDef("1"), PinDef("2")]))
+            d.nets["EN"].connect(bot[1]); d.nets["GND"].connect(bot[2])
+        return d
+    assert not _msgs(design(False), "rating.power")           # a pull-up: 18.5 mW averaged
+    assert _msgs(design(True), "rating.power")                # a divider's top leg: 37 mW, all the time

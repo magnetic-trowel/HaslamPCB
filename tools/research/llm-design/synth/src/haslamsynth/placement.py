@@ -67,6 +67,10 @@ class BoardSpec:
     min_drill_mm: float = None         # smallest hole a library footprint may bring (layout.fab_minimums; default 0.3)
     notes: str = ""
     quantity: int = None               # boards per order: bom.stock needs parts per board x quantity (default 5)
+    # write out/board.json for sch_to_board.py (haslamsynth.boardgeom): None = when the design uses the layout
+    # geometry (cuts, slots, zones, areas, seed_area) or has a hand board.json; True/False to say so. Designs
+    # written before boardgeom gave coordinates from the lower-left corner, y up, which board.json would mirror
+    board_json: bool = None
 
     def as_dict(self):
         d = {k: v for k, v in self.__dict__.items() if v not in (None, [], "")}

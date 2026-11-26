@@ -24,36 +24,36 @@
     "warning",
     "exclusion"
   ],
-  "kicad_version": "10.0.7",
+  "kicad_version": "10.0.8",
   "sheets": [
     {
       "path": "/",
-      "uuid_path": "/3ff252b5-e154-55f8-9b29-3f7989f14a33",
+      "uuid_path": "/d9d1e6e6-8dee-5be6-8a6c-58dfc841761a",
       "violations": []
     },
     {
       "path": "/PV/",
-      "uuid_path": "/3ff252b5-e154-55f8-9b29-3f7989f14a33/ea1fd275-18a9-507d-9e4a-7cc81996aef0",
+      "uuid_path": "/d9d1e6e6-8dee-5be6-8a6c-58dfc841761a/21d2e5d3-dfb6-5342-8d79-60650c184e35",
       "violations": []
     },
     {
       "path": "/CHG/",
-      "uuid_path": "/3ff252b5-e154-55f8-9b29-3f7989f14a33/35208fda-b587-589b-b8e0-50cc8da8ee24",
+      "uuid_path": "/d9d1e6e6-8dee-5be6-8a6c-58dfc841761a/da456731-c503-5d59-a75e-5a1dbc86300b",
       "violations": []
     },
     {
       "path": "/BAT/",
-      "uuid_path": "/3ff252b5-e154-55f8-9b29-3f7989f14a33/80e7f183-fb46-5e8e-910c-be27aabbc107",
+      "uuid_path": "/d9d1e6e6-8dee-5be6-8a6c-58dfc841761a/93395470-549b-597f-89f7-c80110e5bf6e",
       "violations": []
     },
     {
       "path": "/PWR/",
-      "uuid_path": "/3ff252b5-e154-55f8-9b29-3f7989f14a33/c87540b3-4f95-5764-9612-7d096bda3e60",
+      "uuid_path": "/d9d1e6e6-8dee-5be6-8a6c-58dfc841761a/b0aa5b83-45de-5780-8a0d-e728b2dcb9ae",
       "violations": []
     },
     {
       "path": "/CTL/",
-      "uuid_path": "/3ff252b5-e154-55f8-9b29-3f7989f14a33/63f86780-ff90-5596-abf0-a2f7c4b3ad9f",
+      "uuid_path": "/d9d1e6e6-8dee-5be6-8a6c-58dfc841761a/cb7c53d3-bd40-57fa-bab6-0c88769f15cf",
       "violations": []
     }
   ],

@@ -42,7 +42,7 @@ UNUSED = {
     "separate": "domain spacing is in the .kicad_dru barrier rules haslamsynth writes, which the router and DRC enforce",
     "keepout": "a keep-out is a board rule area (board.json keepouts), which haslam treats as an obstacle",
     "keepout_around": "a keep-out is a board rule area (board.json keepouts), which haslam treats as an obstacle",
-    "fixed": "positions go to out/board.json `fixed` (haslamsynth.boardgeom; sch_to_board locks those parts)",
+    "fixed": "positions come from board.json `fixed` (sch_to_board locks those parts)",
     "thermal": "dissipation is a fact (d.haslam.part), not a relation; the placer's heat terms read the brief",
     "orient": "haslam's orient takes a rotation set (allowed); a facing direction has no haslam spelling yet",
     "pins_toward": "haslam's pins_toward points pins at a place, not at a side of the part's own body",
@@ -146,8 +146,12 @@ class HaslamIntent:
         """`haslam_intent.supply_prior` (warning), one per part card: ICs and modules on the board whose facts state
         no supply draw (SUPPLY_KEYS), so haslam.excite gives each a 10 mA class-prior core (FRICTION F36, F48: a
         2 uA I2C switch became the board's hottest part). Converter controllers (a d.haslam.cell or a net's
-        source=) are left out: their draw is the power they convert."""
-        ctrl = {cid.split(":")[-1] for cid in self.cells} | {f.get("source") for f in self.nets.values()}
+        source=) are left out: their draw is the power they convert. Only for a design that states haslam facts
+        (`physics_facts`): one that states none is not taken through haslam's physics, and a warning per IC
+        there is noise (the intent file it gets carries only its placement relations)."""
+        if not self.physics_facts():
+            return []
+        ctrl ={cid.split(":")[-1] for cid in self.cells} | {f.get("source") for f in self.nets.values()}
         by_card = {}
         for p in self.d.all_parts():
             if not (p.on_board and p.ref and p.defn.in_bom and p.defn.category in ("ic", "module")) or p.ref in ctrl:
@@ -156,7 +160,7 @@ class HaslamIntent:
                 by_card.setdefault(p.defn.mpn or p.defn.value, []).append(p.ref)
         return [("haslam_intent.supply_prior",
                  f"{', '.join(refs[:8])}{' ...' if len(refs) > 8 else ''} ({card}): no supply-draw fact, so haslam "
-                 f"models a 10 mA class-prior core; state the datasheet's on the part card, haslam=dict(I_A=[lo, hi], "
+                 f"models it on a class prior (a 10 mA core for most ICs); state the datasheet's on the part card, haslam=dict(I_A=[lo, hi], "
                  f"I_sustained_A=typ, why=...) (core_I_A / core: false for its transient core), or d.haslam.part",
                  refs) for card, refs in sorted(by_card.items())]
 
@@ -172,6 +176,12 @@ class HaslamIntent:
         if not any(p.ref == ref for p in self.d.all_parts()):
             problems.append(f"{what}: no part {ref!r} in the design")
         return ref
+
+    def physics_facts(self):
+        """The design states operating facts for haslam's physics: a d.haslam net, part, cell, cable or term, or
+        a part card on the board with haslam= facts (net v_typ alone does not count: every design may have it)."""
+        return bool(self.nets or self.parts or self.cells or self.cables or self.terms
+                    or any(p.on_board and p.defn.haslam for p in self.d.all_parts()))
 
     def empty(self):
         dn, dp = self.defaults()
@@ -208,8 +218,8 @@ class HaslamIntent:
         parts = {p.ref: p for p in d.all_parts() if p.ref}
         explicit = []
         for r in d.place.resolve():
-            if r["kind"] == "fixed":
-                continue                      # board.json `fixed` (haslamsynth.boardgeom)
+            if r["kind"] == "fixed" and geometry:
+                continue                      # board.json `fixed` (haslamsynth.boardgeom); without one: unused
             explicit += expand_thermal(d, r, geometry) if r["kind"] == "thermal_isolate" else [r]
         explicit = [dict(r, source=r.get("source", "design")) for r in explicit]
         pairs = {(r.get("a"), r.get("b")) for r in explicit}

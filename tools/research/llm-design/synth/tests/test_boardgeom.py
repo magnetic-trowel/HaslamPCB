@@ -117,9 +117,43 @@ def test_footprint_holes_below_the_fab_minimum(tmp_path):
     d.finalize()
     out = []
     layout.check_footprint_holes(d, FootprintLibs(footprint_dir()), lambda c, s, m, o=(): out.append((c, s, m)))
-    assert len(out) == 1 and out[0][1] == "error" and "0.2 mm" in out[0][2]
+    # no fab named: a warning against JLC's 2-layer standard, not a fault
+    assert len(out) == 1 and out[0][1] == "warning" and "0.2 mm" in out[0][2]
     assert "use Package_SON:WSON-10-1EP_2.5x2.5mm_P0.5mm_EP1.2x2mm" in out[0][2]
+    d.board_spec.min_drill_mm = 0.3                   # the design names its fab's minimum: an error
+    out.clear()
+    layout.check_footprint_holes(d, FootprintLibs(footprint_dir()), lambda c, s, m, o=(): out.append((c, s, m)))
+    assert len(out) == 1 and out[0][1] == "error"
     d.board_spec.min_drill_mm = 0.2
     out.clear()
     layout.check_footprint_holes(d, FootprintLibs(footprint_dir()), lambda c, s, m, o=(): out.append((c, s, m)))
     assert not out
+    # liion-balancer, prius-solar-mppt: 4-layer boards, where 0.2 mm vias are the standard process
+    d.board_spec.min_drill_mm, d.board_spec.layers = None, 4
+    layout.check_footprint_holes(d, FootprintLibs(footprint_dir()), lambda c, s, m, o=(): out.append((c, s, m)))
+    assert not out
+
+
+def test_no_board_json_for_a_design_without_layout_geometry(tmp_path):
+    """Older designs (leadacid-balancer, liion-balancer, rpi-mains-relay, prius-solar-mppt) give d.board an outline,
+    holes and descriptive keep-outs in a lower-left, y-up frame: the build must not write a board.json that
+    sch_to_board would read mirrored, nor fail them on holes it cannot drill. Their d.place.fixed stay unused."""
+    d = Design("old")
+    d.net("GND", v=0, kind="ground")
+    d.domain("LV", ref="GND")
+    u = d.block("b").add(PartDef(mpn="X", category="ic", footprint="Package_TO_SOT_SMD:SOT-23",
+                                 pins=[PinDef("1", "G")]), ref="U1")
+    d.nets["GND"].connect(u["G"])
+    d.board(width_mm=100, height_mm=80, holes=[Hole(5, 5, 4.3)],
+            keepouts=[{"relative": "3 mm ring around each hole", "what": "copper", "layers": "all"}])
+    d.place.fixed("U1", 50, 40, source="enclosure")
+    d.finalize()
+    out = []
+    assert boardgeom.write(d, tmp_path, tmp_path / "out", lambda c, s, m, o=(): out.append((c, s, m))) == {}
+    assert not out and not (tmp_path / "out" / "board.json").exists()
+    assert [r["kind"] for r, _ in d.haslam.relations({})[1]] == ["fixed"]
+    # opted in: written, the M4 hole and the descriptive keep-out are warnings, not errors, and left out
+    d.board_spec.board_json = True
+    g = boardgeom.write(d, tmp_path, tmp_path / "out", lambda c, s, m, o=(): out.append((c, s, m)))
+    assert g["holes"] == [[5, 5]] and "keepouts" not in g and g["fixed"]["U1"]["x"] == 50
+    assert sorted(s for c, s, m in out) == ["warning", "warning"] and all(c == "board.geometry" for c, s, m in out)

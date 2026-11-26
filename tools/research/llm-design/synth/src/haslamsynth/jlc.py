@@ -23,6 +23,7 @@ from __future__ import annotations
 import datetime
 import json
 import re
+import time
 import urllib.request
 from pathlib import Path
 
@@ -199,13 +200,18 @@ def lcsc_of(part):
     return v or None
 
 
+PAUSE_S = 1.0           # between carded-part lookups (refresh_carded)
+
+
 def refresh_carded(design, cache, log=print):
     """Look up every LCSC code a part card names (stock, basic/extended, datasheet URL); updates cache in place.
     Codes the passive lookup chose are already fresh and are not asked again."""
     chosen = {v.get("lcsc") for k, v in cache.items() if not k.startswith("LCSC|")}
     codes = sorted({lcsc_of(p) for p in design.all_parts() if p.on_board and lcsc_of(p)} - chosen)
     at = datetime.date.today().isoformat()
-    for code in codes:
+    for i, code in enumerate(codes):
+        if i:
+            time.sleep(PAUSE_S)                        # one public search endpoint, shared: ask gently
         try:
             r = lookup(code)
         except Exception as e:  # noqa: BLE001 - network: reported, retried next time

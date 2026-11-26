@@ -98,11 +98,34 @@ def _rect_of(area, keepouts):
     return None
 
 
-def board_json(design, board=None):
+def rule_area(k):
+    """A keep-out board.json can carry: a numeric rect and a list of layers. Older designs' keep-outs were
+    descriptions ({"relative": ..., "what": "copper", "layers": "all"}), for the reviewer, not the board."""
+    r = k.get("rect")
+    return (isinstance(r, (list, tuple)) and len(r) == 4 and all(isinstance(v, (int, float)) for v in r)
+            and isinstance(k.get("layers", ["F.Cu", "B.Cu"]), (list, tuple)))
+
+
+LAYOUT_KEYS = ("cuts", "slots", "zones", "areas", "seed_area")
+
+
+def wants_board_json(spec, hand):
+    """Whether the build writes board.json for this board spec (BoardSpec.board_json; None: a hand board.json, or
+    the layout geometry only boardgeom reads)."""
+    if spec is None:
+        return bool(hand)
+    if spec.board_json is not None:
+        return bool(spec.board_json)
+    return bool(hand) or any(getattr(spec, k) for k in LAYOUT_KEYS)
+
+
+def board_json(design, board=None, notes=None):
     """(board.json dict, [problems]) from the design's board spec and d.place.fixed relations; {} when the design
-    declares no outline."""
+    declares no outline. `notes`: a list for what board.json leaves out (holes sch_to_board cannot drill,
+    descriptive keep-outs); without one they join the problems."""
     spec = design.boards.get(board) if board else design.board_spec
     problems = []
+    notes = problems if notes is None else notes
     if spec is None or not (spec.width_mm and spec.height_mm):
         return {}, problems
     W, H = float(spec.width_mm), float(spec.height_mm)
@@ -111,10 +134,16 @@ def board_json(design, board=None):
         out["holes"] = [[h.x, h.y] for h in spec.holes]
         odd = [h for h in spec.holes if abs(h.drill_mm - 3.2) > 1e-6]
         if odd:
-            problems.append(f"sch_to_board places M3 holes (3.2 mm) only; holes {[(h.x, h.y) for h in odd]} "
-                            f"ask for other drills")
+            notes.append(f"sch_to_board places M3 holes (3.2 mm) only; holes {[(h.x, h.y) for h in odd]} ask for "
+                         f"{sorted({h.drill_mm for h in odd})} mm: change those footprints on the board by hand")
     slots = [list(s) for s in (spec.slots or [])]
-    keepouts = [dict(k) for k in (spec.keepouts or [])]
+    keepouts = []
+    for k in spec.keepouts or []:
+        if rule_area(k):
+            keepouts.append(dict(k))
+        else:
+            notes.append(f"keep-out {k.get('note') or k.get('what') or k.get('relative') or k} is a description "
+                         f"(no rect [x0, y0, x1, y1] with layers [...]): not written to board.json; draw it on the board")
     for cut in spec.cuts or []:
         slots += [list(s) for s in cut.slots(W, H)]
         keepouts += cut.keepouts(W, H)
@@ -210,10 +239,15 @@ def write(design, design_dir, outdir, add):
     hand = json.loads(hand_path.read_text()) if hand_path and hand_path.exists() else {}
     names = design.board_names() or ([design.board_spec.name] if design.board_spec else [])
     first = {}
+    if names and not wants_board_json(design.boards.get(names[0]) or design.board_spec, hand):
+        return first          # older designs: their frame may be y-up (BoardSpec.board_json)
     for i, name in enumerate(names):
-        gen, problems = board_json(design, name if len(names) > 1 else None)
+        notes = []
+        gen, problems = board_json(design, name if len(names) > 1 else None, notes)
         for p in problems:
             add("board.geometry", "error", p, [])
+        for p in notes:
+            add("board.geometry", "warning", p, [])
         if i == 0 and hand:
             merged, bad, extra = merge(gen, hand)
             for key, g, h in bad:

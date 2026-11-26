@@ -256,7 +256,7 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
         for chk, msg, objs in d.haslam.warnings():
             findings.append(Finding(chk, "warning", msg, list(objs)))
         unused = {}
-        for r, why in d.haslam.relations()[1]:
+        for r, why in d.haslam.relations(geometry)[1]:
             unused.setdefault((r["kind"], why), []).append(r)
         for (kind, why), rs in sorted(unused.items()):
             findings.append(Finding("haslam_intent.relation_unused", "warning",
