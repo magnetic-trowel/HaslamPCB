@@ -157,8 +157,14 @@ def params(bd, dcp, P, intent=None):
                 continue
             cs = _rng(hs.get("theta_cs_C_W")) or THETA_CS
             jc = _rng(hs.get("theta_jc_C_W")) or intent_value(intent, "parts", hs["part"], "theta_jc_C_W") or THETA_JC
+            # stated only when theta_JC and theta_CS are stated too: a class prior in the sum (5 K/W theta_JC against a
+            # stated 2 K/W sink) is a prior, and the ledger asks for it
+            stated = _rng(hs.get("theta_cs_C_W")) is not None and (
+                _rng(hs.get("theta_jc_C_W")) is not None or intent_value(intent, "parts", hs["part"], "theta_jc_C_W") is not None)
             out.append(Param(f"heat:{hs['part']}", "R_sink", sa[0] + cs[0] + jc[0], sa[1] + cs[1] + jc[1], sa[2] + cs[2] + jc[2],
-                             "K/W", "intent", f"junction to air through its heat sink: theta_JC + theta_CS + theta_SA ({why})"))
+                             "K/W", "intent" if stated else "prior",
+                             f"junction to air through its heat sink: theta_JC + theta_CS + theta_SA ({why}"
+                             + ("" if stated else "; theta_JC or theta_CS a class prior") + ")"))
         elif _rng(hs.get("theta_C_W")):
             t, lo, hi = _rng(hs["theta_C_W"])
             out.append(Param(f"heat:sink{k}", "G_W_K", 1 / t, 1 / hi, 1 / lo, "W/K", "intent",
