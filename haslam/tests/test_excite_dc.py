@@ -663,6 +663,11 @@ def test_a_converter_whose_rail_has_no_load_idles_at_its_quiescent_draw():
     assert H.idle_cells(bd, {"cell:c": (cell, 0.1)}) == []
     cvs, scale = H.cell_points(pl, [src], cps, own, {"cell:c": (cell, 0.0)}, nlc, [cell])
     assert all(cv["cell:c"]["I_A"] == 0.0 for cv in cvs) and scale["U1"] == [0.0] * 5
+    # every part of the idle cell drops its harmonic heat, not only the controller (an input capacitor's ESR heat)
+    cell["parts"] = {"U1", "C1", "D1"}
+    _, scale = H.cell_points(pl, [src], cps, own, {"cell:c": (cell, 0.0)}, nlc, [cell])
+    assert scale["C1"] == scale["D1"] == [0.0] * 5
+    cell["parts"] = set()
     for cv, q in zip(cvs, nlc):
         heat = H.part_heat(SimpleNamespace(part_kind={}), pl, cv, {("heat:U1", "R_on_ohm"): 0.3}, {})
         assert heat == {"U1": pytest.approx(12.0 * q[("heat:U1", "I_q_A")])}      # no rectifier heat
