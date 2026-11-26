@@ -132,11 +132,15 @@ def _sprint(monkeypatch, store, plan=True, **kw):
     ctl = dict(br=dict(id="br", name="control bridge", recipe=dict(kind="route", params=dict(timeout_s="3600"), environment=dict(kicad_threads=2),
                                                                   runner=dict(template="cp numba-default-ttttttt numba; haslam route"))),
                st=dict(id="st", name="control staged", recipe=dict(kind="joint-fixed", params={}, environment=dict(kicad_threads=2),
-                                                                  runner=dict(template="haslam joint"))))
+                                                                  runner=dict(template="haslam joint"))),
+               hy=dict(id="hy", name="stored hybrid", code=dict(haslam=dict(commit="h" * 40)),
+                       recipe=dict(kind="route", params=dict(timeout_s="3600", parallel="8"), environment=dict(kicad_threads=2),
+                                   runner=dict(template="cp numba-default-hhhhhhh numba; haslam route --set first_router=tracemaker"))))
     if "control_code" in kw:
         ctl["br"]["code"] = kw.pop("control_code")
     monkeypatch.setattr(K, "exp_dir", lambda n: store / "experiments" / n)
-    monkeypatch.setattr(K, "load_exp", lambda n: dict(name=n, attempts=2, harness=dict(commit=tag), methods=[dict(id="br"), dict(id="st")]))
+    monkeypatch.setattr(K, "load_exp", lambda n: dict(name=n, attempts=2, harness=dict(commit=tag),
+                                                      methods=[dict(id="br"), dict(id="st"), dict(id="hy")]))
     monkeypatch.setattr(K, "find_method", lambda k: ctl[k])
     monkeypatch.setattr(K, "main_repo", lambda: "/repo")
     monkeypatch.setattr(K, "git", lambda repo, *a: tag if a[-1].startswith("TAG") else "c" * 40)
@@ -303,6 +307,18 @@ def test_sprint_smoke_submits_two_cheap_boards_one_of_them_a_control_fill(monkey
     s = _sprint(monkeypatch, store, suite="sprint-quality", runs=runs, smoke=2)["submit"]
     assert s.only == f"{boards[0]},{boards[1]}" and s.prio == 5
     assert f"the rest: haslamres exp submit x --prio 5" in capsys.readouterr().out
+
+
+def test_sprint_control_method_takes_a_stored_arm_as_the_control(monkeypatch, store):
+    """The BGA baseline: arms on top of the stored TraceMaker hybrid, its numba cache renamed to the arm's commit."""
+    c = _sprint(monkeypatch, store, set=["k=v"], control_method="hy", runs={})
+    assert c["create"].method == ["hy", "new"]
+    assert c["method"].command == "cp numba-default-ccccccc numba; haslam route --set first_router=tracemaker --set k=v"
+    assert "parallel=8" in c["method"].param
+    with pytest.raises(SystemExit, match="not --base staged"):
+        _sprint(monkeypatch, store, base="staged", set=["k=v"], control_method="hy")
+    with pytest.raises(SystemExit, match="0 of control-w47's methods match"):
+        _sprint(monkeypatch, store, set=["k=v"], control_method="zz")
 
 
 def test_method_add_on_the_command_line_exits_0(tmp_path, monkeypatch):

@@ -36,7 +36,7 @@ CLOCK_TR = 1e-9
 CLOCK_F = 25e6                   # a clock whose frequency the board does not state
 CORE_F = 50e6                    # core clock of an IC whose clock is not known
 CLOCK_C = 10e-12                 # load of a short clock net (receiver plus trace)
-HIGH_SIDE = ("buck", "half_bridge", "motor_driver", "sepic", "flyback", "forward")
+HIGH_SIDE = ("buck", "inverting", "half_bridge", "motor_driver", "sepic", "flyback", "forward")
 
 
 def no_core(intent):
@@ -184,6 +184,9 @@ _nearest_ground = nearest_ground
 
 def _cell(bd, s, uuid):
     c = bd.circuit
+    if "common_source_inductance" in (s.get("unmodelled") or []):
+        bd.assumptions.append(f"{s['id']}: the FETs' common-source inductance (the gate-drive loop sharing each FET's "
+                              f"source path) is not modelled; its switching edges are the cell's priors")
     sw, gnd, bus = s.get("sw"), s.get("gnd") or bd.ground, s.get("rail")
     ex = s.get("excite") or {}
     I, V = ex.get("I") or 1.0, ex.get("V") or bd.rails.get(bus) or 12.0

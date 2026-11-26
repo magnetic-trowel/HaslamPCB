@@ -24,21 +24,25 @@ buck and, for a boost or inverting stage, V_in eta D / (L f): within eta of SLVA
 capped at 2 I_L (the DCM boundary). A buck's D keeps eta = 1: its eta correction is a conduction-loss
 refinement of a few percent that moves no current between loops, and its input current is taken from the
 power balance instead.
+
+Every function takes the rails as they read and works in their magnitudes: a -12 V -> -5 V buck is the mirror image
+of a 12 V -> 5 V one (every switch, diode and current reversed, every magnitude the same). Which of two rails' signs
+make an inverting stage is topology_of's to say, not the equations'.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
 ETA = (0.8, 0.9, 0.95)        # efficiency (lo, typ, hi) of a converter whose efficiency nobody states
 BAND_4SW = 0.1                # a 4-switch buck-boost is in its buck (boost) region when V_in / V_out >= 1.1 (<= 0.9)
 D_MIN, D_MAX = 0.02, 0.98
-TOPOLOGIES = ("buck", "boost", "inverting_buck_boost", "buck_boost_4switch", "sepic", "cuk", "boost_led")
+TOPOLOGIES = ("buck", "boost", "inverting_buck_boost", "inverting_buck", "buck_boost_4switch", "sepic", "cuk", "boost_led")
 SOURCES = {
     "buck": "TI SLVA477 (buck power stage)",
     "boost": "TI SLVA372 (boost power stage)",
     "boost_led": "TI SLVA372 (boost power stage) at the LED string's current",
     "inverting_buck_boost": "TI SLVA721 (inverting buck-boost power stage)",
+    "inverting_buck": "TI TPS6371x (inverting buck: a flying capacitor shifts the switch node below ground)",
     "buck_boost_4switch": "TI SLVA535 (4-switch buck-boost power stage)",
     "sepic": "TI SLYT309 / SNVA168 (SEPIC)",
     "cuk": "Erickson and Maksimovic, Fundamentals of Power Electronics, ch. 2 (Cuk)",
@@ -67,16 +71,22 @@ def _clip(D):
     return min(max(D, D_MIN), D_MAX)
 
 
-def topology_of(cls, struct=None, v_out=None):
+def topology_of(cls, struct=None, v_out=None, v_in=None):
     """(topology, leg) of a brief commutation cell (class, its structure), or (None, None) when it is no
-    DC-DC converter (half bridges, motor and class-D drivers keep their stated or prior current)."""
+    DC-DC converter (half bridges, motor and class-D drivers keep their stated or prior current).
+    v_out, v_in: the rails' signed voltages. A buck-class cell inverts when its rails have opposite signs
+    (12 V -> -5 V, or -12 V -> 5 V); between rails of one sign (-12 V -> -5 V) it is a buck, the mirror image of
+    a positive one. With v_in unknown a negative v_out is taken as inverting (the common case: a negative rail
+    made from a positive supply); the rails alone cannot tell it from a negative buck."""
     st = struct or {}
     top = st.get("topology")
     if top == "buck_boost_4switch":
         return "buck_boost_4switch", cls
     if top in TOPOLOGIES:
         return top, None
-    if cls == "buck" and v_out is not None and v_out < 0:
+    if cls == "buck" and v_out and ((v_out < 0) != (v_in < 0) if v_in else v_out < 0):
+        return "inverting_buck_boost", None
+    if cls == "inverting":
         return "inverting_buck_boost", None
     if cls in ("buck", "boost", "sepic", "cuk", "inverting_buck_boost", "boost_led"):
         return cls, None
@@ -84,14 +94,14 @@ def topology_of(cls, struct=None, v_out=None):
 
 
 def region_4switch(V_in, V_out):
-    r = V_in / V_out
+    r = abs(V_in) / abs(V_out)
     return "buck" if r >= 1 + BAND_4SW else ("boost" if r <= 1 - BAND_4SW else "buck_boost")
 
 
 def duty(topology, V_in, V_out, eta=ETA[1], leg=None):
     """The switching leg's duty (clipped to [D_MIN, D_MAX]); 0 for a static 4-switch leg."""
-    Vo = abs(V_out)
-    if topology == "buck":
+    V_in, Vo = abs(V_in), abs(V_out)
+    if topology in ("buck", "inverting_buck"):
         return _clip(Vo / V_in)
     if topology in ("boost", "boost_led"):
         return _clip(1 - V_in * eta / Vo)
@@ -119,19 +129,19 @@ def ripple_pp(V_bus, D, L, f_sw):
 
 
 def input_current(topology, V_in, V_out, I_out, eta=ETA[1]):
-    """The converter's average input current from the power balance: I_out |V_out| / (V_in eta)."""
-    return I_out * abs(V_out) / (V_in * eta)
+    """The converter's average input current from the power balance: I_out |V_out| / (|V_in| eta)."""
+    return I_out * abs(V_out) / (abs(V_in) * eta)
 
 
 def operating(topology, V_in, V_out, I_out, eta=ETA[1], L=None, f_sw=None, leg=None):
     """The converter's currents at one operating point (see the module docstring)."""
     src = SOURCES.get(topology, "")
-    Vo = abs(V_out)
+    V_in, Vo = abs(V_in), abs(V_out)
     I_in = input_current(topology, V_in, V_out, I_out, eta)
     D = duty(topology, V_in, V_out, eta, leg)
     basis = [src]
     mode = topology
-    if topology == "buck":
+    if topology in ("buck", "inverting_buck"):
         IL, Isw, Vb, loop = I_out, I_out, V_in, "input"
     elif topology in ("boost", "boost_led"):
         IL, Isw, Vb, loop = I_in, I_in, Vo, "output"
@@ -161,7 +171,7 @@ def operating(topology, V_in, V_out, I_out, eta=ETA[1], L=None, f_sw=None, leg=N
     op = Operating(topology, leg, mode, D, I_in, I_out, IL, Isw, Vb, loop, basis=basis)
     if Isw > 0 and L and L > 0 and f_sw and f_sw > 0:
         # the inductor's volt-seconds during the on time, as each note writes them
-        v_on = (V_in - Vo) if (topology == "buck" or (topology == "buck_boost_4switch" and mode == "buck")) else V_in
+        v_on = (V_in - Vo) if (topology in ("buck", "inverting_buck") or (topology == "buck_boost_4switch" and mode == "buck")) else V_in
         dI = max(v_on, 0.0) * D / (L * f_sw)
         if dI is not None:
             dI = min(dI, 2 * IL)
@@ -206,13 +216,13 @@ def rectifier_current(topology, I_L, D):
     return I_L * (1 - D)
 
 
-def _iv(v, what="cells value"):
-    """(typ, lo, hi) of an intent value (haslam.intent.facts.interval: a number, [lo, hi] or [lo, typ, hi]), or
-    None when it is absent."""
+def _iv(v):
+    """(typ, lo, hi) of an intent value (haslam.intent.facts.interval: a point, [lo, hi] or [lo, typ, hi]). Reading
+    [lo, typ, hi] as its ends, the stated typical was replaced by the ends' geometric mean."""
     if v is None or isinstance(v, (list, tuple)) and not v:
         return None
     from haslam.intent.facts import interval
-    return interval(v, what)
+    return interval(list(v) if isinstance(v, tuple) else v)
 
 
 @dataclass
@@ -233,21 +243,21 @@ def from_intent(cell, topology, leg=None, V_in=None, V_out=None, eta=None):
     else `eta`, else ETA). None when the facts give no current, or give I_out_A without the voltages or
     topology to convert it (the caller then keeps I_out_A as the current and says so)."""
     cell = cell or {}
-    v = _iv(cell.get("I_switch_A"), "cells.I_switch_A")
+    v = _iv(cell.get("I_switch_A"))
     if v:
         return CellCurrent(v, "intent", "I_switch_A stated in the intent (override)")
-    v = _iv(cell.get("I_A"), "cells.I_A")
+    v = _iv(cell.get("I_A"))
     if v:
         return CellCurrent(v, "intent", "the intent file")
-    Io = _iv(cell.get("I_out_A"), "cells.I_out_A")
+    Io = _iv(cell.get("I_out_A"))
     if not Io:
         return None
-    vi = _iv(cell.get("V_in_V"), "cells.V_in_V") or ((V_in,) * 3 if V_in else None)
-    vo = _iv(cell.get("V_out_V"), "cells.V_out_V") or ((V_out,) * 3 if V_out else None)
+    vi = _iv(cell.get("V_in_V")) or ((V_in,) * 3 if V_in else None)
+    vo = _iv(cell.get("V_out_V")) or ((V_out,) * 3 if V_out else None)
     if topology is None or not vi or not vo or not vi[0] or not vo[0]:
         why = "topology unknown" if topology is None else "V_in or V_out unknown"
         return CellCurrent(Io, "intent", f"I_out_A as the commutated current ({why}: not converted)")
-    e = _iv(cell.get("eta"), "cells.eta") or (tuple(eta) if eta else None)
+    e = _iv(cell.get("eta")) or (tuple(eta) if eta else None)
     ebasis = "intent eta" if cell.get("eta") is not None else ("rail eta" if eta else f"eta {ETA[0]:g}-{ETA[2]:g} typical")
     e = e or (ETA[1], ETA[0], ETA[2])
     Vi, Vo = vi[0], vo[0]

@@ -224,6 +224,16 @@ DEFAULTS = dict(
                                    # merit boards, k=2) found 0 / 10 / 30 equal (cp1 0.305 / 0.310 / 0.305,
                                    # completion 0.941-0.943), so the simpler setting wins; RUDY also ranks PCB
                                    # routability near chance (docs/research/placement/haslam-routability-estimators.md)
+    place_w_chan=3.0,              # placement: weight of the annealer's routing-channel term (pad halos of
+                                   # two parts overlapping / mean part area; haslam.place.exact.channel_grid). On with
+                                   # both gates below: chan-ladder (96 fresh boards, k 3) opens -13.6 % [-17.7, -9.4],
+                                   # legality and DRC guards held (experiments/chan-ladder/VERDICT.md); 0 off
+    place_chan_util_gate=1,        # placement: 1 scales place_w_chan by the board's movable-part utilization:
+                                   # full at <= 0.65, zero at >= 0.70 (haslam.place.pipeline.util_gate); chan-gate-guard
+    place_chan_header_gate=1,      # placement: 1 switches the channel term off on a board with a movable edge header
+                                   # that fits nowhere (haslam.place.pipeline.header_gate); chan-ladder
+    place_chan_edge=0,             # placement: 1 adds channels between pads and the board edge to the
+                                   # channel term (haslam.place.exact.channel_edge_term); off until its A/B
     place_untangle=0,              # placement: 1 runs haslam.place.crossings.untangle after legalization (swaps of
                                    # equal parts and half turns that remove ratsnest crossings). Off until its A/B
                                    # (docs/research/placement/placement-routability-2611.md) says otherwise
@@ -1355,6 +1365,101 @@ def thermal_corridors(info, p, pad_uuids=None, sev=None, solid=False):
                 corridor = unary_union([g for _, g in cand[:need]]) if cand else None
                 if corridor is not None and not corridor.is_empty:
                     out.append((corridor, l, pad))
+    return out
+
+
+def _class_of(info, net):
+    """(clearance, track width) of `net`'s netclass (Default when unknown), at least the board minima."""
+    s = info.get("settings") or {}
+    ncs = info.get("netclasses") or {}
+    nc = ncs.get(((info.get("nets") or {}).get(net) or {}).get("netclass") or "Default") or ncs.get("Default") or {}
+    return (max(float(nc.get("clearance") or 0.0), float(s.get("min_clearance") or 0.0), 0.1),
+            max(float(nc.get("track_width") or 0.0), float(s.get("min_track") or 0.0), 0.1))
+
+
+def escape_lanes(info, p=None, reach=1.5):
+    """[(geometry, layer, pad)]: lanes to keep other nets out of so that a pad that does not touch its
+    own net's copper keeps its short way there (pour_links, the hot-loop cells stage).
+
+    For each pad with a net, on each of its copper layers: when no zone of its net covers the pad
+    there, the shortest straight piece from the pad to the nearest zone of its net on that layer (the
+    zone within `reach` mm), to where that zone can pour at its minimum width (its pourable core: the
+    outline less other nets' pads at its clearance, shrunk by half that width), if it crosses no other
+    net's pad, widened to the net's track width plus its clearance each side and run on into the core. open-authenticator: U4's
+    L1 pins (U4.2, U4.4) sit 0.2-0.55 mm below their own L1 zones and join them by short tracks; the
+    cell's GND via between the pins and the zone corners took that gap and both pins were left
+    unconnected. Lanes to the nearest other pad of the net are not laid: on ericmullally's power
+    supply they left IC1's cells only paths that walled in PG and Vaux (both cells reverted by the
+    reachability backstop, which catches a pin cut off from its pads without them)."""
+    from shapely.ops import nearest_points
+    zones = [z for z in info.get("zones") or [] if not z.get("rule_area") and z.get("net") and not z.get("teardrop")]
+    zgeo = {}
+    for z in zones:
+        g = unary_union([x for x in (_poly(r) for r in z["rings"]) if x is not None] or [Polygon()])
+        for l in z.get("layers") or []:
+            zgeo.setdefault((z["net"], l), []).append((g, float(z.get("min_thickness") or 0.0),
+                                                       float(z.get("clearance") or 0.0)))
+    by_layer = {}
+    for q in info.get("pads") or []:
+        for l, g in (_pad_shapes(q)[1] or {}).items():
+            if g is not None and not g.is_empty:
+                by_layer.setdefault(l, []).append((q, g))
+    trees = {l: (shapely.STRtree([g for _, g in v]), v) for l, v in by_layer.items()}
+    cores = {}
+
+    def core(zg, mt, zclr, net, l):
+        """Where the zone's fill can run at its minimum width: its outline less other nets' pads at the zone's
+        clearance, shrunk by half that width (the centres of every mt-wide strip of fill it can pour)."""
+        k = (id(zg), l)
+        if k not in cores:
+            tree, items = trees.get(l, (None, []))
+            foreign = [g.buffer(zclr) for q, g in (items[int(i)] for i in (tree.query(zg) if tree is not None else []))
+                       if q.get("net") != net] if items else []
+            room = zg.difference(unary_union(foreign)) if foreign else zg
+            cores[k] = room.buffer(-max(mt, 0.05) / 2)
+        return cores[k]
+    out = []
+    for l, (tree, items) in trees.items():
+        for pad, cop in items:
+            net = pad.get("net")
+            if not net:
+                continue
+            own_z = zgeo.get((net, l)) or []
+            if any(zg.intersects(cop) for zg, _, _ in own_z):
+                continue          # touches its zone: a solid or thermal link (thermal_corridors)
+            clr, w = _class_of(info, net)
+            best = None
+            for zg, mt, zclr in own_z:
+                if zg.is_empty or cop.distance(zg) > reach:
+                    continue
+                # aimed at the zone's pourable core, not its outline: open-authenticator's U4.2 aimed at its
+                # L1-Pad2 zone's corner, a wedge the cell's +3V3 hop then left too thin to pour
+                c = core(zg, mt, zclr, net, l)
+                if c.is_empty:
+                    continue
+                d = cop.distance(c)
+                if d <= reach + max(mt, 0.05) and (best is None or d < best[0]):
+                    best = (d, c, mt, zg, zclr)
+            if best is None or best[0] <= 1e-6:
+                continue
+            a, b = nearest_points(cop, best[1])
+            dx, dy = b.x - a.x, b.y - a.y
+            n = math.hypot(dx, dy) or 1.0
+            ext = max(best[2] / 2, w / 2)        # on into the core by half the fill's width
+            line = LineString([(a.x, a.y), (b.x + dx / n * ext, b.y + dy / n * ext)])
+            lane = line.buffer(w / 2 + clr, cap_style="flat")
+            # and a landing where the lane meets the zone: room for the fill to pour its minimum width round the
+            # track's end past the zone's clearance, so the other nets' copper beside the lane cannot thin it away
+            end = Point(line.coords[-1])
+            lane = lane.union(end.buffer(max(best[2], 0.05) + best[4]).intersection(best[3]))
+            hit = False
+            for i in tree.query(line.buffer(w / 2)):
+                q, g = items[int(i)]
+                if q.get("net") != net and g.intersects(line.buffer(w / 2)):
+                    hit = True
+                    break
+            if not hit:
+                out.append((lane, l, pad))
     return out
 
 

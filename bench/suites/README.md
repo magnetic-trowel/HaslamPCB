@@ -26,3 +26,32 @@ budget 900 s × sqrt(footprints/40)): `--base bridge` = `288a499c28d9` (bridge o
 `85993b60a886` (place, then bridge). By hand: `haslamres exp create NAME --method 288a499c28d9 --method NEW --boards @FILE
 --attempts 2 --reuse-runs --harness baseline/2026-w48 --haslam baseline/2026-w48`. The previous control, `control-w47` (`c2dd008a`,
 before the rename of #163), cannot be run by main's haslamres; experiments made against it stay as they are.
+
+## BGA and fine-pitch baseline: the CPU-limited TraceMaker hybrid
+
+Experiments on ball grids or fine-pitch escape (`mech/bga*.txt`, `mech/fine-pitch.txt`) compare against the
+TraceMaker hybrid, not the bridge: on `mech/bga-pitch-0.4` it left 15.2 fewer opens per pair than the bridge
+[-29.7, -3.2] (experiment `tm-hybrid`). Its stored runs are in experiment `hybrid-bga-w47` (method `76e995d20a60`):
+
+- Recipe: the bridge control at the tag plus `first_router=tracemaker, tracemaker=db5950f4-thread-cpu-clock,
+  ball_escapes=false, tm_clock=cpu, tm_seconds=500`, `--param parallel=8`. Code: branch `hybrid-baseline-w47`, made before the
+  rename (#163); keep it, the stored runs pin it. The same code is on main (`haslam.route.tracemaker`).
+- Clock: each of TraceMaker's 8 variants stops after 500 CPU-seconds of its own thread, not wall time
+  (`haslam.route.tracemaker`, tm_clock "cpu"). The build comes from
+  `PATCH=thread-cpu-clock tools/research/routing/tracemaker/install_tracemaker.sh`.
+- Repeatability: not exact. Two runs of TraceMaker alone at 500 CPU-s per variant gave identical boards where the
+  search had converged (solokeys). Where it was still improving they differed by 1 open of 86, with the same vias
+  (logicbone). On the old wall clock, how much search a variant gets depends on host load.
+  Details: `$HASLAM_RESULTS/experiments/hybrid-bga-w47/REPEAT.md`. Exact repeats need TraceMaker's `--work` budget.
+- An arm on top of it: `haslamres sprint NAME --base bridge --control hybrid-bga-w47 --control-method 76e995d20a60
+  --commit SHA --set ... --suite mech/bga-pitch-0.4 --param parallel=8 --allow-over-cap "BGA boards are the mechanism"`.
+  The arm is the hybrid's recipe with your settings, paired against the stored hybrid runs. The hybrid costs about
+  1 CPU-h per run, so the per-board limit needs `--allow-over-cap`.
+- `hybrid-bga-w47`, like `control-w47`, was made before the rename (#163); whether main's haslamres can run an arm
+  against it is untested. If it cannot, register the hybrid recipe at `baseline/2026-w48` as a new stored baseline.
+- The stored runs exist for `mech/bga-pitch-0.4` only. On another BGA suite the hybrid runs in your campaign as the
+  control fill and is stored for the next experiment.
+
+Every campaign records a CPU-h cap at submit (`--cpu-cap`, default 40 per arm). `haslamres exp report` and
+`haslamres exp watchdog NAME` project the total from finished jobs and cancel the queued jobs past the cap. The
+reason goes to `WATCHDOG.md` in the experiment folder.

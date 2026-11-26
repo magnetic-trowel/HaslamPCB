@@ -265,12 +265,20 @@ class LoopBuilder:
         self.lp.body((ta["x"], ta["y"]), (tb["x"], tb["y"]), h, zb, w)
 
 
-def _gnd_layer(rb, layer, x, y, outlines=False):
+def cell_ret(rb, s):
+    """The nets a cell's loop returns through, as the router reads them (critical_modules.cell_return): the board's
+    grounds, except an inverting cell whose input capacitor returns to its negative rail (`ret` not a ground)."""
+    from haslam.circuit.structures import loops_of
+    ret = loops_of(s)[0][2]
+    return {ret} if s.get("class") == "inverting" and ret and ret not in rb.gnd else rb.gnd
+
+
+def _gnd_layer(rb, layer, x, y, outlines=False, nets=None):
     """The nearest layer below `layer` with ground fill under (x, y) (with outlines: with a
-    ground zone outline there, filled or not)."""
+    ground zone outline there, filled or not); `nets`: the return nets when not the grounds."""
     best = None
     p = Point(x, y)
-    for g in rb.gnd:
+    for g in (rb.gnd if nets is None else nets):
         if rb.fills is not None and not outlines:
             byl = rb.fills.get(g) or {}
             items = [(l, unary_union(v)) for l, v in byl.items() if v]
@@ -286,20 +294,22 @@ def _gnd_layer(rb, layer, x, y, outlines=False):
     return best[1] if best else None
 
 
-def plane_cover(rb, layer, region):
+def plane_cover(rb, layer, region, nets=None):
     """Share of `region` covered by ground fill on `layer`, out of the part of it inside the
     ground zones' outlines there (so a planned cut-out does not count): 1.0 for a whole
-    plane, less where other nets' tracks, vias and their clearances perforate it."""
+    plane, less where other nets' tracks, vias and their clearances perforate it. `nets`: the
+    return nets when not the grounds."""
     if layer is None or region is None or region.is_empty or rb.fills is None:
         return None
-    outl = [z.outline for z in rb.board.zones if z.net in rb.gnd and layer in z.layers and z.outline is not None
+    nets = rb.gnd if nets is None else nets
+    outl = [z.outline for z in rb.board.zones if z.net in nets and layer in z.layers and z.outline is not None
             and not (z.name or "").startswith("haslam-crit:")]
     if not outl:
         return None
     den = region.intersection(unary_union(outl))
     if den.area < 1e-6:
         return None
-    fill = [g for n in rb.gnd for g in (rb.fills.get(n) or {}).get(layer, [])]
+    fill = [g for n in nets for g in (rb.fills.get(n) or {}).get(layer, [])]
     if not fill:
         return 0.0
     return min(1.0, den.intersection(unary_union(fill)).area / den.area)
@@ -327,8 +337,9 @@ def cell_value(rb, s):
         return _T(t) if t is not None else None
     out = None
     vals = []
+    R = cell_ret(rb, s)
     for Tv, _cap in cell_variants(s, T, term_of):
-        v, extra = _cell_loop(rb, Tv)
+        v, extra = _cell_loop(rb, Tv, R)
         if out is None:
             out = extra
         if v is not None and math.isfinite(v) and v > 1e-9:
@@ -338,7 +349,7 @@ def cell_value(rb, s):
     return 1.0 / sum(1.0 / v for v in vals), dict(out, variants=len(vals))
 
 
-def _cell_loop(rb, T):
+def _cell_loop(rb, T, nets=None):
     n = len(T)
     side = rb.fp[T[0]["fp"]].side
     layer = rb.cu[0] if side == "F" else rb.cu[-1]
@@ -346,7 +357,7 @@ def _cell_loop(rb, T):
     cy = sum(t["y"] for t in T) / n
     # the ground plane layer: filled under the loop, else the one whose zone should be there
     # (a cut plane is still the loop's reference, and its cover shows the cut)
-    gl = _gnd_layer(rb, layer, cx, cy) or _gnd_layer(rb, layer, cx, cy, outlines=True)
+    gl = _gnd_layer(rb, layer, cx, cy, nets=nets) or _gnd_layer(rb, layer, cx, cy, outlines=True, nets=nets)
     lb = LoopBuilder(rb, layer, gl)
     for k in range(n):
         ta, tb = T[k], T[(k + 1) % n]
@@ -358,7 +369,7 @@ def _cell_loop(rb, T):
         lb.hop(hop_pieces(rb, ta["net"], ta, tb), ta, tb)
     pts = [(t["x"], t["y"]) for t in T] + [p for H, _ in lb.lp.el.values() for h in H for p in (h[:2], h[2:4])]
     region = shapely.MultiPoint(pts).convex_hull.buffer(0.5)
-    cover = plane_cover(rb, gl, region)
+    cover = plane_cover(rb, gl, region, nets)
     return lb.lp.value(), dict(open_hops=lb.open, gnd_layer=gl,
                                plane_cover=round(cover, 4) if cover is not None else None)
 
@@ -375,7 +386,8 @@ def cell_body_floor(rb, s):
     layer = rb.cu[0] if side == "F" else rb.cu[-1]
     cx = sum(t["x"] for t in T) / len(T)
     cy = sum(t["y"] for t in T) / len(T)
-    gl = _gnd_layer(rb, layer, cx, cy) or _gnd_layer(rb, layer, cx, cy, outlines=True)
+    R = cell_ret(rb, s)
+    gl = _gnd_layer(rb, layer, cx, cy, nets=R) or _gnd_layer(rb, layer, cx, cy, outlines=True, nets=R)
     lb = LoopBuilder(rb, layer, gl)
     for k in range(len(T)):
         ta, tb = T[k], T[(k + 1) % len(T)]
@@ -671,8 +683,9 @@ class _AllocCtx:
         return Ctx.volts(self, net)
 
     def npins(self, u):
+        from .critical_modules import pin_count
         f = self.rb.fp.get(u)
-        return len(f.pads) if f is not None else 2
+        return pin_count(f) if f is not None else 2
 
 
 def fills_of(board_path):

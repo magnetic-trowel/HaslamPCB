@@ -43,6 +43,8 @@ from haslam.budget import now as clock_now
 import argparse
 import json
 import math
+
+from haslam.intent.facts import interval as _fact_interval, FactsError as _FactsError, typical
 import re
 import shutil
 import tempfile
@@ -139,6 +141,15 @@ def _area_on(k, layer):
     """Whether rule area `k` (haslam.board.model.Keepout) covers copper `layer`: "*.Cu" and "F&B.Cu" cover theirs."""
     ls = k.layers or []
     return layer in ls or "*.Cu" in ls or ("F&B.Cu" in ls and layer in ("F.Cu", "B.Cu"))
+def _fact_hi(v):
+    """The top of a fact's value (a number, [lo, hi] or [lo, typ, hi]), or None: copper is sized for the most it
+    carries."""
+    if v is None:
+        return None
+    try:
+        return _fact_interval(list(v) if isinstance(v, tuple) else v)[2]
+    except _FactsError:
+        return None
 
 
 def net_currents(operating, pads_by_ref, power, ground):
@@ -148,10 +159,9 @@ def net_currents(operating, pads_by_ref, power, ground):
     out = {}
     tot = 0.0
     for ref, f in ((operating or {}).get("parts") or {}).items():
-        ia = f.get("I_A")
-        a = max(ia) if isinstance(ia, (list, tuple)) and ia else (ia if isinstance(ia, (int, float)) else None)
+        a = _fact_hi(f.get("I_A"))
         if a is None:
-            a = f.get("I_sustained_A")
+            a = typical(f.get("I_sustained_A"))         # a number, [lo, hi] or [lo, typ, hi] (a list was dropped)
         if not isinstance(a, (int, float)) or a <= 0:
             continue
         rails = (pads_by_ref.get(ref) or set()) & set(power)
@@ -473,10 +483,9 @@ def pad_currents(operating, pads, power, ground):
     out = {}
     for ref, nets in by_ref.items():
         f = parts.get(ref) or {}
-        ia = f.get("I_A")
-        own = max(ia) if isinstance(ia, (list, tuple)) and ia else (ia if isinstance(ia, (int, float)) else None)
+        own = _fact_hi(f.get("I_A"))
         if own is None:
-            own = f.get("I_sustained_A")
+            own = typical(f.get("I_sustained_A"))
         own = float(own) if isinstance(own, (int, float)) and own > 0 else 0.0
         s = set(nets)
         series = len(nets) == 2 and not s & set(ground) and s & set(power)
@@ -1714,7 +1723,7 @@ class PowerCopper:
         from scipy.special import k0
         watts = {}
         for r, f in (op.get("parts") or {}).items():
-            w = (f or {}).get("P_sustained_W") if isinstance(f, dict) else None
+            w = typical((f or {}).get("P_sustained_W")) if isinstance(f, dict) else None
             if isinstance(w, (int, float)) and w > 0:
                 watts[r] = float(w)
         for r, w in (getattr(self, "tht_heat", {}) or {}).items():

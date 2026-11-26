@@ -111,8 +111,8 @@ class Policy:
         dT, ht = self.dT_max(net, with_term=True)
         Imax = max((QT.Magnitude.bound(x) for x in I), default=0.0)
         if dT is not None and Imax > 0:
-            from haslam.route.critical_physics import ipc2221_width
-            w_ipc = ipc2221_width(Imax, dT, t_mm, internal=internal)
+            from haslam.route.critical_physics import track_width
+            w_ipc = track_width(Imax, dT, t_mm, internal=internal)
             if w_ipc > hi + 1e-9:
                 # the heating limit's width does not fit under the class or knob cap: the hop is narrower
                 # than the limit allows; recorded for the router's hazards (a hard term: block)

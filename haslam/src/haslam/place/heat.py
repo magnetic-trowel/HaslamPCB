@@ -25,6 +25,7 @@ import json
 import math
 from pathlib import Path
 
+from haslam.intent.facts import typical
 from haslam.route.constraints import setting
 
 
@@ -48,7 +49,8 @@ def watts(op):
     """{ref: sustained dissipation W} of the parts the operating facts give it for."""
     out = {}
     for ref, v in ((op or {}).get("parts") or {}).items():
-        w = (v or {}).get("P_sustained_W") if isinstance(v, dict) else None
+        # a number, [lo, hi] or [lo, typ, hi] (haslam.intent.facts.typical; a list was dropped)
+        w = typical((v or {}).get("P_sustained_W")) if isinstance(v, dict) else None
         if isinstance(w, (int, float)) and w > 0:
             out[ref] = float(w)
     return out

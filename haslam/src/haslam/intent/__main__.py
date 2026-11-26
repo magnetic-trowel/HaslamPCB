@@ -47,7 +47,9 @@ def _brief(ev, intent=None):
     from haslam.intent import facts as F
     b = load(ev["board"])
     PF.apply(b, ev.get("pins"))         # the pin facts the evaluator used (operating facts `pins`)
-    return B.build(b, facts=F.facts_of(OB.load(intent)) or None if intent else None)
+    from haslam.circuit.roles import cells_inverting
+    # the evaluator's brief (haslam.excite.evaluate): its facts and its inverting cells
+    return B.build(b, facts=F.facts_of(OB.load(intent)) or None if intent else None, inverting=cells_inverting(True))
 
 
 def catalog(ev, brief):

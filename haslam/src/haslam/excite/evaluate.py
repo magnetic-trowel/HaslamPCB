@@ -204,7 +204,9 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     # the schematic's pin facts the intent was compiled with (operating facts `pins`): the same circuit
     n_pins = PF.apply(b, (intent or {}).get("pins"))
     b.stackup, stack_hz, stack_text = assume_stackup(b)
-    brief = brief or B.build(b, facts=intent or None)   # the same facts as the physics, not only the sidecar's
+    # inverting buck-boost cells: recognised for the evaluator unless HASLAM_CELLS_INVERTING=0 (haslam.circuit.roles)
+    from haslam.circuit.roles import cells_inverting
+    brief = brief or B.build(b, facts=intent or None, inverting=cells_inverting(True))   # the same facts as the physics
     bd = M.build(b, brief)
     bd.radios = dict((intent or {}).get("radios") or {})        # the operating facts' radios
     added = [apply_edit(bd, b, e) for e in [f"add:{a}" for a in add_parts] + [f"remove:{r}" for r in remove_parts]
@@ -556,7 +558,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
         sys_dc = {}                          # built by the first solve that needs it (_dc_system)
         harms += _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes, log, obs_out=observations,
                            system=sys_dc)
-        if (dcp.loads or dcp.self_loads) and not any(n.startswith("DC: copper open") for n in notes):
+        if (dcp.loads or dcp.self_loads) and not any(n.startswith(("DC: copper open", DC_UNBALANCED)) for n in notes):
             # part temperatures from the board's own heat flow, and each part's loss (haslam.excite.heat)
             from . import heat as HT
             harms += HT.evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, [0.0] * ncp, notes,
@@ -928,7 +930,8 @@ def print_total(t):
 
 
 # the DC band's notes that void the score: an open flow, or load/source currents left out of the copper
-DC_VOID = ("DC: copper open", "DC: pads outside the copper model")
+DC_UNBALANCED = "DC: the plan's current does not balance"
+DC_VOID = ("DC: copper open", "DC: pads outside the copper model", DC_UNBALANCED)
 
 
 def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes, log, ac_copper=None, obs_out=None,
@@ -950,7 +953,16 @@ def _dc_harms(dcp, bm, b, net_dc, op_dc, cps, srcs, n_corners, seed, tot, notes,
                 cv[s.name] = {k[1]: v for k, v in cps[s.name][c].items()}
         cvs.append(cv)
     m = bm.m
-    raw = [DC.injections(dcp, cv) for cv in cvs]
+    raw, bad = [], []
+    for cv in cvs:
+        lost = []
+        raw.append(DC.injections(dcp, cv, lost))
+        bad += [x for x in DC.imbalance(dcp, raw[-1], lost) if x not in bad]
+    if bad:
+        # a plan whose current does not balance is no power flow: the solve would call it open copper (or absorb a
+        # small error as a cut-off pad). Said as what it is, and the band is not computed
+        notes.append(f"{DC_UNBALANCED}: {'; '.join(bad[:4])}{'; ...' if len(bad) > 4 else ''}: the DC band is not computed")
+        return []
     out_ = sorted({p for inj in raw for p in inj if p not in m.terminals})
     if out_:
         notes.append(f"DC: pads outside the copper model ({', '.join(out_[:6])}): their currents are left out")
@@ -1396,7 +1408,8 @@ def main(argv=None):
     ap.add_argument("--window", type=float, nargs=4)
     ap.add_argument("-o")
     ap.add_argument("--no-lumped", action="store_true", help="copper only, with the circuit's ideal-copper split")
-    ap.add_argument("--intent", help="intent file (JSON): operating conditions, part facts, requirements")
+    ap.add_argument("--intent", help="operating facts (JSON: operating conditions, part facts, requirements), or a "
+                    "haslam.intent/1 document that carries them")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--cell-pitch", type=float, default=None,
                     help="pitch (mm) of each switching cell's window solve (default haslam.excite.hotloop.CELL_PITCH)")
@@ -1422,8 +1435,17 @@ def main(argv=None):
                     "switch-node capacitance)")
     a = ap.parse_args(argv)
     from .beliefs import load_intent
+    facts = load_intent(a.intent) if a.intent else None     # None: the board's own intent file (board_facts)
+    if facts and facts.get("schema") == "haslam.intent/1":
+        # the commander's intent (haslam.intent status scores against it): its operating facts, if it carries them.
+        # One without them evaluated the board on class priors alone (no rails, sources, loads or pin facts), and
+        # the DC band then came out open on boards whose facts close it.
+        if not facts.get("facts"):
+            ap.error(f"{a.intent} is a haslam.intent/1 document without operating facts; --intent takes the operating "
+                     f"facts (<board>.operating.json beside it)")
+        facts = facts["facts"]
     r = evaluate(a.board, a.pitch, tuple(a.window) if a.window else None, nsub=a.nsub, log=lambda m: print(m, file=sys.stderr),
-                 lumped=not a.no_lumped, intent=load_intent(a.intent) if a.intent else None, seed=a.seed,
+                 lumped=not a.no_lumped, intent=facts, seed=a.seed,
                  max_cells=int(a.max_cells) if a.max_cells else None, cells=not a.no_cells, cell_pitch=a.cell_pitch,
                  cell_skin=not a.no_cell_skin, drc=False if a.no_drc else a.drc, scope=a.scope,
                  add_parts=a.add_part, remove_parts=a.remove_part, edits=a.edit, sources=a.sources)

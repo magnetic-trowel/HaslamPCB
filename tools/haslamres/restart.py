@@ -74,6 +74,16 @@ budget while it runs. A judge's hit holds this loop just as long. A hold elapses
 while any attempt is computing, and is skipped when none is, so the schedule (what starts, is
 judged or killed when) is the uncached one, and only the wall time shrinks. The hits, misses
 and charged seconds go to summary.json and HASLAM_WORK (step_cache).
+
+Records of every attempt, kept or discarded (records only: no schedule, judgement or output depends on them). Each
+record in summary.json's attempt_log has `trace` (attempt_trace, about 1 kB: its report's stage seconds, the opens and
+errors after each stage, the nets still open in the judge's DRC report), `budget_ledger` (its `[haslam.budget]` charged
+seconds by kind) and, with --diagnose (off by default: it costs up to DIAGNOSE_S of work per attempt with open
+connections), `diagnosis` (haslam.route.blocked on its board with the judge's report, DIAGNOSE_S nominal seconds of
+counted work whatever the run's mode, so twins get the same diagnosis; run after the last pass, when the output is
+written, and not charged to the run's budget: summary.json's `diagnose` says what it cost, or {"off": true}). `cpu_total_s` is the run's
+one CPU figure: method, judges, the input's DRC, diagnoses and this wrapper. A completion-first run's summary.json has
+`phase_logs` (every phase's attempts) and the --open-alt phase's CPU (null before).
 """
 import argparse
 import gzip
@@ -755,6 +765,208 @@ def relations_summary(log_path):
     "relations"): {n, met, unmet, conflicts}, {} when it reports none (F24)."""
     sm = ((_last_json(log_path).get("relations") or {}).get("summary") or {})
     return {k: sm[k] for k in ("n", "met", "unmet", "conflicts") if k in sm}
+# Records of every attempt, kept or discarded (record_attempt, diagnose_attempts). They change no schedule, judgement
+# or output: they read what an attempt left (its log, its board, the judge's DRC report) after it was judged, and the
+# diagnoses run after the last pass, when the output is written.
+TRACE_BYTES = 1024        # an attempt's summary ("trace") in summary.json: about this many bytes as JSON
+DIAGNOSE_S = float(os.environ.get("HASLAM_DIAGNOSE_S") or 60.0)   # nominal seconds of counted work per diagnosis
+# the Python that runs haslam.route.blocked: this wrapper's own (a haslam method's restart.py runs under haslam's venv); tests
+# and methods whose wrapper runs elsewhere set HASLAM_DIAGNOSE_PY
+_NET = re.compile(r"\[([^\]]*)\]")
+
+
+def budget_ledger(log_path):
+    """An attempt's counted-work ledger (haslam.budget): the sum of every `[haslam.budget]` line in its log (one per haslam
+    process that printed one: work mode or HASLAM_BUDGET_PROFILE), else its report's "budget" (haslam.route.cli and
+    haslam.joint.cli put the clock's report there in both modes). None when there is neither."""
+    try:
+        lines = Path(log_path).read_text(errors="replace").splitlines()
+    except OSError:
+        return None
+    reps = []
+    for ln in lines:
+        if ln.startswith("[haslam.budget] "):
+            try:
+                reps.append(json.loads(ln[len("[haslam.budget] "):]))
+            except ValueError:
+                pass
+    src = "log"
+    if not reps:
+        b = _last_json(log_path).get("budget")
+        if not isinstance(b, dict):
+            return None
+        reps, src = [b], "report"
+    by_kind = {}
+    for r in reps:
+        for k, v in (r.get("charged_by_kind") or {}).items():
+            by_kind[k] = round(by_kind.get(k, 0.0) + float(v), 2)
+    return dict(source=src, processes=len(reps), mode=reps[-1].get("mode"),
+                charged_s=round(sum(float(r.get("charged_s") or 0) for r in reps), 2),
+                wall_s=round(sum(float(r.get("wall_s") or 0) for r in reps), 2),
+                ceiling_hit=any(r.get("ceiling_hit") for r in reps),
+                charged_by_kind=dict(sorted(by_kind.items(), key=lambda x: -x[1])))
+
+
+def open_nets(drc_json):
+    """Names of the nets with unconnected items in a judge's DRC report (sorted), None without a report."""
+    try:
+        r = json.loads(Path(drc_json).read_text())
+    except (OSError, ValueError, TypeError):
+        return None
+    nets = set()
+    for v in r.get("unconnected_items") or []:
+        for it in v.get("items") or []:
+            m = _NET.search(it.get("description") or "")
+            if m and m.group(1):
+                nets.add(m.group(1))
+    return sorted(nets)
+
+
+def stage_trace(rep, depth=3):
+    """From a method's report (the last JSON line of its log), in report order: (path, seconds) of every part that
+    says how long it took, and (path, unconnected, errors) of every part that says what was open after it (a route's
+    repair rounds, a joint loop's iterations and stages). Paths are dotted keys (list items by index)."""
+    secs, opens = [], []
+
+    def walk(x, path, d):
+        if isinstance(x, dict):
+            s = x.get("seconds")
+            if path and isinstance(s, (int, float)) and not isinstance(s, bool):
+                secs.append((path, round(float(s), 1)))
+            u = x.get("unconnected")
+            if path and isinstance(u, (int, float)) and not isinstance(u, bool):
+                e = x.get("errors")
+                opens.append((path, u, e if isinstance(e, (int, float)) and not isinstance(e, bool) else None))
+            if d < depth:
+                for k, v in x.items():
+                    if k not in ("opts", "hazards", "blocked", "fr", "telemetry"):
+                        walk(v, f"{path}.{k}" if path else k, d + 1)
+        elif isinstance(x, list) and d < depth:
+            for i, v in enumerate(x):
+                walk(v, f"{path}.{i}", d + 1)
+    walk(rep if isinstance(rep, dict) else {}, "", 0)
+    return secs, opens
+
+
+def attempt_trace(log_path, drc_json, limit=TRACE_BYTES):
+    """An attempt's summary, about `limit` bytes as JSON: its report's status and seconds, the seconds of each stage,
+    the open connections and errors after each stage (stage_trace), and the names of the nets still open in the
+    judge's DRC report of its board. Lists are cut from the end to fit (`cut` counts what was cut)."""
+    rep = _last_json(log_path)
+    secs, opens = stage_trace(rep)
+    nets = open_nets(drc_json)
+    t = dict(status=rep.get("status"), seconds=rep.get("seconds"), stage_s=[list(x) for x in secs],
+             opens=[list(x) for x in opens], open_nets=nets, open_net_count=None if nets is None else len(nets), cut=0)
+    while len(json.dumps(t, separators=(",", ":"))) > limit:
+        longest = max(("open_nets", "opens", "stage_s"), key=lambda k: len(json.dumps(t[k] or [])))
+        if not t[longest]:
+            break
+        t[longest].pop(len(t[longest]) // 2 if longest != "open_nets" else -1)   # keep a list's first and last
+        t["cut"] += 1
+    return t
+
+
+def record_attempt(info):
+    """Add an attempt's trace and counted-work ledger to its record (every attempt, judged or not)."""
+    d = Path(info["out"]).parent
+    info["trace"] = attempt_trace(d / "log", d / "drc.json")
+    info["budget_ledger"] = budget_ledger(d / "log")
+
+
+def _haslam_env():
+    """The environment a diagnosis runs in: this checkout's haslam first on the path, counted work (its budget is work,
+    whatever the run's mode, so the same board gets the same diagnosis on any host)."""
+    src = str(Path(__file__).resolve().parents[2] / "haslam" / "src")
+    pp = os.environ.get("PYTHONPATH")
+    return dict(os.environ, HASLAM_BUDGET="work", PYTHONPATH=src + (os.pathsep + pp if pp else ""))
+
+
+def diagnose_attempts(done, inp, until, lanes, budget_s=DIAGNOSE_S):
+    """haslam.route.blocked on every judged attempt's board that has open connections, with the judge's DRC report
+    (no DRC of its own), `budget_s` nominal seconds of counted work each, `lanes` at once, none started after the
+    monotonic time `until` or a SIGTERM. Each record gets "diagnosis": counts, the first summary lines, its charged
+    seconds (uncharged to the run: these are records), CPU and wall; or why it did not run. The full result stays
+    beside the attempt's board (blocked.json). Returns the totals for summary.json."""
+    todo = []
+    for info in done:
+        if info.get("rank") is None or not Path(info["out"]).exists():
+            continue
+        if info["rank"][2] == 0:     # rank: haslam.rank.board_rank, [2] the unconnected count
+            info["diagnosis"] = dict(skipped="nothing open")
+            continue
+        todo.append(info)
+    tot = dict(budget_s=budget_s, mode="work", charged_to_run=False, ran=0, skipped=0, failed=0, cpu_s=0.0,
+               wall_s=0.0, charged_s=0.0)
+    running, t0 = {}, time.monotonic()
+    while todo or running:
+        while todo and len(running) < max(1, lanes):
+            info = todo.pop(0)
+            if TERM or time.monotonic() + 10 > until:
+                info["diagnosis"] = dict(skipped="killed" if TERM else "time")
+                tot["skipped"] += 1
+                continue
+            d = Path(info["out"]).parent
+            cmd = [os.environ.get("HASLAM_DIAGNOSE_PY") or sys.executable, "-m", "haslam.route.blocked", str(info["out"]), str(inp), "--drc", str(d / "drc.json"),
+                   "--out", str(d / "blocked.json"), "--time", str(budget_s)]
+            if not (d / "drc.json").exists():
+                cmd[cmd.index("--drc"):cmd.index("--drc") + 2] = []
+            (d / "blocked.json").unlink(missing_ok=True)
+            p = subprocess.Popen(cmd, cwd=d, stdout=open(d / "blocked.log", "w"), stderr=subprocess.STDOUT,
+                                 start_new_session=True, env=dict(_haslam_env(), **deadline_env(until - time.monotonic())))
+            ATTEMPT_PIDS.add(p.pid)
+            running[p] = (info, time.monotonic(), {})
+        time.sleep(0.2)
+        for p, (info, w0, ru) in list(running.items()):
+            limit = min(w0 + WORK_CEILING * budget_s + 60, until)
+            if reap(p, ru) is None:
+                if time.monotonic() <= limit and not term_over():
+                    continue
+                try:
+                    os.killpg(p.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                reap(p, ru, block=True)
+                ru["killed"] = True
+            del running[p]
+            d = Path(info["out"]).parent
+            led = budget_ledger(d / "blocked.log")
+            rec = dict(rc=p.returncode, cpu_s=round(ru.get("ru_cpu_s", 0.0), 1), wall_s=round(time.monotonic() - w0, 1),
+                       charged_s=led and led["charged_s"], **({"killed": "wall"} if ru.get("killed") else {}))
+            try:
+                res = json.loads((d / "blocked.json").read_text())
+                rec.update(blocked=len(res.get("blocked") or []), congestion=len(res.get("congestion") or []),
+                           undiagnosed=res.get("undiagnosed"), seconds=res.get("seconds"),
+                           causes=_causes(res), summary=[s[:160] for s in (res.get("summary") or [])[:6]])
+                tot["ran"] += 1
+            except (OSError, ValueError, AttributeError):
+                rec["error"] = "\n".join(Path(d / "blocked.log").read_text(errors="replace").splitlines()[-3:])[-300:]
+                tot["failed"] += 1
+            info["diagnosis"] = rec
+            tot["cpu_s"] += rec["cpu_s"]
+            tot["charged_s"] += rec["charged_s"] or 0.0
+    tot.update(cpu_s=round(tot["cpu_s"], 1), charged_s=round(tot["charged_s"], 2),
+               wall_s=round(time.monotonic() - t0, 1))
+    return tot
+
+
+def diagnose_until(t0, budget_s):
+    """The monotonic time after which no diagnosis starts or runs on: the wall time a run of this budget may take
+    (work mode: half the wall ceiling) less 15 s, and never past this wrapper's HASLAM_DEADLINE (less 15 s)."""
+    return min(t0 + (0.5 * WORK_CEILING * budget_s if WORK else budget_s), time.monotonic() + wall_left()) - 15
+
+
+def _causes(res):
+    """{cause: count} over a diagnosis's connections (congestion, fixed copper, rule, haslam default, geometry)."""
+    out = {}
+    for c in (res.get("blocked") or []) + (res.get("congestion") or []):
+        k = c.get("cause") if isinstance(c, dict) else None
+        out[str(k)] = out.get(str(k), 0) + 1
+    return out
+
+
+def self_cpu():
+    r = resource.getrusage(resource.RUSAGE_SELF)
+    return r.ru_utime + r.ru_stime
 
 
 def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, stop, cpu_s, base_pairs, keep_equal):
@@ -1069,6 +1281,10 @@ def main():
     ap.add_argument("--open-rest-alt", action="store_true",
                     help="with --open-rest: when the kept board is clean, that run is --alt (kept when no worse)")
     ap.add_argument("--alt", default="", help="completion-first: the command of the second run on a clean board")
+    ap.add_argument("--diagnose", action="store_true",
+                    help="records: after the output is written, run haslam.route.blocked (DIAGNOSE_S nominal seconds of "
+                         "counted work, uncharged) on every judged attempt's board with open connections and keep its "
+                         "diagnosis in summary.json; off by default (traces, ledgers and cpu_total_s are always kept)")
     ap.add_argument("command", nargs=argparse.REMAINDER)
     a = ap.parse_args()
     signal.signal(signal.SIGTERM, _on_term)
@@ -1091,8 +1307,9 @@ def main():
     base_dir = wd / "input"  # the input's own DRC errors (silk, rules) are not the method's
     base_dir.mkdir(exist_ok=True)
     shutil.copy2(inp, base_dir / inp.name)
-    w = time.monotonic()
+    w, input_cpu = time.monotonic(), child_cpu()
     b0 = drc(base_dir / inp.name, inp, a.time if WORK else 0.2 * a.time)
+    input_cpu = child_cpu() - input_cpu
     judge_est = 0.0 if WORK else max(1.0, time.monotonic() - w)   # seconds one judgement takes (the slowest seen)
 
     def deadline():
@@ -1339,6 +1556,15 @@ def main():
                         if a.finish else None), **({"killed": True} if TERM else {}))
     if a.clear:
         work.update(clear=(cz or {}).get("clear"), clear_wall_s=(cz or {}).get("wall_s"), clear_kept=bool((cz or {}).get("kept")))
+    # records only (after the output is written): every attempt's trace and ledger, then the diagnosis of every
+    # attempt's board, until the wall time a run of this budget may take (work mode: half the wall ceiling)
+    for d_ in done:
+        record_attempt(d_)
+    diag = (diagnose_attempts(done, inp, diagnose_until(t0, a.time), a.parallel) if a.diagnose
+            else dict(off=True, cpu_s=0.0))
+    work.update(input_judge_cpu_s=round(input_cpu, 1), diagnose=diag,
+                cpu_total_s=round(work["method_cpu_s"] + judge_cpu + input_cpu + diag["cpu_s"] + self_cpu(), 1),
+                cpu_total_note="method + judges + input DRC + diagnoses (uncharged records) + this wrapper")
     if SC:   # wall_s and the attempts' times above are charged time; real_wall_s is what passed
         tot = dict(hits=SC.STATS["hits"], misses=SC.STATS["misses"], uncacheable=SC.STATS["uncacheable"],
                    charged_s=SC.STATS["charged_s"], saved_s=SC.STATS["saved_s"])
@@ -1404,7 +1630,9 @@ def run_policy(ap, a):
     base_dir = wd / "input"
     base_dir.mkdir(exist_ok=True)
     shutil.copy2(inp, base_dir / inp.name)
+    input_cpu = child_cpu()
     b0 = drc(base_dir / inp.name, inp, a.time if WORK else 0.2 * a.time)
+    input_cpu = child_cpu() - input_cpu
     base, base_pairs = (b0 or {}).get("types", {}), (b0 or {}).get("overlaps", ())
 
     def phase(k, seed, time_s, command):
@@ -1421,9 +1649,11 @@ def run_policy(ap, a):
         for line in (d / "log").read_text(errors="replace").splitlines():
             if line.startswith("HASLAM_WORK "):
                 work = json.loads(line[len("HASLAM_WORK "):])
+        c0 = child_cpu()
         rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() and not TERM else None
         log(f"policy phase {k}: rc {r.returncode}, rank {rank}")
-        return dict(k=k, seed=seed, out=o, dir=d, rank=rank, work=work or {}, command=command[:200])
+        return dict(k=k, seed=seed, out=o, dir=d, rank=rank, work=work or {}, command=command[:200],
+                    policy_judge_cpu_s=round(child_cpu() - c0, 1))
 
     def open_phase(k, seed, time_s, command, prev):
         """--open-alt on phase 1's board: one command, @IN@ the input, @BEST@ phase 1's board (with the task's
@@ -1440,11 +1670,14 @@ def run_policy(ap, a):
         c = c.replace("@BEST@", shlex.quote(str(src))).replace("@SEED@", str(seed)).replace("@TIME@", str(int(time_s)))
         c = c.replace("@REPORT@", shlex.quote(str(d / "report.json")))
         log(f"policy phase {k} (open-alt): seed {seed}, {time_s:.0f}s: {command[:80]}")
-        w0 = time.monotonic()
+        w0, c0 = time.monotonic(), child_cpu()
         with open(d / "log", "w") as f:
             rc = run_group(["sh", "-c", c], WORK_CEILING * time_s if WORK else time_s + GRACE_S, cwd=d, stdout=f,
                            stderr=subprocess.STDOUT)
+        cpu = child_cpu() - c0       # the command and every descendant it waited for (rusage)
+        c0 = child_cpu()
         rank = judge(o, inp, base, a.time, placement=a.check_placement, base_pairs=base_pairs) if o.exists() else None
+        judge_cpu = child_cpu() - c0
         log(f"policy phase {k}: rc {rc}, rank {rank}")
         used = time.monotonic() - w0
         if (d / "report.json").exists():                # the command's report (@REPORT@): kept beside the summary
@@ -1453,8 +1686,12 @@ def run_policy(ap, a):
                 used = float(json.loads((d / "report.json").read_text()).get("seconds") or used)
             except (ValueError, OSError, AttributeError):
                 pass
+        trace = attempt_trace(d / "log", d / "drc.json")     # the judge's report of its board, beside it
         return dict(k=k, seed=seed, out=o, dir=d, rank=rank, command=command[:200], time_s=time_s, used_s=used,
-                    work=dict(attempts=1, wall_s=round(time.monotonic() - w0, 1)))
+                    policy_judge_cpu_s=round(judge_cpu, 1),
+                    work=dict(attempts=1, wall_s=round(time.monotonic() - w0, 1), cpu_s=round(cpu, 1),
+                              method_cpu_s=round(cpu, 1), cpu_total_s=round(cpu, 1), rc=rc, trace=trace,
+                              budget_ledger=budget_ledger(d / "log")))
 
     p1 = phase(1, a.seed, 0.5 * a.time, cmd)
     if TERM:   # killed during phase 1: its own summary is in restarts/policy1; record that here and stop
@@ -1462,7 +1699,8 @@ def run_policy(ap, a):
             x: p1["work"].get(x) for x in ("attempts", "cpu_s", "method_cpu_s", "wall_s")})],
             attempts=p1["work"].get("attempts") or 0, cpu_s=p1["work"].get("cpu_s"),
             method_cpu_s=p1["work"].get("method_cpu_s"), wall_s=round(time.monotonic() - t0, 1), budget_s=a.time)
-        (wd / "summary.json").write_text(json.dumps(work, indent=1, default=str))
+        work.update(policy_cpu_total([p1], input_cpu))
+        (wd / "summary.json").write_text(json.dumps(dict(work, phase_logs=phase_logs([p1])), indent=1, default=str))
         print("HASLAM_WORK " + json.dumps(work, default=str), flush=True)
         if p1["out"].exists():
             publish(p1["out"], out)
@@ -1474,7 +1712,10 @@ def run_policy(ap, a):
         publish(p1["out"], out)
     clean1 = p1["rank"] is not None and p1["rank"][1] == 0
     alt = bool(clean1 and a.alt)
-    left = 0.5 * a.time if WORK else a.time - (time.monotonic() - t0)   # work mode: nominal halves
+    # work mode: nominal halves. Time mode: what is left, not counting phase 1's diagnoses (records made after its
+    # output was written: phase 2 gets the time it had before they existed)
+    diag_wall = float((p1["work"].get("diagnose") or {}).get("wall_s") or 0.0)
+    left = 0.5 * a.time if WORK else a.time - (time.monotonic() - t0 - diag_wall)
     open_alt = bool(not clean1 and a.open_alt and p1["rank"] is not None and p1["out"].exists())
     if open_alt:
         # one process where a restart phase runs --parallel lanes: the same work in counted seconds is lanes x its time
@@ -1509,17 +1750,25 @@ def run_policy(ap, a):
                 third=third,
                 phases=[dict(k=p["k"], seed=p["seed"], rank=p["rank"], command=p["command"],
                              **{x: p.get(x) for x in ("time_s", "used_s")},
-                             **{x: p["work"].get(x) for x in ("attempts", "cpu_s", "method_cpu_s", "wall_s")})
+                             **{x: p["work"].get(x) for x in ("attempts", "cpu_s", "method_cpu_s", "cpu_total_s",
+                                                              "wall_s")})
                         for p in phases],
                 attempts=sum(p["work"].get("attempts") or 0 for p in phases),
                 cpu_s=round(sum(p["work"].get("cpu_s") or 0 for p in phases), 1),
                 method_cpu_s=round(sum(p["work"].get("method_cpu_s") or 0 for p in phases), 1),
                 wall_s=round(time.monotonic() - t0, 1), best_rank=best["rank"], budget_s=a.time,
                 **({"killed": True} if TERM else {}))
+    oa = next((p for p in phases if p["work"].get("trace") is not None), None)   # the --open-alt phase
+    if oa is not None and a.diagnose:   # its board's diagnosis, as every restart attempt's (records, after the output is kept)
+        rec = dict(out=oa["out"], rank=oa["rank"])
+        oa["work"]["diagnose"] = diagnose_attempts([rec], inp, diagnose_until(t0, a.time), 1)
+        oa["work"]["diagnosis"] = rec.get("diagnosis")
+        oa["work"]["cpu_total_s"] = round(oa["work"]["cpu_total_s"] + oa["work"]["diagnose"]["cpu_s"], 1)
+    work.update(policy_cpu_total(phases, input_cpu))
     for n in ("report.json", "report-origin.json"):
         if (best["dir"] / "restarts" / n).exists():
             shutil.copy2(best["dir"] / "restarts" / n, wd / n)
-    (wd / "summary.json").write_text(json.dumps(work, indent=1, default=str))
+    (wd / "summary.json").write_text(json.dumps(dict(work, phase_logs=phase_logs(phases)), indent=1, default=str))
     print("HASLAM_WORK " + json.dumps(work, default=str), flush=True)
     if best["rank"] is None or not best["out"].exists():
         log("no phase produced a board")
@@ -1527,6 +1776,32 @@ def run_policy(ap, a):
     publish(best["out"], out)
     log(f"policy kept phase {best['k']} ({work['second']} second run): {best['rank']}")
     return 0
+
+
+def policy_cpu_total(phases, input_cpu):
+    """One CPU figure for a policy run: each phase's own (cpu_total_s of its wrapper, or the --open-alt command's
+    rusage), this wrapper's judgements of the phases' boards, the input's DRC and this process."""
+    judge = sum(p.get("policy_judge_cpu_s") or 0 for p in phases)
+    ph = sum((p["work"].get("cpu_total_s") or p["work"].get("cpu_s") or 0) for p in phases)
+    return dict(policy_judge_cpu_s=round(judge, 1), input_judge_cpu_s=round(input_cpu, 1),
+                cpu_total_s=round(ph + judge + input_cpu + self_cpu(), 1),
+                cpu_total_note="phases' cpu_total_s + this wrapper's judgements + input DRC + this wrapper")
+
+
+def phase_logs(phases):
+    """Every phase's attempts, kept or discarded (a restart phase's own summary.json attempt_log, with each attempt's
+    trace, ledger and diagnosis; an --open-alt phase's trace and ledger), for the policy's summary.json: before,
+    only the phases' totals reached it."""
+    out = []
+    for p in phases:
+        rec = dict(k=p["k"])
+        try:
+            s = json.loads((p["dir"] / "restarts" / "summary.json").read_text())
+            rec.update(attempt_log=s.get("attempt_log"), diagnose=s.get("diagnose"), fr_raw=s.get("fr_raw"))
+        except (OSError, ValueError):
+            rec.update({x: p["work"].get(x) for x in ("trace", "budget_ledger", "rc", "diagnosis", "diagnose")})
+        out.append(rec)
+    return out
 
 
 def carry_report(attempt_dir, wd):

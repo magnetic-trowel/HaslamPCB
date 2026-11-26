@@ -907,7 +907,16 @@ def cmd_exp_submit(a):
     tier_guard(tier, runs, f"submit {a.name}", costs=control_costs(e["cost_from"], runs) if e.get("cost_from") else None,
                over_cap=(e.get("over_cap") or {}).get("reason"), arms=e.get("arms", 1))
     if tier != e.get("tier") and not a.dry_run:
-        write_json(exp_dir(a.name) / "experiment.json", dict(e, tier=tier))
+        e = dict(e, tier=tier)
+        write_json(exp_dir(a.name) / "experiment.json", e)
+    cap = cpu_cap_of(a, e, tier)
+    if cap and not a.dry_run:
+        import watchdog
+        e = watchdog.record_cap(e, cap, "haslamres exp submit" + (" --cpu-cap" if getattr(a, "cpu_cap", None) else f" (tier {tier} limit)"))
+        write_json(exp_dir(a.name) / "experiment.json", e)
+    print(f"cost watchdog: cap {cap:g} CPU-h (haslamres exp report and haslamres exp watchdog {a.name} check it; over the cap, "
+          "the campaign's queued jobs are cancelled)" if cap else
+          "cost watchdog: no CPU cap (give --cpu-cap H to have the campaign's queued jobs cancelled past it)")
     jobs = spread_large(jobs, lambda j: j["size_mb"] > LARGE_MB)  # haslamq runs them in this order
     f = exp_dir(a.name) / f"jobs-{datetime.now().strftime('%Y%m%dT%H%M%S')}.jsonl"
     f.write_text("".join(json.dumps(j) + "\n" for j in jobs))
@@ -916,6 +925,22 @@ def cmd_exp_submit(a):
         # benchmark runs: methods' results depend on the time they get, so never paused (haslamq class timed)
         subprocess.run(["haslamq", "submit", "--jobs", str(f), "--owner", f"exp-{a.name}", "--tag", a.name, "--live",
                         "--class", "timed", "--cwd", str(code_dir(e["harness"]["commit"])), "--retries", "1"], check=True)
+
+
+def cpu_cap_of(a, e, tier):
+    """The campaign's CPU-h cap: --cpu-cap, else the one recorded before, else the tier's total limit per arm
+    (sprint: 40 per treatment arm); None for a tier without a limit and no --cpu-cap."""
+    if getattr(a, "cpu_cap", None):
+        return float(a.cpu_cap)
+    if (e.get("cpu_cap") or {}).get("cpu_h"):
+        return float(e["cpu_cap"]["cpu_h"])
+    lim = TIERS.get(tier)
+    return lim["total_cpu_h"] * max(1, e.get("arms", 1)) if lim else None
+
+
+def cmd_exp_watchdog(a):
+    import watchdog
+    watchdog.check(a.name, store=STORE, dry_run=a.dry_run)
 
 
 # ------------------------------------------------------------------ sprint: one command for a sprint experiment
@@ -953,6 +978,21 @@ def parse_arm(spec):
     return name, sets
 
 
+def sprint_control(c, base, method=None):
+    """The stored control's method in control experiment `c`: `method` (an id or id prefix of one of its methods, e.g.
+    the stored TraceMaker hybrid of hybrid-bga-w47, the BGA baseline), else its first method of the base's kind."""
+    ms = [find_method(m["id"]) for m in c["methods"]]
+    if method:
+        hit = [m for m in ms if m["id"].startswith(method)]
+        if len(hit) != 1:
+            raise SystemExit(f"--control-method {method}: {len(hit)} of {c['name']}'s methods match "
+                             f"({', '.join(m['id'] + ' ' + m['name'] for m in ms)})")
+        if hit[0]["recipe"]["kind"] != SPRINT_BASES[base]:
+            raise SystemExit(f"--control-method {method}: a {hit[0]['recipe']['kind']} method, not --base {base}'s {SPRINT_BASES[base]}")
+        return hit[0]
+    return next(m for m in ms if m["recipe"]["kind"] == SPRINT_BASES[base])
+
+
 def cmd_sprint(a):
     """A sprint experiment in one command (bench/suites/README.md): each arm is the stored control's recipe
     of `--base` at `--commit` with its settings; they run on one suite (--suite; default the two sprint
@@ -965,7 +1005,7 @@ def cmd_sprint(a):
         raise SystemExit(f"refused: no {d / 'PLAN.md'} (the question, the one change, what will decide it).\n"
                          "Do this: write it, then run the same command again.")
     c = load_exp(a.control)
-    ctl = next(m for m in (find_method(m["id"]) for m in c["methods"]) if m["recipe"]["kind"] == SPRINT_BASES[a.base])
+    ctl = sprint_control(c, a.base, getattr(a, "control_method", None))
     tag, repo = c["harness"]["commit"], main_repo()
     commit = git(repo, "rev-parse", f"{a.commit}^{{commit}}")
     common = list(a.set or [])
@@ -990,7 +1030,8 @@ def cmd_sprint(a):
                              "Do this: give --commit (the tag plus one change, pushed) or --set KEY=VALUE.")
         label = f"{a.name}{'-' + arm if arm else ''}"
         # the control's recipe, with a numba cache of its own checkout (a cache serves only the code that made it)
-        template = ctl["recipe"]["runner"]["template"].replace(f"numba-default-{tag[:7]}", f"numba-default-{commit[:7]}") + sets
+        own = ((ctl.get("code") or {}).get("haslam") or {}).get("commit") or tag   # the control's haslam (a stored arm's: not the tag)
+        template = ctl["recipe"]["runner"]["template"].replace(f"numba-default-{own[:7]}", f"numba-default-{commit[:7]}") + sets
         # --param: method parameters over the control's (e.g. parallel=8 for an arm whose router runs 8 threads,
         # so the queue reserves them); they are part of the arm's identity, not haslam settings
         params = dict(ctl["recipe"]["params"], **dict(kv.split("=", 1) for kv in extra))
@@ -1047,7 +1088,8 @@ def cmd_sprint(a):
         pick = ([b for b in rank if b in fill][:1] if fill else []) + [b for b in rank if b not in fill]
         only = ",".join(pick[:a.smoke])
         print(f"smoke: {only}")
-    cmd_exp_submit(argparse.Namespace(name=a.name, only=only, limit=None, redo=False, dry_run=a.dry_run, tier=None, prio=5))
+    cmd_exp_submit(argparse.Namespace(name=a.name, only=only, limit=None, redo=False, dry_run=a.dry_run, tier=None, prio=5,
+                                      cpu_cap=getattr(a, "cpu_cap", None)))
     if a.smoke:
         print(f"after the smoke, the rest: haslamres exp submit {a.name} --prio 5")
     print(f"verdict, once the jobs are done:\n  haslamres exp report {a.name} && haslamres quality {a.name} --control '{ctl['name']}'")
@@ -1496,6 +1538,14 @@ def fill_old_contents(bid, tids, kicad, method_ids, ws, env, log, steps):
                 record_content(bid, tid, phc, task_content(task, kind))
 
 
+def task_recipe_of(record, row, kind, kicad):
+    """The recipe (hence the id) of the task a haslambench preparation (its task.json record) makes of a corpus row."""
+    task_recipe = dict(board_sha256=record.get("pcb_sha256"), task_spec=record.get("task_spec"), kind=kind, kicad=kicad)
+    if row.get("dru_fix"):  # rules file repaired in the corpus (dru_fixes.py): a different task
+        task_recipe["dru_fix"] = row["dru_fix"]["sha256_after"] or "removed"
+    return task_recipe
+
+
 def _job_group(bid, row, hc, haslam, items, human, ws, env, log, kicad, a, size, phc=None):
     phc = phc or hc  # the harness that prepares the tasks (prep_harness); hc runs and scores the methods
     d, venv = _venv(hc)
@@ -1528,9 +1578,7 @@ def _job_group(bid, row, hc, haslam, items, human, ws, env, log, kicad, a, size,
     record = json.loads(tj.read_text())
     tids = {}  # one task per kind; the route task keeps the id it had before other kinds existed
     for kind in kinds:
-        task_recipe = dict(board_sha256=record.get("pcb_sha256"), task_spec=record.get("task_spec"), kind=kind, kicad=kicad)
-        if row.get("dru_fix"):  # rules file repaired in the corpus (dru_fixes.py): a different task
-            task_recipe["dru_fix"] = row["dru_fix"]["sha256_after"] or "removed"
+        task_recipe = task_recipe_of(record, row, kind, kicad)
         tids[kind] = ident(task_recipe)
         tdir = board_dir(bid) / "tasks" / tids[kind]
         if not (tdir / "task.json").exists():
@@ -2114,6 +2162,23 @@ PLACEMENT_ERROR_TYPES = ("courtyards_overlap", "copper_edge_clearance", "clearan
                          "npth_inside_courtyard", "pth_inside_courtyard", "shorting_items")
 
 
+def legal_vs_human(row, input_drc):
+    """legal_h, "not worse than the human" (user decision 2026-11-22): for every placement-type DRC error kind
+    (PLACEMENT_ERROR_TYPES), the run has no more errors than the board's human layout has. The human counts are the
+    route task's input DRC (the human placement with its copper stripped), computed once per board when the task is
+    prepared and stored in its task record. On boards whose own human layout breaks the board's rules (courtyards
+    overlapping, header pads within the copper-to-edge clearance), `legal` asks more than the human met; this asks
+    for no more than that. Report-only: `legal` and `clean` are unchanged. None when the human layout's DRC is not
+    known or the run has no score."""
+    if input_drc is None or input_drc.get("errors_by_type") is None or row.get("errors_by_type") is None:
+        return None
+    if not row.get("valid"):
+        return False
+    base = input_drc["errors_by_type"]
+    errs = json.loads(row.get("errors_by_type") or "{}")
+    return all(errs.get(t, 0) <= base.get(t, 0) for t in PLACEMENT_ERROR_TYPES)
+
+
 def fixed_input_placement_errors(e, bid):
     """Placement-type DRC errors of a board's fixed input ({type: count}; `record.tasks["place-fixed"].input_drc` of the
     experiment's joint-fixed task, else its place-fixed task): the placed parts a task can never move. Non-empty means
@@ -2175,6 +2240,7 @@ def exp_rows(e):
             v["foreign_evaluator"] = use["drc"] is not None and use["drc"] != evs["drc"]  # scored, but by another scorer
             v["kind"] = _run_kind(r)
             v["xc"] = clean_net_of_input(v, route_drc if route_drc is not None else route_input_drc(e, bid, r))
+            v["legal_h"] = legal_vs_human(v, route_drc if route_drc is not None else route_input_drc(e, bid, r))
             v["winnable"] = None if fixed_errors is None else not fixed_errors
             b = read_json(bd / "board.json") or {}
             v.update(repo=task_meta.get("repo"), split=task_meta.get("split"), pads=(task_meta.get("reference") or {}).get("stats", {}).get("pads"),
@@ -2382,6 +2448,28 @@ def winnable_table(rows, names, spec=None):
     return out + [""]
 
 
+def legal_h_table(rows, names):
+    """Legal placements by the score's `legal` and by legal_h, "not worse than the human" (legal_vs_human), side by
+    side. Empty when no run has legal_h."""
+    rows = [r for r in rows if r["attempt"] == 0]
+    if not any(r.get("legal_h") is not None for r in rows):
+        return []
+    out = ["### Legal, and not worse than the human layout", "",
+           "legal_h (user decision 2026-11-22): for every placement-type DRC error kind, no more errors than the board's "
+           "human layout has (the route task's input DRC). On boards whose human layout breaks the board's own rules, "
+           "`legal` asks more than the human met. Report-only: `legal` and `clean` are unchanged, and the column is new, "
+           "so baselines show it once their reports are regenerated.", "",
+           "| method | boards | legal | legal_h | boards without a human DRC |", "|---|---|---|---|---|"]
+    for n in names:
+        rs = [r for r in rows if r["method"] == n]
+        if not rs:
+            continue
+        known = [r for r in rs if r.get("legal_h") is not None]
+        out.append(f"| {n} | {len(rs)} | {_f(_mean([1.0 if r.get('legal') else 0.0 for r in rs]))} | "
+                   f"{_f(_mean([1.0 if r['legal_h'] else 0.0 for r in known])) if known else '—'} | {len(rs) - len(known)} |")
+    return out + [""]
+
+
 def physics_table(rows, names):
     """physics_total beside the valued-only total and how many boards measured anything: a module with no value counts a
     flat 3 in physics_total, and a board with no observation counts only that (E6, E28), so per-board means here use only
@@ -2480,6 +2568,9 @@ def mfg_table(rows, names):
 
 def cmd_exp_report(a):
     e = load_exp(a.name)
+    if not getattr(a, "no_watchdog", False):   # the cost watchdog first (a report that fails must not skip it)
+        import watchdog
+        watchdog.check(a.name, store=STORE)
     d = exp_dir(a.name)
     rows, bugs, fails = exp_rows(e)
     for f in fails:
@@ -2549,6 +2640,7 @@ def cmd_exp_report(a):
             "over modules routed in both (lower is better). The human method is the original copper scored the same way.", ""]
     rep += method_table(rows, names, "All boards")
     rep += winnable_table(rows, names, harness_task_spec(e["harness"]["commit"]))
+    rep += legal_h_table(rows, names)
     nonhuman = [n for n in names if not human or n != human["name"]]
     base = getattr(a, "baseline", None) or (nonhuman[0] if nonhuman else None)
     if base in names and len(nonhuman) > 1:
@@ -2604,7 +2696,9 @@ def cmd_exp_timer(a):
     # Reports and the index come from a frozen copy of the commit that installs the timer, not the
     # experiment's own (older) code: report fixes reach running experiments, and no result changes.
     # Not a shared installed copy: another checkout installing its timers would swap it under ours.
-    head = git(main_repo(), "rev-parse", "HEAD")
+    # this checkout's commit (the one whose code runs `install-timer`), not the main repo's: from a worktree
+    # the main repo's HEAD is another branch, and its older report had no cost watchdog
+    head = git(HERE, "rev-parse", "HEAD")
     if not on_remote(main_repo(), head):
         raise SystemExit(f"HEAD {head[:7]} is on no remote branch: push it first")
     tool = ensure_harness(head, venv=False)[0] / "tools" / "haslamres" / "haslamres.py"
@@ -2636,6 +2730,21 @@ def _run_kind(r):
     if r["method_id"] not in _KINDS:
         _KINDS.update({k: (m.get("recipe") or {}).get("kind") or "route" for k, m in methods().items()})
     return _KINDS.get(r["method_id"], "route")
+
+
+_REFERENCE_IDS = set()
+# What a re-measuring job calls the human layout it rebuilds or scores once and shares among the board's human runs.
+HUMAN_REF = "human-reference"
+
+
+def _is_reference(r):
+    """Whether a run is the human layout (the reference method). Its output is the board itself, so it is
+    re-measured with the re-measuring job's harness, never with the harness it was first scored by: no method
+    code is involved, and a pre-rename harness may have no venv here at all."""
+    if not _REFERENCE_IDS:
+        _REFERENCE_IDS.update(k for k, m in methods().items() if m["recipe"]["runner"]["type"] == "reference")
+        _REFERENCE_IDS.add("")  # filled (even with no reference method): do not read methods() again
+    return r["method_id"] in _REFERENCE_IDS
 
 
 def _haslamq_active(owner):
@@ -2748,32 +2857,36 @@ def cmd_rephysics_job(a):
     written = 0
     rebuild_errors = []
     groups = defaultdict(list)
-    for d, r in todo:
-        groups[r["harness_commit"]].append((d, r))
-    for hc, items in groups.items():  # rebuild with the harness that scored the runs
+    for d, r in todo:  # a method's runs are rebuilt by the harness that scored them; the human layout by this job's
+        groups[a.harness if _is_reference(r) else r["harness_commit"]].append((d, r))
+    for hc, items in groups.items():
         hv = code_dir(hc).with_name(code_dir(hc).name + ".venv")
         man_p = ws / f"rebuild-{hc[:8]}.json"
         rb_py = cd / "tools" / "haslamres" / "rebuild_boards.py"
         if not rb_py.exists():  # harness older than rebuild_boards.py: this haslamres' copy rebuilds the same way
             rb_py = Path(__file__).resolve().with_name("rebuild_boards.py")
+        key = {r["run"]: HUMAN_REF if _is_reference(r) else r["run"] for _, r in items}  # every human run: one rebuild
+        own = [(d, r) for d, r in items if not _is_reference(r)]
         rc, to = run_logged([hv / "bin" / "python", rb_py,
                              "--board-dir", CORPUS / row["path"], "--work", ws / f"rb-{hc[:8]}",
-                             *[x for d, r in items for x in ("--run", f"{r['run']}={d / 'output.kicad_pcb.gz'}")],
-                             *[x for d, r in items if _run_kind(r) in ("joint", "joint-fixed") for x in ("--joint", r["run"])],
+                             *[x for d, r in own for x in ("--run", f"{r['run']}={d / 'output.kicad_pcb.gz'}")],
+                             *[x for d, r in own if _run_kind(r) in ("joint", "joint-fixed") for x in ("--joint", r["run"])],
+                             *(["--reference-run", HUMAN_REF] if len(own) < len(items) else []),
                              "--out", man_p], log, dict(env, PATH=f"{hv / 'bin'}:{env.get('PATH', '')}"), timeout=int(1800 + 120 * size))
         man = read_json(man_p)
         if not man:
             print(f"{bid}: rebuild with harness {hc[:7]} failed (rc {rc}, timed out {to}):\n{tail(log, 30)}", flush=True)
             return 1
-        boards = {}
+        boards, measured = {}, []
         for d, r in items:
             t = read_json(board_dir(bid) / "tasks" / r["task_id"] / "task.json") or {}
             if (t.get("recipe") or {}).get("board_sha256") not in (None, man["board_sha256"]):
                 print(f"{bid}: {r['run']} was made on another board file; skipped", flush=True)
                 continue
-            got = man["runs"].get(r["run"]) or {}
+            got = man["runs"].get(key[r["run"]]) or {}
             if got.get("board"):
-                boards[r["run"]] = got["board"]
+                boards[key[r["run"]]] = got["board"]
+                measured.append((d, r))
             elif got.get("error"):
                 rebuild_errors.append(f"{r['run']}: {got['error']}")
         if not boards:
@@ -2784,12 +2897,11 @@ def cmd_rephysics_job(a):
                     *[x for n, p in boards.items() for x in ("--board", f"{n}={p}")], "--out", pout,
                     *_pintypes_args(pb, pt)], log, env, timeout=int(1800 + 120 * size))
         phys = read_json(pout) or dict(error="physics step failed", log=tail(log, 30))
-        for d, r in items:
-            if r["run"] not in boards:
-                continue
-            ph = (phys.get("boards") or {}).get(r["run"]) or dict(error=phys.get("error") or "no result")
+        for d, r in measured:
+            ph = (phys.get("boards") or {}).get(key[r["run"]]) or dict(error=phys.get("error") or "no result")
             write_json(d / "evals" / f"{pid}.json", dict(
                 schema=SCHEMA, evaluator=pid, run=r["run"], at=now(), rescored=True, rebuilt_with=hc,
+                **({"human_from": "board"} if _is_reference(r) else {}),
                 pintypes=phys.get("pintypes"), physics={k: v for k, v in ph.items() if k != "traceback"},
                 **({"traceback": ph["traceback"]} if ph.get("traceback") else {})))
             written += 1
@@ -2890,11 +3002,12 @@ def cmd_rescore_job(a):
     log = ws / "job.log"
     cd = code_dir(a.harness)
     py = cd.with_name(cd.name + ".venv") / "bin" / "python"
-    human = next((m for m in methods().values() if m["recipe"]["runner"]["type"] == "reference"), None)
     groups = defaultdict(list)
     for d, r in todo:
-        kind = _run_kind(r)
-        groups[(run_prepared_by(r), r["task_id"], kind)].append((d, r))
+        if _is_reference(r):  # the human layout: the board as this harness prepares it, on this harness's route task
+            groups[(a.harness, None, "route")].append((d, r))
+        else:                 # a method's output: on the task its run was made on, prepared by the harness that prepared it
+            groups[(run_prepared_by(r), r["task_id"], _run_kind(r))].append((d, r))
     written, failed = 0, []
     for (phc, tid, kind), items in groups.items():
         steps = {}
@@ -2902,9 +3015,25 @@ def cmd_rescore_job(a):
         if task is None:
             failed += [f"{r['run']}: task not prepared (harness {phc[:7]}, rc {rc}, timed out {to})" for _, r in items]
             continue
+        scored_on = None
+        if tid is None:   # the human runs' group
+            rec = read_json(task / "task.json") or {}
+            scored_on = ident(task_recipe_of(rec, row, "route", kicad_version()))
+            keep = []
+            for d, r in items:
+                sha = ((task_meta(bid, r["task_id"]) or {}).get("recipe") or {}).get("board_sha256")
+                if sha not in (None, rec.get("pcb_sha256")):
+                    failed.append(f"{r['run']}: made on another board file; not re-scored")
+                else:
+                    keep.append((d, r))
+            items = keep
+            if not items:
+                continue
+        key = {r["run"]: HUMAN_REF if _is_reference(r) else r["run"] for _, r in items}  # every human run: one score
         man_p = ws / f"rescore-{phc[:8]}-{kind}.json"
-        runs = [f"{r['run']}={d / 'output.kicad_pcb.gz'}:{kind}:{1 if human and r['method_id'] == human['id'] else 0}"
-                for d, r in items]
+        runs = [f"{r['run']}={d / 'output.kicad_pcb.gz'}:{kind}:0" for d, r in items if not _is_reference(r)]
+        if len(runs) < len(items):  # as haslambench's reference adapter: its output is the task's reference board
+            runs.append(f"{HUMAN_REF}={task / 'reference' / 'board.kicad_pcb'}:route:1")
         rc, to = run_logged([py, cd / "tools" / "haslamres" / "rescore_runs.py", "--task", task, "--work", ws / "rs",
                              *[x for spec in runs for x in ("--run", spec)], "--out", man_p],
                             log, dict(env, PATH=f"{py.parent}:{env.get('PATH', '')}"), timeout=int(1800 + len(items) * (600 + 240 * size)))
@@ -2913,7 +3042,7 @@ def cmd_rescore_job(a):
             failed += [f"{r['run']}: scorer failed (rc {rc}, timed out {to}): {tail(log, 5)}" for _, r in items]
             continue
         for d, r in items:
-            got = (man.get("runs") or {}).get(r["run"]) or {}
+            got = (man.get("runs") or {}).get(key[r["run"]]) or {}
             olds = [j for j in (read_json(p) or {} for p in (d / "evals").glob("*.json"))
                     if j.get("score") is not None and j.get("evaluator") != eid]
             old = max(olds, key=lambda j: j.get("at") or "") if olds else None
@@ -2922,6 +3051,7 @@ def cmd_rescore_job(a):
                 continue   # never overwrite (another job got there first)
             ev = dict(schema=SCHEMA, evaluator=eid, run=r["run"], at=now(), rescored=True, rescored_with=a.harness,
                       task_prepared_by=phc, score_version=man.get("score_version"), status=got.get("status"),
+                      **({"human_from": "board", "task_id": scored_on} if scored_on else {}),
                       error=got.get("error"), score=got.get("score"), scoring_usage=got.get("scoring_usage"),
                       probe=(old or {}).get("probe"), probe_from=(old or {}).get("evaluator") if (old or {}).get("probe") else None)
             for tag, path in (got.get("drc") or {}).items():
@@ -3139,13 +3269,21 @@ def main():
     s.add_argument("--redo", action="store_true", help="also retry boards whose prepare failed")
     s.add_argument("--tier", choices=sorted(TIERS), help="change the experiment's tier (default: the one it was created with)")
     s.add_argument("--prio", type=int, help="haslamq priority of the jobs (higher runs first; sprint campaigns: 5)")
+    s.add_argument("--cpu-cap", type=float, metavar="CPU_H",
+                   help="the campaign's CPU-h cap, recorded for the cost watchdog (default: the one recorded before, else "
+                        "the tier's limit, 40 per treatment arm for sprint)")
     s.add_argument("--dry-run", action="store_true")
     s.set_defaults(f=cmd_exp_submit)
+    s = ep.add_parser("watchdog", help="cost watchdog: project the campaign's CPU from its finished jobs; past its cap, "
+                                       "cancel its queued jobs and write why to WATCHDOG.md (tools/haslamres/watchdog.py)")
+    s.add_argument("name"), s.add_argument("--dry-run", action="store_true")
+    s.set_defaults(f=cmd_exp_watchdog)
     for n, f in (("status", cmd_exp_status), ("report", cmd_exp_report), ("install-timer", cmd_exp_timer)):
         s = ep.add_parser(n)
         s.add_argument("name")
         if n == "report":
             s.add_argument("--baseline", help="method name the others are paired against (default: the experiment's first)")
+            s.add_argument("--no-watchdog", action="store_true", help="do not run the cost watchdog after the report")
             s.add_argument("--intent", metavar="DIR", help="also report external intent evaluations from DIR/<board>/<run>.status.json (tools/research/physics/eval_intent.sh)")
         s.set_defaults(f=f)
     s = sub.add_parser("sprint", help="a sprint experiment in one command: arms against the tag's stored control")
@@ -3167,8 +3305,13 @@ def main():
     s.add_argument("--param", action="append", metavar="K=V",
                    help="method parameter of every arm over the control's (repeatable; e.g. parallel=8: the queue "
                         "reserves 8 CPUs for an arm whose router runs 8 threads)")
+    s.add_argument("--cpu-cap", type=float, metavar="CPU_H", help="the campaign's CPU-h cap for the cost watchdog "
+                   "(default: 40 per treatment arm, the sprint limit)")
     s.add_argument("--note", help="appended to every arm's method description (e.g. a stage that runs on wall clock)")
     s.add_argument("--control", default="control-w48", help="the tag's stored control experiment")
+    s.add_argument("--control-method", metavar="ID", help="which of the control experiment's methods is the control (default: "
+                   "its first of the base's kind); the BGA baseline: --control hybrid-bga-w47 --control-method <hybrid id> "
+                   "(bench/suites/README.md)")
     s.add_argument("--dry-run", action="store_true", help="register and create, write the job file, submit nothing")
     s.set_defaults(f=cmd_sprint)
     s = sub.add_parser("job", help="one board (what each queued job runs)")

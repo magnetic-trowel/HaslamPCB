@@ -23,6 +23,11 @@ router and the default testbench all start from the same operating points:
 - nets.<net>.V_V: the net's volts (role 'rail' when it names a source), with a belief carrying range_V;
 - cells.<id> and parts.<controller>: a commutation cell's excite (V, I, f_sw_Hz, t_sw_ns, V_abs); a part's
   facts apply to every cell it controls, a cell's own facts win;
+- cells.<id>.{I_out_A, V_in_V, V_out_V, eta, I_switch_A}: a converter's operating point (the facts compiler's
+  output); the cell's excite I is its commutated current by topology (haslam.physics.converter.from_intent, as the
+  evaluator reads it), unless the cell states I_A;
+- deprecated spellings (DEPRECATED_CELL_KEYS) are read as their replacements by `facts_of` and said in
+  brief["facts"]["deprecated"]; none is dropped;
 - what matches nothing on the board comes back in brief["facts"]["unmatched"] (errors as results), and
   every value the brief replaced is listed with what it was.
 
@@ -37,7 +42,15 @@ from pathlib import Path
 INTENT_EXT = ".haslam_intent.json"
 SCHEMA = "haslam.intent/1"
 NET_KEYS = ("V_V", "range_V", "source", "from", "kind", "eta", "I_A", "why")
-CELL_KEYS = ("V_V", "I_A", "f_sw_Hz", "t_i_s", "v_sw_max_V", "vin", "vout", "why")
+# a cell's converter operating point, as the facts compiler (tools/research/physics/intent_from_spec.py) writes it
+# and haslam.physics.converter.from_intent reads it: I_out_A at V_in_V -> V_out_V and eta gives the commutated
+# current by the cell's topology; I_switch_A, stated, overrides (docs/topics/physics/converter-currents.md)
+CELL_OPERATING_KEYS = ("I_out_A", "V_in_V", "V_out_V", "eta", "I_switch_A")
+CELL_KEYS = ("V_V", "I_A", "f_sw_Hz", "t_i_s", "v_sw_max_V", "vin", "vout") + CELL_OPERATING_KEYS + ("why",)
+CELL_VALUE_KEYS = tuple(k for k in CELL_KEYS if k not in ("vin", "vout", "why"))
+# old spellings stored facts sets still carry, read as their replacement (never dropped): cells.<id>.V_max_V was
+# the switch rating on branch dc-signed (ec386372; intent-inv/compiled-39e63fb, rf-ab-operating-7f6a8af74b6c)
+DEPRECATED_CELL_KEYS = {"V_max_V": "v_sw_max_V"}
 # a controller's facts that are its cells' too. Not I_A: parts.<ref>.I_A is the part's own supply draw
 # (haslam.excite.dc's load current, the operating facts' "load current"), not the current its cells commutate
 PART_CELL_KEYS = ("f_sw_Hz", "t_i_s", "v_sw_max_V")
@@ -45,6 +58,9 @@ PART_CELL_KEYS = ("f_sw_Hz", "t_i_s", "v_sw_max_V")
 # switch), else its current step on each supply rail, the step's edge and its repetition
 # (docs/topics/workflow/intent-file-fields.md#a4b-core-sources-partsrefcore)
 PART_CORE_KEYS = ("core", "core_I_A", "core_t_s", "core_f_Hz")
+# a part's current per rail, {rail net: value} (haslam.excite.dc, heat): a connector's exports to a board that
+# draws its rails unequally; the rails it does not name share parts.<ref>.I_A / I_sustained_A by supply pads
+PART_BY_RAIL_KEYS = ("I_A_by_rail", "I_sustained_A_by_rail")
 SECTIONS = ("nets", "parts", "cells", "requirements")      # what apply() writes into the brief
 # sections other readers own, left to them here: the schematic's pin facts (haslam.board.pinfacts), the radios
 # (haslam.excite.observe, sources) and the compiler's citations. The physics set's operating facts carry them
@@ -82,22 +98,50 @@ def for_board(board_path):
 
 
 def facts_of(doc):
-    """The facts of an intent: a haslam.intent/1 document's `facts`, or a bare facts dict as it is."""
+    """The facts of an intent: a haslam.intent/1 document's `facts`, or a bare facts dict, with deprecated
+    spellings read as their replacements (`normalize`)."""
     if not doc:
         return {}
-    return doc.get("facts") or {} if doc.get("schema") == SCHEMA else doc
+    return normalize(doc.get("facts") or {} if doc.get("schema") == SCHEMA else doc)
+
+
+def normalize(f):
+    """The facts with every deprecated key (DEPRECATED_CELL_KEYS) renamed to its replacement: `f` itself when it
+    has none, else a copy whose provenance.deprecated lists each rename (facts.apply copies it into the brief's
+    record). A deprecated key beside its replacement with another value is a FactsError (which one is meant?)."""
+    cells = f.get("cells") if isinstance(f, dict) else None
+    if not isinstance(cells, dict) or not any(isinstance(d, dict) and set(d) & set(DEPRECATED_CELL_KEYS)
+                                              for d in cells.values()):
+        return f
+    out, notes = dict(f), []
+    out["cells"] = {}
+    for cid, d in cells.items():
+        d = dict(d)
+        for old, new in DEPRECATED_CELL_KEYS.items():
+            if old not in d:
+                continue
+            v = d.pop(old)
+            if new in d and d[new] != v:
+                raise FactsError(f"facts.cells.{cid}: {old} {v!r} (deprecated spelling of {new}) and {new} "
+                                 f"{d[new]!r} disagree; keep {new} only")
+            d[new] = v
+            notes.append(f"cells.{cid}.{old} read as cells.{cid}.{new} ({old} is deprecated; write {new})")
+        out["cells"][cid] = d
+    prov = dict(out.get("provenance") or {})
+    prov["deprecated"] = list(prov.get("deprecated") or []) + notes
+    out["provenance"] = prov
+    return out
 
 
 def interval(v, what="value"):
-    """(typ, lo, hi) of an intent value: a number, [lo, hi] (typ: their geometric mean, their mean when lo <= 0)
-    or [lo, typ, hi] (the typical operating point stated). The one parser of every reader of the facts
-    (haslam.excite, haslam.physics.converter): a reader that took a 3-element list as [lo, hi] scored a stated
-    60 uA cell current as 0.354 mA, and one that unpacked `lo, hi = v` died on it. FactsError names `what` on any
-    other shape."""
-    num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
-    if num(v):
+    """(typ, lo, hi) of a fact's value: a number, [lo, hi] (typical: their geometric mean, or their midpoint when lo
+    <= 0) or [lo, typ, hi]. The one reader of the value forms check_facts accepts: every consumer (haslam.excite's
+    dc, heat and ledger, haslam.intent) reads a value through it, so a form the checker passes cannot crash or be
+    dropped by one of them (dc.plan unpacked two values from a [lo, typ, hi] I_A; heat ignored a listed
+    I_sustained_A). FactsError names `what` for any other form."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
         return float(v), float(v), float(v)
-    if isinstance(v, (list, tuple)) and len(v) in (2, 3) and all(num(x) for x in v):
+    if isinstance(v, list) and len(v) in (2, 3) and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
         if len(v) == 3:                          # [lo, typ, hi]: the typical operating point stated
             lo, typ, hi = (float(x) for x in v)
             if not lo <= typ <= hi:
@@ -107,6 +151,20 @@ def interval(v, what="value"):
         typ = math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2
         return typ, lo, hi
     raise FactsError(f"{what}: a value is a number, [lo, hi] or [lo, typ, hi], not {v!r}")
+
+
+_interval = interval
+
+
+def typical(v):
+    """The typical value of a fact (interval's), or None when v is absent or no value form: for readers that skip an
+    unreadable value rather than fail (the router's and placer's copper and heat sizing)."""
+    if v is None:
+        return None
+    try:
+        return interval(list(v) if isinstance(v, tuple) else v)[0]
+    except FactsError:
+        return None
 
 
 def check_facts(f):
@@ -122,16 +180,17 @@ def check_facts(f):
             raise FactsError(f"facts.nets.{net}.V_V: the typical volts as a number; put the interval in range_V")
         for k in ("range_V", "eta", "I_A"):
             if k in d:
-                interval(d[k], f"facts.nets.{net}.{k}")
-        if d.get("kind") not in (None, "linear", "switching"):
-            raise FactsError(f"facts.nets.{net}.kind: 'linear' or 'switching'")
+                _interval(d[k], f"facts.nets.{net}.{k}")
+        if d.get("kind") not in (None, "linear", "switching", "external"):
+            raise FactsError(f"facts.nets.{net}.kind: 'linear', 'switching' or 'external' (a connector that brings the rail in)")
     for cid, d in (f.get("cells") or {}).items():
-        bad = [k for k in d if k not in CELL_KEYS]
+        bad = [k for k in d if k not in CELL_KEYS and k not in DEPRECATED_CELL_KEYS]
         if bad:
             raise FactsError(f"facts.cells.{cid}: unknown keys {bad}; use {CELL_KEYS}")
-        for k in ("V_V", "I_A", "f_sw_Hz", "t_i_s", "v_sw_max_V"):
+        for k in CELL_VALUE_KEYS + tuple(DEPRECATED_CELL_KEYS):
             if k in d:
-                interval(d[k], f"facts.cells.{cid}.{k}")
+                _interval(d[k], f"facts.cells.{cid}.{k}")
+    normalize(f)                                 # a deprecated key that disagrees with its replacement
     for ref, d in (f.get("parts") or {}).items():
         if "core" in d and not isinstance(d["core"], bool):
             raise FactsError(f"facts.parts.{ref}.core: true or false (false: the part has no clocked core source)")
@@ -140,8 +199,14 @@ def check_facts(f):
             if lo < 0 or lo == 0 and k != "core_I_A":
                 raise FactsError(f"facts.parts.{ref}.{k}: must be positive (core_I_A may be 0), not {d[k]!r}")
         for k, v in d.items():
-            if k != "why" and not isinstance(v, (str, bool)):      # a flag (cff_required) is no value
-                interval(v, f"facts.parts.{ref}.{k}")
+            if k in PART_BY_RAIL_KEYS:
+                # a part's current on each of its rails on its own (a connector's exports): {rail: value}
+                if not isinstance(v, dict) or not all(isinstance(r, str) for r in v):
+                    raise FactsError(f"facts.parts.{ref}.{k}: {{rail net: value}}, not {v!r}")
+                for r, x in v.items():
+                    _interval(x, f"facts.parts.{ref}.{k}.{r}")
+            elif k != "why" and not isinstance(v, (str, bool)):      # a yes/no fact (cff_required) is no interval
+                _interval(v, f"facts.parts.{ref}.{k}")
     return f
 
 
@@ -152,6 +217,9 @@ def apply(brief, facts, origin="intent"):
     if not facts:
         return brief
     check_facts(facts)
+    facts = normalize(facts)
+    if (facts.get("provenance") or {}).get("deprecated"):
+        rec["deprecated"] = list(facts["provenance"]["deprecated"])
     nets = brief.setdefault("nets", {})
     uuid_of = {p.get("ref"): u for u, p in (brief.get("parts") or {}).items()}
     ref_of = {u: r for r, u in uuid_of.items()}
@@ -222,11 +290,49 @@ def apply(brief, facts, origin="intent"):
                 ex["V_abs_source"] = "intent"
                 basis[:] = [x for x in basis if not x.startswith("V_abs = ")]
             basis.append(f"{field} = {typ * scale:g} [{lo * scale:g}, {hi * scale:g}] from the {origin}")
+        if "I_A" not in merged and ("I_switch_A" in merged or "I_out_A" in merged):
+            _cell_current(s, merged, nets, facts.get("nets") or {}, brief.get("structures") or [], rec, origin)
         if "V_V" not in merged:                  # the cell's own V_V stands; else the volts of its bus
             _cell_bus_volts(s, nets, stated, rec, origin)
     _heat(brief, facts, rec, origin)
     brief["facts"] = rec
     return brief
+
+
+def _cell_current(s, merged, nets, fn, structs, rec, origin):
+    """A cell's commutated current (excite I) from its converter operating point (I_switch_A, else I_out_A at
+    V_in_V / V_out_V and eta through its topology; haslam.physics.converter.from_intent, as the evaluator's
+    haslam.excite.params.cell and the router's critical_modules._intent_converter read it). The rails' volts
+    stand in for an unstated V_in_V / V_out_V, the output rail's nets.<rail>.eta for an unstated cell eta."""
+    from haslam.physics import converter as CV
+    volts = lambda net: (nets.get(net) or {}).get("volts") if net else None
+    cls = s.get("class") or ""
+    vi, vo = (volts(s.get("vin")), volts(s.get("rail"))) if cls == "boost" else (volts(s.get("rail")), volts(s.get("vout")))
+    if s.get("topology") == "buck_boost_4switch":
+        sib = next((x for x in structs if x.get("topology") == "buck_boost_4switch" and x.get("id") != s.get("id")
+                    and x.get("controller") == s.get("controller")), {})
+        so = volts(sib.get("rail"))
+        vi, vo = (volts(s.get("rail")), so) if cls == "buck" else (so, volts(s.get("rail")))
+    vo_c = CV._iv(merged.get("V_out_V"))
+    top, leg = CV.topology_of(cls, s, vo_c[0] if vo_c else vo)
+    eta_net = s.get("vout") or (s.get("rail") if cls == "boost" else None)
+    eta_n = _interval(fn[eta_net]["eta"], f"nets.{eta_net}.eta") if (fn.get(eta_net) or {}).get("eta") is not None else None
+    try:
+        cc = CV.from_intent(merged, top, leg, vi, vo, eta_n)     # eta_n (typ, lo, hi), as params.cell passes it
+    except (TypeError, ValueError, ZeroDivisionError) as e:
+        rec["unmatched"].append(f"cells.{s['id']}: its operating point gives no current ({e})")
+        return
+    if cc is None:
+        return
+    ex = s.setdefault("excite", {})
+    typ, lo, hi = (float(x) for x in cc.I)
+    rec["applied"].append(dict(what=f"{s['id']}.excite.I", value=typ, was=ex.get("I"), interval=[lo, hi],
+                               basis=cc.basis))
+    ex["I"] = typ
+    ex.setdefault("interval", {})["I"] = [lo, hi]
+    basis = ex.setdefault("basis", [])
+    basis[:] = [x for x in basis if not x.startswith("I =")]
+    basis.append(f"I = {typ:g} [{lo:g}, {hi:g}] A from the {origin}: {cc.basis}")
 
 
 HEAT_SOURCE_MIN_W = 0.1              # haslam.circuit.structures.HEAT_SOURCE_MIN_W
@@ -253,7 +359,7 @@ def _heat(brief, facts, rec, origin):
         m = p.get("P_W_model")
         if not m:
             continue
-        r = _loss(m, p.get("ref"), cells, nets, fn, fp, touched)
+        r = _loss(m, p.get("ref"), cells, nets, fn, fp, touched, facts.get("cells") or {})
         if r is None:
             continue
         P, lo, hi, basis, used = r
@@ -279,7 +385,7 @@ def _heat(brief, facts, rec, origin):
                                        why=f"its loss {P:g} W is under {HEAT_SOURCE_MIN_W:g} W"))
 
 
-def _loss(m, ref, cells, nets, fn, fp, touched):
+def _loss(m, ref, cells, nets, fn, fp, touched, fc=None):
     """(P typ, lo, hi, basis, [facts used]) of a part's loss by its law (P_W_model), or None when no stated fact
     reaches its inputs (the build's estimate stands) or it cannot be sized."""
     def volts(net):
@@ -307,17 +413,25 @@ def _loss(m, ref, cells, nets, fn, fp, touched):
         vo = volts(vo_net)
         if vo_net in fn and "V_V" in fn[vo_net]:
             used.append(f"nets.{vo_net}.V_V")
-        eta = fn.get(vo_net, {}).get("eta") if vo_net else None
+        cf, vr = (fc or {}).get(c["id"]) or {}, None
+        if not vo and cf.get("V_out_V") is not None:   # the cell's stated output volts, its rail unread
+            vo_net = None
+            t_, lo_, hi_ = _interval(cf["V_out_V"], f"cells.{c['id']}.V_out_V")
+            vo, vr = t_, tuple(sorted((abs(lo_), abs(hi_))))
+            used.append(f"cells.{c['id']}.V_out_V")
+        eta, eta_at = (fn.get(vo_net, {}).get("eta"), f"nets.{vo_net}.eta") if vo_net else (None, None)
+        if eta is None and cf.get("eta") is not None:      # the cell's own stated efficiency
+            eta, eta_at = cf["eta"], f"cells.{c['id']}.eta"
         if eta is not None:
-            used.append(f"nets.{vo_net}.eta")
+            used.append(eta_at)
         if not used or not I or not (vo or ex.get("V")):
             return None
         k = 1.0 if vo else 0.5
-        v, (vlo, vhi) = (abs(vo), vint(vo_net)) if vo else (abs(ex["V"]), tuple((ex.get("interval") or {}).get("V") or
+        v, (vlo, vhi) = (abs(vo), vr or vint(vo_net)) if vo else (abs(ex["V"]), tuple((ex.get("interval") or {}).get("V") or
                                                                                   [abs(ex["V"])] * 2))
         pout = v * I * k
         if eta is not None:
-            et, elo, ehi = interval(eta, f"nets.{vo_net}.eta")
+            et, elo, ehi = _interval(eta, eta_at)
             P = (1 / et - 1) * pout
             lo, hi = (1 / ehi - 1) * vlo * ilo * k, (1 / elo - 1) * vhi * ihi * k
             how = f"(1/eta - 1) P_out, eta {et:.3g} [{elo:g}, {ehi:g}]"

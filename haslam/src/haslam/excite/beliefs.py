@@ -142,12 +142,11 @@ def lookup(text):
 
 
 def intent_value(intent, section, key, name):
-    """(typ, lo, hi) from the intent file, or None (haslam.intent.facts.interval: a number, [lo, hi] or
-    [lo, typ, hi])."""
-    v = (((intent or {}).get(section) or {}).get(key) or {}).get(name)
+    """(typ, lo, hi) from the intent file, or None: haslam.intent.facts.interval, the checker's own reader."""
+    from haslam.intent.facts import interval
+    v = ((intent or {}).get(section) or {}).get(key, {}).get(name)
     if v is None:
         return None
-    from haslam.intent.facts import interval
     return interval(v, f"facts.{section}.{key}.{name}")
 
 

@@ -262,7 +262,8 @@ IC_RULES = [  # specific families first: the first match wins
     ('current_sense', rx(r'\bINA1[89]\d|\bINA2[0-9]\d|\bINA3\d{2}|\bINA4\d{2}|\bACS7\d{2}|\bMAX40\d{2}|\bMAX9938|\bLMP86\d{2}|\bAD8418|'
                          r'\bZXCT\d|\bLT6106|\bINA2\d{2}A|\bcurrent sense')),
     ('load_switch', rx(r'\bTPS22\d{3}|\bTPS2[01]\d{2}|\bAP22[89]\d|\bAP25\d{2}|\bSLG5NT|\bRT9742|\bMAX17613|\bNCP4556\d|\bSY62\d{2}|\bMIC20\d{2}|'
-                       r'\bLTC4412|\bTPS2115|\bLM6600|\bpower switch|\bload switch|\bideal diode|\bLM5050|\bLTC435\d|\bTPS2116')),
+                       r'\bLTC4412|\bTPS2115|\bLM6600|\bpower switch|\bload switch|\bideal diode|\bLM5050|\bLTC435\d|\bTPS2116|'
+                       r'\bTPS259\d|\bTPS2660|\bLM5069|\bLTC4365|\beFuse')),
     ('adc_dac', rx(r'\bADS\d{4}|\bADS1\d{3}|\bMCP3\d{3}|\bMCP4\d{3}|\bAD7\d{3}|\bAD5\d{3}|\bDAC\d{3,5}|\bMAX11\d{3}|\bMAX5\d{3}|\bLTC2\d{3}|'
                     r'\bMAX6675|\bMAX31855|\bMAX318\d{2}|\bADC\d{3,4}|\bPCM18\d{2}|\bDS4432|\bAD9\d{3}|\bHX711|\bNAU7802|\bCS55\d{2}')),
     ('reference', rx(r'\bLM4040|\bLM4041|\bREF\d{2,4}|\bTL431|\bLM431|\bADR\d{3}|\bMAX6\d{3}|\bLT6656|\bLT1009|\bAZ431|\bvoltage reference|\bshunt reference')),
@@ -613,10 +614,22 @@ def part_number_text(part: Part) -> str:
     return ' '.join([part.value] + [str(part.fields[k]) for k in PART_NUMBER_FIELDS if part.fields.get(k)])
 
 
+# negative-output linear regulators (datasheets: TI TPS723xx and TPS7A30/33, ADI LT1964, LT3090, LT3015 and ADP7182,
+# TI LM2990, the 79xx family): a fixed voltage read from their part number is below ground
+NEG_LDO = re.compile(r'TPS723\d|TPS7A3[03]|LT1964|LT3090|LT3015|ADP7182|LM2990|LM79|MC79|UA79|L79')
+
+
 def regulator_vout(text: str) -> tuple[float, str] | None:
     """Fixed output voltage from a regulator part number ('AMS1117-3.3', 'MCP1700-3302E', 'XC6206P332MR',
     'L7805', 'NCP177AMX330', 'TLV74318'); None for adjustable or unknown parts. Pass the part-number
-    text (part_number_text), not Part.text()."""
+    text (part_number_text), not Part.text(). A negative regulator's (NEG_LDO: 'TPS72325', -2.5 V) is negative."""
+    rv = _regulator_vout(text)
+    if rv and rv[0] > 0 and NEG_LDO.search((text or '').upper()):
+        return -rv[0], rv[1]
+    return rv
+
+
+def _regulator_vout(text: str) -> tuple[float, str] | None:
     t = (text or '').upper().replace(',', '.')
     if re.search(r'ADJ', t):
         return None
@@ -831,14 +844,119 @@ class _Ctx:
         return self.nl.two_nets(part)
 
 
-def infer_roles(nl: Netlist) -> Roles:
+def cells_inverting(default=False):
+    """Whether inverting buck-boost cells are recognised (HASLAM_CELLS_INVERTING=1/0; unset: `default`). The evaluator
+    recognises them by default; the placer and the router do not yet (their cell stages assume a ground return)."""
+    import os
+    v = os.environ.get("HASLAM_CELLS_INVERTING")
+    return default if v is None or not v.strip() else v.strip().lower() in ("1", "true", "yes", "on")
+
+
+GND_FN = re.compile(r'^(P?GND|AGND|EP|PAD|EPAD|VSS)\w*$', re.I)
+
+
+def inverting_ic(nl: Netlist, roles: Roles, ref):
+    """The negative rail an IC references (its ground pins all on one non-ground net), or None: an inverting
+    buck-boost's controller sits between its input and the negative output it makes."""
+    g = set(roles.grounds)
+    gp = [p for p in nl.parts[ref].active_pins() if GND_FN.match(p.fn or '')]
+    nets = {p.net for p in gp}
+    if len(nets) != 1:
+        return None
+    n = next(iter(nets))
+    return n if n and n not in g else None
+
+
+def cells_flag(name, default=False):
+    """A recogniser class's own flag (env `name` = 1/0; unset: `default`). HASLAM_CELLS_DUALRAIL (the negative half of a
+    dual +/- rail IC) and HASLAM_CELLS_INVBUCK (TPS6371x inverting bucks) default to the brief's inverting
+    recognition (cells_inverting: on for the evaluator, off for the placer and the router), their recogniser, DC,
+    evaluator and router paths being tested; set either to 0 to leave its class out."""
+    import os
+    v = os.environ.get(name)
+    return default if v is None or not v.strip() else v.strip().lower() in ("1", "true", "yes", "on")
+
+
+NEG_OUT_PIN = re.compile(r'^(VNEG|VN|NEG\w*|VOUTN|OUTN|VOUT_?N|V_?NEG\w*|VOUT2|OUT2|V-)$', re.I)
+
+
+def inverting_output(nl: Netlist, roles: Roles, ic, swn):
+    """The negative rail a dual +/- rail IC's inverting half makes (TPS65131/2/3: its SWN switch from the input, the
+    inductor SWN to ground, an internal rectifier from SWN to its VNEG pin), or None: a pin of the IC named for a
+    negative output (NEG_OUT_PIN) on a net that is no ground and, where its name states a voltage, below ground."""
+    g = set(roles.grounds)
+    for p in nl.parts[ic].active_pins():
+        if not p.net or p.net in g or p.net == swn or not NEG_OUT_PIN.match(p.fn or ''):
+            continue
+        nv_ = V.net_voltage(p.net)
+        if nv_ is None or nv_[0] < 0:
+            return p.net
+    return None
+
+
+def inverting_rectifier(nl: Netlist, roles: Roles, swn, ind_ref=None):
+    """(diode, negative rail) of a dedicated inverter's switch node (TPS63700, MC34063 in its inverting circuit): a
+    rectifier with its cathode on the switch node and its anode on a net that is not a ground (the negative output,
+    which it charges below ground while the inductor, switch node to ground, discharges), or (None, None)."""
+    g = set(roles.grounds)
+    for p in nl.nets[swn].pins:
+        if p.ref == ind_ref or roles.parts[p.ref].kind != 'diode' or roles.parts[p.ref].subtype in ('tvs', 'esd_array', 'zener'):
+            continue
+        part = nl.parts[p.ref]
+        o = nl.other_net(part, swn)
+        fn = (p.fn or '').upper()
+        k = fn in ('K', 'C', 'CATHODE', 'K1', 'K2', '-') or (not fn and p.number == '1' and len(part.active_pins()) == 2)
+        nv_ = V.net_voltage(o) if o else None
+        if k and o and o not in g and (nv_[0] < 0 if nv_ else bool(roles.caps_to.get(o))):
+            return p.ref, o
+    return None, None
+
+
+# parts whose datasheet names its switch and input pins outside the usual words: (part regex, {pin function: the
+# usual word}, source). TI TPS65130/1/2/3 (datasheet SLVS493, pin functions): INP the boost's switch node (the
+# inductor from the input), OUTN the inverter's switch node, INN the inverter's power input.
+PIN_ALIAS = [(re.compile(r'TPS6513[0-3]', re.I), {'INP': 'SWP', 'OUTN': 'SWN', 'INN': 'PVINN'},
+              "TI TPS6513x datasheet (SLVS493) pin functions")]
+
+
+def _label_pins(nl: Netlist):
+    """A part whose every named pin is named after its own net (pin facts taken from a schematic's net labels: a
+    meshsat board's 'S2_SW', 'VBAT', 'GND' on the pins of those nets, all typed passive) has no pin functions:
+    its names are read as absent, so the rules for unannotated pins apply (an AP64500 alone on its switch node)."""
+    for part in nl.parts.values():
+        named = [p for p in part.pins if p.fn and p.net]
+        if len(named) >= 3 and all(p.fn == nl.nets[p.net].short.upper().lstrip('/') for p in named if p.net in nl.nets):
+            for p in part.pins:
+                p.__dict__['fn'] = ''
+
+
+def _alias_pins(nl: Netlist):
+    """Pin functions read through PIN_ALIAS (the parts' own names kept in Pin.function; Pin.fn reads the alias)."""
+    _label_pins(nl)
+    for part in nl.parts.values():
+        text = part.text()
+        for rx_, alias, _src in PIN_ALIAS:
+            if rx_.search(text):
+                for p in part.pins:
+                    a = alias.get(p.fn)
+                    if a:
+                        p.__dict__['fn'] = a          # Pin.fn is a cached property: the alias is what it reads
+
+
+def infer_roles(nl: Netlist, inverting: bool = False) -> Roles:
+    """inverting: recognise inverting buck-boost switch nodes (an inductor from the switch node to ground; see
+    cells_inverting)."""
+    _alias_pins(nl)
     roles = Roles(nl=nl)
+    roles.inverting = inverting          # the inverter classes' flags follow it (cells_flag)
     for ref, part in nl.parts.items():
         kind, sub, p, evs = classify_part(part)
         roles.parts[ref] = PartRole(ref=ref, kind=kind, subtype=sub, role=kind, confidence=p, evidence=evs, kind_confidence=p)
     _grounds(nl, roles)
+    if inverting:
+        _demote_inverter_outputs(nl, roles)
     _caps_index(nl, roles)
-    _switch_nodes(nl, roles)
+    _switch_nodes(nl, roles, inverting)
     _rails(nl, roles)
     _connector_types(nl, roles)
     _rail_sources(nl, roles)
@@ -915,6 +1033,10 @@ def _grounds(nl: Netlist, roles: Roles):
             evs.append(ev('zone', f"pour on {nl.zone_layers[net]} layer(s)", 0.5))
         if PWR_NET.search(s) and not GND_ANY.search(s):
             evs.append(ev('name', f"name '{s}' matches a rail pattern", -STRONG))
+        elif not GND_ANY.search(s) and V.net_voltage(net):
+            # a name that states a rail voltage ('A-2V5', the -2.5 V analog rail its op-amps' V- pins sit on) is a
+            # rail, however many ground-like pin names (V-) it carries
+            evs.append(ev('name', f"name '{s}' states a voltage ({V.net_voltage(net)[0]:g} V)", -STRONG))
         if not evs:
             continue
         name_ev = any(e.kind == 'name' and e.weight > 0 for e in evs) or gnd_cls
@@ -954,6 +1076,45 @@ def _grounds(nl: Netlist, roles: Roles):
         else:
             subrole = 'ground' if n == roles.gnd else 'ground_secondary'
         roles.nets[n] = NetRole(n, 'ground', subrole, conf, evs, attrs={'primary': n == roles.gnd})
+
+
+def _demote_inverter_outputs(nl: Netlist, roles: Roles):
+    """A ground-named net an inverting buck-boost drives below ground is its output, no ground: a power inductor
+    from a switch node to one ground, the switching IC's ground pins all on another ground-named net (VSSA), and a
+    rectifier from the switch node (cathode) into that net (anode), as a buck IC wired as an inverter (TPS5430,
+    TI's inverting application). The net leaves the grounds, so the cell and the rails see it as the negative
+    rail it is."""
+    g = set(roles.grounds)
+    out = set()
+    for ref, part in nl.parts.items():
+        ok, _h = _is_power_inductor(part, roles.parts[ref])
+        t = nl.two_nets(part) if ok and not part.dnp else None
+        if not t or (t[0] in g) == (t[1] in g):
+            continue
+        n, g1 = (t[1], t[0]) if t[0] in g else (t[0], t[1])
+        for p in nl.nets[n].pins:
+            if p.ref == ref or not SW_PIN.match(p.fn or '') or roles.parts[p.ref].kind not in ('ic', 'module'):
+                continue
+            gn = {q.net for q in nl.parts[p.ref].active_pins() if GND_FN.match(q.fn or '')}
+            if len(gn) != 1:
+                continue
+            g2 = next(iter(gn))
+            if g2 == g1 or g2 not in g:
+                continue
+            for q in nl.nets[n].pins:
+                if roles.parts[q.ref].kind != 'diode' or q.ref == ref:
+                    continue
+                fn = (q.fn or '').upper()
+                cath = fn in ('K', 'C', 'CATHODE', 'K1', 'K2', '-') or (not fn and q.number == '1')
+                if cath and nl.other_net(nl.parts[q.ref], n) == g2:
+                    out.add(g2)
+    if not out:
+        return
+    roles.grounds = [n for n in roles.grounds if n not in out]
+    for n in out:
+        roles.nets.pop(n, None)
+    if roles.gnd in out:
+        roles.gnd = roles.grounds[0] if roles.grounds else None
 
 
 def _caps_index(nl: Netlist, roles: Roles):
@@ -1002,7 +1163,7 @@ CLASS_D = rx(r'\bMAX9835\d|\bMAX9836\d|\bMAX9837\d|\bmax98357|\bTPA2\d{3}|\bTPA3
              r'\bSSM2[35]\d{2}|\bNS4168|\bNS4150|\bNS4160|\bTDA8932|\bTDA7491|\bIS31AP|\bclass.?D\b')
 
 
-def _switch_nodes(nl: Netlist, roles: Roles):
+def _switch_nodes(nl: Netlist, roles: Roles, inverting: bool = False):
     g = set(roles.grounds)
     sw = {}
 
@@ -1036,8 +1197,23 @@ def _switch_nodes(nl: Netlist, roles: Roles):
         if (PWR_NET.search(nv.short) or V.net_voltage(net)) and not swname:
             # '1V25_SW' states its converter's output and is its switch node: the switch word decides
             evs.append(ev('name', f"rail-like name '{nv.short}'", -2.5))
+        # without pin names the switcher's node also holds its bootstrap capacitor (to another pin of the same IC)
+        # and often a second pad of the same SW pin: neither is a second part on the node
+        ics_ = {p.ref for p in alone if roles.parts[p.ref].kind in ('ic', 'module')}
+        if len(ics_) == 1 and len(alone) > 1:
+            ic_ = next(iter(ics_))
+            ic_nets = {q.net for q in nl.parts[ic_].pins if q.net and q.net != net}
+            boot = [p for p in alone if p.ref != ic_ and roles.parts[p.ref].kind == 'capacitor'
+                    and nl.other_net(nl.parts[p.ref], net) in ic_nets and nl.other_net(nl.parts[p.ref], net) not in g]
+            mine = [p for p in alone if p.ref == ic_]
+            if mine and len(mine) + len(boot) == len(alone) and not any(p.fn or p.ptype not in ('', 'passive')
+                                                                        for p in mine):
+                alone = mine[:1]
         if (alone and len(alone) == 1 and roles.parts[alone[0].ref].subtype in SWITCHER_SUBS and not alone[0].fn
-                and not alone[0].ptype and not caps and len(roles.caps_to.get(other, ())) >= 1 and not roles.sem(alone[0])):
+                and alone[0].ptype in ('', 'passive') and not caps and (len(roles.caps_to.get(other, ())) >= 1 or swname)
+                and not roles.sem(alone[0])):
+            # (a far end with no capacitor of its own, its output behind a load switch, when the node's name says
+            # it switches: /S2_SW)
             # an unannotated pin (Eagle, Altium or KiCad 5 import) of a switching regulator alone with the inductor
             evs.append(ev('topology', f"only unnamed pin {alone[0].label} of switching regulator {alone[0].ref} and the inductor on this node",
                           MODERATE + 1.0))
@@ -1051,6 +1227,28 @@ def _switch_nodes(nl: Netlist, roles: Roles):
         if not ok or part.dnp:
             continue
         t = nl.two_nets(part)
+        if t and inverting and (t[0] in g) != (t[1] in g):
+            # an inverting buck-boost: the inductor runs from the switch node to ground, and the switch IC's own
+            # ground pins sit on the negative rail it makes (LMR51430 as -12 V inverter: GND on -12V, L SW-PGND)
+            n, o = (t[1], t[0]) if t[0] in g else (t[0], t[1])
+            swics = {p.ref for p in nl.nets[n].pins if p.ref != ref and SW_PIN.match(p.fn)
+                     and roles.parts[p.ref].kind in ('ic', 'module')}
+            ics = {x for x in swics if inverting_ic(nl, roles, x)}
+            d_, neg_ = inverting_rectifier(nl, roles, n, ref) if swics and not ics else (None, None)
+            dual = None
+            if swics and not ics and not d_ and cells_flag("HASLAM_CELLS_DUALRAIL", inverting):
+                dual = next(((x, inverting_output(nl, roles, x, n)) for x in sorted(swics)
+                             if inverting_output(nl, roles, x, n)), None)
+            s, evs = score_side(n, o, ref)
+            if (ics or d_ or dual) and s >= 2.0:
+                ic = sorted(ics or swics)[0] if not dual else dual[0]
+                why = (f"{ic}'s ground pins on '{nl.nets[inverting_ic(nl, roles, ic)].short}', not a ground" if ics else
+                       f"rectifier {d_} from the switch node (cathode) to '{nl.nets[neg_].short}' (anode)" if d_ else
+                       f"{ic}'s negative output on '{nl.nets[dual[1]].short}' (a dual +/- rail IC's inverting half)")
+                evs = [ev('topology', f"one end of power inductor {ref} ({part.value}), the other on ground", 1.0),
+                       ev('topology', f"{why}: an inverting buck-boost", MODERATE)] + evs
+                sw.setdefault(n, dict(kind='inductor', inductors=[], evidence=evs, score=s, inverting=True))['inductors'].append(ref)
+            continue
         if not t or any(n in g for n in t):
             continue
         sa, ea = score_side(t[0], t[1], ref)

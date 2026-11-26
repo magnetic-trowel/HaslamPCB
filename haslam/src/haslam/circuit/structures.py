@@ -35,6 +35,7 @@ from collections import defaultdict
 from . import values as V
 from .evidence import MODERATE, STRONG, WEAK, confidence, ev
 from .netlist import Netlist, Part
+from .roles import cells_flag, inverting_ic, inverting_output, inverting_rectifier
 from .roles import (ANALOG_NET, ANALOG_PIN, BOOT_PIN, CP_PIN, EN_PIN, FB_PIN, IN_PIN, OUT_PIN, PWR_PIN, SW_PIN, Roles, belief,
                     cap_class)
 
@@ -223,6 +224,13 @@ def _table(text, table):
 
 
 # =============================================================================== commutation cells
+def loops_of(cell):
+    """A commutation cell's hot loops as [(loop_id, members, ret, gnd, sw)]: today the single legacy loop (`loop`,
+    `ret`, `gnd`, `sw`). The one place a multi-loop cell schema (`loops: [...]`) is to be read, so that readers of a
+    loop's members and return (the cells stage, the recheck) need not change with it."""
+    return [("main", cell.get("loop") or [], cell.get("ret") or cell.get("gnd"), cell.get("gnd"), cell.get("sw"))]
+
+
 def commutation_cells(b: _B) -> list:
     cells = []
     used_sw = set()
@@ -239,12 +247,29 @@ def commutation_cells(b: _B) -> list:
         if not t:
             continue
         if len(swnets) >= 2:          # both ends switched: 4-switch buck-boost
-            cells += _buck_boost(b, L, swnets)
+            ext = cells_flag("HASLAM_CELLS_EXTBB")
+            # with external-FET buck-boosts recognised, legs of discrete FETs are theirs even when the controller's
+            # pins are named (it was read as an integrated 4-switch, its loop through the controller's pins)
+            bb = _buck_boost_ext(b, L, swnets) if ext else []
+            if not bb:
+                bb = _buck_boost(b, L, swnets)
+            cells += bb
             used_sw |= set(swnets)
             continue
         swn = swnets[0]
         other = t[0] if t[1] == swn else t[1]
-        c = _converter(b, L, lpart, swn, other)
+        far = sw.get(other) or {}
+        far_hb = far.get('of') if far.get('kind', '').endswith('_via_shunt') else other if far.get('kind') == 'half_bridge' \
+            else None
+        if far_hb and (sw.get(far_hb) or {}).get('kind') == 'half_bridge' and cells_flag("HASLAM_CELLS_EXTBB"):
+            # the inductor's far end is the other half-bridge's switch node, directly or through an in-line sense
+            # resistor (LT8705A's inductor-current shunt): a 4-switch buck-boost with external FETs
+            bb = _buck_boost_ext(b, L, [swn, far_hb])
+            if bb:
+                cells += bb
+                used_sw |= {swn, far_hb, other}
+                continue
+        c = _inverting(b, L, lpart, swn, other) if sw[swn].get('inverting') else _converter(b, L, lpart, swn, other)
         if c:
             cells.append(c)
             used_sw.add(swn)
@@ -625,8 +650,40 @@ def _converter(b: _B, L, lpart, swn, other):
         elif side == 'A' and o and o not in b.g and o != other:
             d_boost = (d, o)
     vin_pins = _vin_pins(b, ctrl, {swn, other}, suffix, token) if ctrl else []
+    if ctrl and not vin_pins and not any(p.fn for p in b.nl.parts[ctrl].active_pins()) and \
+            b.sub(ctrl) in ('regulator_switching', 'regulator_module', 'pmic'):
+        # a switcher with no pin names at all: its input is the net of most of its pins off the switch node, the
+        # inductor's far end, ground and its bootstrap capacitor (an AP63205 with EN tied to VIN: two pins on it)
+        boot = {n for n in b.nl.parts[ctrl].nets for p in b.nl.pins(n)
+                if b.k(p.ref) == 'capacitor' and b.nl.other_net(b.nl.parts[p.ref], n) == swn}
+        cnt = defaultdict(int)
+        for p in b.nl.parts[ctrl].active_pins():
+            if p.net and p.net not in b.g and p.net not in (swn, other) and p.net not in boot:
+                cnt[p.net] += 1
+        best = sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0]))
+        if best and (len(best) == 1 or best[0][1] > best[1][1]):
+            vin_pins = [p for p in b.nl.parts[ctrl].active_pins() if p.net == best[0][0]]
     out_pins = [p for p in b.nl.parts[ctrl].active_pins() if OUT_PIN.match(p.fn) and p.net not in (swn,) and p.net not in b.g] if ctrl else []
-    ctrl_in_on_other = ctrl and any(p.net == other and b.r.sem(p) == 'supply' and not SW_PIN.match(p.fn) for p in b.nl.parts[ctrl].active_pins())
+    if ctrl and not out_pins:
+        # a dual-rail IC's positive output (TPS6513x VPOS beside its SWP boost)
+        out_pins = [p for p in b.nl.parts[ctrl].active_pins() if re.match(r'^(VPOS|VOUTP|OUTP)$', p.fn or '', re.I)
+                    and p.net not in (swn,) and p.net not in b.g]
+    named_in = re.compile(r'^(P?VIN\w*|AVIN|PVIN\w*|VIN_?\w*)$', re.I)
+    if ctrl and vin_pins and not any(named_in.match(p.fn or '') or IN_PIN.match(p.fn or '') for p in vin_pins) and \
+            any(p.net == other and named_in.match(p.fn or '') for p in b.nl.parts[ctrl].active_pins()):
+        # the IC's named input (PVIN, AVIN) sits on the inductor's far end: a pin standing in for an input elsewhere
+        # (its VPOS output on a decoupled rail) is no input (tangara's TPS65133 boost half read as a buck)
+        vin_pins = []
+    # a multi-channel IC (a PMIC's SW1/SW2): an output pin of another channel says nothing of this one, and this
+    # channel's own output pin (VOUT1 beside SW1) on the inductor's far end says the far end is its output (a buck):
+    # an I/O supply pin there (VDDIO from +1V8) is then that output's load, not the converter's input
+    if suffix:
+        own_out = [p for p in out_pins if p.fn.endswith(suffix)]
+        out_pins = own_out
+    else:
+        own_out = []
+    ctrl_in_on_other = ctrl and not any(p.net == other for p in own_out) and \
+        any(p.net == other and b.r.sem(p) == 'supply' and not SW_PIN.match(p.fn) for p in b.nl.parts[ctrl].active_pins())
     sb, eb, sbo, ebo = 0.0, [], 0.0, []
     if vin_pins:
         sb += 2.0
@@ -640,6 +697,9 @@ def _converter(b: _B, L, lpart, swn, other):
     if b.r.caps_to.get(other):
         sb += 0.5
         eb.append(ev('topology', f"{len(b.r.caps_to[other])} capacitor(s) on the far end (output)", 0.5))
+    if any(p.net == other for p in own_out):
+        sb += 2.0
+        eb.append(ev('pinfunction', f"{ctrl}'s own channel output {own_out[0].label} on the inductor's far end", 2.0))
     if d_boost:
         sbo += 3.0
         ebo.append(ev('topology', f"rectifier {d_boost[0]}: anode on the switch node, cathode on '{b.short(d_boost[1])}'", 3.0))
@@ -736,10 +796,25 @@ def _converter(b: _B, L, lpart, swn, other):
     exc = _excite(b, ctrl, L, V_, kind)
     out_caps = _hf_order(b.nl, b.caps_on(out if kind == 'buck' else other))
     conf_cap = min(b.r.nets[swn].confidence, b.r.parts[L].kind_confidence + 0.2)
-    cid = f"cell:{kind}:{ctrl or L}" + (f":{suffix}" if suffix else '')
+    cls_, top_ = kind, None
+    if kind == 'buck' and ctrl and cells_flag("HASLAM_CELLS_INVBUCK", getattr(b.r, 'inverting', False)):
+        # an inverting buck (TPS6371x): a flying capacitor from the IC's CP pin to the switch node shifts the
+        # switch node below ground, the inductor runs from it to a negative output. Its hot loop is a buck's (the
+        # input capacitor, the IC's input and ground pins: the CP node commutates between them); its output is
+        # -D V_in at I_L = I_out (haslam.physics.converter's inverting_buck)
+        cp = [p for p in b.nl.parts[ctrl].active_pins() if re.match(r'^CP\d?$', p.fn or '', re.I)]
+        fly = [r for p in cp for r in {q.ref for q in b.nl.pins(p.net)} if r != ctrl and b.k(r) == 'capacitor'
+               and swn in b.nl.parts[r].nets]
+        vo = b.volts(out)
+        if fly and (vo is None or vo < 0):
+            cls_, top_ = 'inverting', 'inverting_buck'
+            evs.append(ev('topology', f"flying capacitor {fly[0]} from {ctrl}'s CP pin to the switch node: an inverting "
+                                      f"buck to '{b.short(out)}'", STRONG))
+            kind = 'buck'
+    cid = f"cell:{'inverting' if top_ else kind}:{ctrl or L}" + (f":{suffix}" if suffix else '')
     return _struct('commutation_cell', cid, evs, conf_cap=conf_cap, prior=-0.5,
-                   **{'class': kind, 'loop': loop, 'rail': rail, 'sw': swn, 'gnd': gnd, 'excite': exc,
-                      'controller': ctrl, 'inductor': L, 'caps': caps, 'caps_p': cp,
+                   **{'class': cls_, **({'topology': top_} if top_ else {}), 'loop': loop, 'rail': rail, 'sw': swn,
+                      'gnd': gnd, 'excite': exc, 'controller': ctrl, 'inductor': L, 'caps': caps, 'caps_p': cp,
                       # an asynchronous boost's controller is its low-side switch: the loop above runs
                       # through its SW and ground pads (it was None there, unlike a synchronous one)
                       'switches': {'high': hs or (ctrl if kind == 'buck' else None), 'low': ls or d_catch or ctrl,
@@ -750,6 +825,116 @@ def _converter(b: _B, L, lpart, swn, other):
                       'loop_core': core, 'cap_rail': rail, 'cap_gnd': gnd, 'anchor': ctrl or hs or L})
 
 
+def _inverting(b: _B, L, lpart, swn, gnd):
+    """An inverting buck-boost (TI SLVA721): the switch IC between its input rail and the negative rail it makes
+    (its ground pins on that rail), the inductor from the switch node to ground. The high side commutates I_L
+    between the input and the switch node, the low side between the switch node and the negative rail: the hot loop
+    is the input capacitor, the IC's input pins, its reference (ground) pins on the negative rail and the output
+    capacitor back to ground; a capacitor straight from the input to the negative rail closes it alone. The bus is
+    the swing V_in + |V_out| across the switch."""
+    nv = b.nl.nets[swn]
+    sw_pins = [p for p in nv.pins if p.ref != L and SW_PIN.match(p.fn) and b.k(p.ref) in ('ic', 'module')]
+    ctrl = next((p.ref for p in sw_pins if inverting_ic(b.nl, b.r, p.ref)), None)
+    dedicated = None
+    if ctrl is None and sw_pins:
+        # a dedicated inverter (TPS63700; an MC34063 in its inverting circuit): the IC on ground, its switch from
+        # the input to the switch node, a rectifier from the switch node to the negative output
+        d_, neg_ = inverting_rectifier(b.nl, b.r, swn, L)
+        if d_:
+            ctrl, dedicated = sw_pins[0].ref, (d_, neg_)
+        elif cells_flag("HASLAM_CELLS_DUALRAIL", getattr(b.r, 'inverting', False)):
+            # a dual +/- rail IC's inverting half: its rectifier is inside, from the switch node to its VNEG pin
+            for p in sw_pins:
+                vn = inverting_output(b.nl, b.r, p.ref, swn)
+                if vn:
+                    ctrl, dedicated = p.ref, (None, vn)
+                    break
+    if ctrl is None:
+        return None
+    neg = dedicated[1] if dedicated else inverting_ic(b.nl, b.r, ctrl)
+    vin_pins = _vin_pins(b, ctrl, {swn, gnd, neg})
+    if not vin_pins:
+        return None
+    rail = vin_pins[0].net
+    vi, vo = b.volts(rail), b.volts(neg)
+    if (vo is not None and vo >= 0) or (vi is not None and vi <= 0):
+        return None                        # not an input above ground and an output below it
+    evs = [ev('topology', f"power inductor {L} ({lpart.value}) from '{b.short(swn)}' to ground '{b.short(gnd)}'", MODERATE),
+           ev('pinfunction', f"{ctrl} input {vin_pins[0].label} on '{b.short(rail)}', " +
+              (f"rectifier {dedicated[0]} from the switch node to '{b.short(neg)}'" if dedicated and dedicated[0] else
+               f"its negative output on '{b.short(neg)}' (a dual +/- rail IC's inverting half)" if dedicated else
+               f"its ground pins on '{b.short(neg)}'") + ": an inverting buck-boost", STRONG)]
+    evs += [e for e in b.r.switch_nodes[swn]['evidence'] if e.weight > 0][:3]
+    gp = sorted({p.number for p in b.nl.parts[ctrl].pins_on(neg)}, key=_natkey)
+    vin_pads = [p.number for p in vin_pins if p.net == rail] or b.supply_pads(ctrl, rail)
+    rect = dedicated[0] if dedicated else next(
+        (p.ref for p in nv.pins if b.k(p.ref) == 'diode' and b.sub(p.ref) not in ('tvs', 'esd_array', 'zener')
+         and b.nl.other_net(b.nl.parts[p.ref], swn) == neg), None)
+    direct = sorted((c for c, nets in ((r, b.nl.parts[r].nets) for r in b.nl.parts if b.k(r) == 'capacitor')
+                     if nets == {rail, neg}), key=_refkey)
+    core = [[ctrl, vin_pads]]
+    if rect:
+        core += [[ctrl, b.pads(ctrl, swn)], [rect, b.pad_sel(rect, swn)], [rect, b.pad_sel(rect, neg)]]
+    else:
+        core += [[ctrl, gp]]
+    excl = {ctrl, L}
+    if direct:
+        caps, cp, cap_gnd = _hf_order(b.nl, direct), {c: 1.0 for c in direct}, neg
+    else:
+        # through ground: the input capacitor (rail to ground) and the output capacitor (negative rail to ground)
+        caps, cp = _caps_with_p(b, rail, gnd, ctrl, [x for x in _consumers(b, rail, exclude=excl) if x != ctrl])
+        outs = _hf_order(b.nl, b.caps_on(neg, gnd))
+        cap_gnd = gnd
+        if outs:
+            co = outs[0]
+            g_out = gnd if gnd in b.nl.parts[co].nets else min(b.nl.parts[co].nets - {neg})
+            core += [[co, b.cap_pad(co, neg)], [co, b.cap_pad(co, g_out)]]
+        else:
+            evs.append(ev('topology', f"no capacitor from '{b.short(neg)}' to ground: the output side of the loop is open", -2.0))
+    if not caps:
+        evs.append(ev('topology', f"no input capacitor on '{b.short(rail)}': no commutation capacitor found", -2.0))
+    V_ = vi + abs(vo) if vi is not None and vo is not None else None
+    exc = _excite(b, ctrl, L, V_, 'buck')
+    exc['basis'].append(f"V = V_in + |V_out| (the switch's swing)" if V_ is not None else
+                        "V unknown: the input or the negative output has no voltage")
+    exc['basis'].append("I is the switch's (the inductor's) current: I_out / (1 - D) delivered")
+    conf_cap = min(b.r.nets[swn].confidence, b.r.parts[L].kind_confidence + 0.2)
+    # the IC's reference: the negative rail for a buck IC used as an inverter, the board's ground for a dedicated one
+    ref_net = _cell_ground(b, ctrl, gnd) if dedicated else neg
+    return _struct('commutation_cell', f"cell:inverting:{ctrl}", evs, conf_cap=conf_cap, prior=-0.5,
+                   **{'class': 'inverting', 'topology': 'inverting_buck_boost', 'loop': [], 'rail': rail, 'sw': swn,
+                      'gnd': ref_net, 'excite': exc, 'controller': ctrl, 'inductor': L, 'caps': caps, 'caps_p': cp,
+                      'switches': {'high': ctrl, 'low': rect or ctrl, 'rectifier': rect},
+                      'vin': rail, 'vout': neg, 'output_caps': _hf_order(b.nl, b.caps_on(neg, gnd))[:6], 'input_caps': [],
+                      # a capacitor from the input to the negative rail is allocated as a split-supply pair's
+                      # (allocate_caps: b.caps_between), one to ground as any rail's
+                      'series_shunt': [], 'integrated_switches': True, 'loop_core': core,
+                      'cap_rail': (rail, neg) if direct else rail,
+                      'cap_gnd': cap_gnd, 'anchor': ctrl})
+
+
+# 4-switch buck-boost ICs whose input half-bridge is not the first-numbered switch pin: (part regex, the input
+# leg's switch pin function, source). Without a row the input leg is the one named L1 / SW1 / SWA / LX1 (TI's
+# TPS63xxx L1, TPS5528x SW1), else the first switch node found.
+SW_INPUT_LEG = [(r'JW3651', 'SW2', "Joulwatt JW3651 datasheet Rev 0.91, pin description: 'SW1: the VO side power "
+                                   "switching node'; 'SW2: the VIN side power switching node, connects to SW1 through the "
+                                   "inductor'")]
+_LEG1 = re.compile(r'^(L1|SW1|SWA|LX1|SW_?IN|LXI)$', re.I)
+
+
+def _input_leg_first(b: _B, ctrl, swnets):
+    """swnets ordered (input leg, output leg) by the controller's switch pins (SW_INPUT_LEG, else _LEG1)."""
+    fn_of = {p.net: p.fn for p in b.nl.parts[ctrl].active_pins() if p.net in swnets}
+    text = b.nl.parts[ctrl].text()
+    for rx, pin, _src in SW_INPUT_LEG:
+        if re.search(rx, text, re.I):
+            first = [n for n in swnets if (fn_of.get(n) or '').upper() == pin]
+            if first:
+                return first + [n for n in swnets if n not in first]
+    first = [n for n in swnets if _LEG1.match(fn_of.get(n) or '')]
+    return (first + [n for n in swnets if n not in first]) if len(first) == 1 else list(swnets)
+
+
 def _buck_boost(b: _B, L, swnets):
     """A 4-switch buck-boost: one buck cell on the input half-bridge, one boost cell on the output half-bridge."""
     nv = [b.nl.nets[n] for n in swnets]
@@ -757,6 +942,7 @@ def _buck_boost(b: _B, L, swnets):
     if not ics:
         return []
     ctrl = ics[0]
+    swnets = _input_leg_first(b, ctrl, swnets)
     part = b.nl.parts[ctrl]
     vin = _vin_pins(b, ctrl, set(swnets))
     outs = [p for p in part.active_pins() if OUT_PIN.match(p.fn) and p.net not in swnets and p.net not in b.g]
@@ -782,6 +968,168 @@ def _buck_boost(b: _B, L, swnets):
                               'caps': caps, 'caps_p': cp, 'topology': 'buck_boost_4switch', 'integrated_switches': True,
                               'loop_core': [[ctrl, b.supply_pads(ctrl, rail)], [ctrl, gp]], 'cap_rail': rail, 'cap_gnd': gnd,
                               'anchor': ctrl}))
+    return out
+
+
+# 4-switch buck-boost controllers with external FETs: (part regex, the input (buck) leg's switch pin by function,
+# by pad number for the package the board uses or None, source). Without a row: the leg named SW1 / SWA, else the
+# leg whose high-side FET's drain is the controller's VIN-named net, else the order found (said so).
+EXT_BB_LEGS = [
+    (r'LM5176', 'SW1', {'28'}, "TI LM5176 datasheet (SNVSA87), pin functions: SW1 (pin 28, HTSSOP-28 PWP) the buck "
+                               "leg's switch node, SW2 (pin 18) the boost leg's"),
+    (r'LT8705', 'SW1', None, "ADI LT8705A datasheet, pin functions: SW1 the buck side's switch node, SW2 the boost "
+                             "side's"),
+    (r'LTC3780', 'SW1', None, "ADI LTC3780 datasheet, pin functions: SW1 the buck side's switch node, SW2 the boost "
+                              "side's"),
+]
+
+
+def _ext_leg(b: _B, swn, ctrl=None):
+    """(high FET, its rail, low FET, its return net, shunt or None) of a discrete half-bridge on `swn`, or None."""
+    hs = ls = None
+    for q in sorted({p.ref for p in b.nl.nets[swn].pins if b.k(p.ref) == 'transistor'}, key=_refkey):
+        part = b.nl.parts[q]
+        nets = set(part.nets) - {swn}
+        gate, o = fet_terminals(b, q, swn)
+        if o is not None:
+            main = {o}
+        else:
+            # the gate: the net of the FET's fewest pads (a power package has one gate pad and several drain or
+            # source pads), else the net only the FET and the controller (or a gate resistor) touch
+            # (pads, then the net's own pin count: a gate net is the FET's gate and its driver's pin)
+            cnt = {n: (sum(1 for p in part.pins if p.net == n), len(b.nl.pins(n))) for n in nets}
+            lo = min(cnt.values(), default=None)
+            drive = {n for n, c in cnt.items() if c == lo} if list(cnt.values()).count(lo) == 1 else set()
+            main = nets - drive
+        if len(main) != 1:
+            continue
+        o = next(iter(main))
+        shunt = next((p.ref for p in b.nl.pins(o) if b.k(p.ref) == 'resistor'
+                      and ((V.resistance(b.nl.parts[p.ref].value) or 1) <= 0.2 or b.sub(p.ref) == 'shunt')
+                      and b.nl.other_net(b.nl.parts[p.ref], o) in b.g), None)
+        if o in b.g or shunt:
+            ls = (q, o, shunt)
+        else:
+            # the other FET: its drain is the leg's rail (an output may reach its capacitors only through a load
+            # switch: meshsat's /PA_OUT)
+            hs = (q, o)
+    if not hs or not ls:
+        return None
+    return hs[0], hs[1], ls[0], ls[1], ls[2]
+
+
+LOAD_SWITCH_IN = re.compile(r'^(P?VIN\d*|IN\d*|VI|VBUS_?IN)$', re.I)
+LOAD_SWITCH_OUT = re.compile(r'^(P?VOUT\d*|OUT\d*|VO|VBUS_?OUT)$', re.I)
+
+
+def series_conductors(b: _B, net):
+    """Parts in series from `net` that conduct at a switching edge, as [(ref, near pads, far net)]: a low-ohm
+    resistor (a current-sense shunt), a fuse, a ferrite, or a load switch / eFuse (closed in operation) with its
+    input pins on `net` and its output pins on the far net."""
+    out = []
+    for ref in sorted({p.ref for p in b.nl.pins(net)}, key=_refkey):
+        part = b.nl.parts[ref]
+        k = b.k(ref)
+        if k in ('resistor', 'fuse', 'ferrite') and len(part.nets) == 2:
+            if k == 'resistor' and not ((V.resistance(part.value) or 1) <= 0.2 or b.sub(ref) == 'shunt'):
+                continue
+            far = b.nl.other_net(part, net)
+            if far and far not in b.g:
+                out.append((ref, b.pad_sel(ref, net), far))
+        elif k == 'ic' and b.sub(ref) == 'load_switch':
+            ins = [p for p in part.active_pins() if p.net == net and LOAD_SWITCH_IN.match(p.fn or '')]
+            outs = {p.net for p in part.active_pins() if LOAD_SWITCH_OUT.match(p.fn or '') and p.net not in b.g}
+            if ins and len(outs) == 1:
+                out.append((ref, sorted({p.number for p in ins}, key=_natkey), next(iter(outs))))
+    return out
+
+
+def _buck_boost_ext(b: _B, L, swnets):
+    """A 4-switch buck-boost with external FETs (LM5176, LT8705A, LTC3780: two discrete half-bridges, the inductor
+    between their switch nodes), behind HASLAM_CELLS_EXTBB: one buck cell on the input leg, one boost cell on the
+    output leg (topology buck_boost_4switch, priced by region as the integrated kind), each loop the leg's bulk
+    capacitor, its high-side FET, its low-side FET and the current-sense shunt back to ground. The FETs'
+    common-source inductance (a gate-drive loop sharing the power source path) is not modelled: said in each
+    cell's `unmodelled`."""
+    legs = {n: _ext_leg(b, n) for n in swnets}
+    if any(v is None for v in legs.values()):
+        return []
+    fets = {x for v in legs.values() for x in (v[0], v[2])}
+    power = set(swnets) | {x for v in legs.values() for x in (v[1], v[3])}
+    # the controller: the IC on the FETs' gate nets (directly or through a gate resistor)
+    gates = {n for q in fets for n in set(b.nl.parts[q].nets) - power}
+    gates |= {b.nl.other_net(b.nl.parts[p.ref], n) for n in list(gates) for p in b.nl.pins(n)
+              if b.k(p.ref) == 'resistor' and len(b.nl.parts[p.ref].nets) == 2}
+    drv = sorted({p.ref for n in gates if n for p in b.nl.pins(n) if b.k(p.ref) in ('ic', 'module')}, key=_refkey)
+    ctrl = drv[0] if drv else None
+    order, why = list(swnets), "the order the switch nodes were found (no pin names, no part row)"
+    if ctrl:
+        part = b.nl.parts[ctrl]
+        text = part.text()
+        by_fn = {p.net: p.fn for p in part.active_pins() if p.net in swnets}
+        by_num = {p.net: p.number for p in part.active_pins() if p.net in swnets}
+        row = next((r for r in EXT_BB_LEGS if re.search(r[0], text, re.I)), None)
+        first = []
+        if row:
+            first = [n for n in swnets if (by_fn.get(n) or '').upper() == row[1]]
+            if not first and row[2]:
+                first = [n for n in swnets if by_num.get(n) in row[2]]
+            if first:
+                why = row[3]
+        if not first:
+            first = [n for n in swnets if _LEG1.match(by_fn.get(n) or '')]
+            why = "the controller's SW1 / SWA pin" if first else why
+        if not first:
+            vin_nets = {p.net for p in part.active_pins() if re.match(r'^(P?VIN\w*|VIN)$', p.fn or '', re.I)}
+            first = [n for n in swnets if legs[n][1] in vin_nets]
+            why = "the leg whose high-side FET's drain is the controller's VIN net" if first else why
+        if len(first) == 1:
+            order = first + [n for n in swnets if n not in first]
+    out = []
+    for kind, swn in (('buck', order[0]), ('boost', order[1])):
+        hs, rail, ls, lret, shunt = legs[swn]
+        gnd = b.nl.other_net(b.nl.parts[shunt], lret) if shunt else lret
+        comp = [x for x in _consumers(b, rail, exclude={ctrl, L} | fets)]
+        caps, cp = _caps_with_p(b, rail, gnd, hs, comp)
+        core = [[hs, b.pad_sel(hs, rail)], [hs, b.pad_sel(hs, swn)], [ls, b.pad_sel(ls, swn)], [ls, b.pad_sel(ls, lret)]]
+        if shunt:
+            core += [[shunt, b.pad_sel(shunt, lret)], [shunt, b.pad_sel(shunt, gnd)]]
+        cap_rail, through = rail, None
+        if not caps:
+            # the leg's capacitor behind a series conductor (meshsat's LM5176 outputs: a 5 mOhm output-current shunt
+            # to the capacitors; an eFuse or load switch, closed in operation): the loop runs through it
+            for ref_, near, far_ in series_conductors(b, rail):
+                c2, p2 = _caps_with_p(b, far_, gnd, hs, [x for x in _consumers(b, far_, exclude={ctrl, L, ref_} | fets)])
+                if c2:
+                    caps, cp, cap_rail, through = c2, p2, far_, ref_
+                    far_pads = b.pad_sel(ref_, far_) if b.k(ref_) != 'ic' else sorted(
+                        {p.number for p in b.nl.parts[ref_].active_pins() if p.net == far_}, key=_natkey)
+                    core = [[ref_, far_pads], [ref_, near]] + core
+                    break
+        evs = [ev('topology', f"both ends of {L} are switch nodes of discrete half-bridges driven by {ctrl} "
+                              f"(4-switch buck-boost, external FETs)", STRONG),
+               ev('topology', f"{kind} leg: {hs} from '{b.short(rail)}' and {ls} to '{b.short(lret)}' on "
+                              f"'{b.short(swn)}'", MODERATE),
+               ev('derived', f"input leg: {why}", 0.0)]
+        if through:
+            evs.append(ev('topology', f"its capacitor behind {through} (a series conductor, closed in operation) on "
+                                      f"'{b.short(cap_rail)}'", WEAK))
+        if not caps:
+            evs.append(ev('topology', f"no capacitor on '{b.short(rail)}', nor behind a series conductor (shunt, fuse, "
+                                      f"ferrite, load switch): the loop is open", -2.0))
+        V_ = b.volts(rail)
+        out.append(_struct('commutation_cell', f"cell:{kind}:{ctrl or L}", evs, conf_cap=0.9, prior=-0.5,
+                           **{'class': kind, 'loop': [], 'rail': rail, 'sw': swn, 'gnd': gnd,
+                              'excite': _excite(b, ctrl, L, V_, kind), 'controller': ctrl, 'inductor': L,
+                              'caps': caps, 'caps_p': cp, 'topology': 'buck_boost_4switch',
+                              'integrated_switches': False,
+                              'switches': {'high': hs, 'low': ls, 'rectifier': None, 'shunt': shunt,
+                                           # both legs' FETs, for the converter's DC feed (haslam.excite.dc)
+                                           'in_high': legs[order[0]][0], 'in_low': legs[order[0]][2],
+                                           'out_high': legs[order[1]][0], 'out_low': legs[order[1]][2]},
+                              'vin': legs[order[0]][1], 'vout': legs[order[1]][1],
+                              'unmodelled': ['common_source_inductance'],
+                              'loop_core': core, 'cap_rail': cap_rail, 'cap_gnd': gnd, 'anchor': hs}))
     return out
 
 
@@ -1151,9 +1499,16 @@ def _finish_cells(b: _B, cells):
         caps = _hf_order(b.nl, c['caps'])
         c['caps'] = caps
         rail, gnd = c['cap_rail'], c['cap_gnd']
+        if isinstance(rail, tuple):              # an inverting cell's capacitor from its input to its negative rail
+            rail = rail[0]
+        # ret: the net the loop's input capacitor returns to (its terminal that is not the rail), read from the
+        # capacitor: a buck's or a boost's ground; an inverting cell's ground, or its negative rail when the
+        # capacitor sits between the input and the IC's reference (TI SLVA721). Without a capacitor, cap_gnd.
+        c['ret'] = gnd
         if caps:
             hf = caps[0]
-            gpad = b.cap_pad(hf, gnd) if gnd in b.nl.parts[hf].nets else b.cap_pad(hf, min(b.nl.parts[hf].nets - {rail}))
+            c['ret'] = gnd if gnd in b.nl.parts[hf].nets else min(b.nl.parts[hf].nets - {rail})
+            gpad = b.cap_pad(hf, c['ret'])
             c['loop'] = [[hf, b.cap_pad(hf, rail)]] + c['loop_core'] + [[hf, gpad]]
             if c.get('cap_shared'):
                 c['evidence'].append(ev('count', f"no capacitor left for this converter on '{b.short(rail)}'; {hf} is shared", -1.0))
@@ -1941,7 +2296,7 @@ def heat(b: _B, cells, heat_models=None) -> tuple[list, dict]:
                 basis = f"(Vin {vin:g} - Vout {vout:g}) V x {I_:g} A, the load current assumed from the {part.package.text or 'package'} class"
                 # what haslam.intent.facts.apply re-sizes the loss from once the facts state volts or current
                 model = {'law': 'linear', 'vin': vin_net, 'vout': vout_net, 'vout_V': vout, 'I_A': I_}
-        elif ref in cell_by_ctrl and cell_by_ctrl[ref]['class'] in ('buck', 'boost'):
+        elif ref in cell_by_ctrl and cell_by_ctrl[ref]['class'] in ('buck', 'boost', 'inverting'):
             c = cell_by_ctrl[ref]
             ex = c['excite']
             vout = b.volts(c.get('vout') or '') if c.get('vout') else None
@@ -2040,6 +2395,15 @@ def _apply_dividers(b: _B, fb, cells):
         ex = c['excite']
         v = b.volts(c['rail'])
         vb = (b.r.nets.get(c['rail']).attrs.get('volts') or {}) if b.r.nets.get(c['rail']) else {}
+        if c['class'] == 'inverting' and c.get('topology') != 'inverting_buck':
+            # the switch swings from the input to the negative output: V_in + |V_out|
+            vo = b.volts(c['vout'])
+            v = v + abs(vo) if v is not None and vo is not None else None
+            if v is not None and ex.get('V') != v:
+                ex['V'] = v
+                ex['basis'] = [x for x in ex['basis'] if not x.startswith('V ')] + \
+                    [f"V = V_in + |V_out| from '{b.short(c['rail'])}' and '{b.short(c['vout'])}' (the switch's swing)"]
+            continue
         if v is not None and ex.get('V') != v:
             ex['V'] = v
             ex['basis'] = [x for x in ex['basis'] if not x.startswith('V ')] + [f"V from '{b.short(c['rail'])}': {vb.get('relative_to', '')}"]

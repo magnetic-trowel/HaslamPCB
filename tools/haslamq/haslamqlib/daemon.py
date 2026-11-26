@@ -12,6 +12,7 @@ import threading
 import time
 from .consts import CANCELLING, GB, MEM_BINS, TICK
 from .cpu import adapt_runq_q, burst_fits, quantile
+from .forecast import last_mile
 from .gitsnap import drop_worktree, git, ref
 from .host import Host, TICK_HZ, at_high, cg_anon_refaults, cg_freeze, cg_frozen, cg_high_mb, cg_mem, cg_mem_pressure, cg_pressure, cg_set_high, cg_swap_mb, compress, compress_room_mb, job_cgroup, job_cpus, job_usage, kill_tree, pid_alive, shutil_which, stop_tree, uncompress
 from .leases import expected_size, timed_share, keep_flags, adapt_hold, adapt_z, lease_plan, max_rise, mem_hist, owner_correlation, pooled_headroom, warm_headroom
@@ -89,6 +90,7 @@ class Daemon:
         self.timed_wait = 0.0    # share of time timed jobs had a thread waiting for a CPU (smoothed, ~30 s)
         self.admit_why = None    # why the next job did not start at the last admission (haslamqtop shows it)
         self.tick_s = 0.0        # how long the last tick took
+        self.last_mile, self.top_prio = set(), 0   # nearly finished campaigns (forecast.last_mile), top priority
         self.cpu_freeze_ts, self.calm_since = 0.0, 0.0
         self.runq_class, self.runq_class_ts = {}, 0.0
         self.cpu_learn, self.cpu_learn_ts = {}, 0.0
@@ -143,6 +145,12 @@ class Daemon:
     def tick(self):
         cfg = config()
         c = self.c
+        counts = {}
+        for o, st, n in c.execute("SELECT owner, state, COUNT(*) FROM jobs WHERE owner IN (SELECT DISTINCT owner FROM "
+                                  "jobs WHERE state IN ('queued','running')) GROUP BY owner, state"):
+            counts.setdefault(o, {})[st] = n
+        self.last_mile = last_mile(counts, cfg)
+        self.top_prio = c.execute("SELECT COALESCE(MAX(prio), 0) FROM jobs WHERE state IN ('queued','running')").fetchone()[0]
         lease_on = cfg["mem_pool"] == "lease" and self.use_cgroup(cfg)
         sessions, per_pid = self.host.proc_by_session()
         now = time.time()
@@ -275,6 +283,7 @@ class Daemon:
                                          self.runq_q or cfg["runq_q"]),
                         runq_over=self.runq_stats[0], runq_idle=self.runq_stats[1], runq_class=self.runq_class,
                         admit=self.admit_why, timed_wait=round(self.timed_wait, 3), tick_s=round(self.tick_s, 1),
+                        last_mile=sorted(self.last_mile),
                         pool_rho={o: [round(r, 2), n] for o, (r, n) in self.rho.items()},
                         mem_ratio={o: round(q, 3) for o, q in self.ratios.items()},
                         mem_mode=mode, mem_rise=self.rise, mem_single=single, mem_warm=warm_need,
@@ -391,7 +400,8 @@ class Daemon:
                 st["rate"] = r if r > st["rate"] else 0.9 * st["rate"] + 0.1 * r
             st["last"] = (now, m[0])
             g = j["grant_mb"] or max(self.need_mb(j, cfg), m[0] + 2 * cfg["lease_margin_mb"])  # adopted job: a first grant
-            jobs.append(dict(id=j["id"], prio=j["prio"], started=j["started"], grant=float(g), use=m[0], declared=j["mem_mb"],
+            jobs.append(dict(id=j["id"], prio=self.top_prio if j["owner"] in self.last_mile else j["prio"],
+                             started=j["started"], grant=float(g), use=m[0], declared=j["mem_mb"],
                              slack_since=st["slack_since"], stall_since=st["stall_since"], rate=st["rate"],
                              frozen=bool(st.get("frozen_since")), grew=grew, timed=(j["qos"] or "timed") == "timed",
                              waited_frozen=frozen_for(j, now) - st.get("wait_base", 0.0),
@@ -881,8 +891,11 @@ class Daemon:
         started = 0
         short = None
         self.admit_why = None
+        lm = self.last_mile                      # nearly finished campaigns: their last jobs go first
+        top = max((j["prio"] for j in queued), default=0)
+        eff = lambda j: top if j["owner"] in lm else j["prio"]
         while queued and started < cfg["starts_per_tick"] and n_running < cfg["max_running"]:
-            queued.sort(key=lambda j: (-j["prio"], per_owner.get(j["owner"], 0), j["submitted"]))
+            queued.sort(key=lambda j: (-eff(j), j["owner"] not in lm, per_owner.get(j["owner"], 0), j["submitted"]))
             fits = lambda j: (self.need_mb(j, cfg) <= mem_room and j["disk_mb"] <= disk_room
                               and (n_running == 0 or (self.timed_cpu_fits(j, cfg, now, running)
                                                       if (j["qos"] or "timed") == "timed"

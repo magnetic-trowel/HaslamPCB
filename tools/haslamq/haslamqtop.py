@@ -236,7 +236,8 @@ def frame(c, cfg, sampler, args, width):
     fcpu = {j["id"]: float(j["cpus"]) for j in list(running) + list(allq)}
     pool = bsys.get("pinned") or (threads - rcpu)
     fc = haslamq.forecast_queue(running, allq, {k: v[0] for k, v in edur.items()}, fmem, fcpu,
-                             sum(fmem[j["id"]] for j in running) + max(0.0, room), pool - others, now)
+                             sum(fmem[j["id"]] for j in running) + max(0.0, room), pool - others, now,
+                             boost=set(bsys.get("last_mile") or ()))
     L.append(f"{'OWNER':<{ow}} PRIO RUN  CPU   RAM  ASIDE  QUEUED   DONE  FAIL  {'PROGRESS':<{pw + 7}} DONE/h 1h  3h   "
              "FINISH (queue replayed; ~ = some run times guessed)")
     tot_run = tot_q = 0
@@ -259,6 +260,8 @@ def frame(c, cfg, sampler, args, width):
         else:
             eta = "not within 14 days at this rate"
         pr = ",".join(str(p) for p in sorted(prios.get(o, []), reverse=True)) or "-"
+        if o in set(bsys.get("last_mile") or ()):
+            pr += "^"                         # last mile: its last jobs go ahead of higher priorities
         name = (o[:ow - 1] + "*") if o in pooled else o[:ow]
         L.append(f"{name:<{ow}} {pr:>4} {run:>3} {cpu:5.1f} {gb(ram):>5} {gb(aside.get(o, 0)):>5} {q:>7} {done:>6} {bad:>5}  "
                  f"{bar(frac, pw)} {frac * 100:3.0f}%  {r1:>5} {r3 / 3:5.0f}   {eta}")

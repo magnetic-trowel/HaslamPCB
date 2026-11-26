@@ -123,6 +123,8 @@ def run(a):
             rep["workdir"] = str(wd)
     from haslam.board_hazards import finish
     finish(rep, str(out), a.input, kind="joint", mode=a.recheck, deadline=t0 + float(a.time), log=_log)
+    from haslam.budget import clock
+    rep["budget"] = clock().report()   # the counted-work ledger in both modes (a record: restart.py keeps it per attempt)
     text = json.dumps(rep, default=str)
     if a.report:
         Path(a.report).write_text(text + "\n")

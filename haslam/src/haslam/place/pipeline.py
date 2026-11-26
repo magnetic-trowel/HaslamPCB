@@ -74,7 +74,6 @@ class Result:
 
 SA_U_SAT = 3.0   # see place(): utilization saturates beyond this in the annealer's terms
 SILK_W = 1.0     # the annealer's silkscreen term (silk_on projects): overlap / mean part area
-CHAN_W = 0.0     # the annealer's routing-channel term (pad halos overlapping / mean part area)
 
 
 def _default_workers():
@@ -384,6 +383,88 @@ def _rung_summary(res, seconds):
                 kicad_verified=kicad_checked(res),
                 kicad_errors=(res.report.get("kicad_verdict") or {}).get("by_type") if kicad_checked(res) else None,
                 seconds=round(seconds, 1))
+
+
+
+CHAN_UTIL_FULL = 0.65    # place_chan_util_gate: the channel term at full weight up to this utilization,
+CHAN_UTIL_OFF = 0.70     # scaled linearly to zero here (chan-room: placements start failing at 0.70 in both arms)
+
+
+def max_movable_utilization(P):
+    """The movable parts' area over the free area, on the fuller side (Problem.utilization)."""
+    return float(max(P.utilization()))
+
+
+def util_gate(P):
+    """The channel term's weight factor on a board this full: 1 at or below CHAN_UTIL_FULL, 0 at or
+    above CHAN_UTIL_OFF, linear between. chan-room (7 crowded boards, outlines scaled from native
+    down to 0.45, 396 placements): no placement fails in either arm below 0.65 (0 of 168); from
+    0.70 a third fail in both arms, and chan3 then makes the failures worse (part-to-part shorts
+    752 against 568), not more frequent. So the term is off where placements start to fail."""
+    u = max_movable_utilization(P)
+    return min(1.0, max(0.0, (CHAN_UTIL_OFF - u) / (CHAN_UTIL_OFF - CHAN_UTIL_FULL)))
+
+
+def header_gate(P, st):
+    """The movable edge headers (haslam.place.crowded: header_row) with no grid-legal spot on the board
+    (fits_nowhere), by reference; empty when there are none. place_chan_header_gate switches the
+    channel term off on such a board: its placement is infeasible with or without the term, and in
+    chan-gated-m6 every extra part-to-part short of the term was such a header stacked on another
+    part (xenon HEAD1, qt-py JP1/JP3, itsybitsy-rp2040 JP4; chan-gate-guard: itsybitsy-m0 JP4 at
+    utilization 0.674, inside the utilization ramp). A failing detector leaves the term on."""
+    from . import crowded
+    try:
+        return sorted(P.parts[i].ref for i in crowded.edge_headers(P) if crowded.fits_nowhere(P, st, i))
+    except Exception:       # noqa: BLE001 - a gate, never lose the placement over it
+        return []
+
+
+def _channel_weight(P, st, w_chan, zone_tab, kw, board_path, opts):
+    """The routing-channel term's weight, its pad-to-edge table (place_chan_edge 1:
+    exact.channel_edge_term, else None), its report (the halo overlap of pairs with a movable
+    part at the anneal's seed, / A0, and the edge part at weight 1) and the edge table at
+    weight 1 for the final report.
+
+    A cap on the weight from the seed's cost (place_chan_cap, tried on this branch) does not
+    work: the seed's overlap is that of the unlegalized start (dvhx 19 x A0, fm4dd 50 x A0)
+    and says nothing about the pinches the anneal ends with, so any cap on it switches the
+    term off."""
+    from haslam.route.constraints import setting
+    edge_on = float(setting("place_chan_edge", board_path, opts) or 0.0) > 0
+    gate = float(setting("place_chan_util_gate", board_path, opts) or 0.0) > 0
+    w_set = w_chan
+    util = None
+    if gate:
+        w_chan = w_chan * util_gate(P)
+        util = round(max_movable_utilization(P), 4)
+    hdr_gate = float(setting("place_chan_header_gate", board_path, opts) or 0.0) > 0
+    stuck = None
+    if hdr_gate and w_chan > 0:
+        stuck = header_gate(P, st)
+        if stuck:
+            w_chan = 0.0
+    A0 = exactmod.mean_part_area(P)
+    ov0, np0 = exactmod.channel_overlap(P, exactmod.channel_grid(P, weight=1.0), st.X, st.Y, st.K)
+    c = zone_tab.c if zone_tab is not None else zonesmod.raster_cell(P)
+    e1 = exactmod.channel_edge_term(P, 1.0, A0, c) if edge_on else None
+    edge0 = float(sum(e1.part(i, st.X[i], st.Y[i], st.K[i]) for i in P.mov)) if e1 is not None else 0.0
+    rep = dict(w_chan=w_chan, w_set=w_set, util_gate=gate, util=util, header_gate=hdr_gate, stuck_headers=stuck,
+               edge=edge_on, A0=round(A0, 3), seed_overlap=round(ov0 / A0, 5), seed_pairs=np0,
+               seed_edge=round(edge0, 5))
+    edge_tab = None
+    if e1 is not None and w_chan > 0:
+        edge_tab = exactmod.channel_edge_term(P, w_chan, A0, c)
+        rep.update(e1.info, edge_weight=w_chan)
+    return w_chan, edge_tab, rep, e1
+
+
+def _channel_final(P, st, rep, e1):
+    """The channel report after the anneal: halo overlap of pairs with a movable part (/ A0)
+    and the edge part at weight 1 (e1: the edge table at weight 1, or None)."""
+    ov, npairs = exactmod.channel_overlap(P, exactmod.channel_grid(P, weight=1.0), st.X, st.Y, st.K)
+    rep.update(final_overlap=round(ov / rep["A0"], 5), final_pairs=npairs)
+    if e1 is not None:
+        rep["final_edge"] = round(float(sum(e1.part(i, st.X[i], st.Y[i], st.K[i]) for i in P.mov)), 5)
 
 
 def place(board, seed=0, time_s=300.0, physics=True, brief=None, workers=None, log=None, anneal=True,
@@ -1120,16 +1201,20 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
         # soft overlaps: silkscreen where the project makes it an error (on KiCad's glyphs) and
         # routing channels between parts' pads (haslam.place.exact.channel_grid)
         w_silk = float(kw.pop("w_silk", SILK_W) or 0.0)
-        w_chan = float(kw.pop("w_chan", CHAN_W) or 0.0)
+        w_chan = float(kw.pop("w_chan", setting("place_w_chan", board_path, opts)) or 0.0)
         grids = []
         if exactmod.silk_on(P) and w_silk > 0:
             if "silk_text" not in rep:
                 rep["silk_text"] = exactmod.refine_silk_text(P, log=log)
             grids.append(exactmod.silk_grid(P, weight=w_silk))
             rep["silk_term"] = dict(parts=len(grids[-1]), w_silk=w_silk)
+        edge_tab = chan_e1 = None
         if w_chan > 0:
-            grids.append(exactmod.channel_grid(P, weight=w_chan))
-            rep["channel_term"] = dict(parts=len(grids[-1]), w_chan=w_chan)
+            w_eff, edge_tab, rep["channel_term"], chan_e1 = _channel_weight(P, st, w_chan, zone_tab, kw,
+                                                                            board_path, opts)
+            if w_eff > 0:     # a gated-off term adds nothing to the anneal (the run equals control's)
+                grids.append(exactmod.channel_grid(P, weight=w_eff))
+                rep["channel_term"]["parts"] = len(grids[-1])
         if soft_bands:
             w_band = float(setting("escape_band_w", board_path, opts))
             grids.append(EB.escape_grid(P, soft_bands, weight=w_band))
@@ -1146,6 +1231,10 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             kw.setdefault("w_zone", 1.0)
             kw["zones"] = zone_tab
             rep["zone_term"] = dict(zone_tab.info, w_zone=kw["w_zone"])
+        # the channel term's pad-to-edge part rides on the zone table (a unary keep-out)
+        if edge_tab is not None and float(kw.get("w_zone", 1.0) or 0.0) > 0:
+            kw.setdefault("w_zone", 1.0)
+            kw["zones"] = zonesmod.merge(kw.get("zones"), edge_tab)
         kw.setdefault("hard_fixed", float(setting_env("place_anneal_hard_fixed", board_path, opts)) > 0)
         # the relation term (haslam.place.relations.rules): near between movable parts and groups
         rel_rules = rel.rules(P) if rel is not None else []
@@ -1171,6 +1260,9 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
                 log(f"anneal quench: legality {arep['quench'].get('leg_start')} -> {arep['quench'].get('leg_end')} "
                     f"in {arep['quench'].get('moves')} moves")
         ann.write_back()
+        # the channel report in every run (w_chan 0 too: the mechanism measure of an A/B's control)
+        rep.setdefault("channel_term", dict(w_chan=0.0, A0=round(exactmod.mean_part_area(P), 3)))
+        _channel_final(P, ann.st, rep["channel_term"], chan_e1)
         rep["anneal"] = arep
         stage("anneal", t)
         t = clock_now()
