@@ -49,6 +49,7 @@ def cmd_doctor(a):
             print(f"FAIL {name}: {e}")
     for line in kicad_checks():
         print(line)
+        ok = ok and not line.startswith("FAIL")
     # Only --command methods need the sandbox, so a missing bwrap is a warning, not a failure.
     bwrap = shutil.which("bwrap")
     works = bwrap and subprocess.run([bwrap, "--ro-bind", "/", "/", "--dev", "/dev", "--unshare-net", "true"],
@@ -66,11 +67,18 @@ def kicad_checks():
     """WARN/ok lines for what haslambench itself does not need but the design flow does: a KiCad version the
     docs and drift tests were checked on, and KiCad's symbol and footprint libraries (haslamsynth, S3/S5)."""
     out = []
+    why = ""
     try:
         r = subprocess.run([*tools.kicad_cli(), "version"], capture_output=True, text=True, timeout=120)
-        ver = r.stdout.strip().split()[-1] if r.stdout.strip() else ""
-    except (tools.ToolError, OSError, subprocess.TimeoutExpired):
-        ver = ""
+        ver = r.stdout.strip().split()[-1] if r.returncode == 0 and r.stdout.strip() else ""
+        why = f"exit {r.returncode}: {(r.stderr or r.stdout).strip()[-200:]}"
+    except tools.ToolError:
+        ver = ""                    # cmd_doctor already FAILed on finding kicad-cli
+    except (OSError, subprocess.TimeoutExpired) as e:
+        ver, why = "", f"{type(e).__name__}: {e}"
+    if why and not ver:
+        # found but does not run (a broken HASLAM_KICAD_WRAP, a missing image): every KiCad step would fail
+        out.append(f"FAIL kicad version: `kicad-cli version` did not run ({why})")
     if ver:
         if ver in tools.KICAD_TESTED_VERSIONS:
             out.append(f"ok   kicad version: {ver} (tested)")

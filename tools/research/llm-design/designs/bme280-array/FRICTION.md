@@ -96,9 +96,15 @@ gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status
 | F52 | fixed | rule written in llm-relations.md, brief-to-board and CLAUDE.md (invariant); test | — |
 | F53 | none | checks worked | — |
 | F54 | in progress | round 3: A/B neutrality on a fetched sprint-suite sample (place, excite, route, joint) | full sprint still on the shared host |
-| F55 | in progress | `setup.sh` re-run on this host: exit 0, env.sh written with HASLAM_KICAD_PYTHON and library dirs, doctor all ok | a fresh container (first install) still untested |
+| F55 | fixed | fresh unprivileged account, container path: setup exit 0 in 8 min, doctor all ok, then S3/S5/S6 (probe)/S10 unchanged; first-install fixes F58-F62 (1f3081c) | apt branch from scratch: reviewed and tested with stand-in tools only (host KiCad shared) |
 | F56 | by design | soft region reported | — |
-| F57 | fixed | `silk_refs.py` rewrite: bodies not courtyards, real outline, unambiguous-nearest rule, more spots, 1.0 mm text falling back to 0.8 mm, one eviction; tested on 10 boards (docstring table) | bme5: 90 of 90 on silk, 0 silk DRC, gate pass |
+| F57 | fixed | `silk_refs.py` rewrite: bodies not courtyards, real outline, unambiguous-nearest rule, more spots, 1.0 mm text (JLC minimum; 0.8 mm opt-in), one eviction; tested on 10 boards (docstring table) | bme5: 90 of 90 on silk, 0 silk DRC, gate pass |
+| F58 | fixed | fork installer downloads Temurin JDK 25 when no Java 17+ (1f3081c) | run with java hidden: built in 65 s |
+| F59 | fixed | blobless clone; sizes in bench/README (1f3081c) | 3.2 GB source, removable |
+| F60 | fixed | doctor FAILs when `kicad-cli version` does not run (1f3081c) | test_doctor |
+| F61 | fixed | `--no-freerouting` exits 0 on only the freerouting FAIL (1f3081c) | run on this host |
+| F62 | fixed | apt prerequisites; synth README venv without uv (1f3081c) | test_setup_sh |
+| F63 | open | fork jars built from one ref are not byte-identical (build date embedded): the per-attempt jar sha256 differs between hosts for the same control | decide: reproducible build (fixed timestamps) or compare the source ref, not the jar hash |
 
 Keep this table current: a new friction point gets a log row (next F number) and a resolution row in the same commit.
 
@@ -163,3 +169,9 @@ Keep this table current: a new friction point gets a log row (next F number) and
 | F55 | setup | (round 2) `bench/scripts/setup.sh` changes were checked with `bash -n`, shellcheck, the env-detection function and `doctor`, not by a fresh full setup run. | open | run `setup.sh` once on a fresh container |
 | F56 | intent | (round 2) Soft `region-MUX` (area:SENSE) still leaves 1 member (R28) just outside on the routed board; reported as unmet (F33 fix), not enforced (it is not `required`). | by design | mark it `required` if it matters |
 | F57 | fab | (round 2) `silk_refs.py` moves 24 of 90 references to F.Fab on the dense north end (66 on silk); readable, but the assembly drawing is the only place those refs appear. | cosmetic | a smaller text size option for dense areas, or a silk legend |
+| F58 | setup | (F55 run) `install_freerouting_fork.sh` needs a `java` to start Gradle; a fresh Ubuntu has none, and nothing installed the `$HASLAM_HOME/jdk-25` it looked for (this container had JDK 21). | would stop the fork build | download a JDK 25 |
+| F59 | setup | (F55 run) The fork's full clone is 4.7 GB plus 0.8 GB Gradle cache, left after the build; docs said only "~5 min". Gradle also failed twice resolving a plugin (transient; the retries worked). | disk surprise | blobless clone, document sizes |
+| F60 | setup | (F55 run) `doctor` printed `ok kicad-cli` for a wrapper that does not run (it only resolves the command); the version check failed silently. | a broken install passes doctor | FAIL when `kicad-cli version` fails |
+| F61 | setup | (F55 run) `setup.sh --no-freerouting` (synth README, corpus doc) always exited 1: doctor's freerouting FAIL under `set -e`, and the corpus doc said doctor must pass. | confusing exit | expected FAIL tolerated |
+| F62 | setup | (F55 run) The synth README's `uv venv` assumes uv, which setup installs only without python3-venv; the apt branch needs curl/gpg/python3, absent on minimal images. | 1 step | venv without uv; install prerequisites |
+| F63 | setup | (F55 run) Freerouting fork jars built from one ref are not byte-identical: the jar embeds its build date, so the jar sha256 that haslambench records per attempt differs between hosts for the same control build. Nothing compares those hashes today. | none yet | reproducible build (fixed archive timestamps), or identify the control by source ref |
