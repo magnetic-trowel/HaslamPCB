@@ -202,3 +202,80 @@ def test_a_controllers_own_draw_is_not_its_cells_current():
     b = F.apply(_brief(), {"parts": {"U1": {"I_A": [2.5e-5, 1e-4], "f_sw_Hz": 5e5}}})
     ex = b["structures"][0]["excite"]
     assert ex["I"] == 1.2 and ex["f_sw_Hz"] == 5e5
+
+
+# ---- the converter operating point (cells.<id>.I_out_A, V_in_V, V_out_V, eta, I_switch_A)
+
+def _boost_brief():
+    return {"nets": {"VIN": {"role": "rail", "volts": 3.7}, "VOUT": {"role": "rail", "volts": 5.0}, "SW": {}},
+            "parts": {"u-1": {"ref": "U1"}},
+            "structures": [{"id": "cell:boost:U1", "kind": "commutation_cell", "class": "boost", "rail": "VOUT",
+                            "vin": "VIN", "controller": "u-1", "excite": {"V": 5.0, "I": 4.7, "basis": ["I = 4.7 A guess"]}}]}
+
+
+def test_the_operating_point_keys_pass_the_check():
+    """The keys the facts compiler (intent_from_spec) writes and haslam.physics.converter.from_intent reads."""
+    F.check_facts({"cells": {"cell:boost:U1": {"I_out_A": [0.15, 0.5], "V_in_V": 3.7, "V_out_V": 5.0,
+                                               "eta": [0.85, 0.92], "I_switch_A": [0.2, 0.75]}}})
+    with pytest.raises(F.FactsError, match=r"facts.cells.cell:boost:U1.eta"):
+        F.check_facts({"cells": {"cell:boost:U1": {"eta": "high"}}})
+    with pytest.raises(F.FactsError, match=r"unknown keys \['I_outA'\].*I_out_A"):
+        F.check_facts({"cells": {"cell:boost:U1": {"I_outA": 0.5}}})
+
+
+def test_the_brief_takes_the_cells_current_from_its_operating_point():
+    """P prices the cell at the current E and R derive (I_out V_out / (V_in eta) for a boost), not its class guess."""
+    from haslam.physics import converter as CV
+    cell = {"I_out_A": [0.15, 0.5], "V_in_V": 3.7, "V_out_V": 5.0, "eta": [0.85, 0.92]}
+    b = F.apply(_boost_brief(), {"cells": {"cell:boost:U1": dict(cell)}})
+    ex = b["structures"][0]["excite"]
+    cc = CV.from_intent(cell, "boost")
+    assert ex["I"] == pytest.approx(cc.I[0]) and ex["interval"]["I"] == pytest.approx([cc.I[1], cc.I[2]])
+    assert not any(x.startswith("I = 4.7") for x in ex["basis"])
+    rec = {r["what"]: r for r in b["facts"]["applied"]}["cell:boost:U1.excite.I"]
+    assert rec["was"] == 4.7 and "boost" in rec["basis"]
+    # a stated switch current overrides; the rails' volts stand in for unstated V_in_V / V_out_V
+    ex = F.apply(_boost_brief(), {"cells": {"cell:boost:U1": {"I_switch_A": [0.2, 0.75]}}})["structures"][0]["excite"]
+    assert ex["interval"]["I"] == [0.2, 0.75]
+    ex = F.apply(_boost_brief(), {"cells": {"cell:boost:U1": {"I_out_A": 0.5}}})["structures"][0]["excite"]
+    assert ex["interval"]["I"][1] == pytest.approx(0.5 * 5.0 / (3.7 * 0.8))
+    # a stated I_A is the commutated current and stands
+    ex = F.apply(_boost_brief(), {"cells": {"cell:boost:U1": {"I_A": 0.3, "I_out_A": 0.5}}})["structures"][0]["excite"]
+    assert ex["I"] == 0.3
+
+
+def test_deprecated_v_max_v_is_read_as_the_switch_rating_and_said():
+    """cells.<id>.V_max_V (branch dc-signed's spelling, in stored facts sets) is cells.<id>.v_sw_max_V: the brief's
+    V_abs and the evaluator's switch rating take it, and the brief's record says it was renamed."""
+    from haslam.excite.params import switch_rating
+    old = {"cells": {"cell:boost:U1": {"V_max_V": 28.0, "I_out_A": 0.5}}}
+    F.check_facts(old)
+    new = F.facts_of(old)
+    assert new["cells"]["cell:boost:U1"] == {"v_sw_max_V": 28.0, "I_out_A": 0.5}
+    assert old["cells"]["cell:boost:U1"]["V_max_V"] == 28.0                 # the caller's dict is untouched
+    assert "read as cells.cell:boost:U1.v_sw_max_V" in new["provenance"]["deprecated"][0]
+    assert F.facts_of(new) == new                                         # idempotent
+    b = F.apply(_boost_brief(), old)
+    assert b["structures"][0]["excite"]["V_abs"] == 28.0
+    assert "deprecated" in b["facts"]["deprecated"][0] and "v_sw_max_V" in b["facts"]["deprecated"][0]
+    assert switch_rating(new, "cell:boost:U1", "U1")[0] == 28.0
+    doc = {"schema": F.SCHEMA, "facts": old}
+    assert F.facts_of(doc)["cells"]["cell:boost:U1"]["v_sw_max_V"] == 28.0
+
+
+def test_deprecated_spelling_that_disagrees_with_its_replacement_is_refused_naming_it():
+    bad = {"cells": {"cell:boost:U1": {"V_max_V": 28.0, "v_sw_max_V": 40.0}}}
+    with pytest.raises(F.FactsError, match=r"V_max_V 28.0 \(deprecated spelling of v_sw_max_V\).*keep v_sw_max_V"):
+        F.check_facts(bad)
+    F.check_facts({"cells": {"cell:boost:U1": {"V_max_V": 28.0, "v_sw_max_V": 28.0}}})   # the same value: fine
+
+
+def test_cell_eta_and_output_volts_size_the_converter_loss():
+    b = _boost_brief()
+    b["nets"]["VOUT"]["volts"] = None
+    b["parts"]["u-1"]["P_W_model"] = {"law": "converter", "cell": "cell:boost:U1"}
+    b["parts"]["u-1"]["P_W"] = 1.0
+    b = F.apply(b, {"cells": {"cell:boost:U1": {"I_switch_A": 0.5, "V_out_V": 5.0, "eta": 0.9}}})
+    rec = {r["what"]: r for r in b["facts"]["applied"]}["heat:U1.P_W"]
+    assert "cells.cell:boost:U1.eta" in rec["via"] and "cells.cell:boost:U1.V_out_V" in rec["via"]
+    assert b["parts"]["u-1"]["P_W"] == pytest.approx(round((1 / 0.9 - 1) * 5.0 * 0.5, 3))
