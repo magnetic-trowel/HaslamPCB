@@ -37,7 +37,9 @@ INTENT_EXT = ".haslam_intent.json"
 SCHEMA = "haslam.intent/1"
 NET_KEYS = ("V_V", "range_V", "source", "from", "kind", "eta", "I_A", "why")
 CELL_KEYS = ("V_V", "I_A", "f_sw_Hz", "t_i_s", "v_sw_max_V", "vin", "vout", "why")
-PART_CELL_KEYS = ("f_sw_Hz", "t_i_s", "v_sw_max_V", "I_A")
+# a controller's facts that are its cells' too. Not I_A: parts.<ref>.I_A is the part's own supply draw
+# (haslam.excite.dc's load current, the operating facts' "load current"), not the current its cells commutate
+PART_CELL_KEYS = ("f_sw_Hz", "t_i_s", "v_sw_max_V")
 
 
 class FactsError(ValueError):
@@ -194,11 +196,131 @@ def apply(brief, facts, origin="intent"):
                                        interval=[lo * scale, hi * scale]))
             ex[field] = typ * scale
             ex.setdefault("interval", {})[field] = [lo * scale, hi * scale]
+            if field == "V_abs":             # a stated rating: the hot-loop budgets take it (priors.budget_v_abs)
+                ex["V_abs_source"] = "intent"
+                basis[:] = [x for x in basis if not x.startswith("V_abs = ")]
             basis.append(f"{field} = {typ * scale:g} [{lo * scale:g}, {hi * scale:g}] from the {origin}")
         if "V_V" not in merged:                  # the cell's own V_V stands; else the volts of its bus
             _cell_bus_volts(s, nets, stated, rec, origin)
+    _heat(brief, facts, rec, origin)
     brief["facts"] = rec
     return brief
+
+
+HEAT_SOURCE_MIN_W = 0.1              # haslam.circuit.structures.HEAT_SOURCE_MIN_W
+CONVERTER_ETA = 0.88                 # haslam.circuit.structures.CONVERTER_ETA
+
+
+def _heat(brief, facts, rec, origin):
+    """Re-size each regulator's and converter's loss from the facts, after they are applied. haslam.circuit sized it
+    (a part's P_W, its heat source's P_W) from the cell's excite V and I and its rails' volts as the board read
+    them, at 88 % efficiency; the facts may state those volts and currents and the converter's efficiency
+    (nets.<vout>.eta), and the placer's heat sources, its loss split and the router's current priors read the
+    brief's P_W. Only a loss with a stated input changes; its basis names the facts it used and the replaced
+    value is in brief["facts"]["applied"]. A source that falls under 0.1 W leaves the heat sources (as the
+    build leaves one out); one that rises over it joins them."""
+    parts = brief.get("parts") or {}
+    nets = brief.get("nets") or {}
+    fn = facts.get("nets") or {}
+    fp = facts.get("parts") or {}
+    structs = brief.setdefault("structures", [])
+    cells = {x["id"]: x for x in structs if x.get("kind") == "commutation_cell"}
+    touched = {a["what"].rsplit(".excite.", 1)[0] for a in rec["applied"] if ".excite." in a["what"]} | \
+        {a["what"].rsplit(".", 1)[0] for a in rec["applied"] if a["what"].endswith((".vin", ".vout"))}
+    for u, p in parts.items():
+        m = p.get("P_W_model")
+        if not m:
+            continue
+        r = _loss(m, p.get("ref"), cells, nets, fn, fp, touched)
+        if r is None:
+            continue
+        P, lo, hi, basis, used = r
+        was = p.get("P_W")
+        hs = next((x for x in structs if x.get("kind") == "heat_source" and x.get("part") == u), None)
+        if was is not None and round(P, 3) == round(was, 3):
+            continue
+        P = round(P, 3)
+        rec["applied"].append(dict(what=f"heat:{p.get('ref')}.P_W", value=P, was=was, via=used,
+                                   interval=[round(lo, 4), round(hi, 4)], basis=basis))
+        p["P_W"] = P
+        belief = {"value": P, "unit": "W", "class": "E4", "basis": f"{basis} (facts {', '.join(used)}, the {origin})",
+                  "interval": [round(lo, 4), round(hi, 4)], "replaces": was}
+        if P >= HEAT_SOURCE_MIN_W and hs is not None:
+            hs["P_W"], hs["P_W_belief"] = P, belief
+        elif P >= HEAT_SOURCE_MIN_W:
+            structs.append({"id": f"heat:{p.get('ref')}", "kind": "heat_source", "confidence": 0.6,
+                            "evidence": [{"kind": "derived", "fact": belief["basis"], "weight": 1.5}],
+                            "part": u, "P_W": P, "P_W_belief": belief, "members_ref": {u: p.get("ref")}})
+        elif hs is not None:
+            structs.remove(hs)
+            rec["applied"].append(dict(what=f"heat:{p.get('ref')}", value=None, was="heat_source",
+                                       why=f"its loss {P:g} W is under {HEAT_SOURCE_MIN_W:g} W"))
+
+
+def _loss(m, ref, cells, nets, fn, fp, touched):
+    """(P typ, lo, hi, basis, [facts used]) of a part's loss by its law (P_W_model), or None when no stated fact
+    reaches its inputs (the build's estimate stands) or it cannot be sized."""
+    def volts(net):
+        return (nets.get(net) or {}).get("volts") if net else None
+
+    def vint(net):
+        d = nets.get(net) or {}
+        iv = (d.get("volts_belief") or {}).get("interval") or [d.get("volts"), d.get("volts")]
+        return abs(float(iv[0])), abs(float(iv[1]))
+    law = m.get("law")
+    if law in ("converter", "bridge"):
+        c = cells.get(m.get("cell"))
+        if c is None:
+            return None
+        ex = c.get("excite") or {}
+        used = [f"cells.{c['id']}"] if c["id"] in touched else []
+        I = ex.get("I")
+        ilo, ihi = (ex.get("interval") or {}).get("I") or [I, I]
+        if law == "bridge":
+            if not used or not I:
+                return None
+            f = lambda i: min(3.0, 0.15 * i ** 1.5)
+            return f(I), f(ilo), f(ihi), f"integrated bridge conduction and switching loss, class estimate at {I:g} A", used
+        vo_net = c.get("vout")
+        vo = volts(vo_net)
+        if vo_net in fn and "V_V" in fn[vo_net]:
+            used.append(f"nets.{vo_net}.V_V")
+        eta = fn.get(vo_net, {}).get("eta") if vo_net else None
+        if eta is not None:
+            used.append(f"nets.{vo_net}.eta")
+        if not used or not I or not (vo or ex.get("V")):
+            return None
+        k = 1.0 if vo else 0.5
+        v, (vlo, vhi) = (abs(vo), vint(vo_net)) if vo else (abs(ex["V"]), tuple((ex.get("interval") or {}).get("V") or
+                                                                                  [abs(ex["V"])] * 2))
+        pout = v * I * k
+        if eta is not None:
+            et, elo, ehi = _interval(eta, f"nets.{vo_net}.eta")
+            P = (1 / et - 1) * pout
+            lo, hi = (1 / ehi - 1) * vlo * ilo * k, (1 / elo - 1) * vhi * ihi * k
+            how = f"(1/eta - 1) P_out, eta {et:.3g} [{elo:g}, {ehi:g}]"
+        else:
+            P = (1 / CONVERTER_ETA - 1) * pout
+            lo, hi = P / 3, P * 3
+            how = f"conversion loss at {CONVERTER_ETA:.0%} efficiency (none stated)"
+        return P, lo, hi, f"{how} of P_out {pout:.3g} W = {v:g} V x {I:g} A" + ("" if vo else " x 0.5"), used
+    if law == "linear":
+        # the pass current is its output rail's: nets.<vout>.I_A when stated (not parts.<ref>.I_A, which
+        # haslam.excite.dc reads as the regulator's own supply draw, its quiescent current)
+        used = [f"nets.{n}.V_V" for n in (m.get("vin"), m.get("vout")) if n in fn and "V_V" in fn[n]]
+        iv = (fn.get(m.get("vout")) or {}).get("I_A") if m.get("vout") else None
+        if iv is not None:
+            used.append(f"nets.{m['vout']}.I_A")
+        if not used:
+            return None
+        vi = volts(m.get("vin"))
+        vo = volts(m.get("vout")) if m.get("vout") else m.get("vout_V")
+        if not vi or vo is None:
+            return None
+        I, ilo, ihi = _interval(iv, f"nets.{m['vout']}.I_A") if iv is not None else (m["I_A"], m["I_A"] / 3, m["I_A"] * 3)
+        d = max(abs(vi) - abs(vo), 0.0)
+        return d * I, d * ilo, d * ihi, f"(Vin {abs(vi):g} - Vout {abs(vo):g}) V x {I:g} A", used
+    return None
 
 
 def _path_volts(p, nets, stated, before, rec, origin):

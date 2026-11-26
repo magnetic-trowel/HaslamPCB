@@ -363,7 +363,8 @@ def _commutation(ctx, s, Struct):
     return Struct(id=s.get('id') or f'cell:{bv.parts[T[1].i].ref}', kind='commutation', conf=ctx.conf(s) * pmax,
                   alloc=alloc, comps=comps, reduce='parallel', labels=labels,
                   info=dict(cls=cls, V_in=vin, excite=excite, ownership=pmax, sw=s.get('sw'), L_abs_nH=l_abs,
-                            V_abs=ex.get('V_abs') or PR.v_abs_rating(vin), V_abs_known=bool(ex.get('V_abs')), V_in_prior=vin_prior,
+                            V_abs=ex.get('V_abs') or PR.v_abs_rating(vin), V_abs_known=bool(ex.get('V_abs')),
+                            V_abs_source=PR.v_abs_source(ex), V_in_prior=vin_prior,
                             sw_nets=s.get('sw_nets') or ([s.get('sw')] if s.get('sw') else [])))
 
 

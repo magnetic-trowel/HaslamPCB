@@ -60,15 +60,15 @@ A stated `requirements.dT_max_K` / `drop_share` still applies where it is the ti
 | `nets.range_V` | `facts.apply` → `volts_belief.interval` → `excite/params.py:cell` (E, PNR) | kept |
 | `nets.source` | `facts.apply` (role rail; P `_net_roles`, R `critical_rails`, `critical_recheck`), `dc.plan` | kept |
 | `nets.from`, `nets.kind`, `nets.eta` | `excite/dc.py:plan` (E, PNR) | kept |
-| `nets.I_A` | validated only | **removed** from haslamsynth's `d.haslam.net` |
+| `nets.I_A` | `facts.apply` → a linear regulator's pass current for its loss (P, branch `facts-everywhere`); nothing else | **removed** from haslamsynth's `d.haslam.net` |
 | `nets.why` | `facts.apply` → `volts_belief.lineage` and the applied record | kept |
 | `cells.V_V, I_A, f_sw_Hz, vin, vout` | `excite/params.py:cell` (E, PNR); `facts.apply` → `excite` (P, R) | kept |
-| `parts.f_sw_Hz` | `facts.apply` onto the part's cells → `params.cell` fallback (E, PNR) | kept |
-| `parts.v_sw_max_V` (and `cells.<id>.v_sw_max_V`) | `facts.apply` → `excite.V_abs` → `physics/build.py:_commutation` (P hazards; its budget only under `HASLAM_SHARED_OVERSHOOT=1`, an open A/B); `excite/params.py:switch_rating` → ledger `V_max_V` → overshoot bounds, hazards and the observation's reference (E, PNR) | kept; **fixed**: E rated the switch from the part table or the 1.25 x V prior |
+| `parts.f_sw_Hz`, `parts.t_i_s` | `facts.apply` onto the part's cells (P); `params.cell_facts` → `params.cell` (E, PNR) and `critical_modules._intent_cell` (R) | kept; **fixed** (`facts-everywhere`): E and R read `cells.<id>` only |
+| `parts.v_sw_max_V` (and `cells.<id>.v_sw_max_V`) | `facts.apply` → `excite.V_abs` → `physics/build.py:_commutation` (P hazards and, as `V_abs_source: intent`, the P and R hot-loop budgets, `priors.budget_v_abs`; a part-table rating sets the budget only under `HASLAM_SHARED_OVERSHOOT=1`, kept off by components-overshoot-ab); `excite/params.py:switch_rating` → ledger `V_max_V` → overshoot bounds, hazards and the observation's reference (E, PNR) | kept; **fixed**: E rated the switch from the part table or the 1.25 x V prior; the budgets ignored it (`facts-everywhere`) |
 | `cells.why`, `parts.why` | nobody (dropped by `facts.apply`) | **wired**: `facts.apply` records the reason on every applied value (`brief["facts"]["applied"][].why`, read by `preflight.py` and people) |
 | `requirements.thermal.T_amb_C` | `excite/heat.py:params` (E) | kept |
 
-Not emitted, read by haslam: `parts.theta_jb_C_W`, `I_sustained_A`, `body_mm2` (`excite/heat.py`), `parts.I_A` (`dc.plan`), `requirements.dT_max_K`, `drop_share` (`critical.intent_opts`, R via `critical_cli` only), `cells.t_i_s`.
+Not emitted, read by haslam: `parts.theta_jb_C_W`, `I_sustained_A`, `body_mm2` (`excite/heat.py`), `parts.I_A` (`dc.plan`: the part's own supply draw; no longer taken for a controller's cell current, `facts-everywhere`), `requirements.dT_max_K`, `drop_share` (`critical.intent_opts`, R via `critical_cli` only), `cells.t_i_s`.
 
 ## A5. Placement relations (`d.place`)
 
@@ -104,5 +104,7 @@ Every relation not written comes back as a build finding `haslam_intent.relation
 | P and R read no terms or knobs | `intent/uses.py` (A3 table), `intent_use` in the brief and the place report | T-FB → `victim:feedback:U101:9` 5 mV (prior 10), T-FB3 → `victim:feedback:U301:8` 16 mV; T-RUN: no victim on /CHG/RUN |
 
 Boards without an intent file run none of this: their briefs, router options and evaluations are unchanged.
+
+Branch `facts-everywhere` (off `intent-wiring`): a stated `v_sw_max_V` always sets the hot-loop budgets; converter and regulator losses (brief `P_W`, heat sources) are re-sized after `facts.apply` from the applied cell V/I, the output rail's `V_V` and `eta`, a linear's rails and `nets.<vout>.I_A` (the law in the brief's `parts.<uuid>.P_W_model`, the basis and replaced value in `brief.facts.applied`); `parts.I_A` stays the part's own draw. Open, found by the same survey: `nets.range_V` without `V_V` sets no volts; a cell's `t_sw_ns` class default is not re-derived when the facts change its bus V; rails that inherit volts through a series part keep the pre-facts reading; the critical router ignores `parts.I_A`, `nets.eta` and `requirements.thermal.T_amb_C` (its `T_AMB_MAX_C` is 50 C); `place/heat.py`, `route/power_copper.py` and `thermal_vias.py` read `HASLAM_OPERATING`, not the intent file; overshoot budgets price the typical V and t_sw, not the interval's worst corner.
 
 Open: the relations of `haslam.intent/1` exist twice. Main's (`haslam place --intent`, kinds `near`, `on_edge`, `region`, ... with `mag`) and `intent-relations`' (resolved from the board's own file into the brief, kinds `near`, `keep_away`, `group`, `edge` with `within_mm`) share the key with different vocabularies: main's loader rejects the file haslamsynth now writes (`edge`). One vocabulary has to be chosen before either branch's relations reach a board's own intent file.
