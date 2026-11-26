@@ -135,26 +135,20 @@ def lookup(text):
     if e is None:
         return {}
     out = {}
+    from haslam.intent.facts import interval
     for k, v in e.get("data", {}).items():
-        if isinstance(v, list):
-            lo, hi = float(v[0]), float(v[-1])
-            out[k] = (math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2, lo, hi, e.get("source", ""))
-        else:
-            out[k] = (float(v), float(v), float(v), e.get("source", ""))
+        out[k] = (*interval(v, f"parts.json {e.get('match')}: {k}"), e.get("source", ""))
     return out
 
 
 def intent_value(intent, section, key, name):
-    """(typ, lo, hi) from the intent file, or None."""
-    v = ((intent or {}).get(section) or {}).get(key, {}).get(name)
+    """(typ, lo, hi) from the intent file, or None (haslam.intent.facts.interval: a number, [lo, hi] or
+    [lo, typ, hi])."""
+    v = (((intent or {}).get(section) or {}).get(key) or {}).get(name)
     if v is None:
         return None
-    if isinstance(v, list) and len(v) == 3:          # [lo, typ, hi] (haslam.intent.facts)
-        return (float(v[1]), float(v[0]), float(v[2]))
-    if isinstance(v, list):
-        lo, hi = float(v[0]), float(v[-1])
-        return (math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2, lo, hi)
-    return (float(v), float(v), float(v))
+    from haslam.intent.facts import interval
+    return interval(v, f"facts.{section}.{key}.{name}")
 
 
 def corners(params, n=16, seed=0):

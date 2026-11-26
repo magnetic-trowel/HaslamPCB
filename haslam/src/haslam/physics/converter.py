@@ -206,17 +206,13 @@ def rectifier_current(topology, I_L, D):
     return I_L * (1 - D)
 
 
-def _iv(v):
-    """(typ, lo, hi) of an intent value: a point or [lo, hi] (typ the geometric mean, as haslam.excite.beliefs)."""
-    if v is None:
+def _iv(v, what="cells value"):
+    """(typ, lo, hi) of an intent value (haslam.intent.facts.interval: a number, [lo, hi] or [lo, typ, hi]), or
+    None when it is absent."""
+    if v is None or isinstance(v, (list, tuple)) and not v:
         return None
-    if isinstance(v, (list, tuple)):
-        if not v:
-            return None
-        lo, hi = float(v[0]), float(v[-1])
-        lo, hi = min(lo, hi), max(lo, hi)
-        return (math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2, lo, hi)
-    return (float(v), float(v), float(v))
+    from haslam.intent.facts import interval
+    return interval(v, what)
 
 
 @dataclass
@@ -237,21 +233,21 @@ def from_intent(cell, topology, leg=None, V_in=None, V_out=None, eta=None):
     else `eta`, else ETA). None when the facts give no current, or give I_out_A without the voltages or
     topology to convert it (the caller then keeps I_out_A as the current and says so)."""
     cell = cell or {}
-    v = _iv(cell.get("I_switch_A"))
+    v = _iv(cell.get("I_switch_A"), "cells.I_switch_A")
     if v:
         return CellCurrent(v, "intent", "I_switch_A stated in the intent (override)")
-    v = _iv(cell.get("I_A"))
+    v = _iv(cell.get("I_A"), "cells.I_A")
     if v:
         return CellCurrent(v, "intent", "the intent file")
-    Io = _iv(cell.get("I_out_A"))
+    Io = _iv(cell.get("I_out_A"), "cells.I_out_A")
     if not Io:
         return None
-    vi = _iv(cell.get("V_in_V")) or ((V_in,) * 3 if V_in else None)
-    vo = _iv(cell.get("V_out_V")) or ((V_out,) * 3 if V_out else None)
+    vi = _iv(cell.get("V_in_V"), "cells.V_in_V") or ((V_in,) * 3 if V_in else None)
+    vo = _iv(cell.get("V_out_V"), "cells.V_out_V") or ((V_out,) * 3 if V_out else None)
     if topology is None or not vi or not vo or not vi[0] or not vo[0]:
         why = "topology unknown" if topology is None else "V_in or V_out unknown"
         return CellCurrent(Io, "intent", f"I_out_A as the commutated current ({why}: not converted)")
-    e = _iv(cell.get("eta")) or (tuple(eta) if eta else None)
+    e = _iv(cell.get("eta"), "cells.eta") or (tuple(eta) if eta else None)
     ebasis = "intent eta" if cell.get("eta") is not None else ("rail eta" if eta else f"eta {ETA[0]:g}-{ETA[2]:g} typical")
     e = e or (ETA[1], ETA[0], ETA[2])
     Vi, Vo = vi[0], vo[0]

@@ -96,7 +96,7 @@ class PhysRouter:
         from haslam.intent import facts as F
         self.brief = B.build(b, facts=F.facts_of(intent) or None)
         bd = self.bd = M.build(b, self.brief)
-        self.srcs = S.add_all(bd, self.brief)
+        self.srcs = S.add_all(bd, self.brief, intent=intent)
         self.obs = O.observers(bd, self.brief, self.srcs)
         self.f = O.F_PATTERN
         self.w = 2 * math.pi * self.f

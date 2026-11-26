@@ -57,7 +57,7 @@ def ledger_for(bd, brief, srcs, intent=None):
             P[s.name] = PA.cell(L, s, brief, bd, intent, text.get(ctrl, ""), text.get(rect, ""),
                                 vin_net=_vin_net(bd, brief, st))
         else:
-            P[s.name] = PA.generic(L, s, s.kind)
+            P[s.name] = PA.generic(L, s, s.kind, intent)
     return P, L
 
 
@@ -209,7 +209,7 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
     bd.radios = dict((intent or {}).get("radios") or {})        # the operating facts' radios
     added = [apply_edit(bd, b, e) for e in [f"add:{a}" for a in add_parts] + [f"remove:{r}" for r in remove_parts]
              + list(edits)]
-    srcs = S.add_all(bd, brief)
+    srcs = S.add_all(bd, brief, intent=intent)
     obs = O.observers(bd, brief, srcs)
     P, ledger = ledger_for(bd, brief, srcs, intent)
     O.rate_overshoot(obs, P)

@@ -49,6 +49,7 @@ import re
 
 import numpy as np
 
+from haslam.intent import facts as FA
 from haslam.physics import converter as CV
 
 from . import quantity as QT
@@ -190,6 +191,16 @@ def merge_buckboost(cells):
     return cells
 
 
+def _eta(facts, rail):
+    """(typ, lo, hi) of the facts' nets.<rail>.eta (haslam.intent.facts.interval), or None when unstated or not
+    within (0, 1]."""
+    fe = (facts.get(rail) or {}).get("eta")
+    if fe is None:
+        return None
+    e = FA.interval(fe, f"facts.nets.{rail}.eta")
+    return e if 0 < e[1] <= e[2] <= 1 else None
+
+
 def plan(board, brief, bd, P, srcs, intent=None):
     """The DC plan from the brief (rails, sources, cells), the circuit model's ground set and the AC
     ledger P ({source name: {param: Param}}) for the cells' operating points."""
@@ -308,11 +319,10 @@ def plan(board, brief, bd, P, srcs, intent=None):
             pi = next((p for p in (P.get(cell["src"]) or {}).values() if getattr(p, "name", "") == "I_A"), None)
             if pi is not None and pi.hi > 0:
                 pl.feeds[r]["I_hi"] = float(pi.hi)
-            fe = (facts.get(r) or {}).get("eta")
-            if isinstance(fe, list) and len(fe) == 2 and 0 < min(fe) <= max(fe) <= 1:
+            fe = _eta(facts, r)
+            if fe:
                 # the facts' efficiency: the input takes P_out / eta (without it the cell's duty, lossless)
-                pl.feeds[r]["eta"] = Param(f"dc:{cell['ctrl']}", "eta", (fe[0] + fe[1]) / 2, fe[0], fe[1], "", "intent",
-                                           "the intent file")
+                pl.feeds[r]["eta"] = Param(f"dc:{cell['ctrl']}", "eta", *fe, "", "intent", "the intent file")
                 pl.params.append(pl.feeds[r]["eta"])
             continue
         if src_ref is None or src_ref not in pads:
@@ -351,10 +361,9 @@ def plan(board, brief, bd, P, srcs, intent=None):
                      ref=src_ref, rin=rin, out=outs,
                      inp=tok(src_ref, [n for n, net in ins if net == rin]), gnd=gnd_pads(src_ref))
             if f["kind"] == "switching":
-                fe = (facts.get(r) or {}).get("eta")
-                if isinstance(fe, list) and len(fe) == 2 and 0 < min(fe) <= max(fe) <= 1:
-                    f["eta"] = Param(f"dc:{src_ref}", "eta", (fe[0] + fe[1]) / 2, fe[0], fe[1], "", "intent",
-                                     "the intent file")
+                fe = _eta(facts, r)
+                if fe:
+                    f["eta"] = Param(f"dc:{src_ref}", "eta", *fe, "", "intent", "the intent file")
                 else:
                     f["eta"] = Param(f"dc:{src_ref}", "eta", ETA[1], ETA[0], ETA[2], "", "prior",
                                      "efficiency of a switching regulator without a cell model (class range)")
@@ -489,9 +498,8 @@ def plan(board, brief, bd, P, srcs, intent=None):
             # loads take (haslam.excite.heat sets its operating current from them), not a current its rail's loads
             # share out (solar-small's LTC2959 coulomb counter, < 1 uA, took the whole LTC3130 output: 1.5 W)
             if iv is not None:
-                lo, hi = (iv if isinstance(iv, list) else [iv, iv])
-                lo, hi = lo * share, hi * share
-                p = Param(f"dc:{ref}@{r}", "I_A", math.sqrt(lo * hi) if lo > 0 else hi, lo, hi, "A", "intent",
+                typ, lo, hi = (x * share for x in FA.interval(iv, f"facts.parts.{ref}.I_A"))
+                p = Param(f"dc:{ref}@{r}", "I_A", typ, lo, hi, "A", "intent",
                           "the intent file" + (f" ({share:.0%} of the part's current: its share of supply pads)" if share < 1 else ""))
             elif "I_supply_A" in tab:
                 typ, lo, hi, src = tab["I_supply_A"]
@@ -524,8 +532,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
         u = uuid_of.get(ref)
         iv = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_A")
         if iv is not None:
-            lo, hi = iv if isinstance(iv, list) else [iv, iv]
-            p = Param(f"dc:{ref}@{r}", "I_A", math.sqrt(lo * hi) if lo > 0 else hi, lo, hi, "A", "intent",
+            p = Param(f"dc:{ref}@{r}", "I_A", *FA.interval(iv, f"facts.parts.{ref}.I_A"), "A", "intent",
                       "the intent file (the part's own draw, from its own input)")
         else:
             a = load_current(ctx, u, r, {}, draws=True)
@@ -752,7 +759,7 @@ def planned_injections(board, intent, brief=None, heat=None):
     PF.apply(board, (intent or {}).get("pins"))         # the schematic's pin facts, as the evaluator applies them
     brief = brief or B.build(board)
     bd = M.build(board, brief)
-    srcs = S.add_all(bd, brief)
+    srcs = S.add_all(bd, brief, intent=intent)
     P, _ = ledger_for(bd, brief, srcs, intent)
     pl = plan(board, brief, bd, P, srcs, intent)
     cv = {(p.subject, p.name): p.typ for p in pl.params}

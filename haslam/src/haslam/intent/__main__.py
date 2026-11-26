@@ -12,6 +12,10 @@ haslam.intent.facts.sidecar) supplies the terms, knobs, currency and facts, as i
 the brief; neutral/1 only when the board has none. The status names the intent it used (status["intent"]).
     python -m haslam.intent relations BOARD [--intent I.json] [--input IN] [-o REL.json]
                                                            the placement relations measured on BOARD
+    python -m haslam.intent priors BOARD [--intent FACTS.json] [--json]
+                                                           ICs and modules whose supply draw, core source or
+                                                           cell current is a class prior, and the fact key that
+                                                           states it (haslam.excite.prior_parts; no field solve)
 """
 from __future__ import annotations
 
@@ -204,6 +208,10 @@ def main(argv=None):
     r.add_argument("--intent", help="haslam.intent/1 file (default: the board's own <stem>.haslam_intent.json)")
     r.add_argument("--input", help="the board the relations are compiled on (default: BOARD)")
     r.add_argument("-o")
+    pr = sub.add_parser("priors", help="parts whose supply draw, core source or cell current rests on a class prior")
+    pr.add_argument("board")
+    pr.add_argument("--intent", help="facts or haslam.intent/1 file (default: the board's own <stem>.haslam_intent.json)")
+    pr.add_argument("--json", action="store_true", help="the rows as JSON (haslam.excite.prior_parts.parts_on_priors)")
     a = ap.parse_args(argv)
     try:
         if a.cmd in ("status", "compare"):
@@ -211,6 +219,16 @@ def main(argv=None):
             a.intent, src = resolve_intent(a.intent, first)
             if src != "--intent":
                 print(f"intent: {a.intent or '(none)'} ({src})", file=sys.stderr)
+        if a.cmd == "priors":
+            from haslam.excite import prior_parts as PP
+            rows = PP.parts_on_priors(a.board, json.load(open(a.intent)) if a.intent else None)
+            if a.json:
+                print(json.dumps(rows, indent=1))
+            else:
+                for ln in PP.lines(rows):
+                    print(ln)
+                print(f"{len(rows)} part(s) on class priors" + (": state the facts above in the intent file" if rows else ""))
+            return 0
         if a.cmd == "relations":
             st = relations(a.board, a.intent, a.input)
             for x in st["rows"]:

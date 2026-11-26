@@ -1294,7 +1294,7 @@ def prepare(path, intent=None, b=None, fills=None):
     b.stackup, _, _ = assume_stackup(b)
     brief = BR.build(b)
     bd = M.build(b, brief)
-    srcs = S.add_all(bd, brief)
+    srcs = S.add_all(bd, brief, intent=intent)
     obs = O.observers(bd, brief, srcs)
     P, _ = ledger_for(bd, brief, srcs, intent)
     if fills is None:
