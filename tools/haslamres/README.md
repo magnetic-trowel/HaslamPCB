@@ -116,7 +116,7 @@ nothing in that experiment.
   changes it. An experiment created before the tiers counts as `sprint` when it is submitted again.
 - **`sprint NAME --base bridge|staged --commit SHA [--set K=V ...] [--arm NAME:K=V,K=V ...] [--suite S]`** is the one-command path
   ([procedure](../../bench/suites/README.md)). It needs `experiments/NAME/PLAN.md`; registers the arm as the stored
-  control's recipe of that base (`--control`, default `control-w47`) with `haslam` at SHA and the settings appended, the
+  control's recipe of that base (`--control`, default `control-w48`) with `haslam` at SHA and the settings appended, the
   harness and evaluators at the control's tag; creates the experiment on the two sprint suites with the control's
   seeds and `--reuse-runs`, so only the new arm runs; submits at haslamq priority 5 (`exp submit --prio`); prints the
   verdict command. With `--reuse-runs`, `exp create` estimates only the runs still to make.

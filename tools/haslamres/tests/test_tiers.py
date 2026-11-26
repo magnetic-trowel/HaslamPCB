@@ -319,3 +319,13 @@ def test_sprint_control_method_takes_a_stored_arm_as_the_control(monkeypatch, st
         _sprint(monkeypatch, store, base="staged", set=["k=v"], control_method="hy")
     with pytest.raises(SystemExit, match="0 of control-w47's methods match"):
         _sprint(monkeypatch, store, set=["k=v"], control_method="zz")
+
+
+def test_method_add_on_the_command_line_exits_0(tmp_path, monkeypatch):
+    """cmd_method_add returns the method id (for sprint); `haslamres method add` must still exit 0, or
+    control-tag.sh (set -e) stops after its first method."""
+    monkeypatch.setattr(K, "cmd_method_add", lambda a: "0123456789ab")
+    monkeypatch.setattr(sys, "argv", ["haslamres", "method", "add", "x", "--kind", "route", "--command", "true {input} {output}"])
+    with pytest.raises(SystemExit) as r:
+        K.main()
+    assert r.value.code in (0, None)

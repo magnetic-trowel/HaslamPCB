@@ -3155,7 +3155,8 @@ def main():
     s.add_argument("--kicad-threads", type=int, default=2)
     s.add_argument("--build", help="how the binary was built, e.g. a script and ref")
     s.add_argument("--allow-dirty", action="store_true", help="allow uncommitted or unpushed code (snapshot + patch)")
-    s.set_defaults(f=cmd_method_add)
+    # cmd_method_add returns the id for `sprint`; the command line exits 0 (sys.exit of a str would exit 1)
+    s.set_defaults(f=lambda a: cmd_method_add(a) and None)
     s = mp.add_parser("list")
     s.set_defaults(f=cmd_method_list)
     s = mp.add_parser("show")
@@ -3222,7 +3223,7 @@ def main():
     s.add_argument("--cpu-cap", type=float, metavar="CPU_H", help="the campaign's CPU-h cap for the cost watchdog "
                    "(default: 40 per treatment arm, the sprint limit)")
     s.add_argument("--note", help="appended to every arm's method description (e.g. a stage that runs on wall clock)")
-    s.add_argument("--control", default="control-w47", help="the tag's stored control experiment")
+    s.add_argument("--control", default="control-w48", help="the tag's stored control experiment")
     s.add_argument("--control-method", metavar="ID", help="which of the control experiment's methods is the control (default: "
                    "its first of the base's kind); the BGA baseline: --control hybrid-bga-w47 --control-method <hybrid id> "
                    "(bench/suites/README.md)")

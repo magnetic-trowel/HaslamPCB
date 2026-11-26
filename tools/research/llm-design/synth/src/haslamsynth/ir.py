@@ -131,7 +131,7 @@ class PartDef:
                  value=None, prefix=None, category="ic", description="", datasheet="",
                  ratings=None, pinmap=None, lifecycle="active", generic=False, fields=None,
                  second_source=None, dnp=False, in_bom=True, on_board=True, notes="", source=None,
-                 pin_names=None):
+                 pin_names=None, haslam=None):
         if category not in CATEGORIES:
             raise DesignError(f"category {category!r} not in {CATEGORIES}")
         if symbol is None and not pins:
@@ -163,6 +163,9 @@ class PartDef:
         self.source = dict(source or {})
         # resolved at finalize: list of PinDef with numbers as on the footprint
         self.resolved_pins = None
+        # operating facts for haslam (haslam.intent facts.parts: f_sw_Hz, v_sw_max_V, theta_jb_C_W, ...; a "why"):
+        # written into <slug>.haslam_intent.json for every part made from this card (haslamsynth.haslam_intent)
+        self.haslam = dict(haslam or {})
 
     def with_(self, **kw):
         new = copy.copy(self)
@@ -275,7 +278,7 @@ class Part:
 
 class Net:
     def __init__(self, design, name, block=None, domain=None, v=None, kind="signal", i_max=None,
-                 i_peak=None, netclass=None, external=False, threats=(), notes="", width_mm=None):
+                 i_peak=None, netclass=None, external=False, threats=(), notes="", width_mm=None, v_typ=None):
         if kind not in NET_KINDS:
             raise DesignError(f"net {name}: kind {kind!r} not in {NET_KINDS}")
         if not re.match(r"^[A-Za-z0-9_+\-.~]+$", name):
@@ -295,6 +298,7 @@ class Net:
             raise DesignError(f"net {name}: unknown threats {sorted(bad)}; use {sorted(THREATS)}")
         self.threats = tuple(threats)  # what can arrive on this wire from outside
         self.width_mm = width_mm      # required track width (overrides the IPC-2221 width from i_max)
+        self.v_typ = v_typ            # typical operating volts, or (lo, typ, hi) (haslam facts nets.<net>; range_V else v)
         self.notes = notes
         self.pins = []
 
