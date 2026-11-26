@@ -32,7 +32,7 @@ fixed wiring are kept):
   them `(type power)`, which Freerouting never routes on (and which also turns off its own
   detection of plane nets on the remaining layers); "signal" leaves KiCad's types.
   A two-layer board has no inner planes; its ground-pour side can be priced the same way,
-  off by default (haslam.route.ground_side, setting ground_side_cost).
+  on by default at 4 (haslam.route.ground_side, setting ground_side_cost).
 
 - wiring: KiCad writes DSN coordinates with %.6g, so at x or y >= 100 mm half a micrometre
   is lost: a locked track ending exactly on a pad centre such as 137.2875 mm is written
@@ -717,7 +717,7 @@ def apply(tree, plan, info):
         if plan.layer_rules:
             summary["plane_layers_costed"] = [c for c in cu if c in plane_layers(info)]
     if getattr(plan, "ground_side_cost", None) is not None:
-        # a two-layer board's ground-pour side priced like a plane (haslam.route.ground_side; off by default)
+        # a two-layer board's ground-pour side priced like a plane (haslam.route.ground_side; on by default at 4)
         from .ground_side import rules as ground_side_rules
         gs = ground_side_rules(plan, info, dsn_names,
                                [str((find(l, "type") or [None, "signal"])[1]) == "signal" for l in layers], outer)

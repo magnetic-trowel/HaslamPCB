@@ -16,7 +16,8 @@ other side and leave the pour whole under them. Inner-layer planes are never see
 two-layer board, so the rule only fills that silence.
 
 This is a design trade-off, not a fix: a whole return plane under the signals against
-shorter routes and fewer vias. It is off by default (ground_side_cost None) and set per
+shorter routes and fewer vias. It is on by default at 4 (constraints.DEFAULTS, chosen by
+experiment ground-side-ladder; `--set ground_side_cost=0` turns it off) and set per
 method (`--set ground_side_cost=4`, bridge option ground_side_cost) or per board (the
 KiCad project's HASLAM_GROUND_SIDE_COST text variable, which wins; constraints.setting).
 """
