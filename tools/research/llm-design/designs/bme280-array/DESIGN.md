@@ -70,7 +70,7 @@ the sensors do not share a copper plane with the power section (or with each oth
 - Board 50 x 78 mm, 2 layers, JLC standard stackup; M3 holes in the corners.
 - North (y < 19.5 mm): J1 (host header, DNP pads), protection, U1-U3, translators; GND pour on B.Cu.
 - Slots y 19.5-21 mm leave a bridge at x 20-30 mm.
-- South: 4 x 4 sensors fixed at 11.5 x 11 mm pitch (`board.json`), mux and pull-ups placed by haslam.
+- South: 4 x 4 sensors fixed at 11.5 x 11 mm pitch (`d.place.fixed` in design.py; the build writes `out/board.json`), mux and pull-ups placed by haslam.
 
 ## 5. As built (layout bme4, haslam A1 recipe, seed 0)
 

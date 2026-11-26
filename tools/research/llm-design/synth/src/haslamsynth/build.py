@@ -167,6 +167,9 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
             findings.append(Finding("bom.no_lcsc", "warning",
                                     f"{len(left)} generic parts without an LCSC number (run `haslamsynth jlc`): "
                                     + ", ".join(r for r, _ in left[:12]) + (" ..." if len(left) > 12 else "")))
+        # stock vs parts per board x quantity, and setup fees, from the same cache (FRICTION F6, F44)
+        jlc.stock_findings(d, Path(design_path).resolve().parent / "jlc.json",
+                           lambda chk, sev, msg, objs=(): findings.append(Finding(chk, sev, msg, list(objs))))
     # fab minimums from the finest pitch when the design leaves them unset (haslamsynth.layout)
     from . import layout as LY
     if d.board_spec is not None and fplibs:
@@ -227,18 +230,25 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
         kicad = {"ran": False, "reason": "KiCad symbol libraries not found; schematic not written"}
     else:
         kicad = {"ran": False, "reason": "missing symbols; schematic not written"}
+    # board geometry, one source: d.board + d.place.fixed (merged with a hand board.json, which must agree) ->
+    # out/board.json, what sch_to_board.py builds the board from (haslamsynth.boardgeom)
+    from . import boardgeom
+    add = lambda chk, sev, msg, objs=(): findings.append(Finding(chk, sev, msg, list(objs)))
+    design_dir = Path(design_path).resolve().parent if not isinstance(design_path, Design) else None
+    geometry = boardgeom.write(d, design_dir, outdir, add)
+    boardgeom.check_regions(d, geometry, add)
+    from .boardcheck import check_measures
+    check_measures(d, geometry, add)
+    if fplibs:
+        LY.check_footprint_holes(d, fplibs, add)
     if not d.haslam.empty():
         # the operating intent haslam reads beside the board (haslam.intent.facts): <slug>.haslam_intent.json
         from .haslam_intent import haslam_available
-        rows = d.haslam.relations()[0]
+        rows = d.haslam.relations(geometry)[0]
         if fplibs:
-            # board.json beside design.py holds the fixed parts and the outline (sch_to_board.py reads it)
-            bj = Path(design_path).resolve().parent / "board.json" if not isinstance(design_path, Design) else None
-            spec = json.loads(bj.read_text()) if bj is not None and bj.exists() else {}
-            outline = spec.get("outline") or ((d.board_spec.width_mm, d.board_spec.height_mm)
-                                              if d.board_spec and d.board_spec.width_mm else None)
-            rows = LY.check_relations(d, fplibs, rows, lambda chk, sev, msg, objs=(): findings.append(
-                Finding(chk, sev, msg, list(objs))), fixed=spec.get("fixed"), outline=outline)
+            outline = geometry.get("outline") or ((d.board_spec.width_mm, d.board_spec.height_mm)
+                                                  if d.board_spec and d.board_spec.width_mm else None)
+            rows = LY.check_relations(d, fplibs, rows, add, fixed=geometry.get("fixed"), outline=outline)
         doc, problems = d.haslam.document(relations=rows)
         (outdir / f"{d.slug}.haslam_intent.json").write_text(json.dumps(doc, indent=1) + "\n")
         for prob in problems:

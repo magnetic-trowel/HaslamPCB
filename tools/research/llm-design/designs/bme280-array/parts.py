@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Part cards for bme280-array: one PartDef per distinct part.
 
-Datasheets downloaded and read 2026-11-26 (pdftotext -layout). JLC/LCSC numbers and stock from the JLCPCB parts API
-on 2026-11-26 ("base" = basic part; "expand" = extended part, a setup fee per order).
+Datasheets downloaded and read 2026-11-26 (pdftotext -layout; `haslamsynth ds MPN --section ...` now does this).
+LCSC numbers chosen with the JLCPCB parts API; their stock and basic/extended flags are looked up by `haslamsynth jlc`
+into jlc.json (dated) and checked by the build (bom.stock against 16 per board x quantity, bom.setup_fees).
 """
 from haslamsynth import PinDef, Ratings, VLimit
-from haslamsynth.lib import IC, C, Conn, D, L, NMOS, PMOS, R, PINMAP_SOT23_FET
+from haslamsynth.lib import IC, C, Conn, D, L, NMOS, PMOS, R, Zener, PINMAP_SOT23_FET
 
 DS = {
     "BME280": "https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bme280-ds002.pdf",
@@ -23,8 +24,8 @@ DS = {
 }
 
 
-def _lcsc(code, kind):
-    return {"LCSC": code, "JLC": kind}
+def _lcsc(code):
+    return {"LCSC": code}
 
 
 def res(ohms, pkg="0402", tol="1%", **kw):
@@ -49,7 +50,7 @@ BME280 = IC(
             "ratings": "DS Table 5: VDD/VDDIO abs max 4.25 V, interface pins VDDIO + 0.3 V; Table 1: VDD 1.71-3.6 V; "
                        "3.6 uA at 1 Hz forced mode (T, P, H x1), 0.1 uA sleep, 714 uA max during pressure measurement"},
     notes="Fit BME280 or BMP280 (same footprint, pins, addresses)",
-    fields=_lcsc("C92489", "expand, stock 1 on 2026-11-26 (16 needed: Q-1)"))
+    fields=_lcsc("C92489"))
 
 TCA9548A = IC(
     "TCA9548APWR", manufacturer="Texas Instruments", datasheet=DS["TCA9548A"], symbol="Interface_Expansion:TCA9548APWR",
@@ -60,7 +61,7 @@ TCA9548A = IC(
     source={"pins": "TCA9548A DS SCPS207H Pin Functions (PW) = KiCad Interface_Expansion:TCA9548APWR",
             "ratings": "DS 5.1: VCC and inputs -0.5..7 V; 1.65-5.5 V operating; ICC 2-4 uA at 1.65 V / 100 kHz, "
                        "0.1 uA standby"},
-    fields=_lcsc("C130026", "expand, stock 15257"))
+    fields=_lcsc("C130026"))
 
 # ---------------------------------------------------------------------------------------------
 # Power
@@ -73,7 +74,7 @@ TPS63900 = IC(
                                    5.9, v_rec=5.5)]),
     source={"pins": "TPS63900 DS SLVSET3D Table 5-1 = KiCad Regulator_Switching:TPS63900 (EP = GND)",
             "ratings": "DS 6.1: all pins -0.3..5.9 V; 6.3: VIN 1.8-5.5 V; UVLO rising 1.73-1.77 V (6.5)"},
-    fields=_lcsc("C1518762", "expand, stock 17299"),
+    fields=_lcsc("C1518762"),
     haslam=dict(v_sw_max_V=5.9, why="TPS63900 DS 6.1: LX1/LX2 abs max 5.9 V"))
 
 TPS629203 = IC(
@@ -88,7 +89,7 @@ TPS629203 = IC(
     source={"pins": "TPS629203 DS SLVSGE2 Table 6-1 (DRL SOT-5X3)",
             "ratings": "DS 7.1: VIN, EN, PG, MODE -0.3..18 V; SW VIN+0.3 V (23 V < 10 ns); FB/VSET, VOS 6 V; 7.3: VIN "
                        "3-17 V; EN 1.0 V rising / 0.9 V falling (7.5)"},
-    fields=_lcsc("C5219295", "expand, stock 11873"),
+    fields=_lcsc("C5219295"),
     haslam=dict(v_sw_max_V=18.0, why="TPS629203 DS 7.1: SW abs max VIN + 0.3 V DC (VIN <= 18 V)"))
 
 TPS3700 = IC(
@@ -103,10 +104,10 @@ TPS3700 = IC(
     source={"pins": "TPS3700 DS SBVS187G Pin Functions (DDC)",
             "ratings": "DS 6.1: VDD, OUTx 20 V, INx 7 V; 6.5: VIT+ 396-404 mV, hysteresis 5.5 mV; OUTA low below UVLO; "
                        "OUTB Hi-Z below UVLO; 450 us start-up; IDD 6 uA typ (13 max) at 12 V"},
-    fields=_lcsc("C33002", "expand, stock 7012"))
+    fields=_lcsc("C33002"))
 
 L_2U2 = L("2.2uH", "Inductor_SMD:L_1008_2520Metric", i_max=2.3, i_sat=3.6, mpn="DFE252012F-2R2M=P2",
-          manufacturer="Murata", datasheet=DS["DFE252012F"], fields=_lcsc("C576403", "expand, stock 2280"),
+          manufacturer="Murata", datasheet=DS["DFE252012F"], fields=_lcsc("C576403"),
           source={"ratings": "LCSC listing [S]: 2.2 uH, 2.3 A rated, 3.6 A sat, 82 mOhm; TPS63900 Table 8-2 lists "
                              "DFE252010F-2R2M; TPS629203 needs 2.2 uH, ILIM 1.4 A max"})
 
@@ -114,22 +115,22 @@ L_2U2 = L("2.2uH", "Inductor_SMD:L_1008_2520Metric", i_max=2.3, i_sat=3.6, mpn="
 # Discretes
 
 AO3401A = PMOS("AO3401A", "Package_TO_SOT_SMD:SOT-23", vds=30, vgs=12, i_d=4.0, pinmap=PINMAP_SOT23_FET,
-               manufacturer="Alpha & Omega", datasheet=DS["AO3401A"], fields=_lcsc("C15127", "base"),
+               manufacturer="Alpha & Omega", datasheet=DS["AO3401A"], fields=_lcsc("C15127"),
                source={"pinmap": "AO3401A DS: SOT-23 1 G, 2 S, 3 D",
                        "ratings": "-30 V, +/-12 V VGS, VGS(th) -0.5..-1.3 V, 85 mOhm at -2.5 V"})
 BSS84 = PMOS("LBSS84LT1G", "Package_TO_SOT_SMD:SOT-23", vds=50, vgs=20, i_d=0.13, pinmap=PINMAP_SOT23_FET,
-             manufacturer="LRC", datasheet=DS["BSS84"], fields=_lcsc("C8492", "expand"),
+             manufacturer="LRC", datasheet=DS["BSS84"], fields=_lcsc("C8492"),
              source={"pinmap": "BSS84 SOT-23 1 G, 2 S, 3 D", "ratings": "-50 V, +/-20 V, -130 mA, VGS(th) <= 2 V"})
 DMG1012T = NMOS("DMG1012T-7", "Package_TO_SOT_SMD:SOT-523", vds=20, vgs=6, i_d=0.63, pinmap=PINMAP_SOT23_FET,
-                manufacturer="Diodes Inc", datasheet=DS["DMG1012T"], fields=_lcsc("C20512", "expand, stock 19301"),
+                manufacturer="Diodes Inc", datasheet=DS["DMG1012T"], fields=_lcsc("C20512"),
                 source={"pinmap": "DMG1012T SOT-523: 1 G, 2 S, 3 D",
                         "ratings": "20 V, +/-6 V VGS, VGS(th) 0.5-1.0 V, 500 mOhm at 1.8 V, Ciss 61 pF"})
 SMAJ15A = D("SMAJ15A", "Diode_SMD:D_SMA", v_rrm=15, i_f=16.4, kind="D_TVS", manufacturer="Littelfuse",
-            datasheet=DS["SMAJ"], fields=_lcsc("C86819", "expand, stock 151631"),
+            datasheet=DS["SMAJ"], fields=_lcsc("C86819"),
             source={"ratings": "SMAJ15A: VRWM 15 V, VBR 16.7 V min, VC 24.4 V at 16.4 A, 1 uA at VRWM"})
-BZT52C10 = D("BZT52C10", "Diode_SMD:D_SOD-123", v_rrm=10, i_f=0.05, kind="D_Zener", manufacturer="Diodes Inc",
-             datasheet=DS["BZT52"], fields=_lcsc("C173431", "expand"),
-             source={"ratings": "10 V zener (9.5-10.5 V), 100 nA at 7 V, 500 mW"})
+BZT52C10 = Zener("BZT52C10", "Diode_SMD:D_SOD-123", vz=(9.5, 10.5), p_max=0.5, manufacturer="Diodes Inc",
+                 datasheet=DS["BZT52"], fields=_lcsc("C173431"),
+                 source={"ratings": "10 V zener (9.5-10.5 V), 100 nA at 7 V, 500 mW"})
 
 HOST_HDR = Conn(6, "Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical", i_max=1, v_max=50,
                 mpn="PinHeader 1x6 2.54", dnp=True, fields={"Assembly": "DNP: pads only (solder a header or wires)"},

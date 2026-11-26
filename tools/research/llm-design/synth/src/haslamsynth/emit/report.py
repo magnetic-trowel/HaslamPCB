@@ -100,7 +100,8 @@ def report_md(design, findings, kicad, status):
         L += ["## Calculations", "", "| Name | Value | Limit | Expression | Note |", "|---|---|---|---|---|"]
         for c in d.calcs:
             lim = f"{c.op} {c.limit:g}" if c.limit is not None else ""
-            L.append(f"| {c.name} | {c.value:.4g} {c.unit} | {lim} | `{_esc(c.expr)}` | {_esc(c.note)} |")
+            again = " (re-checked on the board: `haslamsynth check-board`)" if getattr(c, "board", None) else ""
+            L.append(f"| {c.name} | {c.value:.4g} {c.unit} | {lim} | `{_esc(c.expr)}` | {_esc(c.note)}{again} |")
         L.append("")
     L += ["## Findings", ""]
     active = [f for f in findings if not f.waived_by]

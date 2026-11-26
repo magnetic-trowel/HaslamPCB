@@ -2,10 +2,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Build an unplaced .kicad_pcb from a haslamsynth project: KiCad's own Python does the work.
 
-Run with KiCad's Python (pcbnew): `$HASLAM_KICAD_PYTHON sch_to_board.py OUT_DIR BOARD_JSON` (env.sh sets it for a
+Run with KiCad's Python (pcbnew): `$HASLAM_KICAD_PYTHON sch_to_board.py OUT_DIR [BOARD_JSON]` (env.sh sets it for a
 native KiCad, e.g. /usr/bin/python3; the PATH python3 may lack pcbnew), or `$HASLAM_KICAD_WRAP python3 ...` for the
-container set-up. Every footprint library it loads from (the mounting holes' MountingHole too) is added to the
-project's fp-lib-table, so KiCad's DRC reports no lib_footprint_issues.
+container set-up. BOARD_JSON defaults to OUT_DIR/board.json, which `haslamsynth build` writes from d.board(...) and
+d.place.fixed(...) (haslamsynth.boardgeom: slots and edge-strip keep-outs from a SlotBarrier, named rule areas, pours
+by area). Every footprint library it loads from (the mounting holes' MountingHole too) is added to the project's
+fp-lib-table, so KiCad's DRC reports no lib_footprint_issues.
 
 OUT_DIR is a `haslamsynth build` output folder (<slug>.kicad_pro, .kicad_sch, fp-lib-table). The netlist comes from
 `kicad-cli sch export netlist` on the schematic, so the board carries exactly what KiCad reads from the sheets
@@ -358,4 +360,4 @@ def update(out_dir, board_in, board_out):
 if __name__ == "__main__":
     if sys.argv[1] == "--update":                    # --update OUT_DIR BOARD_IN BOARD_OUT
         sys.exit(update(sys.argv[2], sys.argv[3], sys.argv[4]))
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else Path(sys.argv[1]) / "board.json")
