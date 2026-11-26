@@ -303,3 +303,13 @@ def test_sprint_smoke_submits_two_cheap_boards_one_of_them_a_control_fill(monkey
     s = _sprint(monkeypatch, store, suite="sprint-quality", runs=runs, smoke=2)["submit"]
     assert s.only == f"{boards[0]},{boards[1]}" and s.prio == 5
     assert f"the rest: haslamres exp submit x --prio 5" in capsys.readouterr().out
+
+
+def test_method_add_on_the_command_line_exits_0(tmp_path, monkeypatch):
+    """cmd_method_add returns the method id (for sprint); `haslamres method add` must still exit 0, or
+    control-tag.sh (set -e) stops after its first method."""
+    monkeypatch.setattr(K, "cmd_method_add", lambda a: "0123456789ab")
+    monkeypatch.setattr(sys, "argv", ["haslamres", "method", "add", "x", "--kind", "route", "--command", "true {input} {output}"])
+    with pytest.raises(SystemExit) as r:
+        K.main()
+    assert r.value.code in (0, None)

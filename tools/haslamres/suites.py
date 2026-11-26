@@ -11,7 +11,7 @@ Writes four id lists (docs/topics/verification/experiment-tiers.md) and prints t
   ladder           human-clean boards stratified by footprints and layers
   canary           the big boards: merit boards over 1,000 pads, human-clean boards over 400 footprints
 
-  python3 tools/haslamres/suites.py --tags DIR --freeze control-w47     # after the tag's control has run
+  python3 tools/haslamres/suites.py --tags DIR --freeze control-w48     # after the tag's control has run
 drops from the two sprint lists the boards that failed to prepare or run under a control arm, writes
 sprint-manifest.csv (per board: owner, size, mechanism tags, each control arm's open connections, clean and CPU-h
 per seed) and prints how many boards are inert between seeds and how many each arm leaves open.
