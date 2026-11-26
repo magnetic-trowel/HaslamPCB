@@ -901,3 +901,23 @@ def test_heat_takes_an_unstated_export_at_one_percent():
     from haslam.excite import heat as H
     src = inspect.getsource(H)
     assert "sustained[(p.subject, p.name)] = p.typ" in src
+
+
+def test_a_cells_own_stated_efficiency_sets_its_input_current_at_every_corner_and_its_loss():
+    """cells.<id>.eta (what the facts compiler writes) was read only as its typical: a buck's DC input current held it
+    at every corner and its heat ignored it. Now it is the feed's eta, as nets.<rail>.eta: at J2 = 1 A, 3.3 V out of
+    12 V, eta 0.8 at a corner, the input takes 3.3 / (0.8 x 12) = 0.34375 A, and the loss is (1/0.8 - 1) 3.3 W."""
+    from types import SimpleNamespace as NS
+
+    from haslam.excite import heat as H
+    pl = _cell_board_plan({"cells": {"c1": {"eta": [0.8, 0.9]}}, "parts": {"J2": {"I_A": 1.0}, "U2": {"I_A": 0.0},
+                                                                          "U3": {"I_A": 0.0}}})
+    e = pl.feeds["3V3"]["eta"]
+    assert (e.lo, e.hi, e.source) == (0.8, 0.9, "intent") and e in pl.params
+    cv = {(p.subject, p.name): p.typ for p in pl.params}
+    cv[(e.subject, "eta")] = 0.8
+    cv["cell:c1"] = {"I_A": 1.0, "D": 3.3 / 12}
+    inj = DC.injections(pl, cv)
+    assert inj["J1.1"] == pytest.approx(3.3 / (0.8 * 12.0))
+    heat = H.part_heat(NS(part_kind={}), pl, cv, {}, inj)
+    assert heat["U1"] == pytest.approx((1 / 0.8 - 1) * 3.3)
