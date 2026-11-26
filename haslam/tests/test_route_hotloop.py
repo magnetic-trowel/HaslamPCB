@@ -537,6 +537,25 @@ def test_cells_outside_the_kinds_and_failed_cells_leave_no_copper(tmp_path):
     assert hotloop.settings()["cell_kinds"] == ("buck", "boost")
 
 
+def test_a_cell_outside_the_kinds_is_not_laid_and_reads_as_no_failed_cell(tmp_path):
+    """kestrel esc, cells-first round 4: its half bridges (Q21+Q22, Q23+Q24) were routed with the default kinds
+    (buck, boost), spending the stage's budget and pushing the kept cells aside, and ripped only afterwards; one
+    that laid nothing stayed "failed" with a hotloop_cell_unrouted hazard. A cell of another kind is now skipped
+    before it is routed: no copper, no time, no hazard."""
+    s = F.session(tmp_path, kinds=("cell",), rails="none", cell_kinds=("boost",))
+    s.route(budget_s=60)
+    (m,) = [m for m in s.modules if m.kind == "cell"]
+    assert CM.cell_kind(m.id) == "buck" and m.status == "skipped" and not m.copper and "seconds" not in m.physics
+    assert m.notes == ["skipped: buck not in hotloop_cell_kinds"]
+    assert hotloop.cell_hazards([m]) == []
+    hotloop.drop_cells(s, [m], ("boost",), log=lambda *a: None)
+    assert m.status == "skipped" and not m.copper
+    s2 = F.session(tmp_path / "b", kinds=("cell",), rails="none", cell_kinds=("buck", "boost"))
+    s2.route(budget_s=60)
+    (m2,) = [m for m in s2.modules if m.kind == "cell"]
+    assert m2.status == "routed" and m2.copper
+
+
 def test_a_board_with_a_buck_routed_without_cells_gets_the_decision_entry(tmp_path, monkeypatch):
     """hotloop_cells_available: the trade-off and the setting, for the LLM driving haslam; none with the stage on."""
     p = F.write_board(tmp_path)

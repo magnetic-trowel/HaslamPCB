@@ -81,6 +81,11 @@ def _opt(ctx, key):
     return DEFAULTS[key]
 
 
+def cell_kind(mid):
+    """A cell module's topology from its id ("cell:half_bridge:Q21+Q22" -> "half_bridge")."""
+    return (mid.split(":") + ["", ""])[1]
+
+
 def modules_from_brief(brief, kinds=("cell", "path", "decap", "rgroup", "crystal", "chain")):
     """Modules in the brief's placement order (physically decisive first). A decap of a rail
     group is the group's (its capacitors pair with the nearest group load)."""

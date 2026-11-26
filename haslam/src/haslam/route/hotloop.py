@@ -131,7 +131,7 @@ def _session(board_path, info, st, opts, log, pour_links=False):
     PF.apply(board, (intent or {}).get("pins"))
     copts = dict(kinds=("cell",), rails="none", complete_mm=0.0, island_mm=0.0, thermal_spokes=False,
                  place_allocs=False, guards=(), cell_price="W", cell_via_array=bool(st["vias"]), cell_widest_fit=True,
-                 pour_links=pour_links,
+                 pour_links=pour_links, cell_kinds=st["cell_kinds"],
                  intent=intent, **intent_opts(intent))
     return Session(board_path, info=info, opts=copts, log=log, board=board)
 
@@ -747,6 +747,8 @@ def cell_hazards(mods):
         left = [f for f in m.flags if f.get("flag") == "ipc_floor_unroutable"]
         if m.kind != "cell" or not (left or m.status in ("failed", "error", "skipped")):
             continue
+        if any(n.endswith("not in hotloop_cell_kinds") for n in m.notes):
+            continue                # left to the general router by the setting, not a cell the stage could not lay
         out.append(H.make(
             "hotloop_cell_unrouted", "warn", "electrical",
             f"{m.id}: the hot-loop stage could not lay {len(left) or 'any'} of its loop hops ({m.status}); the "
@@ -972,14 +974,18 @@ def drop_cells(s, mods, kinds, log=_log):
     the motor gate nets), and a failed cell, whose hops are no loop (kestrel: failed half-bridge cells' locked hops).
     The general router lays those nets."""
     from .critical_joint import _rip
+    from .critical_modules import cell_kind
     for m in mods:
-        if not m.copper:
-            continue
-        kind = (m.id.split(":") + ["", ""])[1]
+        kind = cell_kind(m.id)
         if kinds and kind not in kinds:
-            log(f"hotloop: {m.id}: {kind} is not in hotloop_cell_kinds {','.join(kinds)}; its copper ripped")
-            _rip(s, m)
+            # the session does not lay these (critical.Session.route, cell_kinds); one laid by another caller is
+            # ripped, and none keeps a status or note of its own (a "failed" one read as an attempted cell)
+            if m.copper:
+                log(f"hotloop: {m.id}: {kind} is not in hotloop_cell_kinds {','.join(kinds)}; its copper ripped")
+                _rip(s, m)
             m.status, m.notes = "skipped", [f"skipped: {kind} not in hotloop_cell_kinds"]
+        elif not m.copper:
+            continue
         elif m.status == "failed":
             log(f"hotloop: {m.id} failed; its {len(m.copper)} item(s) ripped")
             _rip(s, m)

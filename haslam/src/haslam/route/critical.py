@@ -43,7 +43,7 @@ from haslam.board.model import Track, Via
 from . import arcs as A
 from . import critical_write as W
 from .critical_grid import GridRouter
-from .critical_modules import Ctx, cell_return, modules_from_brief, route_module
+from .critical_modules import Ctx, cell_kind, cell_return, modules_from_brief, route_module
 from .critical_space import Space
 
 DEFAULTS = dict(
@@ -190,7 +190,15 @@ class Session:
         mods = modules_from_brief(self.brief, self.opts["kinds"])
         skip = tuple(self.opts.get("skip") or ())
         mods = [m for m in mods if not m.id.startswith(skip)] if skip else mods
+        # cell_kinds (the hot-loop stage's hotloop_cell_kinds): a cell of another topology is not laid at all. Ripping
+        # it after the stage (as before) still spent the stage's budget on it and let its copper, laid first in the
+        # brief's order, push the kept cells aside; one that laid nothing kept its "failed" status and hazard
+        ck = tuple(self.opts.get("cell_kinds") or ())
         for m in mods:
+            if ck and m.kind == "cell" and cell_kind(m.id) not in ck:
+                m.status = "skipped"
+                m.notes.append(f"skipped: {cell_kind(m.id)} not in hotloop_cell_kinds")
+                continue
             t1 = clock_now()
             if budget is not None and t1 - t0 > budget:
                 m.status = "skipped"
