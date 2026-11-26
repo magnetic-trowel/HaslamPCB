@@ -442,9 +442,22 @@ def _part(bd, ref, part, pins, kind, sub, role, rec, in_cell):
         # a net tie is copper that joins two nets by design (an analog ground to the power ground at one point)
         if len(tw) == 2:
             c.z(ref, tw[0].net, tw[1].net, _rl(0.01, 1e-9), tok(tw[0]), tok(tw[1]), "short")
+    elif kind == "jumper" and len(tw) > 2:
+        # a 3-way solder jumper (1-2 or 2-3 bridged): which pair is closed is the board's build option, not in its
+        # copper; nothing is assumed closed, and that is said (its nets may then be open in the DC band)
+        bd.assumptions.append(f"{ref}: a {len(tw)}-way jumper ({', '.join(p.net for p in tw)}); which pads are bridged "
+                              f"is not known, so none is")
     elif kind == "battery" and len(tw) == 2:
         c.z(ref, tw[0].net, tw[1].net, _rl(0.1, 10e-9), tok(tw[0]), tok(tw[1]), "batt")
-    elif kind == "ic" or (kind == "unknown" and len(pins) > 3):
+    elif kind == "ic" or (kind == "unknown" and len(pins) > 3 and (
+            any(p.net in bd.rails and (p.ptype == "power_in" or SUP_FN.match(p.fn or "")) for p in pins)
+            or not any(p.ptype or p.fn for p in pins))):
+        # an unclassified part is an IC only when a pin says it draws supply (typed power_in or named VDD, VCC...):
+        # by pad count alone a 4-pad switch, crystal or button footprint between a rail and ground became a die
+        # capacitance across the rail. A board whose pads carry neither type nor name (KiCad 5 and Eagle imports)
+        # says nothing either way and keeps the pad-count rule
+        if kind == "unknown":
+            bd.assumptions.append(f"{ref}: unclassified, with a supply pin: modelled as an IC")
         if sub == "load_switch":
             from haslam.circuit.roles import cells_flag
             if cells_flag("HASLAM_CELLS_EXTBB"):
