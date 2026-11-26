@@ -162,8 +162,8 @@ def check_facts(f):
         for k in ("range_V", "eta", "I_A"):
             if k in d:
                 _interval(d[k], f"facts.nets.{net}.{k}")
-        if d.get("kind") not in (None, "linear", "switching"):
-            raise FactsError(f"facts.nets.{net}.kind: 'linear' or 'switching'")
+        if d.get("kind") not in (None, "linear", "switching", "external"):
+            raise FactsError(f"facts.nets.{net}.kind: 'linear', 'switching' or 'external' (a connector that brings the rail in)")
     for cid, d in (f.get("cells") or {}).items():
         bad = [k for k in d if k not in CELL_KEYS and k not in DEPRECATED_CELL_KEYS]
         if bad:
