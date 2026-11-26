@@ -304,7 +304,14 @@ def _facts(intent):
 
 
 def _part_fact(intent, ref, name):
-    return ((_facts(intent).get("parts") or {}).get(ref) or {}).get(name)
+    """A part's fact; a listed value ([lo, hi], [lo, typ, hi], which check_facts accepts for every parts key) as
+    its typical value (haslam.intent.facts.typical): the checks compare it as a number, and a list raised TypeError."""
+    from .facts import typical
+    v = ((_facts(intent).get("parts") or {}).get(ref) or {}).get(name)
+    if isinstance(v, list):
+        t = typical(v)
+        return t if t is not None else v
+    return v
 
 
 def _need(field, ask, unit, known=None):

@@ -98,6 +98,22 @@ SUPPLY_PIN = re.compile(r"^(V(CC|DD|IN|BAT|BUS|S|M|PP|IO|CORE|DDA|DDIO|USB|SYS|P
 VOLT_PIN = re.compile(r"^\+?\d+V\d*$|^\+?\d+(\.\d+)?V$", re.I)     # '3V3', '5V', '+1.8V': a supply pin by its voltage
 
 
+def fact_interval(v, what="value"):
+    """(typ, lo, hi) of an operating fact's value: haslam.intent.facts.interval, the reader of every form the
+    facts' checker accepts (a number, [lo, hi], [lo, typ, hi])."""
+    from haslam.intent.facts import interval
+    return interval(v, what)
+
+
+def _eta(v, what):
+    """(typ, lo, hi) of a stated efficiency, None when absent or outside (0, 1]. A [lo, typ, hi] eta was ignored
+    (only [lo, hi] was read) and the regulator fell back to its class prior."""
+    if v is None:
+        return None
+    t = fact_interval(v, what)
+    return t if 0 < t[1] <= t[2] <= 1 else None
+
+
 def draws_from(pp, net, rails):
     """Whether an IC or module with pads pp [(number, net, pintype, pinfunction)] takes supply current
     from rail `net`: a pad on it typed power_in or named as a supply (VCC, VDD, 3V3...), or, on a board
@@ -181,11 +197,30 @@ def export_questions(pl):
 def _pads(board):
     """{ref: [(number, net, pintype, pinfunction)]}. Footprints that share a reference are one part (a module's
     edge pins and its back pins, a split symbol): their pads are merged, as the copper model's pad tokens (REF.NUM,
-    haslam.em.kicad) merge them. Keeping only the last footprint lost a Teensy's supply and ground pins."""
-    out = {}
+    haslam.em.kicad) merge them. Keeping only the last footprint lost a Teensy's supply and ground pins.
+
+    One pin is one entry: pads that share a number and net (a SOT-223's or DPAK's tab beside its pin, an exposed pad
+    drawn as several pads, a THT pin on two layers) are one terminal of the copper model (REF.NUM, its copper on
+    every pad: the field solve splits the pin's current over them by their conductance), so they are listed once.
+    Listed twice, every token list built from them named the pin twice: a regulator's output `[U4.2, U4.2]` summed
+    its injection twice in its heat (2x the loss of a SOT-223 LDO), and a part's supply pads were over-counted in its
+    rails' shares. The entry keeps the first non-empty pin type and function among the pads."""
+    out, at = {}, {}
     for f in board.footprints:
-        out.setdefault(f.ref, []).extend((p.number, p.net, p.pintype or "", (p.pinfunction or "").split("/")[0].strip())
-                                         for p in f.pads if p.net)
+        out.setdefault(f.ref, [])            # a part with no pad on a net is still a part (no copper of its own)
+        for p in f.pads:
+            if not p.net:
+                continue
+            e = (p.number, p.net, p.pintype or "", (p.pinfunction or "").split("/")[0].strip())
+            k = (f.ref, p.number, p.net)
+            if k in at:
+                lst, i = at[k]
+                n0, nt0, pt0, fn0 = lst[i]
+                lst[i] = (n0, nt0, pt0 or e[2], fn0 or e[3])
+                continue
+            lst = out[f.ref]
+            at[k] = (lst, len(lst))
+            lst.append(e)
     return out
 
 
@@ -319,6 +354,22 @@ def plan(board, brief, bd, P, srcs, intent=None):
         cells[st["id"]] = c
     merge_buckboost(cells)
     cell_parts = set().union(*[c["parts"] for c in cells.values()]) if cells else set()
+    def fed_on_board(n):
+        """Whether rail n's current comes from a converter on the board: a cell's output, a rail whose source part
+        (the facts', else the brief's) is an IC or module, or one the facts give as fed from another rail."""
+        if any(c["vout"] == n for c in cells.values()) or (facts.get(n) or {}).get("from"):
+            return True
+        sr = over.get(n) or ref_of.get(((nets.get(n) or {}).get("source") or {}).get("part"))
+        return (parts.get(uuid_of.get(sr)) or {}).get("kind") in ("ic", "module")
+
+    def link_of(ref, r):
+        """The other rail of connector ref when it is a series link into rail r (no ground pad, its pads on r and
+        on exactly one other rail, which an on-board converter feeds), else None."""
+        ns = {nt for _, nt, _, _ in pads.get(ref, [])}
+        if gnd_pads(ref) or r not in ns or len(ns) != 2:
+            return None
+        (r2,) = ns - {r}
+        return r2 if r2 in rails and r2 not in grounds and fed_on_board(r2) else None
     # feeds: what delivers each rail's current
     over = {n: (d or {}).get("source") for n, d in ((intent or {}).get("nets") or {}).items() if (d or {}).get("source")}
     for r in sorted(rails):
@@ -332,11 +383,10 @@ def plan(board, brief, bd, P, srcs, intent=None):
             pi = next((p for p in (P.get(cell["src"]) or {}).values() if getattr(p, "name", "") == "I_A"), None)
             if pi is not None and pi.hi > 0:
                 pl.feeds[r]["I_hi"] = float(pi.hi)
-            fe = (facts.get(r) or {}).get("eta")
-            if isinstance(fe, list) and len(fe) == 2 and 0 < min(fe) <= max(fe) <= 1:
+            fe = _eta((facts.get(r) or {}).get("eta"), f"facts.nets.{r}.eta")
+            if fe:
                 # the facts' efficiency: the input takes P_out / eta (without it the cell's duty, lossless)
-                pl.feeds[r]["eta"] = Param(f"dc:{cell['ctrl']}", "eta", (fe[0] + fe[1]) / 2, fe[0], fe[1], "", "intent",
-                                           "the intent file")
+                pl.feeds[r]["eta"] = Param(f"dc:{cell['ctrl']}", "eta", *fe, "", "intent", "the intent file")
                 pl.params.append(pl.feeds[r]["eta"])
             continue
         if src_ref is None or src_ref not in pads:
@@ -375,10 +425,9 @@ def plan(board, brief, bd, P, srcs, intent=None):
                      ref=src_ref, rin=rin, out=outs,
                      inp=tok(src_ref, [n for n, net in ins if net == rin]), gnd=gnd_pads(src_ref))
             if f["kind"] == "switching":
-                fe = (facts.get(r) or {}).get("eta")
-                if isinstance(fe, list) and len(fe) == 2 and 0 < min(fe) <= max(fe) <= 1:
-                    f["eta"] = Param(f"dc:{src_ref}", "eta", (fe[0] + fe[1]) / 2, fe[0], fe[1], "", "intent",
-                                     "the intent file")
+                fe = _eta((facts.get(r) or {}).get("eta"), f"facts.nets.{r}.eta")
+                if fe:
+                    f["eta"] = Param(f"dc:{src_ref}", "eta", *fe, "", "intent", "the intent file")
                 else:
                     f["eta"] = Param(f"dc:{src_ref}", "eta", ETA[1], ETA[0], ETA[2], "", "prior",
                                      "efficiency of a switching regulator without a cell model (class range)")
@@ -389,6 +438,16 @@ def plan(board, brief, bd, P, srcs, intent=None):
             # transistor): its current comes from that rail through the part's channel. Taken as external, a
             # switched rail's loads never reached the rail and regulator upstream (solar-small's +3V3_SW via Q301)
             pl.feeds[r] = dict(kind="linear", ref=src_ref, rin=fr, out=on(src_ref, r), inp=on(src_ref, fr), gnd=[])
+        elif kind == "connector" and fk != "external" and link_of(src_ref, r):
+            # a connector with no ground pad whose pins land on this rail and one other on-board rail fed by a
+            # converter (duanestorey's J10, a 2-pin jumper header from 12V_OUT to 12V) links the two: its current
+            # comes from the other rail through it. Read as an external source, the rail's 0.35 A appeared from
+            # nowhere and the converter upstream (U7) carried only its own rail's load. The facts say otherwise with
+            # nets.<rail>.kind "external" (a cable really brings the rail in on that header)
+            other = link_of(src_ref, r)
+            pl.feeds[r] = dict(kind="linear", ref=src_ref, rin=other, out=on(src_ref, r), inp=on(src_ref, other), gnd=[])
+            pl.notes.append(f"{r}: source {src_ref} is a connector with no ground pad between {r} and {other}, which "
+                            f"an on-board converter feeds: a series link from {other}, not the board's input")
         elif kind in ("diode", "inductor", "ferrite", "resistor", "jumper"):
             other = next((net for _, net, _, _ in pads[src_ref] if net != r and net in rails), None)
             if other is None:
@@ -535,10 +594,17 @@ def plan(board, brief, bd, P, srcs, intent=None):
         k, sb = p.get("kind"), p.get("subtype")
         return (k == "module" and sb not in LINEAR + SWITCHING + ("charge_pump",)) or (k == "ic" and sb in CONSUMER_SUB)
 
+    def by_rail(ref):
+        """{rail: value} the facts state per rail for part ref (parts.<ref>.I_A_by_rail)."""
+        v = (((intent or {}).get("parts") or {}).get(ref) or {}).get("I_A_by_rail")
+        return v if isinstance(v, dict) else {}
+
     def part_share(ref, r, skip=None):
-        """Rail r's share of part ref's supply pads over the fed rails it draws from (not one it feeds, nor `skip`)."""
+        """Rail r's share of part ref's supply pads over the fed rails it draws from (not one it feeds, nor `skip`,
+        nor one whose current the facts state on its own: parts.<ref>.I_A_by_rail)."""
+        own = set(by_rail(ref))
         n = {r2: len(supply(ref, r2)) for r2 in pl.feeds if pl.feeds[r2].get("ref") != ref and r2 != skip
-             and any(net == r2 for _, net, _, _ in pads.get(ref, []))}
+             and r2 not in own and any(net == r2 for _, net, _, _ in pads.get(ref, []))}
         return n.get(r, 0) / sum(n.values()) if sum(n.values()) else 1.0
     # loads: parts that draw from a rail and return at their own ground
     # an export through a connector without a ground pad of its own returns through the board's other connectors'
@@ -556,7 +622,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
             if kind not in LOAD_KINDS:
                 continue
             g = gnd_pads(ref)
-            stated = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_A") is not None
+            stated = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_A") is not None or r in by_rail(ref)
             if not g and kind == "connector" and stated and conn_g_all:
                 g = [t for t in conn_g_all if not t.startswith(ref + ".")]
                 if g:
@@ -596,6 +662,14 @@ def plan(board, brief, bd, P, srcs, intent=None):
             # supply pads (an MCU's 3V3 pins carry its current, not its VBUS-detect pin as well); a split-supply
             # part's whole current crosses both its rails
             ld["part_share"] = share = part_share(ref, r, skip=ret)
+            what = f"facts.parts.{ref}.I_A"
+            if r in by_rail(ref):
+                # the facts state this rail's current on its own (a connector exporting 5V and 3V3 to a board that
+                # draws them unequally): no share of the part's whole current. Split by supply pads, J7's 5V and
+                # 3V3 exports could only be stated equal
+                iv, share, what = by_rail(ref)[r], 1.0, f"facts.parts.{ref}.I_A_by_rail.{r}"
+                ld["part_share"] = 1.0
+                ld["by_rail"] = True
             sub = (parts.get(u) or {}).get("subtype")
             tab = lookup_part(f"{(parts.get(u) or {}).get('value') or ''} {(parts.get(u) or {}).get('lib_id') or ''}") \
                 if kind in ("ic", "module") else {}
@@ -603,10 +677,10 @@ def plan(board, brief, bd, P, srcs, intent=None):
             # loads take (haslam.excite.heat sets its operating current from them), not a current its rail's loads
             # share out (solar-small's LTC2959 coulomb counter, < 1 uA, took the whole LTC3130 output: 1.5 W)
             if iv is not None:
-                lo, hi = (iv if isinstance(iv, list) else [iv, iv])
-                lo, hi = lo * share, hi * share
-                p = Param(f"dc:{ref}@{r}", "I_A", math.sqrt(lo * hi) if lo > 0 else hi, lo, hi, "A", "intent",
-                          "the intent file" + (f" ({share:.0%} of the part's current: its share of supply pads)" if share < 1 else ""))
+                typ, lo, hi = (x * share for x in fact_interval(iv, what))
+                p = Param(f"dc:{ref}@{r}", "I_A", typ, lo, hi, "A", "intent",
+                          "the intent file" + (f" ({share:.0%} of the part's current: its share of supply pads)" if share < 1 else "")
+                          + (" (its current on this rail)" if ld.get("by_rail") else ""))
             elif "I_supply_A" in tab:
                 typ, lo, hi, src = tab["I_supply_A"]
                 p = Param(f"dc:{ref}@{r}", "I_A", typ * share, lo * share, hi * share, "A", "part_table", src)
@@ -638,8 +712,7 @@ def plan(board, brief, bd, P, srcs, intent=None):
         u = uuid_of.get(ref)
         iv = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_A")
         if iv is not None:
-            lo, hi = iv if isinstance(iv, list) else [iv, iv]
-            p = Param(f"dc:{ref}@{r}", "I_A", math.sqrt(lo * hi) if lo > 0 else hi, lo, hi, "A", "intent",
+            p = Param(f"dc:{ref}@{r}", "I_A", *fact_interval(iv, f"facts.parts.{ref}.I_A"), "A", "intent",
                       "the intent file (the part's own draw, from its own input)")
         else:
             a = load_current(ctx, u, r, {}, draws=True)
@@ -728,22 +801,38 @@ def _offboard(pl, bd, P, cells, connectors):
     whose ground pins sit on two ground nets (a Nucleo's GND and its CN10 GND, joined inside it), sends a load's return
     into a piece where its source's ground is not: in the copper that current has no way out, and the DC band was void
     on a board KiCad finds fully connected. Where the plan's flow balances over the whole board but not per piece (at
-    every parameter's typical value), and every unbalanced piece has a way out, the current between the pieces is
+    the typical point or with any one parameter at its other end), and every unbalanced piece has a way out, the current between the pieces is
     taken through it (pl.offboard; injections() moves each piece's excess there): the ground pads of a part whose
     ground pads sit in several pieces (joined inside it), else the piece's connector ground pads (joined off the board).
     Anything else that does not balance is left unbalanced, for imbalance() to report."""
     pl.piece = _pieces(pl.pads, bd.circuit.elems)
     cv0 = {c["src"]: {k: p.typ for k, p in (P.get(c["src"]) or {}).items()} for c in cells.values()}
     cv0.update({(p.subject, p.name): p.typ for p in pl.params})
-    inj = injections(pl, cv0)
-    big = max((abs(a) for a in inj.values()), default=0.0)
-    if big == 0:
-        return
-    bal = {}
-    for t, a in inj.items():
-        bal[pl.piece.get(t)] = bal.get(pl.piece.get(t), 0.0) + a
-    off = sorted(r for r, b in bal.items() if abs(b) > EPS * big)
-    if not off or abs(sum(bal.values())) > EPS * big:
+    # which pieces are joined off the board is decided over the corners, not at the typical point alone: a load
+    # across two rails (duanestorey's J9 on DC_POS and DC_NEG, returning through AGND_INT) leaves its ground piece
+    # balanced at the typical point, where its two rails' currents are equal, but every corner that samples them
+    # apart sends their difference into that piece, and those corners failed KCL. Each piece's balance moves with
+    # each parameter on its own, so the typical point plus one point per parameter at its other end finds every
+    # piece some corner can unbalance (injections() then moves each corner's own excess off the board)
+    probes = [cv0]
+    for p in pl.params:
+        alt = p.hi if p.hi != p.typ else p.lo
+        if alt != p.typ:
+            probes.append({**cv0, (p.subject, p.name): alt})
+    off = set()
+    for cv in probes:
+        inj = injections(pl, cv)
+        big = max((abs(a) for a in inj.values()), default=0.0)
+        if big == 0:
+            continue
+        bal = {}
+        for t, a in inj.items():
+            bal[pl.piece.get(t)] = bal.get(pl.piece.get(t), 0.0) + a
+        if abs(sum(bal.values())) > EPS * big:
+            return
+        off |= {r for r, b in bal.items() if abs(b) > EPS * big}
+    off = sorted(off)
+    if not off:
         return
     gp = {ref: [(f"{ref}.{n}", net) for n, net, _, _ in pl.pads[ref] if net in pl.grounds] for ref in sorted(pl.pads)}
     inside = {ref: g for ref, g in gp.items() if ref not in connectors and len({pl.piece[t] for t, _ in g}) > 1}

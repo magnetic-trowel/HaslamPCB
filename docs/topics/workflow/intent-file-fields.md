@@ -61,7 +61,7 @@ A stated `requirements.dT_max_K` / `drop_share` still applies where it is the ti
 | `nets.V_V` | `facts.apply` → brief `volts` (P `physics/build.py`, R `critical_modules`, E `excite/params.py`); `excite/dc.py:plan`; a cell's (and power path's) switched voltage `excite.V` on that bus, over a name- or divider-read value (`facts._cell_bus_volts`, the replaced value in `brief.facts.applied`) | kept; **fixed**: a name-read cell V used to win |
 | `nets.range_V` | `facts.apply` → `volts_belief.interval` → `excite/params.py:cell` (E, PNR) | kept |
 | `nets.source` | `facts.apply` (role rail; P `_net_roles`, R `critical_rails`, `critical_recheck`), `dc.plan` | kept |
-| `nets.from`, `nets.kind`, `nets.eta` | `excite/dc.py:plan` (E, PNR) | kept |
+| `nets.from`, `nets.kind`, `nets.eta` | `excite/dc.py:plan` (E, PNR) | kept; `kind` is `linear`, `switching` or `external` (a connector that brings the rail in: a connector with no ground pad between the rail and another one an on-board converter feeds is otherwise a series link from that rail, [evaluator-dc-heat-fixes](../../research/physics/evaluator-dc-heat-fixes.md)) |
 | `nets.I_A` | `facts.apply` → a linear regulator's pass current for its loss (P, branch `facts-everywhere`); nothing else | **removed** from haslamsynth's `d.haslam.net` |
 | `nets.why` | `facts.apply` → `volts_belief.lineage` and the applied record | kept |
 | `cells.V_V, I_A, f_sw_Hz, vin, vout` | `excite/params.py:cell` (E, PNR); `facts.apply` → `excite` (P, R) | kept |
@@ -74,7 +74,7 @@ A stated `requirements.dT_max_K` / `drop_share` still applies where it is the ti
 
 Not emitted, read by haslam: `parts.theta_jb_C_W`, `I_sustained_A`, `body_mm2` (`excite/heat.py`), `parts.I_A` (`dc.plan`: the part's own supply draw; no longer taken for a controller's cell current, `facts-everywhere`), `requirements.dT_max_K`, `drop_share` (`critical.intent_opts`, R via `critical_cli` only), `cells.t_i_s`.
 
-Connector exports (a connector with a pad on a fed rail and a ground pad; E, `excite/dc.py:plan`): `parts.<ref>.I_A` is the current it carries off the board, `I_sustained_A` its typical draw for the heat band. Unstated, it is 1 % of the connector's class rating (`dc.EXPORT_SHARE`; DC band 0.1 % .. 10 % of the rating, heat band 1 %), never dropped, so a board whose only loads are exports keeps its DC band. The evaluation asks for each one:
+Connector exports (a connector with a pad on a fed rail and a ground pad; E, `excite/dc.py:plan`): `parts.<ref>.I_A` is the current it carries off the board, `I_sustained_A` its typical draw for the heat band. On several rails, `I_A` is split by the rails' supply pads; `parts.<ref>.I_A_by_rail` (`{rail net: value}`, each a number, `[lo, hi]` or `[lo, typ, hi]`) states a rail's current on its own, and `I_sustained_A_by_rail` its typical draw (rails it does not name share `I_A` / `I_sustained_A` by supply pads; checked by `facts.check_facts`, read by `dc.plan` and `heat.sustained_A`). Example: `"J7": {"I_A_by_rail": {"5V": [0.03, 0.06, 0.12], "3V3": [0.02, 0.04, 0.08]}}`. Unstated, it is 1 % of the connector's class rating (`dc.EXPORT_SHARE`; DC band 0.1 % .. 10 % of the rating, heat band 1 %), never dropped, so a board whose only loads are exports keeps its DC band. The evaluation asks for each one:
 
 | Channel | Content |
 |---|---|

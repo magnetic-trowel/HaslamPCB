@@ -90,13 +90,34 @@ def heatsinks(intent):
 
 
 def _rng(v):
-    """(typ, lo, hi) of a number or [lo, hi] (typ: geometric mean), or None."""
-    if isinstance(v, (int, float)) and v > 0:
-        return float(v), float(v), float(v)
-    if isinstance(v, list) and len(v) == 2 and all(isinstance(x, (int, float)) and x > 0 for x in v):
-        lo, hi = sorted(map(float, v))
-        return (lo * hi) ** 0.5, lo, hi
-    return None
+    """(typ, lo, hi) of a positive fact (a number, [lo, hi] or [lo, typ, hi]; haslam.intent.facts.interval), or None.
+    A [lo, typ, hi] heat sink or cooling value was dropped (only two values were read)."""
+    from haslam.intent.facts import FactsError, interval
+    try:
+        t = interval(v)
+    except FactsError:
+        return None
+    return t if t[1] > 0 else None
+
+
+def sustained_A(intent, ref, rail=None, share=1.0):
+    """The facts' typical draw (A) of part ref on rail `rail`, or None: its own on that rail
+    (parts.<ref>.I_sustained_A_by_rail.<rail>), else `share` (the rail's share of its supply pads, haslam.excite.dc)
+    of its whole draw (parts.<ref>.I_sustained_A), except on a rail whose DC current the facts state on its own
+    (I_A_by_rail; there the DC band's typical stands). Each a number, [lo, hi] or [lo, typ, hi], its typical value: a
+    listed one was ignored."""
+    from haslam.intent.facts import interval
+    d = ((intent or {}).get("parts") or {}).get(ref) or {}
+    br = d.get("I_sustained_A_by_rail")
+    if rail is not None and isinstance(br, dict) and br.get(rail) is not None:
+        t = interval(br[rail], f"facts.parts.{ref}.I_sustained_A_by_rail.{rail}")
+        return t[0] if t[0] >= 0 else None
+    if rail is not None and rail in (d.get("I_A_by_rail") or {}):
+        return None
+    if d.get("I_sustained_A") is None:
+        return None
+    t = interval(d["I_sustained_A"], f"facts.parts.{ref}.I_sustained_A")
+    return t[0] * share if t[0] >= 0 else None
 
 
 def _theta_jb(npins):
@@ -475,9 +496,9 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
         if p.name != "I_A" or not str(p.subject).startswith("dc:"):
             continue
         ref = p.subject[3:].rsplit("@", 1)[0]
-        iv = ((intent or {}).get("parts") or {}).get(ref, {}).get("I_sustained_A")
-        if isinstance(iv, (int, float)) and iv >= 0:      # the intent's typical draw (its datasheet's), this rail's share
-            sustained[(p.subject, p.name)] = min(max(float(iv) * share_of.get((p.subject, p.name), 1.0), p.lo), p.hi)
+        iv = sustained_A(intent, ref, p.subject.rsplit("@", 1)[1], share_of.get((p.subject, p.name), 1.0))
+        if iv is not None:      # the intent's typical draw (its datasheet's), this rail's share
+            sustained[(p.subject, p.name)] = min(max(iv, p.lo), p.hi)
         elif (p.subject, p.name) in exports and p.source == "prior":
             sustained[(p.subject, p.name)] = p.typ
     for c in range(len(own)):
@@ -494,9 +515,9 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
     def load_amps(ld):
         if ld.get("key"):
             return sustained.get(ld["key"], 0.0)
-        iv = ((intent or {}).get("parts") or {}).get(ld["ref"], {}).get("I_sustained_A")
-        if isinstance(iv, (int, float)) and iv >= 0:
-            return float(iv) * ld.get("part_share", 1.0)
+        iv = sustained_A(intent, ld["ref"], ld["rail"], ld.get("part_share", 1.0))
+        if iv is not None:
+            return iv
         return ld.get("prior", 0.0)          # a connector's prior is already its unstated export (EXPORT_SHARE)
     cell_out = {}
     for f in dcp.feeds.values():
@@ -551,7 +572,9 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
         else:
             mask[:] = True
         if mask.any() and ((f"heat:sink{k}", "G_W_K") in hc[0] or (f"heat:sink{k}", "h_W_m2K") in hc[0]):
-            regions.append((k, li, mask, _rng(hs.get("T_C"))))
+            # the sink's temperature in C: 0 C or below is a temperature too (_rng takes positive values only, and a
+            # chilled plate at 0 C or -10 C fell back to ambient)
+            regions.append((k, li, mask, intent_value({"s": {"h": hs}}, "s", "h", "T_C")))
     if regions:
         notes.append("thermal: heat sinks under " + ", ".join(f"{int(mk.sum())} cells of {names[li] or li}" for _, li, mk, _ in regions))
     part_sinks = {hs["part"] for hs in heatsinks(intent) if hs.get("part")}

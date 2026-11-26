@@ -31,7 +31,6 @@ make an inverting stage is topology_of's to say, not the equations'.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
 ETA = (0.8, 0.9, 0.95)        # efficiency (lo, typ, hi) of a converter whose efficiency nobody states
@@ -218,16 +217,12 @@ def rectifier_current(topology, I_L, D):
 
 
 def _iv(v):
-    """(typ, lo, hi) of an intent value: a point or [lo, hi] (typ the geometric mean, as haslam.excite.beliefs)."""
-    if v is None:
+    """(typ, lo, hi) of an intent value (haslam.intent.facts.interval: a point, [lo, hi] or [lo, typ, hi]). Reading
+    [lo, typ, hi] as its ends, the stated typical was replaced by the ends' geometric mean."""
+    if v is None or isinstance(v, (list, tuple)) and not v:
         return None
-    if isinstance(v, (list, tuple)):
-        if not v:
-            return None
-        lo, hi = float(v[0]), float(v[-1])
-        lo, hi = min(lo, hi), max(lo, hi)
-        return (math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2, lo, hi)
-    return (float(v), float(v), float(v))
+    from haslam.intent.facts import interval
+    return interval(list(v) if isinstance(v, tuple) else v)
 
 
 @dataclass

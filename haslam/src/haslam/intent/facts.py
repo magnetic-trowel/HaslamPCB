@@ -53,6 +53,9 @@ DEPRECATED_CELL_KEYS = {"V_max_V": "v_sw_max_V"}
 # a controller's facts that are its cells' too. Not I_A: parts.<ref>.I_A is the part's own supply draw
 # (haslam.excite.dc's load current, the operating facts' "load current"), not the current its cells commutate
 PART_CELL_KEYS = ("f_sw_Hz", "t_i_s", "v_sw_max_V")
+# a part's current per rail, {rail net: value} (haslam.excite.dc, heat): a connector's exports to a board that
+# draws its rails unequally; the rails it does not name share parts.<ref>.I_A / I_sustained_A by supply pads
+PART_BY_RAIL_KEYS = ("I_A_by_rail", "I_sustained_A_by_rail")
 SECTIONS = ("nets", "parts", "cells", "requirements")      # what apply() writes into the brief
 # sections other readers own, left to them here: the schematic's pin facts (haslam.board.pinfacts), the radios
 # (haslam.excite.observe, sources) and the compiler's citations. The physics set's operating facts carry them
@@ -125,10 +128,15 @@ def normalize(f):
     return out
 
 
-def _interval(v, what):
+def interval(v, what="value"):
+    """(typ, lo, hi) of a fact's value: a number, [lo, hi] (typical: their geometric mean, or their midpoint when lo
+    <= 0) or [lo, typ, hi]. The one reader of the value forms check_facts accepts: every consumer (haslam.excite's
+    dc, heat and ledger, haslam.intent) reads a value through it, so a form the checker passes cannot crash or be
+    dropped by one of them (dc.plan unpacked two values from a [lo, typ, hi] I_A; heat ignored a listed
+    I_sustained_A). FactsError names `what` for any other form."""
     if isinstance(v, (int, float)) and not isinstance(v, bool):
         return float(v), float(v), float(v)
-    if isinstance(v, list) and len(v) in (2, 3) and all(isinstance(x, (int, float)) for x in v):
+    if isinstance(v, list) and len(v) in (2, 3) and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
         if len(v) == 3:                          # [lo, typ, hi]: the typical operating point stated
             lo, typ, hi = (float(x) for x in v)
             if not lo <= typ <= hi:
@@ -138,6 +146,20 @@ def _interval(v, what):
         typ = math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2
         return typ, lo, hi
     raise FactsError(f"{what}: a value is a number, [lo, hi] or [lo, typ, hi], not {v!r}")
+
+
+_interval = interval
+
+
+def typical(v):
+    """The typical value of a fact (interval's), or None when v is absent or no value form: for readers that skip an
+    unreadable value rather than fail (the router's and placer's copper and heat sizing)."""
+    if v is None:
+        return None
+    try:
+        return interval(list(v) if isinstance(v, tuple) else v)[0]
+    except FactsError:
+        return None
 
 
 def check_facts(f):
@@ -154,8 +176,8 @@ def check_facts(f):
         for k in ("range_V", "eta", "I_A"):
             if k in d:
                 _interval(d[k], f"facts.nets.{net}.{k}")
-        if d.get("kind") not in (None, "linear", "switching"):
-            raise FactsError(f"facts.nets.{net}.kind: 'linear' or 'switching'")
+        if d.get("kind") not in (None, "linear", "switching", "external"):
+            raise FactsError(f"facts.nets.{net}.kind: 'linear', 'switching' or 'external' (a connector that brings the rail in)")
     for cid, d in (f.get("cells") or {}).items():
         bad = [k for k in d if k not in CELL_KEYS and k not in DEPRECATED_CELL_KEYS]
         if bad:
@@ -166,7 +188,13 @@ def check_facts(f):
     normalize(f)                                 # a deprecated key that disagrees with its replacement
     for ref, d in (f.get("parts") or {}).items():
         for k, v in d.items():
-            if k != "why" and not isinstance(v, str):
+            if k in PART_BY_RAIL_KEYS:
+                # a part's current on each of its rails on its own (a connector's exports): {rail: value}
+                if not isinstance(v, dict) or not all(isinstance(r, str) for r in v):
+                    raise FactsError(f"facts.parts.{ref}.{k}: {{rail net: value}}, not {v!r}")
+                for r, x in v.items():
+                    _interval(x, f"facts.parts.{ref}.{k}.{r}")
+            elif k != "why" and not isinstance(v, (str, bool)):      # a yes/no fact (cff_required) is no interval
                 _interval(v, f"facts.parts.{ref}.{k}")
     return f
 
