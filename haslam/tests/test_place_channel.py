@@ -149,15 +149,17 @@ def test_util_gate_scales_the_weight_from_full_to_off():
         assert abs(pipeline.util_gate(P) - want) < 1e-9
         w, tab, rep, _ = _channel_weight(P, st, 3.0, None, {}, None, {"place_chan_util_gate": 1})
         assert abs(w - 3.0 * want) < 1e-9 and rep["w_set"] == 3.0 and rep["util"] == round(u, 4)
-    w, *_ = _channel_weight(P, st, 3.0, None, {}, None, {})       # gate off: the weight as set
-    assert w == 3.0
+    w, *_ = _channel_weight(P, st, 3.0, None, {}, None, {"place_chan_util_gate": 0, "place_chan_header_gate": 0})
+    assert w == 3.0                                                # gates off: the weight as set
+    w, *_ = _channel_weight(P, st, 3.0, None, {}, None, {"place_chan_header_gate": 0})   # default: util gate on
+    assert w == 0.0                                                # at u 0.9
 
 
 def test_gated_off_term_places_like_control():
     from haslam.place import pipeline
     from test_place_zones import _board
     res = []
-    for opts in ({}, {"place_w_chan": 3, "place_chan_util_gate": 1}):
+    for opts in ({"place_w_chan": 0}, {"place_w_chan": 3, "place_chan_util_gate": 1}):
         b = _board()
         orig = pipeline.Problem.utilization
         pipeline.Problem.utilization = lambda self: (0.9, 0.9)
@@ -181,7 +183,7 @@ def test_header_gate_switches_the_term_off_only_for_a_header_that_fits_nowhere(m
     w, tab, rep, _ = _channel_weight(P, st, 3.0, None, {}, None, opts)
     assert w == 3.0 and rep["stuck_headers"] == []
     monkeypatch.setattr(crowded, "fits_nowhere", lambda P, st, i: True)
-    w, *_ = _channel_weight(P, st, 3.0, None, {}, None, {})                 # the gate off: never asked
+    w, *_ = _channel_weight(P, st, 3.0, None, {}, None, {"place_chan_header_gate": 0, "place_chan_util_gate": 0})
     assert w == 3.0
 
 
@@ -196,7 +198,8 @@ def test_header_gate_survives_a_failing_detector(monkeypatch):
     assert w == 3.0 and rep["stuck_headers"] == []
 
 
-def test_channel_settings_default_off():
+def test_channel_term_is_on_by_default_with_both_gates():
     from haslam.route.constraints import DEFAULTS
-    assert DEFAULTS["place_w_chan"] == 0.0
-    assert DEFAULTS["place_chan_util_gate"] == 0 and DEFAULTS["place_chan_header_gate"] == 0
+    assert DEFAULTS["place_w_chan"] == 3.0
+    assert DEFAULTS["place_chan_util_gate"] == 1 and DEFAULTS["place_chan_header_gate"] == 1
+    assert DEFAULTS["place_chan_edge"] == 0
