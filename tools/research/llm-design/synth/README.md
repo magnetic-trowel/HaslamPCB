@@ -143,7 +143,8 @@ def build():
 - Generic passives (`R`, `C` without MPN) are allowed; resistors default to thick-film package
   ratings, capacitors need a voltage rating. Pass an MPN and real ratings for anything stressed.
   A resistor from a power net to a `signal`/`clock` net (a pull-up) is checked at a 50 % low time; give `p_diss=`
-  for a line held low longer.
+  for a line held low longer. Not when another resistor joins that line to ground: a divider's top leg carries
+  its voltage all the time.
 - **Zener**: `Zener(mpn, footprint, vz=(lo, hi), p_max)` (pin 1 K). It clamps by design, so its check is the clamp
   power Vz max x the instance's `i_through=` against `p_max` (and `i_through` against IZM), never the nets across it
   against Vz. A TVS stays `D(..., kind="D_TVS")`.
@@ -159,7 +160,9 @@ def build():
 - Part cards may carry haslam facts for every part made from them, `haslam=dict(I_A=[lo, hi], I_sustained_A=typ,
   core_I_A=..., core_f_Hz=..., core: False, why=...)`; keys pass through as written (haslam's loader judges them).
   An IC or module with no `I_A`/`I_sustained_A`/`core_I_A` gets haslam's 10 mA class-prior core
-  (`haslam_intent.supply_prior` names it; converter controllers with a `d.haslam.cell` are exempt).
+  (`haslam_intent.supply_prior` names it; converter controllers with a `d.haslam.cell` are exempt). Only in a
+  design that states haslam facts (a `d.haslam` declaration or a card's `haslam=`): one with placement relations
+  only is not taken through haslam's physics.
 - Multi-unit library symbols (op-amps, relays with separate coil units) are placed unit by unit.
 - `lifecycle="active" | "nrnd" | "obsolete"`, `second_source="..."` feed the BOM checks.
 
@@ -200,6 +203,11 @@ connectors on an edge) marked `source: auto`.
 `synth/scripts/sch_to_board.py` builds the unplaced board from; `d.place.fixed(ref, x, y, rotation=, side=,
 source=)` places the parts the mechanics fix. The build writes `out/board.json` (`haslamsynth.boardgeom`), and
 `sch_to_board.py OUT_DIR` reads it by default. KiCad's frame: mm, origin at the outline's top-left, y down.
+It is written when the design uses the layout geometry (`cuts`, `slots`, `zones`, `areas`, `seed_area`) or has a
+hand board.json, or with `d.board(..., board_json=True)`: designs written before gave `d.board` coordinates from
+the lower-left corner, y up, and descriptive keep-outs, which board.json would mirror (`board_json=False` stops
+it). Holes other than 3.2 mm and keep-outs without a numeric `rect` and a layer list are left out with a
+`board.geometry` warning (sch_to_board drills M3 only).
 
 ```python
 from haslamsynth import Hole, SlotBarrier
@@ -208,7 +216,7 @@ d.board(width_mm=50, height_mm=78, quantity=5,                 # quantity: board
         cuts=[SlotBarrier("y", 20.25, width_mm=1.5, bridges=[(20, 30)], edge_mm=2.5, sides=("POWER", "SENSE"))],
         zones=[{"net": "GND", "layer": "B.Cu", "name": "GND_N", "rect": [0, 0, 50, 19.5]}],   # or "area": "POWER"
         areas={"KEYPAD": (30, 40, 48, 76)}, keepouts=[...], slots=[...], seed_area=(3, 6, 47, 76),
-        min_drill_mm=0.3)                                      # smallest hole a footprint may bring (default 0.3)
+        min_drill_mm=0.3)                                      # the fab's smallest hole (layout.fab_minimums)
 d.place.fixed("J1", 18.65, 3.5, rotation=90, source="host header on the north edge")
 ```
 
@@ -294,13 +302,13 @@ converter output and the pack it charges) belongs to one root: model the worst c
 | `bom.stock` | error/warning | JLC stock (jlc.json, dated) 0 (error) or below parts per board x `quantity` (default 5); codes never looked up (one warning: run `haslamsynth jlc`) |
 | `bom.setup_fees`, `bom.no_lcsc` | info/warning | extended LCSC parts (a setup fee each per order), and which are resistors/capacitors whose value may move to a basic part; generic parts without a number |
 | `net.v_rel` | info/error | a `d.v_rel` correlation in use, or one outside the nets' own ranges / across roots |
-| `board.geometry` | error/info | a hand board.json key that disagrees with `d.board`/`d.place.fixed`; keys only board.json states (merged) |
+| `board.geometry` | error/warning/info | a hand board.json key that disagrees with `d.board`/`d.place.fixed`; holes or keep-outs board.json cannot carry (warning); keys only board.json states (merged) |
 | `calc.measure` | error | a `d.measure` naming a barrier or rule area the design does not have |
 | `protect.threat`, `protect.entry_fuse` | error/warn | external wires without the protector their threat needs |
 | `calc.limit`, `hazard.*`, `intent.blocking_question`, `place.*` | error/warn/info | design calculations, hazard mitigations, open questions, relation sanity |
 | `kicad.erc.*`, `kicad.netlist_roundtrip`, `kicad.dru_parse` | error/warn | the emitted files, as KiCad reads them |
 | `rules.pin_escape`, `rules.pad_gap` | error | a pad no minimum-width track can leave past its neighbours under the generated clearances; pads of one footprint closer than their nets allow (`haslamsynth/layout.py`; necessary, not sufficient: corners and centre pads are not modelled) |
-| `layout.density`, `layout.fab_minimums` | warn/info/error | courtyard area vs board area (warn above 40 % on 2 layers); board min track/clearance from the finest pitch when `BoardSpec` leaves them unset (0.127/0.15 mm at <= 0.65 mm pitch); error: a library footprint with holes below `min_drill_mm` (0.3 mm; KiCad's `_ThermalVias` variants have 0.2 mm), naming a same-library variant that passes |
+| `layout.density`, `layout.fab_minimums` | warn/info/error | courtyard area vs board area (warn above 40 % on 2 layers); board min track/clearance from the finest pitch when `BoardSpec` leaves them unset (0.127/0.15 mm at <= 0.65 mm pitch); a library footprint with holes below the minimum drill, naming a same-library variant that passes: an error below the design's `min_drill_mm`, a warning below the default when it names none (0.3 mm on 1-2 layers, 0.2 mm on 4+, JLCPCB's standard processes; KiCad's `_ThermalVias` variants have 0.2 mm) |
 | `layout.region_crosses_slot` | warning | a compass `region()` (haslam: the board's third on that side) that contains part of a slot: use `area:NAME` |
 | `place.unknown_requirement` | error | a relation's `req=` that is no `d.require` id |
 | `haslam_intent.supply_prior` | warning | ICs/modules (per part card) with no supply-draw fact: haslam gives each a 10 mA class-prior core |

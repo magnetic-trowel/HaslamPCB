@@ -108,7 +108,8 @@ def footprint_geometry(path, unnamed=False):
     return pads, bbox
 
 
-MIN_DRILL_MM = 0.3      # JLCPCB standard 2-layer: smallest plated hole (via) without the extra-cost process
+MIN_DRILL_MM = 0.3      # JLCPCB standard 1-2 layer: smallest plated hole (via) without the extra-cost process
+MIN_DRILL_MULTILAYER_MM = 0.2   # 4+ layers: JLCPCB's multilayer process drills 0.15-0.2 mm vias as standard
 
 
 @functools.lru_cache(maxsize=None)
@@ -132,11 +133,14 @@ def footprint_drills(path):
 
 
 def check_footprint_holes(design, fplibs, add):
-    """`layout.fab_minimums` (error): a library footprint on the board with a hole below the board's minimum
-    drill (BoardSpec.min_drill_mm, default MIN_DRILL_MM), e.g. KiCad's `_ThermalVias` variants (0.2 mm). Names a
+    """`layout.fab_minimums`: a library footprint on the board with a hole below the board's minimum drill, e.g.
+    KiCad's `_ThermalVias` variants (0.2 mm). An error against the design's own BoardSpec.min_drill_mm (its fab's
+    process); a warning against the default when the design names none (MIN_DRILL_MM for 1-2 layers,
+    MIN_DRILL_MULTILAYER_MM for 4+): the fab is not known, and a finer drill is an option, not a fault. Names a
     same-library variant whose holes pass, when there is one."""
     bs = design.board_spec
-    lim = (bs.min_drill_mm if bs and bs.min_drill_mm else None) or MIN_DRILL_MM
+    declared = bs.min_drill_mm if bs and bs.min_drill_mm else None
+    lim = declared or (MIN_DRILL_MULTILAYER_MM if bs and (bs.layers or 2) >= 4 else MIN_DRILL_MM)
     seen = {}
     for p in design.all_parts():
         fp = p.defn.footprint
@@ -154,9 +158,11 @@ def check_footprint_holes(design, fplibs, add):
         for f in sorted(path.parent.glob("*.kicad_mod"), key=lambda f: abs(len(f.stem) - len(stem))):
             if f.stem != name and f.stem.startswith(stem) and all(d + 1e-9 >= lim for _, d in footprint_drills(str(f))):
                 alts.append(f"{lib}:{f.stem}")
-        add("layout.fab_minimums", "error",
+        add("layout.fab_minimums", "error" if declared else "warning",
             f"{', '.join(refs[:6])}: footprint {fp} has {len(small)} hole(s) of {min(d for _, d in small):g} mm "
             f"(pads {', '.join(sorted({n or '(unnumbered)' for n, _ in small}))}), below the {lim:g} mm minimum drill"
+            + ("" if declared else f" (default for {(bs.layers if bs else 2) or 2} layers, JLCPCB standard; "
+               f"d.board(min_drill_mm=) states the fab's)")
             + (f"; use {alts[0]}" + (f" (or {', '.join(alts[1:3])})" if len(alts) > 1 else "") if alts else
                "; draw a variant without them, or set d.board(min_drill_mm=) for the fab's finer process"), refs)
 

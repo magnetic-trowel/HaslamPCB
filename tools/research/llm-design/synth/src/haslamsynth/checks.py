@@ -531,7 +531,7 @@ class Checker:
                 rng = self.vdiff(a, b)
                 if ohms and rng:
                     v = max(abs(rng[0]), abs(rng[1]))
-                    duty = PULLUP_DUTY if self._pullup(a, b) else 1.0
+                    duty = PULLUP_DUTY if self._pullup(p, a, b) else 1.0
                     pw = v * v / ohms * duty
                     how = (f" averaged over a {duty:.0%} low time (a pull-up on a signal line; set p_diss= for "
                            f"another duty)" if duty < 1 else "")
@@ -542,11 +542,20 @@ class Checker:
                                  [p.ref])
 
     @staticmethod
-    def _pullup(a, b):
+    def _pullup(part, a, b):
         """A resistor from a supply (power) net to a signal or clock net: the line sits at the supply most of the
-        time and is pulled low only while a device drives it (I2C, open-drain resets)."""
+        time and is pulled low only while a device drives it (I2C, open-drain resets). Not when another resistor
+        joins that line to a ground net: then it is a divider's top leg (an enable or sense divider from a rail),
+        whose voltage is there all the time, not only while a driver holds the line low."""
         kinds = {a.kind, b.kind}
-        return "power" in kinds and bool(kinds & {"signal", "clock"})
+        if not ("power" in kinds and bool(kinds & {"signal", "clock"})):
+            return False
+        line = a if a.kind in ("signal", "clock") else b
+        for r in line.pins:
+            q = r.part
+            if q is not part and q.defn.category == "resistor" and any(n.kind == "ground" for n in q.conn.values()):
+                return False
+        return True
 
     def check_library(self):
         if self.sym is None:

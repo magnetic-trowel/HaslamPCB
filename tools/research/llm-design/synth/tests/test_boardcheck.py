@@ -43,14 +43,16 @@ def test_measures_are_checked_at_build():
 
 @pytest.mark.kicad
 def test_bme280_bridge_as_built():
-    """The committed routed board: 10 tracks (2.0 mm in all) cross the slot line, not the 5 x 0.2 mm designed."""
+    """The committed acceptance board (FRICTION resolution): 8 tracks (2.0 mm in all) of the 5 intended nets cross
+    the slot line, against the 5 x 0.2 mm designed; heat rise 9.9 mK; 79 mm2 of GND in the sensor field (F46)."""
     pytest.importorskip("shapely")
     pytest.importorskip("haslam.board.kicad_file")
     from haslamsynth.build import load_design
     d = load_design(BME / "design.py").finalize()
     meas, rows, failed = boardcheck.check_board(d, BME / "fab" / "bme280-array.kicad_pcb", boardgeom.board_json(d)[0])
-    assert meas["bridge"]["count"] == 10 and meas["bridge"]["width_mm"] == pytest.approx(2.008, abs=1e-3)
+    assert meas["bridge"]["count"] == 8 and meas["bridge"]["width_mm"] == pytest.approx(2.0, abs=1e-3)
+    assert meas["bridge"]["nets"] == ["+1V8", "GND", "RST_L", "SCL_L", "SDA_L"]
     built = {c.name: v for c, v, ok in rows}
-    assert built["bridge_conductance"] == pytest.approx(2.147, abs=0.01)
-    assert built["heat_rise_sensors"] == pytest.approx(9.94, abs=0.05) and not failed
-    assert meas["sense_gnd"]["track_mm2"] > 100
+    assert built["bridge_conductance"] == pytest.approx(2.14, abs=0.01)
+    assert built["heat_rise_sensors"] == pytest.approx(9.90, abs=0.05) and not failed
+    assert meas["sense_gnd"]["total_mm2"] == pytest.approx(79.5, abs=1.0)
