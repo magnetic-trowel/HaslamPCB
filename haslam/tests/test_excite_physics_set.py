@@ -299,3 +299,23 @@ def test_an_ics_core_current_is_split_over_its_rails_by_supply_pins(tmp_path):
     core = {s.meta["rail"]: s.meta["I"] for s in S.add_all(bd, br) if s.kind == "core"}
     I = S.DYNAMIC["mcu"][0]
     assert core == {"3V3": pytest.approx(0.75 * I), "VBAT": pytest.approx(0.25 * I)}
+
+
+def test_a_two_pin_header_between_rails_of_one_voltage_is_a_jumper_link(tmp_path):
+    """duanestorey's J10 (a 2-pin header, 12V_OUT -> 12V, no ground pin) was a port: the AC model joined nothing across
+    it, and 12V lost its converter. A header between rails of one voltage is a shunt link; between 12 V and 5 V, or with
+    a ground pin, it stays a port."""
+    nets = ["12V_OUT", "12V", "5V", "GND"]
+    hdr = "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    b = _board(tmp_path, nets, [_fp("J10", "Conn_01x02", hdr, 10, [_pad("1", 0, 1, "12V_OUT"), _pad("2", 2.54, 2, "12V")], 1),
+                                _fp("J11", "Conn_01x02", hdr, 30, [_pad("1", 0, 2, "12V"), _pad("2", 2.54, 3, "5V")], 2),
+                                _fp("J12", "Conn_01x02", hdr, 50, [_pad("1", 0, 2, "12V"), _pad("2", 2.54, 4, "GND")], 3)])
+    br = B.build(b)
+    for n, v in (("12V_OUT", 12.0), ("12V", 12.0), ("5V", 5.0)):
+        br["nets"][n].update(role="rail", volts=v)
+    br["nets"]["GND"]["role"] = "ground"
+    bd = M.build(b, br)
+    (e,) = [e for e in bd.circuit.elems if e.name == "J10"]
+    assert e.kind == "short" and {e.a, e.b} == {"12V_OUT", "12V"} and "J10" not in bd.port
+    assert bd.port.get("J11") == "connector" and bd.port.get("J12") == "connector"
+    assert not [e for e in bd.circuit.elems if e.name in ("J11", "J12")]
