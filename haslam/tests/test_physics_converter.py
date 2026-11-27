@@ -209,6 +209,43 @@ def test_an_inverting_cells_duty_without_intent():
     assert typ == pytest.approx(5.0 / (12.0 * CV.ETA[1] + 5.0)) and 0 < lo < typ < hi < 1 and "inverting" in basis
 
 
+def test_a_converters_current_interval_spans_its_stated_voltages():
+    """from_intent took I_out and eta's ends at the typical V_in and V_out only. A boost stated 2.7-4.2 V in, 5 V out,
+    0.5 A out at eta 0.9: I_in = I_out V_out / (V_in eta), by hand 1.029 A at 2.7 V and 0.661 A at 4.2 V (typical 0.751 A
+    at 3.7 V); a buck's duty V_out / V_in spans 3.3/12 .. 3.3/9 over 9-12 V in."""
+    cc = CV.from_intent({"I_out_A": 0.5, "V_in_V": [2.7, 3.7, 4.2], "V_out_V": 5.0, "eta": 0.9}, "boost")
+    assert cc.I == pytest.approx((0.5 * 5 / (3.7 * 0.9), 0.5 * 5 / (4.2 * 0.9), 0.5 * 5 / (2.7 * 0.9)))
+    assert cc.D == pytest.approx((1 - 3.7 * 0.9 / 5, 1 - 4.2 * 0.9 / 5, 1 - 2.7 * 0.9 / 5))
+    bk = CV.from_intent({"I_out_A": [0.2, 1.0], "V_in_V": [9.0, 12.0], "V_out_V": 3.3}, "buck")
+    assert bk.D[1:] == pytest.approx((3.3 / 12.0, 3.3 / 9.0)) and bk.I[1:] == pytest.approx((0.2, 1.0))
+    # an inverting buck-boost: I_L = I_out / (1 - D), D = |V_out| / (V_in eta + |V_out|), largest at the lowest V_in
+    ib = CV.from_intent({"I_out_A": 0.1, "V_in_V": [10.0, 14.0], "V_out_V": -12.0, "eta": 0.85}, "inverting_buck_boost")
+    D_hi = 12 / (10 * 0.85 + 12)
+    assert ib.I[2] == pytest.approx(0.1 / (1 - D_hi)) and ib.D[2] == pytest.approx(D_hi)
+
+
+def test_a_class_range_switch_node_capacitance_is_a_prior_the_ledger_asks_for():
+    """C_sw from the class ranges (C_oss 30-1000 pF with no R_on, a small Schottky's C_j) was labelled 'physics', so
+    the ledger never asked for it, though its C V^2 f is often the controller's largest loss."""
+    P, _ = _boost_cell({})
+    assert P["C_sw"].source == "prior"
+
+
+def test_a_heat_sinks_resistance_with_a_prior_theta_jc_is_a_prior():
+    """R_sink = theta_JC + theta_CS + theta_SA was 'intent' whenever theta_SA was stated, though theta_JC (5 K/W) and
+    theta_CS (0.5 K/W) were class priors: 7.5 K/W of which the facts gave 2."""
+    from haslam.excite import heat as H
+    dcp = SimpleNamespace(loads=[], self_loads=[], feeds={})
+    bd = SimpleNamespace(part_kind={}, net_of={})
+    ps = {(p.subject, p.name): p for p in H.params(bd, dcp, {}, {"requirements": {"thermal": {"heatsinks": [
+        {"part": "U1", "theta_sa_C_W": 2.0}]}}})}
+    p = ps[("heat:U1", "R_sink")]
+    assert (p.typ, p.source) == (pytest.approx(7.5), "prior")
+    ps = {(p.subject, p.name): p for p in H.params(bd, dcp, {}, {"requirements": {"thermal": {"heatsinks": [
+        {"part": "U1", "theta_sa_C_W": 2.0, "theta_cs_C_W": 0.3, "theta_jc_C_W": 1.0}]}}})}
+    assert ps[("heat:U1", "R_sink")].source == "intent" and ps[("heat:U1", "R_sink")].typ == pytest.approx(3.3)
+
+
 def test_a_parts_pin_count_for_the_heat_prior_is_its_distinct_pad_numbers():
     from haslam.physics import priors as PR
     from haslam.physics.build import n_pins

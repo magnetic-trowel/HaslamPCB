@@ -90,7 +90,7 @@ def evaluate(path, pitch=0.25, nsub=2, intent=None, n_corners=16, seed=0, log=pr
     from haslam.em import reduce as RD
     from haslam.em import solve as ES
     from haslam.em.kicad import BoardMesh
-    from .beliefs import corners
+    from .beliefs import corners, n_points
     from .circuit import lump_all, lump_into
     from .evaluate import _dc_harms, ledger_for
     t0 = time.time()
@@ -183,7 +183,7 @@ def evaluate(path, pitch=0.25, nsub=2, intent=None, n_corners=16, seed=0, log=pr
         f"in {model.seconds:.0f}s; estimated worst relative error {est:.1e}")
     # per corner, per source: the harmonic sums
     cps = {s.name: corners(P[s.name].values(), n=n_corners, seed=seed) for s in srcs}
-    ncp = n_corners + 3
+    ncp = n_points(n_corners)
     tot = [0.0] * ncp
     U = {}                                          # (observer, source) -> [u per corner]
     worst_f = {}

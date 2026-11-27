@@ -383,9 +383,13 @@ def plan(board, brief, bd, P, srcs, intent=None):
             pi = next((p for p in (P.get(cell["src"]) or {}).values() if getattr(p, "name", "") == "I_A"), None)
             if pi is not None and pi.hi > 0:
                 pl.feeds[r]["I_hi"] = float(pi.hi)
-            fe = _eta((facts.get(r) or {}).get("eta"), f"facts.nets.{r}.eta")
+            # the facts' efficiency: the rail's (nets.<rail>.eta), else the cell's own (cells.<id>.eta, which the
+            # facts compiler writes). The cell's own was read only as its typical (the ledger's D), so a buck's input
+            # current held it at every corner and its heat ignored it (class R_on and C_sw priors instead)
+            fe = _eta((facts.get(r) or {}).get("eta"), f"facts.nets.{r}.eta") or \
+                _eta((((intent or {}).get("cells") or {}).get(cell["id"]) or {}).get("eta"), f"facts.cells.{cell['id']}.eta")
             if fe:
-                # the facts' efficiency: the input takes P_out / eta (without it the cell's duty, lossless)
+                # the input takes P_out / eta (without it the cell's duty, lossless)
                 pl.feeds[r]["eta"] = Param(f"dc:{cell['ctrl']}", "eta", *fe, "", "intent", "the intent file")
                 pl.params.append(pl.feeds[r]["eta"])
             continue
@@ -701,6 +705,14 @@ def plan(board, brief, bd, P, srcs, intent=None):
             if kind == "connector" and p.source == "prior":
                 pl.exports_assumed.append(dict(ref=ref, rail=r, key=ld["key"], rating_A=rating, assumed_A=a,
                                                lo_A=p.lo, hi_A=p.hi))
+    # a regulator's own stated draw (parts.<ref>.I_A on a part that feeds a rail and is no consumer) has no place in
+    # this plan: its ground current is not modelled, and the facts compiler also writes a charger's charge current
+    # there, so it cannot be read as a quiescent current. It was dropped without a word; now it is said
+    unused = sorted(ref for ref in feeders if not consumer(ref) and ((intent or {}).get("parts") or {}).get(ref, {})
+                    .get("I_A") is not None and not any(ld["ref"] == ref for ld in pl.loads))
+    if unused:
+        pl.notes.append("facts parts.<ref>.I_A not used for a regulator's own draw (its quiescent current is not in the "
+                        "DC band): " + ", ".join(unused))
     # self-powered consumers: a part that sources a rail from off the board (its own USB or battery) and draws
     # its own current there: no DC flow in the carrier's copper, but its own dissipation heats the board
     pl.self_loads = []

@@ -101,7 +101,7 @@ class PhysRouter:
         self.f = O.F_PATTERN
         self.w = 2 * math.pi * self.f
         # the evaluator's assumption ledger and corners: the router prices the harm the evaluator scores
-        from haslam.excite.beliefs import corners
+        from haslam.excite.beliefs import corners, n_points
         from haslam.excite.evaluate import ledger_for
         self.P, self.ledger = ledger_for(bd, self.brief, self.srcs, intent)
         O.rate_overshoot(self.obs, self.P)
@@ -153,7 +153,7 @@ class PhysRouter:
         self.dcp = DC.plan(b, self.brief, bd, self.P, self.srcs, intent)
         for p in self.dcp.params:
             self.ledger.add(p)
-        ncp = n_corners + 3
+        ncp = n_points(n_corners)
         own = corners(self.dcp.params, n=n_corners, seed=seed + 1) if self.dcp.params else [{} for _ in range(ncp)]
         self.dcv = [dict(own[c], **{s.name: self.cval[s.name][c] for s in self.srcs if s.kind == "cell"}) for c in range(ncp)]
         self.dc_inj, bad = [], []

@@ -139,6 +139,23 @@ class Board:
     #                                                switches, its loop's parts, hot-side caps, inductor, snubbers)
 
 
+R_SHUNT, L_SHUNT = 0.02, 5e-9   # a jumper shunt on a 2.54 mm header: contact resistance, its loop over the pins
+
+
+def header_link(bd, kind, pins):
+    """(pin, pin) of a connector that is a jumper between two rails: exactly two pins with distinct numbers, no ground
+    pin, on two rails of the brief whose voltages are known and equal (within 1 %); else None."""
+    if kind != "connector" or len(pins) != 2 or pins[0].number == pins[1].number:
+        return None
+    a, b = pins
+    if a.net == b.net or a.net in bd.grounds or b.net in bd.grounds:
+        return None
+    va, vb = bd.rails.get(a.net), bd.rails.get(b.net)
+    if not va or not vb or abs(va - vb) > 0.01 * max(abs(va), abs(vb)):
+        return None
+    return a, b
+
+
 def port_kind(kind, part, pads):
     """"connector" or "module" when the part is a port (module docstring), else None. pads: its pad count."""
     if kind in ("connector", "module"):
@@ -195,6 +212,17 @@ def build(board, brief=None):
             bd.pin_fn[tok] = p.fn or ""
             bd.pads_of.setdefault(p.net, []).append(tok)
         in_cell = uuid_of.get(ref) in cell_parts
+        link = header_link(bd, kind, pins)
+        if link:
+            # a 2-pin header between two rails of one voltage, no ground pin: a jumper (duanestorey's J10, 12V_OUT ->
+            # 12V). As a port it joined nothing: the rail behind it lost its converter at AC (the DC band already reads
+            # it as a series link, haslam.excite.dc). A cable cannot bring a rail in on it (no return pin), and two
+            # rails of different voltages are never jumpered, so the link is safe to assume
+            a, b_ = link
+            c.z(ref, a.net, b_.net, _rl(R_SHUNT, L_SHUNT), f"{ref}.{a.number}", f"{ref}.{b_.number}", "short")
+            bd.assumptions.append(f"{ref}: a 2-pin header between {a.net} and {b_.net} (one voltage, no ground pin): a "
+                                  f"jumper shunt, {R_SHUNT * 1e3:g} mOhm and {L_SHUNT * 1e9:g} nH")
+            continue
         pk = port_kind(kind, part, len(pins))
         if pk:
             bd.port[ref] = pk
@@ -389,7 +417,12 @@ def _part(bd, ref, part, pins, kind, sub, role, rec, in_cell):
         c.z(ref, a.net, b.net, _rl(FUSE_R, 2e-9), tok(a), tok(b), "R")
         bd.assumptions.append(f"{ref}: fuse at {FUSE_R * 1e3:g} mOhm cold resistance (class prior)")
     elif kind == "inductor" and len(tw) == 2:
-        L = V.inductance(part.value) or 10e-6
+        L = V.inductance(part.value)
+        if L is None:
+            # a part number for a value (XAL4020-222MEC, SRN6045-4R7M) reads as nothing: the stand-in sets the cell's
+            # ripple and so its peak current and AC losses, and was assumed without a word
+            L = 10e-6
+            bd.assumptions.append(f"{ref}: value '{part.value}' unread; 10 uH assumed")
         a, b = tw
         # an inductor is open at the edges of a switching cell: winding capacitance carries it
         c.z(ref, a.net, b.net, _par(_rl(0.05, L), _rlc(0, 0, 5e-12)), tok(a), tok(b), "L")
@@ -423,9 +456,22 @@ def _part(bd, ref, part, pins, kind, sub, role, rec, in_cell):
         # a net tie is copper that joins two nets by design (an analog ground to the power ground at one point)
         if len(tw) == 2:
             c.z(ref, tw[0].net, tw[1].net, _rl(0.01, 1e-9), tok(tw[0]), tok(tw[1]), "short")
+    elif kind == "jumper" and len(tw) > 2:
+        # a 3-way solder jumper (1-2 or 2-3 bridged): which pair is closed is the board's build option, not in its
+        # copper; nothing is assumed closed, and that is said (its nets may then be open in the DC band)
+        bd.assumptions.append(f"{ref}: a {len(tw)}-way jumper ({', '.join(p.net for p in tw)}); which pads are bridged "
+                              f"is not known, so none is")
     elif kind == "battery" and len(tw) == 2:
         c.z(ref, tw[0].net, tw[1].net, _rl(0.1, 10e-9), tok(tw[0]), tok(tw[1]), "batt")
-    elif kind == "ic" or (kind == "unknown" and len(pins) > 3):
+    elif kind == "ic" or (kind == "unknown" and len(pins) > 3 and (
+            any(p.net in bd.rails and (p.ptype == "power_in" or SUP_FN.match(p.fn or "")) for p in pins)
+            or not any(p.ptype or p.fn for p in pins))):
+        # an unclassified part is an IC only when a pin says it draws supply (typed power_in or named VDD, VCC...):
+        # by pad count alone a 4-pad switch, crystal or button footprint between a rail and ground became a die
+        # capacitance across the rail. A board whose pads carry neither type nor name (KiCad 5 and Eagle imports)
+        # says nothing either way and keeps the pad-count rule
+        if kind == "unknown":
+            bd.assumptions.append(f"{ref}: unclassified, with a supply pin: modelled as an IC")
         if sub == "load_switch":
             from haslam.circuit.roles import cells_flag
             if cells_flag("HASLAM_CELLS_EXTBB"):

@@ -4,6 +4,7 @@
 import pytest
 
 from haslam.excite import dc as DC
+from haslam.excite.beliefs import n_points
 from haslam.route.critical_physics import ipc2221_width
 
 
@@ -160,8 +161,15 @@ def test_a_rails_demand_follows_its_loads_through_regulators():
     pl.loads = [dict(ref="U3", rail="5V", key=("dc:U3@5V", "I_A")), dict(ref="U4", rail="3V3", key=("dc:U4@3V3", "I_A"))]
     amps = {("dc:U3@5V", "I_A"): 0.2, ("dc:U4@3V3", "I_A"): 0.05}
     assert HT.rail_demand(pl, "5V", lambda ld: amps[ld["key"]]) == pytest.approx(0.25)
-    # the 12 V input carries the buck's output power over 88% efficiency
-    assert HT.rail_demand(pl, "VIN", lambda ld: amps[ld["key"]]) == pytest.approx(0.25 * 5 / (0.88 * 12))
+    # the 12 V input carries the buck's output power over its efficiency: the class prior (converter.ETA's 0.9; it
+    # was a fixed 0.88 whatever the facts said), else the stated one
+    from haslam.excite.beliefs import Param
+    from haslam.physics import converter as CV
+    assert HT.rail_demand(pl, "VIN", lambda ld: amps[ld["key"]]) == pytest.approx(0.25 * 5 / (CV.ETA[1] * 12))
+    pl.feeds["5V"]["eta"] = Param("dc:U1", "eta", 0.7, 0.6, 0.8, "", "intent", "test")
+    assert HT.rail_demand(pl, "VIN", lambda ld: amps[ld["key"]]) == pytest.approx(0.25 * 5 / (0.7 * 12))
+    pl.feeds["3V3"] = dict(kind="switching", ref="U2", rin="5V", eta=Param("dc:U2", "eta", 0.75, 0.7, 0.8, "", "intent", "t"))
+    assert HT.rail_demand(pl, "5V", lambda ld: amps[ld["key"]]) == pytest.approx(0.2 + 0.05 * 3.3 / (0.75 * 5))
 
 
 def test_part_patterns_match_from_a_word_boundary_and_the_most_specific_wins():
@@ -286,7 +294,7 @@ def test_dc_currents_left_out_of_the_copper_void_the_score():
     notes = []
     bm = SimpleNamespace(m=SimpleNamespace(terminals={}))
     b = SimpleNamespace(footprints=[], tracks=[])
-    assert E._dc_harms(pl, bm, b, None, None, {}, [], 1, 0, [0.0] * 4, notes, lambda *a: None) == []
+    assert E._dc_harms(pl, bm, b, None, None, {}, [], 1, 0, [0.0] * n_points(1), notes, lambda *a: None) == []
     assert any(n.startswith(E.DC_VOID) for n in notes)
     assert E.totals([0.0] * 4, ["dc"])["complete"] is False
 
@@ -302,7 +310,7 @@ def test_a_dc_band_that_solves_nothing_builds_no_system():
     holder = {}
     bm = SimpleNamespace(m=SimpleNamespace(terminals={}))
     b = SimpleNamespace(footprints=[], tracks=[])
-    E._dc_harms(pl, bm, b, None, None, {}, [], 1, 0, [0.0] * 4, [], lambda *a: None, system=holder)
+    E._dc_harms(pl, bm, b, None, None, {}, [], 1, 0, [0.0] * n_points(1), [], lambda *a: None, system=holder)
     assert holder == {}
 
 
@@ -474,7 +482,7 @@ def test_a_board_whose_vias_have_their_default_drill_solves_at_dc(tmp_path):
     pl.loads = [dict(ref="U2", rail="VBUS", sup=["U2.1"], gnd=["U2.2"], key=("dc:U2", "I_A"))]
     pl.params = [Param("dc:U2", "I_A", 1.0, 0.5, 2.0, "A", "test", "test")]
     notes, obs = [], []
-    rows = E._dc_harms(pl, bm, b, net, op, {}, [], 1, 0, [0.0] * 4, notes, lambda *a: None, obs_out=obs,
+    rows = E._dc_harms(pl, bm, b, net, op, {}, [], 1, 0, [0.0] * n_points(1), notes, lambda *a: None, obs_out=obs,
                        system=holder)
     assert rows, notes
     (V, info), = ES.potentials_many(bm.m, [{"J1.1": 1.0, "U2.1": -1.0, "U2.2": 1.0, "J1.2": -1.0}], 0.0, net=net,
@@ -656,10 +664,21 @@ def test_a_converter_whose_rail_has_no_load_idles_at_its_quiescent_draw():
     assert H.idle_cells(bd, {"cell:c": (cell, 0.1)}) == []
     cvs, scale = H.cell_points(pl, [src], cps, own, {"cell:c": (cell, 0.0)}, nlc, [cell])
     assert all(cv["cell:c"]["I_A"] == 0.0 for cv in cvs) and scale["U1"] == [0.0] * 5
+    # every part of the idle cell drops its harmonic heat, not only the controller (an input capacitor's ESR heat)
+    cell["parts"] = {"U1", "C1", "D1"}
+    _, scale = H.cell_points(pl, [src], cps, own, {"cell:c": (cell, 0.0)}, nlc, [cell])
+    assert scale["C1"] == scale["D1"] == [0.0] * 5
+    cell["parts"] = set()
     for cv, q in zip(cvs, nlc):
         heat = H.part_heat(SimpleNamespace(part_kind={}), pl, cv, {("heat:U1", "R_on_ohm"): 0.3}, {})
         assert heat == {"U1": pytest.approx(12.0 * q[("heat:U1", "I_q_A")])}      # no rectifier heat
     assert max(12.0 * q[("heat:U1", "I_q_A")] for q in nlc) <= 12.0 * 1e-2 + 1e-12        # at most 120 mW
+    # on a -12 V input the same idle draw heats it as much (the signed product was dropped as a negative heat)
+    vin = cell["vin"]
+    pl.volts[vin] = -pl.volts[vin]
+    heat = H.part_heat(SimpleNamespace(part_kind={}), pl, cvs[0], {("heat:U1", "R_on_ohm"): 0.3}, {})
+    assert heat == {"U1": pytest.approx(12.0 * nlc[0][("heat:U1", "I_q_A")])}
+    pl.volts[vin] = -pl.volts[vin]
     # a stated own draw is the controller's quiescent current
     (p,) = H.noload_params(pl, [cell], {"parts": {"U1": {"I_A": 2.5e-5}}})
     assert (p.typ, p.source) == (2.5e-5, "intent")
@@ -901,3 +920,83 @@ def test_heat_takes_an_unstated_export_at_one_percent():
     from haslam.excite import heat as H
     src = inspect.getsource(H)
     assert "sustained[(p.subject, p.name)] = p.typ" in src
+
+
+def test_a_cells_own_stated_efficiency_sets_its_input_current_at_every_corner_and_its_loss():
+    """cells.<id>.eta (what the facts compiler writes) was read only as its typical: a buck's DC input current held it
+    at every corner and its heat ignored it. Now it is the feed's eta, as nets.<rail>.eta: at J2 = 1 A, 3.3 V out of
+    12 V, eta 0.8 at a corner, the input takes 3.3 / (0.8 x 12) = 0.34375 A, and the loss is (1/0.8 - 1) 3.3 W."""
+    from types import SimpleNamespace as NS
+
+    from haslam.excite import heat as H
+    pl = _cell_board_plan({"cells": {"c1": {"eta": [0.8, 0.9]}}, "parts": {"J2": {"I_A": 1.0}, "U2": {"I_A": 0.0},
+                                                                          "U3": {"I_A": 0.0}}})
+    e = pl.feeds["3V3"]["eta"]
+    assert (e.lo, e.hi, e.source) == (0.8, 0.9, "intent") and e in pl.params
+    cv = {(p.subject, p.name): p.typ for p in pl.params}
+    cv[(e.subject, "eta")] = 0.8
+    cv["cell:c1"] = {"I_A": 1.0, "D": 3.3 / 12}
+    inj = DC.injections(pl, cv)
+    assert inj["J1.1"] == pytest.approx(3.3 / (0.8 * 12.0))
+    heat = H.part_heat(NS(part_kind={}), pl, cv, {}, inj)
+    assert heat["U1"] == pytest.approx((1 / 0.8 - 1) * 3.3)
+
+
+def test_a_stated_efficiency_is_not_counted_twice_at_the_inductor():
+    """With the facts' eta the controller took the whole (1/eta - 1) P_out, while the inductor's winding loss I_L^2 DCR
+    is heat at the inductor already (lumped_heat): 5 V, 2 A at eta 0.9 is 1.111 W of loss, 0.2 W of it the inductor's
+    (4 A^2 x 50 mOhm), so the controller takes 0.911 W, and the two together the stated loss."""
+    from types import SimpleNamespace as NS
+
+    from haslam.excite import heat as H
+    from haslam.excite.beliefs import Param
+    from haslam.excite.circuit import Circuit
+    from haslam.excite.models import _par, _rl, _rlc
+    cell = dict(id="c", cls="buck", src="cell:c", vin="VIN", vout="5V", sw="SW", ctrl="U1", rect=None, ind="L1",
+                parts=set())
+    pl = DC.Plan()
+    pl.volts = {"VIN": 12.0, "5V": 5.0}
+    pl.feeds = {"5V": dict(kind="cell", cell=cell, ref="U1", eta=Param("dc:U1", "eta", 0.9, 0.9, 0.9, "", "intent", "t"))}
+    c = Circuit("GND")
+    c.z("L1", "SW", "5V", _par(_rl(0.05, 2.2e-6), _rlc(0, 0, 5e-12)), "L1.1", "L1.2", "L")
+    heat = H.part_heat(NS(part_kind={}, circuit=c), pl, {"cell:c": {"I_A": 2.0, "D": 5 / 12}}, {}, {})
+    loss = (1 / 0.9 - 1) * 5.0 * 2.0
+    assert heat["U1"] == pytest.approx(loss - 2.0 ** 2 * 0.05)
+    assert H.winding_R(NS(circuit=c), "L1") == pytest.approx(0.05)
+
+
+def test_a_cells_inductor_has_a_sampled_theta_jb_prior():
+    """A cell's inductor heats (I_L^2 DCR at its pads), but heat.params gave it no theta_jb: its junction took the
+    2-pin class value at the typical point at every corner, and the ledger never asked for it."""
+    from types import SimpleNamespace as NS
+
+    from haslam.excite import heat as H
+    cell = dict(id="c", cls="buck", src="cell:c", vin="VIN", vout="5V", sw="SW", ctrl="U1", rect=None, ind="L1")
+    dcp = NS(loads=[], self_loads=[], feeds={"5V": dict(kind="cell", cell=cell, ref="U1")})
+    bd = NS(part_kind={}, net_of={"L1.1": "SW", "L1.2": "5V", "U1.1": "VIN"})
+    ps = {(p.subject, p.name): p for p in H.params(bd, dcp, {}, {})}
+    p = ps[("heat:L1", "theta_jb")]
+    assert (p.typ, p.lo, p.hi, p.source) == (60.0, 30.0, 120.0, "prior")
+
+
+def test_a_regulator_whose_rail_voltage_is_unknown_is_not_priced_and_is_named():
+    """An LDO from 5 V into a rail of unknown voltage read the output as 0 V: 0.5 W at 0.1 A (the whole input dropped),
+    where its loads were heated at a 3.3 V rail; from an unknown input, no loss. Its loss is now left out and named."""
+    from types import SimpleNamespace as NS
+
+    from haslam.excite import heat as H
+    pl = DC.Plan()
+    pl.volts = {"VIN": 5.0, "VX": None}
+    pl.feeds = {"VX": dict(kind="linear", ref="U1", rin="VIN", out=["U1.2"], inp=["U1.1"], gnd=[])}
+    bd = NS(part_kind={"U1": ("ic", "regulator_linear", "")})
+    assert H.part_heat(bd, pl, {}, {}, {"U1.2": 0.1}) == {}
+    assert H.unpriced_feeds(bd, pl) == [("VX", "U1")]
+    pl.volts["VX"] = 3.3
+    assert H.part_heat(bd, pl, {}, {}, {"U1.2": 0.1}) == {"U1": pytest.approx(0.17)}
+    assert H.unpriced_feeds(bd, pl) == []
+
+
+def test_a_regulators_stated_own_draw_that_the_plan_cannot_use_is_said():
+    """parts.<ref>.I_A on a linear regulator (its own draw) was dropped from the DC plan without a word."""
+    pl = _board_plan({"nets": {"VIN": {"V_V": 5.0}}, "parts": {"U1": {"I_A": 0.005}}})
+    assert any("not used for a regulator's own draw" in n and "U1" in n for n in pl.notes)

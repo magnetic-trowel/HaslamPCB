@@ -58,3 +58,37 @@ def test_legacy_switch(monkeypatch):
     assert not M.legacy_parts()
     monkeypatch.setenv("HASLAM_PART_MODELS", "legacy")
     assert M.legacy_parts()
+
+
+def test_an_unclassified_part_is_an_ic_only_with_a_supply_pin(tmp_path):
+    """An 'unknown' part with more than 3 pads was an IC by pad count: a 4-pin tactile switch between 3V3 and GND got
+    a die capacitance across the rail. Its pins now must say it draws supply (or say nothing at all)."""
+    from test_excite_physics_set import _board, _fp, _pad
+    from haslam.circuit import brief as B
+    from haslam.excite import models as M
+    pads = [_pad("1", 0, 1, "3V3", "A", "passive"), _pad("2", 1, 1, "3V3", "A", "passive"),
+            _pad("3", 2, 2, "GND", "B", "passive"), _pad("4", 3, 2, "GND", "B", "passive")]
+    b = _board(tmp_path, ["3V3", "GND"], [_fp("XX1", "Thing", "Lib:Thing", 10, pads, 1)])
+    br = B.build(b)
+    br["nets"]["3V3"].update(role="rail", volts=3.3)
+    next(p for p in br["parts"].values() if p["ref"] == "XX1")["kind"] = "unknown"
+    bd = M.build(b, br)
+    assert "XX1" not in bd.ic_nodes
+    pads[0] = _pad("1", 0, 1, "3V3", "VDD", "power_in")
+    b = _board(tmp_path, ["3V3", "GND"], [_fp("XX1", "Thing", "Lib:Thing", 10, pads, 1)])
+    bd = M.build(b, br)
+    assert "XX1" in bd.ic_nodes
+
+
+def test_an_unread_inductor_value_is_said(tmp_path):
+    """An inductor's part-number value (XAL4020-222MEC) reads as nothing and became 10 uH without a word: the stand-in
+    sets its cell's ripple, peak current and AC losses."""
+    from test_excite_physics_set import _board, _fp, _pad
+    from haslam.circuit import brief as B
+    from haslam.excite import models as M
+    b = _board(tmp_path, ["SW", "OUT"], [_fp("L1", "XAL4020-222MEC", "Inductor_SMD:L_Coilcraft_XAL4020", 10,
+                                             [_pad("1", 0, 1, "SW"), _pad("2", 2, 2, "OUT")], 1)])
+    br = B.build(b)
+    next(p for p in br["parts"].values() if p["ref"] == "L1")["kind"] = "inductor"
+    bd = M.build(b, br)
+    assert any(a.startswith("L1: value 'XAL4020-222MEC' unread; 10 uH assumed") for a in bd.assumptions)

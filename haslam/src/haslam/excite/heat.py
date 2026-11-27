@@ -33,7 +33,7 @@ from haslam import materials as MAT
 from haslam.physics import converter as CV
 
 from . import quantity as QT
-from .beliefs import Param, corners, intent_value
+from .beliefs import Param, corners, intent_value, n_points
 
 T_MAX = {"ic": 125.0, "module": 85.0, "diode": 125.0, "transistor": 125.0, "inductor": 125.0,
          "capacitor": 105.0, "resistor": 125.0, "ferrite": 125.0, "led": 85.0, "connector": 85.0}
@@ -69,11 +69,23 @@ def rail_demand(dcp, rail, load_amps, depth=0):
         c = f.get("cell")
         if f["kind"] == "cell" and c and c.get("vin") == rail and r2 != rail:
             d = rail_demand(dcp, r2, load_amps, depth + 1)
-            tot += d * (abs(dcp.volts.get(r2) or 0.0) or v_in) / (0.88 * max(v_in, 0.5)) if v_in else d
+            tot += d * (abs(dcp.volts.get(r2) or 0.0) or v_in) / (feed_eta(f) * max(v_in, 0.5)) if v_in else d
         elif f.get("rin") == rail and r2 != rail and f["kind"] in ("linear", "switching"):
             d = rail_demand(dcp, r2, load_amps, depth + 1)
-            tot += d if f["kind"] == "linear" else d * (abs(dcp.volts.get(r2) or 0.0) or v_in) / (0.85 * max(v_in, 0.5)) if v_in else d
+            tot += d if f["kind"] == "linear" else d * (abs(dcp.volts.get(r2) or 0.0) or v_in) / (feed_eta(f) * max(v_in, 0.5)) if v_in else d
     return tot
+
+
+def feed_eta(f):
+    """The typical efficiency of a converter feed: the facts' (nets.<rail>.eta or cells.<id>.eta, the feed's eta
+    parameter), else its class prior (a cell's: haslam.physics.converter.ETA through its source; a switching
+    regulator's: haslam.excite.dc.ETA). rail_demand used 0.88 and 0.85 whatever the facts stated."""
+    from . import dc as DC
+    if f.get("eta") is not None:
+        return float(f["eta"].typ)
+    if f["kind"] == "cell":
+        return float((f.get("cell") or {}).get("eta") or CV.ETA[1])
+    return DC.ETA[1]
 
 
 THETA_CS = (0.5, 0.2, 1.0)  # K/W, case to sink through grease or a thermal pad (class range)
@@ -145,8 +157,14 @@ def params(bd, dcp, P, intent=None):
                 continue
             cs = _rng(hs.get("theta_cs_C_W")) or THETA_CS
             jc = _rng(hs.get("theta_jc_C_W")) or intent_value(intent, "parts", hs["part"], "theta_jc_C_W") or THETA_JC
+            # stated only when theta_JC and theta_CS are stated too: a class prior in the sum (5 K/W theta_JC against a
+            # stated 2 K/W sink) is a prior, and the ledger asks for it
+            stated = _rng(hs.get("theta_cs_C_W")) is not None and (
+                _rng(hs.get("theta_jc_C_W")) is not None or intent_value(intent, "parts", hs["part"], "theta_jc_C_W") is not None)
             out.append(Param(f"heat:{hs['part']}", "R_sink", sa[0] + cs[0] + jc[0], sa[1] + cs[1] + jc[1], sa[2] + cs[2] + jc[2],
-                             "K/W", "intent", f"junction to air through its heat sink: theta_JC + theta_CS + theta_SA ({why})"))
+                             "K/W", "intent" if stated else "prior",
+                             f"junction to air through its heat sink: theta_JC + theta_CS + theta_SA ({why}"
+                             + ("" if stated else "; theta_JC or theta_CS a class prior") + ")"))
         elif _rng(hs.get("theta_C_W")):
             t, lo, hi = _rng(hs["theta_C_W"])
             out.append(Param(f"heat:sink{k}", "G_W_K", 1 / t, 1 / hi, 1 / lo, "W/K", "intent",
@@ -157,7 +175,10 @@ def params(bd, dcp, P, intent=None):
     hot = {ld["ref"] for ld in dcp.loads if bd.part_kind.get(ld["ref"], ("",))[0] != "connector"}
     hot |= {sl["ref"] for sl in getattr(dcp, "self_loads", [])}
     for f in dcp.feeds.values():
-        hot |= {f["cell"]["ctrl"], f["cell"]["rect"]} if f["kind"] == "cell" else ({f["ref"]} if f["kind"] in ("linear", "switching") else set())
+        # a cell's inductor heats by its winding's DC loss (lumped_heat): its theta_jb is a prior like any part's (it
+        # took the 2-pin class value at its typical point only, never sampled and never asked for)
+        hot |= {f["cell"]["ctrl"], f["cell"]["rect"], f["cell"].get("ind")} if f["kind"] == "cell" else \
+            ({f["ref"]} if f["kind"] in ("linear", "switching") else set())
     for ref in sorted(r for r in hot if r):
         iv = intent_value(intent, "parts", ref, "theta_jb_C_W")       # from the part's datasheet, via the facts
         if iv:
@@ -246,7 +267,8 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             if "I_q_A" in v:
                 # its rail has no load (heat.evaluate): the converter idles; its controller draws its quiescent
                 # current from the input and turns all of it into heat (it delivers nothing)
-                add(c["ctrl"], (dcp.volts.get(c.get("vin")) or V) * v["I_q_A"])
+                # in magnitude: on a -12 V input the signed product was negative and add() dropped it
+                add(c["ctrl"], abs(dcp.volts.get(c.get("vin")) or V) * v["I_q_A"])
                 continue
             ron = val.get((f"heat:{c['ctrl']}", "R_on_ohm"), R_ON[1])
             # the switch conducts I_L for D; with no rectifier part the synchronous one inside the
@@ -267,7 +289,11 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
                 if c["rect"]:
                     rw = min(loss, val.get((f"heat:{c['rect']}", "V_f_V"), V_F[1]) * CV.rectifier_current(top, IL, D))
                     add(c["rect"], rw)
-                add(c["ctrl"], loss - rw)
+                # the stated efficiency counts every loss of the converter, its inductor's winding too; that one is
+                # heat at the inductor already (lumped_heat, I_L^2 DCR from the DC flow), so the controller takes the
+                # rest. Counted at both, a 5 V 2 A converter at eta 0.9 put 1.31 W into the board for its 1.11 W loss
+                lw = min(loss - rw, IL ** 2 * winding_R(bd, c.get("ind")))
+                add(c["ctrl"], loss - rw - lw)
                 continue
             if c["cls"] == "buckboost":
                 # a 4-switch buck-boost: one switch of each leg is on at any time (two R_on in the inductor's path);
@@ -297,6 +323,8 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
         if f["kind"] == "linear":
             vi, vo = abs(dcp.volts.get(f["rin"]) or 0.0), abs(dcp.volts.get(r) or 0.0)
             kind = bd.part_kind.get(f["ref"], ("",))[0]
+            if (not vi or not vo) and kind not in ("diode", "transistor"):
+                continue            # its drop is unknown: not priced (unpriced_feeds says so), as the DC plan's own heat
             drop = val.get((f"heat:{f['ref']}", "V_f_V"), V_F[1]) if kind == "diode" else max(vi - vo, 0.0)
             if kind == "transistor":
                 # a load switch's channel: I^2 R_on (the facts' rail voltages are rounded, not its drop)
@@ -304,11 +332,37 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             if kind not in ("inductor", "ferrite", "resistor"):       # those dissipate in the DC copper model
                 add(f["ref"], drop * I_out)
         elif f["kind"] == "switching":
+            if not dcp.volts.get(r):
+                continue            # its output power is unknown: not priced (unpriced_feeds)
             eta = cv.get((f["eta"].subject, "eta"), 0.85)
             add(f["ref"], (1 / eta - 1) * abs(dcp.volts.get(r) or 0.0) * I_out)
     for ref, w in (ac_parts or {}).items():
         add(ref, w)
     return out
+
+
+def unpriced_feeds(bd, dcp):
+    """[(rail, ref)]: linear and switching feeds whose loss part_heat cannot price because a rail's voltage is
+    unknown. A linear regulator's drop V_in - V_out read an unknown output as 0 V (the whole input dropped: 0.5 W
+    for 0.1 A from 5 V where its loads assumed a 3.3 V rail) and an unknown input as no loss; a switching one's
+    (1/eta - 1) V_out I read 0. They are left out and named, not guessed."""
+    out = []
+    for r, f in sorted(dcp.feeds.items()):
+        if f["kind"] == "linear" and bd.part_kind.get(f["ref"], ("",))[0] not in ("diode", "transistor", "inductor",
+                                                                                   "ferrite", "resistor"):
+            if not dcp.volts.get(f.get("rin")) or not dcp.volts.get(r):
+                out.append((r, f["ref"]))
+        elif f["kind"] == "switching" and not dcp.volts.get(r):
+            out.append((r, f["ref"]))
+    return out
+
+
+def winding_R(bd, ref):
+    """The DC resistance of the circuit model's inductor `ref` (0 without one)."""
+    for e in getattr(getattr(bd, "circuit", None), "elems", None) or []:
+        if e.name == ref and e.kind == "L":
+            return float(e.z(1.0).real)         # at 1 rad/s: the winding capacitance in parallel is open
+    return 0.0
 
 
 LUMP_HEAT_KINDS = ("R", "L", "FB")     # lumped parts whose own DC loss is heat at their pads (a diode's is V_f I
@@ -457,8 +511,13 @@ def cell_points(dcp, srcs, cps, own, cell_out, nlc, idle=(), P=None):
                     pi = cell_current_param(P or {}, s.name)
                     il = pi.lo if pi is not None else il0
                 cv[s.name]["I_A"] = il
-                if cell.get("ctrl") and il0 > 0:
-                    ac_scale.setdefault(cell["ctrl"], [1.0] * ncp)[c] = (il / il0) ** 2
+                if il0 > 0:
+                    # every part of the cell takes its harmonic heat at this current: its controller, and the capacitors
+                    # and switches of its loop (wideband's ac_parts are keyed by every part; only the controller's
+                    # scaled, an input capacitor's ESR heat stayed at the ledger's current, an idle cell's too)
+                    for ref in {cell.get("ctrl")} | set(cell.get("parts") or ()):
+                        if ref:
+                            ac_scale.setdefault(ref, [1.0] * ncp)[c] = (il / il0) ** 2
         cvs.append(cv)
     return cvs, ac_scale
 
@@ -480,7 +539,7 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
     hp = params(bd, dcp, P, intent)
     for p in hp if ledger is not None else []:
         ledger.add(p)
-    ncp = n_corners + 3
+    ncp = n_points(n_corners)
     hc = corners(hp, n=n_corners, seed=seed + 2)
     own = corners(dcp.params, n=n_corners, seed=seed + 1) if dcp.params else [{} for _ in range(ncp)]
     # a package's thermal time constant is seconds: its temperature follows the sustained draw, not a
@@ -535,6 +594,10 @@ def evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, tot, 
     if ac_parts:
         ac_parts = {k: [w * ac_scale.get(k, [1.0] * ncp)[c] for c, w in enumerate(v)] for k, v in ac_parts.items()}
     m = bm.m
+    up = unpriced_feeds(bd, dcp)
+    if up:
+        notes.append("thermal: loss not computed (a rail's voltage is unknown; state nets.<rail>.V_V): "
+                     + ", ".join(f"{ref} feeding {r}" for r, ref in up))
     injs = [{q: a for q, a in DC.injections(dcp, cv).items() if q in m.terminals} for cv in cvs]
     from .evaluate import _solver_line, _solver_row
     t_band = time.time()
