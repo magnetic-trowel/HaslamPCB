@@ -120,4 +120,4 @@ Held-out accuracy (`eval-permissive.md`), MAE of log d, board-averaged, with 95 
 ## Open questions
 
 - The tier-interaction share of pose-transplant (about 40 %) is not explained by served distance, side or orientation. The placer matches the human on all three. What the human poses carry beyond them is still unmeasured: which side of the IC, and whether escape channels are left clear.
-- A divider-only spring would close the one large gap (feedback dividers) without touching decaps or bulk caps. It is untested.
+- A divider-only spring was tested ([dead-ends-2611d §14](../dead-ends-2611d.md#14-served-pin-springs-for-feedback-dividers-only-fb-springs)). It closed the distance (5.11 → 2.17 mm) but raised FB pickup ×1.16 and opens +0.034. The farther dividers were the coupling term at work, not a gap.

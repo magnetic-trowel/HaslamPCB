@@ -1829,6 +1829,8 @@ Use: `grep -i '<term>' docs/SUBJECTS.md`. The first link is the likeliest main d
 - fastroute: [routing/strategy-candidates#strategy-table](topics/routing/strategy-candidates.md#strategy-table); [landscape/measured-tool-comparisons#other-router-and-tool-measurements](topics/landscape/measured-tool-comparisons.md#other-router-and-tool-measurements); [landscape/open-source-routers#router-table](topics/landscape/open-source-routers.md#router-table); [routing/routing-cross-domain-and-math#3-global-routing-ideas](topics/routing/routing-cross-domain-and-math.md#3-global-routing-ideas); [verification/benchmarks#other-benchmarks-and-datasets](topics/verification/benchmarks.md#other-benchmarks-and-datasets)
 - FB: [rules/power/buck#buck-rules](topics/rules/power/buck.md#buck-rules)
 - FB pickup: [physics/physics-ir-examples#open-questions](topics/physics/physics-ir-examples.md#open-questions)
+- fb-springs: [research/dead-ends-2611d#14-served-pin-springs-for-feedback-dividers-only-fb-springs](research/dead-ends-2611d.md#14-served-pin-springs-for-feedback-dividers-only-fb-springs)
+- fb_pickup: [research/dead-ends-2611d#14-served-pin-springs-for-feedback-dividers-only-fb-springs](research/dead-ends-2611d.md#14-served-pin-springs-for-feedback-dividers-only-fb-springs)
 - FCC 15.109: [physics/fields-emi-budget#1-the-chain](topics/physics/fields-emi-budget.md#1-the-chain); [rules/emc-placement](topics/rules/emc-placement.md)
 - FE: [ideas/physics-first/README#theme-files](ideas/physics-first/README.md#theme-files)
 - FE1–FE56: [ideas/physics-first/si-emi-rf](ideas/physics-first/si-emi-rf.md)

@@ -3,7 +3,7 @@
 # Dead ends 2026-11: placement, joint chassis, restarts and physics inputs
 
 Scope: placement, joint-chassis, restart and physics-input lines dropped, parked or superseded from 2026-11-09 to 2026-11-23 that had no write-up on main: what was tried, evidence, why each stopped, what would reopen it, and the tag that keeps its code. Not here: the 2026-11-20..22 drops -> [dead-ends-2611](dead-ends-2611.md); the larger 2026-11-16..24 lines -> [dead-ends-2611b](dead-ends-2611b.md); every archive tag -> [archive-tags-2611](archive-tags-2611.md).
-Keys: dead ends 2611d, place_passive_springs, passive-springs, served-pin springs, module_soft, chassis-soft, module_rail_share, module-rails, module_clock, polish-merit, P-late, barrier_weight_mode, avoidable, detour, repair_physics, p6-repair-place2, bus_pose, bus-pose-ab, place_history design B, place-history-b, phys-tiebreak, alt-from-best, select-physics, layer oracle, net_layers, ROLE_WEIGHT analog, intent-fast-nets-analogw, RHO_CU_OHM_MM, IEC 60028, materials-values, dc-open-rail, dc-signed
+Keys: dead ends 2611d, place_passive_springs, fb-springs, fb_pickup, passive-springs, served-pin springs, module_soft, chassis-soft, module_rail_share, module-rails, module_clock, polish-merit, P-late, barrier_weight_mode, avoidable, detour, repair_physics, p6-repair-place2, bus_pose, bus-pose-ab, place_history design B, place-history-b, phys-tiebreak, alt-from-best, select-physics, layer oracle, net_layers, ROLE_WEIGHT analog, intent-fast-nets-analogw, RHO_CU_OHM_MM, IEC 60028, materials-values, dc-open-rail, dc-signed
 
 **Status:** per item (first line of each section). **Code:** each item names the tag `archive/<branch>` (= branch tip at archiving, 2026-11-25) that keeps its code and branch-only write-ups; `git show archive/<branch>:<path>`. Branches predate PR #163, so paths and names inside them are the old ones (`kae/src/kae/...`, `tools/kaeres/...`, `KAE_*`); the text here uses the new names. Host-only sources (`~/haslam-baselines/experiments/<exp>/`, `/var/tmp/$USER/explore-2611/results/` on the benchmark host) are named; their key numbers are copied here. [C] = computed by our scripts, some re-read on 2026-11-25 from stored results.
 
@@ -141,3 +141,17 @@ Keys: dead ends 2611d, place_passive_springs, passive-springs, served-pin spring
 - **Why dead:** springs on every non-macro passive fight the place terms' nearest-load charging of decaps and bulk caps, and crowd IC perimeters. The parts with a real gap are a small share of the springs.
 - **Reopen if:** a spring limited to feedback dividers (and possibly inductors) at their FB / switch pins, or a prior that says which side of the IC a passive goes. The passive tier's share of pose-transplant (g_P 0.33) is not in served distance.
 - **Code:** branch `passive-priors` (tag `archive/passive-priors`); writeup `docs/research/placement/passive-priors-2611.md`; data `~/haslam-baselines/experiments/passive-priors/`.
+
+## 14. Served-pin springs for feedback dividers only (fb-springs)
+
+**Did not work**; experiment `fb-springs` (halves `fb-springs-frontier`, `fb-springs-quality`), 2026-11-26.
+
+- **Tried:** §13's springs restricted to feedback-divider resistors (`place_passive_springs=1`, `place_passive_springs_roles=feedback_divider`). Each resistor gets a spring to its regulator's FB/ADJ pin, weight ≈ 1.26. Compared with stored control-w48 staged on the 140 sprint boards, seeds 0-1.
+- **Evidence** [C]:
+  - Opens Δlog1p +0.034 [+0.003, +0.067]: +0.121 on the 32 boards with dividers, +0.008 on the rest.
+  - Guards held: DRC −0.017; legal 261 → 263; physics_total −0.001; decap + cell u ×1.02; CPU ×1.06.
+  - FB-divider distance: 5.11 → 2.17 mm (human 2.48).
+  - FB pickup (place terms `victim:feedback:*`) ×1.16 [1.07, 1.27] over the control. The control was already ×0.2 the human's (1.9 vs 13.6 mV median).
+- **Why dead:** the "far" dividers are the coupling term keeping the FB node away from the switch node, not a missing pull. Closing the distance raises pickup and costs opens where dividers exist.
+- **Reopen if:** a divider pull that is also priced by pickup (FB pin side away from SW), or boards where the FB trace length itself is a stated budget.
+- **Code:** branch `passive-priors` (same code as §13; `tools/research/layout-data/fb_pickup.py`); data `~/haslam-baselines/experiments/fb-springs/`.
