@@ -136,3 +136,18 @@ Keys: dead ends 2611d, module_soft, chassis-soft, module_rail_share, module-rail
 - **Why dead:** where the mechanism exists the change moves the first route, and the outcome is a different draw of a path-dependent router rather than a better board; the per-board swings exceed any mean effect, and the run-2 lean did not replicate.
 - **Reopen if:** a puzzle-tier test (a window around a fine-pitch zone pin with the human routing as the known solution) shows the old corridor blocking a route that the new one frees; or the router's path dependence is reduced (repeatable last mile and rip rounds) so a corridor change can be measured against seed noise.
 - **Code:** tag `archive/route-thermal-ring` f5cc6e10 (branch `route/thermal-ring`: the change on main 4fb99765 plus `bench/suites/mech/thermal-ring.txt`); the arm's code at the tag: branch `route/thermal-ring-w48` 9e0eb064. Original: `gfix-thermal-ring` 3eb6a72f (pre-rename). Host: `$HASLAM_RESULTS/experiments/gfix-thermal-ring{,-2,-2-repro,-3}/`.
+
+## 14. Served-pin springs for 2-pad passives from corpus priors (place_passive_springs)
+
+**Did not work**; experiment `passive-springs` (halves `passive-springs-frontier`, `passive-springs-quality`), 2026-11-26.
+
+- **Tried:** `haslam/src/haslam/place/springs.py`. Each movable 2-pad R/C/L/FB outside a physics macro gets a virtual two-pin net of kind `spring` from its serving pad to the pin it serves. The pin comes from the netlist: the non-ground, non-rail net first; on that net the IC or module first, then the part with the most pads. Weight 1 × clamp(3 mm / p50, 0.25, 2), with p50 from `place/data/passive_priors.json` (per-role served distance, 2,694 tier-A train-owner corpus boards, `tools/research/layout-data/passive_priors.py`). The quadratic seed, the floorplan, the annealer and repack price it; crossings ignore it. Setting `place_passive_springs`, default 0. Compared with stored control-w48 staged on the 140 sprint boards, seeds 0-1. None of these boards was used in the fit (owner-level split).
+- **Evidence** [C]:
+  - Opens Δlog1p +0.065 [+0.007, +0.124] (owner bootstrap); summed 2,477 → 2,672; better / same / worse 53 / 142 / 85 board-seeds.
+  - Mechanism: the feedback-divider gap closed (Δlog d vs human +0.69 → +0.05), but pull-ups, pull-downs, filter caps and dividers overshot to 0.17-0.35 log units closer than the human.
+  - Decap + commutation-cell utilization ×1.21; physics_total Δlog +0.019 [−0.016, +0.055].
+  - DRC errors +0.010 [−0.021, +0.040]; legal 261 → 260; CPU ×1.04.
+  - Audit before the A/B: the staged placer already matches human served distances, sides and orientation for decaps, pull-ups, series R and LED resistors. The gaps were feedback dividers (5.1 vs 2.5 mm), inductors, ferrites, bulk caps and series terminations ([passive-priors-2611](placement/passive-priors-2611.md)).
+- **Why dead:** springs on every non-macro passive fight the place terms' nearest-load charging of decaps and bulk caps, and crowd IC perimeters. The parts with a real gap are a small share of the springs.
+- **Reopen if:** a spring limited to feedback dividers (and possibly inductors) at their FB / switch pins, or a prior that says which side of the IC a passive goes. The passive tier's share of pose-transplant (g_P 0.33) is not in served distance.
+- **Code:** branch `passive-priors` (tag `archive/passive-priors`); writeup `docs/research/placement/passive-priors-2611.md`; data `~/haslam-baselines/experiments/passive-priors/`.
