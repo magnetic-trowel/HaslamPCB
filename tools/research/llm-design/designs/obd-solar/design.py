@@ -71,8 +71,9 @@ def g(d, name, v, kind, i=None, **kw):
 
 def intent(d):
     R = d.require
-    R("REQ-1", "Panel input", value="13-24 V, 5-10 W; full MPPT charging needs Vmp >= 16.5 V (12 V-class panels, "
-      "Vmp 17-19 V)", source="brief", verify="bench sweep with a panel emulator")
+    R("REQ-1", "Panel input", value="12 V-class panels, 5-10 W: Vmp 17-18 V, Voc <= 22 V; operates down to 13 V "
+      "(no charge current below the 16.5 V MPPT set point)", source="brief; user 2026-11-27",
+      verify="bench sweep with a panel emulator")
     R("REQ-2", "Lead-acid charge profile", value="trickle 17.5 % below 11.1 V, CC 0.67 A, over-charge (absorb) 14.8 V "
       "until I < 38 % (0.25 A), float 13.55 V, recharge below 12.42 V", source="brief; CN3767 DS p.4-6",
       verify="bench with a 12 V AGM battery")
@@ -99,7 +100,10 @@ def intent(d):
                blocking=False, default="3 A")
     d.question("Q-3", "'13-24 V' panel: the CN3767 is a buck with a fixed CV-MPPT set point (16.5 V here); a panel "
                "whose Vmp is below ~16.3 V cannot reach the 14.8 V absorb voltage. Is 13 V the panel's Vmp or its "
-               "Voc?", blocking=False, default="12 V-class panel, Vmp 17-19 V, Voc <= 24 V")
+               "Voc?", blocking=False, default="12 V-class panel, Vmp 17-19 V, Voc <= 24 V",
+               answer="user 2026-11-27: 13 V is the lower limit; panels are 12 V-class, Vmp ~17-18 V, Voc <= 22 V. "
+                      "16.5 V set point kept: absorb needs >= 16.05 V in (calc vin_for_absorb); a hot panel "
+                      "(Vmp ~-0.4 %/C) below 16.5 V charges nothing until it cools")
     d.question("Q-4", "STM32G071 low-power figures (Stop-mode current with UCPD wake-up) could not be read: the ST "
                "datasheet was unreachable from the design host. REQ-5 assumes <= 5 uA", blocking=True,
                default="verify on the ST datasheet before ordering")

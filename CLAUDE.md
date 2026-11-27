@@ -17,6 +17,12 @@ CC-BY-4.0 (see `LICENSING.md`). New source files carry SPDX headers.
   After a KiCad version bump, run `pytest haslam/tests/test_board_dru_check.py` (drift tests) and
   follow `docs/topics/kicad/drc-rule-language-reference.md#keeping-the-checker-in-sync-with-kicad`.
 
+## Fetching from external sources
+
+Be gentle with every external host (package registries, parts APIs, datasheet sites): one connection at a time,
+on 429/503 honour `Retry-After` and back off exponentially, at most 2-3 retries, and cache what you download
+instead of fetching it again. Never loop retries against a host that is refusing you.
+
 ## Local board corpus
 
 ~14k accepted boards live in one local folder (default `~/haslam-boards`; the host's

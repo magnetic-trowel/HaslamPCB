@@ -49,7 +49,9 @@ fi
 if [ -z "${JAVA_HOME:-}" ] && ! command -v java > /dev/null; then
   for d in "$HASLAM_HOME"/jdk-25*; do [ -x "$d/bin/java" ] && export JAVA_HOME=$d && break; done
 fi
-(cd "$SRC" && ./gradlew -q executableJar)
+# one worker, no parallel project builds: parallel dependency fetches drew 429s from Maven Central through a
+# rate-limited proxy (obd-solar FRICTION.md #9)
+(cd "$SRC" && ./gradlew -q --max-workers=1 -Dorg.gradle.parallel=false executableJar)
 JAR=$(ls "$SRC"/build/libs/*-executable.jar)
 # jlink from a JDK 25: the toolchain gradle provisioned, else JAVA_HOME (gradle uses it when it is 25)
 JDK=$( (ls -d "$HOME"/.gradle/jdks/*25*/ 2>/dev/null || true) | grep -v '\.tar' | head -1 || true)
