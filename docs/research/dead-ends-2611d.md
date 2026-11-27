@@ -151,3 +151,17 @@ Keys: dead ends 2611d, module_soft, chassis-soft, module_rail_share, module-rail
 - **Why dead:** springs on every non-macro passive fight the place terms' nearest-load charging of decaps and bulk caps, and crowd IC perimeters. The parts with a real gap are a small share of the springs.
 - **Reopen if:** a spring limited to feedback dividers (and possibly inductors) at their FB / switch pins, or a prior that says which side of the IC a passive goes. The passive tier's share of pose-transplant (g_P 0.33) is not in served distance.
 - **Code:** branch `passive-priors` (tag `archive/passive-priors`); writeup `docs/research/placement/passive-priors-2611.md`; data `~/haslam-baselines/experiments/passive-priors/`.
+
+## 15. Served-pin springs for feedback dividers only (fb-springs)
+
+**Did not work**; experiment `fb-springs` (halves `fb-springs-frontier`, `fb-springs-quality`), 2026-11-26.
+
+- **Tried:** §13's springs restricted to feedback-divider resistors (`place_passive_springs=1`, `place_passive_springs_roles=feedback_divider`). Each resistor gets a spring to its regulator's FB/ADJ pin, weight ≈ 1.26. Compared with stored control-w48 staged on the 140 sprint boards, seeds 0-1.
+- **Evidence** [C]:
+  - Opens Δlog1p +0.034 [+0.003, +0.067]: +0.121 on the 32 boards with dividers, +0.008 on the rest.
+  - Guards held: DRC −0.017; legal 261 → 263; physics_total −0.001; decap + cell u ×1.02; CPU ×1.06.
+  - FB-divider distance: 5.11 → 2.17 mm (human 2.48).
+  - FB pickup (place terms `victim:feedback:*`) ×1.16 [1.07, 1.27] over the control. The control was already ×0.2 the human's (1.9 vs 13.6 mV median).
+- **Why dead:** the "far" dividers are the coupling term keeping the FB node away from the switch node, not a missing pull. Closing the distance raises pickup and costs opens where dividers exist.
+- **Reopen if:** a divider pull that is also priced by pickup (FB pin side away from SW), or boards where the FB trace length itself is a stated budget.
+- **Code:** branch `passive-priors` (same code as §13; `tools/research/layout-data/fb_pickup.py`); data `~/haslam-baselines/experiments/fb-springs/`.
