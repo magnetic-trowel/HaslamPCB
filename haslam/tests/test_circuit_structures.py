@@ -708,3 +708,21 @@ def test_decap_hf_by_body_not_value():
         assert d['hf_caps'] == [] and d['pin_caps'] == {}
     finally:
         RO.CAP_CLASS = old
+
+
+def test_parallel_fets_share_the_current_by_their_conductance(monkeypatch):
+    """A bank's parallel FETs took I/n each whatever their R_on. With one at twice the other's R_on they share I by
+    conductance, 2/3 and 1/3, and each heats I_q^2 R_on; with equal R_on, I/n as before."""
+    import pytest
+
+    from haslam.circuit import structures as S
+    nl, r, st = structures(_bms_bank())
+    p = one(st['power_paths'], **{'class': 'fet_bank'})
+    I = p['excite']['I']
+    base = {h['part']: h['P_W'] for h in st['heat_sources'] if h['part'] in ('Q1', 'Q2')}
+    r0 = base['Q1'] / (I / 2) ** 2
+    monkeypatch.setattr(S, '_fet_ron', lambda b, q: (2 * r0 if q == 'Q1' else r0, 'test'))
+    nl, r, st = structures(_bms_bank())
+    hs = {h['part']: h['P_W'] for h in st['heat_sources']}
+    assert hs['Q1'] == pytest.approx((I / 3) ** 2 * 2 * r0, abs=1e-4)
+    assert hs['Q2'] == pytest.approx((2 * I / 3) ** 2 * r0, abs=1e-4)

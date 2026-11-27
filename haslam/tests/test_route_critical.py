@@ -1508,3 +1508,36 @@ def test_module_stage_never_lays_zero_width_copper(tmp_path, monkeypatch):
     assert tracks
     for it in tracks:
         assert it.width >= s.space.width_limits(it.net, next(iter(it.layers)))[0] - 1e-9 > 0, it.owner
+
+
+def test_the_copper_heat_hazards_start_from_the_stated_ambient():
+    """route.critical_physics' heat and via hazards started at a fixed 50 C whatever the facts stated: 2 A on a 0.25 mm
+    1 oz track (65 K rise) was a warning at 50 C but blocks at a stated 85 C (150 C > the laminate's 130 C)."""
+    from types import SimpleNamespace as NS
+
+    from haslam.route import critical_modules as CM
+    from haslam.route.critical import intent_opts
+    from haslam.route.critical_physics import T_AMB_MAX_C, heat_hazard
+    opts = intent_opts({"requirements": {"thermal": {"T_amb_C": [-40, 85]}}})
+    assert opts["T_amb_C"] == 85.0
+    assert CM.t_amb(NS(opts=opts)) == 85.0 and CM.t_amb(NS(opts={})) == T_AMB_MAX_C
+    assert heat_hazard("x", 2.0, 0.25, 0.035, 10, ["N"], t_amb=85.0)["severity"] == "block"
+    assert heat_hazard("x", 2.0, 0.25, 0.035, 10, ["N"])["severity"] == "warn"
+
+
+def test_cell_copper_is_sized_for_the_stated_current_and_rail_efficiency():
+    """_excite_current read I_belief (a power path's), while facts.apply writes a cell's stated interval to
+    excite.interval.I: a cell stated [0.3, 1.0] A was sized for its 0.55 A typical. _intent_converter left out the
+    rail's eta: a 3.3 -> 5 V boost at 0.5 A out, eta 0.6, takes 0.5 x 5 / (3.3 x 0.6) = 1.263 A, not 0.947 A."""
+    from types import SimpleNamespace as NS
+
+    from haslam.route import critical_modules as CM
+    assert CM._excite_current({"excite": {"I": 0.5477, "interval": {"I": [0.3, 1.0]}}}) == 1.0
+    assert CM._excite_current({"excite": {"I": 0.5, "I_belief": {"interval": [0.2, 0.7]}}}) == 0.7
+    assert CM._excite_current({"excite": {"I": 0.5}}) == 0.5
+    spec = {"id": "cell:boost:U1", "class": "boost", "vin": "3V3", "rail": "5V", "vout": "5V", "controller": "uU1"}
+    facts = {"cells": {"cell:boost:U1": {"I_out_A": [0.15, 0.5]}}, "nets": {"5V": {"eta": [0.6, 0.7]}}}
+    ctx = NS(opts={"intent": facts}, brief={"parts": {"uU1": {"ref": "U1"}}, "structures": [spec]},
+             nets={"3V3": {"volts": 3.3}, "5V": {"volts": 5.0}}, volts=lambda n: None)
+    cc = CM._intent_converter(ctx, NS(id="cell:boost:U1", spec=spec))
+    assert cc.I[2] == pytest.approx(0.5 * 5.0 / (3.3 * 0.6))
