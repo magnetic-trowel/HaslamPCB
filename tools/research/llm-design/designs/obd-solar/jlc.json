@@ -1,0 +1,312 @@
+{
+ "C|100nF|0603|16V|X7R": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "100nF 50V X7R \u00b110% 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C14663",
+  "model": "CC0603KRX7R9BB104",
+  "query": "100nF 0603",
+  "spec": "0603",
+  "stock": 44408509
+ },
+ "C|100nF|0603|25V|X7R": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "100nF 50V X7R \u00b110% 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C14663",
+  "model": "CC0603KRX7R9BB104",
+  "query": "100nF 0603",
+  "spec": "0603",
+  "stock": 44408509
+ },
+ "C|100nF|0603|50V|X7R": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "100nF 50V X7R \u00b110% 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C14663",
+  "model": "CC0603KRX7R9BB104",
+  "query": "100nF 0603",
+  "spec": "0603",
+  "stock": 44408509
+ },
+ "C|10nF|0603|16V|X7R": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "10nF 50V X7R \u00b110% 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C57112",
+  "model": "0603B103K500NT",
+  "query": "10nF 0603",
+  "spec": "0603",
+  "stock": 4010965
+ },
+ "C|10uF|0805|25V|X5R": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "10uF 25V X5R \u00b110% 0805 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C15850",
+  "model": "CL21A106KAYNNNE",
+  "query": "10uF 0805",
+  "spec": "0805",
+  "stock": 9303473
+ },
+ "C|10uF|1206|25V|X5R": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "10uF 50V X5R \u00b110% 1206 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C13585",
+  "model": "CL31A106KBHNNNE",
+  "query": "10uF 1206",
+  "spec": "1206",
+  "stock": 3648875
+ },
+ "C|10uF|1206|50V|X5R": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "10uF 50V X5R \u00b110% 1206 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C13585",
+  "model": "CL31A106KBHNNNE",
+  "query": "10uF 1206",
+  "spec": "1206",
+  "stock": 3648875
+ },
+ "C|1uF|0603|25V|X7R": {
+  "at": "2026-11-27",
+  "basic": false,
+  "describe": "1uF 25V X7R \u00b110% 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C29936",
+  "model": "CL10B105KA8NNNC",
+  "query": "1uF 0603",
+  "spec": "0603",
+  "stock": 2728458
+ },
+ "C|1uF|0603|50V|X7R": {
+  "at": "2026-11-27",
+  "basic": false,
+  "describe": "1uF 50V X7R \u00b110% 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C90540",
+  "model": "0603B105K500NT",
+  "query": "1uF 0603",
+  "spec": "0603",
+  "stock": 486007
+ },
+ "C|2.2uF|0805|10V|X5R": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "2.2uF 50V X5R \u00b110% 0805 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C377773",
+  "model": "CL21A225KBQNNNE",
+  "query": "2.2uF 0805",
+  "spec": "0805",
+  "stock": 1173566
+ },
+ "C|220nF|0603|16V|X7R": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "220nF 25V X7R \u00b110% 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C21120",
+  "model": "CL10B224KA8NNNC",
+  "query": "220nF 0603",
+  "spec": "0603",
+  "stock": 997292
+ },
+ "C|22uF|1206|25V|X5R": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "22uF 25V X5R \u00b110% 1206 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C12891",
+  "model": "CL31A226KAHNNNE",
+  "query": "22uF 1206",
+  "spec": "1206",
+  "stock": 3639378
+ },
+ "C|4.7uF|0805|10V|X5R": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "25V 4.7uF X5R \u00b110% 0805 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C1779",
+  "model": "CL21A475KAQNNNE",
+  "query": "4.7uF 0805",
+  "spec": "0805",
+  "stock": 2516744
+ },
+ "C|8.2nF|0603|16V|X7R": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "50V 8.2nF X7R \u00b110% 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C1322360",
+  "model": "0603B822K500NT",
+  "query": "8.2nF 0603",
+  "spec": "0603",
+  "stock": 62588
+ },
+ "R|1.27M|0603|1%": {
+  "at": "2026-11-27",
+  "basic": false,
+  "describe": "-55\u2103~+155\u2103 1.27M\u03a9 100mW 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C5713278",
+  "model": "FRC0603F1274TS",
+  "query": "1.27M\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 38872
+ },
+ "R|100k|0603|1%": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "-55\u2103~+155\u2103 100k\u03a9 100mW 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C25803",
+  "model": "0603WAF1003T5E",
+  "query": "100k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 11848108
+ },
+ "R|10M|0603|1%": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "-55\u2103~+155\u2103 100mW 10M\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C7250",
+  "model": "0603WAF1005T5E",
+  "query": "10M\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 715608
+ },
+ "R|10k|0603|1%": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "-55\u2103~+155\u2103 100mW 10k\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C25804",
+  "model": "0603WAF1002T5E",
+  "query": "10k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 39181287
+ },
+ "R|120|0603|1%": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "-55\u2103~+155\u2103 100mW 120\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C22787",
+  "model": "0603WAF1200T5E",
+  "query": "120\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 2407010
+ },
+ "R|1M|0603|1%": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "-55\u2103~+155\u2103 100mW 1M\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C22935",
+  "model": "0603WAF1004T5E",
+  "query": "1M\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 5171845
+ },
+ "R|1k|0603|1%": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "-55\u2103~+155\u2103 100mW 1k\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C21190",
+  "model": "0603WAF1001T5E",
+  "query": "1k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 36397114
+ },
+ "R|30.1k|0603|1%": {
+  "at": "2026-11-27",
+  "basic": false,
+  "describe": "-55\u2103~+155\u2103 100mW 30.1k\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C137745",
+  "model": "RC0603FR-0730K1L",
+  "query": "30.1k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 383254
+ },
+ "R|31.6k|0603|1%": {
+  "at": "2026-11-27",
+  "basic": false,
+  "describe": "-55\u2103~+155\u2103 100mW 31.6k\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C2933196",
+  "model": "FRC0603F3162TS",
+  "query": "31.6k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 201781
+ },
+ "R|4.7M|0603|1%": {
+  "at": "2026-11-27",
+  "basic": false,
+  "describe": "-55\u2103~+155\u2103 100mW 4.7M\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C2930153",
+  "model": "FRC0603F4704TS",
+  "query": "4.7M\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 603097
+ },
+ "R|4.7k|0603|1%": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "-55\u2103~+155\u2103 100mW 4.7k\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C23162",
+  "model": "0603WAF4701T5E",
+  "query": "4.7k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 17690473
+ },
+ "R|40.2k|0603|1%": {
+  "at": "2026-11-27",
+  "basic": false,
+  "describe": "-55\u2103~+155\u2103 100mW 40.2k\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C2933218",
+  "model": "FRC0603F4022TS",
+  "query": "40.2k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 781518
+ },
+ "R|470|0603|1%": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "-55\u2103~+155\u2103 100mW 470\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C23179",
+  "model": "0603WAF4700T5E",
+  "query": "470\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 3987331
+ },
+ "R|470|1206|1%": {
+  "at": "2026-11-27",
+  "basic": false,
+  "describe": "-55\u2103~+155\u2103 200V 250mW 470\u03a9 Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 1206 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C114945",
+  "model": "RC1206FR-07470RL",
+  "query": "470\u03a9 1206 1%",
+  "spec": "1206",
+  "stock": 652467
+ },
+ "R|49.9k|0603|1%": {
+  "at": "2026-11-27",
+  "basic": true,
+  "describe": "-55\u2103~+155\u2103 100mW 49.9k\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C23184",
+  "model": "0603WAF4992T5E",
+  "query": "49.9k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 1234184
+ },
+ "R|8.2M|0603|1%": {
+  "at": "2026-11-27",
+  "basic": false,
+  "describe": "-55\u2103~+155\u2103 100mW 75V 8.2M\u03a9 Thick Film Resistor \u00b11% 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C49653761",
+  "model": "GR0603F8M2T5G00",
+  "query": "8.2M\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 4875
+ },
+ "R|976k|0603|1%": {
+  "at": "2026-11-27",
+  "basic": false,
+  "describe": "-55\u2103~+155\u2103 100mW 75V 976k\u03a9 Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C2933270",
+  "model": "FRC0603F9763TS",
+  "query": "976k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 20764
+ }
+}

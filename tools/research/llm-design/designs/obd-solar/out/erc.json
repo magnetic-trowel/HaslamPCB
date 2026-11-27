@@ -1,0 +1,61 @@
+{
+  "$schema": "https://schemas.kicad.org/erc.v1.json",
+  "coordinate_units": "mm",
+  "ignored_checks": [
+    {
+      "description": "Global label only appears once in the schematic",
+      "key": "single_global_label"
+    },
+    {
+      "description": "Four connection points are joined together",
+      "key": "four_way_junction"
+    },
+    {
+      "description": "SPICE model issue",
+      "key": "simulation_model_issue"
+    },
+    {
+      "description": "Assigned footprint doesn't match footprint filters",
+      "key": "footprint_filter"
+    }
+  ],
+  "included_severities": [
+    "error",
+    "warning",
+    "exclusion"
+  ],
+  "kicad_version": "10.0.8",
+  "sheets": [
+    {
+      "path": "/",
+      "uuid_path": "/c6666017-bb10-51b9-abfd-400d7115b26d",
+      "violations": []
+    },
+    {
+      "path": "/IN/",
+      "uuid_path": "/c6666017-bb10-51b9-abfd-400d7115b26d/ee6d976f-80ad-544f-9b94-e53f5b846cb6",
+      "violations": []
+    },
+    {
+      "path": "/CHG/",
+      "uuid_path": "/c6666017-bb10-51b9-abfd-400d7115b26d/52b37500-09d2-55e9-a091-9fab454e50bf",
+      "violations": []
+    },
+    {
+      "path": "/BLK/",
+      "uuid_path": "/c6666017-bb10-51b9-abfd-400d7115b26d/d5e3964b-85b0-54e2-8016-cc85652066e7",
+      "violations": []
+    },
+    {
+      "path": "/USB/",
+      "uuid_path": "/c6666017-bb10-51b9-abfd-400d7115b26d/518f765f-b6a1-5113-bbf6-3942e3d266e8",
+      "violations": []
+    },
+    {
+      "path": "/CTL/",
+      "uuid_path": "/c6666017-bb10-51b9-abfd-400d7115b26d/df4d0236-b02e-525f-8883-da9f74081126",
+      "violations": []
+    }
+  ],
+  "source": "obd-solar.kicad_sch"
+}

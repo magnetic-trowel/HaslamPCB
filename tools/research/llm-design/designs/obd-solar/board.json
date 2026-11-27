@@ -1,0 +1,12 @@
+{
+  "outline": [80, 55],
+  "holes": [[3.5, 3.5], [76.5, 3.5], [3.5, 51.5], [76.5, 51.5]],
+  "fixed": {
+    "J101": {"x": 5.2, "y": 17.0, "rot": 90, "note": "OBD pigtail terminal, wire entry facing the west edge"},
+    "J201": {"x": 5.2, "y": 36.0, "rot": 90, "note": "panel terminal, wire entry facing the west edge"},
+    "J301": {"x": 76.0, "y": 27.5, "rot": 90, "note": "USB-C, mating face at the east edge"},
+    "J401": {"x": 40.0, "y": 52.0, "rot": 90, "note": "SWD pads (DNP), south edge"}
+  },
+  "zones": [{"net": "GND", "layer": "B.Cu", "name": "GND_B"}, {"net": "GND", "layer": "F.Cu", "name": "GND_F"}],
+  "seed_area": [12, 6, 70, 48]
+}
