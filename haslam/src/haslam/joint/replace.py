@@ -24,6 +24,9 @@ The placer's own machinery does the work (haslam.place: Problem, State, make_ann
    the routing history added as RUDY demand (penalty.history_hook, the placer's cong_history
    hook), for a fixed number of
    moves.
+   The board's intent relations hold here as in the placer: pairwise ones are the relation term, and a
+   required region is a hard keep-in for its members in the window (Problem.set_keep_in), so a window
+   never moves a member out of it (parts a required near pinned are locked by the loop, as edge pins).
 4. Legality is hard: grid legality (routing margin and routing bumps dropped if they are
    what is illegal, then the greedy legalizer), then the placer's exact closed loop scoped
    to the window's parts (exact.repair(allowed=window parts)), as haslam.place.pipeline
@@ -164,6 +167,9 @@ def replace_window(board, window, brief, history=None, seed=0, time_s=20.0, term
             if rel_rules:
                 rel_kw = dict(relations=rel_rules, w_rel=1.0)
                 rep["relations"] = dict(rules=len(rel_rules))
+            kin = P.set_keep_in(bun.keep_in(P)) if bun.kin else []
+            if kin:
+                rep.setdefault("relations", {})["keep_in"] = sorted(P.parts[i].ref for i in kin)
     hist_rep = dict(applied=False)
     hook = history_hook(P, history, scale=history_scale, window=window.rect, report=hist_rep)
     ann = make_annealer(P, st.copy(), terms=terms, seed=seed, w_phys=float(phys_mult) if terms is not None else 0.0,

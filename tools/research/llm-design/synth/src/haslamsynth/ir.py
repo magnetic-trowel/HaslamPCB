@@ -111,6 +111,9 @@ class Ratings:
     polarity: tuple = None         # (positive pin, negative pin) for polarized parts
     t_min: float = None
     t_max: float = None
+    # a clamp (Zener): (Vz min, Vz max). It conducts at its breakdown by design, so its check is the clamp power
+    # Vz max x i_through against p_max, not the net envelope against a blocking rating (lib.Zener)
+    v_clamp: tuple = None
 
 
 CATEGORIES = ("resistor", "capacitor", "capacitor_ceramic", "capacitor_electrolytic", "capacitor_film",
@@ -435,6 +438,15 @@ class Calc:
     limit: float = None
     op: str = "<="              # value <op> limit must hold
     severity: str = "error"
+    board: object = None        # f(measurements) or f(measurements, as-built calcs): the value on the laid-out board
+
+
+@dataclass
+class Measure:
+    """A board measurement `haslamsynth check-board` takes on the laid-out board (haslamsynth.boardcheck)."""
+    name: str
+    kind: str                   # tracks_crossing | copper_area
+    args: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -543,6 +555,8 @@ class Design:
         self.hazards = []
         self.calcs = []
         self.waivers = []
+        self.v_rels = []             # (net a, net b, lo, hi, why): V(a) - V(b) in [lo, hi] (Design.v_rel)
+        self.measures = {}           # name -> Measure (Design.measure; haslamsynth check-board)
         self.derating = dict(DEFAULT_DERATING)
         self.boards = {}             # name -> BoardSpec, in declaration order
         from .placement import Placement
@@ -605,10 +619,36 @@ class Design:
     def hazard(self, id, text, mitigation, parts=(), **kw):
         self.hazards.append(Hazard(id, text, mitigation, list(parts), **kw))
 
-    def calc(self, name, value, unit="", expr="", note="", limit=None, op="<=", severity="error"):
-        c = Calc(name, value, unit, expr, note, limit, op, severity)
+    def calc(self, name, value, unit="", expr="", note="", limit=None, op="<=", severity="error", board=None):
+        """A calculation (checked against `limit` at build). `board`: the same calculation from measurements of the
+        laid-out board, f(m) or f(m, calcs) (m: {measure name: result}, calcs: as-built values of the calcs
+        before), which `haslamsynth check-board` re-evaluates (haslamsynth.boardcheck)."""
+        c = Calc(name, value, unit, expr, note, limit, op, severity, board)
         self.calcs.append(c)
         return value
+
+    def measure(self, name, kind, **args):
+        """Name a board measurement for calc(..., board=): kind "tracks_crossing" (barrier="NAME" | line=((x0, y0),
+        (x1, y1)), nets=, layers=) or "copper_area" (area="NAME" | rect=(x0, y0, x1, y1), nets=, layers=)."""
+        from .boardcheck import KINDS
+        if kind not in KINDS:
+            raise DesignError(f"measure {name}: kind {kind!r} not in {KINDS}")
+        if name in self.measures:
+            raise DesignError(f"duplicate measure {name}")
+        self.measures[name] = Measure(name, kind, args)
+        return name
+
+    def v_rel(self, a, b, lo, hi, why):
+        """State that V(a) - V(b) always lies in [lo, hi] volts: a correlation the per-net intervals cannot hold
+        (a reverse-polarity FET's drain and source move together; a gate is either at its source or clamped).
+        Every check that takes the difference of the two nets (ratings, spacing) uses the intersection with the
+        interval sum. `why` is required: it stands where a waiver would have stood."""
+        if not why:
+            raise DesignError(f"v_rel({a}, {b}): say why the two nets are tied")
+        if lo > hi:
+            raise DesignError(f"v_rel({a}, {b}): lo {lo} > hi {hi}")
+        name = lambda n: n.full_name if isinstance(n, Net) else str(n)
+        self.v_rels.append((name(a), name(b), float(lo), float(hi), why))
 
     def waive(self, check, match, reason, by="designer"):
         self.waivers.append(Waiver(check, match, reason, by))

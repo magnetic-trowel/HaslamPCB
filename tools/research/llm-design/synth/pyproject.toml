@@ -11,7 +11,7 @@ description = "Design synthesis: typed circuit IR to checked KiCad schematics an
 readme = "README.md"
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
-dependencies = []
+dependencies = ["shapely>=2"]     # check-board reads boards with haslam.board.kicad_file (haslam/src on PYTHONPATH)
 
 [project.optional-dependencies]
 test = ["pytest>=7"]

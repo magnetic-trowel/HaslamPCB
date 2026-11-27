@@ -79,7 +79,7 @@ def quote_cells(path, intent=None, pitch=PITCH, nsub=2, skin=True, drc=None, max
     b.stackup, _, _ = assume_stackup(b)
     brief = B.build(b)
     bd = M.build(b, brief)
-    srcs = S.add_all(bd, brief)
+    srcs = S.add_all(bd, brief, intent=intent)
     cells = [s for s in srcs if s.kind == "cell" and (only is None or s.meta.get("cell") in set(only))]
     if not cells:
         return []

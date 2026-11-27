@@ -44,6 +44,7 @@ ROTS = (0.0, 90.0, 180.0, 270.0)
 COURTYARD_EXCESS = 0.25   # mm around pads for footprints that draw no courtyard
 GRID_LADDER = (0.025, 0.05, 0.1, 0.2, 0.25)
 EPS = 1e-6
+KEEP_IN_TOL = 0.05   # mm a courtyard may cross its hard keep-in's edge (rounding only; relations.REGION_TOL_MM)
 # Placement legality profile (haslam-exact-legality.md, "Severities"). FIXED_ERROR_CHECKS are errors
 # whatever the board's project says: a part that collides, sits on another net's copper, crowds
 # the board edge or enters a rule area is a defect on any board (DFM-01/02 in dfm-fab-limits.md).
@@ -590,6 +591,8 @@ class Problem:
         self.sat_out = None         # summed-area table of cells NOT inside, shape (ncx+1, ncy+1)
         self.cover = []             # grid rects (i0, i1, j0, j1) inside the outline, overlapping
         self.held = set()
+        self.kin, self.kin_tabs, self.kin_cover, self.kin_names, self.kin_ok = {}, [], [], [], []   # set_keep_in
+        self.kin_geom = []
         self.clearance = 0.0
         self.edge_clearance = 0.0
         self.notes = []
@@ -1372,6 +1375,80 @@ class Problem:
 
     def outside_cells_all(self, X, Y, grs):
         return sum(self.outside_cells(X, Y, gr) for gr in grs)
+
+    # ------------------------------------------------------------------ keep-ins (hard regions)
+    def set_keep_in(self, regions, tol=KEEP_IN_TOL):
+        """Hard keep-ins: {part index: (shapely geometry, name)} (an intent's required regions,
+        haslam.place.relations.Bundle.keep_in). A movable part's courtyard box (the drawn courtyard,
+        else its body, at each rotation; Rot.g_kin) must lie in its geometry grown by `tol` mm, which
+        only absorbs courtyard rounding. Every stage that moves parts reads it as the outline: the grid
+        verdict (state.grid_violations reason 'region'), both annealers' legality term, the greedy
+        legalizer, the CP-SAT floorplan and windows (cpsat.allowed_boxes), the exact repair's
+        candidates and the repack. Parts with a keep-in swap only with parts of the same one
+        (shape_key). Returns the parts it applies to; {} clears every keep-in."""
+        self.kin, self.kin_tabs, self.kin_cover, self.kin_names, self.kin_ok = {}, [], [], [], []
+        self.kin_geom = []
+        self.__dict__.pop("_kin_both", None)
+        g = self.g
+        cx = self.ox + (np.arange(self.ncx) + 0.5) * g
+        cy = self.oy + (np.arange(self.ncy) + 0.5) * g
+        XX, YY = np.meshgrid(cx, cy, indexing="ij")
+        by_geom = {}
+        for i, (geom, name) in sorted(regions.items()):
+            p = self.parts[i]
+            if not p.movable or geom is None or geom.is_empty:
+                continue
+            key = geom.wkb
+            if key not in by_geom:
+                # a cell is allowed when its whole square is inside (the outline's rule, _domain)
+                shrunk = geom.buffer(tol - g * 0.70711, join_style="mitre")
+                ok = np.zeros((self.ncx, self.ncy), bool) if shrunk.is_empty else shapely.contains_xy(shrunk, XX, YY)
+                by_geom[key] = len(self.kin_tabs)
+                self.kin_tabs.append(sat(~ok))
+                self.kin_ok.append(ok)
+                self.kin_geom.append(geom.buffer(tol, join_style="mitre"))
+                self.kin_cover.append(cover_rects(ok, max_rects=16))
+                self.kin_names.append(name)
+            t = by_geom[key]
+            self.kin[i] = t
+            fp = p.fp
+            lib = polys_lib_rect(fp.courtyard or fp.body) or p._lib["crt"]
+            for r in p.rots:
+                r.kin_mm = rot_rect(lib, r.rot, p.s)
+                r.g_kin = to_grid(r.kin_mm, g)
+            # interchangeable only with parts of the same keep-in (swaps: crossings, the annealers)
+            p.shape_key = tuple(p.shape_key[:5]) + (("kin", t),)
+        for p in self.parts:
+            if p.i not in self.kin and len(p.shape_key) > 5:
+                p.shape_key = tuple(p.shape_key[:5])
+        return sorted(self.kin)
+
+    def kin_of(self, i):
+        """(SAT of the cells part i's keep-in forbids, cover rects) or None."""
+        t = getattr(self, "kin", {}).get(i)
+        return None if t is None else (self.kin_tabs[t], self.kin_cover[t])
+
+    def kin_sat_in_outline(self, i):
+        """SAT of the cells outside the outline or outside part i's keep-in (for kernels that test every
+        rect against one table: conservative, the board rects then stay in the keep-in too)."""
+        t = self.kin[i]
+        cache = self.__dict__.setdefault("_kin_both", {})
+        if t not in cache:
+            cache[t] = sat(~(self.inside & self.kin_ok[t]))
+        return cache[t]
+
+    def region_cells(self, i, X, Y, k):
+        """Grid cells of part i's courtyard box at origin (X, Y), rotation k, outside its keep-in (0 without one)."""
+        t = getattr(self, "kin", {}).get(i)
+        if t is None:
+            return 0
+        a, b, c, d = self.parts[i].rots[k].g_kin
+        return sat_query(self.kin_tabs[t], X + a, X + b, Y + c, Y + d, self.ncx, self.ncy)
+
+    def part_outside(self, i, X, Y, k):
+        """Cells of part i (origin X, Y, rotation k) outside the outline plus outside its keep-in."""
+        r = self.parts[i].rots[k]
+        return self.outside_cells_all(X, Y, r.g_boards or (r.g_board,)) + self.region_cells(i, X, Y, k)
 
     def summary(self):
         mov = [p for p in self.parts if p.movable]

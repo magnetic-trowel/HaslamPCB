@@ -21,6 +21,16 @@ HASLAM_HOME = Path(os.environ.get("HASLAM_HOME", Path.home() / ".cache" / "hasla
 # Violation types that depend on the local library setup, not on the board.
 ENV_DEPENDENT_CHECKS = ("lib_footprint_issues", "lib_footprint_mismatch")
 
+# KiCad versions the docs, the DRC-rule checker's drift tests (haslam/tests/test_board_dru_check.py) and the
+# container image were checked on; `haslambench doctor` warns on any other. Add a version here only after
+# those tests pass on it (10.0.8: 60 passed, 1 skipped, bme280-array FRICTION F20).
+KICAD_TESTED_VERSIONS = ("10.0.7", "10.0.8")   # the design flow (docs, DRU drift tests) was checked on these
+# Benchmark comparability: the stored baselines (control-w48) ran on this KiCad and this Freerouting fork
+# (tools/haslamres/experiments/control-tag.sh: FORK=37b1a8b). Results from a host with another KiCad or fork are not
+# comparable with them (DRC differs between KiCad versions); doctor warns. Update both when a new control is frozen.
+BASELINE_KICAD = "10.0.7"
+CONTROL_FORK = "37b1a8b"
+
 
 class ToolError(RuntimeError):
     pass
@@ -358,20 +368,32 @@ def freerouting_cmd():
 
 
 def freerouting_identity(cmd):
-    """{path, sha256} of the program a Freerouting command runs (the jar of a native bundle, else
-    the file itself), for the run's records; {} when it cannot be read."""
+    """{path, file, sha256, source_commit} of the program a Freerouting command runs (the jar of a native bundle, else
+    the file itself), for the run's records; {} when it cannot be read. `source_commit` (the fork's short commit, from
+    the bundle's VERSION written by install_freerouting_fork.sh, else its haslam-freerouting-fork-<sha> folder name;
+    None for other builds) identifies the control: jars built from one commit differ byte-wise (the build date is
+    embedded), so `sha256` differs between hosts for the same control and is information only (FRICTION F63)."""
     path = Path(cmd[-1] if cmd[:2] == ["java", "-jar"] else cmd[0])
     target = path
     if not str(path).endswith(".jar"):
         jars = sorted(path.resolve().parent.parent.glob("lib/**/*.jar"))
         if jars:
             target = jars[0]
+    commit = None
+    for d in (path.resolve().parent.parent, path.resolve().parent):
+        v = d / "VERSION"
+        if v.is_file():
+            commit = (v.read_text(errors="replace").split() or [None])[0]
+            break
+    if commit is None:
+        m = re.search(r"haslam-freerouting-fork-([0-9a-f]{7,40})", str(path))
+        commit = m.group(1) if m else None
     try:
         h = hashlib.sha256()
         with open(target, "rb") as f:
             for block in iter(lambda: f.read(1 << 20), b""):
                 h.update(block)
-        return dict(path=str(path), file=str(target), sha256=h.hexdigest())
+        return dict(path=str(path), file=str(target), sha256=h.hexdigest(), source_commit=commit)
     except OSError:
         return {}
 

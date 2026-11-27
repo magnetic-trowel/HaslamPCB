@@ -97,7 +97,7 @@ def evaluate(path, pitch=0.25, nsub=2, intent=None, n_corners=16, seed=0, log=pr
     b = load(path)
     brief = B.build(b, facts=intent or None)
     bd = M.build(b, brief)
-    srcs = S.add_all(bd, brief)
+    srcs = S.add_all(bd, brief, intent=intent)
     obs = O.observers(bd, brief, srcs)
     P, ledger = ledger_for(bd, brief, srcs, intent)
     O.rate_overshoot(obs, P)

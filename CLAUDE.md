@@ -8,6 +8,8 @@ CC-BY-4.0 (see `LICENSING.md`). New source files carry SPDX headers.
 - Look up a term with `grep -i '<term>' docs/SUBJECTS.md` (idea ids: `grep -w XD113 docs/IDS.md`)
   and open only the linked section; otherwise start at `docs/INDEX.md`. Don't bulk-read
   `research_notes/`; it is raw evidence cited by the topic docs.
+- Designing a board (design.py, intent files): read `docs/topics/workflow/layout-intent-from-datasheets.md` (one page) before writing placement relations:
+  datasheet layout numbers are physics proxies; give haslam facts, not distances.
 - When writing docs, follow `docs/CONVENTIONS.md`: reference-text style (formulas, tables,
   numbered facts), each fact once with links elsewhere, `Scope:`/`Keys:` header lines.
   Re-run `python3 tools/docs/subjects.py` after editing docs.
@@ -50,6 +52,8 @@ haslambench report haslam-work/results/<run> haslam-work/results/<baseline-run>
 - Per-attempt artifacts: `haslam-work/results/<run>/<adapter>/<kind>/<id>/attempt-N/`
   (`attempt.json`, `adapter.log`, `score/drc.json`).
 - Long or heavy jobs on the shared host go through the `haslamq` queue (`tools/haslamq/README.md`), never run directly.
+  In an isolated container (no shared host, no `haslamq`, e.g. a fresh cloud session) run them directly as one
+  background command sized to the CPUs, and wait for its exit notification instead of polling.
   Results of every method on every board, with the code that made them: `tools/haslamres/README.md` (`~/haslam-baselines/boards/<id>/runs/`).
 - New methods plug in with `--command` (reads `{input}`, writes `{output}`) or a class in
   `bench/src/haslambench/adapters.py`.
@@ -88,3 +92,9 @@ Every experiment runs on the sprint suites first; details: `docs/topics/verifica
 - A router's own log is not a score; only `kicad-cli` on the re-opened board counts.
 - `haslam-work/` is git-ignored. Commit code, manifests, suites and summarized results,
   never boards (third-party licences).
+- A haslam change made while fixing one design must be neutral for every other board: A/B it (before/after code,
+  `HASLAM_BUDGET=work`, same seeds) on boards without that design's intent file, and explain every difference.
+- Decoupling placement is physics-driven: never promote a stated decap distance over the physics terms
+  (`docs/topics/placement/llm-relations.md`); only an explicit `strength: required` pins a part.
+- Sub-agents that fix code start from the session's working branch (`git reset --hard <branch>` in a fresh worktree),
+  not `main`, and each owns a disjoint set of files.

@@ -104,6 +104,22 @@ class HaslamStages:
         self.writer_hz = []              # hazards of KiCad's writer, one list over every pose write
         self.place_hz = {}               # placement hazards for the caller, one per code (input_locked_errors)
         self.edge_parts = set()
+        self.relations = None            # the intent's relations as placement compiled them (relations_status)
+        self.relations_defaults = None
+        self.relations_error = None
+
+    def relations_status(self, board_path):
+        """The intent's relations measured on a written board (haslam.place.relations.Bundle.status, the oracle
+        `haslam place` reports), or None when the board's intent file has none. A run that did not place (a
+        given start) compiles them from the brief on the input board."""
+        if self.relations is None:
+            from haslam.place.relations import from_brief
+            board = self._load(self.input)
+            self.relations, err = from_brief(board, self._ensure_brief(board), str(self.input), self.opts)
+            self.relations_error = self.relations_error or err
+            if self.relations is None:
+                return None
+        return self.relations.status(self._load(board_path), defaults=self.relations_defaults)
 
     # ------------------------------------------------------------------ helpers
     def _path(self, it, name):
@@ -172,11 +188,18 @@ class HaslamStages:
         self.locked |= set((rep.get("edge_pinned") or {}).get("uuids") or ())
         # big parts fixed before the seed (place.pipeline._anchor_tight_parts) stay there too
         self.locked |= set((rep.get("anchored") or {}).get("uuids") or ())
+        # and parts a required near placed at their fixed pin (place.pipeline._pin_near)
+        self.locked |= set((rep.get("near_pinned") or {}).get("uuids") or ())
+        # the intent's relations as placement compiled them: the loop's report measures them on its output
+        self.relations = getattr(res, "relations", None)
+        self.relations_defaults = (rep.get("relations_applied") or {}).get("defaults")
+        self.relations_error = rep.get("relations_error")
         legal = bool(rep.get("legal_grid") and not rep.get("exact") and not rep.get("outline_incomplete"))
         b = self._load(out)
         info = dict(place=dict(seconds=round(clock_now() - t0, 1), legal=legal, hpwl=rep.get("hpwl"),
                                scorecard=(rep.get("scorecard") or {}).get("total"), budget_s=rep.get("budget_s"),
                                crossings=rep.get("crossings"), untangle=rep.get("untangle"),
+                               hpwl_outliers=rep.get("hpwl_outliers"),
                                input_locked_errors=rep.get("input_locked_errors"),
                                channel=rep.get("channel_term"),
                                stops=place_stops(rep)))

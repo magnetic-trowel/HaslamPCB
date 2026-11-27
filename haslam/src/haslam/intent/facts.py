@@ -15,7 +15,8 @@ project carries it (INTENT_EXT is in haslam.board.project.PROJECT_EXTS) and the 
       "requirements": {"thermal": {"T_amb_C": [-20, 60]}}
     }
 
-A value is a number, [lo, hi] (typical: their geometric mean) or [lo, typ, hi]. `apply(brief, facts)` writes them into the brief (haslam.brief/1) before any
+A value is a number, [lo, hi] (typical: their geometric mean) or [lo, typ, hi], read by `interval` (every reader
+of the facts goes through it). `apply(brief, facts)` writes them into the brief (haslam.brief/1) before any
 consumer reads it, so the placer's physics terms, the joint loop's recheck, the functional evaluator, the
 router and the default testbench all start from the same operating points:
 
@@ -53,6 +54,10 @@ DEPRECATED_CELL_KEYS = {"V_max_V": "v_sw_max_V"}
 # a controller's facts that are its cells' too. Not I_A: parts.<ref>.I_A is the part's own supply draw
 # (haslam.excite.dc's load current, the operating facts' "load current"), not the current its cells commutate
 PART_CELL_KEYS = ("f_sw_Hz", "t_i_s", "v_sw_max_V")
+# a part's transient core source (haslam.excite.params.generic, sources.add_all): core false (none: a passive
+# switch), else its current step on each supply rail, the step's edge and its repetition
+# (docs/topics/workflow/intent-file-fields.md#a4b-core-sources-partsrefcore)
+PART_CORE_KEYS = ("core", "core_I_A", "core_t_s", "core_f_Hz")
 # a part's current per rail, {rail net: value} (haslam.excite.dc, heat): a connector's exports to a board that
 # draws its rails unequally; the rails it does not name share parts.<ref>.I_A / I_sustained_A by supply pads
 PART_BY_RAIL_KEYS = ("I_A_by_rail", "I_sustained_A_by_rail")
@@ -195,6 +200,12 @@ def check_facts(f):
             raise FactsError(f"facts.requirements.{k}: a limit is one number, not {req[k]!r}")
     normalize(f)                                 # a deprecated key that disagrees with its replacement
     for ref, d in (f.get("parts") or {}).items():
+        if "core" in d and not isinstance(d["core"], bool):
+            raise FactsError(f"facts.parts.{ref}.core: true or false (false: the part has no clocked core source)")
+        for k in PART_CORE_KEYS[1:]:
+            lo = interval(d[k], f"facts.parts.{ref}.{k}")[1] if k in d else 1.0
+            if lo < 0 or lo == 0 and k != "core_I_A":
+                raise FactsError(f"facts.parts.{ref}.{k}: must be positive (core_I_A may be 0), not {d[k]!r}")
         for k, v in d.items():
             if k in PART_BY_RAIL_KEYS:
                 # a part's current on each of its rails on its own (a connector's exports): {rail: value}
@@ -229,7 +240,7 @@ def apply(brief, facts, origin="intent"):
         if "V_V" in d:
             before[name] = n.get("volts")
             v = float(d["V_V"])
-            lo, hi = _interval(d.get("range_V", v), name)[1:]
+            lo, hi = interval(d.get("range_V", v), name)[1:]
             rec["applied"].append(dict(what=f"nets.{name}.volts", value=v, was=n.get("volts")))
             n["volts"] = v
             n["volts_belief"] = {"value": v, "unit": "V", "exactness": "E4", "relative_to": f"{origin}: nets.{name}",
@@ -276,7 +287,7 @@ def apply(brief, facts, origin="intent"):
                                   ("t_i_s", "t_sw_ns", 1e9), ("v_sw_max_V", "V_abs", 1.0)):
             if key not in merged:
                 continue
-            typ, lo, hi = _interval(merged[key], f"{s['id']}.{key}")
+            typ, lo, hi = interval(merged[key], f"{s['id']}.{key}")
             if key == "v_sw_max_V":
                 typ = lo                     # a rating: the lowest stated value
             rec["applied"].append(dict(what=f"{s['id']}.excite.{field}", value=typ * scale, was=ex.get(field),
@@ -450,7 +461,7 @@ def _loss(m, ref, cells, nets, fn, fp, touched, fc=None):
         vo = volts(m.get("vout")) if m.get("vout") else m.get("vout_V")
         if not vi or vo is None:
             return None
-        I, ilo, ihi = _interval(iv, f"nets.{m['vout']}.I_A") if iv is not None else (m["I_A"], m["I_A"] / 3, m["I_A"] * 3)
+        I, ilo, ihi = interval(iv, f"nets.{m['vout']}.I_A") if iv is not None else (m["I_A"], m["I_A"] / 3, m["I_A"] * 3)
         d = max(abs(vi) - abs(vo), 0.0)
         return d * I, d * ilo, d * ihi, f"(Vin {abs(vi):g} - Vout {abs(vo):g}) V x {I:g} A", used
     return None

@@ -95,6 +95,8 @@ def run(a):
         loop = JointLoop(stages, opts={k: v for k, v in lopts.items() if k in _loop_keys()}, log=_log)
         rep = loop.run(out, time_s=a.time, seed=a.seed, start=a.start)
         rep["status"] = "ok" if out.exists() else "no_output"
+        if out.exists():
+            _relations(rep, stages, out)
         from haslam.route.constraints import setting
         if out.exists() and int(setting("connector_edge", a.input, opts)) >= 1:
             _edge_hazards(rep, a.input, out)
@@ -128,6 +130,30 @@ def run(a):
         Path(a.report).write_text(text + "\n")
     print(text, flush=True)
     return 0 if rep.get("status") in ("ok", "partial") else 2
+
+
+def _relations(rep, stages, out):
+    """The intent's relations measured on the written board, as `haslam place` reports them (F24): the
+    report's "relations" (rows, summary, conflicts), their hazards, and one log line."""
+    if getattr(stages, "relations_error", None):
+        rep.setdefault("hazards", []).append(dict(
+            code="relation_check_failed", severity="warn", category="data",
+            message=f"the board's intent file relations were not applied: {stages.relations_error}",
+            objects=[], fix="fix the names in the intent file (the message lists what exists)"))
+    try:
+        st = stages.relations_status(out)
+    except Exception as e:      # noqa: BLE001 - a report section; never lose the board
+        rep.setdefault("hazards", []).append(dict(
+            code="relation_check_failed", severity="warn", category="data",
+            message=f"the relations could not be measured on the written board ({type(e).__name__}: {e})",
+            objects=[], fix="report it; the board itself is written"))
+        return
+    if st is None:
+        return
+    rep.setdefault("hazards", []).extend(st.pop("hazards"))
+    rep["relations"] = st
+    sm = st["summary"]
+    _log(f"relations: {sm['met']} of {sm['n']} met; unmet {sm['unmet'][:8]}; conflicts {sm['conflicts'][:8]}")
 
 
 def _mtime(p):

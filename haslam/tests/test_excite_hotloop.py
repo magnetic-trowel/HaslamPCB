@@ -501,3 +501,13 @@ def test_the_edge_model_drops_only_capacitor_parts_capacitance():
     w = 2 * 3.141592653589793 * 10e6
     assert e.elems[0].z(w) == pytest.approx(0.005 + 1j * w * 0.5e-9)
     assert e.elems[1].z(w) == c.elems[1].z(w) and c.elems[0].z(w).imag < 0
+
+
+def test_the_own_parts_window_is_opt_in(monkeypatch):
+    """Review of e360ef7: the window trimmed to a cell's own parts is off by default (main's window) until a corpus
+    A/B shows L_loop unbiased; HASLAM_HOTLOOP_OWN_WINDOW=1 turns it on."""
+    from haslam.excite import hotloop as HL
+    monkeypatch.delenv("HASLAM_HOTLOOP_OWN_WINDOW", raising=False)
+    assert HL._own_window_default() is False
+    monkeypatch.setenv("HASLAM_HOTLOOP_OWN_WINDOW", "1")
+    assert HL._own_window_default() is True

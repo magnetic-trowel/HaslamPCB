@@ -135,12 +135,9 @@ def lookup(text):
     if e is None:
         return {}
     out = {}
+    from haslam.intent.facts import interval
     for k, v in e.get("data", {}).items():
-        if isinstance(v, list):
-            lo, hi = float(v[0]), float(v[-1])
-            out[k] = (math.sqrt(lo * hi) if lo > 0 else (lo + hi) / 2, lo, hi, e.get("source", ""))
-        else:
-            out[k] = (float(v), float(v), float(v), e.get("source", ""))
+        out[k] = (*interval(v, f"parts.json {e.get('match')}: {k}"), e.get("source", ""))
     return out
 
 

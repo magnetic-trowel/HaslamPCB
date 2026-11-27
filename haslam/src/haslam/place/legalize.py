@@ -29,7 +29,6 @@ from shapely.geometry import LineString, Point, Polygon
 
 from haslam.board import transform
 
-from . import cpsat
 from .problem import is_drilled
 from .state import grid_violations
 
@@ -91,6 +90,7 @@ def _rigid_ok(P, st, members):
 def _block(P, st, members):
     """cpsat.Item moving `members` together at their current offsets and rotations (one
     variant), anchored on the largest; displacement weighs as many parts as it holds."""
+    from . import cpsat      # ortools loads on use: pad_shape/courtyard import without it
     a = max(members, key=lambda i: (P.parts[i].area, -i))
     X0, Y0 = int(st.X[a]), int(st.Y[a])
     v = {i: (int(st.X[i]) - X0, int(st.Y[i]) - Y0, int(st.K[i])) for i in members}
@@ -125,6 +125,7 @@ def _window_solve(P, st, free, margin_cells, time_s, workers, seed, w_rot=1.0, b
     window must cover (a violator's escape pose). `phys(state) -> float`: when the window is
     solved to optimality, the tie-break among its equal-displacement optima (`TIE_SOLUTIONS`
     of them); displacement stays the objective, physics only chooses between exact ties."""
+    from . import cpsat      # ortools loads on use: pad_shape/courtyard import without it
     g = P.g
     rects = [r for i in free for (_, r, _) in st.grid_rects(i)] + list(reach)
     wi0 = min(r[0] for r in rects) - margin_cells
@@ -224,6 +225,7 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
     2. Greedy: whatever is still illegal goes to the nearest free spot, largest first,
        evicting smaller parts when nothing is free nearby (`greedy`).
     3. Small boards only (<= GLOBAL_MAX parts): one CP-SAT model over every part."""
+    from . import cpsat      # ortools loads on use: pad_shape/courtyard import without it
     dl = Deadline(time_s)
     win = dl.part(window_share * time_s)
     rep = dict(rounds=0, windows=0, solved=0, global_used=False, start_violators=0)
@@ -259,7 +261,7 @@ def legalize(P, st, time_s=30.0, workers=2, seed=0, k=8, max_rounds=8, log=None,
             # reach: violators held by fixed geometry, and the parts around where they must go
             reach, near_t = [], []
             for b in gr:
-                if not any(r[0] in ("obstacle", "outline") for r in viol.get(b, ())):
+                if not any(r[0] in ("obstacle", "outline", "region") for r in viol.get(b, ())):
                     continue
                 if (b, int(st.X[b]), int(st.Y[b]), int(st.K[b])) not in escape:
                     escape[(b, int(st.X[b]), int(st.Y[b]), int(st.K[b]))] = _escape_rects(P, st, b)
@@ -379,8 +381,9 @@ def _free_origins(occ, rect, pad, xa, xb, ya, yb):
     return cnt == 0
 
 
-def _inside_origins(P, rect, xa, xb, ya, yb):
-    """Bool map over origins: the board rect lies inside the outline (and the grid)."""
+def _inside_origins(P, rect, xa, xb, ya, yb, S=None):
+    """Bool map over origins: the board rect lies inside the outline (and the grid); with S, the
+    summed-area table of another mask's forbidden cells (a keep-in, Problem.set_keep_in)."""
     a, b, c, d = rect
     nx, ny = xb - xa + 1, yb - ya + 1
     ok = np.zeros((nx, ny), dtype=bool)
@@ -389,13 +392,33 @@ def _inside_origins(P, rect, xa, xb, ya, yb):
     lo_y, hi_y = max(ya, -c), min(yb, P.ncy - d)
     if hi_x < lo_x or hi_y < lo_y:
         return ok
-    S = P.sat_out
+    S = P.sat_out if S is None else S
     X0, X1 = lo_x + a, hi_x + a
     Y0, Y1 = lo_y + c, hi_y + c
     w, h = b - a, d - c
     cnt = (S[X0 + w:X1 + w + 1, Y0 + h:Y1 + h + 1] - S[X0:X1 + 1, Y0 + h:Y1 + h + 1]
            - S[X0 + w:X1 + w + 1, Y0:Y1 + 1] + S[X0:X1 + 1, Y0:Y1 + 1])
     ok[lo_x - xa:hi_x - xa + 1, lo_y - ya:hi_y - ya + 1] = cnt == 0
+    return ok
+
+
+def _kin_of(P, i):
+    """Part i's hard keep-in (Problem.kin_of) or None; None for a stand-in problem without keep-ins."""
+    return P.kin_of(i) if hasattr(P, "kin_of") else None
+
+
+def _part_origins(P, i, k, xa, xb, ya, yb):
+    """Bool map over origins: part i at rotation k has its board rects inside the outline and its
+    courtyard box inside its hard keep-in, if it has one (Problem.set_keep_in)."""
+    r = P.parts[i].rots[k]
+    ok = np.ones((xb - xa + 1, yb - ya + 1), dtype=bool)
+    for brd in (r.g_boards or (r.g_board,)):
+        ok &= _inside_origins(P, brd, xa, xb, ya, yb)
+        if not ok.any():
+            return ok
+    kin = _kin_of(P, i)
+    if kin is not None:
+        ok &= _inside_origins(P, r.g_kin, xa, xb, ya, yb, S=kin[0])
     return ok
 
 
@@ -437,12 +460,8 @@ def _nearest_spot(P, p, X0, Y0, K0, occ, pad, w_rot, span, evict=None):
         passes = 0                          # window-sized array passes (the counted work)
         for k in ks:
             r = p.rots[k]
-            ok = np.ones((xb - xa + 1, yb - ya + 1), dtype=bool)
-            for brd in (r.g_boards or (r.g_board,)):
-                ok &= _inside_origins(P, brd, xa, xb, ya, yb)
-                passes += 1
-                if not ok.any():
-                    break
+            ok = _part_origins(P, p.i, k, xa, xb, ya, yb)
+            passes += len(r.g_boards or (r.g_board,)) + (_kin_of(P, p.i) is not None)
             if not ok.any():
                 continue
             for o in (r.g_own_rects or (r.g_own,)):
@@ -513,7 +532,8 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
 
     def spot(i, reach):
         p = P.parts[i]
-        if reach >= max_d:
+        if reach >= max_d or _kin_of(P, i) is not None:
+            # a part with a hard keep-in: the numpy search, which tests its courtyard box against the keep-in
             return _global_spot(i)
         ks, own, own_n, opp, opp_n, brd, brd_n = arrays(i)
         c, X, Y, k, n = FL.nearest_spot(S[0], S[1], SO, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1, int(st.X[i]),
@@ -536,10 +556,8 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
         best = None
         for k in FL.rotations_for_fit(p, K0):
             r = p.rots[k]
-            ok = np.ones((nx, ny), dtype=bool)
-            for brd in (r.g_boards or (r.g_board,)):
-                ok &= _inside_origins(P, brd, 0, nx - 1, 0, ny - 1)
-                passes += 1
+            ok = _part_origins(P, i, k, 0, nx - 1, 0, ny - 1)
+            passes += len(r.g_boards or (r.g_board,)) + (_kin_of(P, i) is not None)
             if not ok.any():
                 continue
             for side, rect in [(si, o) for o in (r.g_own_rects or (r.g_own,))] + [(1 - si, o) for o in r.g_opp]:
@@ -608,8 +626,13 @@ def _greedy_fast(P, st, parts, log, w_rot, ripup, max_ripups, dl, time_s=None):
         C = [sat(soft[0]), sat(soft[1])]
         charge("legal_cells", 4 * hard[0].size)
         ks, own, own_n, opp, opp_n, brd, brd_n = arrays(i)
+        SOi = SO
+        if _kin_of(P, i) is not None:
+            # a hard keep-in: every board rect and the courtyard box inside outline and keep-in (conservative)
+            SOi = P.kin_sat_in_outline(i)
+            brd, brd_n = FL.with_rects(brd, brd_n, [p.rots[k].g_kin for k in ks])
         E, E0, EB = FL.evict_arrays(ev)
-        c, X, Y, k, n, npair = FL.ripup_spot(H[0], H[1], C[0], C[1], SO, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1,
+        c, X, Y, k, n, npair = FL.ripup_spot(H[0], H[1], C[0], C[1], SOi, P.ncx, P.ncy, pad, 0 if p.s > 0 else 1,
                                              int(st.X[i]), int(st.Y[i]), ks.index(int(st.K[i])), float(w_rot), own,
                                              own_n, opp, opp_n, brd, brd_n, E, E0, EB, int(min(reach, max_d)))
         charge("legal_fit", n)
@@ -949,3 +972,4 @@ def _net_clr(P, net, cache):
     v = max(v, P.board.rules.clearance if P.board.rules else 0.0)
     cache[net] = v
     return v
+

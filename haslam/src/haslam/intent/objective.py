@@ -21,8 +21,8 @@ operating corner, each with its scope) are matched by the intent's terms:
 - contract: every term says why (a 'why' or a 'source'); a limit needs a rate (a bound nobody prices is a
   report term: rejected, not silently downgraded); a hard term takes no rate. A bound without a 'source' is
   marked `assumed` in its row and listed in status["assumed_limits"].
-- temperatures: °C (C, degC) is absolute against temp.junction and a rise against heat.track (IPC-2221's
-  "10 °C rise"); K is a rise only, rejected against an absolute temperature.
+- temperatures: °C (C, degC) is absolute against temp.junction and a rise against heat.track and temp.rise
+  (IPC-2221's "10 °C rise"); K is a rise only, rejected against an absolute temperature.
 - an observation the evaluator flags `implausible` (noise beyond half its rail) is priced at that cap (its
   values clipped to it), the same for every layout: left unpriced, it let the worse of two layouts escape
   its term whenever only that one crossed the cap. The status lists them under "implausible", with the reason.
@@ -95,6 +95,8 @@ KINDS = {
                     "in the board's stackup) charged through the switch every cycle, 1/2 C V^2 f_sw."),
     "temp.junction": ("C", "A dissipating part's junction temperature: the board's heat flow (copper I^2 R, every "
                       "part's heat, face cooling) at its pads plus theta_jb times its power, at each corner."),
+    "temp.rise": ("K", "The same junction's rise above the corner's ambient (temp.junction - T_amb): a bound that must "
+                  "hold at every ambient, e.g. a sensor's self-heating error ('max': '10 mK', where part)."),
     "emission.cable_E": ("dBuV/m", "Field at 10 m from a declared cable driven by cable_cm.v (Ott 12-7: "
                          "E = 1.26e-6 f l I / r capped at 2 x 60 I / r, I = V / 150 Ohm), per connector pair with a declared cable."),
 }
@@ -552,12 +554,12 @@ def _legacy(ev, status):
     return status
 
 
-DC_KINDS = ("loss.copper", "drop.rail", "heat.track", "loss.part", "temp.junction")      # the DC band's observations
+DC_KINDS = ("loss.copper", "drop.rail", "heat.track", "loss.part", "temp.junction", "temp.rise")      # the DC band's observations
 
 
 # what an evaluation of scope "losses" observes (haslam.excite.evaluate.SCOPE_KINDS)
 SCOPE_LOSSES = ("overshoot.peak", "loss.loop", "loss.loop_ac", "loss.swnode", "loss.copper", "loss.copper_ac",
-                "loss.part", "drop.rail", "heat.track", "temp.junction")
+                "loss.part", "drop.rail", "heat.track", "temp.junction", "temp.rise")
 
 # the kinds an open cell is observed in (at their caps), and loss.swnode, which needs no closed loop: a term on
 # these alone is complete for an open cell
