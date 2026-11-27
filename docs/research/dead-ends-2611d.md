@@ -136,3 +136,32 @@ Keys: dead ends 2611d, module_soft, chassis-soft, module_rail_share, module-rail
 - **Why dead:** where the mechanism exists the change moves the first route, and the outcome is a different draw of a path-dependent router rather than a better board; the per-board swings exceed any mean effect, and the run-2 lean did not replicate.
 - **Reopen if:** a puzzle-tier test (a window around a fine-pitch zone pin with the human routing as the known solution) shows the old corridor blocking a route that the new one frees; or the router's path dependence is reduced (repeatable last mile and rip rounds) so a corridor change can be measured against seed noise.
 - **Code:** tag `archive/route-thermal-ring` f5cc6e10 (branch `route/thermal-ring`: the change on main 4fb99765 plus `bench/suites/mech/thermal-ring.txt`); the arm's code at the tag: branch `route/thermal-ring-w48` 9e0eb064. Original: `gfix-thermal-ring` 3eb6a72f (pre-rename). Host: `$HASLAM_RESULTS/experiments/gfix-thermal-ring{,-2,-2-repro,-3}/`.
+
+## 14. Served-pin springs for 2-pad passives from corpus priors (place_passive_springs)
+
+**Did not work**; experiment `passive-springs` (halves `passive-springs-frontier`, `passive-springs-quality`), 2026-11-26.
+
+- **Tried:** `haslam/src/haslam/place/springs.py`. Each movable 2-pad R/C/L/FB outside a physics macro gets a virtual two-pin net of kind `spring` from its serving pad to the pin it serves. The pin comes from the netlist: the non-ground, non-rail net first; on that net the IC or module first, then the part with the most pads. Weight 1 × clamp(3 mm / p50, 0.25, 2), with p50 from `place/data/passive_priors.json` (per-role served distance, 2,694 tier-A train-owner corpus boards, `tools/research/layout-data/passive_priors.py`). The quadratic seed, the floorplan, the annealer and repack price it; crossings ignore it. Setting `place_passive_springs`, default 0. Compared with stored control-w48 staged on the 140 sprint boards, seeds 0-1. None of these boards was used in the fit (owner-level split).
+- **Evidence** [C]:
+  - Opens Δlog1p +0.065 [+0.007, +0.124] (owner bootstrap); summed 2,477 → 2,672; better / same / worse 53 / 142 / 85 board-seeds.
+  - Mechanism: the feedback-divider gap closed (Δlog d vs human +0.69 → +0.05), but pull-ups, pull-downs, filter caps and dividers overshot to 0.17-0.35 log units closer than the human.
+  - Decap + commutation-cell utilization ×1.21; physics_total Δlog +0.019 [−0.016, +0.055].
+  - DRC errors +0.010 [−0.021, +0.040]; legal 261 → 260; CPU ×1.04.
+  - Audit before the A/B: the staged placer already matches human served distances, sides and orientation for decaps, pull-ups, series R and LED resistors. The gaps were feedback dividers (5.1 vs 2.5 mm), inductors, ferrites, bulk caps and series terminations ([passive-priors-2611](placement/passive-priors-2611.md)).
+- **Why dead:** springs on every non-macro passive fight the place terms' nearest-load charging of decaps and bulk caps, and crowd IC perimeters. The parts with a real gap are a small share of the springs.
+- **Reopen if:** a spring limited to feedback dividers (and possibly inductors) at their FB / switch pins, or a prior that says which side of the IC a passive goes. The passive tier's share of pose-transplant (g_P 0.33) is not in served distance.
+- **Code:** branch `passive-priors` (tag `archive/passive-priors`); writeup `docs/research/placement/passive-priors-2611.md`; data `~/haslam-baselines/experiments/passive-priors/`.
+
+## 15. Served-pin springs for feedback dividers only (fb-springs)
+
+**Did not work**; experiment `fb-springs` (halves `fb-springs-frontier`, `fb-springs-quality`), 2026-11-26.
+
+- **Tried:** §13's springs restricted to feedback-divider resistors (`place_passive_springs=1`, `place_passive_springs_roles=feedback_divider`). Each resistor gets a spring to its regulator's FB/ADJ pin, weight ≈ 1.26. Compared with stored control-w48 staged on the 140 sprint boards, seeds 0-1.
+- **Evidence** [C]:
+  - Opens Δlog1p +0.034 [+0.003, +0.067]: +0.121 on the 32 boards with dividers, +0.008 on the rest.
+  - Guards held: DRC −0.017; legal 261 → 263; physics_total −0.001; decap + cell u ×1.02; CPU ×1.06.
+  - FB-divider distance: 5.11 → 2.17 mm (human 2.48).
+  - FB pickup (place terms `victim:feedback:*`) ×1.16 [1.07, 1.27] over the control. The control was already ×0.2 the human's (1.9 vs 13.6 mV median).
+- **Why dead:** the "far" dividers are the coupling term keeping the FB node away from the switch node, not a missing pull. Closing the distance raises pickup and costs opens where dividers exist.
+- **Reopen if:** a divider pull that is also priced by pickup (FB pin side away from SW), or boards where the FB trace length itself is a stated budget.
+- **Code:** branch `passive-priors` (same code as §13; `tools/research/layout-data/fb_pickup.py`); data `~/haslam-baselines/experiments/fb-springs/`.

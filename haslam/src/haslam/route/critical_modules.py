@@ -60,6 +60,13 @@ class Module:
 DT_MAX_K = 10.0           # IPC-2221 temperature rise (K) of critical copper (high-current.md), opts dT_max_K
 
 
+def t_amb(ctx):
+    """The warmest ambient (C) the copper's heat hazards start from: the facts' requirements.thermal.T_amb_C top
+    (opts T_amb_C, critical.intent_opts), else critical_physics.T_AMB_MAX_C (50 C, excite.heat's prior's top)."""
+    from .critical_physics import T_AMB_MAX_C
+    return float(ctx.opts.get("T_amb_C", T_AMB_MAX_C))
+
+
 def dT_max(ctx, net=None):
     """The temperature rise (K) critical copper is sized for: the tightest heat.track bound of the
     intent that covers `net` (opts intent_heat, haslam.intent.uses; a stated requirements.dT_max_K when
@@ -572,9 +579,12 @@ def _excite_current(s):
     """The current a loop's copper is sized for: the upper bound of the brief's excitation
     interval when it states one (a power path's I_belief), else its value, else 1 A."""
     ex = s.get("excite") or {}
-    iv = ((ex.get("I_belief") or {}).get("interval") or [])
-    if len(iv) == 2 and iv[1]:
-        return float(iv[1])
+    # a cell's stated interval is where haslam.intent.facts.apply writes it (excite.interval.I); I_belief is a power
+    # path's. Reading only I_belief, every cell's copper was sized for its typical current (the geometric mean of the
+    # facts' [0.3, 1.0]: 0.55 A, not 1 A) wherever the router had no intent of its own (_intent_current)
+    iv = (ex.get("interval") or {}).get("I") or (ex.get("I_belief") or {}).get("interval") or []
+    if len(iv) == 2 and max(iv):
+        return float(max(iv))
     return float(ex.get("I") or 1.0)
 
 
@@ -624,8 +634,15 @@ def _intent_converter(ctx, m):
         so = _signed_volts(ctx, sib.get("rail")) if sib.get("rail") else None
         vi, vo = (v("rail"), so) if cls == "buck" else (so, v("rail"))
     top, leg = CV.topology_of(cls, s, vo, vi)
+    # the rail's efficiency, as haslam.excite.params.cell passes it (a boost's input current I_out V_out / (V_in eta)
+    # at the class 0.8 instead of a stated 0.6 sized its copper for 25 % less than the evaluator prices)
+    from haslam.excite.beliefs import intent_value
+    intent = ctx.opts.get("intent") or {}
+    facts = intent.get("facts") if isinstance(intent, dict) and intent.get("schema") == "haslam.intent/1" else intent
+    eta_n = intent_value(facts if isinstance(facts, dict) else {}, "nets",
+                         s.get("vout") or (s.get("rail") if cls == "boost" else None) or "", "eta")
     try:
-        return CV.from_intent(cell, top, leg, vi, vo)
+        return CV.from_intent(cell, top, leg, vi, vo, eta_n)
     except (TypeError, ValueError, ZeroDivisionError):
         return None
 
@@ -773,14 +790,14 @@ def route_cell(ctx, m):
         if rt is not None:
             ok += 1
             t_min = min((ctx.sp.tcu.get(l_, 0.035) for l_, _, _ in rt.segs), default=t_l0)
-            hz = heat_hazard("copper_below_ipc_width", I, rt.width, t_min, dT_max(ctx, net), [net], where=where,
+            hz = heat_hazard("copper_below_ipc_width", I, rt.width, t_min, dT_max(ctx, net), [net], t_amb=t_amb(ctx), where=where,
                              w_ipc=track_width(I, dT=dT_max(ctx, net), t_mm=t_min))
         else:
             m.notes.append(f"hop {k} ({net}): no room at its IPC-2221 width {floor:.2f} mm for {I:.2f} A; "
                            f"left to the bridge")
             m.flags.append(dict(flag="ipc_floor_unroutable", hop=k, net=net, I_A=round(I, 3),
                                 floor_mm=round(floor, 3)))
-            hz = heat_hazard("rail_left_narrow", I, max(opt, mn), t_l0, dT_max(ctx, net), [net],
+            hz = heat_hazard("rail_left_narrow", I, max(opt, mn), t_l0, dT_max(ctx, net), [net], t_amb=t_amb(ctx),
                              where=where + " (left to the bridge at the class width)", w_ipc=w_ipc)
         if hz is not None:
             m.hazards.append(hz)
@@ -966,7 +983,7 @@ def _via_array(ctx, m, T, side):
         n = len(m.vias[key])
         if n < need:
             ref = getattr(ctx.fp.get(t.fp), "ref", t.fp)
-            hz = via_hazard(I, n, need, drill, plating, dT_max(ctx, net), [ref, net],
+            hz = via_hazard(I, n, need, drill, plating, dT_max(ctx, net), [ref, net], t_amb=t_amb(ctx),
                             where=f"{m.id} return vias at {ref} pad {t.pad}", per_via_a=per_via)
             if hz is not None:
                 m.hazards.append(hz)

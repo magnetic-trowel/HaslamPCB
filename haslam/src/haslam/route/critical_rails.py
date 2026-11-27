@@ -55,7 +55,7 @@ from haslam.circuit.values import NUM
 from haslam.circuit.names import SUPPLY_PIN
 
 from .critical_grid import Anchor
-from .critical_modules import Module, _commit_vias, anchor, dT_max, hop_layers, route_hop, via_candidates, width_ladder
+from .critical_modules import Module, _commit_vias, anchor, dT_max, hop_layers, route_hop, t_amb, via_candidates, width_ladder
 from .critical_physics import (T_PLATE, drop_width, heat_hazard, r_track, r_via, track_width, via_hazard,
                                vias_needed)
 
@@ -405,7 +405,7 @@ def _vias_for(ctx, net, cur):
 
 
 def _via_check(ctx, rep, net, cur, nominal, placed, needed, where):
-    hz = via_hazard(cur, placed, needed, ctx.sp.via_size(net)[1], _plating(ctx), dT_max(ctx, net), [net],
+    hz = via_hazard(cur, placed, needed, ctx.sp.via_size(net)[1], _plating(ctx), dT_max(ctx, net), [net], t_amb=t_amb(ctx),
                     nominal_a=nominal, where=where, per_via_a=float(ctx.opts.get("via_A") or 0.0) or None)
     if hz is not None:
         rep.setdefault("hazards", []).append(hz)
@@ -413,7 +413,7 @@ def _via_check(ctx, rep, net, cur, nominal, placed, needed, where):
 
 def _heat_check(ctx, rep, code, cur, width, t_mm, net, nominal, where, w_ipc=None):
     """A heat hazard in `rep` when `width` of copper is narrower than `cur` asks (heat_hazard)."""
-    hz = heat_hazard(code, cur, width, t_mm, dT_max(ctx, net), [net], nominal_a=nominal, where=where, w_ipc=w_ipc)
+    hz = heat_hazard(code, cur, width, t_mm, dT_max(ctx, net), [net], nominal_a=nominal, where=where, w_ipc=w_ipc, t_amb=t_amb(ctx))
     if hz is not None:
         rep.setdefault("hazards", []).append(hz)
 
@@ -461,7 +461,7 @@ def _route_rail(ctx, rl, mode, gnd_pour):
     rep["width_needed_mm"] = round(w_need, 3)
     if mode == "auto" and w_need <= 1.2 * opt:
         rep["note"] = f"class width {opt} mm carries {design:.2f} A within budget: left to the general router"
-        hz = heat_hazard("rail_class_width_warm", design, opt, t_cu, dT_max(ctx, net), [net], nominal_a=nominal,
+        hz = heat_hazard("rail_class_width_warm", design, opt, t_cu, dT_max(ctx, net), [net], nominal_a=nominal, t_amb=t_amb(ctx),
                          where=f"rail {net} (general router, class width)")
         if hz is not None:
             rep.setdefault("hazards", []).append(hz)
