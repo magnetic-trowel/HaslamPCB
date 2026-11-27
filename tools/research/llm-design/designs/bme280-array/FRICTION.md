@@ -95,7 +95,7 @@ gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status
 | F51 | fixed | CLAUDE.md: fix agents start from the working branch and own disjoint files; round-3 agents briefed so | — |
 | F52 | fixed | rule written in llm-relations.md, brief-to-board and CLAUDE.md (invariant); test | — |
 | F53 | none | checks worked | — |
-| F54 | in progress | round 3: A/B neutrality on a fetched sprint-suite sample (place, excite, route, joint) | full sprint still on the shared host |
+| F54 | partial | A/B vs origin/main on 27 sprint boards + 6 relation fixtures: placement 33/33 byte-identical, physics 19/19 values identical, routing 7/7 and joint 3/3 copper identical; opt-in own window kept a far injection part (e4fd6d79: jin-neuron, 51 % injection dropped before) ([neutrality-ab](../../../../../docs/topics/verification/neutrality-ab.md)) | full sprint on the shared host; physics of the 8 largest boards |
 | F55 | fixed | fresh unprivileged account, container path: setup exit 0 in 8 min, doctor all ok, then S3/S5/S6 (probe)/S10 unchanged; first-install fixes F58-F62 (1f3081c) | apt branch from scratch: reviewed and tested with stand-in tools only (host KiCad shared) |
 | F56 | by design | soft region reported | — |
 | F57 | fixed | `silk_refs.py` rewrite: bodies not courtyards, real outline, unambiguous-nearest rule, more spots, 1.0 mm text (JLC minimum; 0.8 mm opt-in), one eviction; tested on 10 boards (docstring table) | bme5: 90 of 90 on silk, 0 silk DRC, gate pass |
