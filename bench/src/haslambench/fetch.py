@@ -196,12 +196,26 @@ def _drop_covered_micro_arcs(pcb):
     return n
 
 
+# rows whose host asks automated clients not to fetch (robots.txt disallows raw/git paths): never fetched here,
+# used only when already cached (as bench/scripts/build-corpus.sh's corpus.py --no-fetch-tag does)
+NO_FETCH_TAGS = ("host-robots-restricted",)
+
+
+class Restricted(Exception):
+    """A board whose host's robots.txt disallows automated fetching, not in the cache."""
+
+
 def fetch(entry, cache_dir, force=False):
-    """Fetch board + project files into cache_dir/<id>/. Returns a dict of local paths."""
+    """Fetch board + project files into cache_dir/<id>/. Returns a dict of local paths. A row tagged with one of
+    NO_FETCH_TAGS is never downloaded: it is returned from the cache, or Restricted is raised."""
     dest = Path(cache_dir) / entry["id"]
     meta_path = dest / "fetch.json"
     if meta_path.exists() and not force:
         return json.loads(meta_path.read_text())
+    bad = sorted(set(entry.get("tags") or []) & set(NO_FETCH_TAGS))
+    if bad:
+        raise Restricted(f"not fetched: tagged {', '.join(bad)} (the host's robots.txt disallows automated fetching); "
+                         f"use it only from an existing cache")
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
