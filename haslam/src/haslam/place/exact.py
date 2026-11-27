@@ -1456,7 +1456,7 @@ def silk_grid(P, max_rects=8, weight=1.0):
         masks = []
         for pd in fp.pads:
             if si in mask_sides(pd) and not _npth_without_copper(pd):
-                r = pad_lib_rect(pd)
+                r = pad_lib_rect(pd, custom=getattr(P, "custom_pad_copper", False))
                 if r is not None:
                     m = mask_margin(P, pd)
                     masks.append((r[0] - m, r[1] - m, r[2] + m, r[3] + m))
@@ -1492,7 +1492,7 @@ def channel_grid(P, weight=1.0, max_rects=8):
         rs = []
         for pd in p.fp.pads:
             own = si in _copper_sides(pd, p.side)
-            r = pad_lib_rect(pd)
+            r = pad_lib_rect(pd, custom=getattr(P, "custom_pad_copper", False))
             if r is None or not own or _no_copper(pd):
                 continue
             rs.append((r[0] - halo, r[1] - halo, r[2] + halo, r[3] + halo))

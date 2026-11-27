@@ -827,7 +827,8 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
     def build(b, frozen):
         P_ = Problem.build(b, grid=grid_step, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | frozen,
                            angle_step=angle_step, severity=severity or _severity_mode(board, board_path, opts),
-                           part_rotations=rel.rotations if rel is not None else None)
+                           part_rotations=rel.rotations if rel is not None else None,
+                           custom_pad_copper=float(setting("place_custom_pad_copper", board_path, opts) or 0.0) > 0)
         if rel is not None and rel.kin:
             # required regions: hard keep-ins every later stage honours (Problem.set_keep_in)
             kin = P_.set_keep_in(rel.keep_in(P_))
@@ -1677,6 +1678,7 @@ def _pin_edge_headers(board, brief, held, fixed, angle_step, rep, log, headers=T
     from haslam.route.constraints import setting
     try:
         P0 = Problem.build(board, net_kinds=_net_kinds(brief), held={fp.uuid for fp in held} | set(fixed),
+                           custom_pad_copper=float(setting("place_custom_pad_copper", board_path, opts) or 0.0) > 0,
                            angle_step=angle_step)
         st0 = State(P0)
         found = crowded.edge_headers(P0) if headers else {}
