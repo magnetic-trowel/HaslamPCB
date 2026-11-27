@@ -203,3 +203,4 @@ def test_channel_term_is_on_by_default_with_both_gates():
     assert DEFAULTS["place_w_chan"] == 3.0
     assert DEFAULTS["place_chan_util_gate"] == 1 and DEFAULTS["place_chan_header_gate"] == 1
     assert DEFAULTS["place_chan_edge"] == 0
+
