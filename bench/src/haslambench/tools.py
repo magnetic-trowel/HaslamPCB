@@ -368,20 +368,32 @@ def freerouting_cmd():
 
 
 def freerouting_identity(cmd):
-    """{path, sha256} of the program a Freerouting command runs (the jar of a native bundle, else
-    the file itself), for the run's records; {} when it cannot be read."""
+    """{path, file, sha256, source_commit} of the program a Freerouting command runs (the jar of a native bundle, else
+    the file itself), for the run's records; {} when it cannot be read. `source_commit` (the fork's short commit, from
+    the bundle's VERSION written by install_freerouting_fork.sh, else its haslam-freerouting-fork-<sha> folder name;
+    None for other builds) identifies the control: jars built from one commit differ byte-wise (the build date is
+    embedded), so `sha256` differs between hosts for the same control and is information only (FRICTION F63)."""
     path = Path(cmd[-1] if cmd[:2] == ["java", "-jar"] else cmd[0])
     target = path
     if not str(path).endswith(".jar"):
         jars = sorted(path.resolve().parent.parent.glob("lib/**/*.jar"))
         if jars:
             target = jars[0]
+    commit = None
+    for d in (path.resolve().parent.parent, path.resolve().parent):
+        v = d / "VERSION"
+        if v.is_file():
+            commit = (v.read_text(errors="replace").split() or [None])[0]
+            break
+    if commit is None:
+        m = re.search(r"haslam-freerouting-fork-([0-9a-f]{7,40})", str(path))
+        commit = m.group(1) if m else None
     try:
         h = hashlib.sha256()
         with open(target, "rb") as f:
             for block in iter(lambda: f.read(1 << 20), b""):
                 h.update(block)
-        return dict(path=str(path), file=str(target), sha256=h.hexdigest())
+        return dict(path=str(path), file=str(target), sha256=h.hexdigest(), source_commit=commit)
     except OSError:
         return {}
 

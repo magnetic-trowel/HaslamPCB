@@ -96,6 +96,6 @@ assembly preview, and solder J1 (DNP header pads) by hand.
 
 ## 6. Open points
 
-1. Q-1: BME280 stock (1 at JLC on 2026-11-26); BMP280 fits the same pads.
+1. Q-1: BME280 stock (1 at JLC on 2026-11-26) is not a concern for this project (owner, 2026-11-27); BMP280 fits the same pads.
 2. Not simulated: the Q2/C5 hot-plug timing deserves a bench test (13.2 V step, scope on VLO).
 3. ESD on the host lines is waived for a < 1 m lead in one enclosure.

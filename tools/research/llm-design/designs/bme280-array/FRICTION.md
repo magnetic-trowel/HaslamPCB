@@ -104,7 +104,7 @@ gate pass, 0 silk DRC items, renders, 27 BOM lines all with LCSC numbers. Status
 | F60 | fixed | doctor FAILs when `kicad-cli version` does not run (1f3081c) | test_doctor |
 | F61 | fixed | `--no-freerouting` exits 0 on only the freerouting FAIL (1f3081c) | run on this host |
 | F62 | fixed | apt prerequisites; synth README venv without uv (1f3081c) | test_setup_sh |
-| F63 | open | fork jars built from one ref are not byte-identical (build date embedded): the per-attempt jar sha256 differs between hosts for the same control | decide: reproducible build (fixed timestamps) or compare the source ref, not the jar hash |
+| F63 | fixed | the control is identified by its fork's source commit: `freerouting_identity` records `source_commit` (bundle VERSION, else the fork folder name); the jar sha256 stays as information only | test_doctor |
 | F64 | fixed | checks fixed to be right for every design: hole size a warning, board.json only on opt-in, drill error only against a declared fab minimum, supply_prior only where facts are stated, divider top legs at full power (297869e) | leadacid, liion, prius, rpi build exactly as before; solar-small: only correct new findings |
 | F65 | fixed | keep-in lookups (`cpsat.py`, `engine.py`) read nothing when a board has no required region (this round) | full suite: the cluster test failed after, passed before; now passes |
 | F66 | open | `test_proc.py::test_a_timeout_kills_the_whole_group` fails here before and after the changes (container process-group semantics?) | investigate on the shared host |

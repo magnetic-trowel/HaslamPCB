@@ -54,3 +54,17 @@ def test_benchmark_comparability_warns_on_another_kicad_or_fork(monkeypatch):
     lines = cli.kicad_checks()
     assert not any(ln.startswith("WARN kicad version for benchmarks") or ln.startswith("WARN freerouting") for ln in lines)
     assert any(ln.startswith("ok   freerouting fork") for ln in lines)
+
+
+def test_freerouting_identity_names_the_source_commit(tmp_path):
+    """F63: the control is identified by its fork's source commit (jars of one commit differ byte-wise)."""
+    b = tmp_path / "haslam-freerouting-fork-37b1a8b"
+    (b / "bin").mkdir(parents=True)
+    (b / "lib").mkdir()
+    (b / "bin" / "freerouting").write_text("#!/bin/sh\n")
+    (b / "lib" / "freerouting.jar").write_bytes(b"jar")
+    (b / "VERSION").write_text("37b1a8b autorouter: check max_work per item\n")
+    ident = tools.freerouting_identity([str(b / "bin" / "freerouting")])
+    assert ident["source_commit"] == "37b1a8b" and len(ident["sha256"]) == 64
+    (b / "VERSION").unlink()
+    assert tools.freerouting_identity([str(b / "bin" / "freerouting")])["source_commit"] == "37b1a8b"
