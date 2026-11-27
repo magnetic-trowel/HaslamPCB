@@ -20,7 +20,9 @@ def _exe(path, body):
 
 
 def _git(*a, cwd):
-    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=cwd, check=True, capture_output=True)
+    # no hooks: a host's global commit hooks (a privacy scan of the temp paths in gradlew) must not fail the fixture
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.hooksPath=/dev/null", *a],
+                   cwd=cwd, check=True, capture_output=True)
 
 
 def test_retry_install_and_pin(tmp_path):
