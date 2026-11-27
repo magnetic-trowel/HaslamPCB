@@ -69,6 +69,13 @@ def _rects_of(P, item, v):
             out[1 - si].append((dx + a, dx + b, dy + c, dy + d))
         for (a, b, c, d) in (r.g_boards or (r.g_board,)):
             boards.append((dx + a, dx + b, dy + c, dy + d))
+        kin = getattr(P, "kin", None)
+        # no required region (every board without an intent): nothing read here, the pre-keep-in path exactly
+        t = kin.get(i) if kin and getattr(p, "movable", True) else None
+        if t is not None:
+            # a hard keep-in (Problem.set_keep_in): the courtyard box inside the keep-in's own cover
+            a, b, c, d = r.g_kin
+            boards.append((dx + a, dx + b, dy + c, dy + d, t))
     # each member's board rectangles separately (allowed_boxes intersects them): one bounding
     # box over a macro had to fit in ONE cover rectangle, so on a non-rectangular outline a
     # layout whose members each fit lost the variant (chips-0123's decap macro on a 7-rectangle
@@ -80,9 +87,11 @@ def _rects_of(P, item, v):
 
 
 def _boxes_one(P, bb):
-    a, b, c, d = bb
+    """Origin boxes for one board rectangle (a, b, c, d) in the outline's cover; a fifth value t: in
+    hard keep-in t's cover instead (Problem.set_keep_in)."""
+    a, b, c, d = bb[:4]
     out = []
-    for (i0, i1, j0, j1) in P.cover:
+    for (i0, i1, j0, j1) in (P.cover if len(bb) == 4 else P.kin_cover[bb[4]]):
         xlo, xhi = i0 - a, i1 - b
         ylo, yhi = j0 - c, j1 - d
         if xlo <= xhi and ylo <= yhi:
@@ -94,7 +103,7 @@ def allowed_boxes(P, boards, cap=32):
     """Origin boxes (xlo, xhi, ylo, yhi), inclusive, for which every board rectangle lies
     inside some cover rectangle (each may pick a different one): the intersection over the
     rectangles of their unions of boxes, largest kept."""
-    if isinstance(boards, tuple) and len(boards) == 4 and all(isinstance(v, (int, np.integer)) for v in boards):
+    if isinstance(boards, tuple) and len(boards) in (4, 5) and all(isinstance(v, (int, np.integer)) for v in boards):
         boards = [boards]
     cur = None
     for bb in boards:

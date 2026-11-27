@@ -81,8 +81,8 @@ K="python3 tools/haslamres/haslamres.py"
 $K method add human --reference
 $K method add "freerouting 2.5.0" --binary ~/.cache/haslambench/freerouting-2.5.0-linux-x64/bin/freerouting \
    --code router=https://github.com/freerouting/freerouting@v2.5.0 --build "release asset freerouting-2.5.0-linux-x64.zip"
-$K method add "fr-fork master" --binary ~/.cache/haslambench/haslam-freerouting-fork-06d2686/bin/freerouting \
-   --code router=~/.cache/haslambench/src/freerouting --build "tools/research/routing/install_freerouting_fork.sh 06d2686"
+$K method add "fr-fork master" --binary ~/.cache/haslambench/haslam-freerouting-fork-37b1a8b/bin/freerouting \
+   --code router=~/.cache/haslambench/src/freerouting --build "tools/research/routing/install_freerouting_fork.sh 37b1a8b"
 $K method add "haslam bridge" --command "{py:haslam} -m haslam.route.cli route {input} {output} --seed {attempt} --time {timeout}" \
    --code haslam=.@origin/claude/vigilant-mayer-i91rrr        # place / joint: --kind joint; place adds --param probe=freerouting
 $K method list

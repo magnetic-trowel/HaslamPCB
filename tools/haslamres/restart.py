@@ -422,6 +422,11 @@ def task_rules(inp, board):
             shutil.copy2(src, dst)
         else:
             dst.unlink(missing_ok=True)
+    # a design project's footprint library table (haslamsynth writes one; corpus tasks have none): without it
+    # KiCad flags every footprint with lib_footprint_issues, a warning the judge ignores but a reader does not
+    lib = inp.parent / "fp-lib-table"
+    if lib.exists() and lib.parent != board.parent:
+        shutil.copy2(lib, board.parent / "fp-lib-table")
 
 
 def drc(board, inp, timeout):
@@ -429,9 +434,10 @@ def drc(board, inp, timeout):
     UUIDs), since KiCad's counts depend on the copper's file order and UUIDs."""
     if not WORK or not board.exists() or board.stat().st_size == 0:
         return _drc(board, inp, timeout)
+    task_rules(inp, board)         # as time mode's _drc: the judged board keeps the task's project files beside it
     d = Path(tempfile.mkdtemp(prefix="judge-", dir=board.parent))
     try:
-        c = d / "board.kicad_pcb"
+        c = d / board.name                    # the judged board's own name: project files by stem
         shutil.copy2(board, c)
         back = canonical_copper_order(c, uuids=True)
         r = _drc(c, inp, timeout)
@@ -501,7 +507,9 @@ DRC_UNCONNECTED_CAP, UNCONNECTED_PY = DI.DRC_UNCONNECTED_CAP, DI.UNCONNECTED_PY
 
 def uncapped_unconnected(board, timeout):
     """pcbnew's unconnected count after a zone fill, None when KiCad's Python cannot run it."""
-    cmd = [*shlex.split(os.environ.get("HASLAM_KICAD_WRAP", "")), "python3", "-c", UNCONNECTED_PY, str(board)]
+    py = shlex.split(os.environ.get("HASLAM_KICAD_PYTHON", "")) or \
+        [*shlex.split(os.environ.get("HASLAM_KICAD_WRAP", "")), "python3"]     # KiCad's Python, as haslambench
+    cmd = [*py, "-c", UNCONNECTED_PY, str(board)]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=max(60, timeout), errors="replace")
         return int(json.loads(r.stdout.strip().splitlines()[-1])["unconnected"])
@@ -752,6 +760,11 @@ def fr_telemetry(log_path):
     return out
 
 
+def relations_summary(log_path):
+    """The intent relations an attempt's report measured on its board (haslam.joint.cli's and haslam place's
+    "relations"): {n, met, unmet, conflicts}, {} when it reports none (F24)."""
+    sm = ((_last_json(log_path).get("relations") or {}).get("summary") or {})
+    return {k: sm[k] for k in ("n", "met", "unmet", "conflicts") if k in sm}
 # Records of every attempt, kept or discarded (record_attempt, diagnose_attempts). They change no schedule, judgement
 # or output: they read what an attempt left (its log, its board, the judge's DRC report) after it was judged, and the
 # diagnoses run after the last pass, when the output is written.
@@ -961,7 +974,7 @@ def _one_pass(a, kind, command, best, inp, base, wd, end, b, judge_est, meter, s
     whether it replaces the kept one: when KiCad ranks it better, or (keep_equal) no worse."""
     d = wd / kind
     d.mkdir(exist_ok=True)
-    src, o = d / "best_in.kicad_pcb", d / "board.kicad_pcb"
+    src, o = d / "best_in.kicad_pcb", d / inp.name
     shutil.copy2(best["out"], src)
     task_rules(inp, src)
     t = time.monotonic()
@@ -1293,9 +1306,9 @@ def main():
     plan_used = [0.0]        # work mode: nominal seconds of the batches launched so far
     base_dir = wd / "input"  # the input's own DRC errors (silk, rules) are not the method's
     base_dir.mkdir(exist_ok=True)
-    shutil.copy2(inp, base_dir / "board.kicad_pcb")
+    shutil.copy2(inp, base_dir / inp.name)
     w, input_cpu = time.monotonic(), child_cpu()
-    b0 = drc(base_dir / "board.kicad_pcb", inp, a.time if WORK else 0.2 * a.time)
+    b0 = drc(base_dir / inp.name, inp, a.time if WORK else 0.2 * a.time)
     input_cpu = child_cpu() - input_cpu
     judge_est = 0.0 if WORK else max(1.0, time.monotonic() - w)   # seconds one judgement takes (the slowest seen)
 
@@ -1340,7 +1353,7 @@ def main():
         env_k = alt if arm == "B" else {}
         d = wd / f"a{k}"
         d.mkdir(exist_ok=True)
-        o = d / "board.kicad_pcb"
+        o = d / inp.name          # named as the input, so the copy and its project files describe themselves
         s = a.seed * 1000 + k
         src, resume = inp, False
         if frm is not None:
@@ -1452,6 +1465,8 @@ def main():
             info.update(rc=p.returncode, rank=rank)
             if (fr := fr_telemetry(info["out"].parent / "log")):
                 info["fr"] = fr
+            if (rs := relations_summary(info["out"].parent / "log")):
+                info["relations"] = rs
             if p.returncode:
                 info["failure"] = attempt_failure(info["out"].parent / "log")
             if sh is not None:
@@ -1561,6 +1576,8 @@ def main():
     summary = dict(work, attempt_log=[{k_: (v["id"] if k_ == "cand" else v) for k_, v in d.items()
                                        if k_ not in ("out", "t", "charge", "dead_at")}
                                       for d in done])
+    if best and best.get("relations"):
+        summary["relations"] = best["relations"]          # the kept board's intent relations (F24)
     if sh is not None:
         summary["halving"] = sh.summary()
     if alt:
@@ -1612,9 +1629,9 @@ def run_policy(ap, a):
     t0 = time.monotonic()
     base_dir = wd / "input"
     base_dir.mkdir(exist_ok=True)
-    shutil.copy2(inp, base_dir / "board.kicad_pcb")
+    shutil.copy2(inp, base_dir / inp.name)
     input_cpu = child_cpu()
-    b0 = drc(base_dir / "board.kicad_pcb", inp, a.time if WORK else 0.2 * a.time)
+    b0 = drc(base_dir / inp.name, inp, a.time if WORK else 0.2 * a.time)
     input_cpu = child_cpu() - input_cpu
     base, base_pairs = (b0 or {}).get("types", {}), (b0 or {}).get("overlaps", ())
 

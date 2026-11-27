@@ -21,7 +21,7 @@ STRENGTHS = ("tight", "close", "loose")
 EDGES = ("north", "south", "east", "west", "any")
 MAGNITUDES_MM = {"tight": 3.0, "close": 8.0, "loose": 20.0}
 # relation fields that hold free text, never object references
-TEXT_KEYS = {"within_mm", "kind", "note", "text", "what", "where", "why", "source", "source_doc", "layers", "side", "axis", "facing",
+TEXT_KEYS = {"within_mm", "level", "requested", "category", "req", "area", "victim_area", "kind", "note", "text", "what", "where", "why", "source", "source_doc", "layers", "side", "axis", "facing",
              "strength", "sink", "pitch", "relative", "covers", "walls", "region", "basis", "label"}
 
 
@@ -38,7 +38,8 @@ class Hole:
 
 @dataclass
 class BoardSpec:
-    """Mechanical envelope. Coordinates in mm, origin at the outline's lower-left corner."""
+    """Mechanical envelope and the board geometry sch_to_board.py builds from (haslamsynth.boardgeom writes it to
+    out/board.json). Coordinates in mm, KiCad's frame: origin at the outline's top-left corner, y down."""
     name: str = "main"
     width_mm: float = None
     height_mm: float = None
@@ -51,12 +52,25 @@ class BoardSpec:
     holes: list = field(default_factory=list)
     enclosure: str = ""
     coating: str = ""                  # e.g. "acrylic conformal coat, IPC-CC-830"
-    keepouts: list = field(default_factory=list)   # [{"rect": [x0,y0,x1,y1], "what": ..., "layers": ...}]
+    # rule areas as board.json writes them: [{"rect": [x0,y0,x1,y1], "layers": ["F.Cu","B.Cu"], "no": ["copper"]
+    # (or [] for a named area with no restriction), "name": ..., "note": ...}]
+    keepouts: list = field(default_factory=list)
+    slots: list = field(default_factory=list)      # interior Edge.Cuts cut-outs [(x0, y0, x1, y1)]
+    cuts: list = field(default_factory=list)       # [boardgeom.SlotBarrier]: slots + edge-strip keep-outs + side areas
+    zones: list = field(default_factory=list)      # pours [{"net", "layer", "name", "rect" | "area": rule-area name}]
+    areas: dict = field(default_factory=dict)      # named rule areas, no restriction: {"NAME": (x0, y0, x1, y1)}
+    seed_area: tuple = None                        # where unplaced parts start (x0, y0, x1, y1)
     # fab minimums written to the board setup (.kicad_pro rules); the clearance is also the floor of every net
     # class (default 0.2 mm). Fine-pitch parts (0.5 mm) need less than KiCad's 0.2 mm defaults to escape
     min_track_mm: float = None
     min_clearance_mm: float = None
+    min_drill_mm: float = None         # smallest hole a library footprint may bring (layout.fab_minimums; default 0.3)
     notes: str = ""
+    quantity: int = None               # boards per order: bom.stock needs parts per board x quantity (default 5)
+    # write out/board.json for sch_to_board.py (haslamsynth.boardgeom): None = when the design uses the layout
+    # geometry (cuts, slots, zones, areas, seed_area) or has a hand board.json; True/False to say so. Designs
+    # written before boardgeom gave coordinates from the lower-left corner, y up, which board.json would mirror
+    board_json: bool = None
 
     def as_dict(self):
         d = {k: v for k, v in self.__dict__.items() if v not in (None, [], "")}
@@ -128,8 +142,29 @@ class Placement:
             raise DesignError("side must be top or bottom")
         return self._rel("side", obj=obj, side=side, note=note)
 
-    def far(self, a, b, strength="close", note=""):
-        return self._rel("far", a=a, b=b, strength=self._strength(strength), note=note)
+    def far(self, a, b, strength="close", note="", level=None, requested=False, category=None, req=None):
+        """Keep a and b apart by `strength` (tight/close/loose). `level`: haslam's priority (required, strong,
+        medium, weak; default medium). haslam lets physics outrank a relation on a part its terms price (it
+        weighs as weak) unless `requested=True` (the user asked for exactly this) or `category="safety"`.
+        `req="REQ-4"`: the relation restates that requirement, which makes it requested (the build checks the id)."""
+        return self._rel("far", a=a, b=b, strength=self._strength(strength), note=note, level=level,
+                         requested=requested or bool(req), category=category, req=req)
+
+    def thermal_isolate(self, sources, victims, area=None, victim_area=None, hot=None, strength="close",
+                        level="strong", req=None, note=""):
+        """Keep heat sources away from parts that must not warm (sensors, references, crystals), as the relations a
+        designer otherwise writes by hand (FRICTION F14):
+        - with `area` (a named rule area, e.g. a SlotBarrier side): region(source block/parts, "area:AREA"),
+          level required; with `victim_area`, the free victims' region likewise;
+        - far(h, v) keep_aways from each hot part to the victims nearest the sources (with board geometry: the
+          victims within 1 mm of the least distance to the area, e.g. the sensor row next to the slot; else all).
+        sources: blocks and/or parts; hot: the parts that dissipate (default: the sources' ICs, inductors,
+        transistors and diodes); victims: parts. Every relation is category "thermal" and requested when `req`
+        names the requirement it restates. Expanded at build time (HaslamIntent.relations)."""
+        return self._rel("thermal_isolate", sources=list(sources) if isinstance(sources, (list, tuple)) else [sources],
+                         victims=list(victims), area=area, victim_area=victim_area,
+                         hot=list(hot) if hot is not None else None, strength=self._strength(strength),
+                         level=level, requested=bool(req), req=req, category="thermal", note=note)
 
     def orient(self, obj, facing, note=""):
         """Connector entry direction: facing='out' (toward the nearest board edge) or an edge
@@ -148,12 +183,16 @@ class Placement:
             refs.extend(x if isinstance(x, list) else ([x] if isinstance(x, PinRef) else part_obj.pin(x)))
         return self._rel("pins_toward", obj=part, pins=refs, side=side, note=note)
 
-    def region(self, obj, where, note=""):
+    def region(self, obj, where, note="", level=None, requested=False, category=None, req=None):
         """Coarse floorplan zone for a block, a part, or a list of parts:
-        north/south/east/west/center or 'corner-ne' etc."""
+        north/south/east/west/center or 'corner-ne' etc. (haslam: a side is the board's third on that side; the
+        build warns when that band crosses a slot, layout.region_crosses_slot), or 'area:NAME', a named rule area
+        on the board (d.board(areas=...), a SlotBarrier side). `level`: haslam's priority (required, strong,
+        medium, weak; default strong); `requested`, `category`, `req` as far()."""
         key = "block" if isinstance(obj, Block) or (isinstance(obj, str) and obj.startswith("block:")) else "members"
         return self._rel("region", **{key: obj if key == "block" else (obj if isinstance(obj, list) else [obj])},
-                         where=where, note=note)
+                         where=where, note=note, level=level, requested=requested or bool(req), category=category,
+                         req=req)
 
     def fixed(self, obj, x_mm, y_mm, rotation=0, side="top", source="", note=""):
         """A position set by the mechanics (enclosure holes, mating connector, panel cut-out):

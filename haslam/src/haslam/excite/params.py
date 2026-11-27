@@ -246,12 +246,27 @@ def switch_rating(intent, sid, ctrl_ref):
     return None
 
 
-def generic(L, s, kind):
-    """Cores and clocks: class priors as intervals around their meta values."""
+def generic(L, s, kind, intent=None):
+    """Cores and clocks: class priors as intervals around their meta values. A core's facts replace them
+    (parts.<ref>.core_I_A, core_t_s, core_f_Hz: docs/topics/workflow/intent-file-fields.md#a4b). A stated supply
+    draw (parts.<ref>.I_A, an average) does NOT bound the core's current step: a clocked core's edge currents are far
+    above its mean draw, so capping them by it understated supply noise on every board stating I_A (review of
+    6379503); only core_I_A or core: false change the class prior."""
     sid = s.name
+    ref = s.meta.get("ref") if kind == "core" else None
     I0 = float(s.meta.get("I") or 0.01)
     t0 = 1.0 / (math.pi * float(s.meta.get("f_e") or 1e8))
     f0 = float(s.meta.get("f_rep") or 25e6)
-    return {"I": L.add(Param(sid, "I_A", I0, I0 / 3, I0 * 3, "A", "prior", f"{kind} current, class value x/3")),
-            "t_i": L.add(Param(sid, "t_i_s", t0, t0 / 2, t0 * 3, "s", "prior", f"{kind} edge, class value /2 .. x3")),
-            "f_sw": L.add(Param(sid, "f_sw_Hz", f0, f0 / 2, f0 * 2, "Hz", "prior", f"{kind} repetition, class value"))}
+    t_iv = intent_value(intent, "parts", ref, "core_t_s") if ref else None
+    t = Param(sid, "t_i_s", *t_iv, "s", "intent", f"parts.{ref}.core_t_s (the intent file)") if t_iv else \
+        Param(sid, "t_i_s", t0, t0 / 2, t0 * 3, "s", "prior", f"{kind} edge, class value /2 .. x3")
+    f_iv = intent_value(intent, "parts", ref, "core_f_Hz") if ref else None
+    f = Param(sid, "f_sw_Hz", *f_iv, "Hz", "intent", f"parts.{ref}.core_f_Hz (the intent file)") if f_iv else \
+        Param(sid, "f_sw_Hz", f0, f0 / 2, f0 * 2, "Hz", "prior", f"{kind} repetition, class value")
+    i_iv = intent_value(intent, "parts", ref, "core_I_A") if ref else None
+    if i_iv:
+        i = Param(sid, "I_A", *i_iv, "A", "intent", f"parts.{ref}.core_I_A (the intent file)")
+    else:
+        i = Param(sid, "I_A", I0, I0 / 3, I0 * 3, "A", "prior", f"{kind} current, class value x/3"
+                  + (f"; state parts.{ref}.core_I_A, or core: false for a part with no clocked core" if ref else ""))
+    return {"I": L.add(i), "t_i": L.add(t), "f_sw": L.add(f)}

@@ -3,7 +3,7 @@
 # The board intent file, field by field: who in haslam reads it
 
 Scope: every field haslamsynth writes into a design's intent, and every field of `haslam.intent/1`, with the haslam code that reads it. Rule: a field goes into the intent only if haslam uses it, correctly. Audit of 2026-11-24, haslam branch `intent-relations` and haslamsynth branch `haslamsynth-relations`; the gaps it found are fixed on haslam branch `intent-wiring` (A7). Not here: what the fields mean -> [intent-driven-objectives](../architecture/intent-driven-objectives.md); where the file sits and how stages use it -> [brief-to-board F](brief-to-board.md#f-the-board-intent-file); the relations' placer terms -> [llm-relations](../placement/llm-relations.md), [relations-unified](../placement/relations-unified.md).
-Keys: haslam_intent.json, haslam.intent/1, intent.yaml, pcb-intent/0.2, intent audit, unused fields, relations, facts, terms, knobs, environment, cables, producer, G14, requested, relations category
+Keys: haslam_intent.json, haslam.intent/1, intent.yaml, pcb-intent/0.2, intent audit, unused fields, relations, facts, terms, knobs, environment, cables, producer, G14, requested, relations category, fact value forms, lo typ hi interval, facts.interval, core source, core_I_A, core_t_s, core_f_Hz, core: false, class priors, haslam.intent priors
 
 Stages: **P** placer (`haslam.place`, the joint loop's place step and windows); **R** default router (`haslam.route.critical`, `critical_cli`); **PNR** `haslam.em.pnr` (not in the default recipe); **E** evaluator (`haslam.excite.evaluate`/`wideband`, `haslam.intent status`). Paths are under `haslam/src/haslam/`.
 
@@ -50,7 +50,7 @@ Every term is scored by E; that is its use. A design stage takes a term only whe
 | `heat.track`, where `net` / `rail` / none | R | the IPC-2221 rise of those nets' critical copper (`critical_modules.dT_max(ctx, net)`) |
 | `drop.rail`, where `net` / `rail` / none | R | that rail's drop budget, max / V (`critical_rails.drop_share(ctx, net, v)`) |
 
-A stated `requirements.dT_max_K` / `drop_share` still applies where it is the tighter. Scored only (E), and why: a `pickup.peak` scoped to an aggressor or section (the placer's victim term sums every aggressor), or on a net with no victim structure; `supply.peak` (the placer's decap budget is a target impedance at a class current); `overshoot.peak` (P and R size hot loops from the facts' rating, `parts.v_sw_max_V`); `loss.*` (no loss price in P or R; the hot-loop term already shortens the loop the loop losses scale with); `temp.junction`, `cable_cm.v`, `emission.cable_E` (need the board's heat or field solve, or the declared cables). `report` and `ignore` terms bind no stage.
+A stated `requirements.dT_max_K` / `drop_share` still applies where it is the tighter. Scored only (E), and why: a `pickup.peak` scoped to an aggressor or section (the placer's victim term sums every aggressor), or on a net with no victim structure; `supply.peak` (the placer's decap budget is a target impedance at a class current); `overshoot.peak` (P and R size hot loops from the facts' rating, `parts.v_sw_max_V`); `loss.*` (no loss price in P or R; the hot-loop term already shortens the loop the loop losses scale with); `temp.junction`, `temp.rise`, `cable_cm.v`, `emission.cable_E` (need the board's heat or field solve, or the declared cables). `report` and `ignore` terms bind no stage.
 
 `haslam.intent status` and `compare` without `--intent` score the board's own intent file (as the evaluator and the brief read it), else neutral/1; the status names which (`status["intent"]`).
 
@@ -83,6 +83,43 @@ Connector exports (a connector with a pad on a fed rail and a ground pad; E, `ex
 | evaluation notes | `DC: connector exports the facts do not state, assumed at 1 % of their rating: J2@3V3 10 mA, ...` |
 
 Non-blocking: tiers and completeness are the same whether a question is answered. The answer goes into the intent file as `parts.<ref>.I_A` (0 when only signals or nothing draw from it). Measured: [rule B'](../../research/physics/export-current-one-percent.md).
+
+## A4a. Fact values: one parser
+
+A fact's value is a number, `[lo, hi]` or `[lo, typ, hi]`. Every reader goes through `haslam.intent.facts.interval(v, what) → (typ, lo, hi)`:
+
+| Form | typ | lo, hi |
+|---|---|---|
+| `x` | x | x, x |
+| `[a, b]` | √(lo·hi); (lo + hi)/2 when lo ≤ 0 | sorted a, b |
+| `[lo, typ, hi]` | the stated typ (lo ≤ typ ≤ hi, else FactsError) | lo, hi |
+
+Anything else (a bool, a string, NaN, another length) raises `FactsError` naming the field; `check_facts` lets a part's boolean flags (`cff_required`, `core`) through. Readers: `excite/beliefs.intent_value`, `physics/converter._iv`, `excite/dc` (`parts.I_A`, `nets.eta`), `excite/heat` (`I_sustained_A`, heat-sink values), `intent/advise` (`f_c_Hz`, `cout_min_eff_F`). Fixed (bme280-array F35, F40): `converter._iv` read `[lo, typ, hi]` as `[lo, hi]` (a stated 60 µA cell current scored 0.354 mA) and `dc.plan` raised ValueError on a 3-element `parts.<ref>.I_A`. Open: `route/critical_modules.py:_op` still reads an interval's ends.
+
+## A4b. Core sources: `parts.<ref>.core*`
+
+An IC of a clocked class (`excite/sources.DIGITAL`, or a radio) and a clocked module get one transient "core" source per supply rail (`excite/sources.add_all`): a current step I with edge t and repetition f, priced by `supply.peak` and the pickup observers. Its ledger parameters (`excite/params.py:generic`, subject `core:<ref>:<rail>`) read:
+
+| Parameter | Fact (value form A4a) | Without the fact |
+|---|---|---|
+| — | `parts.<ref>.core: false` | the part has no core source (a passive I²C switch, a level shifter): `add_all` skips it and notes it in `assumptions` |
+| `I_A` | `parts.<ref>.core_I_A`: the core's current step on each supply rail | class value I₀ (`sources.DYNAMIC`: 10 mA generic, 50 mA MCU, `MODULE_I` 50 mA) x/3 .. x3 |
+| `t_i_s` | `parts.<ref>.core_t_s`: the step's edge | class t₀ /2 .. x3 |
+| `f_sw_Hz` | `parts.<ref>.core_f_Hz`: the step's repetition (core clock) | class 50 MHz (`CORE_F`) /2 .. x2 |
+
+A stated supply draw `parts.<ref>.I_A` (an average) does not bound the core's current step: a clocked core's edge currents are far above its mean draw, so a cap by `I_A` (tried in 6379503) understated supply noise on every board that states `I_A`, and was removed. Only `core_I_A` (with `core_t_s`, `core_f_Hz`) or `core: false` replace the class value; the parameter's `basis` names the fact (source `intent`) or the class value (source `prior`).
+
+Parts whose supply draw, core source or cell current rests on a class prior: `python -m haslam.intent priors BOARD [--intent F] [--json]` (`haslam.excite.prior_parts.parts_on_priors`; the same ledger the evaluator builds, no field solve), one line per part with the fact key that would replace the prior.
+
+Measured on bme280-array (routed board A1 s0, `evaluate --no-cells`; F48), the TCA9548A U4's core source and its worst `supply.peak` on +1V8:
+
+| U4 facts | core I (source) | `supply.peak` from core:U4 | worst `supply.peak` of the board | U4 T_j |
+|---|---|---|---|---|
+| none (supply draw: 30 mA class prior) | 10 mA (prior) | 244.5 mV | 244.5 mV (U4 from core:U4) | 62.2 °C |
+| `I_A` and `core_I_A` [1, 10, 100] µA, `core_t_s` [5, 20] ns, `core_f_Hz` 100 kHz | 10 µA (intent) | 0.033 mV | 19.3 mV | 60.0 °C |
+| `I_A` and `core: false` | no source | — | 19.3 mV | 60.0 °C |
+
+The same evaluation reads the cells' stated `I_A` [10 µA, 60 µA, 12.5 mA] at 60 µA (0.354 mA before A4a) and runs with a 3-element `parts.U4.I_A` (ValueError before A4a).
 
 ## A5. Placement relations (`d.place`)
 

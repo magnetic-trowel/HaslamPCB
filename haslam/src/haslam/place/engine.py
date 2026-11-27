@@ -277,6 +277,7 @@ def _outside(E, i):
         i1 = X + E.brd_r[q, k, 1]
         j0 = Y + E.brd_r[q, k, 2]
         j1 = Y + E.brd_r[q, k, 3]
+        t = E.brd_r[q, k, 4]          # 0: the outline; 1 + n: hard keep-in n (Problem.set_keep_in)
         area = (i1 - i0) * (j1 - j0)
         if area <= 0:
             continue
@@ -287,7 +288,7 @@ def _outside(E, i):
         ins = (a1 - a0) * (b1 - b0)
         cnt = 0
         if ins > 0:
-            cnt = E.SO[a1, b1] - E.SO[a0, b1] - E.SO[a1, b0] + E.SO[a0, b0]
+            cnt = E.SO[t, a1, b1] - E.SO[t, a0, b1] - E.SO[t, a1, b0] + E.SO[t, a0, b0]
         tot += cnt + area - ins
     return tot
 
@@ -1203,6 +1204,8 @@ def build(ann, hash_cap=None):
             gbrd[p.i, k] = r.g_board
         no = len(p.rots[0].g_opp)
         nb_ = len(p.rots[0].g_boards or (p.rots[0].g_board,))
+        kin = getattr(P, "kin", None)
+        kt = kin.get(p.i) if kin and getattr(p, "movable", True) else None   # no keep-in: the old path exactly
         npc = len(p.rots[0].g_own_rects or (p.rots[0].g_own,))
         for m in range(npc):
             ownp_list.append([(p.rots[min(k, nk - 1)].g_own_rects or (p.rots[min(k, nk - 1)].g_own,))[m]
@@ -1211,14 +1214,18 @@ def build(ann, hash_cap=None):
         for m in range(no):
             opp_list.append([p.rots[min(k, nk - 1)].g_opp[m] for k in range(NR)])
         for m in range(nb_):
-            brd_list.append([(p.rots[min(k, nk - 1)].g_boards or (p.rots[min(k, nk - 1)].g_board,))[m]
+            brd_list.append([tuple((p.rots[min(k, nk - 1)].g_boards or (p.rots[min(k, nk - 1)].g_board,))[m]) + (0,)
                              for k in range(NR)])
+        if kt is not None:
+            # the courtyard box inside the part's hard keep-in: its own table, 1 + kt
+            brd_list.append([tuple(p.rots[min(k, nk - 1)].g_kin) + (1 + kt,) for k in range(NR)])
+            nb_ += 1
         opp_ptr[p.i + 1] = opp_ptr[p.i] + no
         brd_ptr[p.i + 1] = brd_ptr[p.i] + nb_
     opp_r = np.array(opp_list, np.int64).reshape(-1, NR, 4) if opp_list else np.zeros((0, NR, 4), np.int64)
     ownp_r = np.array(ownp_list, np.int64).reshape(-1, NR, 4)
     n_ownp = np.diff(ownp_ptr).astype(np.int64)
-    brd_r = np.array(brd_list, np.int64).reshape(-1, NR, 4) if brd_list else np.zeros((0, NR, 4), np.int64)
+    brd_r = np.array(brd_list, np.int64).reshape(-1, NR, 5) if brd_list else np.zeros((0, NR, 5), np.int64)
     # rectangles: movable parts' own + far rects, then obstacles (fixed parts are obstacles)
     movable = np.array([p.movable for p in P.parts], bool)
     part_r0 = np.zeros(n, np.int64)
@@ -1410,7 +1417,7 @@ def build(ann, hash_cap=None):
         own=own, gbrd=gbrd, opp_ptr=opp_ptr, opp_r=opp_r, brd_ptr=brd_ptr, brd_r=brd_r,
         part_r0=part_r0, part_rn=part_rn, r_box=r_box, r_side=r_side, r_owner=r_owner,
         r_span=np.zeros((R + nob, 4), np.int64), r_seen=np.zeros(R + nob, np.int64), hcnt=hcnt, hids=hids,
-        SO=P.sat_out.astype(np.int64),
+        SO=np.ascontiguousarray(np.stack([P.sat_out] + list(getattr(P, "kin_tabs", ()))).astype(np.int64)),
         pin_part=np.array(pin_part, np.int64), part_pin_ptr=part_pin_ptr, pin_off=pin_off, px=px, py=py,
         net_ptr=net_ptr, net_pins=np.array(net_pins, np.int64), w=w, frozen=frozen,
         part_net_ptr=part_net_ptr, part_nets=np.array(part_nets, np.int64), nb=np.zeros((max(1, len(nets)), 4)),

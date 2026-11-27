@@ -925,14 +925,12 @@ def culprits(P, findings, allowed=None):
 def _ok_map(P, i, k, S, pad):
     """Origins (ncx x ncy booleans) where part i in rotation k is inside its board rectangles
     and free in the occupancy tables S."""
-    from .legalize import _inside_origins
+    from .legalize import _part_origins
     p = P.parts[i]
     si = 0 if p.s > 0 else 1
     nx, ny = P.ncx, P.ncy
     r = p.rots[k]
-    ok = np.ones((nx, ny), dtype=bool)
-    for brd in (r.g_boards or (r.g_board,)):
-        ok &= _inside_origins(P, brd, 0, nx - 1, 0, ny - 1)
+    ok = _part_origins(P, i, k, 0, nx - 1, 0, ny - 1)
     for side, rect in [(si, o) for o in (r.g_own_rects or (r.g_own,))] + [(1 - si, o) for o in r.g_opp]:
         if not ok.any():
             break
@@ -975,7 +973,7 @@ def _candidates(P, st, i, S, pad, ks, w_rot, limit, edge=False):
     where it is, at most `limit`: [(cost, X, Y, k)]. edge=True ranks them by the distance of
     the part's own rectangle to the board's edge first (a big part hugging an edge leaves the
     rest of the board in one piece)."""
-    from .legalize import _inside_origins
+    from .legalize import _part_origins
     p = P.parts[i]
     si = 0 if p.s > 0 else 1
     X0, Y0, K0 = int(st.X[i]), int(st.Y[i]), int(st.K[i])
@@ -984,9 +982,7 @@ def _candidates(P, st, i, S, pad, ks, w_rot, limit, edge=False):
     out = []
     for k in ks:
         r = p.rots[k]
-        ok = np.ones((nx, ny), dtype=bool)
-        for brd in (r.g_boards or (r.g_board,)):
-            ok &= _inside_origins(P, brd, 0, nx - 1, 0, ny - 1)
+        ok = _part_origins(P, i, k, 0, nx - 1, 0, ny - 1)
         for side, rect in [(si, o) for o in (r.g_own_rects or (r.g_own,))] + [(1 - si, o) for o in r.g_opp]:
             if not ok.any():
                 break

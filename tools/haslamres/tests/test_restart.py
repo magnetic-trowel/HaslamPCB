@@ -172,6 +172,7 @@ def test_judge_counts_past_drcs_cap_of_499_with_pcbnew(tmp_path, monkeypatch):
     (bin_ / "python3").chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_}:{os.environ['PATH']}")
     monkeypatch.setenv("HASLAM_KICAD_WRAP", "")
+    monkeypatch.delenv("HASLAM_KICAD_PYTHON", raising=False)   # env.sh sets it on apt hosts: the stand-in must run
     inp = tmp_path / "in" / "board.kicad_pcb"
     inp.parent.mkdir()
     inp.write_text("(kicad_pcb)\n")
@@ -622,6 +623,39 @@ def test_canonical_copper_order_reads_a_net_name_with_an_unbalanced_parenthesis(
         assert out.index("(start 0 0)") < out.index("(start 1 1)")         # sorted by content
 
 
+def test_judge_copies_keep_the_input_name_and_project_files(tmp_path):
+    """input/ and aN/ boards are named as the input, with its project files and fp-lib-table beside them."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "kicad-cli").write_text(FAKE_CLI)
+    (bin_ / "kicad-cli").chmod(0o755)
+    inp = tmp_path / "in" / "mydesign.kicad_pcb"
+    inp.parent.mkdir()
+    inp.write_text("(kicad_pcb OPEN=1)\n")
+    inp.with_suffix(".kicad_pro").write_text("{}")
+    (inp.parent / "fp-lib-table").write_text("(fp_lib_table)\n")
+    work = tmp_path / "work"
+    work.mkdir()
+    env = dict(os.environ, PATH=f"{bin_}:{os.environ['PATH']}", HASLAM_KICAD_WRAP="")
+    r = subprocess.run([sys.executable, str(RESTART), "--input", str(inp), "--output", str(tmp_path / "o.kicad_pcb"),
+                        "--time", "200", "--parallel", "1", "--first-s", "25", "--max-attempts", "1", "--",
+                        "echo '(kicad_pcb OPEN=0)' > @OUT@"], cwd=work, env=env, capture_output=True, text=True,
+                       timeout=300)
+    assert r.returncode == 0, r.stdout + r.stderr
+    for d in (work / "restarts" / "input", work / "restarts" / "a0"):
+        names = {p.name for p in d.iterdir()}
+        assert {"mydesign.kicad_pcb", "mydesign.kicad_pro", "fp-lib-table"} <= names, names
+        assert "board.kicad_pcb" not in names
+
+
+def test_relations_summary_reads_the_attempts_report(tmp_path):
+    """F24: an attempt's measured intent relations (the joint loop's report) reach summary.json."""
+    log = tmp_path / "log"
+    rel = dict(summary=dict(n=3, met=2, unmet=["r"], conflicts=[], measured_only=[]), rows=[])
+    log.write_text("progress\n" + json.dumps(dict(status="ok", relations=rel)) + "\n")
+    assert restart.relations_summary(log) == dict(n=3, met=2, unmet=["r"], conflicts=[])
+    log.write_text(json.dumps(dict(status="ok")) + "\n")
+    assert restart.relations_summary(log) == {}
 # --- per-attempt records (trace, counted-work ledger, diagnosis, CPU) ---
 
 # stands in for haslam's Python: `-m haslam.route.blocked ROUTED INPUT [--drc F] --out F --time S` writes a diagnosis

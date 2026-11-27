@@ -2,7 +2,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Build an unplaced .kicad_pcb from a haslamsynth project: KiCad's own Python does the work.
 
-Run with KiCad's Python (pcbnew), e.g. `$HASLAM_KICAD_WRAP python3 sch_to_board.py OUT_DIR BOARD_JSON`.
+Run with KiCad's Python (pcbnew): `$HASLAM_KICAD_PYTHON sch_to_board.py OUT_DIR [BOARD_JSON]` (env.sh sets it for a
+native KiCad, e.g. /usr/bin/python3; the PATH python3 may lack pcbnew), or `$HASLAM_KICAD_WRAP python3 ...` for the
+container set-up. BOARD_JSON defaults to OUT_DIR/board.json, which `haslamsynth build` writes from d.board(...) and
+d.place.fixed(...) (haslamsynth.boardgeom: slots and edge-strip keep-outs from a SlotBarrier, named rule areas, pours
+by area). Every footprint library it loads from (the mounting holes' MountingHole too) is added to the project's
+fp-lib-table, so KiCad's DRC reports no lib_footprint_issues.
 
 OUT_DIR is a `haslamsynth build` output folder (<slug>.kicad_pro, .kicad_sch, fp-lib-table). The netlist comes from
 `kicad-cli sch export netlist` on the schematic, so the board carries exactly what KiCad reads from the sheets
@@ -13,7 +18,8 @@ BOARD_JSON (all lengths mm, KiCad board coordinates, y down, origin at the outli
   {"outline": [W, H],
    "holes": [[x, y], ...],                                  # M3 mounting holes, locked
    "fixed": {"REF": {"x":..,"y":..,"rot":..,"side":"top"}}, # placed and locked (connectors, modules)
-   "zones": [{"net": "GND", "layer": "B.Cu"}, ...],         # whole-board pours
+   "zones": [{"net": "GND", "layer": "B.Cu"}, ...],         # pours: whole board, or "rect": [x0,y0,x1,y1]
+   "slots": [[x0, y0, x1, y1], ...],                        # interior Edge.Cuts cut-outs (milled slots)
    "keepouts": [{"rect": [x0,y0,x1,y1], "layers": ["F.Cu","B.Cu"], "name": "...", "no": ["copper","vias"]}],
    "seed_area": [x0, y0, x1, y1]}                           # where unlocked parts start (a grid; the placer moves them)
 Writes OUT_DIR/<slug>.kicad_pcb and prints a JSON summary.
@@ -71,6 +77,24 @@ def fp_lib_dirs(out_dir):
             uri = re.sub(r"\$\{(\w+)\}", lambda m: env.get(m.group(1), m.group(0)), val(lib, "uri"))
             dirs[val(lib, "name")] = os.path.normpath(uri)
     return dirs
+
+
+def add_fp_libs(out_dir, nicknames, libs):
+    """Add each library in `nicknames` that the project's fp-lib-table lacks (a stock one, e.g. MountingHole for
+    the holes): KiCad's DRC flags a footprint whose library is in no table (lib_footprint_issues)."""
+    t = Path(out_dir) / "fp-lib-table"
+    text = t.read_text() if t.exists() else "(fp_lib_table\n  (version 7)\n)\n"
+    have = {val(lib, "name") for lib in find(sexpr(text), "lib")}
+    stock = Path(os.environ.get("KICAD10_FOOTPRINT_DIR", "/usr/share/kicad/footprints")).resolve()
+    rows = []
+    for nick in sorted(set(nicknames) - have):
+        d = Path(libs[nick]).resolve()
+        uri = f"${{KICAD10_FOOTPRINT_DIR}}/{d.name}" if d.parent == stock else str(d)
+        rows.append(f'  (lib (name "{nick}")(type "KiCad")(uri "{uri}")(options "")(descr ""))')
+    if rows:
+        head, _, _ = text.rstrip().rpartition(")")
+        t.write_text(head.rstrip("\n") + "\n" + "\n".join(rows) + "\n)\n")
+    return rows
 
 
 def netlist(out_dir, slug):
@@ -170,6 +194,10 @@ def main(out_dir, board_json):
 
     W, H = spec["outline"]
     add_rect(board, pcbnew.Edge_Cuts, 0, 0, W, H)
+    for x0, y0, x1, y1 in spec.get("slots", []):            # interior cut-outs: KiCad reads closed inner rings
+        if not (0 < x0 < x1 < W and 0 < y0 < y1 < H):
+            raise SystemExit(f"slot {[x0, y0, x1, y1]} is not strictly inside the {W} x {H} outline")
+        add_rect(board, pcbnew.Edge_Cuts, x0, y0, x1, y1)
 
     fixed = spec.get("fixed", {})
     sx0, sy0, sx1, sy1 = spec.get("seed_area", [2, 2, W - 2, H - 2])
@@ -256,10 +284,11 @@ def main(out_dir, board_json):
         board.Add(fp)
 
     for z in spec.get("zones", []):
-        zone(board, [0, 0, W, H], [z["layer"]], net=z["net"], name=z.get("name", ""))
+        zone(board, z.get("rect", [0, 0, W, H]), [z["layer"]], net=z["net"], name=z.get("name", ""))
     for k in spec.get("keepouts", []):
         zone(board, k["rect"], k["layers"], keepout=set(k.get("no", ["copper"])), name=k.get("name", ""))
 
+    add_fp_libs(out_dir, {str(fp.GetFPID().GetLibNickname()) for fp in board.GetFootprints()}, libs)
     path = out_dir / f"{slug}.kicad_pcb"
     pcbnew.SaveBoard(str(path), board)
     st = write_stackup(path, spec)
@@ -331,4 +360,4 @@ def update(out_dir, board_in, board_out):
 if __name__ == "__main__":
     if sys.argv[1] == "--update":                    # --update OUT_DIR BOARD_IN BOARD_OUT
         sys.exit(update(sys.argv[2], sys.argv[3], sys.argv[4]))
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else Path(sys.argv[1]) / "board.json")

@@ -9,7 +9,9 @@ closes within a few millimetres of its parts, so its window is solved at CELL_PI
 test in tools/research/physics/hl_cell_convergence.py; docs/topics/physics/hot-loop-evaluation.md section 3).
 
 The window is the bounding box of the parts that carry at least SHARE of the cell's peak pad current in the
-copper-free circuit solve (input caps, switches, the pads of the overshoot observer), grown by
+copper-free circuit solve (input caps, switches, the pads of the overshoot observer), less those with no pad within
+FAR_MM of the cell's own loop parts the brief names (window_pads: a rail's far decouplers take a share in the
+copper-free circuit but little through the copper), grown by
 max(MARGIN_MM, MARGIN_H x h), h the outer layers' depth to their next layer, so the return current spreading in the
 planes is mostly held (a loop at height h over its plane returns 1 - (2/pi) atan(x/h) of its current beyond x; on
 2-layer boards the raw window reads up to +36 % at 3 mm: the truncation correction below removes it). It
@@ -38,6 +40,7 @@ Z(f_sw): L di/dt with the switch's edge time plus the fundamental's share, the s
 from __future__ import annotations
 
 import math
+import os
 import time
 
 import numpy as np
@@ -48,6 +51,9 @@ from . import observe as O
 CELL_PITCH = 0.0625          # mm: L_loop within 0.5 %, R_loop within 3 % of 0.03125 mm on 3 boards (0.125: up to 11 %)
 SHARE = 0.05                 # a pad carrying this share of the cell's peak pad current sets the window
 MARGIN_MM = 3.0              # mm around the pads
+FAR_MM = 10.0                # mm: a part carrying SHARE whose pads are all this far from the cell's own parts does not
+                             # set the window (window_pads; its feed's inductance, ~0.5-1 nH/mm, is several times the
+                             # loop's): the truncation correction counts what it takes
 MARGIN_H = 3.0               # x the outer layers' depth to their next layer, if larger (the return spreads over a few h)
 HARMONICS = (1, 3, 5)        # R_loop at these multiples of f_sw
 MAX_CELLS = 1.2e6            # raster budget of one window (cells x copper layers): the pitch doubles past it (5 min)
@@ -69,15 +75,39 @@ def _pad_box(bm, tokens):
     return (min(xs), min(ys), max(xs), max(ys)) if xs else None
 
 
-def window_pads(bd, s, o, freqs, edge=None):
+def _own_window_default():
+    """HASLAM_HOTLOOP_OWN_WINDOW=1 opts into the own-parts window (e360ef7); off by default until a corpus A/B shows it
+    leaves L_loop unbiased: a smaller window truncates coupling to nearby planes and copper (review of e360ef7)."""
+    return os.environ.get("HASLAM_HOTLOOP_OWN_WINDOW", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def window_pads(bd, s, o, freqs, edge=None, own=None):
     """The pads that set a cell's window: every pad of a part through which SHARE of the peak pad current of the
     cell's own pattern or of its overshoot observer's passes (half its pads' summed |J|: a connector or module
-    takes its share over many pins), at any of `freqs`, in the copper-free circuit (the same for every layout; at f == edge its edge model)."""
+    takes its share over many pins), at any of `freqs`, in the copper-free circuit (the same for every layout; at f == edge its edge model).
+
+    own (default: HASLAM_HOTLOOP_OWN_WINDOW, off): of the other parts, only those with a pad within FAR_MM of the cell's own parts (bd.cell_refs: controller,
+    switches, the loop's parts, its hot-side caps, inductor, snubbers; their pad centres' box) when the brief names
+    them and any of them passes. The copper-free circuit splits a rail's current over every parallel capacitor alike,
+    wherever it sits: 16 sensor decouplers of a boost's output rail took 6 % each and stretched its window over a
+    50 x 78 mm board (bme280-array F39: 318 s of a 75 nA converter's evaluation). Through the copper a part FAR_MM
+    away takes little of it (its feed's inductance alone is several times a loop's 1-2 nH), and the truncation
+    correction (board solve minus the window at the board's pitch) adds back what it takes. Near parts stay whether
+    the brief names them or not: a window on the brief's loop pads alone moved L_loop by up to 16 % and was reverted
+    (docs/research/physics/hot-loop-evaluation-runs.md section 1). Far parts with an injection pad (the cell solve's
+    Ja: ICs, connectors, modules, outside the copper model) stay too: the window solve cannot put their current
+    anywhere else."""
+    if own is None:
+        own = _own_window_default()
     out = set()
+    inj = set()          # pads where current enters the copper model in the cell's solve (Ja: ICs, connectors, the source)
     bde = _edge_bd(bd) if edge in freqs else bd
     for f in freqs:
         x = bde if f == edge else bd
         sol = x.circuit.solve(f, [s])[s.name]
+        ja = sol.get("Ja") or {}
+        top = max((abs(j) for j in ja.values()), default=0.0)
+        inj |= {p for p, j in ja.items() if top and abs(j) > 1e-6 * top}
         for J in (sol["J"], O.pattern(x, o, f)):
             big = max((abs(j) for j in J.values()), default=0.0)
             part = {}
@@ -86,7 +116,28 @@ def window_pads(bd, s, o, freqs, edge=None):
             for pads in part.values():
                 if big and sum(j for _, j in pads) / 2 >= SHARE * big:
                     out |= {p for p, j in pads if j > 0}
-    return out
+    refs = (getattr(bd, "cell_refs", None) or {}).get(s.meta.get("cell")) if own else None
+    if not refs:
+        return out
+    xy = [bd.pad_xy[p] for p in out if p.rsplit(".", 1)[0] in refs and p in bd.pad_xy]
+    if not xy:
+        return out
+    x0, y0 = min(x for x, _ in xy), min(y for _, y in xy)
+    x1, y1 = max(x for x, _ in xy), max(y for _, y in xy)
+
+    def near(p):
+        if p not in bd.pad_xy:
+            return True                  # no position known: kept, as before
+        x, y = bd.pad_xy[p]
+        return math.hypot(max(x0 - x, 0.0, x - x1), max(y0 - y, 0.0, y - y1)) <= FAR_MM
+    by_part = {}
+    for p in out:
+        by_part.setdefault(p.rsplit(".", 1)[0], []).append(p)
+    # a far part where the cell's current enters the copper model (an injection pad: IC, connector, module) stays: left
+    # out, the window solve loses that current outright (dropped_injection; jin-neuron turtlepico's DRV8833 half
+    # bridge, whose supply comes in 25 mm away: 51 % dropped, R_loop at 5 f_sw -31 %). Only lumped far parts (a rail's
+    # decouplers, whose share the copper's feed inductance takes) are left to the truncation correction.
+    return {p for ref, ps in by_part.items() if ref in refs or any(near(q) or q in inj for q in ps) for p in ps}
 
 
 def _skin_R(net, f, nsub):

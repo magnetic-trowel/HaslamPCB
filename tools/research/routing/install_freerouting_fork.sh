@@ -12,7 +12,8 @@
 #
 #   tools/research/routing/install_freerouting_fork.sh [REF] [SRC_DIR] [--pin]
 # REF defaults to origin/master; SRC_DIR to $HASLAM_HOME/src/freerouting (cloned if missing).
-# Gradle provisions the JDK 25 toolchain the fork needs.
+# Gradle provisions the JDK 25 toolchain the fork needs; with no Java 17+ to start Gradle, a Temurin JDK 25 is
+# downloaded into $HASLAM_HOME/jdk-25. FR_RETRY_WAITS (default "30 90 240") are the seconds between build retries.
 set -euo pipefail
 PIN=0
 ARGS=()
@@ -27,7 +28,8 @@ URL=https://github.com/magnetic-trowel/freerouting
 MODULES=java.base,java.datatransfer,java.xml,java.prefs,java.desktop,java.logging,java.management,java.net.http,java.transaction.xa,java.sql,jdk.crypto.ec,jdk.management
 
 if [ ! -d "$SRC/.git" ]; then
-  git clone -q "$URL" "$SRC"
+  # blobless: the full history is ~2.3 GB of old blobs; a checkout fetches only the blobs it needs
+  git clone -q --filter=blob:none "$URL" "$SRC" || { rm -rf "$SRC"; git clone -q "$URL" "$SRC"; }
 fi
 git -C "$SRC" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
 git -C "$SRC" fetch -q --prune origin
@@ -45,14 +47,43 @@ if [ -x "$DEST/bin/freerouting" ]; then
   pin
   exit 0
 fi
-# Gradle's wrapper needs a java to start: JAVA_HOME, else java on PATH, else a JDK in HASLAM_HOME
-if [ -z "${JAVA_HOME:-}" ] && ! command -v java > /dev/null; then
+# Gradle's wrapper needs a java (17+) to start: JAVA_HOME, else java on PATH, else a JDK 25 in HASLAM_HOME,
+# downloaded from Adoptium (Temurin, sha256-checked) on a machine with none: a fresh Ubuntu has no Java
+java_major() { { "$1" -version 2>&1 || true; } | sed -n 's/.* version "\([0-9]*\).*/\1/p' | head -1; }
+JV=$(command -v java > /dev/null && java_major java || true)
+if [ -z "${JAVA_HOME:-}" ] && [ "${JV:-0}" -lt 17 ]; then
   for d in "$HASLAM_HOME"/jdk-25*; do [ -x "$d/bin/java" ] && export JAVA_HOME=$d && break; done
+  if [ -z "${JAVA_HOME:-}" ]; then
+    case "$(uname -m)" in x86_64) ARCH=x64 ;; aarch64) ARCH=aarch64 ;; *) ARCH=$(uname -m) ;; esac
+    read -r JDK_URL JDK_SHA < <(curl -fsSL \
+      "https://api.adoptium.net/v3/assets/latest/25/hotspot?os=linux&architecture=$ARCH&image_type=jdk&vendor=eclipse" |
+      python3 -c "import json,sys; p=json.load(sys.stdin)[0]['binary']['package']; print(p['link'], p['checksum'])")
+    echo "No Java 17+ found: downloading Temurin JDK 25 into $HASLAM_HOME/jdk-25 (~140 MB)"
+    rm -rf "$HASLAM_HOME/jdk-25" "$HASLAM_HOME/jdk-25.tar.gz" && mkdir -p "$HASLAM_HOME/jdk-25"
+    curl -fsSL -o "$HASLAM_HOME/jdk-25.tar.gz" "$JDK_URL"
+    echo "$JDK_SHA  $HASLAM_HOME/jdk-25.tar.gz" | sha256sum -c - > /dev/null
+    tar -xzf "$HASLAM_HOME/jdk-25.tar.gz" -C "$HASLAM_HOME/jdk-25" --strip-components=1
+    rm -f "$HASLAM_HOME/jdk-25.tar.gz"
+    export JAVA_HOME=$HASLAM_HOME/jdk-25
+  fi
 fi
-(cd "$SRC" && ./gradlew -q executableJar)
+# Maven Central and the Gradle/JDK downloads rate-limit shared egress (HTTP 429): retry with backoff, and try
+# --offline once a cache exists (a failed attempt may have fetched everything already)
+build() { (cd "$SRC" && ./gradlew -q "$@" executableJar); }
+ok=0
+for wait in ${FR_RETRY_WAITS:-30 90 240}; do
+  if build; then ok=1; break; fi
+  if [ -d "${GRADLE_USER_HOME:-$HOME/.gradle}/caches/modules-2" ] && build --offline; then ok=1; break; fi
+  echo "gradle build failed (rate limit or network?): retrying in ${wait}s" >&2
+  sleep "$wait"
+done
+if [ "$ok" = 0 ] && ! build; then
+  echo "gradle build failed 4 times; see the output above" >&2
+  exit 1
+fi
 JAR=$(ls "$SRC"/build/libs/*-executable.jar)
 # jlink from a JDK 25: the toolchain gradle provisioned, else JAVA_HOME (gradle uses it when it is 25)
-JDK=$( (ls -d "$HOME"/.gradle/jdks/*25*/ 2>/dev/null || true) | grep -v '\.tar' | head -1 || true)
+JDK=$( (ls -d "${GRADLE_USER_HOME:-$HOME/.gradle}"/jdks/*25*/ 2>/dev/null || true) | grep -v '\.tar' | head -1 || true)
 if [ ! -x "${JDK:-/nonexistent}/bin/jlink" ] && [ -n "${JAVA_HOME:-}" ] \
    && "$JAVA_HOME/bin/java" -version 2>&1 | grep -q 'version "25'; then
   JDK=$JAVA_HOME

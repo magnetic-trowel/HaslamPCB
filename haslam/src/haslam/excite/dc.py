@@ -1164,11 +1164,13 @@ def imbalance(pl, inj, lost=()):
     return out
 
 
-def planned_injections(board, intent, brief=None, heat=None):
+def planned_injections(board, intent, brief=None, heat=None, sources=None):
     """{"REF.NUM": A} of the DC power flow at the typical point of every parameter, from the plan the
     physics evaluator scores (haslam.excite.evaluate: rails, feeds, regulators, loads and their currents
     under the operating facts `intent`), positive into the copper; {} when the plan has no rail with a
-    source and a load. For callers outside the evaluator (power copper's THT neck); no field solve."""
+    source and a load. For callers outside the evaluator (power copper's THT neck); no field solve. `sources`: a dict
+    filled with {"REF.NUM": set of the sources ("intent", "part_table", "prior") of the load currents at that pad},
+    so a caller can tell a stated current from a class prior."""
     from haslam.circuit import brief as B
     from . import models as M
     from . import sources as S
@@ -1177,7 +1179,7 @@ def planned_injections(board, intent, brief=None, heat=None):
     PF.apply(board, (intent or {}).get("pins"))         # the schematic's pin facts, as the evaluator applies them
     brief = brief or B.build(board)
     bd = M.build(board, brief)
-    srcs = S.add_all(bd, brief)
+    srcs = S.add_all(bd, brief, intent=intent)
     P, _ = ledger_for(bd, brief, srcs, intent)
     pl = plan(board, brief, bd, P, srcs, intent)
     cv = {(p.subject, p.name): p.typ for p in pl.params}
@@ -1203,6 +1205,11 @@ def planned_injections(board, intent, brief=None, heat=None):
     bad = imbalance(pl, inj, lost)
     if bad:
         raise ValueError(f"the DC plan's current does not balance: {'; '.join(bad[:4])}")
+    if sources is not None:
+        src_of = {(p.subject, p.name): p.source for p in pl.params}
+        for ld in pl.loads:
+            for t in list(ld.get("sup") or []) + list(ld.get("gnd") or []):
+                sources.setdefault(t, set()).add(src_of.get(ld.get("key"), "prior"))
     return {k: float(v) for k, v in inj.items() if v}
 
 

@@ -14,12 +14,12 @@ B=$D/out/solar-small.kicad_pcb
 E=$D/eval
 mkdir -p "$E"
 export PYTHONPATH=$REPO/haslam/src OMP_NUM_THREADS=${OMP_NUM_THREADS:-4} NUMBA_CACHE_DIR=${NUMBA_CACHE_DIR:-$RUN/numba}
-export APPTAINER_BIND=${APPTAINER_BIND:-/var/tmp/$USER}
+export APPTAINER_BIND=${APPTAINER_BIND:-/var/tmp/${USER:-$(id -un)}}
 source "$HOME/.cache/haslambench/env.sh"
 # the board as scored: project files from the input (rules), not whatever a method left beside it
 for e in kicad_pro kicad_dru; do cp "$D/in/solar-small.$e" "$D/out/solar-small.$e"; done
 rm -f "$D/out/solar-small.haslam_intent.json"          # the evaluation's intent is given explicitly below
-( ulimit -v 40000000; $HASLAM_KICAD_WRAP kicad-cli pcb drc --format json --schematic-parity --refill-zones \
+( ulimit -v 40000000; ${HASLAM_KICAD_CLI:-${HASLAM_KICAD_WRAP:-} kicad-cli} pcb drc --format json --schematic-parity --refill-zones \
     -o "$E/drc.json" "$B" ) > "$E/drc.log" 2>&1 || true
 "$PY" -u -W ignore -m haslam.excite.evaluate "$B" --intent "$RUN/eval-intent.json" -o "$E/excite.json" \
     > "$E/excite.txt" 2> "$E/excite.log"

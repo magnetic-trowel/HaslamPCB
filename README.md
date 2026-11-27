@@ -37,13 +37,20 @@ frozen snapshot of the checkout. Retry and cancel your own jobs only, by id or `
 A design lives in `tools/research/llm-design/designs/<slug>/` (example: `solar-small`). Paths below are relative to
 `tools/research/llm-design/`. Run each stage and check its gate; do not continue past a failed gate.
 
+**Before writing placement intent, read
+[layout intent from datasheets](docs/topics/workflow/layout-intent-from-datasheets.md) (one page).** Datasheet layout
+numbers ("cap within 2 mm", "as close as possible") are proxies for physics haslam already prices (loop inductance,
+coupling, thermal rise): give haslam the facts (currents, switching cells, noise limits), not the distances. Relations
+are for mechanics, the user's stated requirements, safety and board geometry. The one-page guide links each rule to
+its derivation, so look up a single rule rather than reading whole documents.
+
 | # | Stage | Command | Gate |
 |---|---|---|---|
 | 1 | Requirements and parts | Read datasheets (tables and figures, not summaries); check stock and basic/extended status with the JLC parts API | every number has a page citation |
-| 2 | Circuit as code | Write `designs/<slug>/parts.py` (part cards), `design.py` (blocks, nets, placement relations, intent), `board.json` (outline, holes, fixed parts, pours, keepouts), custom footprints | — |
+| 2 | Circuit as code | Write `designs/<slug>/parts.py` (part cards), `design.py` (blocks, nets, operating facts and terms, board geometry in `d.board(...)`, placement relations only where the guide above says), custom footprints | — |
 | 3 | LCSC numbers | `haslamsynth jlc designs/<slug>/design.py` (writes `jlc.json`) | every generic passive has a number |
 | 4 | Schematic and checks | `haslamsynth build designs/<slug>/design.py -v` → `designs/<slug>/out/`: `.kicad_sch`, `.kicad_pro`, `.kicad_dru`, `bom.csv`, `report.md`, `<slug>.haslam_intent.json` | 0 errors; every warning in `report.md` read (rule feasibility, density) |
-| 5 | Unplaced board | `$HASLAM_KICAD_WRAP python3 synth/scripts/sch_to_board.py designs/<slug>/out designs/<slug>/board.json` | DRC schematic parity 0 |
+| 5 | Unplaced board | `$HASLAM_KICAD_PYTHON synth/scripts/sch_to_board.py designs/<slug>/out` (container KiCad: `$HASLAM_KICAD_WRAP python3 ...`; reads the build's `out/board.json`) | DRC schematic parity 0 |
 | 6 | Pre-flight | `python synth/scripts/preflight.py <board> --probe` | 0 FAIL |
 | 7 | Layout and scoring | from the repo root, several seeds: `tools/research/llm-design/synth/scripts/layout.sh <board> <outdir> <seed>` (minutes to hours) | `eval/drc.json`: 0 errors, 0 unconnected; `eval/status.json`: `complete` true |
 | 8 | Compare seeds or variants | `python synth/scripts/compare_ab.py <rundir> --md table.md` (layout `<rundir>/<arm>/s<seed>/{out,eval}`) | choose by hard violations, then limits, then cost |

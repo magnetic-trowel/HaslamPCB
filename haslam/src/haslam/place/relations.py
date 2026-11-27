@@ -15,7 +15,13 @@ Compiled today (phase 1), each onto a hook the placer already had:
     on_edge             required/strong: pinned on that edge facing as asked             hard
                         (edge_check.pin_poses); medium/weak: label-term pull into the edge band  soft
     orient allowed      the part's rotation set (Problem.build part_rotations)            hard
-    region              label-term pull of the courtyard box into the region              soft
+    region              required: a hard keep-in of every member's courtyard box          hard
+                        (Problem.set_keep_in: grid verdict, both annealers, legalizers,
+                        CP-SAT, exact repair, repack, the joint loop's windows); a
+                        pre-check proving it cannot hold places it soft and says so
+                        strong and below: label-term pull of the courtyard box            soft
+    near                required, one movable part to pins or parts that do not move:     hard
+                        placed first within its distance (pipeline._pin_near), then held
     near                one side fixed (a label, a locked or held part): label-term pull  soft
     near                between movable parts: the relation term (`rules`, priced in      soft
                         both annealers and the joint loop's windows)
@@ -32,8 +38,11 @@ distance that gap means here (target + both sides' pad insets, `rule_mm`).
 
 Measured but not optimized yet (the row says so): near with a section or net on a side, row, region
 exclusive, orient pins_toward, side (haslam never flips: a part on the other side is a proven
-conflict). Required region, near and keep_away are placed soft at the required weight; when unmet
-they are reported, never dropped silently.
+conflict). Required keep_away, and required near between movable parts or to a label, are placed soft at
+the required weight; when unmet they are reported, never dropped silently. A required relation is never
+demoted by relations_vs_physics; a soft one that is says so in its row (weighed_as). A near with a length to a
+fixed part's pin (a decap at a locked part's pin) keeps its written strength and yields to physics like any other
+relation: decoupling placement is the physics terms' job. A region is met only when every member's courtyard is inside it (REGION_TOL_MM).
 
 Board rules outrank every relation. haslam never applies a relaxation: rows offer them, the LLM
 decides in its next generation.
@@ -55,7 +64,10 @@ from haslam.intent import relations as V
 REL_CLASS = 100000           # soft-overlap classes of keep_away relations (silk 0, channels 1, bands 2...)
 EDGE_TOL = 1.0               # mm: on_edge, courtyard to the edge (edge_check.EDGE_TOL)
 FACE_MIN = 0.3               # cos: facing out (edge_check.FACE_MIN)
-REGION_TOL = 0.02            # share of the members' courtyard area that may lie outside a region
+REGION_TOL = 0.02            # exclusive regions and groups: share of the area other parts may take
+REGION_TOL_MM = 0.05         # mm a member's courtyard may cross its region's edge (rounding; problem.KEEP_IN_TOL)
+REGION_AREA_EPS = 1e-3       # mm2: a member is outside when its courtyard leaves the grown region by more
+FULL_WEIGHT_WHY = {"safety": "category safety", "requested": "an explicit request (requested: true)"}
 GROUP_RATIO = {"tight": 1.5, "close": 2.5, "loose": 4.0}   # bbox area / sum of courtyard areas
 COMPASS = {"nw": (0, 0), "n": (1, 0), "ne": (2, 0), "w": (0, 1), "c": (1, 1), "e": (2, 1),
            "sw": (0, 2), "s": (1, 2), "se": (2, 2)}
@@ -351,6 +363,7 @@ class Rel:
     place: Obj = None               # region / edge / area target
     mag: tuple = None               # ('mag', name) | ('mm', value)
     default: bool = False
+    explicit: bool = True           # the strength was written (else the kind's default)
     enforced: str = ""              # hard | soft | strong rule | measured only | not applied
     how: str = ""
     conflicts: list = field(default_factory=list)
@@ -369,6 +382,8 @@ class Bundle:
         self.rels = []
         self.defaults_off = list(intent.get("defaults_off") or [])
         self.hold, self.rotations, self.pins, self.anchors, self.keep, self.order = {}, {}, {}, [], [], []
+        self.kin = {}               # uuid -> [required region relations]: hard keep-ins (keep_in)
+        self.near_pins = {}         # uuid -> required near relation to a fixed part: placed first, then held
         self.terms = []             # relations priced by the relation term (near between movables, group)
         self.applied = {}           # rid -> what the placer did (pipeline notes)
         self.precheck = []          # proven conflicts before placing
@@ -382,7 +397,7 @@ class Bundle:
         R = self.R
         for r in rels:
             rid, kind = r["id"], r["kind"]
-            x = Rel(rid, kind, r["strength"], r)
+            x = Rel(rid, kind, r["strength"], r, explicit=not r.get("strength_default"))
             if "mag" in r:
                 x.mag = V.magnitude(r["mag"], rid, self.set["relations_mm"])
             if kind in ("near", "keep_away"):
@@ -476,10 +491,15 @@ class Bundle:
         """Annealer weight of a soft relation at `strength`; with relations_vs_physics 'physics', a
         relation on a part of a physics structure (a brief section) weighs as weak, unless it is
         relation `x` with a safety category or an explicit request (full_weight)."""
-        if self.set["relations_vs_physics"] == "physics" and any(u in self.struct_parts for u in uuids) \
-                and not self.full_weight(x):
+        if self.demoted(strength, uuids, x):
             strength = "weak"
         return float(self.set[f"rel_w_{strength}"])
+
+    def demoted(self, strength, uuids=(), x=None):
+        """Whether a soft relation at `strength` on these parts weighs as weak because physics prices them
+        (relations_vs_physics 'physics'). Never a required one: required is the user's floor, not a weight."""
+        return (strength not in ("required", "weak") and self.set["relations_vs_physics"] == "physics"
+                and any(u in self.struct_parts for u in uuids) and not self.full_weight(x))
 
     # -------------------------------------------------------------- pre-checks and compile
     def compile(self):
@@ -561,16 +581,31 @@ class Bundle:
                     regions_by.setdefault(u, []).append(x)
                 for u in movers:
                     self.anchors.append((x.id, u, ("box", x.place.geom.bounds), x))
-                x.enforced = "soft"
-                x.how = "label-term pull into the region's box" + (
-                    "; required is placed soft until hard regions are built (phase 2)" if x.strength == "required"
-                    else "") + ("; exclusive is measured only" if x.spec.get("exclusive") else "")
+                    if x.strength == "required":
+                        self.kin.setdefault(u, []).append(x)
+                if x.strength == "required":
+                    x.enforced = "hard"
+                    x.how = ("hard keep-in: every member's courtyard inside the region in every stage that moves "
+                             "parts (seed, anneal, legalizers, exact repair, repack, the joint loop's windows)")
+                else:
+                    x.enforced, x.how = "soft", "label-term pull into the region's box"
+                x.how += "; exclusive is measured only" if x.spec.get("exclusive") else ""
             elif x.kind == "near":
                 fixed_b = x.b.kind == "label" or all(by[u].locked or u in self.hold for u in x.b.parts)
                 mov_a = [u for u in x.a.parts if not by[u].locked and u not in self.hold]
+                # a length to a fixed pin (a decap at a locked part's supply pin) keeps its written strength and
+                # yields to physics like any other relation: decoupling placement is priced by the physics terms,
+                # and a stated length is not promoted over them (user's rule 2026-11-26; F29 reverted)
                 if fixed_b and len(mov_a) == 1:
                     self.anchors.append((x.id, mov_a[0], ("near", x), x))
-                    x.enforced, x.how = "soft", "label-term pull toward " + x.b.name
+                    if x.strength == "required" and x.b.kind in ("part", "pins") and len(x.a.parts) == 1 \
+                            and mov_a[0] not in self.near_pins:
+                        self.near_pins[mov_a[0]] = x
+                        x.enforced = "hard"
+                        x.how = (f"placed first within {self.target_mm(x):.2f} mm ({self.metric(x)} metric) of "
+                                 f"{x.b.name}, then held like a fixed part")
+                    else:
+                        x.enforced, x.how = "soft", "label-term pull toward " + x.b.name
                 elif len(x.a.parts) == 1 and len(x.b.parts) == 1 and x.b.kind in ("part", "pins") and mov_a + [
                         u for u in x.b.parts if not by[u].locked and u not in self.hold]:
                     self.terms.append(x)
@@ -594,7 +629,51 @@ class Bundle:
                 x.enforced, x.how = "measured only", f"{x.kind} is not optimized yet (phase 2)"
         self.rotations = {u: list(v[0]) for u, v in rots_by.items()}
         self._prechecks(hold_by, edge_by, regions_by, rots_by)
+        self._soften_proven()
         return self
+
+    def _soften_proven(self):
+        """A required region a pre-check proved cannot hold its members (capacity, disjoint regions, a member
+        that fits in no rotation) is placed soft, not hard (a hard keep-in would make every placement
+        illegal): its conflict row says so, and so does its `how`."""
+        by_id = {x.id: x for x in self.rels}
+        for c in self.precheck:
+            for rid in c["ids"]:
+                x = by_id.get(rid)
+                if x is None or x.kind != "region" or x.enforced != "hard":
+                    continue
+                only = c.get("member")
+                freed = []
+                for u in list(self.kin):
+                    if (only is None or u == only) and x in self.kin[u]:
+                        self.kin[u].remove(x)
+                        freed.append(u)
+                        if not self.kin[u]:
+                            del self.kin[u]
+                if only is None:
+                    x.enforced = "soft"
+                    x.how = "label-term pull into the region's box (a pre-check proved it cannot hold: placed soft)"
+                elif freed:
+                    x.how += f"; {self._ref(only)} placed soft (a pre-check proved it cannot be inside)"
+
+    def keep_in(self, P):
+        """{part index: (geometry, name)} of the hard keep-ins (required regions) on problem P: a part in
+        several takes their intersection (Problem.set_keep_in)."""
+        by = {p.uuid: p for p in P.parts}
+        out = {}
+        for u, xs in self.kin.items():
+            p = by.get(u)
+            if p is None or not p.movable or not xs:
+                continue
+            g = xs[0].place.geom
+            for y in xs[1:]:
+                g = g.intersection(y.place.geom)
+            out[p.i] = (g, "+".join(y.id for y in xs))
+            for y in xs:
+                self.applied.setdefault(y.id, [])
+                if len(self.applied[y.id]) < 1:
+                    self.applied[y.id].append(f"hard keep-in on {sum(1 for v in self.kin.values() if y in v)} part(s)")
+        return out
 
     def _conflict(self, ids, why, fix, proof="precheck", **ev):
         self.precheck.append(dict(ids=list(ids), why=why, fix=fix, proof=proof, **ev))
@@ -615,7 +694,8 @@ class Bundle:
                     self._conflict([x.id] + ([who] if who != "locked" else []),
                                    f"{self._ref(u)} does not move ({who}) and does not meet {x.id} where it is",
                                    f"unhold {self._ref(u)}" if who != "locked" else
-                                   f"drop {x.id} (unlocking {self._ref(u)} is a board change: ask the designer)")
+                                   f"drop {x.id} (unlocking {self._ref(u)} is a board change: ask the designer)",
+                                   member=u, part=self._ref(u))
         # disjoint regions of one part (both strong or required)
         for u, xs in regions_by.items():
             hard = [x for x in xs if x.strength in ("required", "strong")]
@@ -624,7 +704,17 @@ class Bundle:
                     if hard[i].place.geom.intersection(hard[j].place.geom).area < cy(by[u]).area:
                         self._conflict([hard[i].id, hard[j].id],
                                        f"{self._ref(u)} cannot be in both regions (they overlap less than its "
-                                       f"courtyard)", "weaken one to medium, or merge the regions")
+                                       f"courtyard)", "weaken one to medium, or merge the regions", member=u, part=self._ref(u))
+            # a member of a required region whose courtyard fits in it in no rotation
+            for x in xs:
+                if x.strength != "required" or by[u].locked or u in hold_by:
+                    continue
+                b = cy(by[u]).bounds
+                half = 0.5 * min(b[2] - b[0], b[3] - b[1]) - REGION_TOL_MM
+                if half > 0 and x.place.geom.buffer(-half, join_style="mitre").is_empty:
+                    self._conflict([x.id], f"{self._ref(u)} does not fit inside {x.place.name} in any rotation "
+                                   f"(its courtyard is {b[2] - b[0]:.1f} x {b[3] - b[1]:.1f} mm)",
+                                   f"a larger region, or {self._ref(u)} out of {x.id}", proof="capacity", member=u, part=self._ref(u))
         # region capacity: free area (region in the outline, less footprint keep-outs and fixed parts)
         locked = [cy(fp) for fp in self.board.footprints if fp.locked or fp.uuid in hold_by]
         kos = [k.outline for k in self.board.keepouts if not k.footprint and k.footprints]
@@ -742,6 +832,22 @@ class Bundle:
         rx = ha[0] + hb[0] + d / math.sqrt(2)
         ry = ha[1] + hb[1] + d / math.sqrt(2)
         return tg, (int(rx / g), int(ry / g))
+
+    def near_distance(self, x, P, st, i):
+        """The distance near relation x measures (mm), with its movable part i at its pose in state st and the
+        other side fixed (pad metric: pad to pad, as the oracle; gap: i's courtyard box to b's courtyards)."""
+        if self.metric(x) == "pad":
+            (ua, ka), (ub, kb) = self.pad_sides(x)
+            by = {p.uuid: p.i for p in P.parts}
+            pa = st.pins_xy(by[ua])[ka]
+            pb = st.pins_xy(by[ub])[kb]
+            return float(np.min(np.hypot(pa[:, None, 0] - pb[None, :, 0], pa[:, None, 1] - pb[None, :, 1])))
+        p = P.parts[i]
+        x0, y0 = st.xy(i)
+        c = p.rots[int(st.K[i])].kin_mm if hasattr(p.rots[int(st.K[i])], "kin_mm") else p.rots[int(st.K[i])].crt
+        a = box(x0 + c[0], y0 + c[1], x0 + c[2], y0 + c[3])
+        gb = unary_union([cy(self.R.by_uuid[u]) for u in x.b.parts])
+        return float(a.distance(gb))
 
     def pin_targets(self):
         """{uuid: (x, y)} for parts pinned on an edge that another relation also pulls (a near to a label
@@ -1026,15 +1132,26 @@ class Bundle:
                 target=f"<= {tol} mm, facing {fac}", margin=round(tol - d, 2), distance_mm=round(d, 3),
                 facing=None if f is None else round(f, 2))
         if x.kind == "region":
+            # per member (F33): one courtyard outside the region (grown by REGION_TOL_MM, rounding only) is
+            # unmet, however small a share of the members' area it is
+            grown = x.place.geom.buffer(REGION_TOL_MM, join_style="mitre")
             tot = out_a = 0.0
+            inside, outside = [], []
             for u in mem:
                 g = cy(by[u])
+                a_out = g.difference(grown).area
                 tot += g.area
-                out_a += g.difference(x.place.geom).area
-            met = out_a <= REGION_TOL * tot + 1e-9
-            inside = [self._ref(u) for u in mem if cy(by[u]).difference(x.place.geom).area <= REGION_TOL * cy(by[u]).area]
-            r = dict(measured=f"{out_a:.1f} mm² outside ({out_a / tot:.0%})" if tot else "no members",
-                     target=f"<= {REGION_TOL:.0%} outside {x.place.name}", inside=inside, outside_mm2=round(out_a, 2))
+                out_a += a_out
+                if a_out > REGION_AREA_EPS:
+                    outside.append((self._ref(u), a_out, g.area))
+                else:
+                    inside.append(self._ref(u))
+            met = not outside
+            out_s = ", ".join(f"{r_} {a_:.1f} mm² ({a_ / max(t_, 1e-9):.0%})" for r_, a_, t_ in outside[:8])
+            r = dict(measured=(f"{len(outside)} of {len(mem)} members outside: {out_s}" if outside else
+                               f"all {len(mem)} members inside") if tot else "no members",
+                     target=f"every member's courtyard inside {x.place.name} (to {REGION_TOL_MM} mm)",
+                     inside=inside, outside=[o[0] for o in outside], outside_mm2=round(out_a, 2))
             if x.spec.get("exclusive"):
                 others = sum(cy(fp).intersection(x.place.geom).area for fp in board.footprints
                              if fp.uuid not in x.members and fp.pads)
@@ -1226,7 +1343,14 @@ class Bundle:
     def _row(self, x, board):
         met, m = self._measure_one(x, board)
         row = dict(id=x.id, kind=x.kind, strength=x.strength, enforced=x.enforced, how=x.how, met=met,
-                   **{k: v for k, v in m.items() if k in ("measured", "target", "margin", "inside", "broken", "note")})
+                   **{k: v for k, v in m.items() if k in ("measured", "target", "margin", "inside", "outside", "broken",
+                                                          "note")})
+        mem0 = list(x.members) or list(x.a.parts if x.a else []) or [u for u, _ in x.path]
+        if x.enforced == "soft" and self.demoted(x.strength, mem0, x):
+            # F27: say it, so the user knows a relation that restates their request needs `requested: true`
+            row["weighed_as"] = "weak"
+            row["weighed_why"] = ("relations_vs_physics 'physics': its parts are priced by physics, so it weighed as "
+                                  "weak; mark it requested: true (or category: safety) to keep its strength")
         if x.default:
             row["default"] = True
         if x.spec.get("why"):
@@ -1256,7 +1380,7 @@ class Bundle:
             if self.set["relations_vs_physics"] == "physics" and fw:
                 # the user's exception (2026-11-25): a safety reason or an explicit request keeps its weight
                 why = (f"its parts are also priced by physics (place terms of {names}); as "
-                       f"{'category safety' if fw == 'safety' else 'an explicit request (requested: true)'} it kept "
+                       f"{FULL_WEIGHT_WHY[fw]} it kept "
                        f"its full {x.strength} weight against them, and the placer still traded it")
                 fix = "raise its strength, or relax the physics terms of those sections"
             elif self.set["relations_vs_physics"] == "physics":

@@ -162,6 +162,7 @@ KIND_TYPE = {
     "drop.rail": Clamp,
     "heat.track": Rise,
     "temp.junction": Temperature,
+    "temp.rise": Rise,
     "pickup.peak": Magnitude,
     "supply.peak": Magnitude,
     "overshoot.peak": Magnitude,
