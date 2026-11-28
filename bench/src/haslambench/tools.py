@@ -327,6 +327,17 @@ def kicad_python():
 
 
 FR_PIN = "haslam-freerouting.pin"   # the same pin as the bridge (haslam.route.freerouting): the fork is the control
+FR_REF_FILE = Path(__file__).resolve().parents[2] / "freerouting.ref"   # bench/freerouting.ref
+
+
+def freerouting_ref(path=FR_REF_FILE):
+    """The control's Freerouting fork ref (short sha) from bench/freerouting.ref: its first line that is not a
+    comment. setup.sh --all builds and pins this ref; None when the file is absent (an installed wheel)."""
+    try:
+        lines = Path(path).read_text().splitlines()
+    except OSError:
+        return None
+    return next((ln.split("#")[0].strip() for ln in lines if ln.split("#")[0].strip()), None)
 
 
 def _fr_command(path):

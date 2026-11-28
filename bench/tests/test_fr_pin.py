@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """haslambench's Freerouting is named (HASLAM_FREEROUTING or the bridge's pin), never the newest install."""
 import hashlib
+import re
+from pathlib import Path
 
 import pytest
 
@@ -59,3 +61,19 @@ def test_identity_is_the_bundles_jar(home):
     ident = tools.freerouting_identity([str(stock)])
     assert ident["path"] == str(stock) and ident["file"].endswith("lib/freerouting.jar")
     assert ident["sha256"] == hashlib.sha256(b"the 2.5.0 jar").hexdigest()
+
+
+def test_freerouting_ref_is_the_baseline_pin():
+    """bench/freerouting.ref (what setup.sh --all builds) moves with the weekly tag's fork pin."""
+    ref = tools.freerouting_ref()
+    assert ref and re.fullmatch(r"[0-9a-f]{7,40}", ref), ref
+    tiers = Path(__file__).resolve().parents[2] / "docs/topics/verification/experiment-tiers.md"
+    current = next(ln for ln in tiers.read_text().splitlines() if "Current:" in ln and "baseline/" in ln)
+    assert f"fork `{ref}`" in current, (ref, current)
+
+
+def test_freerouting_ref_skips_comments(tmp_path):
+    f = tmp_path / "freerouting.ref"
+    f.write_text("# a comment\n\n  abc1234  # trailing\nother\n")
+    assert tools.freerouting_ref(f) == "abc1234"
+    assert tools.freerouting_ref(tmp_path / "missing") is None

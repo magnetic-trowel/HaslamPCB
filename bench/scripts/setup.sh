@@ -23,6 +23,8 @@ FR_ZIP_SHA256="e8ffca14914e5307a2fa9aea723fb93d11b99bebda20d126472da5460c03196e"
 KICAD_IMAGE_TAG="${KICAD_IMAGE_TAG:-10.0.7}"
 APPTAINER_VERSION="1.5.4"
 APPTAINER_INSTALLER_SHA256="a097956eafa6ab3dd843ee429d0b774ed029753bfadf013b8046556228fac6f2"
+# the control's Freerouting fork ref: first non-comment line of bench/freerouting.ref
+FR_REF="$(sed 's/#.*//' "$BENCH_DIR/freerouting.ref" | awk 'NF {print $1; exit}')"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -155,7 +157,8 @@ if [ "$DO_FR" = 1 ]; then
   # upstream 2.5.0 is for explicit use only (HASLAM_FREEROUTING). haslambench and the bridge run the build
   # pinned in $HASLAM_HOME/haslam-freerouting.pin, the magnetic-trowel fork (the control):
   if [ ! -s "$HASLAM_HOME/haslam-freerouting.pin" ]; then
-    echo "No Freerouting pinned yet: run tools/research/routing/install_freerouting_fork.sh <ref> --pin"
+    echo "No Freerouting pinned yet: run tools/research/routing/install_freerouting_fork.sh $FR_REF --pin" \
+         "(the control, bench/freerouting.ref), or re-run with --all"
   fi
 fi
 
