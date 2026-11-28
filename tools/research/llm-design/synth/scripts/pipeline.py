@@ -181,8 +181,13 @@ def st_physics(c, a):
     intent = run / f"{c.slug}.haslam_intent.json"
     env = dict(os.environ, PYTHONPATH=str(REPO / "haslam/src"))
     py = str(REPO / "haslam/.venv/bin/python")
-    sh([py, "-u", "-W", "ignore", "-m", "haslam.excite.evaluate", str(board), "--intent", str(intent), "-o",
-        str(run / "eval/excite.json")], c.work / "excite.log", env=env)
+    rc, _ = sh([py, "-u", "-W", "ignore", "-m", "haslam.excite.evaluate", str(board), "--intent", str(intent), "-o",
+                str(run / "eval/excite.json")], c.work / "excite.log", env=env)
+    if rc != 0:
+        # a negative code is a signal: -9 is SIGKILL, which on a container is usually the OOM killer (the obd-solar
+        # evaluation was killed at 13 GB resident on a 15 GB host, FRICTION.md #52)
+        why = f"killed by signal {-rc} (SIGKILL: check `dmesg` for the OOM killer)" if rc < 0 else f"exit {rc}"
+        return c.record("physics", False, f"haslam.excite.evaluate {why}; see {c.work / 'excite.log'}")
     sh([py, "-u", "-W", "ignore", "-m", "haslam.intent", "status", str(run / "eval/excite.json"), "--intent",
         str(intent), "--detailed", "-o", str(run / "eval/status.json")], c.work / "status.log", env=env)
     sp = run / "eval/status.json"

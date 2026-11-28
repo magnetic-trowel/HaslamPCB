@@ -80,10 +80,10 @@ def intent(d):
       verify="bench with a 12 V AGM battery")
     R("REQ-3", "Reverse-current protection", value="no battery current into the charger or panel at night or at "
       "dusk; reversed panel blocked", source="brief", verify="bench: panel removed, battery current < 3 uA")
-    R("REQ-4", "USB-C output", value="USB PD source 5 V 2 A, 9 V 2 A, 12 V 1.5 A (18 W at 12 V)", source="brief; "
+    R("REQ-4", "USB-C output", value="USB PD source 5 V 2 A, 9 V 1.5 A, 12 V 1 A (12 W at 12 V; thermal limit, REVIEW.md M-1)", source="brief; "
       "LTC3115-1 2 A step-down, 1.4 A at 12 V from 10 V (DS p.15, p.35); user 2026-11-28 accepted < 27 W for a 0.65 mm-"
-      "pitch part (Q-5); 18 W "
-      "keeps the OBD pin-16 draw under 3 A (Q-2)", verify="PD analyser")
+      "pitch part (Q-5); 12 W "
+      "keeps U301 under 125 C at 70 C ambient (calc u301_tj_rise) and the pin-16 draw near 1.2 A (Q-2)", verify="PD analyser")
     R("REQ-5", "Standby draw from the car battery", value="< 15 uA with no panel light and no USB sink",
       source="brief ('almost zero standby loss')", verify="calc standby_budget; bench")
     R("REQ-6", "Do not flatten the car battery", value="USB-C output off when VBAT < 12.0 V for 10 s (engine off), "
@@ -98,8 +98,8 @@ def intent(d):
                "J1962 male plug was reachable (SAE J1962 is paywalled, JLC parts have no drawing), so this revision "
                "takes an OBD-II pigtail (pin 16 -> J101.1, pins 4+5 -> J101.2). Supply a connector drawing to "
                "move to a board-mount plug?", blocking=True, default="pigtail into J101")
-    d.question("Q-2", "OBD pin 16 current: J1962 terminals and the vehicle's fuse for pin 16 vary; 18 W at the "
-               "USB-C port draws <= 1.8 A at 11.5 V (2.5 A with charging). Confirm the vehicle allows 3 A on pin 16",
+    d.question("Q-2", "OBD pin 16 current: J1962 terminals and the vehicle's fuse for pin 16 vary; 12 W at the "
+               "USB-C port draws <= 1.2 A at 11.5 V (solar charging subtracts). Confirm the vehicle allows 2 A on pin 16",
                blocking=False, default="3 A")
     d.question("Q-3", "'13-24 V' panel: the CN3767 is a buck with a fixed CV-MPPT set point (16.5 V here); a panel "
                "whose Vmp is below ~16.3 V cannot reach the 14.8 V absorb voltage. Is 13 V the panel's Vmp or its "
@@ -110,7 +110,7 @@ def intent(d):
     d.question("Q-5", "USB PD power rules tie the advertised PDP to the 5 V current: the LTC3115-1 gives 5 V at 2 A "
                "(not 3 A), so the source may only qualify as a 10 W PDP, which may limit offering 9 V and 12 V. Check "
                "USB PD 3.x Power Rules before fixing the firmware's PDO list", blocking=False,
-               default="PDOs 5 V 2 A, 9 V 2 A, 12 V 1.5 A; confirm compliance")
+               default="PDOs 5 V 2 A, 9 V 1.5 A, 12 V 1 A; confirm compliance (REVIEW.md M-2)")
     d.question("Q-4", "STM32G071 low-power figures (Stop-mode current with UCPD wake-up) could not be read: the ST "
                "datasheet was unreachable from the design host. REQ-5 assumes <= 5 uA", blocking=True,
                default="verify on the ST datasheet before ordering")
@@ -125,7 +125,7 @@ def intent(d):
              "revision; a CC over-voltage protector (e.g. TCPP02) is a candidate for rev B", parts=["U401"],
              single_fault_safe=False)
     d.hazard("HZ-5", "Firmware fault leaves USB-C on with the engine off", mitigation="REQ-6 in firmware; worst case "
-             "the PD sink draws 18 W until the battery is flat: no hardware cut-off in this revision",
+             "the PD sink draws 12 W until the battery is flat: no hardware cut-off in this revision",
              parts=["U401"], single_fault_safe=False)
 
 
@@ -133,7 +133,7 @@ def obd_input(d):
     b = Blk(d, "IN", "OBD-II 12 V input: fuse, TVS, bulk", "J101 takes the OBD-II pigtail: pin 16 (battery +, "
             "always on) and pins 4/5 (chassis and signal ground).")
     b.add(P.TERM_5_08, "J101", {"1": "OBD_RAW", "2": "GND"}, notes="OBD pigtail: 1 = pin 16 (+12 V), 2 = pins 4+5")
-    b.add(P.FUSE_5A, "F101", {"1": "OBD_RAW", "2": "VBAT"}, notes="5 A: USB 18 W at 11.5 V is 1.8 A, plus charging")
+    b.add(P.FUSE_5A, "F101", {"1": "OBD_RAW", "2": "VBAT"}, notes="5 A: USB 12 W at 11.5 V is 1.2 A (charging current flows the other way)")
     b.add(P.SMBJ24A, "D101", {"1": "VBAT", "2": "GND"}, notes="surge clamp; a reversed battery forward-biases it -> F101")
     b.add(P.C_BULK, "C101", {"1": "VBAT", "2": "GND"}, notes="bulk for U301 against the pigtail inductance")
     b.C("C102", "10uF", 50, "VBAT", "GND", pkg="1206", diel="X5R", note="U301 VIN")
@@ -233,13 +233,14 @@ def usb_power(d):
     d.domain("BST2", ref="USB/BB_SW2", kind="elv", description="LTC3115-1 BST2 rides on SW2")
     b.b.net("BB_BOOT1", v=(0, 5.0), kind="signal", domain="BST1")  # PVCC-charged, < 6 V abs (DS p.2)
     b.b.net("BB_BOOT2", v=(0, 5.0), kind="signal", domain="BST2")
-    u = b.add(P.LTC3115, "U301", {"PVIN": "VBAT", "VIN": "VBAT", "RUN": "BB_EN", "PWM": "GND", "RT": "BB_RT",
+    u = b.add(P.LTC3115, "U301", {"PVIN": "VBAT", "VIN": "VBAT", "RUN": "BB_EN", "PWM": "BB_MODE", "RT": "BB_RT",
                                   "SW1": "BB_SW1", "SW2": "BB_SW2", "PVOUT": "VBUS", "FB": "BB_FB", "VC": "BB_VC",
                                   "VCC": "BB_VCC", "PVCC": "BB_VCC", "BST1": "BB_BOOT1", "BST2": "BB_BOOT2",
                                   "PGND1": "GND", "PGND2": "GND", "PGND3": "GND", "PGND4": "GND", "EP": "GND",
                                   "GND1": "GND", "GND2": "GND"},
-              notes="RUN from U401 (1.21 V threshold; RUN <= VIN + 0.3 V: 3.3 V logic is fine); PWM/SYNC = GND: Burst "
-                    "Mode at light load (DS p.12); VCC and PVCC tied (DS p.11)")
+              notes="RUN from U401 (1.21 V threshold; RUN <= VIN + 0.3 V: 3.3 V logic is fine); PWM/SYNC from U401: low "
+                    "= Burst Mode, which supports only light loads (typically < 50 mA, DS p.15), high = PWM for the PD "
+                    "contract (REVIEW.md B-1); VCC and PVCC tied (DS p.11)")
     b.R("R301", 35.7e3, "BB_RT", "GND", note="1 MHz (DS p.3, p.35)")
     b.R("R303", 40.2e3, "BB_VC", "BB_CZ", note="RFB (DS p.35)")
     b.C("C302", "820pF", 25, "BB_CZ", "BB_FB", diel="C0G", note="CFB (DS p.35), VC to FB")
@@ -264,6 +265,8 @@ def usb_power(d):
     b.R("R309", 1e6, "VSEL9", "GND", note="5 V default with U401 in reset")
     b.R("R310", 1e6, "VSEL12", "GND")
     b.R("R311", 1e6, "BB_EN", "GND", note="U301 off (3 uA) by default")
+    b.R("R316", 1e6, "BB_MODE", "GND", note="Burst Mode (light load only) with U401 in reset; firmware drives PWM "
+        "before negotiating a contract (REVIEW.md B-1)")
     b.add(P.SMAJ15A, "D301", {"1": "VBUS", "2": "GND"}, notes="VBUS clamp")
     b.C("C312", "1uF", 25, "VBUS", "GND", note="at the connector", fields={"Ceff": "~0.5 uF at 12 V [S]"})
     b.R("R312", 470, "VBUS", "DIS_D", pkg="1206", p_diss=0.01,
@@ -284,9 +287,9 @@ def control(d):
             nets=[("LDO_IN", (0, 24), "power"), ("NRST", (0, 3.4), "signal"), ("SWDIO", (0, 3.4), "signal"),
                   ("SWCLK", (0, 3.4), "signal")])
     u = b.add(P.STM32G071, "U401", {"4": "+3V3", "5": "GND", "6": "NRST", "7": "VBAT_SNS", "8": "VBUS_SNS",
-                                    "9": "BB_EN", "10": "VSEL9", "11": "VSEL12", "12": "VBUS_DIS",
+                                    "9": "BB_EN", "10": "VSEL9", "11": "VSEL12", "12": "VBUS_DIS", "13": "BB_MODE",
                                     "17": "CC2", "18": "CC1", "24": "SWDIO", "25": "SWCLK"},
-              nc=["1", "2", "3", "13", "14", "15", "16", "19", "20", "21", "22", "23", "26", "27", "28", "29", "30", "31", "32"],
+              nc=["1", "2", "3", "14", "15", "16", "19", "20", "21", "22", "23", "26", "27", "28", "29", "30", "31", "32"],
               nc_reason="unused GPIO (analog mode in firmware); DBCC1/DBCC2 (19, 21) left open: a source must not "
                         "present the dead-battery Rd",
               notes="UCPD1: CC1 = PA8, CC2 = PB15")
@@ -322,7 +325,7 @@ def nets(d):
     g(d, "CHG_OUT", (0, 16), "power", 0.8)
     d.net("VBUS", domain="LV", v=(0, 13), kind="power", i_max=2.0, external=True, v_typ=(5.0, 12.0, 12.1), threats=("overcurrent", "esd"))
     g(d, "+3V3", (0, 3.4), "power", 0.05)
-    for nm in ("BB_EN", "VSEL9", "VSEL12", "VBUS_DIS"):
+    for nm in ("BB_EN", "BB_MODE", "VSEL9", "VSEL12", "VBUS_DIS"):
         g(d, nm, (0, 3.4), "signal")
     g(d, "VBAT_SNS", (0, 2.5), "analog")
     g(d, "VBUS_SNS", (0, 1.3), "analog")
@@ -364,10 +367,10 @@ def calcs(d):
     for name, rb in (("vout_5", 249e3), ("vout_9", 1 / (2 / 249e3)), ("vout_12", 1 / (2 / 249e3 + 1 / 340e3))):
         c(name, 1.0 * (1 + 1e6 / rb), "V", "1.000 (1 + 1 M / RBOT) (LTC3115-1 DS p.3 FB)")
     c("vout_12_err", abs(1.0 * (1 + 1e6 / (1 / (2 / 249e3 + 1 / 340e3))) - 12) / 12 * 100, "%", "USB PD +/-5 %", limit=5)
-    c("i_obd_max", 18 / 0.90 / 11.5, "A", "18 W at 90 % from 11.5 V", limit=5 * 0.75)
-    c("u301_loss_12v", 18 * (1 / 0.92 - 1), "W", "18 W at 92 % (DS p.35 curve, 12 V in, 1.5 A)")
-    c("u301_tj_rise", 18 * (1 / 0.92 - 1) * 0.7 * 38, "C", "70 % of the loss in the IC x theta-JA 38 C/W (FE, DS p.2)",
-      limit=125 - 70, note="ambient 70 C (dashboard)")
+    c("i_obd_max", 12 / 0.90 / 11.5, "A", "12 W at 90 % from 11.5 V", limit=5 * 0.75)
+    c("u301_loss_12v", 12 * (1 / 0.90 - 1), "W", "12 W at 90 % (DS p.35 curve at 1 A, 11.5-12.6 V in; REVIEW.md M-1)")
+    c("u301_tj_rise", 12 * (1 / 0.90 - 1) * 0.95 * 38, "C", "95 % of the loss in the IC (integrated switches; inductor "
+      "DCR 29 mOhm takes the rest) x theta-JA 38 C/W (FE, DS p.2)", limit=125 - 70, note="ambient 70 C (dashboard)")
     standby = 0.0 + 1.1 + 1.1 + 1.0 + 3.0 + 5.0 + 0.5
     c("standby_budget", standby, "uA", "R214/R215 1.1 + R401/R402 1.1 + TPS709 1.0 + LTC3115-1 shutdown 3 (10 max) + STM32 stop "
       "5 (assumed, Q-4) + leakage of Q203, D101, D401, D301, C101 0.5", limit=15)
@@ -385,9 +388,9 @@ def operating(d):
     k.cell("U201", "buck", I_A=(0.01, 0.6, 0.75), vin="PV_IN", vout="CHG_OUT", V_V=(13.0, 16.5, 24.0),
            why="CN3767 buck: panel at the 16.5 V MPPT point, 0.67 A CC, up to 24 V Voc at float")
     for cls in ("buck", "boost"):
-        k.cell("U301", cls, I_A=(0.05, 1.5, 2.0), vin="VBAT", vout="VBUS",
+        k.cell("U301", cls, I_A=(0.05, 1.0, 2.0), vin="VBAT", vout="VBUS",
                V_V=(11.5, 12.6, 24.0) if cls == "buck" else (5.0, 12.0, 12.1),
-               why="LTC3115-1 4-switch buck-boost: 12 V 1.5 A typical PD load from a 12.6 V battery; 2 A max")
+               why="LTC3115-1 4-switch buck-boost: 12 V 1 A PD load (thermal limit) from a 12.6 V battery; 2 A at 5/9 V")
     k.cable("J101", 0.5, why="OBD-II pigtail, ~0.5 m")
     k.cable("J201", 5.0, why="panel lead on the dashboard/roof, <= 5 m")
     k.cable("J301", 1.0, why="USB-C cable")
