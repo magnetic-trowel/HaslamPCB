@@ -1313,14 +1313,22 @@ def planned_injections(board, intent, brief=None, heat=None):
     """{"REF.NUM": A} of the DC power flow at the typical point of every parameter, from the plan the
     physics evaluator scores (haslam.excite.evaluate: rails, feeds, regulators, loads and their currents
     under the operating facts `intent`), positive into the copper; {} when the plan has no rail with a
-    source and a load. For callers outside the evaluator (power copper's THT neck); no field solve."""
+    source and a load. For callers outside the evaluator (power copper's THT neck); no field solve.
+
+    The brief is built as the evaluator builds it (haslam.excite.evaluate.evaluate): from the operating facts (a
+    haslam.intent/1 document's `facts`), with inverting cells. Built from the board
+    alone, it lost the facts' rails and sources (a rail the facts give a voltage and no source part had no feed), so
+    callers (power copper's necks and quiet nets, synth's width gate) solved a different plan from the one scored."""
     from haslam.circuit import brief as B
+    from haslam.circuit.roles import cells_inverting
     from . import models as M
     from . import sources as S
     from .evaluate import ledger_for
     from haslam.board import pinfacts as PF
+    if (intent or {}).get("schema") == "haslam.intent/1":
+        intent = intent.get("facts") or {}
     PF.apply(board, (intent or {}).get("pins"))         # the schematic's pin facts, as the evaluator applies them
-    brief = brief or B.build(board)
+    brief = brief or B.build(board, facts=intent or None, inverting=cells_inverting(True))
     bd = M.build(board, brief)
     srcs = S.add_all(bd, brief)
     P, _ = ledger_for(bd, brief, srcs, intent)
