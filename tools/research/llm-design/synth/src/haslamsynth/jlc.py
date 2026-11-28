@@ -11,15 +11,17 @@ A candidate matches when its package is the part's, its value is the part's (0.1
 no worse, and a capacitor's voltage is no lower and its dielectric no worse (X5R accepts X5R or X7R; X7R accepts
 X7R, C0G/NP0). Parts with at least 1000 in stock come first, then basic parts (no per-order setup fee), then stock. A key with no match is written with
 lcsc null and reported, so a person picks one by hand (add it to the part's fields in parts.py).
+
+Searches go through `haslamsynth.fetch` (throttled, cached for a day under ~/.cache/haslamsynth/http).
 """
 from __future__ import annotations
 
 import datetime
 import json
 import re
-import urllib.request
 from pathlib import Path
 
+from . import fetch
 from .units import parse_value
 
 API = "https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/selectSmtComponentList"
@@ -63,11 +65,22 @@ def _query(key):
     return f"{k[1]} {k[2]}"
 
 
-def _search(q, n=100):
-    req = urllib.request.Request(API, data=json.dumps({"keyword": q, "currentPage": 1, "pageSize": n}).encode(),
-                                 headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
-    d = json.load(urllib.request.urlopen(req, timeout=30))
+SEARCH_MAX_AGE = 24 * 3600     # stock moves; a day-old answer is fine for choosing parts
+
+
+def search(q, n=100, client=None, refresh=False):
+    """JLC parts search for `q`: the API's raw component dicts, through the shared throttled, caching client."""
+    c = client or fetch.client()
+    payload = {"keyword": q, "currentPage": 1, "pageSize": n}
+    r = c.post_json(API, payload, max_age=SEARCH_MAX_AGE, refresh=refresh)
+    d = r.json()
+    if d.get("code") not in (None, 200):
+        c.forget("POST", API, c.json_body(payload))
+        raise fetch.FetchError(API, r.status, f"JLC API code {d.get('code')}: {d.get('message')}")
     return ((d.get("data") or {}).get("componentPageInfo") or {}).get("list") or []
+
+
+_search = search
 
 
 def _value(text, unit):
