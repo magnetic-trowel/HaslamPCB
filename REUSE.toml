@@ -57,6 +57,13 @@ precedence = "override"
 SPDX-FileCopyrightText = ["2026, LG Management Development Institute Co., Ltd. (LG AI Research)", "2026 HaslamPCB contributors"]
 SPDX-License-Identifier = "BSD-3-Clause"
 
+# A footprint derived from the official KiCad library (exposed pad enlarged to the LTC FE20 drawing).
+[[annotations]]
+path = "tools/research/llm-design/designs/obd-solar/footprints/custom.pretty/LTC_FE20_EP2.74x4.95.kicad_mod"
+precedence = "override"
+SPDX-FileCopyrightText = "KiCad Library Team and contributors"
+SPDX-License-Identifier = "CC-BY-SA-4.0 WITH KiCad-libraries-exception"
+
 # obd-solar handoff package: this project's own design files (boards, project, rules, intent, evaluations), generated
 # on branch obd-solar-e2e; the custom footprint they use carries its own annotation above.
 [[annotations]]
