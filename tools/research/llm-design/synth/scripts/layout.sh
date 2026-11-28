@@ -26,13 +26,16 @@ NFP=$(grep -c '^\s*(footprint ' "$IN")
 T=${HASLAM_TIME:-$(python3 -c "import math; print(int(8000 * math.sqrt(max($NFP, 1) / 40) * 9 / 40))")}
 E="env HASLAM_BUDGET=work PYTHONHASHSEED=0 HASLAM_WORKERS=1 OMP_NUM_THREADS=1 HASLAM_BRIDGE_FREEROUTING=$FORK PYTHONPATH=$REPO/haslam/src NUMBA_CACHE_DIR=$OUTD/numba $PY"
 RES="if [ \"\$HASLAM_RESUME\" = 1 ]; then $E -m haslam.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@; else"
+# HASLAM_LAYOUT_SET="k=v k=v": extra joint.cli --set options for every joint run (e.g. bridge.neckdown=1 for a recipe
+# variant), so a variant needs no edit of this script
+JS=; for kv in ${HASLAM_LAYOUT_SET:-}; do JS="$JS --set $kv"; done
 cd "$OUTD/work"
 env HASLAM_BUDGET=work "$PY" "$REPO/tools/haslamres/restart.py" --input "$IN" --output "$OUT" --time "$T" --seed "$SEED" \
   --parallel 4 --first-s 300 --scale-first --slack 1.15 --resume 0.5 --check-placement \
   --final "$E -m haslam.route.cli lastmile @IN@ @BEST@ @OUT@ --seed @SEED@ --time @TIME@" \
-  --alt "$RES $E -m haslam.joint.cli run @IN@ @OUT@ --seed @SEED@ --time @TIME@ --max-iters 0; fi" \
-  --open-alt "$E -m haslam.joint.cli run @IN@ @OUT@ --start @BEST@ --seed @SEED@ --time @TIME@ --no-modules --report @REPORT@" \
-  -- "$RES $E -m haslam.joint.cli run @IN@ @OUT@ --seed @SEED@ --time @TIME@ --max-iters 0 --no-modules; fi"
+  --alt "$RES $E -m haslam.joint.cli run @IN@ @OUT@ --seed @SEED@ --time @TIME@ --max-iters 0$JS; fi" \
+  --open-alt "$E -m haslam.joint.cli run @IN@ @OUT@ --start @BEST@ --seed @SEED@ --time @TIME@ --no-modules --report @REPORT@$JS" \
+  -- "$RES $E -m haslam.joint.cli run @IN@ @OUT@ --seed @SEED@ --time @TIME@ --max-iters 0 --no-modules$JS; fi"
 # widen power copper into the space the routing left (haslam.route.power_copper, DRC-gated): Freerouting necks whole
 # power nets to the board minimum (start_necked, FRICTION.md #59); on obd-solar this took VBAT's 0.127 mm length
 # from 179 to 104 mm with DRC unchanged. HASLAM_POWER_COPPER=0 skips it. The output keeps the board's stem so the
