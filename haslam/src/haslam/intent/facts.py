@@ -85,7 +85,7 @@ def load_doc(path):
     if not p.exists():
         return None
     from .objective import load
-    doc = load(json.loads(p.read_text()))
+    doc = load(json.loads(p.read_text()), relations_strict=False)   # a bad relation drops only the relations
     check_facts(doc.get("facts") or {})
     return doc
 

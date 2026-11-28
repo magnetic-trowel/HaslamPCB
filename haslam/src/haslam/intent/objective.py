@@ -144,8 +144,14 @@ def resolve(terms, what="an observation"):
     return out
 
 
-def load(path_or_dict):
-    """The intent (dict) from a file or a dict; checked for shape. Missing: the neutral defaults."""
+def load(path_or_dict, relations_strict=True):
+    """The intent (dict) from a file or a dict; checked for shape. Missing: the neutral defaults.
+
+    relations_strict False (the board's own intent file read for its facts and terms, haslam.intent.facts.load_doc):
+    a relation section that fails its check is dropped, not raised: `relations` becomes [] and `relations_error`
+    says why, so the facts and terms still reach the brief (obd-solar FRICTION #58: one duplicate relation id made
+    the placer drop the facts and physics too). The relations themselves are read strictly again where they are
+    applied (haslam.intent.relations.for_brief), which reports the error as a hazard."""
     if path_or_dict is None:
         it = {}
     elif isinstance(path_or_dict, dict):
@@ -193,10 +199,15 @@ def load(path_or_dict):
             raise IntentError(f"term {tid}: say why (a 'why' or a 'source'): every priced quantity is traceable")
     # placement relations (haslam.intent.relations: shape here; names against the board in haslam.place.relations)
     from . import relations as REL
-    clash = sorted(seen & {r.get("id") for r in it.get("relations") or [] if isinstance(r, dict)})
-    if clash:
-        raise IntentError(f"ids {clash} name both a term and a relation; ids are unique across both")
-    it["relations"] = REL.check(it.get("relations"), defaults_off=it.get("defaults_off"))
+    try:
+        clash = sorted(seen & {r.get("id") for r in it.get("relations") or [] if isinstance(r, dict)})
+        if clash:
+            raise IntentError(f"ids {clash} name both a term and a relation; ids are unique across both")
+        it["relations"] = REL.check(it.get("relations"), defaults_off=it.get("defaults_off"))
+    except IntentError as e:
+        if relations_strict:
+            raise
+        it["relations"], it["relations_error"] = [], str(e)
     return it
 
 
