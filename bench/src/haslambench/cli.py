@@ -20,7 +20,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from . import __version__, adapters, fetch, manifest, prepare, report, runner, stopping, tools
+from . import __version__, adapters, doctor, fetch, manifest, prepare, report, runner, stopping, tools
 
 
 def _split(s):
@@ -56,6 +56,10 @@ def cmd_doctor(a):
     else:
         print("WARN sandbox (bwrap): " + ("cannot create namespaces here" if bwrap else "not installed")
               + "; --command methods need it, or --no-sandbox (results then marked unsandboxed)")
+    print("design pipeline" + (" (--pipeline: required)" if a.pipeline else " (warnings unless --pipeline)") + ":")
+    for status, name, msg in doctor.pipeline_checks(strict=a.pipeline):
+        ok = ok and status != "fail"
+        print(f"{status.upper():4} {name}: {msg}")
     print(json.dumps(tools.versions(), indent=1))
     return 0 if ok else 1
 
@@ -332,7 +336,10 @@ def main(argv=None):
     p.add_argument("--workdir", default="haslam-work", help="cache/tasks/results root (default ./haslam-work)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("doctor", help="check KiCad, pcbnew and Freerouting").set_defaults(fn=cmd_doctor)
+    sp = sub.add_parser("doctor", help="check KiCad, pcbnew, Freerouting and the design pipeline's set-up")
+    sp.add_argument("--pipeline", action="store_true",
+                    help="the design pipeline's pieces (venvs, KiCad libraries, env.sh variables) must all be there")
+    sp.set_defaults(fn=cmd_doctor)
 
     def board_filters(sp):
         sp.add_argument("-m", "--manifest", required=True)

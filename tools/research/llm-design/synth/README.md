@@ -22,18 +22,18 @@ Research behind the design: [schematic-generation-landscape](../../../../docs/to
 ## Setup and use
 
 ```bash
-bench/scripts/setup.sh --no-freerouting   # KiCad 10 (+ apt install kicad-symbols kicad-footprints if missing)
-cd tools/research/llm-design/synth && uv venv .venv && . .venv/bin/activate && uv pip install -e '.[test]'
+bench/scripts/setup.sh --all            # from the repo root: KiCad 10 and its libraries, this venv, haslam's, env.sh
+. ~/.cache/haslambench/env.sh && cd tools/research/llm-design/synth && . .venv/bin/activate
 haslamsynth build ../designs/<slug>/design.py -v      # checks + KiCad files + ERC + parity
 haslamsynth sym 'Relay:.*G5LE'                        # search symbols; `haslamsynth sym Lib:Name` prints pins
 haslamsynth fp 'TerminalBlock_Phoenix:.*5.08'         # search footprints; `haslamsynth fp Lib:Name` prints pads
 pytest tests                                        # KiCad tests skip without kicad-cli
 ```
 
-With KiCad from the container image (`bench/scripts/setup.sh`), `kicad-cli` runs through
-`HASLAM_KICAD_WRAP`; point `KICAD10_SYMBOL_DIR` and `KICAD10_FOOTPRINT_DIR` at the image's
-`usr/share/kicad/{symbols,footprints}`. The rules check imports `haslam.board.dru_check` (put
-`haslam/src` on `PYTHONPATH`); without it, the build runs haslamsynth's own lint only and says so.
+`env.sh` sets `HASLAM_KICAD_WRAP` (the container wrapper, or empty for a native KiCad) and
+`KICAD10_SYMBOL_DIR`/`KICAD10_FOOTPRINT_DIR`; `haslambench doctor --pipeline` checks them and this venv. The rules check
+imports `haslam.board.dru_check` (setup.sh `--all` puts `haslam/src` on this venv's path with a `.pth` file); without it,
+the build runs haslamsynth's own lint only and says so.
 
 Fab limits come from a profile (`src/haslamsynth/fab/<name>.json`, `d.board(fab=...)`, default `jlc-2layer-1oz`): every limit with its source, written into the board setup, the top of the `.kicad_dru` and (via `sch_to_board.py`) the board file; preflight's `board.fab` checks a board against it. Without it, a clean DRC is clean against KiCad's defaults, not the fab's.
 

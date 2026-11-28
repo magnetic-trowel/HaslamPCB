@@ -17,14 +17,16 @@ fabrication files. No step calls an LLM: every decision is a command with a trac
 ## Setup (Ubuntu, no sudo)
 
 ```bash
-bench/scripts/setup.sh                       # KiCad 10 in Apptainer, Freerouting fork, writes ~/.cache/haslambench/env.sh
-python3 -m venv haslam/.venv && haslam/.venv/bin/pip install -e 'haslam[dev,fast]'
-cd tools/research/llm-design/synth && uv venv .venv && . .venv/bin/activate && uv pip install -e '.[test]' && cd -
+bench/scripts/setup.sh --all                 # KiCad 10 (apt with sudo, else Apptainer), the Freerouting fork of
+                                             # bench/freerouting.ref, bench/haslam/synth venvs, ~/.cache/haslambench/env.sh
+source bench/.venv/bin/activate && haslambench doctor --pipeline   # every piece below, checked
 ```
 
-Every shell and job: `source ~/.cache/haslambench/env.sh` (sets `HASLAM_KICAD_WRAP`; run KiCad as `$HASLAM_KICAD_WRAP kicad-cli …`
-or `$HASLAM_KICAD_WRAP python3`), `export APPTAINER_BIND=<work dir root>`, KiCad under `ulimit -v 40000000`. haslamsynth needs
-`KICAD10_SYMBOL_DIR` and `KICAD10_FOOTPRINT_DIR` pointing at the image's `usr/share/kicad/{symbols,footprints}`.
+`env.sh` exports everything the pipeline reads: `HASLAM_HOME`, `HASLAM_KICAD_WRAP` (empty with a native KiCad; run KiCad
+as `$HASLAM_KICAD_WRAP kicad-cli …` or `$HASLAM_KICAD_WRAP python3`), `KICAD10_SYMBOL_DIR`/`KICAD10_FOOTPRINT_DIR`, and with a
+container KiCad `APPTAINER_BIND` (the checkout; set it yourself for a work dir elsewhere). Every shell and job:
+`source ~/.cache/haslambench/env.sh`, KiCad under `ulimit -v 40000000`. The synth venv has `haslam/src` on its path; the
+haslam venv has haslam installed, so no `PYTHONPATH` is needed.
 
 On a shared host, run anything over about ten minutes or two cores through haslamq (`tools/haslamq/README.md`):
 `haslamq submit --cpus N --mem XG --timeout T --owner <name> -- CMD`, then one background `haslamq wait`. Jobs run a

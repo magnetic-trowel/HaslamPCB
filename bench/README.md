@@ -12,9 +12,11 @@ the saved board with `kicad-cli` under the board's own rules. Design rationale:
 git clone https://github.com/magnetic-trowel/HaslamPCB
 cd HaslamPCB
 bench/scripts/setup.sh          # KiCad 10 (PPA, no recommends), bench/.venv (and upstream Freerouting 2.5.0, explicit use only)
+                                # --all: also the fork below, haslam/.venv and the synth venv (README.md Part 1)
+                                # --dry-run: print the installs, write env.sh only (bench/tests/test_setup.py)
 tools/research/routing/install_freerouting_fork.sh $(grep -v '^#' bench/freerouting.ref) --pin   # the Freerouting fork, pinned: the control
 source bench/.venv/bin/activate
-haslambench doctor
+haslambench doctor              # --pipeline: also the design pipeline (venvs, KiCad libraries, env.sh)
 ```
 
 The control's fork ref lives in one file, `bench/freerouting.ref`; it moves with the weekly baseline tag
