@@ -33,6 +33,18 @@ env HASLAM_BUDGET=work "$PY" "$REPO/tools/haslamres/restart.py" --input "$IN" --
   --alt "$RES $E -m haslam.joint.cli run @IN@ @OUT@ --seed @SEED@ --time @TIME@ --max-iters 0; fi" \
   --open-alt "$E -m haslam.joint.cli run @IN@ @OUT@ --start @BEST@ --seed @SEED@ --time @TIME@ --no-modules --report @REPORT@" \
   -- "$RES $E -m haslam.joint.cli run @IN@ @OUT@ --seed @SEED@ --time @TIME@ --max-iters 0 --no-modules; fi"
+# widen power copper into the space the routing left (haslam.route.power_copper, DRC-gated): Freerouting necks whole
+# power nets to the board minimum (start_necked, FRICTION.md #59); on obd-solar this took VBAT's 0.127 mm length
+# from 179 to 104 mm with DRC unchanged. HASLAM_POWER_COPPER=0 skips it. The output keeps the board's stem so the
+# post-pass reads the same project rules.
+if [ "${HASLAM_POWER_COPPER:-1}" = 1 ] && [ -f "$OUT" ]; then
+  PC=$OUTD/work/power_copper; mkdir -p "$PC"
+  for e in kicad_pro kicad_dru haslam_intent.json; do [ -f "$OUTD/$STEM.$e" ] && cp "$OUTD/$STEM.$e" "$PC/$STEM.$e"; done
+  if $E -m haslam.route.power_copper "$OUT" "$PC/$STEM.kicad_pcb" --report "$OUTD/eval/power_copper.json" \
+       > "$OUTD/eval/power_copper.log" 2>&1 && [ -f "$PC/$STEM.kicad_pcb" ]; then
+    cp "$OUT" "$OUTD/work/$STEM.before_power_copper.kicad_pcb" && cp "$PC/$STEM.kicad_pcb" "$OUT"
+  fi
+fi
 ( ulimit -v 40000000; $HASLAM_KICAD_WRAP kicad-cli pcb drc --format json --schematic-parity --refill-zones \
     -o "$OUTD/eval/drc.json" "$OUT" ) > "$OUTD/eval/drc.log" 2>&1 || true
 # copper actually drawn vs each net's current (a net-class width is not a rule: FRICTION.md #31); needs netlist.json
