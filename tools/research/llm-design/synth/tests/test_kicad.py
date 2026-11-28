@@ -109,3 +109,16 @@ def test_multi_board_projects(tmp_path):
     assert not (tmp_path / "board-main" / "intent.yaml").exists()
     bom = (tmp_path / "bom.csv").read_text()
     assert "off,F" in bom.replace('"', "") and "harness" in bom
+
+
+def test_width_check_ipc2221():
+    pytest.importorskip("pcbnew")
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("width_check", Path(__file__).parents[1] / "scripts/width_check.py")
+    wc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wc)
+    # IPC-2221 chart point: 1 A, 10 C rise, 1 oz outer ~ 0.3 mm (12 mil); 3.5 A at 20 C ~ 1.1 mm
+    assert 0.25 < wc.ipc2221_width_mm(1.0, 10, 35) < 0.35
+    assert 1.0 < wc.ipc2221_width_mm(3.5, 20, 35) < 1.2
+    assert wc.ipc2221_width_mm(3.5, 20, 35, outer=False) > 2 * wc.ipc2221_width_mm(3.5, 20, 35)

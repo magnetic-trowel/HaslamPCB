@@ -5,7 +5,7 @@
 # counted-work budgets, then KiCad DRC and the physics of the board's intent file.
 #   layout.sh BOARD.kicad_pcb OUTDIR [SEED]          (repo root; run it through haslamq: minutes to hours)
 # HASLAM_TIME=S overrides the budget (smoke tests). BOARD's .kicad_pro, .kicad_dru and .haslam_intent.json sit beside it. Writes OUTDIR/<stem>.kicad_pcb and
-# OUTDIR/eval/{drc.json,excite.json,status.json}.
+# OUTDIR/eval/{drc.json,width.json,excite.json,status.json}.
 set -euo pipefail
 IN=$(realpath "$1") OUTD=$(realpath -m "$2") SEED=${3:-1}
 REPO=$PWD STEM=$(basename "$IN" .kicad_pcb)
@@ -31,6 +31,10 @@ env HASLAM_BUDGET=work "$PY" "$REPO/tools/haslamres/restart.py" --input "$IN" --
   -- "$RES $E -m haslam.joint.cli run @IN@ @OUT@ --seed @SEED@ --time @TIME@ --max-iters 0 --no-modules; fi"
 ( ulimit -v 40000000; $HASLAM_KICAD_WRAP kicad-cli pcb drc --format json --schematic-parity --refill-zones \
     -o "$OUTD/eval/drc.json" "$OUT" ) > "$OUTD/eval/drc.log" 2>&1 || true
+# copper actually drawn vs each net's current (a net-class width is not a rule: FRICTION.md #31); needs netlist.json
+NL=$(dirname "$IN")/netlist.json
+[ -f "$NL" ] && $HASLAM_KICAD_WRAP python3 "$REPO/tools/research/llm-design/synth/scripts/width_check.py" "$OUT" "$NL" \
+  --json "$OUTD/eval/width.json" > "$OUTD/eval/width.txt" 2>&1 || true
 export PYTHONPATH=$REPO/haslam/src
 INT=$OUTD/$STEM.haslam_intent.json; [ -f "$INT" ] || INT=
 "$PY" -u -W ignore -m haslam.excite.evaluate "$OUT" ${INT:+--intent "$INT"} -o "$OUTD/eval/excite.json" > "$OUTD/eval/excite.txt"
