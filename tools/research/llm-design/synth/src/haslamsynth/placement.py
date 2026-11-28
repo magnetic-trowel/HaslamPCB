@@ -56,6 +56,7 @@ class BoardSpec:
     # class (default 0.2 mm). Fine-pitch parts (0.5 mm) need less than KiCad's 0.2 mm defaults to escape
     min_track_mm: float = None
     min_clearance_mm: float = None
+    trace_rise_c: float = 10.0         # allowed conductor temperature rise for current-sized widths (IPC-2221)
     notes: str = ""
 
     def as_dict(self):

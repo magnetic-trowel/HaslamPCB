@@ -10,7 +10,8 @@ neck a 3 A net down to the board minimum and KiCad's DRC stays clean (obd-solar 
 at the copper that was actually drawn.
 
 - Required width per net: IPC-2221 I = k dT^0.44 A^0.725 (A in mil^2, k 0.048 outer / 0.024 inner layers), copper
-  thickness from the board's stackup (35 um when it has none), temperature rise --rise (default 20 C).
+  thickness from the board's stackup (35 um when it has none), temperature rise --rise (default: the netlist's
+  `board.trace_rise_c`, haslamsynth's BoardSpec field, else 10 C).
 - A segment is exempt when both its ends lie within --neck mm (default 1.0) of a pad of the same net: escapes from
   fine-pitch pads must be narrower than the net.
 - Nets with a filled zone on them are reported as `zone` and not judged (the pour may carry the current).
@@ -55,9 +56,13 @@ def pad_distance_mm(pt, pads):
     return best
 
 
-def check(board_path, netlist_path, rise=20.0, neck=1.0):
+def check(board_path, netlist_path, rise=None, neck=1.0):
     board = pcbnew.LoadBoard(board_path)
-    currents = {n["name"]: float(n["i_max"]) for n in json.load(open(netlist_path))["nets"] if n.get("i_max")}
+    nl = json.load(open(netlist_path))
+    # the design's own rise (BoardSpec.trace_rise_c, written by haslamsynth) so the gate judges what the net classes
+    # were sized for; 10 C is haslamsynth's default
+    rise = rise if rise is not None else float((nl.get("board") or {}).get("trace_rise_c") or 10.0)
+    currents = {n["name"]: float(n["i_max"]) for n in nl["nets"] if n.get("i_max")}
     zone_nets = {z.GetNetname() for z in board.Zones() if not z.GetIsRuleArea() and z.GetNetname()}
     pads = {}
     for fp in board.GetFootprints():
@@ -98,7 +103,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("board")
     ap.add_argument("netlist")
-    ap.add_argument("--rise", type=float, default=20.0, help="allowed temperature rise, C")
+    ap.add_argument("--rise", type=float, default=None,
+                    help="allowed temperature rise, C (default: the netlist's board.trace_rise_c, else 10)")
     ap.add_argument("--neck", type=float, default=1.0, help="mm from a same-net pad within which narrow is allowed")
     ap.add_argument("--json")
     a = ap.parse_args(argv)
@@ -108,7 +114,7 @@ def main(argv=None):
     for net, r in sorted(res["nets"].items(), key=lambda kv: (kv[1]["verdict"] != "fail", kv[0])):
         print(f"{r['verdict']:4} {net}: {r['i_max']:g} A needs {r['need_mm']:.2f} mm; narrowest {r['min_mm']:.3f} mm; "
               f"{r['short_mm']:.1f} of {r['total_mm']:.1f} mm too narrow ({r['exempt_mm']:.1f} mm exempt at pads)")
-    print(f"width_check: {len(res['fail'])} net(s) too narrow (IPC-2221, rise {a.rise:g} C)")
+    print(f"width_check: {len(res['fail'])} net(s) too narrow (IPC-2221, rise {res['rise_c']:g} C)")
     return 1 if res["fail"] else 0
 
 

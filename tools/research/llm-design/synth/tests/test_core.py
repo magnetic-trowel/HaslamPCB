@@ -470,3 +470,20 @@ def test_current_connector_return_capped_by_ground_net():
     for k, n in enumerate(taps, start=2):
         n.connect(j[k])
     assert not _cur_errors(run(d), j)              # not 18 A on T0's one contact: capped at T0's 6 A
+
+
+def test_netclass_width_from_real_current_not_bucket():
+    from haslamsynth.emit.project import NetClasses, ipc2221_width_mm
+    d = Design("w")
+    d.domain("D", ref="GND")
+    d.net("GND", domain="D", v=0, kind="ground")
+    a = d.net("A", domain="D", v=(0, 14), kind="power", i_max=3.3)      # bucket 5 A
+    b = d.block("x")
+    r = b.add(two_pin("R", v_max=50, cat="resistor"))
+    a.connect(r[1]); d.nets["GND"].connect(r[2])
+    d.board(width_mm=50, height_mm=40, trace_rise_c=20)
+    nc = NetClasses(d).build()
+    cls = nc.classes[nc.assign["A"]]
+    assert cls["name"].endswith("_5A")                                    # the bucket still names the class
+    assert cls["track_width"] == ipc2221_width_mm(3.3, rise_c=20)         # sized for 3.3 A at 20 C, not 5 A at 10 C
+    assert cls["track_width"] < ipc2221_width_mm(5, rise_c=10)

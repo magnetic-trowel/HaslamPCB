@@ -28,7 +28,10 @@ def ir_netlist(design):
                      "v": list(n.v) if n.v else None, "kind": n.kind, "i_max": n.i_max,
                      "external": n.external,
                      "nodes": sorted([[r.part.ref, r.pin.number] for r in n.pins])})
-    return {"design": d.slug, "parts": parts, "nets": nets}
+    bs = d.board_spec
+    return {"design": d.slug, "parts": parts, "nets": nets,
+            "board": {"copper_oz": bs.copper_oz if bs else 1.0,
+                      "trace_rise_c": (getattr(bs, "trace_rise_c", None) or 10.0) if bs else 10.0}}
 
 
 def parse_kicad_xml(path):

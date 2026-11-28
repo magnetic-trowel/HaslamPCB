@@ -77,14 +77,17 @@ class NetClasses:
         self.floor = floor
         col = "B4" if coated else "B2"
         oz = d.board_spec.copper_oz if d.board_spec else 1.0
+        rise = getattr(d.board_spec, "trace_rise_c", None) or 10.0
         for n in nets:
             dom = d.domain_of(n)
             base = n.netclass or (dom.name if dom else "Default")
             cls = base
-            width = ipc2221_width_mm(n.i_max, oz=oz) if n.i_max and n.i_max >= 0.5 else None
+            # each net's width from its own current; the bucket only names the class, whose width is the widest
+            # member's: sizing at the bucket (3.3 A nets drawn as 5 A) asked 2.8 mm tracks that fit almost nowhere,
+            # and the routers then necked whole nets to the board minimum (obd-solar FRICTION.md #36)
+            width = ipc2221_width_mm(n.i_max, rise_c=rise, oz=oz) if n.i_max and n.i_max >= 0.5 else None
             if width and not n.netclass:
                 cls = f"{base}_{_bucket(n.i_max)}A"
-                width = ipc2221_width_mm(_bucket(n.i_max), oz=oz)
             if n.width_mm:
                 width = max(width or 0, n.width_mm)
                 if not n.netclass:
