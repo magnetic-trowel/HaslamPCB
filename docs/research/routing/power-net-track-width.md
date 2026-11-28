@@ -122,6 +122,22 @@ Keys: track width, power net width, neck, neck-down, neck_width_um, start_necked
 | `power_copper to_class` (switch nodes, narrowed nets to class width) | branch `gfix-auto-widen` | prototype, experiment pending |
 | PVOUT as converter output pin | `10561d8` | branch `gfix-pvout-cell`, experiment pending |
 
+## W7a. One-seed smoke A/B of gfix-route-width (FRICTION.md #72)
+
+Same unplaced board (`handoff/unplaced`), current intent, seed 1, `HASLAM_TIME=1200`, zones-into-pads post-pass in both arms.
+
+| Too narrow (branch gate), mm | A: obd-solar-e2e | B: + start_necked off (+ neckdown requested) |
+|---|---|---|
+| VBUS | 39.0 | 0.4 |
+| VBAT | 16.5 | 21.3 |
+| BB_SW2 / BB_SW1 | 15.3 / pass | 19.1 / 4.4 |
+| DRC errors; unconnected | 5 clearance + 1 starved_thermal; 0 | 1 clearance + 3 starved_thermal; 1 |
+
+1. `autorouter.start_necked=false` is confirmed in B's saved bridge settings; `automatic_neckdown` reads false in both arms,
+   so the neckdown part of B is unconfirmed.
+2. A's 5 clearance errors come from an over-strict generated 0.6 mm rule (an interval sum over a gate-drive domain), not from
+   width (FRICTION.md #71). One seed decides nothing; this is the shape of the sprint, not its verdict.
+
 ## W8. Why the corpus did not show it (FRICTION.md #67)
 
 1. The one corpus width metric (`start_necked=false` precondition, [freerouting-settings-2611](freerouting-settings-2611.md)):
