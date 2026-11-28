@@ -708,3 +708,34 @@ def test_decap_hf_by_body_not_value():
         assert d['hf_caps'] == [] and d['pin_caps'] == {}
     finally:
         RO.CAP_CLASS = old
+
+
+def _ltc3115(out_fn):
+    u = IC('U1', 'LTC3115-1', 'Package_SO:TSSOP-20-1EP_4.4x6.5mm_P0.65mm_EP2.15x3.35mm', [
+        ('17', 'PVIN', '+12V', 'power_in'), ('13', 'VIN', '+12V', 'power_in'), ('18', 'SW1', 'SW1', 'passive'),
+        ('3', 'SW2', 'SW2', 'passive'), ('4', out_fn, 'VBUS', 'power_out'), ('1', 'PGND', 'GND', 'power_in'),
+        ('8', 'FB', 'FB', 'input'), ('16', 'BST1', 'B1', 'passive'), ('15', 'BST2', 'B2', 'passive')])
+    return [u, L('L1', '10uH', 'SW1', 'SW2'), C('C1', '10uF', '+12V', 'GND'), C('C2', '100nF', '+12V', 'GND'),
+            C('C3', '22uF', 'VBUS', 'GND'), C('C4', '100nF', 'VBUS', 'GND'), C('C5', '100nF', 'B1', 'SW1'),
+            C('C6', '100nF', 'B2', 'SW2'), R('R1', '1M', 'VBUS', 'FB'), R('R2', '90.9k', 'FB', 'GND')]
+
+
+def test_converter_without_cell_is_listed():
+    """An IC on an inductor's switch nodes that yields no cell is listed (FRICTION #45): a pin name the patterns miss
+    (here an output pin named XOUT) leaves the converter unpriced; one that builds its cells is not listed."""
+    nl, r, st = structures(_ltc3115('XOUT'))
+    rows = st['converters_without_cell']
+    assert [x['ic'] for x in rows] == ['U1'], rows
+    assert sorted(rows[0]['sw_nets']) == ['SW1', 'SW2'] and rows[0]['inductors'] == ['L1']
+    assert {'18:SW1', '3:SW2'} <= set(rows[0]['pins'])
+    nl, r, st = structures(_ltc3115('VOUT'))
+    assert st['commutation_cells'] and st['converters_without_cell'] == []
+
+
+def test_converter_without_cell_hazard_warns():
+    from haslam.board_hazards import converter_without_cell_hazards
+    brief = {'summary': {'converters_without_cell': [dict(ic='U1', ic_value='LTC3115-1', sw_nets=['SW1', 'SW2'],
+                                                          inductors=['L1'], pins=['18:SW1', '3:SW2'])]}}
+    hz = converter_without_cell_hazards(brief)
+    assert len(hz) == 1 and hz[0]['code'] == 'converter_without_cell' and hz[0]['severity'] == 'warn'
+    assert converter_without_cell_hazards({'summary': {}}) == []

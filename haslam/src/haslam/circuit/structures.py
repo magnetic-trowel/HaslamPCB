@@ -2047,6 +2047,33 @@ def _apply_dividers(b: _B, fb, cells):
             ex['basis'].append(f"V {v:g} V is an estimate from capacitor ratings")
 
 
+def converters_without_cell(b: _B, cells) -> list:
+    """ICs (or modules) with a pin on an inductor's switch node that are no cell's controller, on a switch node no
+    cell claims: a converter haslam found the inductor of but could not build (a pin name its patterns miss, e.g.
+    PVOUT before FRICTION #45), so neither the placer nor the evaluator prices its hot loop. One row per IC with
+    the switch nets, the inductors, and the IC's pin names on them."""
+    claimed = set()
+    for c in cells:
+        claimed |= set(c.get('sw_nets') or ([c['sw']] if c.get('sw') else []))
+    ctrls = {c.get('controller') for c in cells if c.get('controller')}
+    rows = {}
+    for net, d in sorted(b.r.switch_nodes.items()):
+        if d.get('kind') != 'inductor' or net in claimed:
+            continue
+        for p in b.nl.pins(net):
+            pr = b.r.parts.get(p.ref)
+            if pr is None or pr.kind not in ('ic', 'module') or p.ref in ctrls or p.ref in (d.get('inductors') or ()):
+                continue
+            r = rows.setdefault(p.ref, {'ic': p.ref, 'sw_nets': [], 'inductors': [], 'pins': []})
+            if net not in r['sw_nets']:
+                r['sw_nets'].append(net)
+            r['inductors'] += [x for x in d.get('inductors') or () if x not in r['inductors']]
+            lab = f"{p.number}:{p.fn}" if p.fn else str(p.number)
+            if lab not in r['pins']:
+                r['pins'].append(lab)
+    return [rows[k] for k in sorted(rows, key=_refkey)]
+
+
 # =============================================================================== entry
 def find_structures(nl: Netlist, roles: Roles) -> dict:
     b = _B(nl, roles)
@@ -2063,6 +2090,7 @@ def find_structures(nl: Netlist, roles: Roles) -> dict:
     st['decaps'] = decaps(b, groups)
     st['rail_groups'] = rail_groups(b, groups, st['decaps'])
     st['uncovered'] = [{'ic': r, 'rail': n, 'pins': k} for r, n, k in getattr(b, 'uncovered', [])]
+    st['converters_without_cell'] = converters_without_cell(b, cells)
     st['crystals'] = crystals(b)
     st['oscillators'] = oscillators(b)
     st['chains'] = connector_chains(b)

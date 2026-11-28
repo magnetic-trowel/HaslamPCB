@@ -196,6 +196,7 @@ def static_hazards(board_path, brief=None, board=None):
     if dru.exists():
         out += _dru_hazards(dru, board_path)
     out += capacitor_voltage_hazards(brief)
+    out += converter_without_cell_hazards(brief)
     rules = getattr(board, "rules", None) if board is not None else None
     if rules is None:
         try:
@@ -296,6 +297,25 @@ def _fab_floor_hazards(rules):
             if key and v is not None and 0 < v < FAB_FLOORS[key] - 1e-9:
                 flag(f"rule {r.get('name')}", f"custom rule '{r.get('name')}' {c.get('type')} minimum", round(v, 4),
                      FAB_FLOORS[key], ".kicad_dru")
+    return out
+
+
+def converter_without_cell_hazards(brief):
+    """converter_without_cell (warn): an IC with a pin on a power inductor's switch node that yields no commutation
+    cell (the brief's summary.converters_without_cell): its hot loop is priced by neither the placer nor the
+    evaluator. Usually a pin name haslam.circuit's patterns miss (PVOUT, FRICTION #45); with or without an intent
+    file."""
+    rows = (((brief or {}).get("summary") or {}).get("converters_without_cell")) or []
+    out = []
+    for r in rows:
+        out.append(H.make(
+            "converter_without_cell", "warn", "electrical",
+            f"{r['ic']} ({r.get('ic_value')}) drives switch node(s) {', '.join(r['sw_nets'])} of inductor(s) "
+            f"{', '.join(r['inductors'])} but yields no commutation cell: its hot loop is not priced.",
+            objects=[r["ic"], *r["sw_nets"], *r["inductors"]],
+            evidence=dict(pins=r.get("pins"), source="haslam.circuit brief"),
+            fix="Check the IC's pin names (input/output/ground patterns in haslam.circuit.roles), or state the cell in "
+                "the intent file."))
     return out
 
 

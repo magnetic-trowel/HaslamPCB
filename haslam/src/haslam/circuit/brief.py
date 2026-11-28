@@ -365,6 +365,9 @@ def _build(board, *, use_sheets: bool = True) -> dict:
         'switch_nodes': sorted(roles.switch_nodes), 'sheets_used': use_sheets and any(p.sheet for p in nl.parts.values()),
         'power_pins_without_caps': [{'ic': nl.parts[u['ic']].refdes, 'rail': u['rail'], 'pins': u['pins']} for u in st['uncovered']],
         'caps_over_rating': caps_over_rating(nl, roles, ids),
+        'converters_without_cell': [dict(u, ic=nl.parts[u['ic']].refdes, ic_value=nl.parts[u['ic']].value,
+                                         inductors=[nl.parts[x].refdes for x in u['inductors']])
+                                    for u in st.get('converters_without_cell') or []],
         'runtime_s': round(time.perf_counter() - t0, 3),
     }
     return {'schema': SCHEMA, 'board': {'path': str(getattr(board, 'path', '') or ''), 'footprints': len(nl.parts),
