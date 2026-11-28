@@ -23,8 +23,9 @@ from pathlib import Path
 
 RES = Path(os.environ.get("HASLAM_RESULTS", Path.home() / "haslam-baselines"))
 CORPUS = Path(os.environ.get("HASLAM_CORPUS", Path.home() / "haslam-boards"))
-# option sets: the default, a looser tolerance, a shorter pad-entry reach
-OPTS = {"d": dict(tol=0.05, reach=1.0), "tol15": dict(tol=0.15, reach=1.0), "reach05": dict(tol=0.05, reach=0.5)}
+# option sets: the default, a looser tolerance, a shorter pad-entry reach, no pour credit
+OPTS = {"d": dict(tol=0.05, reach=1.0), "tol15": dict(tol=0.15, reach=1.0), "reach05": dict(tol=0.05, reach=0.5),
+        "nopour": dict(tol=0.05, reach=1.0, pour=False)}
 
 
 def _strip(res):

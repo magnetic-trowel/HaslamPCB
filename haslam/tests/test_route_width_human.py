@@ -89,3 +89,16 @@ def test_tolerance(tmp_path, human):
     p.write_text(board(0.9))
     assert W.measure(p, human, {"branch": False, "tol": 0.05})["pooled"]["power"]["share"] == pytest.approx(1.0)
     assert W.measure(p, human, {"branch": False, "tol": 0.15})["pooled"]["power"]["share"] == pytest.approx(0.0)
+
+
+def test_narrow_track_under_a_same_net_pour_counts_as_wide(tmp_path, human):
+    zone = ('(zone (net 1) (net_name "VBAT") (layer "F.Cu") (hatch edge 0.5) (connect_pads (clearance 0.2)) '
+            '(min_thickness 0.2) (fill (thermal_gap 0.5) (thermal_bridge_width 0.5)) '
+            '(polygon (pts (xy 14 9) (xy 24 9) (xy 24 11) (xy 14 11))))')
+    p = tmp_path / "routed.kicad_pcb"
+    p.write_text(board(0.2)[:-1] + zone + ")")
+    pw = W.measure(p, human, {"branch": False})["pooled"]["power"]
+    assert pw["share"] == pytest.approx(1.0)            # share and deficit look at tracks only
+    beyond = 20.0 - 2 * (1.0 + 0.3)                      # the run beyond 1 mm of either 0.6 mm pad
+    assert pw["share_x"] == pytest.approx((beyond - 10.0) / beyond, rel=1e-3)
+    assert W.measure(p, human, {"branch": False, "pour": False})["pooled"]["power"]["share_x"] == pytest.approx(1.0)
