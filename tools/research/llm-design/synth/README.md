@@ -114,6 +114,18 @@ def build():
 - `d.barrier` also works between non-root domains (functional spacing, e.g. relay contacts vs
   line); `d.place.separate(a, b)` turns it into a placement relation; the `.kicad_dru` carries it.
 
+### Adding parts with their connections (`blk.wire`, `Wiring`)
+
+- `blk.wire(defn, ref, {pin: net}, nc=[pins], nc_reason="...", **part_kw)` adds a part and connects each pin (number or
+  name) to a net given by name or as a `Net`. Names resolve to the block's own nets, then global ones; an undeclared
+  name is a `DesignError`, never a new net (a typo cannot open a net).
+- `Wiring(d, name, title, description, domain=, board=, nets=[(name, v, kind, {Net kwargs}), ...])` is a block plus
+  its local nets, with `w.add(defn, ref, {pin: net}, ...)` (= `blk.wire`), `w.R(ref, ohms, a, b, pkg=, note=, tol=)`
+  (`ohms` a number, 4700 → `4.7k`, or text) and `w.C(ref, value, v_rating, a, b, pkg=, diel=, note=)`; `w.b` is the
+  Block (for `d.place`), `w.n(name)` a net. Part arguments (`p_diss`, `v_across`, `fields`, ...) in `R`/`C`'s `**kw`
+  go to the part, the rest to the part card (`lib.R`/`lib.C`). `designs/obd-solar/design.py` uses it (`class
+  Blk(Wiring)` fixes the domain).
+
 ### Parts
 
 - **Library symbol** (`symbol="Lib:Name"`): pins come from KiCad. Prefer this for passives,

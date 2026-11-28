@@ -3,7 +3,7 @@
 """`haslamsynth api` lists every public design.py call, from the code, in a couple of thousand tokens."""
 import inspect
 
-from haslamsynth import api, ir, lib, placement
+from haslamsynth import api, ir, lib, placement, wiring
 from haslamsynth.cli import main
 from haslamsynth.haslam_intent import HaslamIntent
 
@@ -18,7 +18,7 @@ def test_every_public_call_is_listed():
     t = api.text()
     lines = t.splitlines()
     for cls, prefix in ((ir.Design, "d."), (ir.Block, "blk."), (ir.Part, "u."), (ir.Net, "n."),
-                        (placement.Placement, "d.place."), (HaslamIntent, "d.haslam.")):
+                        (placement.Placement, "d.place."), (HaslamIntent, "d.haslam."), (wiring.Wiring, "w.")):
         for name in public(cls):
             assert any(ln.startswith(f"{prefix}{name}") for ln in lines), f"{prefix}{name}"
     for name, fn in vars(lib).items():

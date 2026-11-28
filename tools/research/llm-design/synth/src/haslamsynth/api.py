@@ -12,7 +12,7 @@ import dataclasses
 import inspect
 import re
 
-from . import ir, lib, placement
+from . import ir, lib, placement, wiring
 from .haslam_intent import HaslamIntent
 
 # methods the build calls on a design, not the designer (kept out of the listing)
@@ -118,6 +118,8 @@ def sections():
     return [
         ("Design: d = Design(...)", [constructor(ir.Design, "Design")] + methods(ir.Design, "d.")),
         ("Blocks: blk = d.block(...)", methods(ir.Block, "blk.")),
+        ("Wiring helper: w = Wiring(d, name, ...), a block whose parts come with their pin -> net map",
+         [constructor(wiring.Wiring, "Wiring")] + methods(wiring.Wiring, "w.")),
         ("Parts: u = blk.add(defn) (u[pin] is a pin)", methods(ir.Part, "u.")),
         ("Nets: n = d.net(...) / blk.net(...)", methods(ir.Net, "n.")),
         ("Placement relations: d.place.*", methods(placement.Placement, "d.place.")),

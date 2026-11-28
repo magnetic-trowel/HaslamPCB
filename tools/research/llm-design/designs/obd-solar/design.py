@@ -17,7 +17,7 @@ Architecture:
 import importlib.util
 from pathlib import Path
 
-from haslamsynth import Design, Hole
+from haslamsynth import Design, Hole, Wiring
 
 _spec = importlib.util.spec_from_file_location("obd_solar_parts", Path(__file__).with_name("parts.py"))
 P = importlib.util.module_from_spec(_spec)
@@ -31,37 +31,11 @@ BRIEF = (
     "allows 5V, 9V, and 12V outputs. It should have an almost zero standby loss.")
 
 
-class Blk:
-    """Add parts and connect pins to nets by name (same helper as solar-small)."""
+class Blk(Wiring):
+    """haslamsynth's Wiring helper (add with a pin -> net map, R, C) with every block in the LV domain."""
 
     def __init__(self, d, name, title, description, nets=()):
-        self.d = d
-        self.b = d.block(name, title=title, description=description, domain="LV")
-        for spec in nets:
-            nm, v, kind = spec[0], spec[1], spec[2]
-            kw = spec[3] if len(spec) > 3 else {}
-            self.b.net(nm, v=v, kind=kind, **kw)
-
-    def n(self, name):
-        if name in self.d.nets:
-            return self.d.nets[name]
-        if name in self.b.nets:
-            return self.b.nets[name]
-        raise KeyError(f"{self.b.name}: net {name} not declared")
-
-    def add(self, defn, ref, conns, nc=None, nc_reason="", **kw):
-        p = self.b.add(defn, ref=ref, **kw)
-        for pin, net in conns.items():
-            self.n(net).connect(p[pin])
-        if nc:
-            p.nc_pins(*nc, reason=nc_reason)
-        return p
-
-    def R(self, ref, ohms, a, b, pkg="0603", note="", **kw):
-        return self.add(P.res(ohms, pkg), ref, {"1": a, "2": b}, notes=note, **kw)
-
-    def C(self, ref, value, v, a, b, pkg="0603", diel="X7R", note="", **kw):
-        return self.add(P.cap(value, v, pkg, diel), ref, {"1": a, "2": b}, notes=note, **kw)
+        super().__init__(d, name, title, description, domain="LV", nets=nets)
 
 
 def g(d, name, v, kind, i=None, **kw):

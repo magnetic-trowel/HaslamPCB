@@ -5,7 +5,8 @@ placement intent. See synth/README.md."""
 from .ir import (Barrier, Block, Design, DesignError, Domain, Isolation, Net, Part, PartDef, PinDef,
                  Ratings, VLimit)
 from .placement import BoardSpec, Hole
+from .wiring import Wiring
 
 __all__ = ["Barrier", "Block", "BoardSpec", "Design", "DesignError", "Domain", "Hole", "Isolation", "Net",
-           "Part", "PartDef", "PinDef", "Ratings", "VLimit"]
+           "Part", "PartDef", "PinDef", "Ratings", "VLimit", "Wiring"]
 __version__ = "0.1.0"
