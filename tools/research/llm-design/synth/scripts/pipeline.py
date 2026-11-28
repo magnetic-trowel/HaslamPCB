@@ -181,8 +181,10 @@ def st_physics(c, a):
     intent = run / f"{c.slug}.haslam_intent.json"
     env = dict(os.environ, PYTHONPATH=str(REPO / "haslam/src"))
     py = str(REPO / "haslam/.venv/bin/python")
-    rc, _ = sh([py, "-u", "-W", "ignore", "-m", "haslam.excite.evaluate", str(board), "--intent", str(intent), "-o",
-                str(run / "eval/excite.json")], c.work / "excite.log", env=env)
+    # 0.125 mm cell windows: the default 0.0625 mm needed > 8.5 GB on obd-solar's spread U301 input loop (FRICTION #52)
+    rc, _ = sh([py, "-u", "-W", "ignore", "-m", "haslam.excite.evaluate", str(board), "--intent", str(intent),
+                "--cell-pitch", os.environ.get("HASLAM_CELL_PITCH", "0.125"), "-o", str(run / "eval/excite.json")],
+               c.work / "excite.log", env=env)
     if rc != 0:
         # a negative code is a signal: -9 is SIGKILL, which on a container is usually the OOM killer (the obd-solar
         # evaluation was killed at 13 GB resident on a 15 GB host, FRICTION.md #52)

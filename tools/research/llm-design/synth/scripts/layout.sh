@@ -44,6 +44,9 @@ export PYTHONPATH=$REPO/haslam/src
 # first and scores physics once, at the chosen size
 if [ "${HASLAM_EVAL:-1}" = 1 ]; then
 INT=$OUTD/$STEM.haslam_intent.json; [ -f "$INT" ] || INT=
-"$PY" -u -W ignore -m haslam.excite.evaluate "$OUT" ${INT:+--intent "$INT"} -o "$OUTD/eval/excite.json" > "$OUTD/eval/excite.txt"
+# cell windows at 0.125 mm (HASLAM_CELL_PITCH): the default 0.0625 mm window of a spread-out cell needed > 8.5 GB and
+# the OOM killer ended the obd-solar evaluation; 0.125 mm took 84 s and 3 GB on the same window (FRICTION.md #52)
+"$PY" -u -W ignore -m haslam.excite.evaluate "$OUT" ${INT:+--intent "$INT"} --cell-pitch "${HASLAM_CELL_PITCH:-0.125}" \
+  -o "$OUTD/eval/excite.json" > "$OUTD/eval/excite.txt"
 "$PY" -u -W ignore -m haslam.intent status "$OUTD/eval/excite.json" ${INT:+--intent "$INT"} --detailed -o "$OUTD/eval/status.json"
 fi
