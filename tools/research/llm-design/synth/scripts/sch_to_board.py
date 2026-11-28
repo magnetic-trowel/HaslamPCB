@@ -9,7 +9,8 @@ OUT_DIR is a `haslamsynth build` output folder (<slug>.kicad_pro, .kicad_sch, fp
 (the same netlist haslamsynth's round-trip gate checks). Footprints are linked to their symbols (sheet path + symbol
 uuid), so KiCad's "Update PCB from Schematic" keeps working on the result.
 
-BOARD_JSON (all lengths mm, KiCad board coordinates, y down, origin at the outline's top-left corner):
+BOARD_JSON (all lengths mm, KiCad board coordinates, y down, origin at the outline's top-left corner; edge-anchored
+holes, fixed parts, seed area and keepouts are resolved by board_spec.py, and `--outline W H` overrides the outline):
   {"outline": [W, H],
    "holes": [[x, y], ...],                                  # M3 mounting holes, locked
    "fixed": {"REF": {"x":..,"y":..,"rot":..,"side":"top"}}, # placed and locked (connectors, modules)
@@ -172,9 +173,11 @@ def fab_profile(pro_path):
     return json.loads(p.read_text()) if p and p.exists() else None
 
 
-def main(out_dir, board_json):
+def main(out_dir, board_json, outline=None):
     out_dir = Path(out_dir).resolve()
-    spec = json.loads(Path(board_json).read_text())
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from board_spec import resolve          # edge anchors -> absolute coordinates for this outline
+    spec = resolve(json.loads(Path(board_json).read_text()), outline)
     slug = next(out_dir.glob("*.kicad_pro")).stem
     nl = netlist(out_dir, slug)
     libs = fp_lib_dirs(out_dir)
@@ -350,4 +353,8 @@ def update(out_dir, board_in, board_out):
 if __name__ == "__main__":
     if sys.argv[1] == "--update":                    # --update OUT_DIR BOARD_IN BOARD_OUT
         sys.exit(update(sys.argv[2], sys.argv[3], sys.argv[4]))
-    main(sys.argv[1], sys.argv[2])
+    ol = None
+    if "--outline" in sys.argv:                      # --outline W H: the size search's override of board.json
+        i = sys.argv.index("--outline")
+        ol = (float(sys.argv[i + 1]), float(sys.argv[i + 2]))
+    main(sys.argv[1], sys.argv[2], ol)

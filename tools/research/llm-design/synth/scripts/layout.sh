@@ -36,6 +36,10 @@ NL=$(dirname "$IN")/netlist.json
 [ -f "$NL" ] && $HASLAM_KICAD_WRAP python3 "$REPO/tools/research/llm-design/synth/scripts/width_check.py" "$OUT" "$NL" \
   --json "$OUTD/eval/width.json" > "$OUTD/eval/width.txt" 2>&1 || true
 export PYTHONPATH=$REPO/haslam/src
+# HASLAM_EVAL=0 skips the physics evaluation (tens of minutes): size_search.py judges each size on DRC and width
+# first and scores physics once, at the chosen size
+if [ "${HASLAM_EVAL:-1}" = 1 ]; then
 INT=$OUTD/$STEM.haslam_intent.json; [ -f "$INT" ] || INT=
 "$PY" -u -W ignore -m haslam.excite.evaluate "$OUT" ${INT:+--intent "$INT"} -o "$OUTD/eval/excite.json" > "$OUTD/eval/excite.txt"
 "$PY" -u -W ignore -m haslam.intent status "$OUTD/eval/excite.json" ${INT:+--intent "$INT"} --detailed -o "$OUTD/eval/status.json"
+fi
