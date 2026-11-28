@@ -99,6 +99,12 @@ def _nat(s):
     return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", str(s))]
 
 
+def cmd_api(a):
+    from .api import text
+    sys.stdout.write(text())
+    return 0
+
+
 def main(argv=None):
     if hasattr(signal, "SIGPIPE"):
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)     # `haslamsynth sym ... | head`
@@ -123,6 +129,9 @@ def main(argv=None):
     f.add_argument("query")
     f.add_argument("--limit", type=int, default=200)
     f.set_defaults(fn=cmd_fp)
+    api = sub.add_parser("api", help="print every design.py call (d.*, blk.*, d.place.*, d.haslam.*, lib.*) with its "
+                                     "signature and one-line doc, from the code")
+    api.set_defaults(fn=cmd_api)
     a = ap.parse_args(argv)
     return a.fn(a)
 

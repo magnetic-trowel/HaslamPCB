@@ -24,6 +24,7 @@ Research behind the design: [schematic-generation-landscape](../../../../docs/to
 ```bash
 bench/scripts/setup.sh --all            # from the repo root: KiCad 10 and its libraries, this venv, haslam's, env.sh
 . ~/.cache/haslambench/env.sh && cd tools/research/llm-design/synth && . .venv/bin/activate
+haslamsynth api                                       # every design.py call: signature + one-line doc (~2k tokens)
 haslamsynth build ../designs/<slug>/design.py -v      # checks + KiCad files + ERC + parity
 haslamsynth sym 'Relay:.*G5LE'                        # search symbols; `haslamsynth sym Lib:Name` prints pins
 haslamsynth fp 'TerminalBlock_Phoenix:.*5.08'         # search footprints; `haslamsynth fp Lib:Name` prints pads
@@ -58,6 +59,9 @@ ERC-clean is a low bar ([evidence](../../../../docs/topics/synthesis/part-select
 the design-level checks and an independent review are what catch wrong designs.
 
 ## Writing `design.py`
+
+`haslamsynth api` prints every call below with its full signature, generated from the code (current by
+construction); read it instead of an example design. This section gives the semantics.
 
 ```python
 from haslamsynth import Design, Hole, Isolation, PinDef, Ratings, VLimit
