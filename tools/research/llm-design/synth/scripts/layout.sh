@@ -5,7 +5,7 @@
 # counted-work budgets, then KiCad DRC and the physics of the board's intent file.
 #   layout.sh BOARD.kicad_pcb OUTDIR [SEED]          (repo root; run it through haslamq: minutes to hours)
 # HASLAM_TIME=S overrides the budget (smoke tests). BOARD's .kicad_pro, .kicad_dru and .haslam_intent.json sit beside it. Writes OUTDIR/<stem>.kicad_pcb and
-# OUTDIR/eval/{drc.json,width.json,excite.json,status.json}.
+# OUTDIR/eval/{drc.json,width.json,excite.json,status.json,settings.json,settings.txt}.
 # The run executes a frozen copy of its code (OUTDIR/frozen: this script, the scripts it calls, restart.py and
 # haslam/src), so editing the checkout while a run is going cannot change it: bash reads a script by byte offset as
 # it runs, and later commands import haslam afresh (obd-solar FRICTION.md #69-70). HASLAM_LAYOUT_FREEZE=0 runs from
@@ -42,17 +42,29 @@ OUT=$OUTD/$STEM.kicad_pcb
 NFP=$(grep -c '^\s*(footprint ' "$IN")
 T=${HASLAM_TIME:-$(python3 -c "import math; print(int(8000 * math.sqrt(max($NFP, 1) / 40) * 9 / 40))")}
 E="env HASLAM_BUDGET=work PYTHONHASHSEED=0 HASLAM_WORKERS=1 OMP_NUM_THREADS=1 HASLAM_BRIDGE_FREEROUTING=$FORK PYTHONPATH=$SRC/haslam/src NUMBA_CACHE_DIR=$OUTD/numba $PY"
-RES="if [ \"\$HASLAM_RESUME\" = 1 ]; then $E -m haslam.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@; else"
-# HASLAM_LAYOUT_SET="k=v k=v": extra joint.cli --set options for every joint run (e.g. bridge.neckdown=1 for a recipe
-# variant), so a variant needs no edit of this script
-JS=; for kv in ${HASLAM_LAYOUT_SET:-}; do JS="$JS --set $kv"; done
+# HASLAM_LAYOUT_SET="k=v k=v": extra --set options for every haslam command this script runs (e.g. bridge.neckdown=1
+# for a recipe variant), so a variant needs no edit of this script. joint.cli takes them as given; the route.cli
+# commands (the resumed attempts and restart.py's --final last mile) take the bridge.KEY ones as KEY, and the
+# joint-only keys (loop, stage and placer options) do not apply to them. Before, only the joint runs got them: on the
+# obd-solar smoke B run the resumed attempts ran with Freerouting's automatic_neckdown off (FRICTION.md #72).
+JS= RS=; for kv in ${HASLAM_LAYOUT_SET:-}; do
+  JS="$JS --set $kv"; case $kv in bridge.?*) RS="$RS --set ${kv#bridge.}";; esac
+done
+python3 -c 'import json, sys; print(json.dumps(dict(HASLAM_LAYOUT_SET=sys.argv[1], joint_cli=sys.argv[2].split(), route_cli=sys.argv[3].split()), indent=1))' \
+  "${HASLAM_LAYOUT_SET:-}" "$JS" "$RS" > "$OUTD/eval/layout_set.json"
+RES="if [ \"\$HASLAM_RESUME\" = 1 ]; then $E -m haslam.route.cli route @BEST@ @OUT@ --seed @SEED@ --time @TIME@$RS; else"
+# each Freerouting run's log and result file (with its settings snapshot) for layout_settings.py: restart.py points
+# this at each attempt's own folder, so this one catches the rest (open-alt phase, resumes); logging only
+export HASLAM_FR_RAW_DIR=$OUTD/work/fr-raw
 cd "$OUTD/work"
 env HASLAM_BUDGET=work "$PY" "$SRC/tools/haslamres/restart.py" --input "$IN" --output "$OUT" --time "$T" --seed "$SEED" \
   --parallel 4 --first-s 300 --scale-first --slack 1.15 --resume 0.5 --check-placement \
-  --final "$E -m haslam.route.cli lastmile @IN@ @BEST@ @OUT@ --seed @SEED@ --time @TIME@" \
+  --final "$E -m haslam.route.cli lastmile @IN@ @BEST@ @OUT@ --seed @SEED@ --time @TIME@$RS" \
   --alt "$RES $E -m haslam.joint.cli run @IN@ @OUT@ --seed @SEED@ --time @TIME@ --max-iters 0$JS; fi" \
   --open-alt "$E -m haslam.joint.cli run @IN@ @OUT@ --start @BEST@ --seed @SEED@ --time @TIME@ --no-modules --report @REPORT@$JS" \
   -- "$RES $E -m haslam.joint.cli run @IN@ @OUT@ --seed @SEED@ --time @TIME@ --max-iters 0 --no-modules$JS; fi"
+# which Freerouting settings each stage actually ran with (eval/settings.json, .txt)
+python3 "$SCRIPTS/layout_settings.py" "$OUTD" > "$OUTD/eval/settings.txt" 2>&1 || true
 # widen power copper into the space the routing left (haslam.route.power_copper, DRC-gated): Freerouting necks whole
 # power nets to the board minimum (start_necked, FRICTION.md #59); on obd-solar this took VBAT's 0.127 mm length
 # from 179 to 104 mm with DRC unchanged. HASLAM_POWER_COPPER=0 skips it. The output keeps the board's stem so the
