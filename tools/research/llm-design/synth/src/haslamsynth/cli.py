@@ -62,6 +62,12 @@ def cmd_parts_search(a):
     return 0
 
 
+def cmd_datasheet(a):
+    from . import datasheet
+    return datasheet.run(a.part, design=a.design, out=a.out, pages=a.pages, url=a.url, pdf=a.pdf,
+                         refresh=a.refresh, dpi=a.dpi)
+
+
 def cmd_sym(a):
     libs = SymbolLibs()
     if ":" in a.query and libs.has(a.query):
@@ -144,6 +150,16 @@ def main(argv=None):
     ps.add_argument("-n", type=int, default=20, help="lines to print (default 20)")
     ps.add_argument("--refresh", action="store_true", help="ask the API again instead of the day-old cache")
     ps.set_defaults(fn=cmd_parts_search)
+    ds = sub.add_parser("datasheet", help="fetch a datasheet once (maker URL, JLC URL, LCSC): PDF, text, page PNGs")
+    ds.add_argument("part", help="MPN or LCSC C-number")
+    ds.add_argument("--design", help="designs/<slug>: save under its datasheets/ (default ~/.cache/haslamsynth)")
+    ds.add_argument("--out", help="save into this directory instead")
+    ds.add_argument("--pages", help="render pages to PNG: '32-35', '3,7' or 'auto' (typical application, layout)")
+    ds.add_argument("--url", help="try this URL first (a mirror)")
+    ds.add_argument("--pdf", help="use this local PDF (e.g. one the user supplied); nothing is fetched")
+    ds.add_argument("--dpi", type=int, default=110)
+    ds.add_argument("--refresh", action="store_true", help="fetch again, ignoring saved and remembered results")
+    ds.set_defaults(fn=cmd_datasheet)
     s = sub.add_parser("sym", help="search KiCad symbols by regex, or show pins of Lib:Name")
     s.add_argument("query")
     s.add_argument("--lib")
