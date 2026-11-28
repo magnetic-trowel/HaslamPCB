@@ -12,6 +12,7 @@ REPO=$PWD STEM=$(basename "$IN" .kicad_pcb)
 PY=${HASLAM_PY:-$REPO/haslam/.venv/bin/python}
 FORK=${HASLAM_FORK:-$(cat "$HOME/.cache/haslambench/haslam-freerouting.pin")}
 source "$HOME/.cache/haslambench/env.sh"
+HASLAM_KICAD_WRAP=${HASLAM_KICAD_WRAP:-}           # empty with a native KiCad (apt); set -u would abort the DRC
 export APPTAINER_BIND=${APPTAINER_BIND:-/var/tmp}
 mkdir -p "$OUTD/work" "$OUTD/eval"
 for e in kicad_pro kicad_dru haslam_intent.json; do [ -f "${IN%.kicad_pcb}.$e" ] && cp "${IN%.kicad_pcb}.$e" "$OUTD/$STEM.$e"; done

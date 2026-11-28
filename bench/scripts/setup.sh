@@ -76,7 +76,8 @@ install_kicad_apt() {
   echo "deb [signed-by=/usr/share/keyrings/kicad-10.gpg] https://ppa.launchpadcontent.net/kicad/kicad-10.0-releases/ubuntu ${VERSION_CODENAME} main" |
     $SUDO tee /etc/apt/sources.list.d/kicad-10.list >/dev/null
   $SUDO apt-get update -qq
-  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends kicad
+  # kicad-symbols/kicad-footprints are only recommends: haslamsynth needs both (obd-solar FRICTION.md #6)
+  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends kicad kicad-symbols kicad-footprints
 }
 
 install_kicad_container() {
@@ -175,6 +176,10 @@ else
   "$UV" pip install -q --python "$VENV/bin/python" -e "$BENCH_DIR[test]"
 fi
 
+# scripts run `$HASLAM_KICAD_WRAP kicad-cli ...` under `set -u`: a native KiCad still needs the (empty) variable
+printf '%s\n' "${ENV_LINES[@]}" | grep -q '^export HASLAM_KICAD_WRAP=' || ENV_LINES+=('export HASLAM_KICAD_WRAP=""')
+[ -d /usr/share/kicad/symbols ] && ENV_LINES+=('export KICAD10_SYMBOL_DIR=/usr/share/kicad/symbols' \
+  'export KICAD10_FOOTPRINT_DIR=/usr/share/kicad/footprints')
 printf '%s\n' "${ENV_LINES[@]}" > "$ENV_FILE"
 grep -qF "$ENV_FILE" "$VENV/bin/activate" || echo "[ -f \"$ENV_FILE\" ] && . \"$ENV_FILE\"" >> "$VENV/bin/activate"
 echo
