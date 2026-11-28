@@ -366,6 +366,9 @@ DEFAULTS = dict(
                                    # elsewhere, kept per cell only when no worse and its quote 5 % better
     hotloop_clear_force=0,         # 1 keeps a cleared cell even when a ripped net finds no other way (left open)
     hotloop_budget_s=120.0,        # s: the cell stage stops starting cells after this (and after 15 % of the budget)
+    cell_budget="overshoot",       # the placer's hot-loop budget (haslam.physics.priors.Knobs.cell_budget): "overshoot"
+                                   # (the switch-rating budget, capped at 50 nH) or "careful" (held to [L_c, 2 L_c]);
+                                   # experiment plx-cell-careful (obd-solar FRICTION #54)
 )
 
 

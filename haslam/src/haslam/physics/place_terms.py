@@ -77,6 +77,11 @@ def _red(kind, vals, weights=None):
     return vals[0] if vals else 0.0
 
 
+# directions (degrees from the outward normal of the switch's input pin) a careful layout's input cap is tried in: the
+# cap must reach both the input and the ground pin, which on most converter ICs sit side by side along the edge
+CAREFUL_CELL_ANGLES = (-60.0, -30.0, 0.0, 30.0, 60.0)
+
+
 class Terms:
     def __init__(self, board, brief=None, knobs=None):
         self.bv = board if isinstance(board, BoardView) else BoardView.from_board(board)
@@ -374,6 +379,9 @@ class Terms:
         st = self.st
         bv = self.bv
         for s in self.structs:
+            if s.info.pop('_careful_cell', None):
+                self._careful_cell(s)
+                continue
             hf = s.info.pop('_careful', None)
             if hf is None:
                 continue
@@ -403,6 +411,43 @@ class Terms:
                                         f'{PR.DECAP_CAREFUL_SPAN * best if hf else float("inf"):.2f}] nH by the loop of '
                                         f'a careful layout', s.alloc.cls)
                 s.info['L_careful'] = best
+
+    def _careful_cell(self, s):
+        """Knobs.cell_budget 'careful': the hot loop's budget held to [L_c, 2 L_c] (priors.cell_careful), L_c the
+        lowest loop with one of its input capacitors put beside the switch's input pin (outward from that part, on its
+        side, four rotations), as _careful_allocs does for decaps."""
+        from .structures import txy
+        st, bv = self.st, self.bv
+        best = INF
+        for c in s.comps:
+            T = getattr(c, 'T', None)
+            if not T or len(T) < 3:
+                continue
+            i, tp = T[0].i, T[1]
+            j = tp.i
+            if i == j:
+                continue
+            px, py = txy(st, tp)
+            ux, uy = px - st.X[j], py - st.Y[j]
+            n = math.hypot(ux, uy)
+            ux, uy = (ux / n, uy / n) if n > 0.1 else (1.0, 0.0)
+            b = bv.parts[i].cy_bbox
+            d = tp.a / 2 + 0.3 + 0.5 * max(b[2] - b[0], b[3] - b[1])
+            saved = st.get(i)
+            side = 'F' if st.G[j] > 0 else 'B'
+            for da in CAREFUL_CELL_ANGLES:
+                ca, sa = math.cos(math.radians(da)), math.sin(math.radians(da))
+                vx, vy = ux * ca - uy * sa, ux * sa + uy * ca
+                for rot in (0.0, 90.0, 180.0, 270.0):
+                    st.set(i, px + vx * d, py + vy * d, rot, side)
+                    best = min(best, c.value(st))
+            st.set(i, *saved)
+        if best < INF:
+            a = PR.cell_careful(s.alloc.value, best)
+            if a != s.alloc.value:
+                s.alloc = PR.Belief(a, 'nH', s.alloc.basis + f'; held to [{best:.2f}, '
+                                    f'{PR.DECAP_CAREFUL_SPAN * best:.2f}] nH by the loop of a careful layout', s.alloc.cls)
+            s.info['L_careful'] = best
 
     def _cost(self, s, v):
         u = v / s.alloc.value if s.alloc.value > 0 else 0.0

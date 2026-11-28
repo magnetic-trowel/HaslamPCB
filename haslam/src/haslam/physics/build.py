@@ -360,9 +360,11 @@ def _commutation(ctx, s, Struct):
     # it the part is outside its rating (haslam.physics.criteria; a hazard in the place report)
     l_abs = PR.hot_loop_budget(cls, vin, t_sw_ns=ex.get('t_sw_ns'), derate=1.0, v_abs=ex.get('V_abs')).value
     excite = PR.hot_loop_excite(cls, vin, ex.get('I'), ex.get('t_sw_ns'))
+    careful = ctx.t.knobs.cell_budget == 'careful' and not ctx.budget(s, 'L_nH')     # a stated budget stays
     return Struct(id=s.get('id') or f'cell:{bv.parts[T[1].i].ref}', kind='commutation', conf=ctx.conf(s) * pmax,
                   alloc=alloc, comps=comps, reduce='parallel', labels=labels,
                   info=dict(cls=cls, V_in=vin, excite=excite, ownership=pmax, sw=s.get('sw'), L_abs_nH=l_abs,
+                            **({'_careful_cell': True} if careful else {}),
                             V_abs=ex.get('V_abs') or PR.v_abs_rating(vin), V_abs_known=bool(ex.get('V_abs')),
                             V_abs_source=PR.v_abs_source(ex), V_in_prior=vin_prior,
                             sw_nets=s.get('sw_nets') or ([s.get('sw')] if s.get('sw') else [])))

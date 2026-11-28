@@ -868,6 +868,12 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             # terms' own u_sat 10, same HPWL, buck hot loops 6.7 vs 8.0 nH (olimex, human
             # 5.9) and 1.70 vs 1.78 nH (noisecard)
             knobs = dict(u_sat=SA_U_SAT)
+            from haslam.route.constraints import setting
+            cb = str(setting("cell_budget", board_path, opts)).strip().lower()
+            if cb not in ("overshoot", "careful"):
+                raise ValueError(f"cell_budget {cb!r}: 'overshoot' or 'careful'")
+            if cb != "overshoot":
+                knobs["cell_budget"] = cb
             knobs.update(terms_knobs)
             report_terms, tsrc = make_terms(board, brief, barrier=0.0, **knobs)
         except Exception as e:

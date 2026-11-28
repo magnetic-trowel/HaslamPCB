@@ -68,6 +68,9 @@ class Knobs:
     #                               ~1 %; the old 0.3 read 17-27 % low at 2-10 mm, and on 58 routed pour-mode decaps
     #                               (50 boards) 0.15 fits better (42 of 58 closer; PP7, place-terms.md)
     jit: str = 'auto'             # 'auto' (numba when installed), 'on', 'off' (pure Python)
+    cell_budget: str = 'overshoot'  # hot-loop budget: 'overshoot' (hot_loop_budget, capped at 50 nH) or 'careful':
+    #                               held to [L_c, 2 L_c] like HF decaps (cell_careful), L_c the loop of the cell's
+    #                               best input capacitor beside the switch's input pin (obd-solar FRICTION #54)
 
     def detour(self, kind):
         """c of a structure kind's expected hop detour 1 + c sqrt(l) (see HOP_DETOUR)."""
@@ -273,6 +276,18 @@ def decap_careful(target, l_careful, hf=True):
     if hf:
         return min(max(target, l_careful), DECAP_CAREFUL_SPAN * l_careful)
     return max(target, l_careful)
+
+
+def cell_careful(target, l_careful, span=None):
+    """Hot-loop budget (nH) held to careful practice: clamp(target, L_c, span L_c), as decap_careful holds HF
+    decaps. The overshoot budget alone (hot_loop_budget) is a rating limit: at 12-24 V on a 1.25x rating it often
+    reaches its 50 nH cap, so a loop through a capacitor 30 mm away sat at u 0.04-0.08 and moving that capacitor to
+    the pin changed the placer's cost by 0.0009 (obd-solar FRICTION #54). Held to [L_c, 2 L_c], u = 1 marks the
+    edge of careful practice; a target below L_c (no discrete capacitor meets it) cannot dominate."""
+    span = DECAP_CAREFUL_SPAN if span is None else span
+    if not (l_careful > 0.0) or l_careful == float('inf'):
+        return target
+    return min(max(target, l_careful), span * l_careful)
 
 
 # Decap functions whose capacitor sets a regulator's stability rather than an IC's HF supply
