@@ -193,3 +193,30 @@ def test_per_net_injections_of_a_real_plan_balance_net_by_net():
         assert sum(a for t, a in inj.items() if net_at.get(t) == net) == pytest.approx(0.0, abs=1e-9)
     # the buck's current reaches CHG through its inductor L1, which the per-pad plan never named
     assert inj["L1.2"] == pytest.approx(0.6)
+
+
+@pytest.mark.parametrize("stated", [False, True])
+def test_an_external_switch_fet_takes_the_switch_loss_not_the_controller(stated):
+    """A buck controller driving an external high-side PFET (CN3767 and Q202): the switches' loss heats the FET,
+    the rectifier diode its own share; the controller keeps nothing of it (it read 1.36 W at a 10-pin IC)."""
+    from types import SimpleNamespace
+
+    from haslam.excite import heat as H
+    from haslam.excite.beliefs import Param
+    cell = dict(id="c", cls="buck", src="cell:c", vin="VIN", vout="OUT", sw="SW", ctrl="U1", rect="D1", high="Q1",
+                low=None, parts=set())
+    pl = DC.Plan()
+    pl.volts = {"VIN": 16.5, "OUT": 13.5}
+    f = dict(kind="cell", cell=cell, ref="U1")
+    if stated:
+        f["eta"] = Param("dc:U1", "eta", 0.9, 0.85, 0.92, "", "intent", "t")
+    pl.feeds = {"OUT": f}
+    pl.loads = []
+    bd = SimpleNamespace(part_kind={}, circuit=SimpleNamespace(elems=[]))
+    cv = {"cell:c": {"I_A": 0.6, "D": 0.82, "V_V": 16.5, "t_i_s": 5e-9, "t_v_s": 5e-9, "f_sw_Hz": 3e5}}
+    heat = H.part_heat(bd, pl, cv, {}, {})
+    assert heat.get("Q1", 0) > 0 and heat.get("D1", 0) > 0 and heat.get("U1", 0.0) == 0.0
+    # a synchronous stage with both FETs external splits the switches' loss by duty
+    cell.update(rect=None, low="Q2")
+    heat = H.part_heat(bd, pl, cv, {}, {})
+    assert heat["Q1"] / heat["Q2"] == pytest.approx(0.82 / 0.18) and heat.get("U1", 0.0) == 0.0

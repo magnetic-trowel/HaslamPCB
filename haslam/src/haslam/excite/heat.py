@@ -177,7 +177,8 @@ def params(bd, dcp, P, intent=None):
     for f in dcp.feeds.values():
         # a cell's inductor heats by its winding's DC loss (lumped_heat): its theta_jb is a prior like any part's (it
         # took the 2-pin class value at its typical point only, never sampled and never asked for)
-        hot |= {f["cell"]["ctrl"], f["cell"]["rect"], f["cell"].get("ind")} if f["kind"] == "cell" else \
+        hot |= {f["cell"]["ctrl"], f["cell"]["rect"], f["cell"].get("ind")} | {r for r, _ in _switch_parts(f["cell"], 0.5)} \
+            if f["kind"] == "cell" else \
             ({f["ref"]} if f["kind"] in ("linear", "switching") else set())
     for ref in sorted(r for r in hot if r):
         iv = intent_value(intent, "parts", ref, "theta_jb_C_W")       # from the part's datasheet, via the facts
@@ -293,7 +294,8 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
                 # heat at the inductor already (lumped_heat, I_L^2 DCR from the DC flow), so the controller takes the
                 # rest. Counted at both, a 5 V 2 A converter at eta 0.9 put 1.31 W into the board for its 1.11 W loss
                 lw = min(loss - rw, IL ** 2 * winding_R(bd, c.get("ind")))
-                add(c["ctrl"], loss - rw - lw)
+                for ref, k_ in _switch_parts(c, D):
+                    add(ref, k_ * (loss - rw - lw))
                 continue
             if c["cls"] == "buckboost":
                 # a 4-switch buck-boost: one switch of each leg is on at any time (two R_on in the inductor's path);
@@ -311,7 +313,8 @@ def part_heat(bd, dcp, cv, val, inj, ac_parts=None, losses=None):
             # guessed for a 13.5 V input, 2 MHz) read 6 W in a 3.3 V, 0.35 A buck: 1332 C at its junction
             cap = (1 / DC.ETA[0] - 1) * vo * I_out if vo and I_out > 0 else None
             k = min(1.0, cap / (w_c + w_r)) if cap is not None and w_c + w_r > 0 else 1.0
-            add(c["ctrl"], k * w_c)
+            for ref, k_ in _switch_parts(c, D):
+                add(ref, k_ * k * w_c)
             add(c["rect"], k * w_r)
             continue
         # the current it delivers into its rail: on a rail below ground the feed's output pads take current out of
@@ -463,6 +466,24 @@ def _net_factors(m, Qc, Qc0):
 def cell_current_param(P, src):
     """The cell's I_A ledger parameter (haslam.excite.params), or None."""
     return next((p for p in (P.get(src) or {}).values() if getattr(p, "name", "") == "I_A"), None)
+
+
+def _switch_parts(c, D):
+    """[(part, share)] that a cell's switch losses heat: its external switch FETs where it has them, else the
+    controller. The main switch (a buck's high side, a boost's low side) conducts for D, a synchronous rectifier FET of
+    its own (no rectifier diode) for 1 - D; a share whose FET is the controller's (integrated) stays at the controller.
+    A controller driving external FETs dissipates its quiescent and gate-drive power, tens of mW; given the switches'
+    conduction and switching loss, obd-solar's 10-pin CN3767 (external PFET Q202) read 1.36 W and 225 C once its
+    charge current was modelled (FRICTION.md #56). A 4-switch stage with external legs (c["ext"]) keeps the
+    controller, as before."""
+    boost = (c.get("top") or c["cls"]) in ("boost", "boost_led")
+    main, sync = (c.get("low"), c.get("high")) if boost else (c.get("high"), c.get("low"))
+    if c.get("ext") or not main or main == c["ctrl"]:
+        return [(c["ctrl"], 1.0)]
+    D = min(max(D, 0.0), 1.0)
+    if c.get("rect") or not sync:
+        return [(main, 1.0)]
+    return [(main, D), (sync if sync != main else c["ctrl"], 1.0 - D)]
 
 
 def idle_cells(bd, cell_out):
