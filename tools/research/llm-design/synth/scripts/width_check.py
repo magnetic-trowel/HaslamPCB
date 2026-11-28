@@ -24,8 +24,8 @@ Current per segment (`--basis branch`, the default):
   net`, the conservative fallback); `--basis net` does that for every net.
 Required width: IPC-2221, I = k dT^0.44 A^0.725 (A in mil^2, k 0.048 outer / 0.024 inner), 35 um copper unless the
 board's stackup says otherwise, rise `--rise` (default the netlist's board.trace_rise_c, else 10 C). A segment whose
-two ends lie within `--neck` mm of a same-net pad is exempt (fine-pitch escapes). Nets with a filled zone are
-reported as `zone` and not judged. Exit status 1 when any judged net has a non-exempt segment narrower than needed.
+two ends lie within `--neck` mm of a same-net pad is exempt (fine-pitch escapes); a segment lying >= 90 % under a
+same-net filled zone is counted as poured (the pour carries the current; zones must be filled in the file). Exit status 1 when any judged net has a non-exempt segment narrower than needed.
 """
 from __future__ import annotations
 
@@ -96,8 +96,9 @@ def check(board_path, netlist_path, rise=None, neck=1.0, stub=0.1, basis="branch
                     cur[_key(c[0], c[-1])] = i * scale
                 used = "branch"
         geoms = [g for _tk, g, _l in pads[net]]
-        r = {"i_max": i_net, "basis": used, "zone": bool(pc.fills.get(net)), "min_mm": math.inf, "short_mm": 0.0,
-             "exempt_mm": 0.0, "total_mm": 0.0, "need_max_mm": 0.0}
+        fills = pc.fills.get(net) or {}               # {layer: [polygons]} of this net's filled zones
+        r = {"i_max": i_net, "basis": used, "zone": bool(fills), "min_mm": math.inf, "short_mm": 0.0,
+             "exempt_mm": 0.0, "poured_mm": 0.0, "total_mm": 0.0, "need_max_mm": 0.0}
         for t in mine:
             L = math.dist(t.start, t.end)
             i = max(cur.get(_key(t.start, t.end), cur.get(_key(t.end, t.start), 0.0)), stub * i_net) \
@@ -106,15 +107,26 @@ def check(board_path, netlist_path, rise=None, neck=1.0, stub=0.1, basis="branch
             r["total_mm"] += L
             r["min_mm"] = min(r["min_mm"], t.width)
             r["need_max_mm"] = max(r["need_max_mm"], need)
+            if t.width + 1e-6 < need and fills.get(t.layer) and L > 0:
+                # a track under a same-net pour: the pour carries the current (power_copper's zones into pads,
+                # FRICTION.md #68); counted as poured where >= 90 % of its length lies inside the fill
+                from shapely.geometry import LineString
+                from shapely.ops import unary_union
+                inside = LineString([t.start, t.end]).intersection(unary_union(fills[t.layer])).length
+                if inside >= 0.9 * L:
+                    r["poured_mm"] += L
+                    continue
             if t.width + 1e-6 < need:
                 d = [min((g.distance(Point(xy)) for g in geoms), default=math.inf) for xy in (t.start, t.end)]
                 if max(d) <= neck:
                     r["exempt_mm"] += L
                 else:
                     r["short_mm"] += L
-        for k in ("min_mm", "short_mm", "exempt_mm", "total_mm", "need_max_mm"):
+        for k in ("min_mm", "short_mm", "exempt_mm", "poured_mm", "total_mm", "need_max_mm"):
             r[k] = round(r[k], 3)
-        r["verdict"] = "zone" if r["zone"] else ("fail" if r["short_mm"] > 0 else "pass")
+        # a net with pours is judged too: only its tracks outside the pours can fail (a whole-board GND pour covers
+        # all of them); "zone" now just marks that pours carry part of it
+        r["verdict"] = "fail" if r["short_mm"] > 0 else "pass"
         out[net] = r
     fails = sorted(n for n, r in out.items() if r["verdict"] == "fail")
     return {"rise_c": rise, "neck_mm": neck, "stub": stub, "basis": basis, "nets": out, "fail": fails}
@@ -139,7 +151,7 @@ def main(argv=None):
     for net, r in sorted(res["nets"].items(), key=lambda kv: (kv[1]["verdict"] != "fail", kv[0])):
         print(f"{r['verdict']:4} {net}: {r['i_max']:g} A ({r['basis']}), widest need {r['need_max_mm']:.2f} mm; "
               f"narrowest {r['min_mm']:.3f} mm; {r['short_mm']:.1f} of {r['total_mm']:.1f} mm too narrow "
-              f"({r['exempt_mm']:.1f} mm exempt at pads)")
+              f"({r['exempt_mm']:.1f} mm exempt at pads, {r['poured_mm']:.1f} mm under pours)")
     print(f"width_check: {len(res['fail'])} net(s) too narrow (IPC-2221, rise {res['rise_c']:g} C, basis {res['basis']})")
     return 1 if res["fail"] else 0
 
