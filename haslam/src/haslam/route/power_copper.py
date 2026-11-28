@@ -117,6 +117,9 @@ DEFAULTS = dict(
     stitch_pitch=2.0,
     stitch_min_area=0.3,
     drc_budget=80,            # KiCad DRC runs the gate may spend (attribution and bisection)
+    to_class=False,           # PROTOTYPE (gfix-auto-widen): also widen switch nodes and every other net drawn narrower
+                              # than its class width, up to that class width and no wider (the router's intended
+                              # width); necks at small lands as for rails. Rails and grounds keep max_width.
 )
 
 VICTIM_ROLES = ("clock", "high_speed", "analog", "rf")
@@ -855,6 +858,8 @@ class PowerCopper:
                     w = self.necks.get(id(it), self.tht_necks.get(id(it), self.caps.get(id(it))))
                     out.append((it.geom, 0.0, self.o["neck_len"], -w))
                     continue
+                if it.net == net and it.kind in ("track", "via", "pad"):
+                    continue                # own copper (a switch node's own pads are no victim of it)
                 ex = self._extra(it, l, layer)
                 if l == layer:
                     nd = self.sp.need(it, net, "track", layer)
@@ -923,10 +928,12 @@ class PowerCopper:
     # ---------------------------------------------------------------- 1. widen
     def widen(self):
         sp = self.sp
-        nets = self.power | self.ground
+        extra = self._class_nets()
+        self.stats["class_nets"] = len(extra)
+        nets = self.power | self.ground | extra
         by_uuid = {it.uuid: it for it in sp.existing if it.kind == "track"}
         ladder = self.o["ladder"]
-        order = sorted(self.board.tracks, key=lambda t: (-self.current.get(t.net, 0.0), t.net in self.ground))
+        order = sorted(self.board.tracks, key=lambda t: (t.net in extra, -self.current.get(t.net, 0.0), t.net in self.ground))
         for t in order:
             if t.net not in nets or t.net in self.zone_nets or t.layer not in sp.items:
                 continue
@@ -936,9 +943,10 @@ class PowerCopper:
             it = by_uuid.get(t.uuid)
             if it is None:
                 continue
-            cap = sp.clamp_width(t.net, t.layer, width_cap(self.o["max_width"], self.current.get(t.net),
-                                                            self.o["current_margin"], self.o["current_cap"]))
+            cap = self._cap(t)
             steps = width_ladder(t.width, cap, ladder)
+            if extra and cap > t.width + 1e-6 and not any(abs(w - cap) < 1e-9 for w in steps):
+                steps = sorted(set(steps) | {cap}, reverse=True)      # the class width itself is a step
             if not steps:
                 continue
             L = math.dist(t.start, t.end)
@@ -988,6 +996,25 @@ class PowerCopper:
         self.stats["widened_mm"] = round(self.stats["widened_mm"], 2)
         self._entering = None
         return self.stats["widened"]
+
+    def _cap(self, t):
+        """Widest width a track of t.net may grow to: rails and grounds max_width (or their current's need);
+        with to_class, switch nodes and other nets their class width (opt) on the layer."""
+        if t.net in self.power or t.net in self.ground:
+            return self.sp.clamp_width(t.net, t.layer, width_cap(self.o["max_width"], self.current.get(t.net),
+                                                                  self.o["current_margin"], self.o["current_cap"]))
+        return self.sp.width_limits(t.net, t.layer)[1]
+
+    def _class_nets(self):
+        """to_class: the nets other than rails and grounds with a track narrower than its class width there."""
+        if not self.o.get("to_class"):
+            return set()
+        out = set()
+        for t in self.board.tracks:
+            if t.net and t.net not in self.power | self.ground and t.layer in self.sp.items \
+                    and t.width + 1e-6 < self.sp.width_limits(t.net, t.layer)[1]:
+                out.add(t.net)
+        return out
 
     def _entered(self, t):
         """The THT pads (main pad Items) track t ends in or runs through: the necks that apply to it."""
@@ -1042,8 +1069,7 @@ class PowerCopper:
         if got is None:
             return
         c, rad, a0, sw = got
-        cap = sp.clamp_width(t.net, t.layer, width_cap(self.o["max_width"], self.current.get(t.net),
-                                                        self.o["current_margin"], self.o["current_cap"]))
+        cap = self._cap(t)
         steps = width_ladder(t.width, cap, ladder)
         if not steps:
             return
