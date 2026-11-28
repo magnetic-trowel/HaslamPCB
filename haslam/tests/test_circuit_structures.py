@@ -708,3 +708,18 @@ def test_decap_hf_by_body_not_value():
         assert d['hf_caps'] == [] and d['pin_caps'] == {}
     finally:
         RO.CAP_CLASS = old
+
+
+def test_buck_boost_with_pvout_output_pin_is_two_cells():
+    """LTC3115-1 names its power pins PVIN/PVOUT: the output pin must be recognised like VOUT (obd-solar)."""
+    u = IC('U1', 'LTC3115-1', 'Package_SO:TSSOP-20-1EP_4.4x6.5mm_P0.65mm_EP2.15x3.35mm', [
+        ('17', 'PVIN', '+12V', 'power_in'), ('13', 'VIN', '+12V', 'power_in'), ('18', 'SW1', 'SW1', 'passive'),
+        ('3', 'SW2', 'SW2', 'passive'), ('4', 'PVOUT', 'VBUS', 'power_out'), ('1', 'PGND', 'GND', 'power_in'),
+        ('8', 'FB', 'FB', 'input'), ('16', 'BST1', 'B1', 'passive'), ('15', 'BST2', 'B2', 'passive')])
+    parts = [u, L('L1', '10uH', 'SW1', 'SW2'), C('C1', '10uF', '+12V', 'GND'), C('C2', '100nF', '+12V', 'GND'),
+             C('C3', '22uF', 'VBUS', 'GND'), C('C4', '100nF', 'VBUS', 'GND'), C('C5', '100nF', 'B1', 'SW1'),
+             C('C6', '100nF', 'B2', 'SW2'), R('R1', '1M', 'VBUS', 'FB'), R('R2', '90.9k', 'FB', 'GND')]
+    nl, r, st = structures(parts)
+    cells = {c['id']: c for c in st['commutation_cells'] if c.get('controller') == 'U1'}
+    assert set(cells) == {'cell:buck:U1', 'cell:boost:U1'}, sorted(cells)
+    assert cells['cell:buck:U1']['rail'] == '+12V' and cells['cell:boost:U1']['rail'] == 'VBUS'
