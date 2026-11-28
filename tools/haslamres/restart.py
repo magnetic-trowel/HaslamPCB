@@ -955,14 +955,57 @@ def tiebreak_score(a, info, cache):
     return score
 
 
+def rank_score(a, info, cache):
+    """The --rank-score score of an attempt's board (a list, lower better element by element; cached by path), None
+    when the command gives none."""
+    key = "rank:" + str(info["out"])
+    if key in cache:
+        return cache[key]
+    o = Path(info["out"]).with_name("rankscore.json")
+    c = a.rank_score.replace("@BOARD@", shlex.quote(str(info["out"]))).replace("@OUT@", shlex.quote(str(o)))
+    t = time.monotonic()
+    if TERM:
+        return None
+    try:
+        with open(Path(info["out"]).with_name("rankscore.log"), "w") as f:
+            rc = run_group(["sh", "-c", c], min(float(a.rank_score_s), wall_left()), cwd=Path(info["out"]).parent,
+                           stdout=f, stderr=subprocess.STDOUT, env=dict(os.environ, **(info.get("env") or {})))
+        score = json.loads(o.read_text()).get("score") if rc != "timeout" else None
+    except (OSError, ValueError):
+        score = None
+    if score is not None and not isinstance(score, list):
+        score = [score]
+    cache[key] = score
+    log(f"rank score of #{info['k']}: {score} ({time.monotonic() - t:.0f}s)")
+    return score
+
+
+def score_decides(sb, sn, margin):
+    """(decided, new wins) of two --rank-score lists: the first element both measured that differs by more than
+    `margin` of the larger magnitude (at least 1e-9) decides; a null element is skipped; none decides: (False, False)."""
+    for b, n in zip(sb or (), sn or ()):
+        if b is None or n is None:
+            continue
+        if abs(n - b) > margin * max(abs(b), abs(n), 1e-9):
+            return True, n < b
+    return False, False
+
+
 def better(a, new, best, cache, ties):
     """Whether attempt `new` replaces `best`: a better KiCad rank; with --alt-env and --tiebreak, both clean, of
     different arms, and a tie-break score lower by more than --tiebreak-margin, or, when the scores do not decide
-    (closer than the margin, or one missing), `new` being arm A (each comparison goes to `ties`)."""
+    (closer than the margin, or one missing), `new` being arm A (each comparison goes to `ties`). With --rank-score
+    (and no --alt-env), an equal KiCad rank goes to the physics score (score_decides; undecided: the incumbent)."""
     if new.get("rank") is None:
         return False
     if best is None or best.get("rank") is None:
         return True
+    if getattr(a, "rank_score", "") and not a.alt_env and tuple(new["rank"]) == tuple(best["rank"]):
+        sb, sn = rank_score(a, best, cache), rank_score(a, new, cache)
+        decided, win = score_decides(sb, sn, a.rank_score_margin)
+        ties.append(dict(rank=list(new["rank"]), kept=best["k"], kept_score=sb, other=new["k"], other_score=sn,
+                         switched=bool(decided and win), by="rank_score"))
+        return bool(decided and win)
     if tuple(new["rank"]) != tuple(best["rank"]) or not (a.alt_env and a.tiebreak) or tuple(new["rank"][:2]) != (0, 0):
         # only clean boards are compared by the tie-break: an open board's lineage and final pass still change
         # its copper, and a quote of a big board can take minutes (the loop waits for it)
@@ -1040,6 +1083,16 @@ def main():
     ap.add_argument("--tiebreak-margin", type=float, default=0.1,
                     help="a score must be lower by more than this to win a tie-break")
     ap.add_argument("--tiebreak-s", type=float, default=600.0, help="time limit of one tie-break command")
+    ap.add_argument("--rank-score", default="",
+                    help="COMMAND (@BOARD@, @OUT@: JSON with 'score', a list, lower better element by element): attempts "
+                         "of equal KiCad rank are ranked by it (for haslam `python -m haslam.excite.rankscore @BOARD@ "
+                         "--score-out @OUT@`: worst rail mOhm, then the hot loops' quote); not with --alt-env")
+    ap.add_argument("--rank-score-margin", type=float, default=0.05,
+                    help="relative difference of a --rank-score element that decides")
+    ap.add_argument("--rank-score-s", type=float, default=600.0, help="time limit of one --rank-score command")
+    ap.add_argument("--rank-wait", action="store_true",
+                    help="a clean board does not end the run at once: attempts already running finish (no new ones "
+                         "start), so --rank-score can compare them")
     ap.add_argument("--policy", default="", choices=("", "completion-first"),
                     help="completion-first: two runs of this wrapper in --time (half each). The second is --alt "
                          "(e.g. the module stage) when the first run's board is clean, else another run of COMMAND "
@@ -1252,6 +1305,11 @@ def main():
             if not no_new[0]:
                 log(f"#{best['k']} (arm {best.get('arm')}) is clean: no new attempts; the other arm's running "
                     f"attempts finish for the tie-break")
+            no_new[0] = True
+        elif best and best["rank"][:2] == (0, 0) and a.rank_wait and a.rank_score and \
+                any("hold" in i or alive(p.pid) for p, i in running.items()):
+            if not no_new[0]:
+                log(f"#{best['k']} is clean: no new attempts; running attempts finish for the rank score")
             no_new[0] = True
         elif best and best["rank"][:2] == (0, 0):
             log(f"#{best['k']} is clean: stopping the rest")
