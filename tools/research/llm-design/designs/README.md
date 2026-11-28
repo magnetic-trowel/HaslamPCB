@@ -6,9 +6,11 @@ Boards designed from plain-language briefs with [`haslamsynth`](../synth/README.
 - `CONNECTIONS.md`: net tables and naming rules;
 - `parts.py` and `design.py`: the circuit as code;
 - `REVIEW.md`: an independent review and the designer's response;
-- `out/`: the generated KiCad 10 project, `intent.yaml`, BOM and `report.md`. Only `report.md`
-  and `erc.json` are committed here; rebuild the rest with `haslamsynth build designs/<slug>/design.py -v`
-  (deterministic up to the title-block date, `--date`).
+- `out/`: the generated KiCad 10 project, `<slug>.haslam_intent.json` (operating intent for haslam), BOM and
+  `report.md`. Only `report.md` and `erc.json` are committed here; rebuild the rest with
+  `haslamsynth build designs/<slug>/design.py -v` (deterministic up to the title-block date, `--date`).
+
+Taking a design to a routed board: the stage table in [README Part 1](../../../../README.md#part-1-design-a-pcb).
 
 Write-up: [docs/research/llm-design](../../../../docs/research/llm-design/README.md).
 Licensing: our files are GPL-3.0-or-later (docs CC-BY-4.0); the Phoenix Contact footprint in

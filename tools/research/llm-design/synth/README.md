@@ -41,7 +41,10 @@ Fab limits come from a profile (`src/haslamsynth/fab/<name>.json`, `d.board(fab=
 `build` exits non-zero while any unwaived error remains. Iterate until it is clean, then read
 `report.md`: warnings are things a reviewer will ask about.
 
-## Pipeline and gates
+## What `haslamsynth build` checks, in order
+
+This is stage 3 of the board pipeline; the whole pipeline (board, pre-flight, size, layout, physics, review, fab),
+run by `scripts/pipeline.py`, is the stage table in [README Part 1](../../../../README.md#part-1-design-a-pcb).
 
 1. **Brief → requirements.** `require`, `assume`, `question(blocking=...)`, `hazard(...)` records
    live in `design.py`. An unanswered blocking question marks the build "not ready for fabrication".

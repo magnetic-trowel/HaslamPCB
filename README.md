@@ -30,66 +30,84 @@ haslam venv has haslam installed, so no `PYTHONPATH` is needed.
 
 On a shared host, run anything over about ten minutes or two cores through haslamq (`tools/haslamq/README.md`):
 `haslamq submit --cpus N --mem XG --timeout T --owner <name> -- CMD`, then one background `haslamq wait`. Jobs run a
-frozen snapshot of the checkout. Retry and cancel your own jobs only, by id or `--owner`.
+frozen snapshot of the checkout. Retry and cancel your own jobs only, by id or `--owner`. On a single-user machine (your
+own computer, a cloud container without haslamq), run the same commands directly, long ones in the background.
 
 ---
 
 # Part 1: Design a PCB
 
-A design lives in `tools/research/llm-design/designs/<slug>/` (example: `solar-small`). Paths below are relative to
-`tools/research/llm-design/`. **Run the stages with `synth/scripts/pipeline.py designs/<slug> <stage>`**: it records each
-gate, refuses a stage while an earlier gate is unmet, and only writes fabrication files for a board that passed every
-gate (fab profile, current-sized track widths, ≥ 3 seeds, complete physics, acknowledged DRC warnings, a review).
-`pipeline.py designs/<slug> status` prints the next stage. The table below is what each stage does.
+A design lives in `tools/research/llm-design/designs/<slug>/` (example: `solar-small`). **This table is the canonical
+stage list**; [brief-to-board](docs/topics/workflow/brief-to-board.md) holds the worked example and failure modes, and
+[synth/README.md](tools/research/llm-design/synth/README.md) the `design.py` API. Stages 3-11 run through
+`synth/scripts/pipeline.py`, from the repo root in the haslam venv with `env.sh` sourced:
 
-| # | Stage | Command | Gate |
+```bash
+P="haslam/.venv/bin/python tools/research/llm-design/synth/scripts/pipeline.py tools/research/llm-design/designs/<slug>"
+$P status          # every gate and the next stage
+$P build           # then board, preflight, size, layout (once per seed), physics, warnings, review, fab
+```
+
+`pipeline.py` records each gate in `haslam-work/<slug>/pipeline/status.json`, refuses a stage while an earlier gate is
+unmet or older than `design.py`/`parts.py`/`board.json`, and writes fabrication files only for a board that passed
+every gate. Script paths below are relative to `tools/research/llm-design/synth/scripts/`.
+
+| # | Stage | `pipeline.py` stage: what it runs | Gate |
 |---|---|---|---|
-| 1 | Requirements and parts | Read datasheets (tables and figures, not summaries); check stock and basic/extended status with the JLC parts API | every number has a page citation |
-| 2 | Circuit as code | Write `designs/<slug>/parts.py` (part cards), `design.py` (blocks, nets, placement relations, intent), `board.json` (outline, holes, fixed parts, pours, keepouts), custom footprints | — |
-| 3 | LCSC numbers | `haslamsynth jlc designs/<slug>/design.py` (writes `jlc.json`) | every generic passive has a number |
-| 4 | Schematic and checks | `haslamsynth build designs/<slug>/design.py -v` → `designs/<slug>/out/`: `.kicad_sch`, `.kicad_pro`, `.kicad_dru`, `bom.csv`, `report.md`, `<slug>.haslam_intent.json` | 0 errors; every warning in `report.md` read (rule feasibility, density) |
-| 5 | Unplaced board | `$HASLAM_KICAD_WRAP python3 synth/scripts/sch_to_board.py designs/<slug>/out designs/<slug>/board.json` | DRC schematic parity 0 |
-| 6 | Pre-flight | `python synth/scripts/preflight.py <board> --probe` | 0 FAIL |
-| 7 | Layout and scoring | from the repo root, several seeds: `tools/research/llm-design/synth/scripts/layout.sh <board> <outdir> <seed>` (minutes to hours) | `eval/drc.json`: 0 errors, 0 unconnected; `eval/status.json`: `complete` true |
-| 8 | Compare seeds or variants | `python synth/scripts/compare_ab.py <rundir> --md table.md` (layout `<rundir>/<arm>/s<seed>/{out,eval}`) | choose by hard violations, then limits, then cost |
-| 9 | Fabrication | `python synth/scripts/fab_outputs.py <routed board> <fabdir>` (`sch_to_board.py --update` first if parts changed) | DRC gate passes; `fab-report.json` lists extended parts (each a JLC setup fee) |
+| 1 | Requirements and parts | (you) read datasheets (tables and figures, not summaries); check stock and basic/extended status with the JLC parts API | every number has a page citation |
+| 2 | Circuit as code | (you) `designs/<slug>/parts.py` (part cards), `design.py` (blocks, nets, placement relations, intent; `haslamsynth api` lists every call), `board.json` (outline, holes, fixed parts, pours, keepouts), custom footprints | — |
+| 3 | Schematic and checks | `build`: `haslamsynth jlc` (LCSC numbers of generic passives, `jlc.json`), then `haslamsynth build -v` → `designs/<slug>/out/`: `.kicad_sch`, `.kicad_pro`, `.kicad_dru`, `bom.csv`, `report.md`, `<slug>.haslam_intent.json` | exit 0: 0 unwaived errors (incl. `rules.pin_escape`, `rules.pad_gap`), ERC clean, netlist round trip identical; read every warning in `report.md` |
+| 4 | Unplaced board | `board`: `sch_to_board.py out board.json` at the `size` stage's best outline, else `board.json`'s | board written |
+| 5 | Pre-flight | `preflight`: `preflight.py <board> --probe` (KiCad and Freerouting reachable, rules parse, schematic parity, fixed parts legal, fab profile, intent, a 3-minute place-and-route probe) | 0 FAIL; read each WARN and `blocked:` line. This is the unplaced board's gate: a plain DRC lists every unplaced part |
+| 6 | Board size | `size`: `size_search.py` (start at 25 % courtyard density, shrink while DRC and `width_check.py` pass; resumable) | a passing outline |
+| 7 | Layout | `layout --seed N`: `layout.sh <board> <run> <seed>` (place, route, DRC, `width_check.py`; minutes to hours) | ≥ 3 seeds routed; the best has 0 DRC errors, 0 unconnected and passes `width_check` |
+| 8 | Physics | `physics`: `haslam.excite.evaluate` + `haslam.intent status` on the best seed | evaluation complete; no `hard` term violated |
+| 9 | DRC warnings | `warnings`: the best seed's DRC warnings by type | each type listed in `designs/<slug>/drc_warnings.json` with a reason |
+| 10 | Review | `review`: an independent review | `designs/<slug>/REVIEW.md` newer than `design.py` and `parts.py` |
+| 11 | Fabrication | `fab`: `fab_outputs.py` (zone refill, DRC, Gerbers, drill, CPL, BOM) | fab-report gate passes; no blocking question open in `report.md`; `fab-report.json` lists extended parts (each a JLC setup fee) |
 
-**How each stage works**
+Where to run the long stages (`size`, `layout`, `physics`): on a single-user machine run `$P layout --seed N`
+directly (in the background); on a shared host submit each through haslamq (`haslamq submit … -- $P layout --seed N`)
+and wait with one background `haslamq wait`. Comparing seeds or design variants side by side (DRC by type, open
+connections, every physics term): `compare_ab.py <rundir> --md table.md`.
+`designs/solar-small/run_ab.sh` is solar-small's own A/B of layout recipes, not a stage.
 
-1. **Requirements and parts.** The designer (often an LLM) turns the product brief into numbers (voltages, currents,
-   switching frequencies, limits) and picks parts that JLCPCB can assemble, preferring basic parts, which have no
-   per-order setup fee.
-2. **Circuit as code.** The circuit is Python: part cards carry each part's pins, footprint, ratings and datasheet facts;
-   `design.py` connects them into blocks and nets and states what the board must achieve; `board.json` gives the
-   outline and anything mechanical that cannot move (connectors, holes, the module socket).
-3. **LCSC numbers.** Generic resistors and capacitors are matched to in-stock JLC parts by value, package, voltage and
-   dielectric, so the BOM can be assembled without hand lookups.
-4. **Schematic and checks.** haslamsynth checks the circuit (ratings against operating stress, ERC, netlist round trip)
-   and writes the KiCad project. It derives clearance rules per net pair from each net's voltage (IPC-2221B) and track
-   minimums from the finest pad pitch, and proves every pin can still escape under them. It also writes the **operating
-   intent** (`<slug>.haslam_intent.json`, beside the board like `.kicad_pro`): the facts haslam cannot read from copper (rail
-   voltages; each converter's input, output, current and switching frequency; cables) and the requirements, as terms
-   with tiers (`hard` limits, `limit` budgets, `cost`). `python -m haslam.cli brief <board>` shows how haslam reads them.
-5. **Unplaced board.** The netlist becomes a `.kicad_pcb` with every footprint, the fixed parts in place, pours,
-   keepouts and the fab's stackup (JLC 2-layer 1.6 mm FR-4 unless `board.json` `stackup` says otherwise).
-6. **Pre-flight.** A few minutes of checks catch what would waste a long run: KiCad and Freerouting reachable, rules
-   accepted by KiCad, schematic parity, fixed parts legal, intent complete, and a short place-and-route probe that
-   lists any connection the rules block.
-7. **Layout and scoring.** haslam places the parts (an annealer with legality checks, priced by wire length, physics terms
-   and routability), routes them (Freerouting plus haslam's repair and last-mile router, which respect pad-entry,
-   thermal-spoke and clearance rules), and restarts with new seeds while connections stay open, on a budget of counted
-   work rather than wall time. The routed board is then checked by KiCad's DRC and scored by haslam's physics
-   evaluator, which solves the copper (layered, with 3D inductance and the stackup's capacitance) with every converter
-   as a noise source and reports pickup, overshoot, emissions, losses and temperatures against the intent's terms.
-   An incomplete evaluation (`why_incomplete`) prices nothing it could not compute.
-8. **Compare.** Seeds and design variants differ; the table puts DRC, open connections and every physics term side by
-   side, so the choice is by the intent's tiers, not by eye.
-9. **Fabrication.** Zones are refilled, DRC must pass, and the Gerbers, drill files, pick-and-place file and BOM with
-   LCSC numbers are written in JLCPCB's formats.
+**How each stage works** (by name; stages 1-2 are yours, the rest are `pipeline.py` stages)
+
+- **Requirements and parts.** The designer (often an LLM) turns the product brief into numbers (voltages, currents,
+  switching frequencies, limits) and picks parts that JLCPCB can assemble, preferring basic parts, which have no
+  per-order setup fee.
+- **Circuit as code.** The circuit is Python: part cards carry each part's pins, footprint, ratings and datasheet facts;
+  `design.py` connects them into blocks and nets and states what the board must achieve; `board.json` gives the
+  outline and anything mechanical that cannot move (connectors, holes, the module socket).
+- **Schematic and checks.** Generic resistors and capacitors are matched to in-stock JLC parts by value, package,
+  voltage and dielectric. haslamsynth checks the circuit (ratings against operating stress, ERC, netlist round trip)
+  and writes the KiCad project. It derives clearance rules per net pair from each net's voltage (IPC-2221B) and track
+  minimums from the finest pad pitch, and proves every pin can still escape under them. It also writes the **operating
+  intent** (`<slug>.haslam_intent.json`, beside the board like `.kicad_pro`): the facts haslam cannot read from copper (rail
+  voltages; each converter's input, output, current and switching frequency; cables) and the requirements, as terms
+  with tiers (`hard` limits, `limit` budgets, `cost`). `python -m haslam.cli brief <board>` shows how haslam reads them.
+- **Unplaced board.** The netlist becomes a `.kicad_pcb` with every footprint, the fixed parts in place, pours,
+  keepouts and the fab's stackup (JLC 2-layer 1.6 mm FR-4 unless `board.json` `stackup` says otherwise).
+- **Pre-flight.** A few minutes of checks catch what would waste a long run: KiCad and Freerouting reachable, rules
+  accepted by KiCad, schematic parity, fixed parts legal, intent complete, and a short place-and-route probe that
+  lists any connection the rules block.
+- **Board size.** The outline is edge-anchored (`board_spec.py`), so the search can shrink it and re-place the fixed
+  parts without hand edits.
+- **Layout.** haslam places the parts (an annealer with legality checks, priced by wire length, physics terms
+  and routability), routes them (Freerouting plus haslam's repair and last-mile router, which respect pad-entry,
+  thermal-spoke and clearance rules), and restarts with new seeds while connections stay open, on a budget of counted
+  work rather than wall time. KiCad's DRC and the width check (IPC-2221 width against each net's current) judge the
+  routed board.
+- **Physics.** haslam's evaluator solves the copper (layered, with 3D inductance and the stackup's capacitance) with
+  every converter as a noise source and reports pickup, overshoot, emissions, losses and temperatures against the
+  intent's terms. An incomplete evaluation (`why_incomplete`) prices nothing it could not compute.
+- **DRC warnings and review.** Every DRC warning type gets a written reason, and an independent reviewer reads the
+  design, so a board that passes the checks is still read by someone who did not write it.
+- **Fabrication.** Zones are refilled, DRC must pass, and the Gerbers, drill files, pick-and-place file and BOM with
+  LCSC numbers are written in JLCPCB's formats.
 
 Judge every result by KiCad's DRC and the evaluator on the re-opened board, never by a tool's own log.
-
-The worked example, with its rules and known limits: [`docs/topics/workflow/brief-to-board.md`](docs/topics/workflow/brief-to-board.md).
 
 ---
 
