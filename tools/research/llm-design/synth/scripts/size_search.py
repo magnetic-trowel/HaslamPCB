@@ -15,7 +15,8 @@ parts and holes to edges (board_spec.py) so it serves every outline.
    with HASLAM_EVAL=0 (physics is scored once, at the chosen size) and HASLAM_TIME=--time when given.
 3. Gates: KiCad DRC on the routed board 0 errors and 0 unconnected (eval/drc.json), width_check.py passes
    (eval/width.json). A pass shrinks the area by --shrink; a fail at the first size grows it by 1/--shrink; the
-   search stops at the first fail after a pass, at --max-density, or after --max-attempts this call.
+   search stops at the first fail after a pass, at --max-density, after --max-attempts this call, or when a board
+   that routed every connection fails only on track width (more room would not change the router's widths).
 4. WORKDIR/state.json records every attempt, so the search resumes where it stopped (calls can be short enough for a
    runner's time limit). `best` is the smallest passing outline.
 Exit 0 when a passing outline exists.
@@ -96,8 +97,16 @@ def attempt(design_out, board_json, wd, outline, seed, time_s, env):
         subprocess.run(["bash", str(HERE / "layout.sh"), str(board), str(run), str(seed)], stdout=log,
                        stderr=subprocess.STDOUT, env=lenv)
     g = gates(run)
+    # a board that routed every connection without clearance errors but fails only the width gate is not short of
+    # room: growing it does not change the widths the router draws (obd-solar 96 x 66 mm at 25 % density)
+    not_size = not g["width"][0] and g["drc"][1].endswith(" 0 unconnected") and _only_minor_drc(run)
     return {"outline": [W, H], "ok": all(ok for ok, _ in g.values()), "stage": "gates",
-            "detail": {k: v[1] for k, v in g.items()}, "run": str(run)}
+            "detail": {k: v[1] for k, v in g.items()}, "run": str(run), "not_size": not_size}
+
+
+def _only_minor_drc(run, minor=("starved_thermal",)):
+    d = json.loads((run / "eval" / "drc.json").read_text())
+    return all(v.get("type") in minor for v in d.get("violations", []) if v.get("severity") == "error")
 
 
 def main(argv=None):
@@ -124,6 +133,10 @@ def main(argv=None):
         passed = [x for x in done if x["ok"]]
         if done and passed and not done[-1]["ok"]:
             break                                              # shrunk past the smallest passing size
+        if done and not passed and done[-1].get("not_size"):
+            print("size_search: stop: every connection routed but tracks are too narrow; a larger board will not fix "
+                  "the router's widths (obd-solar FRICTION.md #47)")
+            break
         if not done:
             ol = outline_for(area, st["aspect"], a.start_density)
         else:
