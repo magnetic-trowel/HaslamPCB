@@ -25,3 +25,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["kicad: needs KiCad 10 (kicad-cli and the official symbol/footprint libraries)"]
+
+[tool.setuptools.package-data]
+haslamsynth = ["fab/*.json"]

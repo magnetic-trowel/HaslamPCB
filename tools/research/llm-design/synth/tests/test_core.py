@@ -487,3 +487,32 @@ def test_netclass_width_from_real_current_not_bucket():
     assert cls["name"].endswith("_5A")                                    # the bucket still names the class
     assert cls["track_width"] == ipc2221_width_mm(3.3, rise_c=20)         # sized for 3.3 A at 20 C, not 5 A at 10 C
     assert cls["track_width"] < ipc2221_width_mm(5, rise_c=10)
+
+
+def test_fab_profile_rules():
+    from haslamsynth import fab
+    p = fab.load(fab.DEFAULT)
+    rules = fab.board_rules(p)
+    kicad_keys = {"min_clearance", "min_copper_edge_clearance", "min_hole_clearance", "min_hole_to_hole",
+                  "min_silk_clearance", "min_text_height", "min_text_thickness", "min_through_hole_diameter",
+                  "min_track_width", "min_via_annular_width", "min_via_diameter"}      # KiCad 10 .kicad_pro keys
+    assert set(rules) <= kicad_keys and rules["min_track_width"] >= 0.1 and rules["min_copper_edge_clearance"] >= 0.2
+    assert all(v[1] for v in p["board"].values())                      # every limit says where it comes from
+    text = fab.dru_rules(p)
+    assert text.count("(rule ") == 3 and "annular_width (min 0.18mm)" in text
+    with pytest.raises(ValueError):
+        fab.load("no-such-fab")
+
+
+def test_fab_profile_reaches_project_and_dru(tmp_path):
+    from haslamsynth.emit.project import NetClasses, dru_text
+    d = Design("f")
+    d.domain("D", ref="GND")
+    d.net("GND", domain="D", v=0, kind="ground")
+    a = d.net("A", domain="D", v=(0, 5), kind="power")
+    b = d.block("x")
+    r = b.add(two_pin("R", v_max=50))
+    a.connect(r[1]); d.nets["GND"].connect(r[2])
+    d.board(width_mm=30, height_mm=20)
+    text = dru_text(d, NetClasses(d).build())
+    assert text.index('"FAB:pth_annular_width"') < len(text)          # fab rules emitted (first, design rules win)

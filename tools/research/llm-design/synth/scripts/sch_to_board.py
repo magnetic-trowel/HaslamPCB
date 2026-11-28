@@ -159,6 +159,19 @@ def write_stackup(path, spec):
     return st
 
 
+FAB_DIR = Path(__file__).resolve().parents[1] / "src" / "haslamsynth" / "fab"
+
+
+def fab_profile(pro_path):
+    """The fab profile named by the project's FAB_PROFILE text variable (haslamsynth writes it), or None."""
+    try:
+        name = json.loads(Path(pro_path).read_text()).get("text_variables", {}).get("FAB_PROFILE")
+    except (OSError, ValueError):
+        return None
+    p = FAB_DIR / f"{name}.json" if name else None
+    return json.loads(p.read_text()) if p and p.exists() else None
+
+
 def main(out_dir, board_json):
     out_dir = Path(out_dir).resolve()
     spec = json.loads(Path(board_json).read_text())
@@ -260,6 +273,12 @@ def main(out_dir, board_json):
     for k in spec.get("keepouts", []):
         zone(board, k["rect"], k["layers"], keepout=set(k.get("no", ["copper"])), name=k.get("name", ""))
 
+    # fab limits that live in the board file, not the project (haslamsynth/fab/<FAB_PROFILE>.json "board_file")
+    prof = fab_profile(out_dir / f"{slug}.kicad_pro")
+    if prof:
+        bf = {k: v[0] for k, v in prof.get("board_file", {}).items()}
+        if "solder_mask_min_width" in bf:
+            board.GetDesignSettings().m_SolderMaskMinWidth = pcbnew.FromMM(bf["solder_mask_min_width"])
     path = out_dir / f"{slug}.kicad_pcb"
     pcbnew.SaveBoard(str(path), board)
     st = write_stackup(path, spec)

@@ -1,0 +1,27 @@
+{
+  "name": "jlc-2layer-1oz",
+  "fab": "JLCPCB standard 2-layer FR-4, 1 oz outer copper, HASL/ENIG",
+  "source": "https://jlcpcb.com/capabilities/pcb-capabilities (read 2026-11-28)",
+  "note": "Design values sit at or above JLC's stated minimums, preferring their 'recommended' figures and no-surcharge options. Each entry: [value_mm, JLC's figure].",
+  "board": {
+    "min_track_width":           [0.127, "min track 0.10 mm (1 oz, 1-2 layer); 0.127 keeps margin for the +/-20 % width tolerance"],
+    "min_clearance":             [0.15,  "track spacing 0.10 mm; SMD pad to pad (different nets) 0.15 mm"],
+    "min_via_diameter":          [0.5,   "via diameter >= hole + 0.1 (0.15 preferred); 0.3 hole + 0.2"],
+    "min_via_annular_width":     [0.1,   "via diameter 0.1 mm (0.15 preferred) larger than the hole"],
+    "min_through_hole_diameter": [0.3,   "min via hole 0.15 mm, preferred >= 0.2; holes 0.2/0.25 with diameter < 0.45 cost more"],
+    "min_hole_to_hole":          [0.25,  "via hole-to-hole 0.2 mm"],
+    "min_hole_clearance":        [0.2,   "via hole to track 0.2 mm"],
+    "min_copper_edge_clearance": [0.3,   "copper to routed edge >= 0.2 mm; 0.3 for the +/-0.2 mm outline tolerance"],
+    "min_silk_clearance":        [0.15,  "pad to silkscreen 0.15 mm"],
+    "min_text_height":           [1.0,   "minimum text height 1.0 mm (40 mil)"],
+    "min_text_thickness":        [0.15,  "minimum legend line width 0.15 mm"]
+  },
+  "dru": {
+    "pth_annular_width":         [0.18,  "PTH annular ring, 2-layer 1 oz: recommended 0.25, absolute minimum 0.18 mm"],
+    "pad_hole_to_hole":          [0.45,  "pad hole-to-hole 0.45 mm"],
+    "pth_hole_clearance":        [0.28,  "PTH to track: minimum 0.28 mm, 0.35 recommended"]
+  },
+  "board_file": {
+    "solder_mask_min_width":     [0.1,   "soldermask bridge 0.10 mm (1 oz, green); not a project setting: sch_to_board writes it"]
+  }
+}

@@ -176,6 +176,19 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
             d.board_spec.min_clearance_mm = d.board_spec.min_clearance_mm or c
             findings.append(Finding("layout.fab_minimums", "info",
                                     f"board minimums track {t:g} mm, clearance {c:g} mm ({why})"))
+    if d.board_spec is not None and getattr(d.board_spec, "fab", None):
+        from . import fab as FAB
+        prof = FAB.load(d.board_spec.fab)
+        br = FAB.board_rules(prof)
+        for attr, key in (("min_track_mm", "min_track_width"), ("min_clearance_mm", "min_clearance")):
+            v = getattr(d.board_spec, attr)
+            if v is not None and v < br.get(key, 0):
+                findings.append(Finding("layout.fab_profile", "error",
+                                        f"board {attr} {v:g} mm is below fab profile {prof['name']} {key} "
+                                        f"{br[key]:g} mm ({prof['board'][key][1]})"))
+        findings.append(Finding("layout.fab_profile", "info",
+                                f"fab profile {prof['name']}: {len(br)} board-setup limits and "
+                                f"{len(prof.get('dru', {}))} custom rules written ({prof.get('source', '')})"))
     netclasses = NetClasses(d, checker).build()
     dru_info = {}
     dru_body = dru_text(d, netclasses, dru_info)

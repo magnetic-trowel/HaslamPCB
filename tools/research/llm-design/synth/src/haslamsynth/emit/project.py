@@ -136,12 +136,17 @@ def write_project(outdir, design, symtable, netclasses, slug=None, parts=None, f
     import os
     slug = slug or design.slug
     parts = design.all_parts() if parts is None else parts
+    from .. import fab as FAB
     rules = {}
     bs = design.board_spec
+    prof = FAB.load(bs.fab) if bs and getattr(bs, "fab", None) else None
+    if prof:
+        rules.update(FAB.board_rules(prof))          # every fab limit, not only track and clearance
+    # the design's own minimums may only tighten the fab's (build.py reports one below the profile)
     if bs and bs.min_track_mm:
-        rules["min_track_width"] = bs.min_track_mm
+        rules["min_track_width"] = max(bs.min_track_mm, rules.get("min_track_width", 0))
     if bs and bs.min_clearance_mm:
-        rules["min_clearance"] = bs.min_clearance_mm
+        rules["min_clearance"] = max(bs.min_clearance_mm, rules.get("min_clearance", 0))
     template = {
         "board": {"design_settings": {"defaults": {}, "diff_pair_dimensions": [], "drc_exclusions": [],
                                       "rules": rules, "track_widths": [], "via_dimensions": []}},
@@ -151,7 +156,7 @@ def write_project(outdir, design, symtable, netclasses, slug=None, parts=None, f
         "net_settings": {},
         "pcbnew": {"page_layout_descr_file": ""},
         "schematic": {"legacy_lib_dir": "", "legacy_lib_list": []},
-        "sheets": [], "text_variables": {},
+        "sheets": [], "text_variables": {"FAB_PROFILE": prof["name"]} if prof else {},
     }
     pro = netclasses.project_json(template)
     (outdir / f"{slug}.kicad_pro").write_text(json.dumps(pro, indent=2) + "\n")
@@ -182,6 +187,10 @@ def dru_text(design, netclasses, info=None):
     of the functional rules and bridging [refs] whose own pads are exempt (haslamsynth.layout reads both)."""
     """Custom DRC rules: barrier clearance/creepage between domain net classes."""
     lines = ["(version 1)", ""]
+    bs = design.board_spec
+    if bs and getattr(bs, "fab", None):
+        from .. import fab as FAB
+        lines += [FAB.dru_rules(FAB.load(bs.fab)), ""]      # first: design rules below take precedence
     by_domain = {}
     for c in netclasses.classes.values():
         by_domain.setdefault(c["domain"], []).append(c["name"])

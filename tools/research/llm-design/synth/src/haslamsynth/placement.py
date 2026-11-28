@@ -57,6 +57,7 @@ class BoardSpec:
     min_track_mm: float = None
     min_clearance_mm: float = None
     trace_rise_c: float = 10.0         # allowed conductor temperature rise for current-sized widths (IPC-2221)
+    fab: str = "jlc-2layer-1oz"        # fab profile (haslamsynth/fab/<name>.json): board setup and fab rules
     notes: str = ""
 
     def as_dict(self):

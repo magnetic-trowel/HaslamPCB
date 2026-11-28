@@ -14,6 +14,8 @@ Checks, each PASS / FAIL / WARN with the fix:
   .kicad_dru silently)
 - board.parity: KiCad's schematic parity is 0 (when the schematic is beside the board)
 - board.fixed: no DRC error between locked parts or between a locked part and the board edge
+- board.fab: the project carries a fab profile (FAB_PROFILE) and every board-setup limit, custom fab rule and
+  board-file limit is at least the profile's (haslamsynth/fab/*.json)
 - board.stackup: the board file has a stackup matching its copper layers (WARN otherwise: haslam's field solver
   and capacitances then assume KiCad's default 1.6 mm FR-4, not the fab's board)
 - intent.facts: the board's intent file loads, its facts match the board (brief["facts"]["unmatched"] empty),
@@ -26,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import shlex
 import shutil
@@ -148,6 +151,39 @@ def check_stackup(board):
         "" if st.source == "file" else "write the fab's stackup into the board (sch_to_board.py does: board.json 'stackup')")
 
 
+FAB_DIR = Path(__file__).resolve().parents[1] / "src" / "haslamsynth" / "fab"
+
+
+def check_fab(board):
+    """The board's limits against its fab profile: without one, DRC checks KiCad's defaults, not the fab's."""
+    pro = board.with_suffix(".kicad_pro")
+    try:
+        p = json.loads(pro.read_text())
+    except (OSError, ValueError):
+        rec("board.fab", "FAIL", f"cannot read {pro.name}", "copy the project file with the board")
+        return
+    name = p.get("text_variables", {}).get("FAB_PROFILE")
+    if not name or not (FAB_DIR / f"{name}.json").exists():
+        rec("board.fab", "FAIL", "no fab profile (FAB_PROFILE) in the project: DRC would check KiCad's defaults",
+            "set d.board(fab=...) and rebuild (haslamsynth/fab/*.json)")
+        return
+    prof = json.loads((FAB_DIR / f"{name}.json").read_text())
+    rules = p.get("board", {}).get("design_settings", {}).get("rules", {})
+    bad = [f"{k} {rules.get(k)} < {v[0]}" for k, v in prof.get("board", {}).items()
+           if rules.get(k) is None or rules[k] + 1e-9 < v[0]]
+    dru = board.with_suffix(".kicad_dru")
+    text = dru.read_text() if dru.exists() else ""
+    missing = [k for k in prof.get("dru", {}) if f'"FAB:{k}"' not in text]
+    m = re.search(r"\(solder_mask_min_width ([0-9.]+)\)", board.read_text())
+    want = prof.get("board_file", {}).get("solder_mask_min_width", [None])[0]
+    if want is not None and (not m or float(m.group(1)) + 1e-9 < want):
+        bad.append(f"solder_mask_min_width {m.group(1) if m else None} < {want}")
+    rec("board.fab", "PASS" if not bad and not missing else "FAIL",
+        f"{name}: {len(prof.get('board', {}))} setup limits, {len(prof.get('dru', {}))} rules"
+        + (f"; below profile: {', '.join(bad)}" if bad else "") + (f"; missing rules: {', '.join(missing)}" if missing else ""),
+        "rebuild with haslamsynth and re-run sch_to_board.py")
+
+
 def check_intent(board):
     from haslam.board.kicad_file import load
     from haslam.circuit import brief as B
@@ -219,6 +255,7 @@ def main(argv=None):
     check_project(board)
     check_drc(board)
     check_stackup(board)
+    check_fab(board)
     check_intent(board)
     if a.probe:
         probe(board)
