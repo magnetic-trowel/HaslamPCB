@@ -53,6 +53,16 @@ def test_layout_settings_groups_runs_and_names_what_differs(tmp_path):
     assert "automatic_neckdown=false" in txt and "2 distinct settings" in txt
 
 
+# ---------------------------------------------------------------------------------------------- pipeline warnings
+def test_warning_table_counts_and_reasons():
+    pl = _load("pipeline")
+    v = lambda t, s="warning": dict(type=t, severity=s, items=[])
+    drc = dict(violations=[v("silk_overlap")] * 3 + [v("track_dangling")] * 2 + [v("clearance", "error")])
+    t = pl.warning_table(drc, {"silk_overlap": "assembly drawing only", "_note": "x", "track_dangling": " "})
+    assert t == [dict(type="silk_overlap", count=3, reason="assembly drawing only"),
+                 dict(type="track_dangling", count=2, reason="")]
+
+
 # ---------------------------------------------------------------------------------------------- fab_outputs CPL
 def _fp(ref, fpid, rot, bottom=False, smd=True, npads=2, x=10.0, y=20.0, pcx=None, pcy=None):
     return dict(ref=ref, fpid=fpid, rot=rot, bottom=bottom, smd=smd, npads=npads, x=x, y=y,

@@ -213,12 +213,31 @@ def st_warnings(c, a):
     if not best:
         return c.record("warnings", False, "no passing seed")
     d = json.loads((Path(best) / "eval/drc.json").read_text())
-    types = sorted({v["type"] for v in d.get("violations", []) if v.get("severity") == "warning"})
     ack_p = c.dd / "drc_warnings.json"
     ack = json.loads(ack_p.read_text()) if ack_p.exists() else {}
-    missing = [t for t in types if not str(ack.get(t, "")).strip()]
-    return c.record("warnings", not missing, f"{len(types)} warning types; unacknowledged: {missing}" if missing
-                    else f"{len(types)} warning types, each with a reason in drc_warnings.json")
+    table = warning_table(d, ack)
+    for row in table:
+        print(f"  {row['type']:24} {row['count']:4}  "
+              + (f"acknowledged: {row['reason'][:110]}" if row["reason"] else "UNACKNOWLEDGED (needs a reason in "
+                 "drc_warnings.json, or a fix)"))
+    missing = [r["type"] for r in table if not r["reason"]]
+    n = sum(r["count"] for r in table)
+    return c.record("warnings", not missing,
+                    f"{len(table)} warning types ({n} warnings); unacknowledged: "
+                    + ", ".join(f"{r['type']} x{r['count']}" for r in table if not r["reason"]) if missing
+                    else f"{len(table)} warning types ({n} warnings), each with a reason in drc_warnings.json",
+                    types=table)
+
+
+def warning_table(drc, ack):
+    """Each DRC warning type of a report with its count and the drc_warnings.json reason it matched ('' = none),
+    most frequent first (FRICTION.md #38: a gate that counted errors only let 349 warnings through unread)."""
+    counts = {}
+    for v in drc.get("violations", []):
+        if v.get("severity") == "warning":
+            counts[v["type"]] = counts.get(v["type"], 0) + 1
+    return [dict(type=t, count=n, reason=str(ack.get(t, "")).strip())
+            for t, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
 
 
 def st_review(c, a):
