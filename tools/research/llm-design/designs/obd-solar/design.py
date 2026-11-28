@@ -161,7 +161,7 @@ def charger(d):
                                  "DONE": "DONE_N"})
     b.C("C204", "100nF", 25, "VG_CHG", "PV_IN", note="VG to VCC 100 nF (DS p.3)", v_across=8)
     b.add(P.AO3407A, "Q202", {"S": "PV_IN", "D": "SW_CHG", "G": "DRV"}, notes="buck switch (DS p.8: AO3407A)")
-    b.add(P.SS34, "D202", {"1": "SW_CHG", "2": "GND"}, i_through=0.75, notes="freewheel Schottky D2 (DS Fig. 1)")
+    b.add(P.SS34, "D202", {"1": "SW_CHG", "2": "GND"}, notes="freewheel Schottky D2 (DS Fig. 1)")
     b.add(P.L_CHG, "L201", {"1": "SW_CHG", "2": "CHG_CS"}, notes="47 uH: 0.4 A pk-pk at 24 V in, 13.5 V out")
     b.add(P.R_CS_CHG, "R203", {"1": "CHG_CS", "2": "CHG_OUT"}, v_across=0.13, p_diss=0.08,
           notes="RCS: ICH = 0.12/0.18 = 0.67 A (DS p.6)")
@@ -191,7 +191,7 @@ def reverse_block(d):
                   ("CMP_OUT", (0, 6), "signal"), ("QB_PD", (0, 24), "signal")])
     d.domain("QGB", ref="VBAT", kind="elv", description="Q203 gate relative to its source VBAT")
     b.b.net("QB_G", v=(-13.5, 0), kind="signal", domain="QGB")
-    b.add(P.AO3407A, "Q203", {"D": "CHG_OUT", "S": "VBAT", "G": "QB_G"}, i_through=0.8,
+    b.add(P.AO3407A, "Q203", {"D": "CHG_OUT", "S": "VBAT", "G": "QB_G"},
           notes="reverse block: body diode CHG_OUT -> VBAT; 0.67 A x 52 mOhm = 35 mV")
     b.R("R209", 1e6, "VBAT", "QB_G", note="gate pull-up to source: off by default")
     b.R("R210", 1e6, "QB_G", "QB_PD", note="Vgs = -VBAT/2 when on: -12 V at a 24 V jump start (AO3407A 20 V)")
@@ -199,7 +199,7 @@ def reverse_block(d):
     b.R("R216", 1e6, "CMP_OUT", "GND", note="Q204 off when U202 is unpowered")
     b.add(P.TLV7031, "U202", {"V+": "CMP_VCC", "V-": "GND", "IN+": "CMP_INP", "IN-": "CMP_INN", "OUT": "CMP_OUT"})
     b.R("R211", 100e3, "PV_IN", "CMP_VCC", note="comparator supply from the panel: 0.1-0.18 mA")
-    b.add(P.BZT52C5V6, "D205", {"1": "CMP_VCC", "2": "GND"}, i_through=0.0003, p_diss=0.0015, notes="5.6 V shunt (TLV7031 6.5 V max)")
+    b.add(P.BZT52C5V6, "D205", {"1": "CMP_VCC", "2": "GND"}, p_diss=0.0015, notes="5.6 V shunt (TLV7031 6.5 V max)")
     b.C("C208", "100nF", 16, "CMP_VCC", "GND")
     b.R("R212", 10e6, "PV_IN", "CMP_INP")
     b.R("R213", 976e3, "CMP_INP", "GND", note="PV_IN / 11.25")
@@ -264,7 +264,6 @@ def usb_power(d):
     b.R("R315", 10e3, "VBUS_SNS", "GND")
     b.add(P.USB_C, "J301", {"A9": "VBUS", "B9": "VBUS", "A12": "GND", "B12": "GND", "SH": "GND", "A5": "CC1",
                             "B5": "CC2"},
-          i_through={"A9": 1.65, "B9": 1.65, "A12": 1.65, "B12": 1.65, "SH": 0.1},
           notes="USB-C power-only receptacle, east edge; VBUS/GND split over two contacts each (3.3 A limit, 3 A PDO)")
     return u
 
