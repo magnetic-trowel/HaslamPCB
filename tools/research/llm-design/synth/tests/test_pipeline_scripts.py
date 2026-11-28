@@ -63,6 +63,28 @@ def test_warning_table_counts_and_reasons():
                  dict(type="track_dangling", count=2, reason="")]
 
 
+# ---------------------------------------------------------------------------------------------- connector facing
+def test_face_from_footprint_gaps():
+    bs = _load("board_spec")
+    # KiCad's Phoenix MKDS horizontal terminal block and GCT USB4125 receptacle at rot 0 (pad-to-courtyard gaps, mm)
+    tb = dict(north=4.455, south=3.845, west=1.785, east=1.795)
+    usb = dict(north=0.545, south=2.295, west=0.545, east=0.545)
+    assert bs.face_from_gaps(tb) == "north" and bs.face_from_gaps(usb) == "south"
+    assert bs.face_from_gaps(dict(north=0.965, south=0.965, west=0.965, east=0.965)) is None    # pin header
+    # obd-solar board.json: rot 90 puts the wire entry west and the USB mating face east
+    assert bs.rot_for_face("north", "west") == 90 and bs.rot_for_face("south", "east") == 90
+    assert bs.facing("north", 90) == "west" and bs.facing("south", 270) == "west" and bs.facing("east", 45) is None
+
+
+def test_layout_fixed_rot_from_face():
+    from haslamsynth import layout as LY
+    pads = [LY.Pad("1", 0.0, 0.0, 1.0, 1.0, 0.0, True), LY.Pad("2", 2.0, 0.0, 1.0, 1.0, 0.0, True)]
+    bbox = (-1.0, -4.0, 3.0, 1.0)                    # the body overhangs the pins to the north
+    assert LY.fixed_rot({"face": "west", "x": 0, "y": 0}, pads, bbox) == 90.0
+    assert LY.fixed_rot({"face": "west", "rot": 180}, pads, bbox) == 180.0     # an explicit rot wins here
+    assert LY.fixed_rot({"face": "south", "face_at_rot0": "east"}, pads, None) == 270.0
+
+
 # ---------------------------------------------------------------------------------------------- fab_outputs CPL
 def _fp(ref, fpid, rot, bottom=False, smd=True, npads=2, x=10.0, y=20.0, pcx=None, pcy=None):
     return dict(ref=ref, fpid=fpid, rot=rot, bottom=bottom, smd=smd, npads=npads, x=x, y=y,

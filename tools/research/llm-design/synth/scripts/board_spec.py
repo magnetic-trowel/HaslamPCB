@@ -11,7 +11,10 @@ size search (size_search.py) relies on. Absolute entries still work unchanged.
            or [[x, y], ...] / [{"corner": "nw", "inset": 3.5}, ...]
   "fixed": {"J1": {"edge": "west", "along": 0.3, "inset": 5.2, "rot": 90}}
            edge north|south|east|west; along: fraction of that edge (0 = its first corner: north/south from x = 0,
-           east/west from y = 0) or "along_mm"; inset: mm from the edge to the footprint origin; or absolute x/y
+           east/west from y = 0) or "along_mm"; inset: mm from the edge to the footprint origin; or absolute x/y.
+           "face": "west" instead of "rot": the way the connector's mating face / wire entry points; sch_to_board.py
+           computes rot from the footprint (face_from_gaps; "face_at_rot0" states it when the footprint does not
+           show it) and refuses when it cannot tell (obd-solar FRICTION.md #23)
   "seed_area": {"margin": 8}                                # or [x0, y0, x1, y1]
   "keepouts": [{"edge": "east", "depth": 6, "from": 0.4, "to": 0.6, ...}] or [{"rect": [...]}]
 Lengths in mm, y down, origin at the outline's top-left corner.
@@ -66,3 +69,30 @@ def resolve(spec, outline=None):
             k["rect"] = {"north": [a * W, 0, b * W, d], "south": [a * W, H - d, b * W, H],
                          "west": [0, a * H, d, b * H], "east": [W - d, a * H, W, b * H]}[e]
     return s
+
+
+# ------------------------------------------------------------------------------------------- connector facing
+# directions as KiCad angles: KiCad's rotation is counter-clockwise as seen on screen (y down), so a footprint whose
+# face points DIRS[d0] at rot 0 points DIRS[d0] + rot at rot
+DIRS = {"east": 0, "north": 90, "west": 180, "south": 270}
+
+
+def face_from_gaps(gaps, min_ratio=1.15, min_diff=0.5):
+    """The side a connector's mating face / wire entry points to at rot 0, from the gap (mm) between its pads' box
+    and its courtyard on each side ({"north": .., "south": .., "east": .., "west": ..}): the body overhangs the pins
+    toward the face (a USB receptacle's shell, a terminal block's wire entry). None when no side stands out (largest
+    gap below min_ratio x the next one, or less than min_diff mm more): a pin header shows no face."""
+    order = sorted(gaps.items(), key=lambda kv: -kv[1])
+    (d, g), (_, g2) = order[0], order[1]
+    return d if g >= min_ratio * g2 and g - g2 >= min_diff else None
+
+
+def rot_for_face(face_at_rot0, face):
+    """The rotation (degrees, 0..360) that turns a footprint facing face_at_rot0 at rot 0 to face `face`."""
+    return (DIRS[face] - DIRS[face_at_rot0]) % 360
+
+
+def facing(face_at_rot0, rot):
+    """The direction a footprint facing face_at_rot0 at rot 0 faces at `rot` (multiples of 90), else None."""
+    a = (DIRS[face_at_rot0] + rot) % 360
+    return next((d for d, v in DIRS.items() if abs(a - v) < 1e-6), None)
