@@ -63,6 +63,25 @@ def test_warning_table_counts_and_reasons():
                  dict(type="track_dangling", count=2, reason="")]
 
 
+def test_warning_table_counts_tombstones_as_a_type():
+    pl = _load("pipeline")
+    t = pl.warning_table(dict(violations=[]), {}, {"tombstone_risk": 2, "nothing": 0})
+    assert t == [dict(type="tombstone_risk", count=2, reason="")]
+
+
+def test_tombstone_judge():
+    tc = _load("tombstone_check")
+    att = lambda zone=None, tracks=0, w=0.0, spokes=0.0, name="GND": dict(
+        zone=zone, zone_name=name, tracks=tracks, track_w_mm=w, spokes_w_mm=spokes)
+    assert "solid pour (GND) on one pad, 1 track(s), 0.25 mm wide" in tc.judge(att("solid"), att(None, 1, 0.25), 0.8)
+    assert "a thermal relief" in tc.judge(att("thermal", spokes=1.0), att("solid", name="PV"), 0.8)
+    assert tc.judge(att("solid"), att("solid"), 0.8) is None                     # both poured: symmetric
+    assert tc.judge(att("thermal", spokes=1.0), att(None, 1, 0.25), 0.8) is None  # thermal relief is the remedy
+    assert "2 mm of track" in tc.judge(att(None, 1, 2.0), att(None, 1, 0.25), 0.8)
+    assert tc.judge(att(None, 1, 0.6), att(None, 1, 0.15), 0.8) is None          # narrower than the pad
+    assert tc.SIZE.search("R_0603_1608Metric").group(1) == "0603" and not tc.SIZE.search("SOT-23")
+
+
 def test_preflight_probe_line():
     pf = _load("preflight")
     s = pf.probe_line(191, 3, 118.4, "1 connections the rules block, 2 congestion, 0 not diagnosed (3.1 s)")

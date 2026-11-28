@@ -28,8 +28,9 @@ Runs with HASLAM_KICAD_WRAP (or kicad-cli and KiCad's Python on PATH); the board
    number, from the footprints' fields; parts marked DNP, excluded from the BOM, board-only, or with an
    "Assembly" field saying they are not JLC's (a plug-in module) are left out and listed in the report.
 7. OUTDIR/fab-report.json: DRC summary, file list, BOM lines without an LCSC number, parts left out, the CPL
-   corrections and parts to check, and the unique LCSC numbers that are extended parts (each one a JLC setup fee
-   per order) or carry no JLC field.
+   corrections and parts to check, the unique LCSC numbers that are extended parts (each one a JLC setup fee
+   per order) or carry no JLC field, and `tombstone_risk`: small two-terminal parts with asymmetric pad copper
+   (tombstone_check.py, OUTDIR/tombstone.json; reported, not gated here).
 """
 from __future__ import annotations
 
@@ -182,6 +183,14 @@ def main(argv=None):
         except Exception as e:  # noqa: BLE001 - a review image never blocks the fab files
             rep["review_error"] = f"{type(e).__name__}: {e}"
             print(f"review images failed: {rep['review_error']}", file=sys.stderr)
+    # tombstoning risk (FRICTION.md #68): a warning in the report, not a gate (pipeline.py's warnings stage gates it)
+    tsj = out / "tombstone.json"
+    tool(["python3", str(HERE / "tombstone_check.py"), str(pcb), "--json", str(tsj)])
+    if tsj.exists():
+        ts = json.loads(tsj.read_text())
+        rep["tombstone_risk"] = [f"{w['ref']} ({w['size']}): {w['why']}" for w in ts["warnings"]]
+        print(f"tombstone check: {len(ts['warnings'])} of {ts['checked']} small two-terminal parts with asymmetric "
+              f"pad copper" + (f" ({', '.join(w['ref'] for w in ts['warnings'][:12])})" if ts["warnings"] else ""))
     drc = out / "drc.json"
     tool(["kicad-cli", "pcb", "drc", "--format", "json", "--severity-error", "-o", str(drc), str(pcb)])
     d = json.loads(drc.read_text())

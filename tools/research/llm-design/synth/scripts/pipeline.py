@@ -22,7 +22,7 @@ passed everything.
 | size | size_search.py (resumable; may need several calls) | a passing outline exists |
 | layout | layout.sh, HASLAM_EVAL=0, one seed per call | >= SEEDS seeds routed; best passes DRC (0/0) and width_check |
 | physics | haslam.excite.evaluate + haslam.intent status on the best seed | evaluation complete, no hard term violated |
-| warnings | DRC warnings of the best seed by type | every type listed in DESIGN_DIR/drc_warnings.json with a reason |
+| warnings | DRC warnings of the best seed by type, plus tombstone_risk (tombstone_check.py) | every type listed in DESIGN_DIR/drc_warnings.json with a reason |
 | review | an independent review | DESIGN_DIR/REVIEW.md newer than design.py and parts.py |
 | fab | fab_outputs.py (no --allow-open) | fab-report gate pass; no blocking question open in report.md |
 """
@@ -215,7 +215,12 @@ def st_warnings(c, a):
     d = json.loads((Path(best) / "eval/drc.json").read_text())
     ack_p = c.dd / "drc_warnings.json"
     ack = json.loads(ack_p.read_text()) if ack_p.exists() else {}
-    table = warning_table(d, ack)
+    ts = tombstones(Path(best), c.slug)
+    if ts is None:
+        return c.record("warnings", False, "tombstone check did not run (tombstone_check.py, KiCad's Python)")
+    for w in ts["warnings"]:
+        print(f"  tombstone_risk {w['ref']} ({w['size']}): {w['why']}")
+    table = warning_table(d, ack, {"tombstone_risk": len(ts["warnings"])})
     for row in table:
         print(f"  {row['type']:24} {row['count']:4}  "
               + (f"acknowledged: {row['reason'][:110]}" if row["reason"] else "UNACKNOWLEDGED (needs a reason in "
@@ -229,10 +234,20 @@ def st_warnings(c, a):
                     types=table)
 
 
-def warning_table(drc, ack):
-    """Each DRC warning type of a report with its count and the drc_warnings.json reason it matched ('' = none),
-    most frequent first (FRICTION.md #38: a gate that counted errors only let 349 warnings through unread)."""
-    counts = {}
+def tombstones(run, slug):
+    """run/eval/tombstone.json (layout.sh writes it; run here when missing): small two-terminal parts with asymmetric
+    pad copper (FRICTION.md #68). None when the check cannot run."""
+    p = run / "eval" / "tombstone.json"
+    if not p.exists():
+        sh(kpy() + [str(HERE / "tombstone_check.py"), str(run / f"{slug}.kicad_pcb"), "--json", str(p)])
+    return json.loads(p.read_text()) if p.exists() else None
+
+
+def warning_table(drc, ack, extra=None):
+    """Each DRC warning type of a report, plus `extra` {type: count} from the pipeline's own checks
+    (tombstone_risk), with its count and the drc_warnings.json reason it matched ('' = none), most frequent first
+    (FRICTION.md #38: a gate that counted errors only let 349 warnings through unread)."""
+    counts = {t: n for t, n in (extra or {}).items() if n}
     for v in drc.get("violations", []):
         if v.get("severity") == "warning":
             counts[v["type"]] = counts.get(v["type"], 0) + 1

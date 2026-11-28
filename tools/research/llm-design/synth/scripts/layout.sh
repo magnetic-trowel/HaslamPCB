@@ -103,6 +103,10 @@ fi
   > "$OUTD/eval/review.log" 2>&1 || true
 # fills in the file for the width gate (routers and power_copper leave zones unfilled)
 $HASLAM_KICAD_WRAP python3 "$SCRIPTS/refill.py" "$OUT" > /dev/null 2>&1 || true
+# small two-terminal parts with asymmetric pad copper (solid pour on one pad only: tombstoning in reflow, FRICTION.md
+# #68); pipeline.py's warnings gate and fab_outputs.py read eval/tombstone.json
+$HASLAM_KICAD_WRAP python3 "$SCRIPTS/tombstone_check.py" "$OUT" --json "$OUTD/eval/tombstone.json" \
+  > "$OUTD/eval/tombstone.txt" 2>&1 || true
 # copper actually drawn vs each net's current (a net-class width is not a rule: FRICTION.md #31); needs netlist.json
 NL=$(dirname "$IN")/netlist.json
 # judged by each segment's branch current (haslam venv); a design's width_injections.json (beside out/, or in it)
