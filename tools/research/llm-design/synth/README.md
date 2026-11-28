@@ -27,6 +27,7 @@ cd tools/research/llm-design/synth && uv venv .venv && . .venv/bin/activate && u
 haslamsynth build ../designs/<slug>/design.py -v      # checks + KiCad files + ERC + parity
 haslamsynth sym 'Relay:.*G5LE'                        # search symbols; `haslamsynth sym Lib:Name` prints pins
 haslamsynth fp 'TerminalBlock_Phoenix:.*5.08'         # search footprints; `haslamsynth fp Lib:Name` prints pads
+haslamsynth parts search 'buck-boost' --min-pitch 0.65 # JLC parts; also `datasheet`, `fp-fetch` (see Parts)
 pytest tests                                        # KiCad tests skip without kicad-cli
 ```
 
@@ -133,6 +134,37 @@ def build():
   ratings, capacitors need a voltage rating. Pass an MPN and real ratings for anything stressed.
 - Multi-unit library symbols (op-amps, relays with separate coil units) are placed unit by unit.
 - `lifecycle="active" | "nrnd" | "obsolete"`, `second_source="..."` feed the BOM checks.
+
+### Choosing parts: `parts search`, `datasheet`, `fp-fetch`
+
+```bash
+haslamsynth parts search "buck-boost" --min-pitch 0.65 --min-stock 500 [--basic] [--package 'TSSOP|SOIC'] [-n 20]
+haslamsynth datasheet TPS709B33DBVR --design ../designs/<slug> --pages auto     # or a C-number; --pages 32-35
+haslamsynth fp-fetch C580689 --design ../designs/<slug> --name LTC3115_FE20 --check-part ../designs/<slug>/parts.py:LTC3115
+```
+
+| Command | Does | Writes |
+|---|---|---|
+| `parts search KEYWORD` | JLCPCB parts search, one line per hit: LCSC, MPN, basic/ext, stock, package + pitch, maker, description, datasheet URL; filters on up to 100 results, basic first then stock | nothing |
+| `datasheet MPN\|C-number` | tries `--url`, the maker's URL pattern (TI, ADI, ST), the JLC API URL, `datasheet.lcsc.com`, each once; `--pdf FILE` takes a user-supplied copy; lists the pages naming typical application, layout, pins, abs max, package outline; `--pages` renders PNGs | `<design>/datasheets/<MPN>.{pdf,txt,source.json}`, `<MPN>-p<N>.png` (folder git-ignored: vendor copyright; cite the URL in the part card) |
+| `fp-fetch C-number` | EasyEDA land pattern via easyeda2kicad, `kicad-cli fp upgrade` to KiCad 10, renamed; `--check-part parts.py:NAME` compares pads with the card's pin numbers (missing pad: exit 1) | `<design>/footprints/custom.pretty/<name>.kicad_mod` (no overwrite without `--force`) |
+
+- Pitch in `parts search`: `P0.65` from the package name or a one-pitch family, `~P0.5` typical for that
+  QFN/DFN body, `<=P0.8` an upper bound from a square body, `P?` unknown. `--min-pitch` drops only parts
+  known to be finer; read the package drawing for the rest.
+- `fp-fetch` needs the `parts` extra: `uv pip install -e '.[parts]'` (easyeda2kicad, AGPL-3.0, used as a
+  separate library). The footprint reader also reads legacy `(module ...)` files and the build warns
+  `lib.footprint_legacy`; upgrade them with `kicad-cli fp upgrade --force <lib>.pretty`.
+- **Licence:** footprints fetched from EasyEDA/LCSC have no stated licence (obd-solar FRICTION #27). The
+  command says so and writes it into the footprint's `Source` property. Before committing one, add a
+  REUSE.toml entry recording the decision, or redraw the land pattern from the datasheet. Always check it
+  against the datasheet's recommended land pattern.
+- Fetching is gentle (`src/haslamsynth/fetch.py`, shared by `jlc` too): one request at a time, >= 1 s between
+  requests per host, `Retry-After` honoured, at most 3 tries and only for 429/5xx; 403s and timeouts are
+  reported, remembered for 6 h and not retried. Responses are cached under `~/.cache/haslamsynth/http`
+  (`HASLAMSYNTH_CACHE` moves it; JLC searches for a day, the rest until deleted; `--refresh` asks again).
+  From a cloud host LCSC datasheet URLs answered 403 and st.com stalled: when every source fails, find a
+  mirror (`--url`) or ask the user for the PDF (`--pdf`) instead of retrying.
 
 ### Nets
 
