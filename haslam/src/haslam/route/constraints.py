@@ -144,6 +144,7 @@ class Plan:
     net_graphics: list = field(default_factory=list)   # (net, {layer: polygon}, obstacle class, why)
     edge_clearance: float = 0.0                        # for Freerouting's board outline
     neck_width: float | None = None
+    class_floor: float = 0.0        # the narrowest routing-class width (bridge neck_floor "class")
     min_width: float = 0.0                             # narrowest legal track for every net
     notes: dict = field(default_factory=dict)
     rule_board: object = None
@@ -476,9 +477,13 @@ def _width_choice(probe_w, strict, nc_width):
     mn = max(v for v in ((probe_w or [None])[0], strict.min) if v is not None) if (probe_w or strict.min) else 0.0
     mx_c = [v for v in (((probe_w or [None, None, None])[2]), strict.max) if v is not None]
     mx = min(mx_c) if mx_c else None
-    opt = (probe_w or [None, None])[1]
+    # a net KiCad reads as a diff pair (a name ending in P/N, +/-) whose class has no diff-pair width gets opt
+    # -1 nm, i.e. none, from KiCad's probe and the implicit "(diff pair)" rule (rules.py): it would route at the
+    # minimum (obd-solar /BLK/CMP_INN, CMP_INP at 0.127 mm, not their class's 0.25)
+    pos = lambda v: v if v is not None and v > 0 else None   # noqa: E731
+    opt = pos((probe_w or [None, None])[1])
     if opt is None:
-        opt = strict.opt if strict.opt is not None else nc_width
+        opt = pos(strict.opt) if pos(strict.opt) is not None else nc_width
     w = opt if opt is not None else mn
     w = max(w, mn or 0.0)
     if mx is not None and w > mx:
@@ -600,6 +605,9 @@ def plan(info, board_path, opts=None):
         neck = min(widths_all or [0.0])
     if neck > 0 and any(w > neck + 1e-9 for w in widths_all):
         p.neck_width = up(neck)
+    # the narrowest class width (legal for every class: each class width is >= its own minimum, and the
+    # neck only narrows a class wider than it); bridge.router_settings' neck_floor "class" necks there
+    p.class_floor = up(min(widths_all)) if widths_all and min(widths_all) >= neck else 0.0
 
     # ---- class pair requirements: tracks and vias of R vs S, per layer
     names = sorted(p.classes)

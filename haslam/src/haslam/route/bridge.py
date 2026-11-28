@@ -128,6 +128,14 @@ DEFAULT_OPTS = dict(
     plane_cost=4.0,          # plane-layer trace cost for planes="cost"
     outer_surcharge=None,    # outer-layer trace cost per signal layer beyond two (None: Freerouting's 0.2)
     neckdown=False,          # Freerouting's neck-down at pins, floored at the board's legal minimum width
+    start_necked=False,      # the fork's autorouter.start_necked (its default true): a net whose connection once
+                             # needed the neck-width retry, or that has any trace narrower than its class when the
+                             # pass loop starts (translate.tie_pins' 0.05 mm pin ties count), routes every later
+                             # connection at the neck width without trying its class width. False: each connection
+                             # tries its class width first and necks alone (obd-solar 96x66: VBAT 0 -> 53 %,
+                             # VBUS 0 -> 81 % of length at class width on the first route)
+    neck_floor="min",        # neck_width_um: "min" (the largest legal minimum, as before) or "class" (at least the
+                             # narrowest class width: a necked power track keeps a signal's width, not the fab minimum)
     plane_escapes=True,      # before routing, join each pad of a zone net that the input's fill does not
                              # reach to that fill with a short stub and via (lastmile.plane_escapes),
                              # unlocked: the plane connections the human boards make first
@@ -733,7 +741,12 @@ def router_settings(p, opts, repair=False):
         s["fanout.enabled"] = "false"
     s["copper_to_edge_clearance_um"] = specctra.fmt(p.edge_clearance * 1000)
     if p.neck_width:
-        s["neck_width_um"] = specctra.fmt(p.neck_width * 1000)
+        nw = p.neck_width
+        if opts.get("neck_floor") == "class" and p.class_floor > nw:
+            nw = p.class_floor
+        s["neck_width_um"] = specctra.fmt(nw * 1000)
+    if not opts.get("start_necked", False):
+        s["autorouter.start_necked"] = "false"
     if p.min_width:
         # the fork's floor for every neck-down (pads, fanout, retries); older builds ignore it
         s["min_trace_width_um"] = specctra.fmt(p.min_width * 1000)
