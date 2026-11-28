@@ -35,7 +35,10 @@ frozen snapshot of the checkout. Retry and cancel your own jobs only, by id or `
 # Part 1: Design a PCB
 
 A design lives in `tools/research/llm-design/designs/<slug>/` (example: `solar-small`). Paths below are relative to
-`tools/research/llm-design/`. Run each stage and check its gate; do not continue past a failed gate.
+`tools/research/llm-design/`. **Run the stages with `synth/scripts/pipeline.py designs/<slug> <stage>`**: it records each
+gate, refuses a stage while an earlier gate is unmet, and only writes fabrication files for a board that passed every
+gate (fab profile, current-sized track widths, ≥ 3 seeds, complete physics, acknowledged DRC warnings, a review).
+`pipeline.py designs/<slug> status` prints the next stage. The table below is what each stage does.
 
 | # | Stage | Command | Gate |
 |---|---|---|---|

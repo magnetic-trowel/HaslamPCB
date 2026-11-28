@@ -12,6 +12,8 @@ Keys: brief to board, new design, end-to-end pipeline, haslamsynth, sch_to_board
 
 ## S. Stages, commands and outputs
 
+Run them with `tools/research/llm-design/synth/scripts/pipeline.py designs/<slug> <stage>` (build, board, preflight, size, layout, physics, warnings, review, fab): it enforces the gates below in order (obd-solar FRICTION.md #39). Board size comes from `size_search.py` (start at 25 % courtyard density, shrink while DRC and `width_check.py` pass) on an edge-anchored `board.json` (`board_spec.py`).
+
 Environment for every stage: `source ~/.cache/haslambench/env.sh` (sets `HASLAM_KICAD_WRAP`), `export APPTAINER_BIND=<work dir root>`, a haslam venv with `haslam[fast]` and `PYTHONPATH=<repo>/haslam/src`, the haslamsynth venv (`synth/README.md`), `KICAD10_SYMBOL_DIR`/`KICAD10_FOOTPRINT_DIR` pointing into the KiCad image.
 
 | # | Stage | Command | Output | Gate (stop if it fails) |

@@ -2079,7 +2079,7 @@ Use: `grep -i '<term>' docs/SUBJECTS.md`. The first link is the likeliest main d
 - gate driver: [rules/power/gate-drive-bootstrap#gate-drive-evidence-by-source](topics/rules/power/gate-drive-bootstrap.md#gate-drive-evidence-by-source)
 - gate loop: [physics/pdn-and-commutation#6-gate-loops-and-common-source-inductance](topics/physics/pdn-and-commutation.md#6-gate-loops-and-common-source-inductance)
 - gate.sh skipped: [ux/agent-tooling-reliability-patterns](topics/ux/agent-tooling-reliability-patterns.md)
-- gates: [workflow/brief-to-board](topics/workflow/brief-to-board.md)
+- gates: [workflow/brief-to-board#s-stages-commands-and-outputs](topics/workflow/brief-to-board.md#s-stages-commands-and-outputs)
 - gateway: [routing/diff-pair-routing#recurring-patterns](topics/routing/diff-pair-routing.md#recurring-patterns)
 - Gato513: [ux/field-reports#long-form-tool-builder-logs](topics/ux/field-reports.md#long-form-tool-builder-logs)
 - gauge: [physics/lens-sy#1-principles](topics/physics/lens-sy.md#1-principles); [physics/foundations-derivations#d5-cycles-gauge-and-kelvin-t5](topics/physics/foundations-derivations.md#d5-cycles-gauge-and-kelvin-t5)
