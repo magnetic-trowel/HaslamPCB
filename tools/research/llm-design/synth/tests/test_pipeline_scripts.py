@@ -63,6 +63,14 @@ def test_warning_table_counts_and_reasons():
                  dict(type="track_dangling", count=2, reason="")]
 
 
+def test_preflight_probe_line():
+    pf = _load("preflight")
+    s = pf.probe_line(191, 3, 118.4, "1 connections the rules block, 2 congestion, 0 not diagnosed (3.1 s)")
+    assert s == ("routed 188/191 connections in 118 s; blocked: 1 connections the rules block, 2 congestion, "
+                 "0 not diagnosed (3.1 s)")
+    assert pf.probe_line(None, None, 5, None).startswith("route ran 5 s (connection counts unavailable")
+
+
 # ---------------------------------------------------------------------------------------------- connector facing
 def test_face_from_footprint_gaps():
     bs = _load("board_spec")
