@@ -53,14 +53,17 @@ def test_relations_written_for_haslam_and_the_rest_reported():
     d.place.region("U1", "corner-ne")
     d.finalize()
     rows, skipped = d.haslam.relations()
-    by = {r["kind"]: r for r in rows}
+    by = {r["kind"]: r for r in rows if not r.get("requested")}
     assert by["near"]["mag"] == "2 mm" and by["near"]["b"] == "U1.1" and "DS p.9" in by["near"]["why"]
+    # the hot loop becomes a requested tight near of its other part to its first (IC) pin
+    hot = [r for r in rows if r.get("requested")]
+    assert [(r["kind"], r["a"], r["b"], r["mag"]) for r in hot] == [("near", "C1", "U1.1", "tight")]
     assert by["keep_away"]["mag"] == "close"
     assert sorted(r["edge"] for r in rows if r["kind"] == "on_edge") == ["edge:nearest", "edge:west"]
     assert by["side"]["members"] == ["U1"] and by["side"]["side"] == "bottom"
     assert by["region"]["members"] == ["U1"] and by["region"]["region"] == "region:ne"
     assert all(r["id"] for r in rows) and len({r["id"] for r in rows}) == len(rows)
-    assert {r["kind"] for r, _ in skipped} == {"hot_loop"}
+    assert not skipped
     doc, problems = d.haslam.document()
     assert doc["relations"] == rows and not [p for p in problems if "relation" in p]
     for k in ("producer", "knobs", "environment"):

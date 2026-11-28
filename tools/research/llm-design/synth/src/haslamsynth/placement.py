@@ -90,10 +90,12 @@ class Placement:
     def group(self, block, strength="close", note=""):
         return self._rel("group", block=block, strength=self._strength(strength), note=note)
 
-    def near(self, a, b, strength="close", note="", within_mm=None):
+    def near(self, a, b, strength="close", note="", within_mm=None, requested=False):
         """a within `strength` (or within_mm, a datasheet distance: say its source in note) of b; a pin
-        (PinRef, 'U1.7') measures from that pin."""
-        return self._rel("near", a=a, b=b, strength=self._strength(strength), note=note, within_mm=within_mm)
+        (PinRef, 'U1.7') measures from that pin. requested=True marks a relation the designer insists on: haslam keeps
+        its full weight even where a physics structure covers the parts (otherwise such relations are demoted)."""
+        return self._rel("near", a=a, b=b, strength=self._strength(strength), note=note, within_mm=within_mm,
+                         requested=bool(requested))
 
     def hot_loop(self, pins, note=""):
         if len(pins) < 2:

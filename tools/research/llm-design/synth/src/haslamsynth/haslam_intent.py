@@ -34,8 +34,6 @@ from .emit.project import kicad_net_name
 CELL_CLASSES = ("buck", "boost", "half_bridge")
 # design relations haslam does not read, and why they are not written to the intent file
 UNUSED = {
-    "hot_loop": "a physical want: haslam.circuit finds the commutation cell and the placer's terms price its loop "
-                "inductance (state its operating point with d.haslam.cell)",
     "separate": "domain spacing is in the .kicad_dru barrier rules haslamsynth writes, which the router and DRC enforce",
     "keepout": "a keep-out is a board rule area (board.json keepouts), which haslam treats as an obstacle",
     "keepout_around": "a keep-out is a board rule area (board.json keepouts), which haslam treats as an obstacle",
@@ -203,6 +201,25 @@ class HaslamIntent:
             k = r["kind"]
             why = r.get("note") or f"design.py d.place.{k}"
             row = None
+            if k == "hot_loop":
+                # a hot loop becomes requested near relations, every other part of the loop tight to its first (IC)
+                # pin: the placer's cell terms alone price far input caps as parallel paths under a 50 nH budget and
+                # left obd-solar's C306 48 mm from U301 (FRICTION.md #54); requested near relations brought it to 1.9 mm
+                mem = [m for m in r.get("members") or [] if ref_ok(m)]
+                if len(mem) < 2:
+                    skipped.append((r, "a hot loop needs two members on the board"))
+                    continue
+                anchor = mem[0]
+                others = []
+                for m in mem[1:]:
+                    ref = m.split(".", 1)[0]
+                    if ref != anchor.split(".", 1)[0] and ref not in others:
+                        others.append(ref)
+                for ref in others:
+                    rows.append({"id": rid({"kind": "near", "a": ref, "b": anchor}), "kind": "near", "a": ref,
+                                 "b": anchor, "mag": "tight", "requested": True,
+                                 "why": f"hot loop at {anchor}: {why}", "source": r.get("source", "design")})
+                continue
             if k in ("near", "far"):
                 if not (ref_ok(r["a"]) and ref_ok(r["b"])):
                     skipped.append((r, "haslam relates parts and pins on the board, not blocks, domains or nets"))
@@ -212,6 +229,8 @@ class HaslamIntent:
                     row["mag"] = f"{float(r['within_mm']):g} mm"     # a datasheet distance, pad to pad
                 else:
                     row["mag"] = r["strength"]
+                if k == "near" and r.get("requested"):
+                    row["requested"] = True
             elif k == "group":
                 blk = str(r["block"]).removeprefix("block:")
                 members = [p.ref for b in d.blocks if b.name == blk for p in b.parts if p.ref and p.on_board]
