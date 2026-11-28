@@ -575,7 +575,8 @@ def evaluate(path, pitch=0.25, window=None, nsub=2, b=None, brief=None, fills=No
             harms += HT.evaluate(bm, b, bd, dcp, P, net_dc, op_dc, cps, srcs, n_corners, seed, [0.0] * ncp, notes,
                                  intent, log=log, ledger=ledger, obs_out=observations,   # not in the legacy total
                                  power_out=part_power, system=sys_dc, tcr_out=tcr)
-        del sys_dc
+        # the DC network and operator serve the DC and heat bands only: freed before the cells' window solves
+        del sys_dc, net_dc, op_dc
     apply_tcr(harms, tcr, tot, notes, hazards)
     harms.sort(key=lambda h: -(h["u_hi"] or 0))
     hazards += bias_hazards(harms, pitch)

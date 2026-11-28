@@ -270,6 +270,7 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
     open on the whole board: priced at its caps by haslam.excite.evaluate) or "not_computed" (its pads are not in the
     board's copper model). bm: the board solve's BoardMesh (its pads' shapes and KiCad's zone fills). global_pairs:
     {source: (Le, Zf)} of the board solve, reported beside the window's."""
+    from haslam.em import solve as ES
     from haslam.em.kicad import BoardMesh  # noqa: F401  (import cost before the timers)
     from .evaluate import coarsen_pitch
     open_cells = open_cells or {}
@@ -302,6 +303,7 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
             rows.append(dict(row, state="not_computed", why="no pad of the cell in the copper model"))
             continue
         res, margin, grown, Lw, Lc = None, margin0, 0, None, None
+        keys0 = set(ES.Operator._cache)
         while True:
             win = (max(board_window[0], box_[0] - margin), max(board_window[1], box_[1] - margin),
                    min(board_window[2], box_[2] + margin), min(board_window[3], box_[3] + margin))
@@ -324,6 +326,10 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
                 break
             margin *= 2
             grown += 1
+        # a window's kernel tables (its own grid) leave the operator cache with its cell: kept, every window of every
+        # cell stayed resident to the end of the evaluation
+        for k in [k for k in ES.Operator._cache if k not in keys0]:
+            del ES.Operator._cache[k]
         why = None
         if global_pitch and pc >= global_pitch:
             why = f"over the budget of {MAX_CELLS:.3g} cells x layers below the board's pitch"

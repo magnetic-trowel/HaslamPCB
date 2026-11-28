@@ -511,3 +511,12 @@ def test_the_own_parts_window_is_opt_in(monkeypatch):
     assert HL._own_window_default() is False
     monkeypatch.setenv("HASLAM_HOTLOOP_OWN_WINDOW", "1")
     assert HL._own_window_default() is True
+
+
+def test_the_cells_leave_no_window_kernels_in_the_operator_cache(tmp):
+    from haslam.em import solve as ES
+    p = write_hotloop_board(f"{tmp}/cache", "closed")
+    evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cells=False)
+    before = set(ES.Operator._cache)
+    evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.125)
+    assert {round(k[2] * 1e3, 6) for k in set(ES.Operator._cache) - before} <= {0.25}
