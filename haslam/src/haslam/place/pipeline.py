@@ -868,6 +868,12 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             # terms' own u_sat 10, same HPWL, buck hot loops 6.7 vs 8.0 nH (olimex, human
             # 5.9) and 1.70 vs 1.78 nH (noisecard)
             knobs = dict(u_sat=SA_U_SAT)
+            from haslam.route.constraints import setting
+            pp = str(setting("power_pull", board_path, opts)).strip().lower()
+            if pp not in ("off", "bulk", "i2r", "both"):
+                raise ValueError(f"power_pull {pp!r}: 'off', 'bulk', 'i2r' or 'both'")
+            if pp != "off":
+                knobs["power_pull"] = pp
             knobs.update(terms_knobs)
             report_terms, tsrc = make_terms(board, brief, barrier=0.0, **knobs)
         except Exception as e:

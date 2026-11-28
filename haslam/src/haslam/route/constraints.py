@@ -366,6 +366,9 @@ DEFAULTS = dict(
                                    # elsewhere, kept per cell only when no worse and its quote 5 % better
     hotloop_clear_force=0,         # 1 keeps a cleared cell even when a ripped net finds no other way (left open)
     hotloop_budget_s=120.0,        # s: the cell stage stops starting cells after this (and after 15 % of the budget)
+    power_pull="off",              # the placer's converter power terms (haslam.physics.priors.Knobs.power_pull): "bulk"
+                                   # (bulk caps to their converter), "i2r" (I^2 R of its DC hops), "both", "off";
+                                   # experiment plx-bulk-pull (obd-solar FRICTION #54)
 )
 
 

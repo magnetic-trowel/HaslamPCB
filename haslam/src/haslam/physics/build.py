@@ -284,6 +284,24 @@ def build_structures(terms):
                     S.append(st)
         except Exception as e:      # noqa: BLE001 - a bad structure must not kill the others
             terms.warnings.append(f"{s.get('id', kind)}: {type(e).__name__}: {e}")
+    pull = ctx.t.knobs.power_pull
+    if pull in ('bulk', 'i2r', 'both'):
+        # one structure per (cap, net) and per net: a buck-boost's two cells share both nets and caps
+        bulk, hops = {}, {}
+        for st, s in cells:
+            try:
+                if pull in ('bulk', 'both'):
+                    for x in _bulk_caps(ctx, s, st, Struct):
+                        bulk.setdefault(x.labels[0], x)
+                if pull in ('i2r', 'both'):
+                    for x in _power_hops(ctx, s, st, Struct):
+                        y = hops.get(x.info['net'])
+                        if y is None or x.info['I_A'] > y.info['I_A']:
+                            hops[x.info['net']] = x
+            except Exception as e:      # noqa: BLE001 - a bad structure must not kill the others
+                terms.warnings.append(f"{s.get('id')}: power_pull: {type(e).__name__}: {e}")
+        S.extend(bulk.values())
+        S.extend(hops.values())
     try:
         groups = [s for s in specs if s.get('kind') == 'rail_group']
         S.extend(_decap_nearest(ctx, low, Struct, [s for s in specs if s.get('kind') == 'decap'], groups))
@@ -366,6 +384,150 @@ def _commutation(ctx, s, Struct):
                             V_abs=ex.get('V_abs') or PR.v_abs_rating(vin), V_abs_known=bool(ex.get('V_abs')),
                             V_abs_source=PR.v_abs_source(ex), V_in_prior=vin_prior,
                             sw_nets=s.get('sw_nets') or ([s.get('sw')] if s.get('sw') else [])))
+
+
+# ----------------------------------------------------------------------------- (a') power pull (Knobs.power_pull)
+# A converter's bulk capacitors belong at its pins: vendor layout guides put the input bulk within a few mm of VIN/PGND
+# and the output caps at the inductor's (buck) or the output switch's (boost) end, the return straight to the
+# converter's ground pin (E5). Each bulk cap is priced by the length of its two hops to the converter (rail pad to the
+# converter's terminal, ground pad to the converter's ground pin) against BULK_MM.
+BULK_MM = 10.0                 # mm, both hops together: about 5 mm each
+BULK_MIN_F = 1e-6              # a converter cap of at least 1 uF (or no readable value) is bulk
+# The DC power hops of a converter (its input net and its output net, the parts that carry the current: not the
+# capacitors) are priced as I^2 R of their copper: R' = rho / (w t) of a 1 oz track of the IPC-2221 width for the
+# current (external, 10 K rise), at least HOP_W_MIN, along the hops' minimum spanning tree; against 1 % of the rail's
+# power V I. Nets with more than HOP_MAX_PADS such pads are distribution rails (many loads, each a share of I): left out.
+HOP_LOSS_SHARE = 0.01
+HOP_W_MIN = 0.25               # mm
+HOP_MAX_PADS = 12
+CU_RHO_OHM_MM = 1.72e-5        # copper at 20 C
+CU_T_MM = 0.035                # 1 oz
+
+
+def _ipc_width_mm(i_a, rise_k=10.0, t_mm=CU_T_MM):
+    """IPC-2221 external track width (mm) for I (A) at a rise (K): I = 0.048 dT^0.44 A^0.725, A in mil^2."""
+    if not (i_a > 0):
+        return HOP_W_MIN
+    area_mil2 = (i_a / (0.048 * rise_k ** 0.44)) ** (1.0 / 0.725)
+    w_mil = area_mil2 / (t_mm / 0.0254)
+    return max(HOP_W_MIN, w_mil * 0.0254)
+
+
+def _pad_on(ctx, i, net):
+    """A Term for part i's pads on `net` (all of them), or None."""
+    p = ctx.bv.parts[i]
+    ks = [k for k, n in enumerate(p.pad_net) if n == net]
+    return ctx.term(i, ks) if ks else None
+
+
+def _net_end(ctx, s, net):
+    """The converter's terminal on `net`: the inductor's pads on it, else the controller's, else the rectifier's."""
+    if not net:
+        return None
+    for key in (s.get('inductor'), s.get('controller'), (s.get('switches') or {}).get('rectifier')):
+        i = ctx.part(key)
+        if i is not None:
+            t = _pad_on(ctx, i, net)
+            if t is not None:
+                return t
+    return None
+
+
+def _cell_ends(ctx, s, st):
+    """(input net, output net, loop net, loop terminal, ground terminal) of a cell: the loop terminal is the switch's
+    input pin of the hot loop (on the loop's capacitor net: a buck's input, a boost's output), the ground terminal its
+    ground pin."""
+    T = st.comps[0].T
+    return s.get('vin') or s.get('rail'), s.get('vout'), T[0].net, T[1], T[-2]
+
+
+def _cap_farads(p):
+    from haslam.circuit.values import capacitance
+    try:
+        return capacitance(p.value)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _bulk_caps(ctx, s, st, Struct):
+    """power_pull 'bulk': one structure per bulk capacitor of the cell (input: its owned caps and the converter-input
+    group; output: the converter-output group), valued by the hops' length (mm) to the converter."""
+    bv = ctx.bv
+    vin, vout, lnet, t_loop, t_gnd = _cell_ends(ctx, s, st)
+    out = []
+    sides = [(lnet, t_loop, list(s.get('caps') or []), 'loop'),
+             (vin, t_loop if vin == lnet else _net_end(ctx, s, vin), list(s.get('input_caps') or []), 'in'),
+             (vout, t_loop if vout == lnet else _net_end(ctx, s, vout), list(s.get('output_caps') or []), 'out')]
+    seen = set()
+    for net, tconv, keys, side in sides:
+        if not net or tconv is None:
+            continue
+        for key in keys:
+            i = ctx.part(key)
+            if i is None or (i, net) in seen or i == tconv.i:
+                continue
+            seen.add((i, net))
+            p = bv.parts[i]
+            f = _cap_farads(p)
+            if f is not None and f < BULK_MIN_F:
+                continue
+            tr = _pad_on(ctx, i, net)
+            gnet = t_gnd.net
+            tg = _pad_on(ctx, i, gnet) if gnet else None
+            if tr is None or tg is None:
+                continue
+            comps = [FeedComp([tr, tconv], 1.0), FeedComp([tg, t_gnd], 1.0)]
+            out.append(Struct(id=f"bulk:{s.get('id')}:{p.ref}", kind='bulk', conf=st.conf,
+                              alloc=PR.Belief(BULK_MM, 'mm', f'bulk capacitor at its converter: {BULK_MM:g} mm of hops '
+                                              '(rail pad to the converter terminal, ground pad to its ground pin), E5'),
+                              comps=comps, reduce='sum', labels=[f'{p.ref}:{net}', f'{p.ref}:{gnet}'],
+                              info=dict(side=side, cell=s.get('id'), net=net)))
+    return out
+
+
+def _power_hops(ctx, s, st, Struct):
+    """power_pull 'i2r': the cell's input and output nets, each priced as I^2 R' times the MST length of the pads
+    that carry the DC current (every part on the net but capacitors), in mW against HOP_LOSS_SHARE of V I."""
+    bv = ctx.bv
+    vin, vout, _, _, _ = _cell_ends(ctx, s, st)
+    ex = s.get('excite') or {}
+    il = float(ex.get('I') or 0.0)
+    v_in = ctx.net_volts(vin) if vin else None
+    v_out = ctx.net_volts(vout) if vout else None
+    if not (il > 0):
+        return []
+    cls = s.get('class') or ''
+    eta = 0.9
+    if cls == 'boost':
+        i_in, i_out = il, (il * v_in / v_out * eta if v_in and v_out else None)
+    else:                               # buck and the rest: the inductor carries the output current
+        i_in, i_out = (il * v_out / v_in / eta if v_in and v_out else None), il
+    out = []
+    for net, i_a, v, side in ((vin, i_in, v_in, 'in'), (vout, i_out, v_out, 'out')):
+        if not net or not i_a or not v or net in ctx.gnd:
+            continue
+        T = []
+        for p in bv.parts:
+            if not any(n == net for n in p.pad_net):
+                continue
+            kind = (ctx.parts.get(p.uuid) or {}).get('kind')
+            if kind == 'capacitor' or (kind is None and re.fullmatch(r'C\d+\w*', p.ref or '')):
+                continue                    # capacitors are shunts: no DC through them
+            t = _pad_on(ctx, p.i, net)
+            if t is not None:
+                T.append(t)
+        if len(T) < 2 or len(T) > HOP_MAX_PADS:
+            continue
+        w = _ipc_width_mm(i_a)
+        rp = CU_RHO_OHM_MM / (w * CU_T_MM)              # ohm per mm
+        alpha = i_a * i_a * rp * 1e3                    # mW per mm
+        budget = HOP_LOSS_SHARE * abs(v) * i_a * 1e3    # mW
+        out.append(Struct(id=f"hop:{s.get('id')}:{side}", kind='power_hop', conf=st.conf,
+                          alloc=PR.Belief(budget, 'mW', f'{HOP_LOSS_SHARE:.0%} of {abs(v):g} V x {i_a:.3g} A on {net} '
+                                          f'(I^2 R of {w:.2f} mm 1 oz copper, IPC-2221 10 K)'),
+                          comps=[FeedComp(T, alpha)], reduce='single', labels=[net],
+                          info=dict(side=side, cell=s.get('id'), net=net, I_A=i_a, w_mm=w)))
+    return out
 
 
 def _power_path(ctx, s, Struct):

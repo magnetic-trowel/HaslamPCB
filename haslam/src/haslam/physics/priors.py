@@ -68,6 +68,8 @@ class Knobs:
     #                               ~1 %; the old 0.3 read 17-27 % low at 2-10 mm, and on 58 routed pour-mode decaps
     #                               (50 boards) 0.15 fits better (42 of 58 closer; PP7, place-terms.md)
     jit: str = 'auto'             # 'auto' (numba when installed), 'on', 'off' (pure Python)
+    power_pull: str = 'off'       # converter power terms (physics.build): 'bulk' (bulk caps to their converter), 'i2r'
+    #                               (I^2 R of the converter's DC hops), 'both', 'off'; obd-solar FRICTION #54
 
     def detour(self, kind):
         """c of a structure kind's expected hop detour 1 + c sqrt(l) (see HOP_DETOUR)."""
