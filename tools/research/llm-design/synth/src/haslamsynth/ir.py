@@ -132,7 +132,7 @@ class PartDef:
                  value=None, prefix=None, category="ic", description="", datasheet="",
                  ratings=None, pinmap=None, lifecycle="active", generic=False, fields=None,
                  second_source=None, dnp=False, in_bom=True, on_board=True, notes="", source=None,
-                 pin_names=None, haslam=None):
+                 pin_names=None, haslam=None, i_off=None):
         if category not in CATEGORIES:
             raise DesignError(f"category {category!r} not in {CATEGORIES}")
         if symbol is None and not pins:
@@ -167,6 +167,9 @@ class PartDef:
         # operating facts for haslam (haslam.intent facts.parts: f_sw_Hz, v_sw_max_V, theta_jb_C_W, ...; a "why"):
         # written into <slug>.haslam_intent.json for every part made from this card (haslamsynth.haslam_intent)
         self.haslam = dict(haslam or {})
+        # off-state current (A, or (typ, max)) the part draws from the always-on supply it sits on: shutdown Iq,
+        # leakage. Counted by Design.standby_budget when the part has a pin on a budget net (a Part's own wins).
+        self.i_off = i_off
 
     def with_(self, **kw):
         new = copy.copy(self)
@@ -211,7 +214,7 @@ class PinRef:
 
 class Part:
     def __init__(self, block, defn, name, ref=None, value=None, p_diss=None, fields=None,
-                 dnp=None, notes="", v_across=None, i_through=None):
+                 dnp=None, notes="", v_across=None, i_through=None, i_off=None):
         self.block = block
         self.defn = defn
         self.name = name             # local name used in the design file, e.g. "Q1"
@@ -221,6 +224,7 @@ class Part:
         self.p_diss = p_diss         # expected dissipation (W) from the design's calcs
         self.v_across = v_across     # declared max voltage across a 2-terminal part (overrides net envelopes)
         self.i_through = i_through   # declared max current through the part (overrides net i_max), e.g. shunt diodes
+        self.i_off = i_off           # off-state current (A or (typ, max)) from the always-on supply; Design.standby_budget
         self.fields = dict(fields or {})
         self.dnp = defn.dnp if dnp is None else dnp
         self.notes = notes
@@ -450,6 +454,17 @@ class Calc:
 
 
 @dataclass
+class StandbyBudget:
+    """Off-state current from always-on nets (Design.standby_budget; checks.Checker.check_standby)."""
+    limit_uA: float
+    nets: tuple                     # always-on nets (the supply and rails it keeps powered in standby)
+    v: dict = field(default_factory=dict)    # {net: volts} for the divider currents; default v_typ, else v max
+    extra: dict = field(default_factory=dict)  # {label: A or (typ, max)}: lumped leakage; refdes in a label count as covered
+    req: str = ""                   # requirement it verifies (e.g. "REQ-5")
+    state: str = ""                 # what "standby" means here (no panel light, no USB sink, MCU in stop)
+
+
+@dataclass
 class Waiver:
     check: str
     match: str                  # substring or regex matched against finding objects/message
@@ -555,6 +570,7 @@ class Design:
         self.hazards = []
         self.calcs = []
         self.waivers = []
+        self.standby = []            # [StandbyBudget]
         self.derating = dict(DEFAULT_DERATING)
         self.boards = {}             # name -> BoardSpec, in declaration order
         from .placement import Placement
@@ -623,6 +639,16 @@ class Design:
         c = Calc(name, value, unit, expr, note, limit, op, severity)
         self.calcs.append(c)
         return value
+
+    def standby_budget(self, limit_uA, nets, v=None, extra=None, req="", state=""):
+        """Off-state current budget from always-on `nets` (names). The build sums parts' i_off (A or (typ, max)),
+        resistor dividers from those nets to ground (computed from the netlist) and `extra` lumps, reports each,
+        errors when the typical sum exceeds limit_uA and warns when the maximum does; parts on those nets that
+        declare no i_off are listed (`standby.undeclared`)."""
+        b = StandbyBudget(float(limit_uA), tuple([nets] if isinstance(nets, str) else nets), dict(v or {}),
+                          dict(extra or {}), req, state)
+        self.standby.append(b)
+        return b
 
     def waive(self, check, match, reason, by="designer"):
         self.waivers.append(Waiver(check, match, reason, by))

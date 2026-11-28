@@ -691,3 +691,52 @@ def test_dc_bias_reports_an_estimate():
     assert len(f) == 1 and f[0].severity == "info" and "estimated Ceff" in f[0].message
     # a vendor figure overrides
     assert not [x for x in run(mlcc_design(fields={"Ceff": "4.1 uF at 24 V (vendor curve)"})) if x.check == "rating.dc_bias"]
+
+
+def standby_design(limit=15, u_off=(3e-6, 10e-6)):
+    """FRICTION #13: a battery with two 10M/1M dividers, a sense divider into an IC input, a regulator fed through a
+    series resistor (not a divider), and an IC whose off-state current is declared or not."""
+    d = Design("standby")
+    d.domain("LV", ref="GND")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.net("VBAT", domain="LV", v=(0, 24), v_typ=(11.5, 12.6, 14.8), kind="power")
+    b = d.block("x")
+    ic = PartDef(mpn="CONV", category="ic", footprint="Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+                 pins=[PinDef(1, "VIN", "power_in"), PinDef(2, "GND", "power_in"), PinDef(3, "SNS", "input"),
+                       PinDef(4, "LDO", "power_in")])
+    u = b.add(ic, "U1", ref="U1", i_off=u_off)
+    d.nets["VBAT"].connect(u["VIN"]); d.nets["GND"].connect(u["GND"])
+    mid, sns, ldo = b.net("MID", v=(0, 3)), b.net("SNS", v=(0, 3)), b.net("LDO_IN", v=(0, 24))
+    for ref, ohm, a, z in (("R1", "10M", d.nets["VBAT"], mid), ("R2", "1M", mid, d.nets["GND"]),
+                           ("R3", "10M", d.nets["VBAT"], sns), ("R4", "1M", sns, d.nets["GND"]),
+                           ("R5", "1k", d.nets["VBAT"], ldo)):
+        r = b.add(two_pin(ref, v_max=100, value=ohm), ref=ref)
+        a.connect(r[1]); z.connect(r[2])
+    c = b.add(two_pin("C", v_max=50, cat="capacitor_ceramic", value="10n"), ref="C1")
+    mid.connect(c[1]); d.nets["GND"].connect(c[2])
+    sns.connect(u["SNS"]); ldo.connect(u["LDO"])
+    tvs = b.add(PartDef(mpn="TVS", category="tvs", footprint="Diode_SMD:D_SMA", pins=[PinDef(1, "K"), PinDef(2, "A")]),
+                "D1", ref="D1")
+    d.nets["VBAT"].connect(tvs["K"]); d.nets["GND"].connect(tvs["A"])
+    d.standby_budget(limit, nets=["VBAT"], req="REQ-5")
+    return d.finalize()
+
+
+def test_standby_budget_sums_dividers_and_declared_currents():
+    f = run(standby_design())
+    info = [x for x in f if x.check == "standby.budget" and x.severity == "info"]
+    assert len(info) == 1
+    msg = info[0].message
+    assert "R1/R2 1.15 uA" in msg and "R3/R4 1.15 uA" in msg       # 12.6 V / 11 MOhm each, from the netlist
+    assert "R5" not in msg                                         # series feed of a load: counted at the load
+    assert "5.29 uA typical, 12.3 uA max" in msg
+    # the max sum is over 10 uA: a warning; the typical sum over the limit: an error
+    assert any(x.check == "standby.budget" and x.severity == "warning" for x in run(standby_design(limit=10)))
+    assert "standby.budget" in checks(run(standby_design(limit=5)))
+    # a TVS on the always-on net with no i_off is listed
+    assert [x.objects for x in f if x.check == "standby.undeclared"] == [["D1"]]
+
+
+def test_standby_undeclared_ic():
+    f = run(standby_design(u_off=None))
+    assert sorted(x.objects[0] for x in f if x.check == "standby.undeclared") == ["D1", "U1"]

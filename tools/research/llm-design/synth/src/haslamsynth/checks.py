@@ -64,6 +64,7 @@ class Checker:
         self.check_dc_bias()
         self.check_protection()
         self.check_calcs()
+        self.check_standby()
         self.check_intent()
         self.apply_waivers()
         return self.findings
@@ -848,6 +849,144 @@ class Checker:
                 out.extend(m for m in p.conn.values() if m is not net)
         return out
 
+    # parts that need no i_off on an always-on net: resistors are computed, the rest carry no off-state current
+    STANDBY_EXEMPT = ("resistor", "capacitor", "capacitor_ceramic", "capacitor_film", "connector", "fuse", "ptc",
+                      "inductor", "testpoint", "mechanical", "heatsink", "switch", "crystal", "transformer",
+                      "thermistor")
+    HIGH_Z = ("input", "bidirectional", "tri_state")    # IC pins that take no DC current from a divider node
+
+    def check_standby(self):
+        """Design.standby_budget: sum declared i_off, divider currents from the netlist and lumps against a limit."""
+        d = self.d
+        for bud in d.standby:
+            nets = []
+            for name in bud.nets:
+                try:
+                    nets.append(d.net_by_name(name))
+                except DesignError:
+                    self.add("standby.net", "error", f"standby_budget: no net {name!r}", [name])
+            on = {id(n) for n in nets}
+            rows, counted = [], set()
+            for p in d.all_parts():
+                if p.dnp or not p.on_board:
+                    continue
+                i = p.i_off
+                if i is None and p.defn.i_off is not None and any(id(n) in on for n in p.conn.values()):
+                    i = p.defn.i_off
+                if i is None:
+                    continue
+                typ, mx = _typ_max(i)
+                rows.append((p.ref, typ, mx, "declared i_off"))
+                counted.add(p.ref)
+            for n in nets:
+                volts = bud.v.get(n.name, bud.v.get(n.full_name))
+                if volts is None:
+                    volts = _typical_volts(n, self.vabs(n))
+                if volts is None:
+                    self.add("standby.net", "warning", f"standby_budget: {n.full_name} has no voltage; its dividers "
+                             f"are not computed (give v={{'{n.name}': volts}})", [n.full_name])
+                    continue
+                for refs, amps, path in self._dividers(n, volts, on, counted):
+                    rows.append(("/".join(refs), amps, amps, f"divider {path} from {n.full_name} at {volts:g} V"))
+                    counted |= set(refs)
+            for label, i in bud.extra.items():
+                typ, mx = _typ_max(i)
+                rows.append((label, typ, mx, "lumped (extra=)"))
+            covered = set(re.findall(r"[A-Za-z]+[0-9]+", " ".join(bud.extra)))
+            for p in d.all_parts():
+                if p.ref in counted or p.ref in covered or p.dnp or not p.on_board:
+                    continue
+                if p.defn.category in self.STANDBY_EXEMPT:
+                    continue
+                hit = sorted({n.full_name for n in p.conn.values() if id(n) in on})
+                if hit:
+                    self.add("standby.undeclared", "warning",
+                             f"{p.ref} ({p.value}) sits on always-on {', '.join(hit)} but declares no i_off "
+                             f"(off-state current: shutdown Iq or leakage from its datasheet's EC table; i_off=0 "
+                             f"if it truly draws none)", [p.ref])
+            typ = sum(r[1] for r in rows)
+            mx = sum(r[2] for r in rows)
+            lines = "; ".join(f"{lab} {t * 1e6:.3g}" + (f" (max {m * 1e6:.3g})" if m != t else "") + f" uA [{how}]"
+                              for lab, t, m, how in sorted(rows, key=lambda r: -r[1]))
+            what = f"standby from {', '.join(n.full_name for n in nets)}" + (f" ({bud.req})" if bud.req else "") + \
+                (f", {bud.state}" if bud.state else "")
+            self.add("standby.budget", "info",
+                     f"{what}: {typ * 1e6:.3g} uA typical, {mx * 1e6:.3g} uA max, limit {bud.limit_uA:g} uA: {lines}",
+                     [bud.req] if bud.req else [])
+            if typ * 1e6 > bud.limit_uA:
+                self.add("standby.budget", "error",
+                         f"{what}: {typ * 1e6:.3g} uA typical exceeds the {bud.limit_uA:g} uA budget", [bud.req] if bud.req else [])
+            elif mx * 1e6 > bud.limit_uA:
+                self.add("standby.budget", "warning",
+                         f"{what}: {mx * 1e6:.3g} uA with every contributor at its maximum exceeds the "
+                         f"{bud.limit_uA:g} uA budget ({typ * 1e6:.3g} uA typical)", [bud.req] if bud.req else [])
+
+    def _dividers(self, src, volts, on, skip):
+        """[(resistor refs, amps, path)] for resistor networks from `src` to ground whose inner nodes take no other
+        DC current (only resistors, capacitors and high-impedance IC inputs); a resistor into another always-on
+        net or into a node that feeds a load carries that load's current, counted at the load, and is left out."""
+        d = self.d
+        root = self.root(src)
+
+        def is_res(r):
+            return r.part.defn.category == "resistor" and len(set(map(id, r.part.conn.values()))) == 2 \
+                and len(r.part.conn) == 2 and r.part.ref not in skip \
+                and not r.part.dnp and parse_value(r.part.value)
+
+        def kind(n):
+            if n is src:
+                return "src"
+            if n.kind == "ground" and self.root(n) is root:
+                return "gnd"
+            if id(n) in on:
+                return "load"
+            for r in n.pins:
+                cat = r.part.defn.category
+                if is_res(r) or cat.startswith("capacitor") or cat == "testpoint":
+                    continue
+                if cat in ("ic", "opto", "module") and r.pin.type in self.HIGH_Z:
+                    continue
+                if cat == "mosfet" and r.pin.name == "G":
+                    continue
+                return "load"
+            return "inner"
+
+        def other(r):
+            return next(n for n in r.part.conn.values() if n is not r.net)
+
+        out = []
+        seen_res = set()
+        for start in [r for r in src.pins if is_res(r)]:
+            if start.part.ref in seen_res:
+                continue
+            # the cluster of inner nodes reachable from this resistor
+            res, nodes, stack = {}, {}, [start]
+            while stack:
+                r = stack.pop()
+                if r.part.ref in res:
+                    continue
+                a, b = r.net, other(r)
+                ka, kb = kind(a), kind(b)
+                if "load" in (ka, kb):
+                    continue
+                res[r.part.ref] = (a, b, parse_value(r.part.value))
+                for n, k in ((a, ka), (b, kb)):
+                    if k == "inner" and id(n) not in nodes:
+                        nodes[id(n)] = n
+                        stack.extend(x for x in n.pins if is_res(x))
+            seen_res |= set(res)
+            if not res:
+                continue
+            v = _solve_nodes(nodes, res, src, volts, kind)
+            amps = sum((volts - v.get(id(b), 0.0 if kind(b) == "gnd" else volts)) / ohm
+                       for a, b, ohm in res.values() if a is src) + \
+                sum((volts - v.get(id(a), 0.0 if kind(a) == "gnd" else volts)) / ohm
+                    for a, b, ohm in res.values() if b is src)
+            if amps > 1e-12:
+                refs = sorted(res, key=_natkey)
+                out.append((refs, amps, "-".join(refs)))
+        return out
+
     def check_calcs(self):
         ops = {"<=": lambda a, b: a <= b, "<": lambda a, b: a < b, ">=": lambda a, b: a >= b,
                ">": lambda a, b: a > b, "==": lambda a, b: math.isclose(a, b, rel_tol=1e-6)}
@@ -949,6 +1088,51 @@ def _si_f(farads):
         if farads >= scale:
             return f"{farads / scale:.3g} {unit}"
     return f"{farads:.3g} F"
+
+
+def _typ_max(i):
+    """(typ, max) amps of an i_off: a number, or (typ, max)."""
+    if isinstance(i, (tuple, list)):
+        return float(i[0]), float(i[-1])
+    return float(i), float(i)
+
+
+def _typical_volts(net, vabs):
+    """A net's standby voltage: its v_typ (the typical of (lo, typ, hi)), else the top of its range."""
+    if net.v_typ is not None:
+        return float(net.v_typ[1] if isinstance(net.v_typ, (tuple, list)) else net.v_typ)
+    return float(vabs[1]) if vabs else None
+
+
+def _solve_nodes(nodes, res, src, volts, kind):
+    """Node voltages {id(net): V} of a resistor network: src at `volts`, ground at 0, inner nodes by KCL
+    (Gaussian elimination; the networks are a few nodes). A node with no path to src or ground floats at 0 A."""
+    idx = {k: i for i, k in enumerate(nodes)}
+    n = len(idx)
+    if not n:
+        return {}
+    A = [[0.0] * (n + 1) for _ in range(n)]
+    for a, b, ohm in res.values():
+        g = 1.0 / ohm
+        for x, y in ((a, b), (b, a)):
+            if id(x) not in idx:
+                continue
+            i = idx[id(x)]
+            A[i][i] += g
+            if id(y) in idx:
+                A[i][idx[id(y)]] -= g
+            elif kind(y) == "src":
+                A[i][n] += g * volts
+    for c in range(n):
+        piv = max(range(c, n), key=lambda r: abs(A[r][c]))
+        if abs(A[piv][c]) < 1e-30:
+            continue
+        A[c], A[piv] = A[piv], A[c]
+        for r in range(n):
+            if r != c and A[r][c]:
+                f = A[r][c] / A[c][c]
+                A[r] = [x - f * y for x, y in zip(A[r], A[c])]
+    return {k: (A[i][n] / A[i][i] if abs(A[i][i]) > 1e-30 else volts) for k, i in idx.items()}
 
 
 def _natkey(s):

@@ -222,6 +222,22 @@ and fails the build if the limit is violated. `d.waive(check, regex, reason, by)
 finding on the record; never waive an error you have not understood. A waiver that matches nothing
 is reported (`waiver.unused`), so stale ones get removed.
 
+### Standby current (`d.standby_budget`)
+
+`d.standby_budget(limit_uA, nets=["VBAT", "LDO_IN", "+3V3"], req="REQ-5", state="...", extra={"leakage of Q3, D1": 0.5e-6},
+v={"VBAT": 12.6})` states an off-state budget for the always-on nets (the supply and the rails it keeps powered).
+The build sums, and lists each in a `standby.budget` info finding:
+- `i_off=` (A, or `(typ, max)`) on a part (`blk.add(..., i_off=(3e-6, 10e-6))`) or its card (counted when the part has a
+  pin on a budget net): regulator shutdown or quiescent current, an MCU in stop, a FET's or ideal diode's leakage, from
+  the datasheet's EC table (FRICTION #13: a "zero Iq" ideal diode leaks 60 uA typ);
+- resistor dividers from those nets to ground, solved from the netlist at the net's `v_typ` (or `v=`): inner nodes may
+  carry only resistors, capacitors and high-impedance IC inputs; a resistor into a load (an LDO input) or another
+  budget net carries that load's current and is left out;
+- `extra` lumps (a refdes named in a label counts as declared).
+
+The typical sum over `limit_uA` is an error, the sum at every maximum a warning. A non-passive part on a budget net with
+no `i_off` is a `standby.undeclared` warning (`i_off=0` if it truly draws nothing).
+
 A relay or switch whose contacts join two parts of a circuit that can be connected (e.g. a
 converter output and the pack it charges) belongs to one root: model the worst case
 (connected), with a functional barrier across the open contacts.
@@ -239,6 +255,7 @@ converter output and the pack it charges) belongs to one root: model the worst c
 | `lib.*` | error/warn | missing symbols/footprints, symbol pins without pads, hidden power pins |
 | `part.no_datasheet`, `part.no_provenance`, `bom.*` | warn/error | unsourced facts, missing MPN, NRND/obsolete |
 | `protect.threat`, `protect.entry_fuse` | error/warn | external wires without the protector their threat needs |
+| `standby.budget`, `standby.undeclared` | error/warn/info | off-state current from always-on nets over its budget (typical: error, max: warning); parts on them with no `i_off` |
 | `calc.limit`, `hazard.*`, `intent.blocking_question`, `place.*` | error/warn/info | design calculations, hazard mitigations, open questions, relation sanity |
 | `kicad.erc.*`, `kicad.netlist_roundtrip`, `kicad.dru_parse` | error/warn | the emitted files, as KiCad reads them |
 | `rules.pin_escape`, `rules.pad_gap` | error | a pad no minimum-width track can leave past its neighbours under the generated clearances; pads of one footprint closer than their nets allow (`haslamsynth/layout.py`; necessary, not sufficient: corners and centre pads are not modelled) |
