@@ -82,6 +82,19 @@ if [ "${HASLAM_POWER_COPPER:-1}" = 1 ] && [ -f "$OUT" ]; then
     cp "$OUT" "$OUTD/work/$STEM.before_power_copper.kicad_pcb" && cp "$PC/$STEM.kicad_pcb" "$OUT"
   fi
 fi
+# board finishing (finish_board.py, KiCad's Python): delete the tracks and vias KiCad flags as dangling (router stubs)
+# unless that splits a net, and move flagged silkscreen references clear of pads, silk and the edge, else to Fab; OUT
+# is kept only when KiCad's DRC is no worse (FRICTION.md #49). HASLAM_FINISH_BOARD=0 skips it; HASLAM_SILK_REF
+# (place|fab|hide|keep) and HASLAM_SILK_VALUE (keep|fab|hide) choose the silkscreen policy.
+if [ "${HASLAM_FINISH_BOARD:-1}" = 1 ] && [ -f "$OUT" ]; then
+  FB=$OUTD/work/finish; mkdir -p "$FB"
+  for e in kicad_pro kicad_dru; do [ -f "$OUTD/$STEM.$e" ] && cp "$OUTD/$STEM.$e" "$FB/$STEM.$e"; done
+  if $HASLAM_KICAD_WRAP python3 "$SCRIPTS/finish_board.py" "$OUT" "$FB/$STEM.kicad_pcb" --silk-ref "${HASLAM_SILK_REF:-place}" \
+       --silk-value "${HASLAM_SILK_VALUE:-keep}" --report "$OUTD/eval/finish.json" > "$OUTD/eval/finish.log" 2>&1 \
+       && [ -f "$FB/$STEM.kicad_pcb" ]; then
+    cp "$OUT" "$OUTD/work/$STEM.before_finish.kicad_pcb" && cp "$FB/$STEM.kicad_pcb" "$OUT"
+  fi
+fi
 ( ulimit -v 40000000; $HASLAM_KICAD_WRAP kicad-cli pcb drc --format json --schematic-parity --refill-zones \
     -o "$OUTD/eval/drc.json" "$OUT" ) > "$OUTD/eval/drc.log" 2>&1 || true
 # fills in the file for the width gate (routers and power_copper leave zones unfilled)
