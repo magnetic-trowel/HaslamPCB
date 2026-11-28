@@ -282,6 +282,14 @@ def main(out_dir, board_json, outline=None):
         bf = {k: v[0] for k, v in prof.get("board_file", {}).items()}
         if "solder_mask_min_width" in bf:
             board.GetDesignSettings().m_SolderMaskMinWidth = pcbnew.FromMM(bf["solder_mask_min_width"])
+    # the holes come from board.json, not the schematic, so haslamsynth's fp-lib-table may not list their library:
+    # without it KiCad's DRC reports lib_footprint_issues for every hole (obd-solar FRICTION.md #48)
+    flt = out_dir / "fp-lib-table"
+    if spec.get("holes") and flt.exists() and '(name "MountingHole")' not in flt.read_text():
+        t = flt.read_text().rstrip()
+        assert t.endswith(")")
+        flt.write_text(t[:-1] + '  (lib (name "MountingHole")(type "KiCad")(uri "${KICAD10_FOOTPRINT_DIR}/MountingHole.pretty")'
+                       '(options "")(descr ""))\n)\n')
     path = out_dir / f"{slug}.kicad_pcb"
     pcbnew.SaveBoard(str(path), board)
     st = write_stackup(path, spec)

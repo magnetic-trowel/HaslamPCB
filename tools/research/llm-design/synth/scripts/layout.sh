@@ -16,6 +16,10 @@ HASLAM_KICAD_WRAP=${HASLAM_KICAD_WRAP:-}           # empty with a native KiCad (
 export APPTAINER_BIND=${APPTAINER_BIND:-/var/tmp}
 mkdir -p "$OUTD/work" "$OUTD/eval"
 for e in kicad_pro kicad_dru haslam_intent.json; do [ -f "${IN%.kicad_pcb}.$e" ] && cp "${IN%.kicad_pcb}.$e" "$OUTD/$STEM.$e"; done
+# the footprint library table too, with the project-relative custom library made absolute: without it KiCad's DRC
+# reports every footprint as lib_footprint_issues (its library is not configured) and cannot compare footprints
+# with their libraries (obd-solar FRICTION.md #48)
+[ -f "$(dirname "$IN")/fp-lib-table" ] && sed "s|\${KIPRJMOD}|$(dirname "$IN")|g" "$(dirname "$IN")/fp-lib-table" > "$OUTD/fp-lib-table"
 OUT=$OUTD/$STEM.kicad_pcb
 # haslam's default budget: 8000 s x sqrt(footprints / 40) of counted work, of which restart.py gets 9/40
 NFP=$(grep -c '^\s*(footprint ' "$IN")

@@ -1,5 +1,5 @@
 {
-  "outline": [80, 55],
+  "outline": [96, 66],
   "holes": {"inset": 3.5},
   "fixed": {
     "J101": {"edge": "west", "along": 0.31, "inset": 5.2, "rot": 90, "note": "OBD pigtail terminal, wire entry facing the west edge; courtyard 11.3 mm along the edge, clear of the NW hole"},

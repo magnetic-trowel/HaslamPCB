@@ -1,0 +1,6 @@
+{
+  "_note": "Read by pipeline.py's warnings stage: every DRC warning type on the chosen board needs a reason here. track_dangling is deliberately absent: router stubs on switching nets must be removed, not accepted (FRICTION.md #49).",
+  "silk_over_copper": "Reference text over pads/copper: JLC clips silkscreen at solder-mask openings (capabilities: pad to silkscreen 0.15 mm), so nothing prints on a pad; nothing places reference text yet (FRICTION.md #49).",
+  "silk_overlap": "Overlapping reference designators: illegible assembly drawing, no electrical effect; no stage places reference text yet (FRICTION.md #49).",
+  "silk_edge_clearance": "Terminal-block outlines (J101/J201) reach the board edge by design (wire entry flush with the edge); JLC clips silkscreen at the outline."
+}

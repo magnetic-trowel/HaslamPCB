@@ -56,8 +56,13 @@ class Ctx:
     def save(self):
         self.status_p.write_text(json.dumps(self.status, indent=1))
 
+    provisional = False
+
     def record(self, stage, ok, detail, **extra):
         self.status[stage] = {"ok": bool(ok), "detail": detail, "at": time.time(), **extra}
+        if self.provisional:
+            self.status[stage]["provisional"] = True
+            detail = f"[provisional] {detail}"
         self.save()
         print(f"{stage}: {'PASS' if ok else 'FAIL'} {detail}")
         return 0 if ok else 1
@@ -68,8 +73,9 @@ class Ctx:
         return max(f.stat().st_mtime for f in files if f.exists())
 
     def gate_ok(self, stage):
+        """Passed, newer than the sources, and not run past an unmet gate (--provisional)."""
         s = self.status.get(stage)
-        return bool(s and s["ok"] and s["at"] >= self.sources_mtime())
+        return bool(s and s["ok"] and not s.get("provisional") and s["at"] >= self.sources_mtime())
 
 
 def sh(cmd, log=None, env=None, cwd=None):
@@ -120,10 +126,12 @@ def st_size(c, a):
     st = json.loads((c.work / "size" / "state.json").read_text()) if (c.work / "size" / "state.json").exists() else {}
     done = st.get("attempts", [])
     finished = bool(done) and any(x["ok"] for x in done) and not done[-1]["ok"]
+    not_size = bool(done) and done[-1].get("not_size")
     ok = bool(st.get("best"))
-    return c.record("size", ok, f"best {st.get('best')} after {len(done)} attempt(s)"
-                    + ("" if finished else " (search not finished: run `size` again to keep shrinking)"),
-                    best=st.get("best"), finished=finished)
+    why = (" (stopped: every connection routed but tracks too narrow; not a board-size problem, see width gate)"
+           if not_size and not ok else "" if finished or ok else " (search not finished: run `size` again)")
+    return c.record("size", ok, f"best {st.get('best')} after {len(done)} attempt(s){why}",
+                    best=st.get("best"), finished=finished, not_size=not_size)
 
 
 def _seed_runs(c):
@@ -139,11 +147,12 @@ def _gates(run):
 def st_layout(c, a):
     if not c.gate_ok("board") or c.status["board"].get("outline") != list(outline(c)):
         return c.record("layout", False, "board stage is stale for the chosen outline: run `board` (and `preflight`) again")
-    seed = a.seed or (len(_seed_runs(c)) + 1)
-    run = c.work / "layout" / f"s{seed}"
-    env = dict(os.environ, HASLAM_EVAL="0", **({"HASLAM_TIME": str(a.time)} if a.time else {}))
-    sh(["bash", str(HERE / "layout.sh"), str(c.out / f"{c.slug}.kicad_pcb"), str(run), str(seed)],
-       c.work / f"layout-s{seed}.log", env=env)
+    if not a.collect:                                   # --collect: only re-judge the seeds already routed
+        seed = a.seed or (len(_seed_runs(c)) + 1)
+        run = c.work / "layout" / f"s{seed}"
+        env = dict(os.environ, HASLAM_EVAL="0", **({"HASLAM_TIME": str(a.time)} if a.time else {}))
+        sh(["bash", str(HERE / "layout.sh"), str(c.out / f"{c.slug}.kicad_pcb"), str(run), str(seed)],
+           c.work / f"layout-s{seed}.log", env=env)
     runs = _seed_runs(c)
     res = {r.name: {k: v[1] for k, v in _gates(r).items()} for r in runs}
     passing = [r for r in runs if all(ok for ok, _ in _gates(r).values())]
@@ -154,8 +163,17 @@ def st_layout(c, a):
                     seeds=res, best=str(best) if best else None)
 
 
-def st_physics(c, a):
+def _best(c):
+    """The best passing seed; provisionally (no passing seed) the first routed one."""
     best = c.status.get("layout", {}).get("best")
+    if not best and c.provisional:
+        runs = _seed_runs(c)
+        best = str(runs[0]) if runs else None
+    return best
+
+
+def st_physics(c, a):
+    best = _best(c)
     if not best:
         return c.record("physics", False, "no passing seed")
     run = Path(best)
@@ -184,7 +202,7 @@ def st_physics(c, a):
 
 
 def st_warnings(c, a):
-    best = c.status.get("layout", {}).get("best")
+    best = _best(c)
     if not best:
         return c.record("warnings", False, "no passing seed")
     d = json.loads((Path(best) / "eval/drc.json").read_text())
@@ -227,6 +245,10 @@ def main(argv=None):
     ap.add_argument("--seed", type=int)
     ap.add_argument("--time", type=int, default=0)
     ap.add_argument("--attempts", type=int, default=2, help="size stage: attempts per call")
+    ap.add_argument("--collect", action="store_true", help="layout: judge the seeds already routed, route none")
+    ap.add_argument("--provisional", action="store_true",
+                    help="run past unmet gates to explore later stages; results are marked provisional, never count "
+                         "as passed, and fab refuses to run on them")
     a = ap.parse_args(argv)
     c = Ctx(a.design_dir)
     if a.stage == "status":
@@ -234,7 +256,8 @@ def main(argv=None):
         for s in STAGES:
             st = c.status.get(s)
             ok = c.gate_ok(s)
-            mark = "PASS" if ok else ("STALE" if st and st["ok"] else ("FAIL" if st else "----"))
+            mark = "PASS" if ok else ("PROV" if st and st.get("provisional") else
+                                      ("STALE" if st and st["ok"] else ("FAIL" if st else "----")))
             print(f"{mark:5} {s:9} {st['detail'] if st else ''}")
             if not ok and nxt is None:
                 nxt = s
@@ -242,9 +265,14 @@ def main(argv=None):
         return 0
     i = STAGES.index(a.stage)
     unmet = [s for s in STAGES[:i] if not c.gate_ok(s)]
-    if unmet:
-        print(f"refused: {a.stage} needs {', '.join(unmet)} to pass first (pipeline.py {c.dd} status)")
+    if unmet and (not a.provisional or a.stage == "fab"):
+        print(f"refused: {a.stage} needs {', '.join(unmet)} to pass first (pipeline.py {c.dd} status)"
+              + ("; fab never runs provisionally (use fab_outputs.py --allow-open for a review copy)"
+                 if a.provisional and a.stage == "fab" else ""))
         return 2
+    if unmet:
+        c.provisional = True
+        print(f"provisional: {a.stage} runs although {', '.join(unmet)} did not pass; its result will not count")
     return RUN[a.stage](c, a)
 
 
