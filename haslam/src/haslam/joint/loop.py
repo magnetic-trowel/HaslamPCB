@@ -57,6 +57,8 @@ DEFAULTS = dict(
     min_iter_s=60.0,       # an iteration is not started with less than this left
     iter_share=0.25,       # one window's repair gets at most this share of the budget (at least min_iter_s)
     eff_tiebreak=False,    # equal on everything else: keep a board with dominating copper (length, vias); A/B arm
+    accept_guard="off",    # equal rank: refuse a step that breaks a met relation ('relations'), pushes a coupling
+                           # victim over budget ('victims'), either ('both'); scorecard.guard_refusal; A/B arm
     rudy_scale=0.5,        # RUDY overflow near failures added to the history (0: off)
     finish=True,           # a finishing stage: the full bridge over the whole board, critical copper locked
     finish_share=0.20,     # time reserved for it up front: max(finish_min_s, finish_share x budget)
@@ -314,7 +316,7 @@ class JointLoop:
                                  seconds=round(clock_now() - t, 1), repair=rrep))
                 continue
             self._history(hist, cand, fb)
-            keep, why = accept(best_card, card, eff_tiebreak=bool(o["eff_tiebreak"]))
+            keep, why = accept(best_card, card, eff_tiebreak=bool(o["eff_tiebreak"]), guard=str(o["accept_guard"]))
             dt = clock_now() - t
             est = max(float(o["min_iter_s"]), 0.5 * est + 0.5 * dt)
             rows.append(self._row(it, card, window=win.to_dict(), accepted=keep, why=why, seconds=round(dt, 1),
@@ -359,7 +361,7 @@ class JointLoop:
                 share = 0.6 if (mode is None and len(tries_fin) > 1) else 0.85
                 cand = st.route(base, it, seed=derive_seed(seed, it), time_s=max(60.0, share * left()), finish=True)
                 card, fb = st.evaluate(cand, it)
-                keep, why = accept(best_card, card, eff_tiebreak=bool(o["eff_tiebreak"]))
+                keep, why = accept(best_card, card, eff_tiebreak=bool(o["eff_tiebreak"]), guard=str(o["accept_guard"]))
             except Exception as e:  # noqa: BLE001 - the incumbent stands
                 cand, card, fb, keep, why = None, None, None, False, f"error: {type(e).__name__}: {e}"
             dt = clock_now() - t
@@ -389,7 +391,7 @@ class JointLoop:
             try:
                 cand = st.close_open(best, it, nets, time_s=budget)
                 card, fb = st.evaluate(cand, it)
-                keep, why = accept(best_card, card, eff_tiebreak=bool(o["eff_tiebreak"]))
+                keep, why = accept(best_card, card, eff_tiebreak=bool(o["eff_tiebreak"]), guard=str(o["accept_guard"]))
             except Exception as e:  # noqa: BLE001 - the incumbent stands
                 cand, card, fb, keep, why = None, None, None, False, f"error: {type(e).__name__}: {e}"
             dt = clock_now() - t

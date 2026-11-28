@@ -67,6 +67,7 @@ def _project(src_board, dst_board):
 # loop's DEFAULTS, the placer's limits (haslam.route.constraints.DEFAULTS) nor bridge.KEY name).
 STAGE_KEYS = frozenset({
     "module_clock",       # the module stage keeps its clock (haslam.route.critical_joint.optimize_modules clock=True)
+    "accept_guard",       # the loop's acceptance guard: evaluate then measures victims and relations (loop.DEFAULTS)
     # set by haslam.joint.cli from its flags
     "keep", "no_physics", "no_modules", "budget_s", "route_parallel", "first_last_mile", "first_blocked",
     "next_stage_s",       # placement: the time of the stages after it (exact_repack takes its share; default budget_s less the placement)
@@ -670,6 +671,20 @@ class HaslamStages:
                 card.place_terms = float(self.terms.total(dict(lay.poses)))
             except Exception as e:
                 self.log(f"place terms total failed: {type(e).__name__}: {e}")
+        guard = str(self.opts.get("accept_guard") or "off")
+        if guard in ("victims", "both") and self.terms is not None:
+            try:
+                card.victims = {r["id"]: round(float(r["util"]), 4) for r in self.terms.breakdown(dict(lay.poses))
+                                if r.get("kind") == "coupling"}
+            except Exception as e:  # noqa: BLE001 - the guard then has nothing to refuse on
+                self.log(f"victims failed: {type(e).__name__}: {e}")
+        if guard in ("relations", "both"):
+            try:
+                st = self.relations_status(lay.board)
+                if st is not None:
+                    card.relations = {r["id"]: r["met"] for r in st.get("rows") or [] if r.get("met") is not None}
+            except Exception as e:  # noqa: BLE001
+                self.log(f"relations status failed: {type(e).__name__}: {e}")
         card.note = "; ".join(notes)
         lay.info["evaluate_s"] = round(clock_now() - t0, 1)
         return card, dict(drc=rep, recheck=rc)

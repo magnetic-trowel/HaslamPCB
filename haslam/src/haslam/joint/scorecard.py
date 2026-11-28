@@ -58,6 +58,8 @@ class Scorecard:
     place_terms: float | None = None                 # straight-line place-terms total
     method: str = ""                                 # how `modules` were measured ('recheck', 'board_physics')
     worst_rail_mohm: float | None = None
+    victims: dict | None = None                      # coupling victims' u at the poses (place terms), for accept_guard
+    relations: dict | None = None                    # the intent's relations: id -> met (None: not measured)
     track_length_mm: float | None = None             # total copper track length (efficiency, reported)
     vias: int | None = None                          # via count (efficiency, reported)
     note: str = ""
@@ -94,6 +96,7 @@ class Scorecard:
                     modules={k: (None if v is None else round(v, 4)) for k, v in sorted(self.modules.items())},
                     flagged=flagged, place_terms=None if self.place_terms is None else round(self.place_terms, 4),
                     worst_rail_mohm=self.worst_rail_mohm,
+                    victims=self.victims, relations=self.relations,
                     track_length_mm=None if self.track_length_mm is None else round(self.track_length_mm, 2),
                     vias=self.vias, **({"method": self.method} if self.method else {}),
                     checked=dict(self.checked), note=self.note or None)
@@ -111,17 +114,56 @@ def card_rank(c):
     return board_rank(c.unconnected, c.errors, c.placement_errors)
 
 
-def accept(old, new, phys_tol=0.005, eff_tiebreak=False, eff_tol=0.01):
+ACCEPT_GUARDS = ("off", "victims", "relations", "both")
+
+
+GUARD_VICTIM_TOL = 0.10     # share of u a victim already over budget may rise by (estimate noise), at least 0.05
+
+
+def _victim_worse(u0, u1):
+    """A victim pushed over budget (u0 <= 1 < u1), or over it and worse beyond GUARD_VICTIM_TOL."""
+    if u1 is None or not (u1 > 1.0):
+        return False
+    return u0 <= 1.0 or u1 > u0 + max(0.05, GUARD_VICTIM_TOL * u0)
+
+
+def guard_refusal(old, new, guard="off"):
+    """Why `new` breaks what `old` kept (accept_guard), or None: 'relations' — a relation of the intent that `old`
+    met is unmet in `new`; 'victims' — a coupling victim (u of the place terms at the poses) that `new` pushes over
+    budget, or that is over it and gets worse beyond GUARD_VICTIM_TOL; 'both'. obd-solar FRICTION #55: a DRC window moved C311 from 2.2 to 15 mm off U301.4
+    and raised the placer's FB pickup estimate 23 -> 773 mV (12 mV limit); routed module physics improved, so it was
+    kept, and unmet relations went 2 -> 9 over the loop."""
+    if guard not in ACCEPT_GUARDS:
+        raise ValueError(f"accept_guard {guard!r}: one of {ACCEPT_GUARDS}")
+    why = []
+    if guard in ("relations", "both") and old.relations and new.relations is not None:
+        broke = sorted(k for k, m in old.relations.items() if m and new.relations.get(k) is False)
+        if broke:
+            why.append(f"breaks met relation(s) {', '.join(broke[:6])}{' ...' if len(broke) > 6 else ''}")
+    if guard in ("victims", "both") and old.victims and new.victims is not None:
+        over = sorted(k for k, u in old.victims.items() if _victim_worse(u, new.victims.get(k)))
+        if over:
+            why.append("pushes victim(s) over or further over budget: " + ", ".join(
+                f"{k} u {old.victims[k]:.2f} -> {new.victims[k]:.2f}" for k in over[:4]))
+    return "; ".join(why) or None
+
+
+def accept(old, new, phys_tol=0.005, eff_tiebreak=False, eff_tol=0.01, guard="off"):
     """(keep, why). See the module docstring: the ranked judge, then routed physics on an equal
     rank. `eff_tiebreak` (off by default, an A/B arm): with an equal rank and physics within
     phys_tol, keep a board whose copper dominates: no more vias and track length shorter by more
-    than `eff_tol`, or fewer vias and no longer track."""
+    than `eff_tol`, or fewer vias and no longer track. `guard` (accept_guard, off by default, an A/B arm): on an
+    equal rank, refuse a step that breaks a met relation or pushes a coupling victim over budget (guard_refusal)."""
     from haslam.rank import FIELDS
     r0, r1 = card_rank(old), card_rank(new)
     if r1 != r0:
         k = next(i for i, (a, b) in enumerate(zip(r0, r1)) if a != b)
         word = "better" if r1 < r0 else "worse"
         return r1 < r0, f"rank {word} on {FIELDS[k]} {tuple(r0)} -> {tuple(r1)}"
+    if guard != "off":
+        g = guard_refusal(old, new, guard)
+        if g:
+            return False, f"guard: {g}"
     ids = sorted(set(old.modules) & set(new.modules)) if old.method == new.method else []
     p0, p1 = _phys_on(old, ids), _phys_on(new, ids)
     scale = max(1.0, abs(p0))
