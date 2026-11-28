@@ -129,6 +129,10 @@ def build():
   which no derating warning fires — use it for IC supply and I/O pins; `derate=False` for nodes
   the IC drives itself, such as charge-pump, soft-start or compensation pins: hard limit only), `i_max` / `pin_i_max`,
   `p_max`, `polarity=("1", "2")`, `isolation=[...]`. Set `p_diss=` on parts from your calculations.
+- Zeners: `Zener(mpn, footprint, vz=(min, typ, max), p_max=, i_zm=None)`, not `D(kind="D_Zener", v_rrm=...)`: a zener
+  sits at its Vz, so it is rated by power (`p_diss=`, else Vz max x `i_through=`, against `p_max`) and current
+  (`i_zm`, default p_max / Vz max). With neither declared and nets that can exceed Vz, `rating.zener` warns that it
+  conducts and asks for its limited current.
 - Generic passives (`R`, `C` without MPN) are allowed; resistors default to thick-film package
   ratings, capacitors need a voltage rating. Pass an MPN and real ratings for anything stressed.
 - Multi-unit library symbols (op-amps, relays with separate coil units) are placed unit by unit.
@@ -226,7 +230,7 @@ converter output and the pack it charges) belongs to one root: model the worst c
 | `erc.output_conflict` | error | two push-pull outputs on one net |
 | `net.no_domain`, `domain.ref`, `net.no_voltage`, `net.correlation` | error/warn | nets the voltage model cannot place; unusable or inconsistent `frac`/`tracks`/`abs_v` |
 | `rating.voltage`, `rating.polarity` | error/warn | worst-case voltage vs `v_max`/`limits`, reverse-biased electrolytics |
-| `rating.current`, `rating.power`, `rating.dc_bias` | error/warn | net current through series parts, dissipation, MLCC DC bias |
+| `rating.current`, `rating.power`, `rating.dc_bias`, `rating.zener` | error/warn | net current through series parts, dissipation, MLCC DC bias, a zener that conducts with no declared current |
 | `domain.crossing`, `barrier.*` | error | non-isolating parts across roots; isolation grade, withstand, working voltage, package creepage |
 | `lib.*` | error/warn | missing symbols/footprints, symbol pins without pads, hidden power pins |
 | `part.no_datasheet`, `part.no_provenance`, `bom.*` | warn/error | unsourced facts, missing MPN, NRND/obsolete |

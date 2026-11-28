@@ -425,6 +425,8 @@ class Checker:
                 if pair:
                     self._rate("rating.voltage", p, worst, r.v_max, "voltage",
                                f" between {pair[0].full_name} and {pair[1].full_name}")
+            if r.vz and p.p_diss is None and p.i_through is None:
+                self._check_zener_conducts(p)
             for lim in r.limits:
                 self._check_vlimit(p, lim)
             if r.polarity:
@@ -435,6 +437,19 @@ class Checker:
                         self.add("rating.polarity", "error",
                                  f"{p.ref} ({p.value}): polarized part can see {rng[0]:.3g} V reverse "
                                  f"({pos[0].full_name} below {neg[0].full_name})", [p.ref])
+
+    def _check_zener_conducts(self, p):
+        """A zener whose nets can exceed its Vz conducts: its current must be limited and declared."""
+        vz_max = p.defn.ratings.vz[2]
+        pol = self._pins_nets(p, ["1"]), self._pins_nets(p, ["2"])
+        if not (pol[0] and pol[1]):
+            return
+        rng = self.vdiff(pol[0][0], pol[1][0])
+        if rng is not None and rng[1] > p.defn.ratings.vz[0]:
+            self.add("rating.zener", "warning",
+                     f"{p.ref} ({p.value}): its nets allow {rng[1]:.3g} V across it, above its Vz "
+                     f"{p.defn.ratings.vz[0]:g}-{vz_max:g} V, so it conducts; declare the limited current "
+                     f"(i_through=) or the dissipation (p_diss=) so its power can be checked", [p.ref])
 
     def _check_vlimit(self, p, lim):
         na, nb = self._pins_nets(p, lim.a), self._pins_nets(p, lim.b)
@@ -634,6 +649,10 @@ class Checker:
                     self.add("rating.power", "warning",
                              f"{p.ref} ({p.value}) dissipates {p.p_diss:g} W but has no power rating to check against",
                              [p.ref])
+                continue
+            if rat.vz and rat.p_max and isinstance(p.i_through, (int, float)):
+                self._rate("rating.power", p, rat.vz[2] * p.i_through, rat.p_max,
+                           f"zener dissipation Vz max {rat.vz[2]:g} V x i_through {p.i_through:g} A (W)")
                 continue
             if p.defn.category == "resistor" and rat.p_max and len(p.conn) == 2:
                 ohms = parse_value(p.value)

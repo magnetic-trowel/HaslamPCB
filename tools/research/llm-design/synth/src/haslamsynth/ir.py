@@ -111,6 +111,7 @@ class Ratings:
     polarity: tuple = None         # (positive pin, negative pin) for polarized parts
     t_min: float = None
     t_max: float = None
+    vz: tuple = None               # zener breakdown (min, typ, max) V: rated by power/current, not by voltage (lib.Zener)
 
 
 CATEGORIES = ("resistor", "capacitor", "capacitor_ceramic", "capacitor_electrolytic", "capacitor_film",

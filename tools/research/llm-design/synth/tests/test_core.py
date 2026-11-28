@@ -611,3 +611,43 @@ def test_correlation_tightens_generated_rules():
         return [ln for ln in dru_text(d, NetClasses(d).build()).splitlines() if ln.startswith('(rule "IR:functional.')]
     assert any("PV_G" in ln and "0.6mm" in ln for ln in rules(gate_divider()))
     assert not any("PV_G" in ln for ln in rules(gate_divider(frac=8.2 / 12.9, v=(-0.2, 0.2))))
+
+
+def zener_design(**kw):
+    """obd-solar FRICTION #20: a 27 V zener clamping a 0..30 V rail."""
+    from haslamsynth.lib import Zener
+    z = Zener("BZT52C27", "Diode_SMD:D_SOD-123", vz=(25.65, 27, 28.35), p_max=0.5)
+    z = z.with_(symbol=None, pins=[PinDef(1, "K"), PinDef(2, "A")])      # generated symbol: no KiCad needed
+    d = Design("z")
+    d.domain("LV", ref="GND")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.net("RAIL", domain="LV", v=(0, 30), kind="power")
+    b = d.block("x")
+    part = b.add(z, "D1", **kw)
+    d.nets["RAIL"].connect(part["K"])
+    d.nets["GND"].connect(part["A"])
+    r = b.add(two_pin("R", v_max=100))
+    d.nets["RAIL"].connect(r[1]); d.nets["GND"].connect(r[2])
+    return d.finalize()
+
+
+def test_zener_rated_by_power_not_its_own_voltage():
+    from haslamsynth.lib import Zener
+    z = Zener("BZT52C27", "Diode_SMD:D_SOD-123", vz=(25.65, 27, 28.35), p_max=0.5)
+    assert z.ratings.v_max is None and z.ratings.vz == (25.65, 27.0, 28.35)
+    assert z.ratings.i_max == pytest.approx(0.5 / 28.35)                 # i_zm from P / Vz max
+    with pytest.raises(ValueError):
+        Zener("X", "fp", vz=(5, 4, 6), p_max=0.5)
+    # 11 mA: 0.31 W of 0.5 W (62 %, inside the 80 % diode derating): no voltage finding, no power finding
+    f = run(zener_design(i_through=0.011))
+    assert not [x for x in f if x.check.startswith("rating.") and not x.waived_by]
+    # 15 mA: 0.425 W > 80 % of 0.5 W (and 85 % of i_zm): power and current warnings, never a voltage finding
+    f = run(zener_design(i_through=0.015))
+    assert {x.check for x in f if x.check.startswith("rating.") and x.severity == "warning"} == \
+        {"rating.power", "rating.current"}
+    assert "rating.voltage" not in checks(f)
+    f = run(zener_design(i_through=0.02))                               # 0.57 W: over the rating
+    assert "rating.power" in checks(f)
+    # nothing declared but the rail can exceed Vz: say that it conducts and ask for its current
+    f = run(zener_design())
+    assert any(x.check == "rating.zener" for x in f) and "rating.voltage" not in checks(f)

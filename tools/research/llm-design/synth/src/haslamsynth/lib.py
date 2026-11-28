@@ -100,6 +100,25 @@ def D(mpn, footprint, v_rrm, i_f, kind="D", manufacturer=None, p_max=None, **kw)
                    ratings=Ratings(v_max=v_rrm, i_max=i_f, p_max=p_max)), kw))
 
 
+def Zener(mpn, footprint, vz, p_max, i_zm=None, i_f=None, manufacturer=None, **kw):
+    """Zener (voltage reference or clamp). Pin 1 = K, 2 = A (Device:D_Zener).
+
+    vz: (min, typ, max) breakdown at the datasheet's test current (or one number). A zener is meant to sit at
+    its Vz, so its rating is power and current, not voltage: `p_max` (W at the design's ambient), `i_zm` (max
+    zener current, default p_max / Vz max). The checks rate p_diss=, else Vz max x i_through=, against p_max, and
+    warn (`rating.zener`) when the net ranges can put more than Vz max across it with neither given (it will
+    conduct: something must limit its current)."""
+    lo, typ, hi = (vz, vz, vz) if isinstance(vz, (int, float)) else tuple(vz)
+    if not lo <= typ <= hi:
+        raise ValueError(f"{mpn}: vz must be (min, typ, max), got {vz!r}")
+    i_zm = i_zm if i_zm is not None else p_max / hi
+    return _mk(**_merge(dict(symbol="Device:D_Zener", footprint=footprint, mpn=mpn, manufacturer=manufacturer,
+                   category="diode", value=mpn, description=f"Zener {typ:g} V ({lo:g}-{hi:g} V) {p_max:g} W",
+                   ratings=Ratings(vz=(float(lo), float(typ), float(hi)), p_max=p_max,
+                                   i_max=max(i_zm, i_f or 0.0)),
+                   fields={"Vz": f"{typ:g}V"}), kw))
+
+
 def TVS_bi(mpn, footprint, v_rwm, manufacturer=None, p_pk=None, **kw):
     return _mk(**_merge(dict(symbol="Device:D_TVS", footprint=footprint, mpn=mpn, manufacturer=manufacturer,
                    category="tvs", value=mpn, description=f"Bidirectional TVS {v_rwm}V",
@@ -189,7 +208,7 @@ def IC(mpn, pins, footprint, manufacturer=None, description="", datasheet="", ra
                    datasheet=datasheet, ratings=ratings), kw))
 
 
-__all__ = ["R", "C", "C_pol", "L", "D", "TVS_bi", "LED", "NMOS", "PMOS", "NPN", "Fuse", "Varistor",
+__all__ = ["R", "C", "C_pol", "L", "D", "Zener", "TVS_bi", "LED", "NMOS", "PMOS", "NPN", "Fuse", "Varistor",
            "Thermistor", "Conn", "TestPoint", "MountingHole", "IC", "PartDef", "PinDef", "Ratings",
            "VLimit", "Isolation", "PINMAP_SOT23_FET", "PINMAP_SOT23_BJT", "PINMAP_TO220_FET",
            "PINMAP_DPAK_FET"]

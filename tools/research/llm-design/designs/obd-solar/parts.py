@@ -7,7 +7,7 @@ Datasheets read 2026-11-27 (pdftotext -layout). JLC numbers and stock from the J
 listing). LCSC datasheet URLs returned 403 from the design host; the URLs below are the ones actually read.
 """
 from haslamsynth import PinDef, Ratings, VLimit
-from haslamsynth.lib import IC, C, C_pol, Conn, Fuse, L, LED, NMOS, PMOS, R, D, PINMAP_SOT23_FET
+from haslamsynth.lib import IC, C, C_pol, Conn, Fuse, L, LED, NMOS, PMOS, R, D, Zener, PINMAP_SOT23_FET
 
 DS = {
     "CN3767": "https://www.hestore.eu/prod_getfile.php?id=19038",          # Consonance CN3767 Rev 1.0 (mirror)
@@ -147,12 +147,12 @@ SMBJ24A = D("SMBJ24A", "Diode_SMD:D_SMB", v_rrm=24, i_f=15.5, kind="D_TVS", manu
 SMAJ15A = D("SMAJ15A", "Diode_SMD:D_SMA", v_rrm=15, i_f=16.4, kind="D_TVS", manufacturer="Littelfuse",
             fields=_lcsc("C113958", "expand"), datasheet="https://www.littelfuse.com/assetdocs/littelfuse-tvs-diode-smaj-datasheet",
             source={"ratings": "SMAJ15A: VRWM 15 V, VBR 16.7 V min, VC 24.4 V (LTC3115-1 PVOUT abs max 45 V) [S]"})
-BZT52C27 = D("BZT52C27", "Diode_SMD:D_SOD-123", v_rrm=28.35, i_f=0.018, kind="D_Zener", p_max=0.5,
+BZT52C27 = Zener("BZT52C27", "Diode_SMD:D_SOD-123", vz=(25.65, 27.0, 28.35), p_max=0.5,
              fields=_lcsc("C173421", "expand"), datasheet="https://www.lcsc.com/datasheet/C173421.pdf",
-             source={"ratings": "LCSC [S]: 25.65-28.35 V, 500 mW, 100 nA @ 21 V; v_rrm = Vz max (a zener is meant to sit at Vz)"})
-BZT52C5V6 = D("BZT52C5V6", "Diode_SMD:D_SOD-123", v_rrm=6.0, i_f=0.08, kind="D_Zener", p_max=0.5,
+             source={"ratings": "LCSC [S]: 25.65-28.35 V, 500 mW, 100 nA @ 21 V; rated by power (lib.Zener)"})
+BZT52C5V6 = Zener("BZT52C5V6", "Diode_SMD:D_SOD-123", vz=(5.2, 5.6, 6.0), p_max=0.5,
               fields=_lcsc("C2119", "expand"), datasheet="https://www.lcsc.com/datasheet/C2119.pdf",
-              source={"ratings": "LCSC [S]: 5.2-6.0 V, 500 mW; v_rrm = Vz max"})
+              source={"ratings": "LCSC [S]: 5.2-6.0 V, 500 mW"})
 LED_R = LED("red", "0603", mpn="KT-0603R", fields=_lcsc("C2286", "base"), source={"ratings": "LCSC [S]: 20 mA"})
 LED_G = LED("green", "0603", mpn="KT-0603G", fields=_lcsc("C12624", "expand"), source={"ratings": "LCSC [S]: 20 mA"})
 
