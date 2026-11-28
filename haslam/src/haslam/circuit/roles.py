@@ -314,7 +314,7 @@ GND_PIN = rx(r'^(P?GND\w*|AGND\w*|DGND\w*|SGND|VSS\w*|[A-Z]{1,2}VSS\w*|EP|EPAD|E
              r'GND_?EP|EXP|SLUG|PGND\d*|GROUND|SUB)$')
 SW_PIN = rx(r'^(SW\d?[A-Z]?|LX\d?|PH|PHASE\d?|SW_?\d|LX_?\d|L\d|SWA|SWB|SW[12]|L[12]|LXA|LXB|DRAIN|SH[ABC]?|VSW\d?|'
             r'V?LX_?SMPS|VLX\w*|\w*_LX\d?|LX_\w+|SW_(BUCK|BOOST|REG|DCDC)\w*|(BUCK|BOOST|DCDC|SMPS|REG)\d?_?(SW|LX)\d?|SMPS_?(SW|LX))$')
-OUT_PIN = rx(r'^(V?OUT\d?|VO|OUTPUT|VREG(_?OUT)?|V_?OUT|LDO_?OUT|VOUT_?\w*|VREG_VOUT|OUT[12]?|V[A-Z0-9]+_OUT|[+-]V?O(UT)?\d?|V?O(UT)?[+-]|'
+OUT_PIN = rx(r'^(V?OUT\d?|P?VOUT\d?|VO|OUTPUT|VREG(_?OUT)?|V_?OUT|LDO_?OUT|VOUT_?\w*|VREG_VOUT|OUT[12]?|V[A-Z0-9]+_OUT|[+-]V?O(UT)?\d?|V?O(UT)?[+-]|'
              r'[+-]VOUT\w*|VOUT[+-]\w*|V[+-]OUT)$')
 IN_PIN = rx(r'^(P?VIN\d?|VI|VCC|VDD|IN|VS|VBAT|PVDD|AVIN|VSUP|VSYS|V\+|INPUT|VIN_\w+|[+-]VIN|VIN[+-]|[+-]?V_?IN)$')
 FB_PIN = rx(r'^(V?FB\d?|FB[+-]?|ADJ|ADJ/GND|VSENSE|VOS|FBK|FB_?\w*|SENSE)$')
