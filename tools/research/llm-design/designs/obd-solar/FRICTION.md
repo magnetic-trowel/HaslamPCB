@@ -10,6 +10,36 @@ Keys: friction, e2e, obd-solar, onboarding, token cost, tooling gaps
 Severity: **H** = can produce a bad board or blocks the pipeline; **M** = costs a lot of time/tokens; **L** = annoyance.
 Tag `[tool]` = would be better as a command than as LLM work.
 
+## Summary for HaslamPCB (ranked by bad-board risk)
+
+**Fixed in this run** (branch `obd-solar-e2e`, one commit each, tests added):
+
+| Problem | Fix | Commit |
+|---|---|---|
+| Power nets routed at 0.127 mm while every gate passed (#31) | `width_check.py` post-route gate (IPC-2221 vs each net's `i_max`), run by `layout.sh`, required by `pipeline.py` | `a2e5ed6` |
+| Net classes sized for a current bucket (3.3 A → 2.8 mm), unreachable, so routers necked whole nets (#36) | widths from each net's real current; `BoardSpec.trace_rise_c` | `fb25efc` |
+| Only 2 of ~14 fab limits written; "DRC clean" meant clean vs KiCad defaults (#37) | fab profiles (`jlc-2layer-1oz.json`, cited): board setup, `.kicad_dru`, board file; preflight `board.fab` | `304f23e` |
+| Stages and gates were prose; steps skipped, fab files written anyway (#39) | `pipeline.py`: stages in order, gate records, refusal, fab last | `38a4e38` |
+| One board size, chosen once; absolute coordinates made resizing manual (#40) | edge-anchored `board.json` (`board_spec.py`), `size_search.py` | `cd36b35` |
+| haslam ignored a buck-boost whose output pin is `PVOUT` (#45) | `OUT_PIN` matches `P?VOUT`; also on `gfix-pvout-cell` for its own experiment | `10561d8` |
+| Current check charged every pin with its net's total (4 A on a 20 mA zener) (#19, #29) | path current for 2-terminal parts, contact split for connectors | `5c1ad72` |
+| `HASLAM_KICAD_WRAP` unset on apt installs: layout's DRC died silently (#7, #32); KiCad libraries not installed (#6) | `setup.sh` writes it and installs the libraries | `02e163b` |
+| Gradle's parallel fetches got 429s from Maven Central (#9, #28) | one worker in the installer; CLAUDE.md fetching rule | `4e3c61f` |
+
+**Open, highest value first:**
+
+1. **Router: honour a per-net minimum width with a neck-down allowance at pads** (#31 option 3). The gate catches thin
+   power nets; the router should not produce them. Needs an experiment (`route/rules.py` ignores courtyard exemptions).
+2. **Power stages as vendor reference layouts / copper areas** (#41): converters whose datasheet layout is pour-based
+   cannot be drawn track by track.
+3. **Part selection tools** (#10, #11, #12, #42): `parts search` with pitch/function filters, a caching `datasheet`
+   fetcher with mirrors (LCSC and ST were unreachable), `fp-fetch` via easyeda2kicad with legacy-format upgrade (#16, #18).
+4. **A standby-current budget check** from per-part off-state currents (#13: LM74610's 60-110 µA reverse leakage).
+5. **Interval arithmetic in the rule checks** (#19, #43): bootstrap/switch domains summed to impossible voltages twice.
+6. **Pin-name robustness in haslam**: warn when an IC with switch nodes and an inductor yields no cell (#45).
+7. **Layout run time and evaluation as its own job** (#33); last-mile connectivity agrees with KiCad (#34).
+8. **Onboarding**: one setup command (#5), an API cheat sheet (#3), the `Blk` helper in the library (#4).
+
 ## Log (in the order met)
 
 | # | Stage | Sev | What happened | Suggested fix |
