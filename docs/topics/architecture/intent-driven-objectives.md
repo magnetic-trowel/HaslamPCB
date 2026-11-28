@@ -119,6 +119,7 @@ Defaults when silent (`neutral/1`), each emitted as a synthetic term with id `D*
 |---|---|---|
 | connectivity, DRC, clearances, creepage | hard | legality, not preference |
 | part ratings with a source (V_max of a switch, T_j max) | hard, worst corner | a rating is a fact |
+| hottest track (heat.track) | hard, worst corner: 130 C (FR-4 MOT, UL 796) less the hottest ambient (`requirements.thermal.T_amb_C`, else 50 C) | a laminate rating is a fact like a part's; no human board of the evaluator-audit set comes within 40 K of it (hottest 16.4 K), obd-solar's necked 3.5 A track read 199.6 K unpriced (obd-solar, branch `obd-solar-e2e`, FRICTION.md #56) |
 | total copper dissipation | cost, 1 mW_eq/mW, CVaR20 | energy is absolute: no guessed bound; this one cost gives every board a neutral optimum (no needless loss, no broken ratings) |
 | copper area (router widths only) | `knobs.route.area_cost` 0.2 mW_eq/mm², reported as defaulted | bounds w* = √(k_R ρ / (t a)); between the always-on economic value (0.05–0.12) and human layouts (≈ 0.6); chosen by A/B (0.2 completed most, same physics): basis and A/B in [field-solver-routing-and-intent](../../research/physics/field-solver-routing-and-intent.md) |
 | drop, heating, supply noise, victim pickup | reported, unpriced, against the old priors labelled `reference` | the user rejected assumed bounds as prices |

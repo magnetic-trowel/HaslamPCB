@@ -42,8 +42,9 @@ operating corner, each with its scope) are matched by the intent's terms:
   source, observer) > board-scoped (no where, or only kind). Equal specificity is an IntentError naming both.
 
 Contracts between sections are limit or hard terms with from/to. Defaults when the intent is silent
-("defaults": "neutral/1"): copper dissipation is a cost at 1 mW_eq/mW; nothing else is priced, everything
-is reported against the evaluator's old bounds, which are references, not limits. "legacy/u" reproduces the
+("defaults": "neutral/1"): copper dissipation is a cost at 1 mW_eq/mW; the hottest track is held below its laminate's
+rating (hard: FR-4's 130 C less the hottest ambient); nothing else is priced, everything is reported against the
+evaluator's old bounds, which are references, not limits. "legacy/u" reproduces the
 evaluator's own total (sum of phi(u) per corner, mean of the worst fifth) for regression."""
 from __future__ import annotations
 
@@ -283,6 +284,10 @@ def _in(ob, dim):
     return ob["values"]
 
 
+LAMINATE_MOT_C = 130.0     # C: maximum operating temperature of standard FR-4 (UL 796 MOT, IPC-4101 /21)
+T_AMB_PRIOR_HI = 50.0      # C: the heat band's ambient prior top (haslam.excite.heat) when the facts state none
+
+
 def _defaults(intent, obs, terms):
     out = []
     # AC copper loss is copper loss: an intent that prices loss.copper and says nothing of loss.copper_ac prices it alike
@@ -293,6 +298,20 @@ def _defaults(intent, obs, terms):
                 out.append(dict(t, id=t["id"] + "ac", obs="loss.copper_ac",
                                 why=f"AC copper loss priced as {t['id']} prices the DC copper loss: {t.get('why') or ''}"))
                 break
+    if intent["defaults"] == "neutral/1" and any(o["id"] == "heat.track" for o in obs) and not any(
+            t["tier"] == "hard" and fnmatch.fnmatch("heat.track", t["obs"]) for t in terms):
+        # a track hotter than its laminate's rating is a broken rating, not a preference: hard, as part ratings are.
+        # The rise allowed is the laminate's maximum operating temperature less the hottest ambient (the facts',
+        # else the heat band's prior top, haslam.excite.heat). No human corpus board of the evaluator-audit set
+        # comes within 40 K of it; obd-solar's 0.127 mm VBAT track at 3.5 A read 199.6 K and nothing priced it
+        from .facts import facts_of, interval
+        amb = (((facts_of(intent).get("requirements") or {}).get("thermal") or {}).get("T_amb_C"))
+        t_hi = interval(amb, "T_amb_C")[2] if amb is not None else T_AMB_PRIOR_HI
+        # its id names it (an intent's own terms are often D0, D1, ... for drops: a bare "D2" took one's place)
+        out.append(dict(id="D-laminate", tier="hard", obs="heat.track", max=f"{LAMINATE_MOT_C - t_hi:g} K",
+                        source="UL 796 / IPC-4101: FR-4 maximum operating temperature 130 C",
+                        why=f"neutral/1: a track at {LAMINATE_MOT_C:g} C less the hottest ambient ({t_hi:g} C) exceeds "
+                            f"the laminate's rating"))
     if intent["defaults"] == "neutral/1" and not any(fnmatch.fnmatch("loss.copper", t["obs"]) for t in terms):
         out.append(dict(id="D1", tier="cost", obs="loss.copper", rate="1 mW_eq/mW", agg="cvar20",
                         why="neutral/1: energy needs no assumed bound; every other quantity waits for intent"))
