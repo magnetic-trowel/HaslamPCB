@@ -401,3 +401,72 @@ def test_dru_verdict_haslamsynth_lint_first():
     from haslamsynth.build import dru_verdict
     v = dru_verdict("(version 1)\n(rule a (constraint clearance (min 0.2um)))\n", None, {"Default"})
     assert v.startswith("FAIL: ") and "um" in v
+
+
+def _current_design():
+    """A 4 A ground net, a 3 A rail, a 20 mA zener node, a Schottky from a 0.9 A switch node to ground, a fuse
+    and a FET in series with the rail, and a 2-contact connector carrying the rail and its return."""
+    from haslamsynth.lib import D, Fuse, NMOS, Conn, PINMAP_SOT23_FET
+    d = Design("cur")
+    d.domain("D", ref="GND")
+    gnd = d.net("GND", domain="D", v=0, kind="ground", i_max=4)
+    raw = d.net("RAW", domain="D", v=(0, 14), kind="power", i_max=3)
+    rail = d.net("RAIL", domain="D", v=(0, 14), kind="power", i_max=3)
+    sw = d.net("SW", domain="D", v=(0, 14), kind="switching", i_max=0.9)
+    zn = d.net("ZN", domain="D", v=(0, 5.6), kind="power")                  # no i_max: a bias node
+    out = d.net("OUT", domain="D", v=(0, 14), kind="power", i_max=0.5)
+    gate = d.net("G", domain="D", v=(0, 5), kind="signal")
+    b = d.block("x")
+    j = b.add(Conn(4, "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical", i_max=2.0, mpn="J"))
+    raw.connect(j[1], j[2]); gnd.connect(j[3], j[4])                         # 3 A over two contacts each
+    f = b.add(Fuse(5, 32, "Fuse:Fuse_1206_3216Metric", mpn="F"))
+    raw.connect(f[1]); rail.connect(f[2])
+    z = b.add(D("Z", "Diode_SMD:D_SOD-123", 6.0, 0.08, kind="D_Zener"))
+    zn.connect(z["K"]); gnd.connect(z["A"])
+    s = b.add(D("S", "Diode_SMD:D_SMA", 40, 1.0, kind="D_Schottky"))
+    sw.connect(s["K"]); gnd.connect(s["A"])
+    q = b.add(NMOS("Q", "Package_TO_SOT_SMD:SOT-23", 30, 12, 1.0, pinmap=PINMAP_SOT23_FET))
+    rail.connect(q["D"]); out.connect(q["S"]); gate.connect(q["G"])          # carries OUT's 0.5 A, not RAIL's 3 A
+    return d, j, f, z, s, q
+
+
+def _cur_errors(fl, part):
+    return [x for x in fl if x.check == "rating.current" and part.ref in x.objects and x.severity == "error"]
+
+
+def test_current_ground_net_total_is_not_charged_to_branches():
+    d, j, f, z, s, q = _current_design()
+    fl = run(d)
+    assert not _cur_errors(fl, z)                 # 20 mA zener on the 4 A ground: not 4 A
+    assert not _cur_errors(fl, s)                 # Schottky carries SW's 0.9 A (< 1 A), not GND's 4 A
+    assert not _cur_errors(fl, q)                 # FET path RAIL -> OUT: 0.5 A, not 3 A
+    assert not _cur_errors(fl, j)                 # 3 A over two 2 A contacts, return likewise
+
+
+def test_current_real_overloads_still_caught():
+    from haslamsynth.lib import D, Conn
+    d, j, f, z, s, q = _current_design()
+    b = d.blocks["x"] if isinstance(d.blocks, dict) else d.blocks[0]
+    weak = b.add(D("W", "Diode_SMD:D_SMA", 40, 0.5, kind="D_Schottky"))      # 0.5 A diode on the 0.9 A node
+    d.nets["SW"].connect(weak["K"]); d.nets["GND"].connect(weak["A"])
+    one = b.add(Conn(2, "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical", i_max=2.0, mpn="J1"))
+    d.nets["RAW"].connect(one[1]); d.nets["GND"].connect(one[2])             # 3 A through single 2 A contacts
+    fl = run(d)
+    assert _cur_errors(fl, weak)
+    errs = _cur_errors(fl, one)
+    assert len(errs) == 2                          # the RAW contact and its return
+    assert all(e.objects for e in errs)
+
+
+def test_current_connector_return_capped_by_ground_net():
+    from haslamsynth.lib import Conn
+    d = Design("taps")
+    d.domain("D", ref="T0")
+    t0 = d.net("T0", domain="D", v=0, kind="ground", i_max=6)
+    taps = [d.net(f"T{k}", domain="D", v=(0, 13 * k), kind="power", i_max=6) for k in (1, 2, 3)]
+    b = d.block("x")
+    j = b.add(Conn(4, "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical", i_max=8.0, mpn="J"))
+    t0.connect(j[1])
+    for k, n in enumerate(taps, start=2):
+        n.connect(j[k])
+    assert not _cur_errors(run(d), j)              # not 18 A on T0's one contact: capped at T0's 6 A

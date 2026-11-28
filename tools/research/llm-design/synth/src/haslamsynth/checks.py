@@ -10,7 +10,7 @@ import math
 import re
 from dataclasses import dataclass, field
 
-from .ir import GRADES, OFF_BOARD, THREATS, DesignError
+from .ir import GRADES, OFF_BOARD, THREATS, DesignError, PinRef
 from .units import parse_value
 
 
@@ -32,6 +32,9 @@ class Finding:
 
 SERIES_CATEGORIES = ("fuse", "ptc", "connector", "relay", "inductor", "switch", "mosfet", "diode",
                      "transformer", "led", "bjt")
+# parts that carry one current end to end (check_current); their control pins carry none of it
+PATH_CATEGORIES = ("fuse", "ptc", "inductor", "switch", "mosfet", "diode", "led", "bjt")
+CONTROL_PINS = {"mosfet": ("G",), "bjt": ("B",)}
 
 
 class Checker:
@@ -447,13 +450,10 @@ class Checker:
                 continue
             lim = rat.i_max if rat.i_max is not None else (min(rat.pin_i_max.values()) if rat.pin_i_max else None)
             self._rate("rating.current", p, p.i_through, lim, "declared current (i_through)")
-        for n in self.d.all_nets():
-            if not n.i_max:
+        for p in self.d.all_parts():
+            if p.defn.category not in SERIES_CATEGORIES or id(p) in declared:
                 continue
-            for r in n.pins:
-                p = r.part
-                if p.defn.category not in SERIES_CATEGORIES or id(p) in declared:
-                    continue
+            for r, amps, why in self._pin_currents(p):
                 rat = p.defn.ratings
                 lim = None
                 for k in (r.pin.number, r.pin.name):
@@ -461,8 +461,49 @@ class Checker:
                         lim = rat.pin_i_max[k]
                 if lim is None:
                     lim = rat.i_max
-                self._rate("rating.current", p, n.i_max, lim,
-                           f"current on {n.full_name} through pin {r.pin.number} (set i_through= if the part carries less)")
+                self._rate("rating.current", p, amps, lim,
+                           f"current on {r.net.full_name} through pin {r.pin.number} ({why}; set i_through= if the part "
+                           f"carries less)")
+
+    def _pin_currents(self, p):
+        """(pin ref, amps, why) for a part with no declared i_through, from its nets' i_max.
+
+        A net's i_max is the current of the whole net, not of every pin on it, so:
+        - path parts (fuse, diode, LED, inductor, FET, BJT, switch) carry one current end to end: the smaller i_max
+          of the nets on their current-carrying pins (a FET's gate and a BJT's base excluded), ground nets left out
+          because a return net's total says nothing about one branch; every carrying pin, the ground one included,
+          is rated at that current;
+        - connectors split a net's current over their contacts on that net; their ground contacts carry the return
+          of the other contacts (the sum of those nets' i_max, capped at the ground net's own i_max when it has
+          one: in a battery-tap connector the taps' currents do not all return through tap 0), split the same way;
+        - relays and transformers (windings or contact sets of different currents) keep the per-pin net current,
+          ground nets left out.
+        A net with no i_max contributes nothing (as before)."""
+        refs = [PinRef(p, pd) for pd in p.pins if p.conn.get(pd.number) is not None]
+        is_gnd = lambda r: r.net.kind == "ground"
+        cat = p.defn.category
+        if cat in PATH_CATEGORIES:
+            carrying = [r for r in refs if r.pin.name not in CONTROL_PINS.get(cat, ())]
+            amps = [r.net.i_max for r in carrying if not is_gnd(r) and r.net.i_max]
+            if not amps:
+                return []
+            a = min(amps)
+            return [(r, a, "the part's path current: smallest i_max of its nets") for r in carrying]
+        if cat == "connector":
+            out = []
+            by_net = {}
+            for r in refs:
+                by_net.setdefault(id(r.net), []).append(r)
+            ret = sum(rs[0].net.i_max for rs in by_net.values() if not is_gnd(rs[0]) and rs[0].net.i_max)
+            for rs in by_net.values():
+                n = rs[0].net
+                # the return is at most the other contacts' sum, and never more than the ground net's own total
+                total = (min(ret, n.i_max) if n.i_max else ret) if is_gnd(rs[0]) else (n.i_max or 0)
+                if total:
+                    out += [(r, total / len(rs), f"{total:g} A over {len(rs)} contact(s)"
+                             + (" (return of the other contacts)" if is_gnd(rs[0]) else "")) for r in rs]
+            return out
+        return [(r, r.net.i_max, "net current") for r in refs if not is_gnd(r) and r.net.i_max]
 
     def check_power(self):
         for p in self.d.all_parts():
