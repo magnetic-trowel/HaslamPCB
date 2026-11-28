@@ -868,6 +868,12 @@ def _place_rung(board, seed=0, time_s=300.0, physics=True, brief=None, workers=N
             # terms' own u_sat 10, same HPWL, buck hot loops 6.7 vs 8.0 nH (olimex, human
             # 5.9) and 1.70 vs 1.78 nH (noisecard)
             knobs = dict(u_sat=SA_U_SAT)
+            from haslam.route.constraints import setting
+            cp = str(setting("cell_parallel", board_path, opts)).strip().lower()
+            if cp not in ("parallel", "nearest", "mutual"):
+                raise ValueError(f"cell_parallel {cp!r}: 'parallel', 'nearest' or 'mutual'")
+            if cp != "parallel":
+                knobs["cell_parallel"] = cp
             knobs.update(terms_knobs)
             report_terms, tsrc = make_terms(board, brief, barrier=0.0, **knobs)
         except Exception as e:

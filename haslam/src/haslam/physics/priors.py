@@ -68,6 +68,9 @@ class Knobs:
     #                               ~1 %; the old 0.3 read 17-27 % low at 2-10 mm, and on 58 routed pour-mode decaps
     #                               (50 boards) 0.15 fits better (42 of 58 closer; PP7, place-terms.md)
     jit: str = 'auto'             # 'auto' (numba when installed), 'on', 'off' (pure Python)
+    cell_parallel: str = 'parallel'  # a hot loop through several input caps: 'parallel' (independent paths,
+    #                               1 / sum 1/L_i), 'nearest' (the lowest single loop) or 'mutual' (L_eq = 1/(1' M^-1 1),
+    #                               M_ij = (L_i + L_j - L_ij)/2 from the loop between caps i and j); obd-solar FRICTION #54
 
     def detour(self, kind):
         """c of a structure kind's expected hop detour 1 + c sqrt(l) (see HOP_DETOUR)."""

@@ -321,6 +321,9 @@ def build_structures(terms):
 
 
 # ----------------------------------------------------------------------------- (a)
+MUTUAL_CAPS = 6        # Knobs.cell_parallel 'mutual': caps per hot loop at most (pairs grow as n^2)
+
+
 def _commutation(ctx, s, Struct):
     """Hot loop through each candidate input cap: the caps whose calibrated ownership is at
     least half the best one's, in parallel (the loop through the nearest dominates); the
@@ -352,6 +355,21 @@ def _commutation(ctx, s, Struct):
     variants = [v for v in variants if v[1] >= 0.5 * pmax]          # the caps this cell most likely owns
     comps = [_loop_comp(ctx, Tc, True, 'commutation') for Tc, _, _ in variants]
     labels = [lab for _, _, lab in variants]
+    reduce, rinfo = 'parallel', {}
+    mode = ctx.t.knobs.cell_parallel
+    if len(comps) > 1 and mode == 'nearest':
+        reduce = 'min'
+    elif len(comps) > 1 and mode == 'mutual':
+        # the loops between each pair of caps (rail pad i -> rail pad j -> ground pad j -> ground pad i) give the
+        # mutuals (place_terms.mutual_parallel); at most MUTUAL_CAPS caps (the brief's order: the likeliest owners)
+        vs = variants[:MUTUAL_CAPS]
+        comps, labels = comps[:len(vs)], labels[:len(vs)]
+        for a in range(len(vs)):
+            for c in range(a + 1, len(vs)):
+                Ta, Tb = vs[a][0], vs[c][0]
+                comps.append(_loop_comp(ctx, [Ta[0], Tb[0], Tb[-1], Ta[-1]], True, 'commutation'))
+                labels.append(f'{vs[a][2]}~{vs[c][2]}')
+        reduce, rinfo = 'mutual', dict(weights=len(vs))
     cls = s.get('class') or 'unknown'
     ex = s.get('excite') or {}
     vin, vin_prior = PR.cell_v_in(ex, ctx.net_volts(s.get('rail')))
@@ -361,8 +379,8 @@ def _commutation(ctx, s, Struct):
     l_abs = PR.hot_loop_budget(cls, vin, t_sw_ns=ex.get('t_sw_ns'), derate=1.0, v_abs=ex.get('V_abs')).value
     excite = PR.hot_loop_excite(cls, vin, ex.get('I'), ex.get('t_sw_ns'))
     return Struct(id=s.get('id') or f'cell:{bv.parts[T[1].i].ref}', kind='commutation', conf=ctx.conf(s) * pmax,
-                  alloc=alloc, comps=comps, reduce='parallel', labels=labels,
-                  info=dict(cls=cls, V_in=vin, excite=excite, ownership=pmax, sw=s.get('sw'), L_abs_nH=l_abs,
+                  alloc=alloc, comps=comps, reduce=reduce, labels=labels,
+                  info=dict(cls=cls, V_in=vin, excite=excite, ownership=pmax, sw=s.get('sw'), L_abs_nH=l_abs, **rinfo,
                             V_abs=ex.get('V_abs') or PR.v_abs_rating(vin), V_abs_known=bool(ex.get('V_abs')),
                             V_abs_source=PR.v_abs_source(ex), V_in_prior=vin_prior,
                             sw_nets=s.get('sw_nets') or ([s.get('sw')] if s.get('sw') else [])))

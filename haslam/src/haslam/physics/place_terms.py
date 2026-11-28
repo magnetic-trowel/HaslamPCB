@@ -74,7 +74,44 @@ def _red(kind, vals, weights=None):
         return 1.0 / inv if inv > 0 else INF
     if kind == 'max':
         return max(vals) if vals else 0.0
+    if kind == 'min':
+        return min(vals) if vals else INF
+    if kind == 'mutual':
+        return mutual_parallel(vals, weights)
     return vals[0] if vals else 0.0
+
+
+def mutual_parallel(vals, n):
+    """Inductance of n loops in parallel that share part of their path (the switch side of a hot loop through n input
+    caps): vals holds L_1..L_n, then L_ij for every pair i < j in order, the loop from cap i through cap j and back
+    (rail pads, then ground pads). The mutual of loops i and j is M_ij = (L_i + L_j - L_ij) / 2 (the loop ij is
+    loop i minus loop j), and the current splits to minimise the stored energy: L_eq = 1 / (1' M^-1 1). Caps on one
+    shared far path give L_ij small, M_ij ~ L_i, L_eq ~ the nearest loop; caps on separate short paths give
+    L_ij ~ L_i + L_j, M_ij ~ 0, L_eq ~ 1 / sum 1/L_i. Clamped to [the independent-parallel value, the lowest loop];
+    a matrix that is not positive definite (an estimate inconsistency) falls back to the lowest loop."""
+    n = int(n)
+    L = [float(v) for v in vals[:n]]
+    if n <= 1 or any(not (v > 1e-12) or v == INF for v in L):
+        return min(L) if L else INF
+    lo = 1.0 / sum(1.0 / v for v in L)
+    hi = min(L)
+    M = np.empty((n, n))
+    k = n
+    for i in range(n):
+        M[i, i] = L[i]
+        for j in range(i + 1, n):
+            lij = float(vals[k])
+            k += 1
+            M[i, j] = M[j, i] = 0.5 * (L[i] + L[j] - lij)
+    try:
+        np.linalg.cholesky(M)
+        x = np.linalg.solve(M, np.ones(n))
+        leq = 1.0 / float(x.sum())
+    except np.linalg.LinAlgError:
+        return hi
+    if not (leq > 0):
+        return hi
+    return min(max(leq, lo), hi)
 
 
 class Terms:
