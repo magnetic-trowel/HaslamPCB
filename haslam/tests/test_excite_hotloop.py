@@ -513,6 +513,54 @@ def test_the_own_parts_window_is_opt_in(monkeypatch):
     assert HL._own_window_default() is True
 
 
+def _coarse_only(monkeypatch, how):
+    """Refuse every window solve finer than 0.1 mm: by the memory budget (`budget`) or by an allocation failing
+    (`alloc`, a MemoryError from inside the solve)."""
+    from haslam.excite import hotloop as HL
+    if how == "budget":
+        real = HL.window_bytes
+        monkeypatch.setattr(HL, "window_bytes", lambda net: 1e15 if net.m.pitch < 0.1 else real(net))
+    else:
+        real = HL._solve_window
+
+        def fake(path, b, bd, s, o, win, pitch, *a, **k):
+            if pitch < 0.1:
+                raise MemoryError("SuperLU")
+            return real(path, b, bd, s, o, win, pitch, *a, **k)
+        monkeypatch.setattr(HL, "_solve_window", fake)
+
+
+@pytest.mark.parametrize("how", ["budget", "alloc"])
+def test_a_window_over_memory_is_solved_at_the_next_pitch_and_says_so(tmp, monkeypatch, how):
+    _coarse_only(monkeypatch, how)
+    p = write_hotloop_board(f"{tmp}/mem-{how}", "closed")
+    c = _cell(evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.0625))
+    ref = _cell(_ev("closed", tmp))                  # the same window at 0.125 mm
+    assert c["state"] == "ok" and c["window"]["refined"] and c["window"]["pitch"] == 0.125
+    assert [x["pitch"] for x in c["window"]["coarsened"]] == [0.0625]
+    assert ("budget" in c["window"]["coarsened"][0]["why"]) == (how == "budget")
+    assert c["L_loop_nH"] == ref["L_loop_nH"] and c["R_loop_mohm"] == ref["R_loop_mohm"]
+
+
+def test_a_window_over_memory_at_every_pitch_keeps_the_board_values(tmp, monkeypatch):
+    from haslam.excite import hotloop as HL
+    monkeypatch.setattr(HL, "window_bytes", lambda net: 1e15)
+    p = write_hotloop_board(f"{tmp}/mem-all", "closed")
+    c = _cell(evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.0625))
+    assert c["state"] == "ok" and c["window"]["refined"] is False and "memory budget" in c["window"]["why"]
+    assert c["L_loop_nH"] == c["global"]["L_loop_nH"] and c["R_loop_mohm"] == c["global"]["R_loop_mohm"]
+
+
+def test_the_window_memory_estimate_grows_with_the_raster():
+    from types import SimpleNamespace
+    from haslam.excite import hotloop as HL
+
+    def net(n, nx, ny):
+        return SimpleNamespace(n_nodes=n, n_br=4 * n, m=SimpleNamespace(nx=nx, ny=ny, layers=[0, 1]))
+    a, b = HL.window_bytes(net(10_000, 100, 100)), HL.window_bytes(net(40_000, 200, 200))
+    assert 0 < a < b and b > 4 * a * 0.99
+
+
 def test_the_cells_leave_no_window_kernels_in_the_operator_cache(tmp):
     from haslam.em import solve as ES
     p = write_hotloop_board(f"{tmp}/cache", "closed")

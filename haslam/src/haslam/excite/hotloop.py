@@ -57,6 +57,11 @@ FAR_MM = 10.0                # mm: a part carrying SHARE whose pads are all this
 MARGIN_H = 3.0               # x the outer layers' depth to their next layer, if larger (the return spreads over a few h)
 HARMONICS = (1, 3, 5)        # R_loop at these multiples of f_sw
 MAX_CELLS = 1.2e6            # raster budget of one window (cells x copper layers): the pitch doubles past it (5 min)
+# memory budget of one window solve (bytes, estimated before anything is factored: window_bytes): past it the pitch
+# doubles, as past MAX_CELLS. A fixed number, not the host's free memory, so a board's pitch never depends on its
+# host's load. HASLAM_CELL_WINDOW_GB overrides (0: no memory budget)
+MAX_WINDOW_BYTES = float(os.environ.get("HASLAM_CELL_WINDOW_GB", "6")) * 1e9
+WINDOW_BYTES_PER_NODE_LOG = 420.0   # window_bytes' constant (bytes per node and log2 node, per 1 + layers / 2)
 MAX_GROW = 4                 # margin doublings when the loop closes only outside the window
 TRUNC_MAX = 0.5              # the window's truncation (board solve minus the window at the board's pitch) may be
                              # at most this share of the board's L_loop and R_loop: beyond it the window misses where
@@ -163,7 +168,26 @@ def _edge_bd(bd):
     return out
 
 
-def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log, edge=None, warm=None):
+class WindowTooLarge(Exception):
+    """A window solve whose estimated memory (window_bytes) is over MAX_WINDOW_BYTES: refused before factoring."""
+
+    def __init__(self, est, budget):
+        super().__init__(f"estimated {est / 1e9:.2g} GB, over the window budget of {budget / 1e9:.2g} GB")
+        self.est, self.budget = est, budget
+
+
+def window_bytes(net):
+    """Estimated peak memory (bytes) of one window solve on network `net`, before anything is factored:
+    WINDOW_BYTES_PER_NODE_LOG x (1 + layers / 2) x n log2 n over its n nodes. The preconditioner's LU of the node
+    system dominates (SuperLU, MMD ordering: 4-16 n log2 n nonzeros, more with more layers; 50-170 bytes of peak per
+    nonzero with the solver's branch arrays and kernel tables); the constant is the upper envelope of 29 window solves
+    on 9 boards, 7k-517k nodes, 2 and 4 layers (docs/research/physics/cell-window-memory.md): it reads 1.0-2.1x their
+    measured peak."""
+    n = max(int(net.n_nodes), 2)
+    return WINDOW_BYTES_PER_NODE_LOG * (1 + len(net.m.layers) / 2) * n * math.log2(n)
+
+
+def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log, edge=None, warm=None, budget=None):
     """{f: z} (the layout's share at the overshoot observer) for the cell's pattern in window `win`, or
     (None, why) when the window's copper leaves the pattern open; the info's rcu and lcu: {f: the copper's
     dissipation (ohm) and stored-energy inductance (H) of the pattern}. At f == edge the circuit is at its edge model
@@ -199,6 +223,8 @@ def _solve_window(path, b, bd, s, o, win, pitch, nsub, fills, freqs, skin, log, 
         bm.m.lumped = list(base)
         lump_into(c, tpad, lambda a, c_, zf, nm: bm.m.part(a, c_, name=nm, zf=zf))
         n_ = ES.Network(bm.m)
+        if budget and not nets and window_bytes(n_) > budget:
+            raise WindowTooLarge(window_bytes(n_), budget)
         nets[id(c)] = [n_, None]          # its Operator (kernel tables) only once a solve needs it
     from .evaluate import _band_start
     out, dropped, prev, rcu, lcu, states = {}, 0.0, None, {}, {}, {}
@@ -270,6 +296,7 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
     open on the whole board: priced at its caps by haslam.excite.evaluate) or "not_computed" (its pads are not in the
     board's copper model). bm: the board solve's BoardMesh (its pads' shapes and KiCad's zone fills). global_pairs:
     {source: (Le, Zf)} of the board solve, reported beside the window's."""
+    import gc
     from haslam.em import solve as ES
     from haslam.em.kicad import BoardMesh  # noqa: F401  (import cost before the timers)
     from .evaluate import coarsen_pitch
@@ -303,14 +330,30 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
             rows.append(dict(row, state="not_computed", why="no pad of the cell in the copper model"))
             continue
         res, margin, grown, Lw, Lc = None, margin0, 0, None, None
+        coarsened = []                       # [(pitch refused, why)]: the memory budget's or an allocation's refusals
         keys0 = set(ES.Operator._cache)
         while True:
             win = (max(board_window[0], box_[0] - margin), max(board_window[1], box_[1] - margin),
                    min(board_window[2], box_[2] + margin), min(board_window[3], box_[3] + margin))
             pc, _ = coarsen_pitch(win, pitch, n_cu, MAX_CELLS)
+            z = None
+            while not (global_pitch and pc >= global_pitch):
+                # past the memory budget (estimated before factoring), or out of memory all the same (a MemoryError,
+                # under a ulimit): the next coarser pitch, as past MAX_CELLS; the row lists every refusal
+                try:
+                    z, info, m = _solve_window(path, b, bd, s, o, win, pc, nsub, bm.fills, freqs, skin, log,
+                                               edge=f_edge, budget=MAX_WINDOW_BYTES)
+                    break
+                except (WindowTooLarge, MemoryError) as e:
+                    if not global_pitch and pc >= 16 * pitch:
+                        raise                # no board solve to fall back to, and 16x coarser does not fit either
+                    why_ = str(e) if isinstance(e, WindowTooLarge) else f"out of memory ({type(e).__name__})"
+                    coarsened.append((pc, why_))
+                    log(f"cell {s.name}: window at {pc:g} mm: {why_}; trying {2 * pc:g} mm")
+                    gc.collect()
+                    pc *= 2
             if global_pitch and pc >= global_pitch:
                 break                        # no finer than the board solve: nothing to refine
-            z, info, m = _solve_window(path, b, bd, s, o, win, pc, nsub, bm.fills, freqs, skin, log, edge=f_edge)
             whole = win == tuple(board_window)
             zc, infc = None, None
             if z is not None and global_pitch:
@@ -331,7 +374,9 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
         for k in [k for k in ES.Operator._cache if k not in keys0]:
             del ES.Operator._cache[k]
         why = None
-        if global_pitch and pc >= global_pitch:
+        if global_pitch and pc >= global_pitch and coarsened:
+            why = (f"over the memory budget below the board's pitch ({'; '.join(f'{p_:g} mm: {w_}' for p_, w_ in coarsened)})")
+        elif global_pitch and pc >= global_pitch:
             why = f"over the budget of {MAX_CELLS:.3g} cells x layers below the board's pitch"
         elif z is not None and zc is not None and _truncation_too_large(g, zc, Lc, f_fund):
             why = (f"the window's truncation exceeds {TRUNC_MAX:g} of the board's value (window grown {grown} times "
@@ -385,6 +430,7 @@ def cell_rows(path, b, bd, bm, srcs, obs, cps, bands, board_window, n_cu, nsub=2
                                      L_raw_nH=round(Lw * 1e9, 4), trunc_L_nH=round(dLe * 1e9, 4),
                                      R_raw_mohm=round(rw.get(f_fund, 0.0) * 1e3, 4),
                                      trunc_R_mohm=round(dR * 1e3, 4), corrected=zc is not None, refined=True,
+                                     **({"coarsened": [dict(pitch=p_, why=w_) for p_, w_ in coarsened]} if coarsened else {}),
                                      cells=int(m.nx * m.ny * len(m.layers)), dropped_injection=round(info["dropped"], 5),
                                      skin=bool(skin), seconds=round(time.time() - t0, 1))))
         log(f"cell {s.name}: window {win[2] - win[0]:.1f} x {win[3] - win[1]:.1f} mm at {pc:g} mm: L_loop "
