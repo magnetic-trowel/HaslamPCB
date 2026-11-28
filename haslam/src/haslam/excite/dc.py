@@ -93,6 +93,10 @@ MONITOR_A = (1e-6, 1e-2)
 # "export_current") so the board's author states the real current or confirms it is signal-level.
 EXPORT_SHARE = 0.01
 EXPORT_BAND = (0.1, 10.0)       # lo, hi as factors of the assumed current
+# A rail whose only loads are such exports takes what its feed delivers instead (plan): "stated" only where the facts
+# state that current (cells.<id>.I_A or I_out_A, a charger's parts.<ref>.I_A), "all" also a ledger prior, "off" never
+EXPORT_FROM_FEED = "stated"
+CHARGE_SINKS = True             # a charger with no load charges the external source one series part away (plan)
 SUPPLY_PIN = re.compile(r"^(V(CC|DD|IN|BAT|BUS|S|M|PP|IO|CORE|DDA|DDIO|USB|SYS|P|\+)\w*|AVDD|DVDD|IOVDD|PVDD|PVIN|"
                         r"AVCC|DVCC|VIN\d*|PWR|POWER|\+V\w*|V\+|VREG_IN|IN)$", re.I)
 VOLT_PIN = re.compile(r"^\+?\d+V\d*$|^\+?\d+(\.\d+)?V$", re.I)     # '3V3', '5V', '+1.8V': a supply pin by its voltage
@@ -182,13 +186,18 @@ def export_questions(pl):
         f = pl.feeds.get(ex["rail"]) or {}
         if f.get("kind") == "cell":
             why.append(f"its rail is fed by {f['cell']['id']}, whose operating current follows its loads")
+        if ex.get("feed_prior_A"):
+            why.append(f"its rail's only loads are exports and its feed's prior current is {ex['feed_prior_A']:.3g} A")
         ref, r, a = ex["ref"], ex["rail"], ex["assumed_A"]
+        how = (f"what its rail's feed {ex['from_feed']} delivers (its only loads are exports)" if ex.get("from_feed")
+               else f"{EXPORT_SHARE * 100:g} % of its {ex['rating_A']:g} A rating")
         out[ex["key"]] = dict(
             kind="export_current", ref=ref, rail=r, rating_A=ex["rating_A"], assumed_A=a,
-            assumed_share=EXPORT_SHARE, band_A=[ex["lo_A"], ex["hi_A"]], field=f"parts.{ref}.I_A",
+            assumed_share=None if ex.get("from_feed") else EXPORT_SHARE, from_feed=ex.get("from_feed"),
+            band_A=[ex["lo_A"], ex["hi_A"]], field=f"parts.{ref}.I_A",
             also=f"parts.{ref}.I_sustained_A", might_differ=why, priority="high" if why else "normal",
             ask=(f"{ref} exports {r} off the board and the facts do not state its current; assumed "
-                 f"{a * 1e3:.3g} mA ({EXPORT_SHARE * 100:g} % of its {ex['rating_A']:g} A rating). What does it carry? "
+                 f"{a * 1e3:.3g} mA ({how}). What does it carry? "
                  f"State parts.{ref}.I_A in A (a value or [lo, hi]; I_sustained_A for the typical draw), "
                  f"or 0 if only signals or nothing draw from it."))
     return out
@@ -726,11 +735,141 @@ def plan(board, brief, bd, P, srcs, intent=None):
         pl.notes.append(f"{r}: {ref} powers itself from off the board; its own draw heats it but flows in no carrier copper")
     for ex in pl.exports_assumed:
         ex["only_load"] = all(ld["ref"] == ex["ref"] for ld in pl.loads if ld["rail"] == ex["rail"])
-    if pl.exports_assumed:
+
+    def feed_output(r, seen=()):
+        """(typ, lo, hi, source, basis) of the current rail r's feed is stated or ledgered to deliver, None without
+        one: a cell's output from its operating current (the facts' cells.<id>.I_out_A, else its ledger I_A, the
+        commutated current, through its topology at its typical duty), a charger's from parts.<ref>.I_A (what the
+        facts compiler writes for a charger: its charge current). A rail fed through a series part (a blocking diode,
+        a fuse) from a rail that feeds nothing else and has no load of its own carries that rail's feed's current."""
+        f = pl.feeds.get(r) or {}
+        rin = f.get("rin")
+        if f.get("kind") == "linear" and rin and rin not in seen and \
+                (parts.get(uuid_of.get(f.get("ref"))) or {}).get("kind") in SERIES + ("connector",) and \
+                not any(ld["rail"] == rin or ld.get("ret") == rin for ld in pl.loads) and \
+                [r2 for r2, f2 in pl.feeds.items() if (f2["cell"]["vin"] if f2["kind"] == "cell" else f2.get("rin")) == rin] == [r]:
+            up = feed_output(rin, seen + (r,))
+            if up is not None:
+                return (*up[:4], f"{up[4]}, through {f['ref']}")
+        if f.get("kind") == "cell":
+            c = f["cell"]
+            sid = c["id"]
+            io = (((intent or {}).get("cells") or {}).get(sid) or {}).get("I_out_A")
+            if io is not None:
+                return (*fact_interval(io, f"facts.cells.{sid}.I_out_A"), "intent", f"facts.cells.{sid}.I_out_A")
+            ps = {getattr(p, "name", ""): p for p in (P.get(c["src"]) or {}).values()}
+            pi = ps.get("I_A")
+            if pi is None or pi.hi <= 0:
+                return None
+            D = min(max(ps["D"].typ if "D" in ps else 0.5, 0.02), 0.98)
+            if c["cls"] == "buckboost":
+                # I_L is the output current bucking, the input current boosting (as _cell_cap)
+                vo, vi = abs(volts(r) or 0.0), abs(volts(c["vin"]) or 0.0)
+                k = max(1.0, vo / (c.get("eta", 1.0) * vi)) if vo and vi else 1.0
+                vals = [x / k for x in (pi.typ, pi.lo, pi.hi)]
+            else:
+                vals = [CV.output_from_inductor(_top(c), x, D) for x in (pi.typ, pi.lo, pi.hi)]
+            return (*vals, pi.source, f"{sid}'s operating current ({pi.source}: {pi.basis})")
+        ref = f.get("ref")
+        if f.get("kind") in ("linear", "switching") and (parts.get(uuid_of.get(ref)) or {}).get("subtype") == "charger":
+            iv = (((intent or {}).get("parts") or {}).get(ref) or {}).get("I_A")
+            if iv is not None:
+                return (*fact_interval(iv, f"facts.parts.{ref}.I_A"), "intent", f"facts.parts.{ref}.I_A (its charge current)")
+        return None
+
+    # A rail whose only loads are connector exports the facts do not state carries what its feed delivers, not 1 % of
+    # the connectors' rating: a converter or charger on the board exists to power them (obd-solar's LTC3115-1 into
+    # its USB-C receptacle read 30 mA, so 0.127 mm on its 3.5 A path read 0 K). The feed's current is split over the
+    # exports by their rating (EXPORT_FROM_FEED says which feed currents count).
+    if EXPORT_FROM_FEED != "off":
+        by_key = {(p.subject, p.name): i for i, p in enumerate(pl.params)}
+        for r in sorted({ex["rail"] for ex in pl.exports_assumed}):
+            exs = [ex for ex in pl.exports_assumed if ex["rail"] == r]
+            if any(ld["rail"] == r and not any(ld["key"] == ex["key"] for ex in exs) for ld in pl.loads):
+                continue        # another load on the rail (an IC, a stated export): the 1 % prior stands
+            if any(ld.get("ret") == r for ld in pl.loads) or any(
+                    (f2["cell"]["vin"] if f2["kind"] == "cell" else f2.get("rin")) == r for f2 in pl.feeds.values()):
+                continue        # it feeds a regulator or a split-supply load returns into it: drawn otherwise
+            fo = feed_output(r)
+            if fo is not None and EXPORT_FROM_FEED == "stated" and fo[3] != "intent":
+                # the converter's current is a class prior too: the 1 % stands, and the evaluation says what to state
+                pl.notes.append(f"{r}: its only loads are unstated exports ({', '.join(ex['ref'] for ex in exs)}) and "
+                                f"{pl.feeds[r]['ref']}'s current is a {fo[3]} ({fo[0]:.3g} A): they are taken at "
+                                f"{EXPORT_SHARE * 100:g} % of their rating; state parts.<ref>.I_A or the converter's I_A")
+                for ex in exs:
+                    ex["feed_prior_A"] = fo[0]
+                continue
+            if fo is None:
+                continue
+            typ, lo, hi, src, basis = fo
+            tot = sum(ex["rating_A"] for ex in exs) or 1.0
+            for ex in exs:
+                k = ex["rating_A"] / tot
+                old = pl.params[by_key[ex["key"]]]
+                p = Param(old.subject, "I_A", typ * k, lo * k, hi * k, "A", src,
+                          f"its rail {r}'s only load{'s are' if len(exs) > 1 else ' is'} unstated export"
+                          f"{'s' if len(exs) > 1 else ''}: what {pl.feeds[r]['ref']} delivers, {basis}"
+                          + (f" ({k:.0%} of it: its share of the exports' rating)" if k < 1 else ""))
+                pl.params[by_key[ex["key"]]] = p
+                ex.update(assumed_A=p.typ, lo_A=p.lo, hi_A=p.hi, from_feed=pl.feeds[r]["ref"])
+            pl.notes.append(f"{r}: its only loads are unstated exports ({', '.join(ex['ref'] for ex in exs)}); they take "
+                            f"what {pl.feeds[r]['ref']} delivers ({typ:.3g} A, {lo:.3g} .. {hi:.3g}; {src})")
+    # A charger with nothing on its rail charges a battery off the board: a converter rail that nothing draws from,
+    # joined by one series part (a blocking FET or diode, a sense resistor) to a rail an external source feeds (the
+    # battery's connector), delivers its current through that part into the source. obd-solar's CN3767 (CHG_OUT ->
+    # Q203 -> VBAT -> F101 -> J101, the car's battery): its whole charge path carried no current. The battery takes it
+    # at its feed pads and gives it back at its ground pads; the series part passes it (lumped, as a linear feed's).
+    if CHARGE_SINKS:
+        loaded = {ld["rail"] for ld in pl.loads} | {ld.get("ret") for ld in pl.loads}
+        fed_from = {(f2["cell"]["vin"] if f2["kind"] == "cell" else f2.get("rin")) for f2 in pl.feeds.values()}
+        for r in sorted(pl.feeds):
+            f = pl.feeds[r]
+            if r in loaded or r in fed_from or f.get("flow_external"):
+                continue
+            if f["kind"] != "cell" and (parts.get(uuid_of.get(f.get("ref"))) or {}).get("subtype") != "charger":
+                continue
+            fo = feed_output(r)
+            if fo is None:
+                continue
+            own_parts = (f["cell"]["parts"] if f["kind"] == "cell" else {f["ref"]})
+            cands = []
+            for ref, pp in sorted(pads.items()):
+                if ref in own_parts or (parts.get(uuid_of.get(ref)) or {}).get("kind") not in SERIES:
+                    continue
+                ns = {nt for _, nt, _, _ in pp}
+                if r not in ns:
+                    continue
+                for r2 in sorted(ns - {r} - set(grounds)):
+                    b = pl.feeds.get(r2) or {}
+                    if b.get("kind") == "external" and b.get("out") and b.get("gnd") and on(ref, r2) and \
+                            (parts.get(uuid_of.get(b.get("ref"))) or {}).get("kind") in ("connector", "battery"):
+                        cands.append((-len(on(ref, r)), ref, r2))
+            if len(cands) != 1:
+                if cands:
+                    pl.notes.append(f"{r}: {f['ref']} has no load and reaches {len(cands)} external sources through series "
+                                    f"parts ({', '.join(c_[1] for c_ in cands)}); which one it charges is not known")
+                continue
+            _, ser, r2 = cands[0]
+            b = pl.feeds[r2]
+            typ, lo, hi, src, basis = fo
+            p = Param(f"dc:{b['ref']}@{r}", "I_A", typ, lo, hi, "A", src,
+                      f"{f['ref']} charges the source on {r2} ({b['ref']}) through {ser}: {basis}")
+            pl.params.append(p)
+            if ser in conducting:
+                # a part the copper model conducts through (a Schottky, a sense resistor, a fuse): the current reaches
+                # the source through it in the copper itself
+                ld = dict(sup=list(b["out"]))
+            else:
+                ld = dict(sup=on(ser, r), through=(on(ser, r2), list(b["out"])))
+            pl.loads.append(dict(ld, ref=b["ref"], rail=r, gnd=list(b["gnd"]), prior=typ, part_share=1.0,
+                                 key=(p.subject, p.name), charge=r2))
+            pl.notes.append(f"{r}: no load of its own; {f['ref']} charges the external source {b['ref']} on {r2} "
+                            f"through {ser} ({typ:.3g} A, {lo:.3g} .. {hi:.3g}; {src})")
+    share = [ex for ex in pl.exports_assumed if not ex.get("from_feed")]
+    if share:
         pl.notes.append(f"connector exports the facts do not state, assumed at {EXPORT_SHARE * 100:g} % of their rating: "
-                        + ", ".join(f"{ex['ref']}@{ex['rail']} {ex['assumed_A'] * 1e3:.3g} mA"
-                                    for ex in pl.exports_assumed[:12])
-                        + (f" (+{len(pl.exports_assumed) - 12} more)" if len(pl.exports_assumed) > 12 else ""))
+                        + ", ".join(f"{ex['ref']}@{ex['rail']} {ex['assumed_A'] * 1e3:.3g} mA" for ex in share[:12])
+                        + (f" (+{len(share) - 12} more)" if len(share) > 12 else ""))
     # a cell's rail with no load of its own still carries current when a regulator it feeds (or a split-supply load
     # returning into it) draws: deliver() walks that current back through the cell. Only a rail that nothing draws
     # from, directly or through what it feeds, leaves the cell's DC flow out of the model.
@@ -745,7 +884,8 @@ def plan(board, brief, bd, P, srcs, intent=None):
         if f["kind"] == "cell" and not drawn(r):
             pl.notes.append(f"{r}: fed by {f['cell']['id']}, but nothing draws from it (no load with a ground pad, no "
                             f"regulator fed from it); the cell's DC flow is not modelled")
-    pl.dc_pads = {t for ld in pl.loads for t in ld["sup"] + ld["gnd"]} | {t for sl in pl.self_loads for t in sl["pads"]}
+    pl.dc_pads = {t for ld in pl.loads for t in ld["sup"] + ld["gnd"] + [x for xs in ld.get("through") or () for x in xs]} \
+        | {t for sl in pl.self_loads for t in sl["pads"]}
     for r, f in pl.feeds.items():
         # a cell carries current only when something draws from its rail; the pads only its current uses (an
         # external FET's, an unfed input's entry and return) join the DC terminals only then: a terminal no current
@@ -1133,6 +1273,11 @@ def injections(pl, cv, lost=None):
         s = _sign(pl, ld["rail"]) * x
         add(ld["sup"], -s, f"{ld['rail']}: load {ld['ref']}")
         add(ld["gnd"], s, f"{ld['rail']}: load {ld['ref']} return")
+        if ld.get("through"):
+            # a charge path (plan's charge sinks): the series part passes the current on into the source's rail, and
+            # the source (a battery) takes it at its feed pads
+            add(ld["through"][0], s, f"{ld['rail']}: charge of {ld['ref']} through its series part")
+            add(ld["through"][1], -s, f"{ld['rail']}: charge into {ld['ref']}")
         deliver(ld["rail"], s)
         if ld.get("ret"):
             deliver(ld["ret"], -s)          # a split-supply load's current, taken back out by its negative rail's feed
