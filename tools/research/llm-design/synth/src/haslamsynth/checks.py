@@ -758,13 +758,14 @@ class Checker:
                          [p.ref])
 
     def check_dc_bias(self):
-        """Class II MLCCs lose much of their capacitance near rated voltage."""
+        """Class II MLCCs lose much of their capacitance under DC bias: estimate it (mlcc_bias_factor) at the
+        worst voltage across the part. fields={'Ceff': ...} (a vendor curve) overrides the estimate."""
         for p in self.d.all_parts():
             defn = p.defn
             if defn.category != "capacitor_ceramic" or len(p.conn) != 2 or "Ceff" in {**defn.fields, **p.fields}:
                 continue
             diel = str(defn.fields.get("Dielectric", "X7R")).upper()
-            if diel in ("C0G", "NP0", "COG"):
+            if diel in ("C0G", "NP0", "COG", "NPO"):
                 continue
             farads = parse_value(p.value)
             vr = defn.ratings.v_max
@@ -778,11 +779,27 @@ class Checker:
                 if rng is None:
                     continue
                 v = max(abs(rng[0]), abs(rng[1]))
-            if v / vr > 0.5:
-                self.add("rating.dc_bias", "warning",
-                         f"{p.ref} ({p.value} {diel} {vr:g} V) runs at {v:.3g} V ({v / vr:.0%} of rating): "
-                         f"effective capacitance may be well under half; check the vendor DC-bias curve and "
-                         f"record it as fields={{'Ceff': '...'}}", [p.ref])
+            pkg = mlcc_package(defn)
+            k = mlcc_bias_factor(farads, v, pkg, diel) if pkg else None
+            who = f"{p.ref} ({p.value} {diel} {vr:g} V{' ' + pkg if pkg else ''})"
+            if k is None:
+                if v / vr > 0.5:
+                    self.add("rating.dc_bias", "warning",
+                             f"{who} runs at {v:.3g} V ({v / vr:.0%} of rating) and its package is unknown, so its "
+                             f"DC-bias loss cannot be estimated; record the vendor curve as fields={{'Ceff': '...'}}",
+                             [p.ref])
+                continue
+            est = (f"{who} at up to {v:.3g} V ({v / vr:.0%} of rating): estimated Ceff ~{_si_f(k * farads)} "
+                   f"({k:.0%} of nominal; typical, +/-15 % of nominal, from the field proxy V sqrt(C/volume) fitted "
+                   f"to vendor curves, docs/research/physics/component-priors.md#mlcc-dc-bias-and-esr; a part rated "
+                   f"far above the bias usually keeps more). Check the calculation that needs it; a vendor figure "
+                   f"goes in fields={{'Ceff': '...'}}")
+            # warn where both the rating (over half) and the estimate (under half left) say so; the model ignores the
+            # rating, so below half of it the estimate is reported as info (conservative for high-rated parts)
+            if v / vr > 0.5 and k < 0.5:
+                self.add("rating.dc_bias", "warning", est, [p.ref])
+            elif v / vr > 0.5 or k < 0.5:
+                self.add("rating.dc_bias", "info", est, [p.ref])
 
     def check_protection(self):
         for n in self.d.all_nets():
@@ -889,6 +906,49 @@ class Checker:
                 if i not in used:
                     self.add("waiver.unused", "warning",
                              f"waiver {w.check} /{w.match}/ matches no finding; remove it ({w.reason[:60]})")
+
+
+# MLCC DC bias (class II): C(V)/C = 1 / (1 + (z / DCB_Z0)^DCB_P), z = V sqrt(C[F] / body volume [mm3]), volume
+# L x W x min(W, 2.5 mm). The loss follows the DC field in the layers; a footprint gives the body, and at fixed
+# permittivity C/volume ~ 1/t^2, so V/t ~ V sqrt(C/volume) for a part that fills its body. Same model and constants
+# as haslam.excite.models.mlcc_bias_factor (fitted to Murata/TDK/Samsung typical curves and EPCI 2019, +/-0.15:
+# docs/research/physics/component-priors.md#mlcc-dc-bias-and-esr), copied because haslam's module needs numpy.
+# The rated voltage is not in the curve (no source gave a usable law; a higher-rated part of the same C and body
+# has thicker layers and loses less, so ignoring it is conservative). Y5V/Z5U lose about twice as fast.
+DCB_Z0 = 0.011
+DCB_P = 1.3
+MLCC_LW = {"0201": (0.6, 0.3), "0402": (1.0, 0.5), "0603": (1.6, 0.8), "0805": (2.0, 1.25), "1206": (3.2, 1.6),
+           "1210": (3.2, 2.5), "1812": (4.5, 3.2), "2220": (5.7, 5.0)}
+
+
+def mlcc_bias_factor(farads, volts, pkg, diel="X7R"):
+    """C(V)/C of a class II MLCC of nominal `farads` at DC `volts`, imperial package `pkg`; None if unknown."""
+    if str(diel).upper() in ("C0G", "NP0", "COG", "NPO"):
+        return 1.0
+    lw = MLCC_LW.get(pkg)
+    if lw is None or not farads:
+        return None
+    if not volts or volts <= 0:
+        return 1.0
+    z = volts * math.sqrt(farads / (lw[0] * lw[1] * min(lw[1], 2.5)))
+    z0 = DCB_Z0 / (2.0 if str(diel).upper() in ("Y5V", "Z5U") else 1.0)
+    return 1.0 / (1.0 + (z / z0) ** DCB_P)
+
+
+def mlcc_package(defn):
+    """Imperial package code of a ceramic capacitor card: fields Package, else the KiCad footprint name."""
+    pkg = str(defn.fields.get("Package", "") or "")
+    if pkg in MLCC_LW:
+        return pkg
+    m = re.search(r"[_:]C_(\d{4})_\d{4}Metric", defn.footprint or "")
+    return m.group(1) if m and m.group(1) in MLCC_LW else None
+
+
+def _si_f(farads):
+    for scale, unit in ((1e-6, "uF"), (1e-9, "nF"), (1e-12, "pF")):
+        if farads >= scale:
+            return f"{farads / scale:.3g} {unit}"
+    return f"{farads:.3g} F"
 
 
 def _natkey(s):

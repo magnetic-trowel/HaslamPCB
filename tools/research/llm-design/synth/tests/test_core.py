@@ -651,3 +651,43 @@ def test_zener_rated_by_power_not_its_own_voltage():
     # nothing declared but the rail can exceed Vz: say that it conducts and ask for its current
     f = run(zener_design())
     assert any(x.check == "rating.zener" for x in f) and "rating.voltage" not in checks(f)
+
+
+def test_mlcc_bias_model_matches_vendor_points():
+    """component-priors.md#mlcc-dc-bias-and-esr: the model's table (typical vendor points within +/-0.15)."""
+    from haslamsynth.checks import mlcc_bias_factor
+    assert mlcc_bias_factor(10e-6, 3.3, "0805") == pytest.approx(0.69, abs=0.01)
+    assert mlcc_bias_factor(10e-6, 5, "0402") == pytest.approx(0.20, abs=0.01)
+    assert mlcc_bias_factor(100e-9, 5, "0603") == pytest.approx(0.93, abs=0.01)
+    assert mlcc_bias_factor(10e-6, 3.3, "0603", "C0G") == 1.0
+    assert mlcc_bias_factor(10e-6, 3.3, "0603", "Y5V") < mlcc_bias_factor(10e-6, 3.3, "0603", "X5R")
+    assert mlcc_bias_factor(10e-6, 3.3, "9999") is None
+
+
+def mlcc_design(value="10uF", v_rating=25, pkg="1206", rail=(0, 24), fields=None):
+    from haslamsynth.lib import C
+    c = C(value, v_rating, pkg=pkg, dielectric="X5R", fields=fields or {})
+    c = c.with_(symbol=None, pins=[PinDef(1, "1"), PinDef(2, "2")])
+    d = Design("mlcc")
+    d.domain("LV", ref="GND")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.net("RAIL", domain="LV", v=rail, kind="power")
+    b = d.block("x")
+    part = b.add(c, "C1")
+    d.nets["RAIL"].connect(part[1])
+    d.nets["GND"].connect(part[2])
+    r = b.add(two_pin("R", v_max=100))
+    d.nets["RAIL"].connect(r[1]); d.nets["GND"].connect(r[2])
+    return d.finalize()
+
+
+def test_dc_bias_reports_an_estimate():
+    """FRICTION #22: the build estimates Ceff instead of asking for a vendor curve the designer cannot fetch."""
+    f = [x for x in run(mlcc_design()) if x.check == "rating.dc_bias"]
+    assert len(f) == 1 and f[0].severity == "warning"
+    assert "estimated Ceff ~2.42 uF (24% of nominal" in f[0].message
+    # a light bias: the estimate is info only
+    f = [x for x in run(mlcc_design(value="1uF", rail=(0, 14))) if x.check == "rating.dc_bias"]
+    assert len(f) == 1 and f[0].severity == "info" and "estimated Ceff" in f[0].message
+    # a vendor figure overrides
+    assert not [x for x in run(mlcc_design(fields={"Ceff": "4.1 uF at 24 V (vendor curve)"})) if x.check == "rating.dc_bias"]

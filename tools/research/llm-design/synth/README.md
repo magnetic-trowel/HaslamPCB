@@ -135,6 +135,10 @@ def build():
   conducts and asks for its limited current.
 - Generic passives (`R`, `C` without MPN) are allowed; resistors default to thick-film package
   ratings, capacitors need a voltage rating. Pass an MPN and real ratings for anything stressed.
+- Class II MLCCs of 1 uF and up: `rating.dc_bias` estimates the capacitance left at the worst voltage across the part
+  from its package and dielectric (`checks.mlcc_bias_factor`, haslam's field-proxy model fitted to typical vendor curves,
+  +/-15 % of nominal: [component-priors](../../../../docs/research/physics/component-priors.md#mlcc-dc-bias-and-esr)).
+  Warning above half the rating with under half left, info otherwise; a vendor figure in `fields={"Ceff": ...}` overrides.
 - Multi-unit library symbols (op-amps, relays with separate coil units) are placed unit by unit.
 - `lifecycle="active" | "nrnd" | "obsolete"`, `second_source="..."` feed the BOM checks.
 
