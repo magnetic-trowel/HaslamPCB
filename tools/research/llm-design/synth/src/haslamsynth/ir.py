@@ -278,7 +278,8 @@ class Part:
 
 class Net:
     def __init__(self, design, name, block=None, domain=None, v=None, kind="signal", i_max=None,
-                 i_peak=None, netclass=None, external=False, threats=(), notes="", width_mm=None, v_typ=None):
+                 i_peak=None, netclass=None, external=False, threats=(), notes="", width_mm=None, v_typ=None,
+                 frac=None, tracks=None, abs_v=None):
         if kind not in NET_KINDS:
             raise DesignError(f"net {name}: kind {kind!r} not in {NET_KINDS}")
         if not re.match(r"^[A-Za-z0-9_+\-.~]+$", name):
@@ -299,6 +300,15 @@ class Net:
         self.threats = tuple(threats)  # what can arrive on this wire from outside
         self.width_mm = width_mm      # required track width (overrides the IPC-2221 width from i_max)
         self.v_typ = v_typ            # typical operating volts, or (lo, typ, hi) (haslam facts nets.<net>; range_V else v)
+        # Correlation with other nets (checks.Checker.expand; synth README "Correlated voltages"). Without them every
+        # net's v is an independent interval and differences are interval sums, which is conservative but can be
+        # impossible (a gate divider at 0.64 x its source summed as 0..-9 V below a 0..25 V source; two bootstraps
+        # on two switch nodes summed as if one cap could be empty while the other is full).
+        if frac is not None and not isinstance(frac, (int, float)):
+            raise DesignError(f"net {name}: frac must be a number (V = frac x V(domain ref) + v)")
+        self.frac = None if frac is None else float(frac)  # V(net) = frac * V(domain ref) + v (ref from the root's 0 V)
+        self.tracks = tracks          # net name: V(net) - V(ref) = (V(tracks) - V(its domain ref)) + v (v = mismatch)
+        self.abs_v = _interval(abs_v)  # absolute envelope from the root domain's 0 V; bounds every difference
         self.notes = notes
         self.pins = []
 
@@ -356,6 +366,7 @@ class Domain:
     description: str = ""
     earthed: bool = False       # ref tied to protective earth / chassis
     v_range: tuple = None       # default (min, max) for nets in this domain that give no v
+    abs_v: tuple = None         # absolute envelope (from the root's 0 V) of this domain's nets, unless a net gives its own
     edge_clearance_mm: float = None   # copper of this domain to the board edge (and mounting holes)
     edge_source: str = ""             # standard/table the edge clearance comes from
     notes: str = ""
@@ -516,7 +527,7 @@ class Block:
 
 def _update_net(n, kw):
     for k, v in kw.items():
-        if k == "v":
+        if k in ("v", "abs_v"):
             v = _interval(v)
         setattr(n, k, v)
 
@@ -581,6 +592,8 @@ class Design:
     def domain(self, name, ref, **kw):
         if name in self.domains:
             raise DesignError(f"duplicate domain {name}")
+        if kw.get("abs_v") is not None:
+            kw["abs_v"] = _interval(kw["abs_v"])
         d = Domain(name, ref, **kw)
         self.domains[name] = d
         return d

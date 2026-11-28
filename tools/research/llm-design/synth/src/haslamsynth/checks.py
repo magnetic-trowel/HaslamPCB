@@ -69,8 +69,13 @@ class Checker:
         return self.findings
 
     # -- voltage model --------------------------------------------------------------------------
-    def expand(self, net):
-        """Express V(net) as a sum of independent net-range variables up to its root domain."""
+    # V(net) is a linear form over independent variables, one per net (its declared range `v`), from the root
+    # domain's 0 V: V(net) = [its own variable] + frac x V(domain ref), recursively along the domain chain.
+    # Undeclared, frac = 1 and the form is the plain interval sum along the chain (stacked batteries exact).
+    # Declared correlation (ir.Net frac/tracks/abs_v, Domain abs_v) changes the form or bounds it; see the
+    # synth README "Correlated voltages". Differences cancel shared variables, so correlated nets come out tight.
+    def expand(self, net, _stack=()):
+        """(terms, root domain): V(net) from the root's 0 V as {variable net: coefficient}."""
         key = id(net)
         if key in self._expand_cache:
             return self._expand_cache[key]
@@ -78,20 +83,51 @@ class Checker:
         if dom is None:
             self._expand_cache[key] = (None, None)
             return None, None
-        terms = {net: 1}
-        seen = set()
-        while True:
-            if dom.name in seen:
-                raise DesignError(f"domain reference cycle at {dom.name}")
-            seen.add(dom.name)
-            ref = self.d.net_by_name(dom.ref)
-            rdom = self.d.domain_of(ref)
-            if rdom is dom or rdom is None:
-                break
-            terms[ref] = terms.get(ref, 0) + 1
-            dom = rdom
-        self._expand_cache[key] = (terms, dom)
-        return terms, dom
+        if key in _stack:
+            raise DesignError(f"domain reference cycle at {dom.name} (net {net.full_name})")
+        stack = _stack + (key,)
+        ref = self.d.net_by_name(dom.ref)
+        rdom = self.d.domain_of(ref)
+        if rdom is dom or rdom is None:
+            base, root = {}, dom
+        else:
+            bt, root = self.expand(ref, stack)
+            if bt is None:
+                self._expand_cache[key] = (None, None)
+                return None, None
+            k = 1.0 if net.frac is None else net.frac
+            base = {n: c * k for n, c in bt.items()}
+        own = {net: 1.0}
+        t = self._tracked(net)
+        if t is not None:
+            # tracks: the net's own variable is the mismatch; add V(t) - V(t's domain ref)
+            tt, troot = self.expand(t, stack)
+            trt, _ = self.expand(self.d.net_by_name(self.d.domain_of(t).ref), stack)
+            if troot is root and tt is not None and trt is not None:
+                for n, c in tt.items():
+                    own[n] = own.get(n, 0.0) + c
+                for n, c in trt.items():
+                    own[n] = own.get(n, 0.0) - c
+        terms = dict(base)
+        for n, c in own.items():
+            terms[n] = terms.get(n, 0.0) + c
+        self._expand_cache[key] = (terms, root)
+        return terms, root
+
+    def _tracked(self, net):
+        if not net.tracks:
+            return None
+        try:
+            t = self.d.net_by_name(net.tracks)
+        except DesignError:
+            return None
+        return t if t is not net and self.d.domain_of(t) is not None else None
+
+    def has_correlation(self):
+        if not hasattr(self, "_has_corr"):
+            self._has_corr = any(n.frac is not None or n.tracks or n.abs_v is not None for n in self.d.all_nets()) \
+                or any(x.abs_v is not None for x in self.d.domains.values())
+        return self._has_corr
 
     def chain(self, dom):
         """(terms, root) for a domain's 0 V relative to its root: {net: coefficient}."""
@@ -109,6 +145,17 @@ class Checker:
 
     def domain_pair_vmax(self, da, db):
         """Worst |V| between any net of domain da and any net of domain db (None if separate roots)."""
+        if self.has_correlation():
+            # declared correlation: per-net ranges are no longer relative offsets, so take the exact worst pair
+            na = [n for n in self.d.all_nets() if self.d.domain_of(n) is da and n.pins]
+            nb = [n for n in self.d.all_nets() if self.d.domain_of(n) is db and n.pins]
+            worst = None
+            for a in na:
+                for b in nb:
+                    r = self.vdiff(a, b)
+                    if r is not None:
+                        worst = max(worst or 0.0, abs(r[0]), abs(r[1]))
+            return worst
         ta, ra = self.chain(da)
         tb, rb = self.chain(db)
         if ra is not rb:
@@ -135,10 +182,47 @@ class Checker:
         return self.expand(net)[1]
 
     def vrange(self, net):
+        """The range of the net's own variable: v, else its domain's v_range ((0, 0) for a tracking net)."""
         if net.v is not None:
             return net.v
+        if net.tracks:
+            return (0.0, 0.0)
         dom = self.d.domain_of(net)
         return getattr(dom, "v_range", None)
+
+    def _linear(self, terms):
+        lo = hi = 0.0
+        for n, c in terms.items():
+            if abs(c) < 1e-12:
+                continue
+            v = self.vrange(n)
+            if v is None:
+                return None
+            x0, x1 = c * v[0], c * v[1]
+            lo += min(x0, x1)
+            hi += max(x0, x1)
+        return (lo, hi)
+
+    def envelope(self, net):
+        """Declared absolute envelope of a net (from its root's 0 V): its own abs_v, else its domain's; None."""
+        if net.abs_v is not None:
+            return net.abs_v
+        dom = self.d.domain_of(net)
+        if dom is not None and dom.abs_v is not None and self.d.net_by_name(dom.ref) is not net:
+            return dom.abs_v
+        return None
+
+    def vabs(self, net):
+        """Interval of V(net) from its root's 0 V: the linear form, intersected with any declared envelope."""
+        terms, root = self.expand(net)
+        lin = self._linear(terms) if terms is not None else None
+        env = self.envelope(net) if terms is not None else None
+        if env is None:
+            return lin
+        if lin is None:
+            return env
+        lo, hi = max(lin[0], env[0]), min(lin[1], env[1])
+        return (lo, hi) if lo <= hi + 1e-9 else lin       # inconsistent: check_domains reports it
 
     def vdiff(self, a, b):
         """Interval of V(a) - V(b), or None if unknown or galvanically separate."""
@@ -151,17 +235,18 @@ class Checker:
         terms = dict(ta)
         for n, c in tb.items():
             terms[n] = terms.get(n, 0) - c
-        lo = hi = 0.0
-        for n, c in terms.items():
-            if c == 0:
-                continue
-            v = self.vrange(n)
-            if v is None:
-                return None
-            x0, x1 = c * v[0], c * v[1]
-            lo += min(x0, x1)
-            hi += max(x0, x1)
-        return (lo, hi)
+        lin = self._linear(terms)
+        if self.envelope(a) is None and self.envelope(b) is None:
+            return lin
+        # an absolute envelope bounds the difference by its ends: V(a) - V(b) in [A.lo - B.hi, A.hi - B.lo]
+        A, B = self.vabs(a), self.vabs(b)
+        if A is None or B is None:
+            return lin
+        env = (A[0] - B[1], A[1] - B[0])
+        if lin is None:
+            return env
+        lo, hi = max(lin[0], env[0]), min(lin[1], env[1])
+        return (lo, hi) if lo <= hi + 1e-9 else lin
 
     def vmax_between(self, nets_a, nets_b):
         worst, pair = 0.0, None
@@ -200,11 +285,45 @@ class Checker:
             elif self.vrange(n) is None and n.pins:
                 self.add("net.no_voltage", "warning", f"net {n.full_name} has no voltage range; rating checks skip it",
                          [n.full_name])
+        self.check_correlation()
         names = set(d.domains)
         for b in d.barriers:
             for x in (b.a, b.b):
                 if x not in names:
                     self.add("barrier.domain", "error", f"barrier {b.a}-{b.b}: unknown domain {x}", [x])
+
+    def check_correlation(self):
+        """Declared correlation (frac, tracks, abs_v) must be usable and consistent with the nets' own ranges."""
+        d = self.d
+        for n in d.all_nets():
+            dom = d.domain_of(n)
+            if dom is None:
+                continue
+            try:
+                ref = d.net_by_name(dom.ref)
+            except DesignError:
+                continue
+            if n.frac is not None and (d.domain_of(ref) is dom or ref is n):
+                self.add("net.correlation", "error",
+                         f"net {n.full_name}: frac={n.frac:g} needs a domain floating on another net (V = frac x V(ref) + v); "
+                         f"{dom.name} is a root domain whose ref is 0 V", [n.full_name])
+            if n.tracks:
+                t = self._tracked(n)
+                if t is None:
+                    self.add("net.correlation", "error",
+                             f"net {n.full_name}: tracks={n.tracks!r} is not another net with a domain", [n.full_name])
+                elif self.root(t) is not self.root(n):
+                    self.add("net.correlation", "error",
+                             f"net {n.full_name}: tracks {t.full_name}, which is in another root domain "
+                             f"(galvanically separate: no common 0 V)", [n.full_name])
+            env = self.envelope(n)
+            if env is not None and n.pins:
+                terms, _ = self.expand(n)
+                lin = self._linear(terms) if terms is not None else None
+                if lin is not None and (env[0] > lin[1] + 1e-9 or env[1] < lin[0] - 1e-9):
+                    self.add("net.correlation", "error",
+                             f"net {n.full_name}: absolute envelope abs_v={env} cannot hold: its own ranges put it at "
+                             f"{lin[0]:.4g}..{lin[1]:.4g} V from the root's 0 V", [n.full_name])
 
     def check_boards(self):
         """Nets that leave a board must do so through a connector on that board."""

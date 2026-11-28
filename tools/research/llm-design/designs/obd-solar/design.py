@@ -151,7 +151,10 @@ def charger(d):
                   ("COMP_RC", (0, 3), "analog"), ("LEDR_A", (0, 25), "signal"), ("LEDG_A", (0, 25), "signal"),
                   ("CHRG_N", (0, 25), "signal"), ("DONE_N", (0, 25), "signal")])
     d.domain("QGPV", ref="PV_IN", kind="elv", description="Q201 gate relative to its source PV_IN")
-    b.b.net("PV_G", v=(-9.0, 0), kind="signal", domain="QGPV")
+    # PV_G is the R201/R202 divider of PV_IN: V = 8.2/12.9 PV_IN (0.636, Vgs = -0.364 PV_IN), not an independent
+    # 0..-9 V below it (FRICTION #71: the interval sum gave 33 V to VBAT and a 0.6 mm rule; correlated it is 24.5 V).
+    # Residual: 1 % resistors (+/-0.16 V at 25 V) plus gate leakage through the 3 MOhm Thevenin resistance [I].
+    b.b.net("PV_G", v=(-0.5, 0.5), frac=8.2 / 12.9, kind="signal", domain="QGPV")
     d.domain("QGCHG", ref="PV_IN", kind="elv", description="CN3767 VG/DRV ride 0..-8 V below VCC")
     b.b.net("VG_CHG", v=(-8, 0), kind="power", domain="QGCHG")
     b.b.net("DRV", v=(-8, 0), kind="signal", domain="QGCHG")
@@ -232,7 +235,9 @@ def usb_power(d):
     d.domain("BST1", ref="USB/BB_SW1", kind="elv", description="LTC3115-1 BST1 rides on SW1")
     d.domain("BST2", ref="USB/BB_SW2", kind="elv", description="LTC3115-1 BST2 rides on SW2")
     b.b.net("BB_BOOT1", v=(0, 5.0), kind="signal", domain="BST1")  # PVCC-charged, < 6 V abs (DS p.2)
-    b.b.net("BB_BOOT2", v=(0, 5.0), kind="signal", domain="BST2")
+    # BST2 above SW2 moves with BST1 above SW1: both caps are recharged from PVCC (BB_VCC) through the IC's own boost
+    # switches; +/-1 V covers one cap's droop between refreshes [I] (FRICTION #43: BOOT1-BOOT2 then <= 25.9 V, not 29.6 V)
+    b.b.net("BB_BOOT2", v=(-1.0, 1.0), tracks="USB/BB_BOOT1", kind="signal", domain="BST2")
     u = b.add(P.LTC3115, "U301", {"PVIN": "VBAT", "VIN": "VBAT", "RUN": "BB_EN", "PWM": "BB_MODE", "RT": "BB_RT",
                                   "SW1": "BB_SW1", "SW2": "BB_SW2", "PVOUT": "VBUS", "FB": "BB_FB", "VC": "BB_VC",
                                   "VCC": "BB_VCC", "PVCC": "BB_VCC", "BST1": "BB_BOOT1", "BST2": "BB_BOOT2",

@@ -169,7 +169,26 @@ whole design only).
 
 A bootstrap or high-side gate supply rides on a switch node: give it a domain floating on that
 net, `d.domain("BST1", ref="SW1")`, and `v=(0, 12)` relative to it. Worst-case voltages to
-everything else then follow from the switch node's own range.
+everything else then follow from the switch node's own range. Two such supplies on two switch nodes, or a gate
+held at a fraction of its source, need a correlation declaration (next section) or their worst case is the sum.
+
+### Correlated voltages (`frac=`, `tracks=`, `abs_v=`)
+
+Undeclared, every net's `v` is an independent interval and a difference is the interval sum along the domain
+chain. That is conservative, and sometimes impossible: an over-wide worst case becomes an over-strict spacing
+rule (IPC-2221B B2 steps from 0.1 to 0.6 mm at 30 V), which then fails DRC on adjacent pins or costs routing room
+(obd-solar FRICTION #19, #43, #71). Three declarations say how a net moves with others; every check, the net-class
+clearances, the `.kicad_dru` functional rules and `rules.pin_escape` use the tighter bound:
+
+| Declaration | Meaning | Example |
+|---|---|---|
+| `net(..., frac=k, v=(lo, hi))` | V(net) = k x V(domain ref) + v, V(ref) from the root's 0 V; `v` is the residual (tolerances). Floating domains only | PMOS gate divider of PV_IN: `domain="QGPV"` (ref PV_IN), `frac=8.2/12.9, v=(-0.5, 0.5)`: 24.5 V to VBAT, not 33 V |
+| `net(..., tracks="NET", v=(lo, hi))` | V(net) - V(its domain ref) = V(NET) - V(NET's domain ref) + v; `v` is the mismatch (default 0) | two bootstraps charged from one PVCC: `BOOT2` on SW2 `tracks="BOOT1"` (on SW1), `v=(-1, 1)` |
+| `net(..., abs_v=(lo, hi))`, `domain(..., abs_v=)` | absolute envelope from the root's 0 V (a domain's applies to its nets, not its ref); V(a) - V(b) is also bounded by A.lo - B.hi .. A.hi - B.lo | a gate driver that cannot leave 0..VCC: `abs_v=(0, 25)` |
+
+Each is a claim about the circuit, so give the reason (divider ratio, datasheet page, `[I]` for an inference) in a
+comment. `net.correlation` (error) flags a `frac` on a root domain, a `tracks` to an unknown net or another root,
+and an envelope the net's own ranges cannot meet. With nothing declared the results are unchanged.
 
 ### Operating intent for haslam (`<slug>.haslam_intent.json`)
 
@@ -205,7 +224,7 @@ converter output and the pack it charges) belongs to one root: model the worst c
 |---|---|---|
 | `conn.unconnected_pin`, `conn.single_pin_net`, `conn.nc_without_reason` | error/warn | unaccounted pins, dangling nets |
 | `erc.output_conflict` | error | two push-pull outputs on one net |
-| `net.no_domain`, `domain.ref`, `net.no_voltage` | error/warn | nets the voltage model cannot place |
+| `net.no_domain`, `domain.ref`, `net.no_voltage`, `net.correlation` | error/warn | nets the voltage model cannot place; unusable or inconsistent `frac`/`tracks`/`abs_v` |
 | `rating.voltage`, `rating.polarity` | error/warn | worst-case voltage vs `v_max`/`limits`, reverse-biased electrolytics |
 | `rating.current`, `rating.power`, `rating.dc_bias` | error/warn | net current through series parts, dissipation, MLCC DC bias |
 | `domain.crossing`, `barrier.*` | error | non-isolating parts across roots; isolation grade, withstand, working voltage, package creepage |

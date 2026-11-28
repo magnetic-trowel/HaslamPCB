@@ -516,3 +516,98 @@ def test_fab_profile_reaches_project_and_dru(tmp_path):
     d.board(width_mm=30, height_mm=20)
     text = dru_text(d, NetClasses(d).build())
     assert text.index('"FAB:pth_annular_width"') < len(text)          # fab rules emitted (first, design rules win)
+
+
+def gate_divider(frac=None, abs_v=None, v=(-9.0, 0.0)):
+    """obd-solar FRICTION #71: a PMOS gate divider PV_G = 0.636 x PV_IN, and a battery VBAT, both in one root."""
+    d = Design("gate")
+    d.domain("LV", ref="GND")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.net("PV_IN", domain="LV", v=(0, 25), kind="power")
+    d.net("VBAT", domain="LV", v=(0, 24), kind="power")
+    d.domain("QG", ref="PV_IN")
+    d.net("PV_G", domain="QG", v=v, frac=frac, abs_v=abs_v)
+    b = d.block("x")
+    for net in ("GND", "PV_IN", "VBAT", "PV_G"):
+        r = b.add(two_pin("R", v_max=100))
+        d.nets[net].connect(r[1], r[2])
+    return d.finalize()
+
+
+def test_correlation_undeclared_is_the_interval_sum():
+    d = gate_divider()
+    ck = Checker(d)
+    assert ck.vdiff(d.nets["PV_G"], d.nets["VBAT"]) == (-33.0, 25.0)      # conservative, as before
+    assert ck.vdiff(d.nets["PV_G"], d.nets["PV_IN"]) == (-9.0, 0.0)
+
+
+def test_correlation_frac_tracks_the_reference():
+    d = gate_divider(frac=8.2 / 12.9, v=(-0.2, 0.2))
+    ck = Checker(d)
+    lo, hi = ck.vdiff(d.nets["PV_G"], d.nets["VBAT"])
+    assert lo == pytest.approx(-24.2) and hi == pytest.approx(25 * 8.2 / 12.9 + 0.2)
+    lo, hi = ck.vdiff(d.nets["PV_G"], d.nets["PV_IN"])         # Vgs: -0.364 x PV_IN, still -9.1 V at 25 V
+    assert lo == pytest.approx(-25 * 4.7 / 12.9 - 0.2) and hi == pytest.approx(0.2)
+    assert not checks(run(d))
+
+
+def test_correlation_abs_envelope_bounds_differences():
+    d = gate_divider(abs_v=(0, 16))
+    ck = Checker(d)
+    assert ck.vdiff(d.nets["PV_G"], d.nets["VBAT"]) == (-24.0, 16.0)
+    assert ck.vdiff(d.nets["PV_G"], d.nets["PV_IN"]) == (-9.0, 0.0)       # the tighter of the two bounds
+    # an envelope the net's own ranges cannot meet is an error
+    bad = gate_divider(abs_v=(30, 40))
+    assert "net.correlation" in checks(run(bad))
+
+
+def test_correlation_frac_on_root_domain_is_an_error():
+    d = Design("x")
+    d.domain("LV", ref="GND")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.net("A", domain="LV", v=(0, 5), frac=0.5)
+    b = d.block("x")
+    for net in ("GND", "A"):
+        r = b.add(two_pin("R", v_max=100))
+        d.nets[net].connect(r[1], r[2])
+    assert "net.correlation" in checks(run(d.finalize()))
+
+
+def boot_pair(tracks):
+    """Two bootstraps on two switch nodes of one buck-boost (obd-solar FRICTION #43)."""
+    d = Design("bb")
+    d.domain("LV", ref="GND")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.net("SW1", domain="LV", v=(-0.3, 24.3), kind="switching")
+    d.net("SW2", domain="LV", v=(-0.3, 12.4), kind="switching")
+    d.domain("BST1", ref="SW1")
+    d.domain("BST2", ref="SW2")
+    d.net("BOOT1", domain="BST1", v=(0, 5.0))
+    d.net("BOOT2", domain="BST2", v=(-0.3, 0.3) if tracks else (0, 5.0), tracks="BOOT1" if tracks else None)
+    b = d.block("x")
+    for net in ("GND", "SW1", "SW2", "BOOT1", "BOOT2"):
+        r = b.add(two_pin("R", v_max=100))
+        d.nets[net].connect(r[1], r[2])
+    return d.finalize()
+
+
+def test_correlation_tracks_cancels_shared_bootstrap():
+    loose, tight = boot_pair(False), boot_pair(True)
+    lo, hi = Checker(loose).vdiff(loose.nets["BOOT1"], loose.nets["BOOT2"])
+    assert hi == pytest.approx(29.6)
+    lo, hi = Checker(tight).vdiff(tight.nets["BOOT1"], tight.nets["BOOT2"])
+    assert hi == pytest.approx(24.9) and lo == pytest.approx(-13.0)
+    # BOOT2 against its own switch node is still the tracked bootstrap (0..5 V) plus the mismatch
+    lo, hi = Checker(tight).vdiff(tight.nets["BOOT2"], tight.nets["SW2"])
+    assert (lo, hi) == pytest.approx((-0.3, 5.3))
+    assert not checks(run(tight))
+
+
+def test_correlation_tightens_generated_rules():
+    """The over-strict 0.6 mm functional rule (FRICTION #71) goes once PV_G is declared as a fraction of PV_IN."""
+    from haslamsynth.emit.project import NetClasses, dru_text
+
+    def rules(d):
+        return [ln for ln in dru_text(d, NetClasses(d).build()).splitlines() if ln.startswith('(rule "IR:functional.')]
+    assert any("PV_G" in ln and "0.6mm" in ln for ln in rules(gate_divider()))
+    assert not any("PV_G" in ln for ln in rules(gate_divider(frac=8.2 / 12.9, v=(-0.2, 0.2))))
