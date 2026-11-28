@@ -33,8 +33,10 @@ Treat it as read-only and copy boards out before editing. Read
 
 ## Benchmark harness (`bench/`, package `haslambench`)
 
-Setup on an Ubuntu host (no sudo needed: installs Apptainer rootless and runs KiCad from its official image): `bench/scripts/setup.sh`, then `source bench/.venv/bin/activate`
-and `haslambench doctor`. Tests: `pytest bench/tests` (KiCad tests skip without KiCad).
+Setup on an Ubuntu host (no sudo needed: installs Apptainer rootless and runs KiCad from its official image): `bench/scripts/setup.sh`
+(benchmark only) or `bench/scripts/setup.sh --all` (also the haslam and haslamsynth venvs and the pinned Freerouting fork,
+`bench/freerouting.ref`, for the design pipeline), then `source bench/.venv/bin/activate` and `haslambench doctor`
+(`--pipeline` makes a missing design-pipeline piece a failure). Tests: `pytest bench/tests` (KiCad tests skip without KiCad).
 
 Closed loop:
 
