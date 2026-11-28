@@ -77,3 +77,44 @@ def test_an_overshoot_term_at_the_switch_rating_is_flagged():
     d.haslam.term("T-RING", "hard", "overshoot.peak", where={"part": "U1"}, max="19.5 V", why="36 - 16 - 0.5 V")
     w = d.haslam.warnings()
     assert [x[0] for x in w] == ["haslam_intent.overshoot_at_rating"] and w[0][1].startswith("T-OS:")
+
+
+def _current_design(rise=None):
+    d = Design("kc")
+    if rise is not None:
+        d.board(width_mm=40, height_mm=30, trace_rise_c=rise)
+    d.net("GND", v=0, kind="ground")
+    d.domain("LV", ref="GND")
+    d.net("VIN", domain="LV", v=(0, 30), kind="power", v_typ=(9, 12, 16), i_max=2.0)
+    d.net("VOUT", domain="LV", v=(0, 6), kind="power", v_typ=5.0, i_max=3.0)
+    b = d.block("b")
+    card = PartDef(mpn="BUCK1", category="ic", footprint="Package_TO_SOT_SMD:SOT-23-5",
+                   pins=[PinDef("1", "VIN"), PinDef("2", "GND"), PinDef("3", "SW")])
+    u = b.add(card, ref="U1")
+    d.nets["VIN"].connect(u["VIN"]); d.nets["GND"].connect(u["GND"]); d.nets["VOUT"].connect(u["SW"])
+    d.finalize()
+    return d
+
+
+def test_current_carrying_nets_get_a_heat_limit_at_the_boards_conductor_rise():
+    doc, problems = _current_design(rise=20).haslam.document()
+    heat = [t for t in doc["terms"] if t["obs"] == "heat.track"]
+    assert [(t["id"], t["tier"], t["max"], t["rate"]) for t in heat] == [("D-HEAT", "limit", "20 K", "5 mW_eq/K")]
+    assert "trace_rise_c" in heat[0]["source"] and not problems
+    assert not [t for t in doc["terms"] if t["obs"] == "drop.rail"]           # no drop bound unless asked for
+    assert [t for t in _design().haslam.document()[0]["terms"] if t["obs"] == "heat.track"] == []   # no i_max: none
+
+
+def test_the_designs_own_dc_terms_replace_the_defaults_and_drops_are_opt_in():
+    d = _current_design()
+    d.haslam.term("T-HEAT", "limit", "heat.track", max="30 K", rate="1 mW_eq/K", why="w", source="s")
+    d.haslam.term("T-DROP", "limit", "drop.rail", where={"rail": "VOUT"}, max="50 mV", rate="1 mW_eq/mV", why="w", source="s")
+    d.haslam.dc_terms(drop_share=0.03)
+    doc, _ = d.haslam.document()
+    ids = sorted(t["id"] for t in doc["terms"] if t["obs"] in ("heat.track", "drop.rail"))
+    assert ids == ["D-DROP-VIN", "T-DROP", "T-HEAT"]                              # 10 K default: replaced
+    vin = next(t for t in doc["terms"] if t["id"] == "D-DROP-VIN")
+    assert vin["max"] == "360 mV" and vin["where"] == {"rail": "VIN"}            # 3 % of 12 V
+    d2 = _current_design()
+    d2.haslam.dc_terms(heat=False)
+    assert not [t for t in d2.haslam.document()[0]["terms"] if t["obs"] == "heat.track"]

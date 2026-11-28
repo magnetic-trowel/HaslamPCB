@@ -11,6 +11,7 @@ haslam reads it beside the board (haslam.intent.facts): its facts set the operat
     d.haslam.cell("U101", "buck", I_A=(0.01, 0.85), vin="PV_IN", vout="SYS", why="...")
     d.haslam.cable("J101", 3.0, why="panel lead <= 3 m (A-2)")
     d.haslam.term("T1", "limit", "pickup.peak", where={"net": "CHG/FB"}, max="5 mV", rate="2 mW_eq/mV", why="...")
+    d.haslam.dc_terms(drop_share=0.03)    # the default heat.track limit (BoardSpec.trace_rise_c), plus rail drops
 
 Placement relations come from `d.place` (haslamsynth.placement) and the decoupling nears the circuit implies
 (placement.infer_decaps); `relations()` writes them in haslam's relations vocabulary (haslam.intent/1, haslam branch
@@ -32,6 +33,10 @@ import json
 from .emit.project import kicad_net_name
 
 CELL_CLASSES = ("buck", "boost", "half_bridge")
+# the default DC terms' prices (dc_defaults): a kelvin over the design's conductor rise costs as much as 5 mW of
+# copper loss (obd-solar's T-HEAT); a millivolt of drop over a requested bound 1 mW
+HEAT_RATE = "5 mW_eq/K"
+DROP_RATE = "1 mW_eq/mV"
 # design relations haslam does not read, and why they are not written to the intent file
 UNUSED = {
     "separate": "domain spacing is in the .kicad_dru barrier rules haslamsynth writes, which the router and DRC enforce",
@@ -81,6 +86,7 @@ class HaslamIntent:
         self.d = design
         self.nets, self.parts, self.cells, self.cables, self.terms = {}, {}, {}, [], []
         self.knobs = {}
+        self.dc = dict(heat=True, rate=HEAT_RATE, drop_share=None, drop_rate=DROP_RATE)
 
     # -- facts ------------------------------------------------------------------------------
     def net(self, net, V_V, range_V=None, source=None, from_=None, kind=None, eta=None, why=""):
@@ -107,6 +113,49 @@ class HaslamIntent:
 
     def knob(self, key, value):
         self.knobs[key] = value
+
+    def dc_terms(self, heat=True, rate=None, drop_share=None, drop_rate=None):
+        """The default DC terms (dc_defaults): heat=False writes none for heat.track; drop_share (e.g. 0.03) adds a
+        drop.rail limit at that share of V_V on every rail with i_max and a stated voltage. A design's own
+        heat.track or drop.rail terms always replace the defaults for that quantity (drop: for that rail)."""
+        self.dc.update(heat=heat, drop_share=drop_share)
+        if rate is not None:
+            self.dc["rate"] = rate
+        if drop_rate is not None:
+            self.dc["drop_rate"] = drop_rate
+
+    def dc_defaults(self, nets):
+        """Terms for the DC band the design implies (FRICTION.md #56): a design with current-carrying nets (i_max)
+        sized its net classes for its board's conductor rise (BoardSpec.trace_rise_c), so the evaluator's hottest
+        track (heat.track) is bounded there as a limit; without such a term a 0.127 mm track on a 3.5 A net read
+        200 K and nothing priced it. haslam's neutral defaults leave heating and drop unpriced (assumed bounds are
+        no prices), but this bound is the design's own sizing rule, written with its source. A drop bound has no
+        such source in the design, so drop.rail is written only when asked for (dc_terms(drop_share=...)).
+        nets: the facts' {KiCad net name: row}. Returns [term rows]."""
+        out = []
+        cur = [n for n in self.d.all_nets() if getattr(n, "i_max", None) and n.pins]
+        if not cur:
+            return out
+        have = {t["obs"] for t in self.terms}
+        bs = getattr(self.d, "board_spec", None)
+        rise = float(getattr(bs, "trace_rise_c", None) or 10.0)
+        if self.dc["heat"] and "heat.track" not in have:
+            out.append(dict(id="D-HEAT", tier="limit", obs="heat.track", max=f"{rise:g} K", rate=self.dc["rate"],
+                            why=f"the net classes of the {len(cur)} current-carrying nets are sized for a {rise:g} C "
+                                f"conductor rise (IPC-2221)",
+                            source="haslamsynth default from BoardSpec.trace_rise_c"))
+        share = self.dc["drop_share"]
+        if share:
+            bound = {(t.get("where") or {}).get("rail") for t in self.terms if t["obs"] == "drop.rail"}
+            for n in cur:
+                kn = kicad_net_name(n)
+                v = (nets.get(kn) or {}).get("V_V")
+                if not v or kn in bound or n.name in bound:
+                    continue
+                out.append(dict(id=f"D-DROP-{kn.strip('/').replace('/', '-')}", tier="limit", obs="drop.rail",
+                                where={"rail": kn}, max=f"{share * abs(v) * 1e3:.4g} mV", rate=self.dc["drop_rate"],
+                                why=f"{share:.0%} of the rail's {v:g} V", source="haslamsynth dc_terms(drop_share)"))
+        return out
 
     # -- checks ---------------------------------------------------------------------------------
     def warnings(self):
@@ -344,6 +393,7 @@ class HaslamIntent:
             if w:
                 row["where"] = w
             terms.append(row)
+        terms += self.dc_defaults(nets)
         # every field below has a reader in haslam (docs/topics/workflow/intent-file-fields.md); knobs and the
         # environment only when the design sets them
         doc = {"schema": "haslam.intent/1", "generation": 1, "currency": "mW_eq", "defaults": "neutral/1",
