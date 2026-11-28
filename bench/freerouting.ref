@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 HaslamPCB contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# The magnetic-trowel/freerouting fork ref that is the control: the pin of the weekly baseline tag
+# (docs/topics/verification/experiment-tiers.md, "Current:"). bench/scripts/setup.sh --all builds and pins it with
+# tools/research/routing/install_freerouting_fork.sh; `haslambench doctor` warns when the pinned build differs.
+# Move it together with the baseline tag (bench/tests/test_fr_pin.py checks that the two agree).
+37b1a8b

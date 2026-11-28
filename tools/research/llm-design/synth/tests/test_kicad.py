@@ -32,12 +32,23 @@ def test_deterministic_output(tmp_path):
         assert (tmp_path / "a" / name).read_text() == (tmp_path / "b" / name).read_text(), name
 
 
-@pytest.mark.kicad
-def test_barrier_rules_and_lib_parts(tmp_path):
+def opto_input_design(led_k_on_mains):
+    """A mains opto input (L -> opto LED -> LED_K -> 100k -> N) with a SELV transistor and connectors.
+
+    led_k_on_mains: LED_K declared as a MAINS net at (-170, 170) V. Interval arithmetic then puts 340 V between L and
+    LED_K, so the MAINS net class gets IPC-2221B B2's 301-500 V spacing (2.5 mm) and the class clearance also covers
+    L-N. Otherwise LED_K is modelled as it is: a domain floating on L, within (-3, 170) V of it (a diode drop
+    forward; reverse biased by up to the 170 V peak, when the LED is off and the 100k holds LED_K at N)."""
     d, b, u = isolated_design(opto().with_(footprint="Package_DIP:SMDIP-4_W9.53mm"))
     d.nets["L"].connect(u["A"])
-    rl = b.add(R("100k", "2512", v_max=200), p_diss=0.15)      # (120 V - 2 V)^2 / 100k
-    n_a = b.net("LED_K", domain="MAINS", v=(-170, 170))
+    if led_k_on_mains:
+        rl = b.add(R("100k", "2512", v_max=200), p_diss=0.15)      # (120 V - 2 V)^2 / 100k
+        n_a = b.net("LED_K", domain="MAINS", v=(-170, 170))
+    else:
+        # the 100k sees L - N less a diode drop while the LED conducts, ~0 V while it is off: 170 V at most
+        rl = b.add(R("100k", "2512", v_max=200), p_diss=0.15, v_across=170)
+        d.domain("OPTO_LED", ref="L", kind="mains")
+        n_a = b.net("LED_K", domain="OPTO_LED", v=(-3, 170))
     d.nets["N"].connect(rl[1]); n_a.connect(rl[2], u["K"])
     q = b.add(NMOS("2N7002", "Package_TO_SOT_SMD:SOT-23", vds=60, vgs=20, i_d=0.3, pinmap=PINMAP_SOT23_FET))
     d.nets["IO"].connect(u["C"], q["G"]); d.nets["GND"].connect(u["E"], q["S"])
@@ -53,7 +64,12 @@ def test_barrier_rules_and_lib_parts(tmp_path):
                     v_max=250, i_max=10))
     d.nets["L"].connect(jm[1]); d.nets["N"].connect(jm[2])
     d.place.separate("MAINS", "SELV")
-    _, findings, status, kicad = build(d, tmp_path, date="2026-01-01")
+    return d
+
+
+@pytest.mark.kicad
+def test_barrier_rules_and_lib_parts(tmp_path):
+    _, findings, status, kicad = build(opto_input_design(led_k_on_mains=False), tmp_path, date="2026-01-01")
     assert kicad["netlist_problems"] == [], kicad["netlist_problems"]
     assert kicad["dru"] == "ok", kicad["dru"]
     dru = (tmp_path / "iso.kicad_dru").read_text()
@@ -63,6 +79,18 @@ def test_barrier_rules_and_lib_parts(tmp_path):
     assert 'Q_NMOS_G1S2D3' in lib
     errs = {f.check for f in findings if f.severity == "error" and not f.waived_by}
     assert not errs, [f.message for f in findings if f.severity == "error"]
+
+
+@pytest.mark.kicad
+def test_an_interval_blown_class_clearance_is_caught(tmp_path):
+    """LED_K on MAINS at +-170 V: 340 V L-LED_K sets the MAINS class to 2.5 mm, which the library parts cannot keep.
+
+    KiCad 10.0.8's MKDS-1,5-2-5.08 has 2.6 mm pads at 5.08 mm pitch (2.48 mm apart, L-N); SMDIP-4's pins 1-2 at
+    2.54 mm pitch leave 1.55 mm beside a 0.2 mm track (L-LED_K). Both would fail KiCad's DRC, so both are errors
+    (obd-solar FRICTION.md #30: this design was the test above until it was modelled as built)."""
+    _, findings, _, _ = build(opto_input_design(led_k_on_mains=True), tmp_path, date="2026-01-01")
+    errs = {(f.check, f.objects[0]) for f in findings if f.severity == "error" and not f.waived_by}
+    assert errs == {("rules.pad_gap", "J102"), ("rules.pin_escape", "U101")}, errs
 
 
 def two_board_design(with_connector=True):

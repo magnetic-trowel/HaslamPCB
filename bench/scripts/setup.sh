@@ -7,22 +7,34 @@
 # Apptainer/Singularity (installed rootless into HASLAM_HOME if absent; needs unprivileged
 # user namespaces), and the venv comes from uv if python3-venv is missing.
 #
-#   bench/scripts/setup.sh [--kicad auto|apt|container|none] [--no-freerouting] [--venv DIR]
+#   bench/scripts/setup.sh [--all] [--kicad auto|apt|container|none] [--no-freerouting] [--venv DIR] [--dry-run]
+#
+# --all: also the whole design pipeline (README.md Part 1): haslam/.venv with haslam[dev,fast], the haslamsynth venv
+# (tools/research/llm-design/synth/.venv, with haslam/src on its path for the rules and intent checks), and the
+# Freerouting fork of bench/freerouting.ref built and pinned when nothing is pinned yet.
+# --dry-run: print the install commands instead of running them; env.sh is still written (tests use it).
 #
 # Environment: HASLAM_HOME (default ~/.cache/haslambench) holds Freerouting, the KiCad image
-# and env.sh (sourced by the venv's activate script). KICAD_IMAGE_TAG (default 10.0.7).
+# and env.sh (sourced by the venv's activate script), which exports every variable the pipeline reads:
+# HASLAM_HOME, HASLAM_KICAD_WRAP (empty with a native KiCad), KICAD10_SYMBOL_DIR, KICAD10_FOOTPRINT_DIR and, with
+# a container KiCad, APPTAINER_BIND. KICAD_IMAGE_TAG (default 10.0.7).
 set -euo pipefail
 
 BENCH_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REPO="$(cd "$BENCH_DIR/.." && pwd)"
 HASLAM_HOME="${HASLAM_HOME:-$HOME/.cache/haslambench}"
 VENV="$BENCH_DIR/.venv"
 KICAD_MODE=auto
 DO_FR=1
+DO_ALL=0
+DRY=0
 FR_VERSION="2.5.0"
 FR_ZIP_SHA256="e8ffca14914e5307a2fa9aea723fb93d11b99bebda20d126472da5460c03196e"
 KICAD_IMAGE_TAG="${KICAD_IMAGE_TAG:-10.0.7}"
 APPTAINER_VERSION="1.5.4"
 APPTAINER_INSTALLER_SHA256="a097956eafa6ab3dd843ee429d0b774ed029753bfadf013b8046556228fac6f2"
+# the control's Freerouting fork ref: first non-comment line of bench/freerouting.ref
+FR_REF="$(sed 's/#.*//' "$BENCH_DIR/freerouting.ref" | awk 'NF {print $1; exit}')"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -30,10 +42,15 @@ while [ $# -gt 0 ]; do
     --no-kicad) KICAD_MODE=none ;;
     --no-freerouting) DO_FR=0 ;;
     --venv) VENV="$2"; shift ;;
+    --all) DO_ALL=1 ;;
+    --dry-run) DRY=1 ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
   shift
 done
+
+# run: execute, or with --dry-run print the command
+run() { if [ "$DRY" = 1 ]; then echo "+ $*"; else "$@"; fi; }
 
 mkdir -p "$HASLAM_HOME"
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; HAVE_SUDO=1
@@ -98,12 +115,23 @@ install_kicad_container() {
   local n
   for n in $(seq 1 "$(getconf _NPROCESSORS_ONLN)"); do printf '0-%d\n' $((n - 1)) > "$HASLAM_HOME/cpus/$n"; done
   ENV_LINES+=("export HASLAM_KICAD_WRAP=\"$HASLAM_HOME/kicad-exec $tool $dir\"")
+  # haslamsynth reads the image's libraries; the container sees $HOME, /tmp and the cwd, so bind the checkout too
+  [ -d "$dir/usr/share/kicad/symbols" ] && ENV_LINES+=("export KICAD10_SYMBOL_DIR=\"$dir/usr/share/kicad/symbols\"" \
+    "export KICAD10_FOOTPRINT_DIR=\"$dir/usr/share/kicad/footprints\"")
+  ENV_LINES+=("export APPTAINER_BIND=\"\${APPTAINER_BIND:-$REPO}\"")
 }
 
+has_env() { printf '%s\n' "${ENV_LINES[@]}" | grep -q "^export $1="; }
+
+if [ "$DRY" = 1 ] && [ "$KICAD_MODE" != none ]; then
+  echo "+ install KiCad 10 (--kicad $KICAD_MODE)"
+  KICAD_MODE=none
+fi
 case "$KICAD_MODE" in
-  none)  # keep any KiCad wrapper configured by an earlier run
+  none)  # keep the KiCad variables an earlier run configured
     if [ -f "$ENV_FILE" ]; then
-      while IFS= read -r line; do ENV_LINES+=("$line"); done < <(grep '^export HASLAM_KICAD_' "$ENV_FILE" || true)
+      while IFS= read -r line; do ENV_LINES+=("$line"); done < \
+        <(grep -E '^export (HASLAM_KICAD_|KICAD10_|APPTAINER_BIND=)' "$ENV_FILE" || true)
     fi ;;
   apt) install_kicad_apt ;;
   container)
@@ -143,6 +171,8 @@ if [ "$DO_FR" = 1 ]; then
   DEST="$HASLAM_HOME/freerouting-$FR_VERSION-linux-x64"
   if [ -x "$DEST/bin/freerouting" ]; then
     echo "Freerouting $FR_VERSION already at $DEST"
+  elif [ "$DRY" = 1 ]; then
+    echo "+ download Freerouting $FR_VERSION into $DEST"
   else
     ZIP="$HASLAM_HOME/freerouting-$FR_VERSION-linux-x64.zip"
     curl -fsSL -o "$ZIP" \
@@ -155,34 +185,74 @@ if [ "$DO_FR" = 1 ]; then
   # upstream 2.5.0 is for explicit use only (HASLAM_FREEROUTING). haslambench and the bridge run the build
   # pinned in $HASLAM_HOME/haslam-freerouting.pin, the magnetic-trowel fork (the control):
   if [ ! -s "$HASLAM_HOME/haslam-freerouting.pin" ]; then
-    echo "No Freerouting pinned yet: run tools/research/routing/install_freerouting_fork.sh <ref> --pin"
+    if [ "$DO_ALL" = 1 ]; then
+      run env HASLAM_HOME="$HASLAM_HOME" "$REPO/tools/research/routing/install_freerouting_fork.sh" "$FR_REF" --pin
+    else
+      echo "No Freerouting pinned yet: run tools/research/routing/install_freerouting_fork.sh $FR_REF --pin" \
+           "(the control, bench/freerouting.ref), or re-run with --all"
+    fi
+  elif ! grep -q "haslam-freerouting-fork-$FR_REF/" "$HASLAM_HOME/haslam-freerouting.pin"; then
+    echo "Freerouting pin $(cat "$HASLAM_HOME/haslam-freerouting.pin") is not the control $FR_REF (bench/freerouting.ref);" \
+         "kept. Re-pin with tools/research/routing/install_freerouting_fork.sh $FR_REF --pin"
   fi
 fi
 
-if python3 -c "import ensurepip, venv" 2>/dev/null; then
-  python3 -m venv "$VENV"
-  "$VENV/bin/pip" install -q --upgrade pip
-  "$VENV/bin/pip" install -q -e "$BENCH_DIR[test]"
-elif [ "$HAVE_SUDO" = 1 ]; then
-  $SUDO apt-get install -y -qq python3-venv
-  python3 -m venv "$VENV"
-  "$VENV/bin/pip" install -q --upgrade pip
-  "$VENV/bin/pip" install -q -e "$BENCH_DIR[test]"
-else
-  echo "python3-venv is missing and there is no sudo: using uv for the venv"
-  command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
-  UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
-  "$UV" venv -q --python 3.12 "$VENV"
-  "$UV" pip install -q --python "$VENV/bin/python" -e "$BENCH_DIR[test]"
+# make_venv DIR PYTHON_MIN PIP_ARGS...: a venv from python3 -m venv, else python3-venv via apt, else uv; one
+# connection at a time to the package index (CLAUDE.md: be gentle with external hosts)
+make_venv() {
+  local dir="$1" pymin="$2"; shift 2
+  if python3 -c "import ensurepip, venv, sys; sys.exit(sys.version_info < tuple(map(int, '$pymin'.split('.'))))" 2>/dev/null; then
+    run python3 -m venv "$dir"
+    run "$dir/bin/pip" install -q --upgrade pip
+    run "$dir/bin/pip" install -q "$@"
+  elif [ "$HAVE_SUDO" = 1 ] && python3 -c "import sys; sys.exit(sys.version_info < tuple(map(int, '$pymin'.split('.'))))"; then
+    run $SUDO apt-get install -y -qq python3-venv
+    run python3 -m venv "$dir"
+    run "$dir/bin/pip" install -q --upgrade pip
+    run "$dir/bin/pip" install -q "$@"
+  else
+    echo "python3-venv (Python >= $pymin) is missing and cannot be installed: using uv for $dir"
+    command -v uv >/dev/null || [ -x "$HOME/.local/bin/uv" ] || run sh -c "curl -LsSf https://astral.sh/uv/install.sh | sh"
+    local uv; uv="$(command -v uv || echo "$HOME/.local/bin/uv")"
+    run "$uv" venv -q --python 3.12 "$dir"
+    run env UV_CONCURRENT_DOWNLOADS=1 "$uv" pip install -q --python "$dir/bin/python" "$@"
+  fi
+}
+
+make_venv "$VENV" 3.10 -e "$BENCH_DIR[test]"
+SYNTH="$REPO/tools/research/llm-design/synth"
+if [ "$DO_ALL" = 1 ]; then
+  # pipeline.py runs haslam/.venv/bin/python and synth/.venv/bin/haslamsynth by these paths
+  make_venv "$REPO/haslam/.venv" 3.11 -e "$REPO/haslam[dev,fast]"
+  make_venv "$SYNTH/.venv" 3.10 -e "$SYNTH[test]"
+  # haslamsynth's rules check (haslam.board.dru_check) and intent check (haslam.intent) are pure Python: put
+  # haslam/src on the synth venv's path instead of PYTHONPATH in every shell (obd-solar FRICTION.md #5)
+  if [ "$DRY" = 1 ]; then
+    echo "+ write $REPO/haslam/src into $SYNTH/.venv site-packages/haslam-src.pth"
+  else
+    site="$("$SYNTH/.venv/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+    echo "$REPO/haslam/src" > "$site/haslam-src.pth"
+  fi
 fi
 
-# scripts run `$HASLAM_KICAD_WRAP kicad-cli ...` under `set -u`: a native KiCad still needs the (empty) variable
-printf '%s\n' "${ENV_LINES[@]}" | grep -q '^export HASLAM_KICAD_WRAP=' || ENV_LINES+=('export HASLAM_KICAD_WRAP=""')
-[ -d /usr/share/kicad/symbols ] && ENV_LINES+=('export KICAD10_SYMBOL_DIR=/usr/share/kicad/symbols' \
-  'export KICAD10_FOOTPRINT_DIR=/usr/share/kicad/footprints')
+# every variable the pipeline reads, on every KiCad path (obd-solar FRICTION.md #7): scripts run
+# `$HASLAM_KICAD_WRAP kicad-cli ...` under `set -u`, so a native KiCad still needs the (empty) variable
+has_env HASLAM_KICAD_WRAP || ENV_LINES+=('export HASLAM_KICAD_WRAP=""')
+if ! has_env KICAD10_SYMBOL_DIR && [ -d /usr/share/kicad/symbols ]; then
+  ENV_LINES+=('export KICAD10_SYMBOL_DIR=/usr/share/kicad/symbols' 'export KICAD10_FOOTPRINT_DIR=/usr/share/kicad/footprints')
+fi
+has_env KICAD10_SYMBOL_DIR || echo "WARN no KiCad symbol library found: set KICAD10_SYMBOL_DIR and KICAD10_FOOTPRINT_DIR" \
+  "in $ENV_FILE (haslamsynth needs Device.kicad_sym and the .pretty folders)"
 printf '%s\n' "${ENV_LINES[@]}" > "$ENV_FILE"
+echo "wrote $ENV_FILE"
+if [ "$DRY" = 1 ]; then
+  echo "+ haslambench doctor"
+  exit 0
+fi
 grep -qF "$ENV_FILE" "$VENV/bin/activate" || echo "[ -f \"$ENV_FILE\" ] && . \"$ENV_FILE\"" >> "$VENV/bin/activate"
 echo
-( . "$ENV_FILE" && "$VENV/bin/haslambench" doctor )
+( . "$ENV_FILE" && "$VENV/bin/haslambench" doctor $([ "$DO_ALL" = 1 ] && echo --pipeline) )
 echo
 echo "Activate with: source $VENV/bin/activate"
+[ "$DO_ALL" = 1 ] && echo "Design pipeline: README.md Part 1 (pipeline.py runs haslam/.venv and the synth venv)"
+exit 0

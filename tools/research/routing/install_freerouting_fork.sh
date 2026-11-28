@@ -11,9 +11,11 @@
 # upstream release, so the human+Freerouting baseline does not change.
 #
 #   tools/research/routing/install_freerouting_fork.sh [REF] [SRC_DIR] [--pin]
-# REF defaults to origin/master; SRC_DIR to $HASLAM_HOME/src/freerouting (cloned if missing).
-# Gradle provisions the JDK 25 toolchain the fork needs.
+# REF defaults to origin/master (the control's ref is in bench/freerouting.ref); SRC_DIR to
+# $HASLAM_HOME/src/freerouting (cloned if missing). Gradle provisions the JDK 25 toolchain the fork needs.
+# Exits non-zero with the reason on stderr when a step fails: a failed Gradle build is never reported as installed.
 set -euo pipefail
+die() { echo "install_freerouting_fork.sh: $*" >&2; exit 1; }
 PIN=0
 ARGS=()
 for a in "$@"; do
@@ -27,11 +29,11 @@ URL=https://github.com/magnetic-trowel/freerouting
 MODULES=java.base,java.datatransfer,java.xml,java.prefs,java.desktop,java.logging,java.management,java.net.http,java.transaction.xa,java.sql,jdk.crypto.ec,jdk.management
 
 if [ ! -d "$SRC/.git" ]; then
-  git clone -q "$URL" "$SRC"
+  git clone -q "$URL" "$SRC" || die "git clone $URL failed (network or proxy?)"
 fi
 git -C "$SRC" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
-git -C "$SRC" fetch -q --prune origin
-git -C "$SRC" checkout -q --detach "$REF"
+git -C "$SRC" fetch -q --prune origin || die "git fetch in $SRC failed (network or proxy?)"
+git -C "$SRC" checkout -q --detach "$REF" || die "ref $REF not found in $SRC (fetched from its origin)"
 SHA=$(git -C "$SRC" rev-parse --short=7 HEAD)
 DEST=$HASLAM_HOME/haslam-freerouting-fork-$SHA
 pin() {
@@ -51,15 +53,18 @@ if [ -z "${JAVA_HOME:-}" ] && ! command -v java > /dev/null; then
 fi
 # one worker, no parallel project builds: parallel dependency fetches drew 429s from Maven Central through a
 # rate-limited proxy (obd-solar FRICTION.md #9)
-(cd "$SRC" && ./gradlew -q --max-workers=1 -Dorg.gradle.parallel=false executableJar)
-JAR=$(ls "$SRC"/build/libs/*-executable.jar)
+rm -f "$SRC"/build/libs/*-executable.jar   # a jar left by another ref must not pass for this build
+(cd "$SRC" && ./gradlew -q --max-workers=1 -Dorg.gradle.parallel=false executableJar) ||
+  die "Gradle build of $REF ($SHA) failed, output above; nothing installed. On '429 Too Many Requests' (Maven Central rate limit) wait a few minutes and re-run once: Gradle keeps what it fetched"
+JAR=$(ls "$SRC"/build/libs/*-executable.jar 2>/dev/null | head -1 || true)
+[ -n "$JAR" ] || die "Gradle exited 0 but wrote no build/libs/*-executable.jar; nothing installed"
 # jlink from a JDK 25: the toolchain gradle provisioned, else JAVA_HOME (gradle uses it when it is 25)
 JDK=$( (ls -d "$HOME"/.gradle/jdks/*25*/ 2>/dev/null || true) | grep -v '\.tar' | head -1 || true)
 if [ ! -x "${JDK:-/nonexistent}/bin/jlink" ] && [ -n "${JAVA_HOME:-}" ] \
    && "$JAVA_HOME/bin/java" -version 2>&1 | grep -q 'version "25'; then
   JDK=$JAVA_HOME
 fi
-[ -x "${JDK:-/nonexistent}/bin/jlink" ] || { echo "no JDK 25 for jlink (gradle toolchain or JAVA_HOME)"; exit 1; }
+[ -x "${JDK:-/nonexistent}/bin/jlink" ] || die "no JDK 25 for jlink (gradle toolchain or JAVA_HOME); nothing installed"
 TMP=$DEST.tmp
 rm -rf "$TMP" && mkdir -p "$TMP/bin" "$TMP/lib"
 "$JDK/bin/jlink" --add-modules "$MODULES" --strip-debug --no-header-files --no-man-pages \

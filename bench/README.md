@@ -12,10 +12,16 @@ the saved board with `kicad-cli` under the board's own rules. Design rationale:
 git clone https://github.com/magnetic-trowel/HaslamPCB
 cd HaslamPCB
 bench/scripts/setup.sh          # KiCad 10 (PPA, no recommends), bench/.venv (and upstream Freerouting 2.5.0, explicit use only)
-tools/research/routing/install_freerouting_fork.sh <ref> --pin   # the Freerouting fork, pinned: the control
+                                # --all: also the fork below, haslam/.venv and the synth venv (README.md Part 1)
+                                # --dry-run: print the installs, write env.sh only (bench/tests/test_setup.py)
+tools/research/routing/install_freerouting_fork.sh $(grep -v '^#' bench/freerouting.ref) --pin   # the Freerouting fork, pinned: the control
 source bench/.venv/bin/activate
-haslambench doctor
+haslambench doctor              # --pipeline: also the design pipeline (venvs, KiCad libraries, env.sh)
 ```
+
+The control's fork ref lives in one file, `bench/freerouting.ref`; it moves with the weekly baseline tag
+([experiment-tiers](../docs/topics/verification/experiment-tiers.md)). The installer builds with one Gradle worker (Maven
+Central answers parallel fetches with 429) and exits non-zero with the reason when the build fails.
 
 **Without sudo** the same script still works:
 - KiCad runs from the official `kicad/kicad:10.0.7` image, unpacked into `~/.cache/haslambench` (~2.5 GB). It needs no root and no `/dev/fuse`.

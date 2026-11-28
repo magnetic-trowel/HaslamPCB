@@ -22,8 +22,9 @@ Research behind the design: [schematic-generation-landscape](../../../../docs/to
 ## Setup and use
 
 ```bash
-bench/scripts/setup.sh --no-freerouting   # KiCad 10 (+ apt install kicad-symbols kicad-footprints if missing)
-cd tools/research/llm-design/synth && uv venv .venv && . .venv/bin/activate && uv pip install -e '.[test]'
+bench/scripts/setup.sh --all            # from the repo root: KiCad 10 and its libraries, this venv, haslam's, env.sh
+. ~/.cache/haslambench/env.sh && cd tools/research/llm-design/synth && . .venv/bin/activate
+haslamsynth api                                       # every design.py call: signature + one-line doc (~2k tokens)
 haslamsynth build ../designs/<slug>/design.py -v      # checks + KiCad files + ERC + parity
 haslamsynth sym 'Relay:.*G5LE'                        # search symbols; `haslamsynth sym Lib:Name` prints pins
 haslamsynth fp 'TerminalBlock_Phoenix:.*5.08'         # search footprints; `haslamsynth fp Lib:Name` prints pads
@@ -31,17 +32,20 @@ haslamsynth parts search 'buck-boost' --min-pitch 0.65 # JLC parts; also `datash
 pytest tests                                        # KiCad tests skip without kicad-cli
 ```
 
-With KiCad from the container image (`bench/scripts/setup.sh`), `kicad-cli` runs through
-`HASLAM_KICAD_WRAP`; point `KICAD10_SYMBOL_DIR` and `KICAD10_FOOTPRINT_DIR` at the image's
-`usr/share/kicad/{symbols,footprints}`. The rules check imports `haslam.board.dru_check` (put
-`haslam/src` on `PYTHONPATH`); without it, the build runs haslamsynth's own lint only and says so.
+`env.sh` sets `HASLAM_KICAD_WRAP` (the container wrapper, or empty for a native KiCad) and
+`KICAD10_SYMBOL_DIR`/`KICAD10_FOOTPRINT_DIR`; `haslambench doctor --pipeline` checks them and this venv. The rules check
+imports `haslam.board.dru_check` (setup.sh `--all` puts `haslam/src` on this venv's path with a `.pth` file); without it,
+the build runs haslamsynth's own lint only and says so.
 
 Fab limits come from a profile (`src/haslamsynth/fab/<name>.json`, `d.board(fab=...)`, default `jlc-2layer-1oz`): every limit with its source, written into the board setup, the top of the `.kicad_dru` and (via `sch_to_board.py`) the board file; preflight's `board.fab` checks a board against it. Without it, a clean DRC is clean against KiCad's defaults, not the fab's.
 
 `build` exits non-zero while any unwaived error remains. Iterate until it is clean, then read
 `report.md`: warnings are things a reviewer will ask about.
 
-## Pipeline and gates
+## What `haslamsynth build` checks, in order
+
+This is stage 3 of the board pipeline; the whole pipeline (board, pre-flight, size, layout, physics, review, fab),
+run by `scripts/pipeline.py`, is the stage table in [README Part 1](../../../../README.md#part-1-design-a-pcb).
 
 1. **Brief → requirements.** `require`, `assume`, `question(blocking=...)`, `hazard(...)` records
    live in `design.py`. An unanswered blocking question marks the build "not ready for fabrication".
@@ -59,6 +63,9 @@ ERC-clean is a low bar ([evidence](../../../../docs/topics/synthesis/part-select
 the design-level checks and an independent review are what catch wrong designs.
 
 ## Writing `design.py`
+
+`haslamsynth api` prints every call below with its full signature, generated from the code (current by
+construction); read it instead of an example design. This section gives the semantics.
 
 ```python
 from haslamsynth import Design, Hole, Isolation, PinDef, Ratings, VLimit
@@ -110,6 +117,18 @@ def build():
   exemption for the pads of parts that bridge spaced domains (their package sets that spacing).
 - `d.barrier` also works between non-root domains (functional spacing, e.g. relay contacts vs
   line); `d.place.separate(a, b)` turns it into a placement relation; the `.kicad_dru` carries it.
+
+### Adding parts with their connections (`blk.wire`, `Wiring`)
+
+- `blk.wire(defn, ref, {pin: net}, nc=[pins], nc_reason="...", **part_kw)` adds a part and connects each pin (number or
+  name) to a net given by name or as a `Net`. Names resolve to the block's own nets, then global ones; an undeclared
+  name is a `DesignError`, never a new net (a typo cannot open a net).
+- `Wiring(d, name, title, description, domain=, board=, nets=[(name, v, kind, {Net kwargs}), ...])` is a block plus
+  its local nets, with `w.add(defn, ref, {pin: net}, ...)` (= `blk.wire`), `w.R(ref, ohms, a, b, pkg=, note=, tol=)`
+  (`ohms` a number, 4700 → `4.7k`, or text) and `w.C(ref, value, v_rating, a, b, pkg=, diel=, note=)`; `w.b` is the
+  Block (for `d.place`), `w.n(name)` a net. Part arguments (`p_diss`, `v_across`, `fields`, ...) in `R`/`C`'s `**kw`
+  go to the part, the rest to the part card (`lib.R`/`lib.C`). `designs/obd-solar/design.py` uses it (`class
+  Blk(Wiring)` fixes the domain).
 
 ### Parts
 

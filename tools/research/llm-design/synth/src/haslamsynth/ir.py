@@ -504,6 +504,24 @@ class Block:
             net = self.design.nets.get(net) or self.nets.get(net) or self.net(net)
         return net.connect(*pins)
 
+    def find_net(self, name):
+        """The net called `name`: this block's own, else a global one; a Net passes through. Never creates one."""
+        if isinstance(name, Net):
+            return name
+        n = self.nets.get(name) or self.design.nets.get(name)
+        if n is None:
+            raise DesignError(f"block {self.name}: net {name} is not declared (blk.net(...) or d.net(...) first)")
+        return n
+
+    def wire(self, defn, ref=None, conns=None, nc=None, nc_reason="", **kw):
+        """Add a part and connect its pins: conns={pin: net name or Net}; nc=pins left open with nc_reason."""
+        p = self.add(defn, ref=ref, **kw)
+        for pin, net in (conns or {}).items():
+            self.find_net(net).connect(p[pin])
+        if nc:
+            p.nc_pins(*nc, reason=nc_reason)
+        return p
+
     def part(self, name):
         for p in self.parts:
             if p.name == name or p.ref == name:
