@@ -71,3 +71,10 @@ path = "tools/research/llm-design/designs/obd-solar/handoff/**"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 HaslamPCB contributors"
 SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# JLC CPL rotation corrections, verbatim from bennymeg/Fabrication-Toolkit plugins/transformations.csv (Apache-2.0).
+[[annotations]]
+path = "tools/research/llm-design/synth/src/haslamsynth/fab/jlc_cpl_rotations.csv"
+precedence = "override"
+SPDX-FileCopyrightText = "Benny Megidish and Fabrication-Toolkit contributors"
+SPDX-License-Identifier = "Apache-2.0"

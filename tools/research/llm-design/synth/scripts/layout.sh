@@ -97,6 +97,10 @@ if [ "${HASLAM_FINISH_BOARD:-1}" = 1 ] && [ -f "$OUT" ]; then
 fi
 ( ulimit -v 40000000; $HASLAM_KICAD_WRAP kicad-cli pcb drc --format json --schematic-parity --refill-zones \
     -o "$OUTD/eval/drc.json" "$OUT" ) > "$OUTD/eval/drc.log" 2>&1 || true
+# review images of every routed board (eval/review-top.png, review-bottom.png: pads, tracks, courtyards, references,
+# pours outlined; FRICTION.md #51); HASLAM_REVIEW=0 skips them
+[ "${HASLAM_REVIEW:-1}" = 1 ] && [ -f "$OUT" ] && python3 "$SCRIPTS/review_render.py" "$OUT" "$OUTD/eval" \
+  > "$OUTD/eval/review.log" 2>&1 || true
 # fills in the file for the width gate (routers and power_copper leave zones unfilled)
 $HASLAM_KICAD_WRAP python3 "$SCRIPTS/refill.py" "$OUT" > /dev/null 2>&1 || true
 # copper actually drawn vs each net's current (a net-class width is not a rule: FRICTION.md #31); needs netlist.json
