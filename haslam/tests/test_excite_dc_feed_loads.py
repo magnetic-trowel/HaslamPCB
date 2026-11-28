@@ -220,3 +220,24 @@ def test_an_external_switch_fet_takes_the_switch_loss_not_the_controller(stated)
     cell.update(rect=None, low="Q2")
     heat = H.part_heat(bd, pl, cv, {}, {})
     assert heat["Q1"] / heat["Q2"] == pytest.approx(0.82 / 0.18) and heat.get("U1", 0.0) == 0.0
+
+
+def test_band_mode_keeps_the_typical_and_raises_the_top_to_the_feeds():
+    """EXPORT_FROM_FEED "band": the cell's current bounds the export from above (temperatures stay at the 1 % typical,
+    the copper's worst corner sees what the converter delivers), for a stated and for a prior cell current."""
+    old = DC.EXPORT_FROM_FEED
+    DC.EXPORT_FROM_FEED = "band"
+    try:
+        for intent, hi in (({"cells": {CELL: {"I_A": [0.5, 1.0, 1.5]}}}, 1.5), (None, None)):
+            pl, P, srcs = _plan(_buck() + [_usb()], intent)
+            p = _param(pl, "dc:J2@+3V3")
+            assert p.typ == pytest.approx(DC.EXPORT_SHARE * 1.5) and p.source == "prior"
+            if hi:
+                assert p.hi == pytest.approx(hi)
+            else:
+                assert p.hi >= DC.EXPORT_SHARE * 1.5 * DC.EXPORT_BAND[1]       # the prior cell's top, or the old band
+            q = DC.export_questions(pl)[("dc:J2@+3V3", "I_A")]
+            assert q["priority"] == "high"
+            _balanced(pl, P, srcs)
+    finally:
+        DC.EXPORT_FROM_FEED = old
