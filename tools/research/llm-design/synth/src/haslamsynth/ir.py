@@ -111,6 +111,7 @@ class Ratings:
     polarity: tuple = None         # (positive pin, negative pin) for polarized parts
     t_min: float = None
     t_max: float = None
+    vz: tuple = None               # zener breakdown (min, typ, max) V: rated by power/current, not by voltage (lib.Zener)
 
 
 CATEGORIES = ("resistor", "capacitor", "capacitor_ceramic", "capacitor_electrolytic", "capacitor_film",
@@ -131,7 +132,7 @@ class PartDef:
                  value=None, prefix=None, category="ic", description="", datasheet="",
                  ratings=None, pinmap=None, lifecycle="active", generic=False, fields=None,
                  second_source=None, dnp=False, in_bom=True, on_board=True, notes="", source=None,
-                 pin_names=None, haslam=None):
+                 pin_names=None, haslam=None, i_off=None):
         if category not in CATEGORIES:
             raise DesignError(f"category {category!r} not in {CATEGORIES}")
         if symbol is None and not pins:
@@ -166,6 +167,9 @@ class PartDef:
         # operating facts for haslam (haslam.intent facts.parts: f_sw_Hz, v_sw_max_V, theta_jb_C_W, ...; a "why"):
         # written into <slug>.haslam_intent.json for every part made from this card (haslamsynth.haslam_intent)
         self.haslam = dict(haslam or {})
+        # off-state current (A, or (typ, max)) the part draws from the always-on supply it sits on: shutdown Iq,
+        # leakage. Counted by Design.standby_budget when the part has a pin on a budget net (a Part's own wins).
+        self.i_off = i_off
 
     def with_(self, **kw):
         new = copy.copy(self)
@@ -210,7 +214,7 @@ class PinRef:
 
 class Part:
     def __init__(self, block, defn, name, ref=None, value=None, p_diss=None, fields=None,
-                 dnp=None, notes="", v_across=None, i_through=None):
+                 dnp=None, notes="", v_across=None, i_through=None, i_off=None):
         self.block = block
         self.defn = defn
         self.name = name             # local name used in the design file, e.g. "Q1"
@@ -220,6 +224,7 @@ class Part:
         self.p_diss = p_diss         # expected dissipation (W) from the design's calcs
         self.v_across = v_across     # declared max voltage across a 2-terminal part (overrides net envelopes)
         self.i_through = i_through   # declared max current through the part (overrides net i_max), e.g. shunt diodes
+        self.i_off = i_off           # off-state current (A or (typ, max)) from the always-on supply; Design.standby_budget
         self.fields = dict(fields or {})
         self.dnp = defn.dnp if dnp is None else dnp
         self.notes = notes
@@ -278,7 +283,8 @@ class Part:
 
 class Net:
     def __init__(self, design, name, block=None, domain=None, v=None, kind="signal", i_max=None,
-                 i_peak=None, netclass=None, external=False, threats=(), notes="", width_mm=None, v_typ=None):
+                 i_peak=None, netclass=None, external=False, threats=(), notes="", width_mm=None, v_typ=None,
+                 frac=None, tracks=None, abs_v=None):
         if kind not in NET_KINDS:
             raise DesignError(f"net {name}: kind {kind!r} not in {NET_KINDS}")
         if not re.match(r"^[A-Za-z0-9_+\-.~]+$", name):
@@ -299,6 +305,15 @@ class Net:
         self.threats = tuple(threats)  # what can arrive on this wire from outside
         self.width_mm = width_mm      # required track width (overrides the IPC-2221 width from i_max)
         self.v_typ = v_typ            # typical operating volts, or (lo, typ, hi) (haslam facts nets.<net>; range_V else v)
+        # Correlation with other nets (checks.Checker.expand; synth README "Correlated voltages"). Without them every
+        # net's v is an independent interval and differences are interval sums, which is conservative but can be
+        # impossible (a gate divider at 0.64 x its source summed as 0..-9 V below a 0..25 V source; two bootstraps
+        # on two switch nodes summed as if one cap could be empty while the other is full).
+        if frac is not None and not isinstance(frac, (int, float)):
+            raise DesignError(f"net {name}: frac must be a number (V = frac x V(domain ref) + v)")
+        self.frac = None if frac is None else float(frac)  # V(net) = frac * V(domain ref) + v (ref from the root's 0 V)
+        self.tracks = tracks          # net name: V(net) - V(ref) = (V(tracks) - V(its domain ref)) + v (v = mismatch)
+        self.abs_v = _interval(abs_v)  # absolute envelope from the root domain's 0 V; bounds every difference
         self.notes = notes
         self.pins = []
 
@@ -356,6 +371,7 @@ class Domain:
     description: str = ""
     earthed: bool = False       # ref tied to protective earth / chassis
     v_range: tuple = None       # default (min, max) for nets in this domain that give no v
+    abs_v: tuple = None         # absolute envelope (from the root's 0 V) of this domain's nets, unless a net gives its own
     edge_clearance_mm: float = None   # copper of this domain to the board edge (and mounting holes)
     edge_source: str = ""             # standard/table the edge clearance comes from
     notes: str = ""
@@ -435,6 +451,17 @@ class Calc:
     limit: float = None
     op: str = "<="              # value <op> limit must hold
     severity: str = "error"
+
+
+@dataclass
+class StandbyBudget:
+    """Off-state current from always-on nets (Design.standby_budget; checks.Checker.check_standby)."""
+    limit_uA: float
+    nets: tuple                     # always-on nets (the supply and rails it keeps powered in standby)
+    v: dict = field(default_factory=dict)    # {net: volts} for the divider currents; default v_typ, else v max
+    extra: dict = field(default_factory=dict)  # {label: A or (typ, max)}: lumped leakage; refdes in a label count as covered
+    req: str = ""                   # requirement it verifies (e.g. "REQ-5")
+    state: str = ""                 # what "standby" means here (no panel light, no USB sink, MCU in stop)
 
 
 @dataclass
@@ -534,7 +561,7 @@ class Block:
 
 def _update_net(n, kw):
     for k, v in kw.items():
-        if k == "v":
+        if k in ("v", "abs_v"):
             v = _interval(v)
         setattr(n, k, v)
 
@@ -561,6 +588,7 @@ class Design:
         self.hazards = []
         self.calcs = []
         self.waivers = []
+        self.standby = []            # [StandbyBudget]
         self.derating = dict(DEFAULT_DERATING)
         self.boards = {}             # name -> BoardSpec, in declaration order
         from .placement import Placement
@@ -599,6 +627,8 @@ class Design:
     def domain(self, name, ref, **kw):
         if name in self.domains:
             raise DesignError(f"duplicate domain {name}")
+        if kw.get("abs_v") is not None:
+            kw["abs_v"] = _interval(kw["abs_v"])
         d = Domain(name, ref, **kw)
         self.domains[name] = d
         return d
@@ -627,6 +657,16 @@ class Design:
         c = Calc(name, value, unit, expr, note, limit, op, severity)
         self.calcs.append(c)
         return value
+
+    def standby_budget(self, limit_uA, nets, v=None, extra=None, req="", state=""):
+        """Off-state current budget from always-on `nets` (names). The build sums parts' i_off (A or (typ, max)),
+        resistor dividers from those nets to ground (computed from the netlist) and `extra` lumps, reports each,
+        errors when the typical sum exceeds limit_uA and warns when the maximum does; parts on those nets that
+        declare no i_off are listed (`standby.undeclared`)."""
+        b = StandbyBudget(float(limit_uA), tuple([nets] if isinstance(nets, str) else nets), dict(v or {}),
+                          dict(extra or {}), req, state)
+        self.standby.append(b)
+        return b
 
     def waive(self, check, match, reason, by="designer"):
         self.waivers.append(Waiver(check, match, reason, by))

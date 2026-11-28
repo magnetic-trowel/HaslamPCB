@@ -27,7 +27,9 @@ def ir_netlist(design):
         nets.append({"name": kicad_net_name(n), "domain": dom.name if dom else None, "boards": boards,
                      "v": list(n.v) if n.v else None, "kind": n.kind, "i_max": n.i_max,
                      "external": n.external,
-                     "nodes": sorted([[r.part.ref, r.pin.number] for r in n.pins])})
+                     "nodes": sorted([[r.part.ref, r.pin.number] for r in n.pins]),
+                     **{k: (list(getattr(n, k)) if k == "abs_v" else getattr(n, k))
+                        for k in ("frac", "tracks", "abs_v") if getattr(n, k) is not None}})
     bs = d.board_spec
     return {"design": d.slug, "parts": parts, "nets": nets,
             "board": {"copper_oz": bs.copper_oz if bs else 1.0,

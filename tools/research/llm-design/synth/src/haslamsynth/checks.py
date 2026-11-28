@@ -65,13 +65,19 @@ class Checker:
         self.check_dc_bias()
         self.check_protection()
         self.check_calcs()
+        self.check_standby()
         self.check_intent()
         self.apply_waivers()
         return self.findings
 
     # -- voltage model --------------------------------------------------------------------------
-    def expand(self, net):
-        """Express V(net) as a sum of independent net-range variables up to its root domain."""
+    # V(net) is a linear form over independent variables, one per net (its declared range `v`), from the root
+    # domain's 0 V: V(net) = [its own variable] + frac x V(domain ref), recursively along the domain chain.
+    # Undeclared, frac = 1 and the form is the plain interval sum along the chain (stacked batteries exact).
+    # Declared correlation (ir.Net frac/tracks/abs_v, Domain abs_v) changes the form or bounds it; see the
+    # synth README "Correlated voltages". Differences cancel shared variables, so correlated nets come out tight.
+    def expand(self, net, _stack=()):
+        """(terms, root domain): V(net) from the root's 0 V as {variable net: coefficient}."""
         key = id(net)
         if key in self._expand_cache:
             return self._expand_cache[key]
@@ -79,20 +85,51 @@ class Checker:
         if dom is None:
             self._expand_cache[key] = (None, None)
             return None, None
-        terms = {net: 1}
-        seen = set()
-        while True:
-            if dom.name in seen:
-                raise DesignError(f"domain reference cycle at {dom.name}")
-            seen.add(dom.name)
-            ref = self.d.net_by_name(dom.ref)
-            rdom = self.d.domain_of(ref)
-            if rdom is dom or rdom is None:
-                break
-            terms[ref] = terms.get(ref, 0) + 1
-            dom = rdom
-        self._expand_cache[key] = (terms, dom)
-        return terms, dom
+        if key in _stack:
+            raise DesignError(f"domain reference cycle at {dom.name} (net {net.full_name})")
+        stack = _stack + (key,)
+        ref = self.d.net_by_name(dom.ref)
+        rdom = self.d.domain_of(ref)
+        if rdom is dom or rdom is None:
+            base, root = {}, dom
+        else:
+            bt, root = self.expand(ref, stack)
+            if bt is None:
+                self._expand_cache[key] = (None, None)
+                return None, None
+            k = 1.0 if net.frac is None else net.frac
+            base = {n: c * k for n, c in bt.items()}
+        own = {net: 1.0}
+        t = self._tracked(net)
+        if t is not None:
+            # tracks: the net's own variable is the mismatch; add V(t) - V(t's domain ref)
+            tt, troot = self.expand(t, stack)
+            trt, _ = self.expand(self.d.net_by_name(self.d.domain_of(t).ref), stack)
+            if troot is root and tt is not None and trt is not None:
+                for n, c in tt.items():
+                    own[n] = own.get(n, 0.0) + c
+                for n, c in trt.items():
+                    own[n] = own.get(n, 0.0) - c
+        terms = dict(base)
+        for n, c in own.items():
+            terms[n] = terms.get(n, 0.0) + c
+        self._expand_cache[key] = (terms, root)
+        return terms, root
+
+    def _tracked(self, net):
+        if not net.tracks:
+            return None
+        try:
+            t = self.d.net_by_name(net.tracks)
+        except DesignError:
+            return None
+        return t if t is not net and self.d.domain_of(t) is not None else None
+
+    def has_correlation(self):
+        if not hasattr(self, "_has_corr"):
+            self._has_corr = any(n.frac is not None or n.tracks or n.abs_v is not None for n in self.d.all_nets()) \
+                or any(x.abs_v is not None for x in self.d.domains.values())
+        return self._has_corr
 
     def chain(self, dom):
         """(terms, root) for a domain's 0 V relative to its root: {net: coefficient}."""
@@ -110,6 +147,17 @@ class Checker:
 
     def domain_pair_vmax(self, da, db):
         """Worst |V| between any net of domain da and any net of domain db (None if separate roots)."""
+        if self.has_correlation():
+            # declared correlation: per-net ranges are no longer relative offsets, so take the exact worst pair
+            na = [n for n in self.d.all_nets() if self.d.domain_of(n) is da and n.pins]
+            nb = [n for n in self.d.all_nets() if self.d.domain_of(n) is db and n.pins]
+            worst = None
+            for a in na:
+                for b in nb:
+                    r = self.vdiff(a, b)
+                    if r is not None:
+                        worst = max(worst or 0.0, abs(r[0]), abs(r[1]))
+            return worst
         ta, ra = self.chain(da)
         tb, rb = self.chain(db)
         if ra is not rb:
@@ -136,10 +184,47 @@ class Checker:
         return self.expand(net)[1]
 
     def vrange(self, net):
+        """The range of the net's own variable: v, else its domain's v_range ((0, 0) for a tracking net)."""
         if net.v is not None:
             return net.v
+        if net.tracks:
+            return (0.0, 0.0)
         dom = self.d.domain_of(net)
         return getattr(dom, "v_range", None)
+
+    def _linear(self, terms):
+        lo = hi = 0.0
+        for n, c in terms.items():
+            if abs(c) < 1e-12:
+                continue
+            v = self.vrange(n)
+            if v is None:
+                return None
+            x0, x1 = c * v[0], c * v[1]
+            lo += min(x0, x1)
+            hi += max(x0, x1)
+        return (lo, hi)
+
+    def envelope(self, net):
+        """Declared absolute envelope of a net (from its root's 0 V): its own abs_v, else its domain's; None."""
+        if net.abs_v is not None:
+            return net.abs_v
+        dom = self.d.domain_of(net)
+        if dom is not None and dom.abs_v is not None and self.d.net_by_name(dom.ref) is not net:
+            return dom.abs_v
+        return None
+
+    def vabs(self, net):
+        """Interval of V(net) from its root's 0 V: the linear form, intersected with any declared envelope."""
+        terms, root = self.expand(net)
+        lin = self._linear(terms) if terms is not None else None
+        env = self.envelope(net) if terms is not None else None
+        if env is None:
+            return lin
+        if lin is None:
+            return env
+        lo, hi = max(lin[0], env[0]), min(lin[1], env[1])
+        return (lo, hi) if lo <= hi + 1e-9 else lin       # inconsistent: check_domains reports it
 
     def vdiff(self, a, b):
         """Interval of V(a) - V(b), or None if unknown or galvanically separate."""
@@ -152,17 +237,18 @@ class Checker:
         terms = dict(ta)
         for n, c in tb.items():
             terms[n] = terms.get(n, 0) - c
-        lo = hi = 0.0
-        for n, c in terms.items():
-            if c == 0:
-                continue
-            v = self.vrange(n)
-            if v is None:
-                return None
-            x0, x1 = c * v[0], c * v[1]
-            lo += min(x0, x1)
-            hi += max(x0, x1)
-        return (lo, hi)
+        lin = self._linear(terms)
+        if self.envelope(a) is None and self.envelope(b) is None:
+            return lin
+        # an absolute envelope bounds the difference by its ends: V(a) - V(b) in [A.lo - B.hi, A.hi - B.lo]
+        A, B = self.vabs(a), self.vabs(b)
+        if A is None or B is None:
+            return lin
+        env = (A[0] - B[1], A[1] - B[0])
+        if lin is None:
+            return env
+        lo, hi = max(lin[0], env[0]), min(lin[1], env[1])
+        return (lo, hi) if lo <= hi + 1e-9 else lin
 
     def vmax_between(self, nets_a, nets_b):
         worst, pair = 0.0, None
@@ -201,11 +287,45 @@ class Checker:
             elif self.vrange(n) is None and n.pins:
                 self.add("net.no_voltage", "warning", f"net {n.full_name} has no voltage range; rating checks skip it",
                          [n.full_name])
+        self.check_correlation()
         names = set(d.domains)
         for b in d.barriers:
             for x in (b.a, b.b):
                 if x not in names:
                     self.add("barrier.domain", "error", f"barrier {b.a}-{b.b}: unknown domain {x}", [x])
+
+    def check_correlation(self):
+        """Declared correlation (frac, tracks, abs_v) must be usable and consistent with the nets' own ranges."""
+        d = self.d
+        for n in d.all_nets():
+            dom = d.domain_of(n)
+            if dom is None:
+                continue
+            try:
+                ref = d.net_by_name(dom.ref)
+            except DesignError:
+                continue
+            if n.frac is not None and (d.domain_of(ref) is dom or ref is n):
+                self.add("net.correlation", "error",
+                         f"net {n.full_name}: frac={n.frac:g} needs a domain floating on another net (V = frac x V(ref) + v); "
+                         f"{dom.name} is a root domain whose ref is 0 V", [n.full_name])
+            if n.tracks:
+                t = self._tracked(n)
+                if t is None:
+                    self.add("net.correlation", "error",
+                             f"net {n.full_name}: tracks={n.tracks!r} is not another net with a domain", [n.full_name])
+                elif self.root(t) is not self.root(n):
+                    self.add("net.correlation", "error",
+                             f"net {n.full_name}: tracks {t.full_name}, which is in another root domain "
+                             f"(galvanically separate: no common 0 V)", [n.full_name])
+            env = self.envelope(n)
+            if env is not None and n.pins:
+                terms, _ = self.expand(n)
+                lin = self._linear(terms) if terms is not None else None
+                if lin is not None and (env[0] > lin[1] + 1e-9 or env[1] < lin[0] - 1e-9):
+                    self.add("net.correlation", "error",
+                             f"net {n.full_name}: absolute envelope abs_v={env} cannot hold: its own ranges put it at "
+                             f"{lin[0]:.4g}..{lin[1]:.4g} V from the root's 0 V", [n.full_name])
 
     def check_boards(self):
         """Nets that leave a board must do so through a connector on that board."""
@@ -307,6 +427,8 @@ class Checker:
                 if pair:
                     self._rate("rating.voltage", p, worst, r.v_max, "voltage",
                                f" between {pair[0].full_name} and {pair[1].full_name}")
+            if r.vz and p.p_diss is None and p.i_through is None:
+                self._check_zener_conducts(p)
             for lim in r.limits:
                 self._check_vlimit(p, lim)
             if r.polarity:
@@ -317,6 +439,19 @@ class Checker:
                         self.add("rating.polarity", "error",
                                  f"{p.ref} ({p.value}): polarized part can see {rng[0]:.3g} V reverse "
                                  f"({pos[0].full_name} below {neg[0].full_name})", [p.ref])
+
+    def _check_zener_conducts(self, p):
+        """A zener whose nets can exceed its Vz conducts: its current must be limited and declared."""
+        vz_max = p.defn.ratings.vz[2]
+        pol = self._pins_nets(p, ["1"]), self._pins_nets(p, ["2"])
+        if not (pol[0] and pol[1]):
+            return
+        rng = self.vdiff(pol[0][0], pol[1][0])
+        if rng is not None and rng[1] > p.defn.ratings.vz[0]:
+            self.add("rating.zener", "warning",
+                     f"{p.ref} ({p.value}): its nets allow {rng[1]:.3g} V across it, above its Vz "
+                     f"{p.defn.ratings.vz[0]:g}-{vz_max:g} V, so it conducts; declare the limited current "
+                     f"(i_through=) or the dissipation (p_diss=) so its power can be checked", [p.ref])
 
     def _check_vlimit(self, p, lim):
         na, nb = self._pins_nets(p, lim.a), self._pins_nets(p, lim.b)
@@ -517,6 +652,10 @@ class Checker:
                              f"{p.ref} ({p.value}) dissipates {p.p_diss:g} W but has no power rating to check against",
                              [p.ref])
                 continue
+            if rat.vz and rat.p_max and isinstance(p.i_through, (int, float)):
+                self._rate("rating.power", p, rat.vz[2] * p.i_through, rat.p_max,
+                           f"zener dissipation Vz max {rat.vz[2]:g} V x i_through {p.i_through:g} A (W)")
+                continue
             if p.defn.category == "resistor" and rat.p_max and len(p.conn) == 2:
                 ohms = parse_value(p.value)
                 a, b = list(p.conn.values())
@@ -625,13 +764,14 @@ class Checker:
                          [p.ref])
 
     def check_dc_bias(self):
-        """Class II MLCCs lose much of their capacitance near rated voltage."""
+        """Class II MLCCs lose much of their capacitance under DC bias: estimate it (mlcc_bias_factor) at the
+        worst voltage across the part. fields={'Ceff': ...} (a vendor curve) overrides the estimate."""
         for p in self.d.all_parts():
             defn = p.defn
             if defn.category != "capacitor_ceramic" or len(p.conn) != 2 or "Ceff" in {**defn.fields, **p.fields}:
                 continue
             diel = str(defn.fields.get("Dielectric", "X7R")).upper()
-            if diel in ("C0G", "NP0", "COG"):
+            if diel in ("C0G", "NP0", "COG", "NPO"):
                 continue
             farads = parse_value(p.value)
             vr = defn.ratings.v_max
@@ -645,11 +785,27 @@ class Checker:
                 if rng is None:
                     continue
                 v = max(abs(rng[0]), abs(rng[1]))
-            if v / vr > 0.5:
-                self.add("rating.dc_bias", "warning",
-                         f"{p.ref} ({p.value} {diel} {vr:g} V) runs at {v:.3g} V ({v / vr:.0%} of rating): "
-                         f"effective capacitance may be well under half; check the vendor DC-bias curve and "
-                         f"record it as fields={{'Ceff': '...'}}", [p.ref])
+            pkg = mlcc_package(defn)
+            k = mlcc_bias_factor(farads, v, pkg, diel) if pkg else None
+            who = f"{p.ref} ({p.value} {diel} {vr:g} V{' ' + pkg if pkg else ''})"
+            if k is None:
+                if v / vr > 0.5:
+                    self.add("rating.dc_bias", "warning",
+                             f"{who} runs at {v:.3g} V ({v / vr:.0%} of rating) and its package is unknown, so its "
+                             f"DC-bias loss cannot be estimated; record the vendor curve as fields={{'Ceff': '...'}}",
+                             [p.ref])
+                continue
+            est = (f"{who} at up to {v:.3g} V ({v / vr:.0%} of rating): estimated Ceff ~{_si_f(k * farads)} "
+                   f"({k:.0%} of nominal; typical, +/-15 % of nominal, from the field proxy V sqrt(C/volume) fitted "
+                   f"to vendor curves, docs/research/physics/component-priors.md#mlcc-dc-bias-and-esr; a part rated "
+                   f"far above the bias usually keeps more). Check the calculation that needs it; a vendor figure "
+                   f"goes in fields={{'Ceff': '...'}}")
+            # warn where both the rating (over half) and the estimate (under half left) say so; the model ignores the
+            # rating, so below half of it the estimate is reported as info (conservative for high-rated parts)
+            if v / vr > 0.5 and k < 0.5:
+                self.add("rating.dc_bias", "warning", est, [p.ref])
+            elif v / vr > 0.5 or k < 0.5:
+                self.add("rating.dc_bias", "info", est, [p.ref])
 
     def check_protection(self):
         for n in self.d.all_nets():
@@ -696,6 +852,144 @@ class Checker:
             p = r.part
             if p.defn.category in ("fuse", "ptc", "inductor", "resistor") and len(p.conn) == 2:
                 out.extend(m for m in p.conn.values() if m is not net)
+        return out
+
+    # parts that need no i_off on an always-on net: resistors are computed, the rest carry no off-state current
+    STANDBY_EXEMPT = ("resistor", "capacitor", "capacitor_ceramic", "capacitor_film", "connector", "fuse", "ptc",
+                      "inductor", "testpoint", "mechanical", "heatsink", "switch", "crystal", "transformer",
+                      "thermistor")
+    HIGH_Z = ("input", "bidirectional", "tri_state")    # IC pins that take no DC current from a divider node
+
+    def check_standby(self):
+        """Design.standby_budget: sum declared i_off, divider currents from the netlist and lumps against a limit."""
+        d = self.d
+        for bud in d.standby:
+            nets = []
+            for name in bud.nets:
+                try:
+                    nets.append(d.net_by_name(name))
+                except DesignError:
+                    self.add("standby.net", "error", f"standby_budget: no net {name!r}", [name])
+            on = {id(n) for n in nets}
+            rows, counted = [], set()
+            for p in d.all_parts():
+                if p.dnp or not p.on_board:
+                    continue
+                i = p.i_off
+                if i is None and p.defn.i_off is not None and any(id(n) in on for n in p.conn.values()):
+                    i = p.defn.i_off
+                if i is None:
+                    continue
+                typ, mx = _typ_max(i)
+                rows.append((p.ref, typ, mx, "declared i_off"))
+                counted.add(p.ref)
+            for n in nets:
+                volts = bud.v.get(n.name, bud.v.get(n.full_name))
+                if volts is None:
+                    volts = _typical_volts(n, self.vabs(n))
+                if volts is None:
+                    self.add("standby.net", "warning", f"standby_budget: {n.full_name} has no voltage; its dividers "
+                             f"are not computed (give v={{'{n.name}': volts}})", [n.full_name])
+                    continue
+                for refs, amps, path in self._dividers(n, volts, on, counted):
+                    rows.append(("/".join(refs), amps, amps, f"divider {path} from {n.full_name} at {volts:g} V"))
+                    counted |= set(refs)
+            for label, i in bud.extra.items():
+                typ, mx = _typ_max(i)
+                rows.append((label, typ, mx, "lumped (extra=)"))
+            covered = set(re.findall(r"[A-Za-z]+[0-9]+", " ".join(bud.extra)))
+            for p in d.all_parts():
+                if p.ref in counted or p.ref in covered or p.dnp or not p.on_board:
+                    continue
+                if p.defn.category in self.STANDBY_EXEMPT:
+                    continue
+                hit = sorted({n.full_name for n in p.conn.values() if id(n) in on})
+                if hit:
+                    self.add("standby.undeclared", "warning",
+                             f"{p.ref} ({p.value}) sits on always-on {', '.join(hit)} but declares no i_off "
+                             f"(off-state current: shutdown Iq or leakage from its datasheet's EC table; i_off=0 "
+                             f"if it truly draws none)", [p.ref])
+            typ = sum(r[1] for r in rows)
+            mx = sum(r[2] for r in rows)
+            lines = "; ".join(f"{lab} {t * 1e6:.3g}" + (f" (max {m * 1e6:.3g})" if m != t else "") + f" uA [{how}]"
+                              for lab, t, m, how in sorted(rows, key=lambda r: -r[1]))
+            what = f"standby from {', '.join(n.full_name for n in nets)}" + (f" ({bud.req})" if bud.req else "") + \
+                (f", {bud.state}" if bud.state else "")
+            self.add("standby.budget", "info",
+                     f"{what}: {typ * 1e6:.3g} uA typical, {mx * 1e6:.3g} uA max, limit {bud.limit_uA:g} uA: {lines}",
+                     [bud.req] if bud.req else [])
+            if typ * 1e6 > bud.limit_uA:
+                self.add("standby.budget", "error",
+                         f"{what}: {typ * 1e6:.3g} uA typical exceeds the {bud.limit_uA:g} uA budget", [bud.req] if bud.req else [])
+            elif mx * 1e6 > bud.limit_uA:
+                self.add("standby.budget", "warning",
+                         f"{what}: {mx * 1e6:.3g} uA with every contributor at its maximum exceeds the "
+                         f"{bud.limit_uA:g} uA budget ({typ * 1e6:.3g} uA typical)", [bud.req] if bud.req else [])
+
+    def _dividers(self, src, volts, on, skip):
+        """[(resistor refs, amps, path)] for resistor networks from `src` to ground whose inner nodes take no other
+        DC current (only resistors, capacitors and high-impedance IC inputs); a resistor into another always-on
+        net or into a node that feeds a load carries that load's current, counted at the load, and is left out."""
+        d = self.d
+        root = self.root(src)
+
+        def is_res(r):
+            return r.part.defn.category == "resistor" and len(set(map(id, r.part.conn.values()))) == 2 \
+                and len(r.part.conn) == 2 and r.part.ref not in skip \
+                and not r.part.dnp and parse_value(r.part.value)
+
+        def kind(n):
+            if n is src:
+                return "src"
+            if n.kind == "ground" and self.root(n) is root:
+                return "gnd"
+            if id(n) in on:
+                return "load"
+            for r in n.pins:
+                cat = r.part.defn.category
+                if is_res(r) or cat.startswith("capacitor") or cat == "testpoint":
+                    continue
+                if cat in ("ic", "opto", "module") and r.pin.type in self.HIGH_Z:
+                    continue
+                if cat == "mosfet" and r.pin.name == "G":
+                    continue
+                return "load"
+            return "inner"
+
+        def other(r):
+            return next(n for n in r.part.conn.values() if n is not r.net)
+
+        out = []
+        seen_res = set()
+        for start in [r for r in src.pins if is_res(r)]:
+            if start.part.ref in seen_res:
+                continue
+            # the cluster of inner nodes reachable from this resistor
+            res, nodes, stack = {}, {}, [start]
+            while stack:
+                r = stack.pop()
+                if r.part.ref in res:
+                    continue
+                a, b = r.net, other(r)
+                ka, kb = kind(a), kind(b)
+                if "load" in (ka, kb):
+                    continue
+                res[r.part.ref] = (a, b, parse_value(r.part.value))
+                for n, k in ((a, ka), (b, kb)):
+                    if k == "inner" and id(n) not in nodes:
+                        nodes[id(n)] = n
+                        stack.extend(x for x in n.pins if is_res(x))
+            seen_res |= set(res)
+            if not res:
+                continue
+            v = _solve_nodes(nodes, res, src, volts, kind)
+            amps = sum((volts - v.get(id(b), 0.0 if kind(b) == "gnd" else volts)) / ohm
+                       for a, b, ohm in res.values() if a is src) + \
+                sum((volts - v.get(id(a), 0.0 if kind(a) == "gnd" else volts)) / ohm
+                    for a, b, ohm in res.values() if b is src)
+            if amps > 1e-12:
+                refs = sorted(res, key=_natkey)
+                out.append((refs, amps, "-".join(refs)))
         return out
 
     def check_calcs(self):
@@ -756,6 +1050,94 @@ class Checker:
                 if i not in used:
                     self.add("waiver.unused", "warning",
                              f"waiver {w.check} /{w.match}/ matches no finding; remove it ({w.reason[:60]})")
+
+
+# MLCC DC bias (class II): C(V)/C = 1 / (1 + (z / DCB_Z0)^DCB_P), z = V sqrt(C[F] / body volume [mm3]), volume
+# L x W x min(W, 2.5 mm). The loss follows the DC field in the layers; a footprint gives the body, and at fixed
+# permittivity C/volume ~ 1/t^2, so V/t ~ V sqrt(C/volume) for a part that fills its body. Same model and constants
+# as haslam.excite.models.mlcc_bias_factor (fitted to Murata/TDK/Samsung typical curves and EPCI 2019, +/-0.15:
+# docs/research/physics/component-priors.md#mlcc-dc-bias-and-esr), copied because haslam's module needs numpy.
+# The rated voltage is not in the curve (no source gave a usable law; a higher-rated part of the same C and body
+# has thicker layers and loses less, so ignoring it is conservative). Y5V/Z5U lose about twice as fast.
+DCB_Z0 = 0.011
+DCB_P = 1.3
+MLCC_LW = {"0201": (0.6, 0.3), "0402": (1.0, 0.5), "0603": (1.6, 0.8), "0805": (2.0, 1.25), "1206": (3.2, 1.6),
+           "1210": (3.2, 2.5), "1812": (4.5, 3.2), "2220": (5.7, 5.0)}
+
+
+def mlcc_bias_factor(farads, volts, pkg, diel="X7R"):
+    """C(V)/C of a class II MLCC of nominal `farads` at DC `volts`, imperial package `pkg`; None if unknown."""
+    if str(diel).upper() in ("C0G", "NP0", "COG", "NPO"):
+        return 1.0
+    lw = MLCC_LW.get(pkg)
+    if lw is None or not farads:
+        return None
+    if not volts or volts <= 0:
+        return 1.0
+    z = volts * math.sqrt(farads / (lw[0] * lw[1] * min(lw[1], 2.5)))
+    z0 = DCB_Z0 / (2.0 if str(diel).upper() in ("Y5V", "Z5U") else 1.0)
+    return 1.0 / (1.0 + (z / z0) ** DCB_P)
+
+
+def mlcc_package(defn):
+    """Imperial package code of a ceramic capacitor card: fields Package, else the KiCad footprint name."""
+    pkg = str(defn.fields.get("Package", "") or "")
+    if pkg in MLCC_LW:
+        return pkg
+    m = re.search(r"[_:]C_(\d{4})_\d{4}Metric", defn.footprint or "")
+    return m.group(1) if m and m.group(1) in MLCC_LW else None
+
+
+def _si_f(farads):
+    for scale, unit in ((1e-6, "uF"), (1e-9, "nF"), (1e-12, "pF")):
+        if farads >= scale:
+            return f"{farads / scale:.3g} {unit}"
+    return f"{farads:.3g} F"
+
+
+def _typ_max(i):
+    """(typ, max) amps of an i_off: a number, or (typ, max)."""
+    if isinstance(i, (tuple, list)):
+        return float(i[0]), float(i[-1])
+    return float(i), float(i)
+
+
+def _typical_volts(net, vabs):
+    """A net's standby voltage: its v_typ (the typical of (lo, typ, hi)), else the top of its range."""
+    if net.v_typ is not None:
+        return float(net.v_typ[1] if isinstance(net.v_typ, (tuple, list)) else net.v_typ)
+    return float(vabs[1]) if vabs else None
+
+
+def _solve_nodes(nodes, res, src, volts, kind):
+    """Node voltages {id(net): V} of a resistor network: src at `volts`, ground at 0, inner nodes by KCL
+    (Gaussian elimination; the networks are a few nodes). A node with no path to src or ground floats at 0 A."""
+    idx = {k: i for i, k in enumerate(nodes)}
+    n = len(idx)
+    if not n:
+        return {}
+    A = [[0.0] * (n + 1) for _ in range(n)]
+    for a, b, ohm in res.values():
+        g = 1.0 / ohm
+        for x, y in ((a, b), (b, a)):
+            if id(x) not in idx:
+                continue
+            i = idx[id(x)]
+            A[i][i] += g
+            if id(y) in idx:
+                A[i][idx[id(y)]] -= g
+            elif kind(y) == "src":
+                A[i][n] += g * volts
+    for c in range(n):
+        piv = max(range(c, n), key=lambda r: abs(A[r][c]))
+        if abs(A[piv][c]) < 1e-30:
+            continue
+        A[c], A[piv] = A[piv], A[c]
+        for r in range(n):
+            if r != c and A[r][c]:
+                f = A[r][c] / A[c][c]
+                A[r] = [x - f * y for x, y in zip(A[r], A[c])]
+    return {k: (A[i][n] / A[i][i] if abs(A[i][i]) > 1e-30 else volts) for k, i in idx.items()}
 
 
 def _natkey(s):

@@ -149,8 +149,16 @@ def build():
   which no derating warning fires — use it for IC supply and I/O pins; `derate=False` for nodes
   the IC drives itself, such as charge-pump, soft-start or compensation pins: hard limit only), `i_max` / `pin_i_max`,
   `p_max`, `polarity=("1", "2")`, `isolation=[...]`. Set `p_diss=` on parts from your calculations.
+- Zeners: `Zener(mpn, footprint, vz=(min, typ, max), p_max=, i_zm=None)`, not `D(kind="D_Zener", v_rrm=...)`: a zener
+  sits at its Vz, so it is rated by power (`p_diss=`, else Vz max x `i_through=`, against `p_max`) and current
+  (`i_zm`, default p_max / Vz max). With neither declared and nets that can exceed Vz, `rating.zener` warns that it
+  conducts and asks for its limited current.
 - Generic passives (`R`, `C` without MPN) are allowed; resistors default to thick-film package
   ratings, capacitors need a voltage rating. Pass an MPN and real ratings for anything stressed.
+- Class II MLCCs of 1 uF and up: `rating.dc_bias` estimates the capacitance left at the worst voltage across the part
+  from its package and dielectric (`checks.mlcc_bias_factor`, haslam's field-proxy model fitted to typical vendor curves,
+  +/-15 % of nominal: [component-priors](../../../../docs/research/physics/component-priors.md#mlcc-dc-bias-and-esr)).
+  Warning above half the rating with under half left, info otherwise; a vendor figure in `fields={"Ceff": ...}` overrides.
 - Multi-unit library symbols (op-amps, relays with separate coil units) are placed unit by unit.
 - `lifecycle="active" | "nrnd" | "obsolete"`, `second_source="..."` feed the BOM checks.
 
@@ -220,7 +228,26 @@ whole design only).
 
 A bootstrap or high-side gate supply rides on a switch node: give it a domain floating on that
 net, `d.domain("BST1", ref="SW1")`, and `v=(0, 12)` relative to it. Worst-case voltages to
-everything else then follow from the switch node's own range.
+everything else then follow from the switch node's own range. Two such supplies on two switch nodes, or a gate
+held at a fraction of its source, need a correlation declaration (next section) or their worst case is the sum.
+
+### Correlated voltages (`frac=`, `tracks=`, `abs_v=`)
+
+Undeclared, every net's `v` is an independent interval and a difference is the interval sum along the domain
+chain. That is conservative, and sometimes impossible: an over-wide worst case becomes an over-strict spacing
+rule (IPC-2221B B2 steps from 0.1 to 0.6 mm at 30 V), which then fails DRC on adjacent pins or costs routing room
+(obd-solar FRICTION #19, #43, #71). Three declarations say how a net moves with others; every check, the net-class
+clearances, the `.kicad_dru` functional rules and `rules.pin_escape` use the tighter bound:
+
+| Declaration | Meaning | Example |
+|---|---|---|
+| `net(..., frac=k, v=(lo, hi))` | V(net) = k x V(domain ref) + v, V(ref) from the root's 0 V; `v` is the residual (tolerances). Floating domains only | PMOS gate divider of PV_IN: `domain="QGPV"` (ref PV_IN), `frac=8.2/12.9, v=(-0.5, 0.5)`: 24.5 V to VBAT, not 33 V |
+| `net(..., tracks="NET", v=(lo, hi))` | V(net) - V(its domain ref) = V(NET) - V(NET's domain ref) + v; `v` is the mismatch (default 0) | two bootstraps charged from one PVCC: `BOOT2` on SW2 `tracks="BOOT1"` (on SW1), `v=(-1, 1)` |
+| `net(..., abs_v=(lo, hi))`, `domain(..., abs_v=)` | absolute envelope from the root's 0 V (a domain's applies to its nets, not its ref); V(a) - V(b) is also bounded by A.lo - B.hi .. A.hi - B.lo | a gate driver that cannot leave 0..VCC: `abs_v=(0, 25)` |
+
+Each is a claim about the circuit, so give the reason (divider ratio, datasheet page, `[I]` for an inference) in a
+comment. `net.correlation` (error) flags a `frac` on a root domain, a `tracks` to an unknown net or another root,
+and an envelope the net's own ranges cannot meet. With nothing declared the results are unchanged.
 
 ### Operating intent for haslam (`<slug>.haslam_intent.json`)
 
@@ -246,6 +273,22 @@ and fails the build if the limit is violated. `d.waive(check, regex, reason, by)
 finding on the record; never waive an error you have not understood. A waiver that matches nothing
 is reported (`waiver.unused`), so stale ones get removed.
 
+### Standby current (`d.standby_budget`)
+
+`d.standby_budget(limit_uA, nets=["VBAT", "LDO_IN", "+3V3"], req="REQ-5", state="...", extra={"leakage of Q3, D1": 0.5e-6},
+v={"VBAT": 12.6})` states an off-state budget for the always-on nets (the supply and the rails it keeps powered).
+The build sums, and lists each in a `standby.budget` info finding:
+- `i_off=` (A, or `(typ, max)`) on a part (`blk.add(..., i_off=(3e-6, 10e-6))`) or its card (counted when the part has a
+  pin on a budget net): regulator shutdown or quiescent current, an MCU in stop, a FET's or ideal diode's leakage, from
+  the datasheet's EC table (FRICTION #13: a "zero Iq" ideal diode leaks 60 uA typ);
+- resistor dividers from those nets to ground, solved from the netlist at the net's `v_typ` (or `v=`): inner nodes may
+  carry only resistors, capacitors and high-impedance IC inputs; a resistor into a load (an LDO input) or another
+  budget net carries that load's current and is left out;
+- `extra` lumps (a refdes named in a label counts as declared).
+
+The typical sum over `limit_uA` is an error, the sum at every maximum a warning. A non-passive part on a budget net with
+no `i_off` is a `standby.undeclared` warning (`i_off=0` if it truly draws nothing).
+
 A relay or switch whose contacts join two parts of a circuit that can be connected (e.g. a
 converter output and the pack it charges) belongs to one root: model the worst case
 (connected), with a functional barrier across the open contacts.
@@ -256,13 +299,15 @@ converter output and the pack it charges) belongs to one root: model the worst c
 |---|---|---|
 | `conn.unconnected_pin`, `conn.single_pin_net`, `conn.nc_without_reason` | error/warn | unaccounted pins, dangling nets |
 | `erc.output_conflict` | error | two push-pull outputs on one net |
-| `net.no_domain`, `domain.ref`, `net.no_voltage` | error/warn | nets the voltage model cannot place |
+| `net.no_domain`, `domain.ref`, `net.no_voltage`, `net.correlation` | error/warn | nets the voltage model cannot place; unusable or inconsistent `frac`/`tracks`/`abs_v` |
 | `rating.voltage`, `rating.polarity` | error/warn | worst-case voltage vs `v_max`/`limits`, reverse-biased electrolytics |
-| `rating.current`, `rating.power`, `rating.dc_bias` | error/warn | net current through series parts, dissipation, MLCC DC bias |
+| `rating.current`, `rating.power`, `rating.dc_bias`, `rating.zener` | error/warn | net current through series parts, dissipation, MLCC DC bias, a zener that conducts with no declared current |
 | `domain.crossing`, `barrier.*` | error | non-isolating parts across roots; isolation grade, withstand, working voltage, package creepage |
 | `lib.*` | error/warn | missing symbols/footprints, symbol pins without pads, hidden power pins |
 | `part.no_datasheet`, `part.no_provenance`, `bom.*` | warn/error | unsourced facts, missing MPN, NRND/obsolete |
+| `part.stale_mention` | warning | a line of design.py or DESIGN.md naming an MPN an earlier build used and no part uses now (a part swap not re-reviewed; history in `out/mpn_history.json`; [design review checklist](../../../../docs/topics/workflow/design-review-checklist.md#s-after-a-part-swap)) |
 | `protect.threat`, `protect.entry_fuse` | error/warn | external wires without the protector their threat needs |
+| `standby.budget`, `standby.undeclared` | error/warn/info | off-state current from always-on nets over its budget (typical: error, max: warning); parts on them with no `i_off` |
 | `calc.limit`, `hazard.*`, `intent.blocking_question`, `place.*` | error/warn/info | design calculations, hazard mitigations, open questions, relation sanity |
 | `kicad.erc.*`, `kicad.netlist_roundtrip`, `kicad.dru_parse` | error/warn | the emitted files, as KiCad reads them |
 | `rules.pin_escape`, `rules.pad_gap` | error | a pad no minimum-width track can leave past its neighbours under the generated clearances; pads of one footprint closer than their nets allow (`haslamsynth/layout.py`; necessary, not sufficient: corners and centre pads are not modelled) |

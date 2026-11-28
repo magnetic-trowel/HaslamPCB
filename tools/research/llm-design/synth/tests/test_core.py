@@ -516,3 +516,246 @@ def test_fab_profile_reaches_project_and_dru(tmp_path):
     d.board(width_mm=30, height_mm=20)
     text = dru_text(d, NetClasses(d).build())
     assert text.index('"FAB:pth_annular_width"') < len(text)          # fab rules emitted (first, design rules win)
+
+
+def gate_divider(frac=None, abs_v=None, v=(-9.0, 0.0)):
+    """obd-solar FRICTION #71: a PMOS gate divider PV_G = 0.636 x PV_IN, and a battery VBAT, both in one root."""
+    d = Design("gate")
+    d.domain("LV", ref="GND")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.net("PV_IN", domain="LV", v=(0, 25), kind="power")
+    d.net("VBAT", domain="LV", v=(0, 24), kind="power")
+    d.domain("QG", ref="PV_IN")
+    d.net("PV_G", domain="QG", v=v, frac=frac, abs_v=abs_v)
+    b = d.block("x")
+    for net in ("GND", "PV_IN", "VBAT", "PV_G"):
+        r = b.add(two_pin("R", v_max=100))
+        d.nets[net].connect(r[1], r[2])
+    return d.finalize()
+
+
+def test_correlation_undeclared_is_the_interval_sum():
+    d = gate_divider()
+    ck = Checker(d)
+    assert ck.vdiff(d.nets["PV_G"], d.nets["VBAT"]) == (-33.0, 25.0)      # conservative, as before
+    assert ck.vdiff(d.nets["PV_G"], d.nets["PV_IN"]) == (-9.0, 0.0)
+
+
+def test_correlation_frac_tracks_the_reference():
+    d = gate_divider(frac=8.2 / 12.9, v=(-0.2, 0.2))
+    ck = Checker(d)
+    lo, hi = ck.vdiff(d.nets["PV_G"], d.nets["VBAT"])
+    assert lo == pytest.approx(-24.2) and hi == pytest.approx(25 * 8.2 / 12.9 + 0.2)
+    lo, hi = ck.vdiff(d.nets["PV_G"], d.nets["PV_IN"])         # Vgs: -0.364 x PV_IN, still -9.1 V at 25 V
+    assert lo == pytest.approx(-25 * 4.7 / 12.9 - 0.2) and hi == pytest.approx(0.2)
+    assert not checks(run(d))
+
+
+def test_correlation_abs_envelope_bounds_differences():
+    d = gate_divider(abs_v=(0, 16))
+    ck = Checker(d)
+    assert ck.vdiff(d.nets["PV_G"], d.nets["VBAT"]) == (-24.0, 16.0)
+    assert ck.vdiff(d.nets["PV_G"], d.nets["PV_IN"]) == (-9.0, 0.0)       # the tighter of the two bounds
+    # an envelope the net's own ranges cannot meet is an error
+    bad = gate_divider(abs_v=(30, 40))
+    assert "net.correlation" in checks(run(bad))
+
+
+def test_correlation_frac_on_root_domain_is_an_error():
+    d = Design("x")
+    d.domain("LV", ref="GND")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.net("A", domain="LV", v=(0, 5), frac=0.5)
+    b = d.block("x")
+    for net in ("GND", "A"):
+        r = b.add(two_pin("R", v_max=100))
+        d.nets[net].connect(r[1], r[2])
+    assert "net.correlation" in checks(run(d.finalize()))
+
+
+def boot_pair(tracks):
+    """Two bootstraps on two switch nodes of one buck-boost (obd-solar FRICTION #43)."""
+    d = Design("bb")
+    d.domain("LV", ref="GND")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.net("SW1", domain="LV", v=(-0.3, 24.3), kind="switching")
+    d.net("SW2", domain="LV", v=(-0.3, 12.4), kind="switching")
+    d.domain("BST1", ref="SW1")
+    d.domain("BST2", ref="SW2")
+    d.net("BOOT1", domain="BST1", v=(0, 5.0))
+    d.net("BOOT2", domain="BST2", v=(-0.3, 0.3) if tracks else (0, 5.0), tracks="BOOT1" if tracks else None)
+    b = d.block("x")
+    for net in ("GND", "SW1", "SW2", "BOOT1", "BOOT2"):
+        r = b.add(two_pin("R", v_max=100))
+        d.nets[net].connect(r[1], r[2])
+    return d.finalize()
+
+
+def test_correlation_tracks_cancels_shared_bootstrap():
+    loose, tight = boot_pair(False), boot_pair(True)
+    lo, hi = Checker(loose).vdiff(loose.nets["BOOT1"], loose.nets["BOOT2"])
+    assert hi == pytest.approx(29.6)
+    lo, hi = Checker(tight).vdiff(tight.nets["BOOT1"], tight.nets["BOOT2"])
+    assert hi == pytest.approx(24.9) and lo == pytest.approx(-13.0)
+    # BOOT2 against its own switch node is still the tracked bootstrap (0..5 V) plus the mismatch
+    lo, hi = Checker(tight).vdiff(tight.nets["BOOT2"], tight.nets["SW2"])
+    assert (lo, hi) == pytest.approx((-0.3, 5.3))
+    assert not checks(run(tight))
+
+
+def test_correlation_tightens_generated_rules():
+    """The over-strict 0.6 mm functional rule (FRICTION #71) goes once PV_G is declared as a fraction of PV_IN."""
+    from haslamsynth.emit.project import NetClasses, dru_text
+
+    def rules(d):
+        return [ln for ln in dru_text(d, NetClasses(d).build()).splitlines() if ln.startswith('(rule "IR:functional.')]
+    assert any("PV_G" in ln and "0.6mm" in ln for ln in rules(gate_divider()))
+    assert not any("PV_G" in ln for ln in rules(gate_divider(frac=8.2 / 12.9, v=(-0.2, 0.2))))
+
+
+def zener_design(**kw):
+    """obd-solar FRICTION #20: a 27 V zener clamping a 0..30 V rail."""
+    from haslamsynth.lib import Zener
+    z = Zener("BZT52C27", "Diode_SMD:D_SOD-123", vz=(25.65, 27, 28.35), p_max=0.5)
+    z = z.with_(symbol=None, pins=[PinDef(1, "K"), PinDef(2, "A")])      # generated symbol: no KiCad needed
+    d = Design("z")
+    d.domain("LV", ref="GND")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.net("RAIL", domain="LV", v=(0, 30), kind="power")
+    b = d.block("x")
+    part = b.add(z, "D1", **kw)
+    d.nets["RAIL"].connect(part["K"])
+    d.nets["GND"].connect(part["A"])
+    r = b.add(two_pin("R", v_max=100))
+    d.nets["RAIL"].connect(r[1]); d.nets["GND"].connect(r[2])
+    return d.finalize()
+
+
+def test_zener_rated_by_power_not_its_own_voltage():
+    from haslamsynth.lib import Zener
+    z = Zener("BZT52C27", "Diode_SMD:D_SOD-123", vz=(25.65, 27, 28.35), p_max=0.5)
+    assert z.ratings.v_max is None and z.ratings.vz == (25.65, 27.0, 28.35)
+    assert z.ratings.i_max == pytest.approx(0.5 / 28.35)                 # i_zm from P / Vz max
+    with pytest.raises(ValueError):
+        Zener("X", "fp", vz=(5, 4, 6), p_max=0.5)
+    # 11 mA: 0.31 W of 0.5 W (62 %, inside the 80 % diode derating): no voltage finding, no power finding
+    f = run(zener_design(i_through=0.011))
+    assert not [x for x in f if x.check.startswith("rating.") and not x.waived_by]
+    # 15 mA: 0.425 W > 80 % of 0.5 W (and 85 % of i_zm): power and current warnings, never a voltage finding
+    f = run(zener_design(i_through=0.015))
+    assert {x.check for x in f if x.check.startswith("rating.") and x.severity == "warning"} == \
+        {"rating.power", "rating.current"}
+    assert "rating.voltage" not in checks(f)
+    f = run(zener_design(i_through=0.02))                               # 0.57 W: over the rating
+    assert "rating.power" in checks(f)
+    # nothing declared but the rail can exceed Vz: say that it conducts and ask for its current
+    f = run(zener_design())
+    assert any(x.check == "rating.zener" for x in f) and "rating.voltage" not in checks(f)
+
+
+def test_mlcc_bias_model_matches_vendor_points():
+    """component-priors.md#mlcc-dc-bias-and-esr: the model's table (typical vendor points within +/-0.15)."""
+    from haslamsynth.checks import mlcc_bias_factor
+    assert mlcc_bias_factor(10e-6, 3.3, "0805") == pytest.approx(0.69, abs=0.01)
+    assert mlcc_bias_factor(10e-6, 5, "0402") == pytest.approx(0.20, abs=0.01)
+    assert mlcc_bias_factor(100e-9, 5, "0603") == pytest.approx(0.93, abs=0.01)
+    assert mlcc_bias_factor(10e-6, 3.3, "0603", "C0G") == 1.0
+    assert mlcc_bias_factor(10e-6, 3.3, "0603", "Y5V") < mlcc_bias_factor(10e-6, 3.3, "0603", "X5R")
+    assert mlcc_bias_factor(10e-6, 3.3, "9999") is None
+
+
+def mlcc_design(value="10uF", v_rating=25, pkg="1206", rail=(0, 24), fields=None):
+    from haslamsynth.lib import C
+    c = C(value, v_rating, pkg=pkg, dielectric="X5R", fields=fields or {})
+    c = c.with_(symbol=None, pins=[PinDef(1, "1"), PinDef(2, "2")])
+    d = Design("mlcc")
+    d.domain("LV", ref="GND")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.net("RAIL", domain="LV", v=rail, kind="power")
+    b = d.block("x")
+    part = b.add(c, "C1")
+    d.nets["RAIL"].connect(part[1])
+    d.nets["GND"].connect(part[2])
+    r = b.add(two_pin("R", v_max=100))
+    d.nets["RAIL"].connect(r[1]); d.nets["GND"].connect(r[2])
+    return d.finalize()
+
+
+def test_dc_bias_reports_an_estimate():
+    """FRICTION #22: the build estimates Ceff instead of asking for a vendor curve the designer cannot fetch."""
+    f = [x for x in run(mlcc_design()) if x.check == "rating.dc_bias"]
+    assert len(f) == 1 and f[0].severity == "warning"
+    assert "estimated Ceff ~2.42 uF (24% of nominal" in f[0].message
+    # a light bias: the estimate is info only
+    f = [x for x in run(mlcc_design(value="1uF", rail=(0, 14))) if x.check == "rating.dc_bias"]
+    assert len(f) == 1 and f[0].severity == "info" and "estimated Ceff" in f[0].message
+    # a vendor figure overrides
+    assert not [x for x in run(mlcc_design(fields={"Ceff": "4.1 uF at 24 V (vendor curve)"})) if x.check == "rating.dc_bias"]
+
+
+def standby_design(limit=15, u_off=(3e-6, 10e-6)):
+    """FRICTION #13: a battery with two 10M/1M dividers, a sense divider into an IC input, a regulator fed through a
+    series resistor (not a divider), and an IC whose off-state current is declared or not."""
+    d = Design("standby")
+    d.domain("LV", ref="GND")
+    d.net("GND", domain="LV", v=0, kind="ground")
+    d.net("VBAT", domain="LV", v=(0, 24), v_typ=(11.5, 12.6, 14.8), kind="power")
+    b = d.block("x")
+    ic = PartDef(mpn="CONV", category="ic", footprint="Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+                 pins=[PinDef(1, "VIN", "power_in"), PinDef(2, "GND", "power_in"), PinDef(3, "SNS", "input"),
+                       PinDef(4, "LDO", "power_in")])
+    u = b.add(ic, "U1", ref="U1", i_off=u_off)
+    d.nets["VBAT"].connect(u["VIN"]); d.nets["GND"].connect(u["GND"])
+    mid, sns, ldo = b.net("MID", v=(0, 3)), b.net("SNS", v=(0, 3)), b.net("LDO_IN", v=(0, 24))
+    for ref, ohm, a, z in (("R1", "10M", d.nets["VBAT"], mid), ("R2", "1M", mid, d.nets["GND"]),
+                           ("R3", "10M", d.nets["VBAT"], sns), ("R4", "1M", sns, d.nets["GND"]),
+                           ("R5", "1k", d.nets["VBAT"], ldo)):
+        r = b.add(two_pin(ref, v_max=100, value=ohm), ref=ref)
+        a.connect(r[1]); z.connect(r[2])
+    c = b.add(two_pin("C", v_max=50, cat="capacitor_ceramic", value="10n"), ref="C1")
+    mid.connect(c[1]); d.nets["GND"].connect(c[2])
+    sns.connect(u["SNS"]); ldo.connect(u["LDO"])
+    tvs = b.add(PartDef(mpn="TVS", category="tvs", footprint="Diode_SMD:D_SMA", pins=[PinDef(1, "K"), PinDef(2, "A")]),
+                "D1", ref="D1")
+    d.nets["VBAT"].connect(tvs["K"]); d.nets["GND"].connect(tvs["A"])
+    d.standby_budget(limit, nets=["VBAT"], req="REQ-5")
+    return d.finalize()
+
+
+def test_standby_budget_sums_dividers_and_declared_currents():
+    f = run(standby_design())
+    info = [x for x in f if x.check == "standby.budget" and x.severity == "info"]
+    assert len(info) == 1
+    msg = info[0].message
+    assert "R1/R2 1.15 uA" in msg and "R3/R4 1.15 uA" in msg       # 12.6 V / 11 MOhm each, from the netlist
+    assert "R5" not in msg                                         # series feed of a load: counted at the load
+    assert "5.29 uA typical, 12.3 uA max" in msg
+    # the max sum is over 10 uA: a warning; the typical sum over the limit: an error
+    assert any(x.check == "standby.budget" and x.severity == "warning" for x in run(standby_design(limit=10)))
+    assert "standby.budget" in checks(run(standby_design(limit=5)))
+    # a TVS on the always-on net with no i_off is listed
+    assert [x.objects for x in f if x.check == "standby.undeclared"] == [["D1"]]
+
+
+def test_standby_undeclared_ic():
+    f = run(standby_design(u_off=None))
+    assert sorted(x.objects[0] for x in f if x.check == "standby.undeclared") == ["D1", "U1"]
+
+
+def test_stale_mention_after_part_swap(tmp_path):
+    """FRICTION #43/#53: after TPS552892 -> LTC3115-1, notes and calcs that still name the old part are listed."""
+    import json as _json
+    from haslamsynth.build import MPN_HISTORY, stale_mentions
+    d = Design("swap")
+    b = d.block("x")
+    b.add(PartDef(mpn="LTC3115EFE-1#PBF", category="ic", footprint="fp", pins=[PinDef(1, "A")]), "U1")
+    (tmp_path / "design.py").write_text('c("u_loss", 1.2, "W", "TPS552892 at 27 W")\nc("ok", 1, "", "LTC3115-1 DS p.35")\n')
+    (tmp_path / "DESIGN.md").write_text("The first revision used a TPS552892.\n")
+    out = tmp_path / "out"
+    out.mkdir()
+    assert stale_mentions(d, tmp_path, out) == []                        # no history yet: nothing to compare
+    assert "LTC3115EFE-1#PBF" in _json.loads((out / MPN_HISTORY).read_text())
+    (out / MPN_HISTORY).write_text(_json.dumps(["TPS552892RYQR", "LTC3115EFE-1#PBF"]))
+    f = stale_mentions(d, tmp_path, out)
+    assert sorted(x.message.split(" names")[0] for x in f) == ["DESIGN.md:1", "design.py:1"]
+    assert all(x.check == "part.stale_mention" and x.severity == "warning" for x in f)

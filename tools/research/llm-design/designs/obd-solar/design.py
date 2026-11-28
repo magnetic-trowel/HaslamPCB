@@ -59,7 +59,7 @@ def intent(d):
       "pitch part (Q-5); 12 W "
       "keeps U301 under 125 C at 70 C ambient (calc u301_tj_rise) and the pin-16 draw near 1.2 A (Q-2)", verify="PD analyser")
     R("REQ-5", "Standby draw from the car battery", value="< 15 uA with no panel light and no USB sink",
-      source="brief ('almost zero standby loss')", verify="calc standby_budget; bench")
+      source="brief ('almost zero standby loss')", verify="standby_budget (build); bench")
     R("REQ-6", "Do not flatten the car battery", value="USB-C output off when VBAT < 12.0 V for 10 s (engine off), "
       "firmware", source="design", verify="bench")
     d.assume("A-1", "Vehicle 12 V system: 11.5-14.8 V operating, 24 V jump start for 2 min, load dump suppressed "
@@ -125,7 +125,10 @@ def charger(d):
                   ("COMP_RC", (0, 3), "analog"), ("LEDR_A", (0, 25), "signal"), ("LEDG_A", (0, 25), "signal"),
                   ("CHRG_N", (0, 25), "signal"), ("DONE_N", (0, 25), "signal")])
     d.domain("QGPV", ref="PV_IN", kind="elv", description="Q201 gate relative to its source PV_IN")
-    b.b.net("PV_G", v=(-9.0, 0), kind="signal", domain="QGPV")
+    # PV_G is the R201/R202 divider of PV_IN: V = 8.2/12.9 PV_IN (0.636, Vgs = -0.364 PV_IN), not an independent
+    # 0..-9 V below it (FRICTION #71: the interval sum gave 33 V to VBAT and a 0.6 mm rule; correlated it is 24.5 V).
+    # Residual: 1 % resistors (+/-0.16 V at 25 V) plus gate leakage through the 3 MOhm Thevenin resistance [I].
+    b.b.net("PV_G", v=(-0.5, 0.5), frac=8.2 / 12.9, kind="signal", domain="QGPV")
     d.domain("QGCHG", ref="PV_IN", kind="elv", description="CN3767 VG/DRV ride 0..-8 V below VCC")
     b.b.net("VG_CHG", v=(-8, 0), kind="power", domain="QGCHG")
     b.b.net("DRV", v=(-8, 0), kind="signal", domain="QGCHG")
@@ -206,12 +209,14 @@ def usb_power(d):
     d.domain("BST1", ref="USB/BB_SW1", kind="elv", description="LTC3115-1 BST1 rides on SW1")
     d.domain("BST2", ref="USB/BB_SW2", kind="elv", description="LTC3115-1 BST2 rides on SW2")
     b.b.net("BB_BOOT1", v=(0, 5.0), kind="signal", domain="BST1")  # PVCC-charged, < 6 V abs (DS p.2)
-    b.b.net("BB_BOOT2", v=(0, 5.0), kind="signal", domain="BST2")
+    # BST2 above SW2 moves with BST1 above SW1: both caps are recharged from PVCC (BB_VCC) through the IC's own boost
+    # switches; +/-1 V covers one cap's droop between refreshes [I] (FRICTION #43: BOOT1-BOOT2 then <= 25.9 V, not 29.6 V)
+    b.b.net("BB_BOOT2", v=(-1.0, 1.0), tracks="USB/BB_BOOT1", kind="signal", domain="BST2")
     u = b.add(P.LTC3115, "U301", {"PVIN": "VBAT", "VIN": "VBAT", "RUN": "BB_EN", "PWM": "BB_MODE", "RT": "BB_RT",
                                   "SW1": "BB_SW1", "SW2": "BB_SW2", "PVOUT": "VBUS", "FB": "BB_FB", "VC": "BB_VC",
                                   "VCC": "BB_VCC", "PVCC": "BB_VCC", "BST1": "BB_BOOT1", "BST2": "BB_BOOT2",
                                   "PGND1": "GND", "PGND2": "GND", "PGND3": "GND", "PGND4": "GND", "EP": "GND",
-                                  "GND1": "GND", "GND2": "GND"},
+                                  "GND1": "GND", "GND2": "GND"}, i_off=(3e-6, 10e-6),  # shutdown, DS p.3
               notes="RUN from U401 (1.21 V threshold; RUN <= VIN + 0.3 V: 3.3 V logic is fine); PWM/SYNC from U401: low "
                     "= Burst Mode, which supports only light loads (typically < 50 mA, DS p.15), high = PWM for the PD "
                     "contract (REVIEW.md B-1); VCC and PVCC tied (DS p.11)")
@@ -260,7 +265,7 @@ def control(d):
             "(R401/R402, 1.1 uA) and VBUS, enables U301, selects 5/9/12 V, discharges VBUS.",
             nets=[("LDO_IN", (0, 24), "power"), ("NRST", (0, 3.4), "signal"), ("SWDIO", (0, 3.4), "signal"),
                   ("SWCLK", (0, 3.4), "signal")])
-    u = b.add(P.STM32G071, "U401", {"4": "+3V3", "5": "GND", "6": "NRST", "7": "VBAT_SNS", "8": "VBUS_SNS",
+    u = b.add(P.STM32G071, "U401", i_off=5e-6, conns={"4": "+3V3", "5": "GND", "6": "NRST", "7": "VBAT_SNS", "8": "VBUS_SNS",
                                     "9": "BB_EN", "10": "VSEL9", "11": "VSEL12", "12": "VBUS_DIS", "13": "BB_MODE",
                                     "17": "CC2", "18": "CC1", "24": "SWDIO", "25": "SWCLK"},
               nc=["1", "2", "3", "14", "15", "16", "19", "20", "21", "22", "23", "26", "27", "28", "29", "30", "31", "32"],
@@ -276,7 +281,7 @@ def control(d):
     b.R("R403", 1e3, "VBAT", "LDO_IN", p_diss=0.025, note="5 mA x 1 k = 25 mW, 5 V drop at the MCU's peak; limits D401 to 10.5 mA in a 38.9 V clamp event")
     b.add(P.BZT52C27, "D401", {"1": "LDO_IN", "2": "GND"}, i_through=0.011, notes="TPS709 VIN <= 28.4 V (abs max 32 V)")
     b.C("C405", "1uF", 50, "LDO_IN", "GND", fields={"Ceff": "~0.6 uF at 24 V [S]"})
-    b.add(P.TPS709B33, "U402", {"IN": "LDO_IN", "GND": "GND", "OUT": "+3V3"}, nc=["EN", "NC"],
+    b.add(P.TPS709B33, "U402", {"IN": "LDO_IN", "GND": "GND", "OUT": "+3V3"}, nc=["EN", "NC"], i_off=1e-6,  # Iq, DS 6.1
           nc_reason="EN floating = enabled (DS Table 5-1; EN max 6.5 V so it cannot go to LDO_IN); NC")
     b.C("C406", "2.2uF", 10, "+3V3", "GND", pkg="0805", diel="X5R", note="TPS709 OUT >= 2.2 uF (DS Table 5-1)")
     b.add(P.HDR_SWD, "J401",
@@ -345,9 +350,11 @@ def calcs(d):
     c("u301_loss_12v", 12 * (1 / 0.90 - 1), "W", "12 W at 90 % (DS p.35 curve at 1 A, 11.5-12.6 V in; REVIEW.md M-1)")
     c("u301_tj_rise", 12 * (1 / 0.90 - 1) * 0.95 * 38, "C", "95 % of the loss in the IC (integrated switches; inductor "
       "DCR 29 mOhm takes the rest) x theta-JA 38 C/W (FE, DS p.2)", limit=125 - 70, note="ambient 70 C (dashboard)")
-    standby = 0.0 + 1.1 + 1.1 + 1.0 + 3.0 + 5.0 + 0.5
-    c("standby_budget", standby, "uA", "R214/R215 1.1 + R401/R402 1.1 + TPS709 1.0 + LTC3115-1 shutdown 3 (10 max) + STM32 stop "
-      "5 (assumed, Q-4) + leakage of Q203, D101, D401, D301, C101 0.5", limit=15)
+    # REQ-5 (FRICTION #13): the build sums i_off of U301 (3 typ, 10 max), U402 (1) and U401 (stop 5, assumed, Q-4), the
+    # VBAT dividers R214/R215 and R401/R402 from the netlist (1.15 uA each at 12.6 V) and the leakage lump below
+    d.standby_budget(15, nets=["VBAT", "CTL/LDO_IN", "+3V3"], req="REQ-5",
+                     state="no panel light, no USB sink, U301 off, U401 in stop",
+                     extra={"leakage of Q203, D101, D401, D301, C101": 0.5e-6})
     c("ldo_in_clamp", (38.9 - 25.65) / 1e3 * 1e3, "mA", "D401 current with D101 clamping at 38.9 V, Vz min", limit=17.8,
       note="BZT52C27 500 mW / 28 V")
 

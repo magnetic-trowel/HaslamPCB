@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 
 from haslamsynth.build import build
+from haslamsynth.checks import Checker
 from haslamsynth.lib import C, LED, NMOS, PINMAP_SOT23_FET, R, Conn
 
+from conftest import HAVE_LIBS
 from test_core import isolated_design, opto
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "usb-led" / "design.py"
@@ -150,3 +152,22 @@ def test_width_check_ipc2221():
     assert 1.0 < wc.ipc2221_width_mm(3.5, 20, 35) < 1.2
     assert wc.ipc2221_width_mm(3.5, 20, 35, outer=False) > 2 * wc.ipc2221_width_mm(3.5, 20, 35)
     assert wc.ipc2221_width_mm(0.0, 10, 35) == 0.0                   # a zero-current stub needs nothing
+
+
+OBD_SOLAR = Path(__file__).resolve().parents[2] / "designs" / "obd-solar" / "design.py"
+
+
+@pytest.mark.skipif(not HAVE_LIBS or not OBD_SOLAR.exists(), reason="needs the KiCad symbol libraries")
+def test_obd_solar_correlation_zener_and_standby():
+    """The obd-solar friction items on the real design: PV_G correlated with PV_IN (#71), zeners rated by power
+    (#20), the REQ-5 standby budget from the netlist (#13; the hand calculation said 11.7 uA)."""
+    from haslamsynth.build import load_design
+    d = load_design(OBD_SOLAR).finalize()
+    ck = Checker(d)
+    f = ck.run()
+    pv_g, vbat = d.net_by_name("CHG/PV_G"), d.net_by_name("VBAT")
+    assert max(map(abs, ck.vdiff(pv_g, vbat))) < 30                       # was 33 V: a 0.6 mm rule
+    assert not [x for x in f if x.check == "rating.voltage" and ("D401" in x.message or "D205" in x.message)]
+    info = next(x for x in f if x.check == "standby.budget" and x.severity == "info")
+    assert "11.8 uA typical" in info.message and "R214/R215 1.15 uA" in info.message
+    assert not [x for x in f if x.check == "standby.undeclared"]

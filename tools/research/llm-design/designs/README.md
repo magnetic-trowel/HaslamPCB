@@ -5,7 +5,9 @@ Boards designed from plain-language briefs with [`haslamsynth`](../synth/README.
 - `DESIGN.md`: requirements, hazards, trade study, calculations, parts, placement;
 - `CONNECTIONS.md`: net tables and naming rules;
 - `parts.py` and `design.py`: the circuit as code;
-- `REVIEW.md`: an independent review and the designer's response;
+- `REVIEW.md`: an independent review and the designer's response, following the
+  [design review checklist](../../../../docs/topics/workflow/design-review-checklist.md) (pin semantics of every
+  mode/enable/strap pin, re-review after a part swap, vehicle transients, citations for every claim);
 - `out/`: the generated KiCad 10 project, `<slug>.haslam_intent.json` (operating intent for haslam), BOM and
   `report.md`. Only `report.md` and `erc.json` are committed here; rebuild the rest with
   `haslamsynth build designs/<slug>/design.py -v` (deterministic up to the title-block date, `--date`).

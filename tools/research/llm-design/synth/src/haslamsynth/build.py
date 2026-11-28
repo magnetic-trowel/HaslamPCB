@@ -4,6 +4,7 @@
 import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -147,6 +148,55 @@ def dru_verdict(text, cli, classes, kicad=True):
     return "ok"
 
 
+MPN_HISTORY = "mpn_history.json"     # out/: every MPN an earlier build of this design used (stale_mentions)
+
+
+def mpn_cores(mpn):
+    """(short, long) family names of an MPN as notes write it: letters then digits (LTC3115EFE-1#PBF -> LTC3115),
+    and with one more letter-digits group (STM32G071KBT6 -> STM32G071). None where under 5 characters."""
+    m = re.match(r"([A-Za-z]{1,6}\d{2,})((?:[A-Za-z]\d+)?)", mpn or "")
+    if not m:
+        return None, None
+    short, long_ = m.group(1), m.group(1) + m.group(2)
+    return (short if len(short) >= 5 else None), (long_ if len(long_) >= 5 else None)
+
+
+def stale_mentions(d, design_dir, outdir):
+    """`part.stale_mention` warnings: an MPN that an earlier build of this design used, which no part uses now,
+    still named in design.py or DESIGN.md (a swapped part whose notes, calcs, requirements or waivers were not
+    re-reviewed: obd-solar FRICTION #43, #53). The history is out/mpn_history.json; parts.py is not searched
+    (an unused card may stay there). Waive an intended mention (a design history paragraph) with d.waive."""
+    hist_path = Path(outdir) / MPN_HISTORY
+    try:
+        hist = set(json.loads(hist_path.read_text()))
+    except (OSError, ValueError):
+        hist = set()
+    now = {p.defn.mpn for p in d.all_parts() if p.defn.mpn}
+    now_cores = {c for m in now for c in mpn_cores(m)} - {None}
+    try:
+        hist_path.write_text(json.dumps(sorted(hist | now), indent=1) + "\n")
+    except OSError:
+        pass
+    gone = {}
+    for m in sorted(hist - now):
+        short, long_ = mpn_cores(m)
+        core = short if short and short not in now_cores else long_ if long_ and long_ not in now_cores else None
+        if core:
+            gone[m] = core
+    out = []
+    for name in ("design.py", "DESIGN.md"):
+        f = Path(design_dir) / name
+        if not gone or not f.exists():
+            continue
+        for i, line in enumerate(f.read_text().splitlines(), 1):
+            for m, core in gone.items():
+                if re.search(rf"(?<![A-Za-z0-9]){re.escape(core)}", line):
+                    out.append(Finding("part.stale_mention", "warning",
+                                       f"{name}:{i} names {core}, which an earlier build used ({m}) and no part uses "
+                                       f"now: re-review it after the part swap ({line.strip()[:80]})", [m]))
+    return out
+
+
 def build(design_path, outdir=None, use_kicad=True, date=None):
     d = load_design(design_path) if not isinstance(design_path, Design) else design_path
     outdir = Path(outdir) if outdir else Path(design_path).resolve().parent / "out"
@@ -269,6 +319,8 @@ def build(design_path, outdir=None, use_kicad=True, date=None):
         if not haslam_available():
             findings.append(Finding("haslam_intent.unchecked", "warning", "haslam is not importable (put haslam/src on "
                                     "PYTHONPATH): the intent file was checked by haslamsynth only"))
+    if not isinstance(design_path, Design):
+        findings += stale_mentions(d, Path(design_path).resolve().parent, outdir)
     checker.findings = findings
     checker.apply_waivers(final=True)
     findings = checker.findings
