@@ -1,21 +1,31 @@
 # SPDX-FileCopyrightText: 2026 HaslamPCB contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Post-route gate: are the tracks of every current-carrying net wide enough for its current?
+"""Post-route gate: is every track of a current-carrying net wide enough for the current it carries?
 
-    width_check.py BOARD.kicad_pcb NETLIST.json [--rise 20] [--neck 1.0] [--json OUT]
+    width_check.py BOARD.kicad_pcb NETLIST.json [--basis branch|net] [--rise C] [--neck 1.0] [--stub 0.1]
+                   [--injections FILE.json] [--json OUT]
 
-Runs under KiCad's Python (pcbnew; `$HASLAM_KICAD_WRAP python3`). NETLIST.json is haslamsynth's `out/netlist.json`
-(per-net `i_max`). A KiCad net-class track width is only the default for new tracks, not a rule, so a router may
-neck a 3 A net down to the board minimum and KiCad's DRC stays clean (obd-solar FRICTION.md #31); this gate looks
-at the copper that was actually drawn.
+Runs in the haslam venv (PYTHONPATH=<repo>/haslam/src, ~/.cache/haslambench/env.sh sourced: haslam reads the board
+with its own parser and uses KiCad only to export the DSN). NETLIST.json is haslamsynth's `out/netlist.json`
+(per-net `i_max`, `board.trace_rise_c`). A KiCad net-class track width is only the default for new tracks, not a
+rule, so a router may neck a 3 A net to the board minimum while KiCad's DRC stays clean (obd-solar FRICTION.md #31);
+this gate looks at the copper that was drawn.
 
-- Required width per net: IPC-2221 I = k dT^0.44 A^0.725 (A in mil^2, k 0.048 outer / 0.024 inner layers), copper
-  thickness from the board's stackup (35 um when it has none), temperature rise --rise (default: the netlist's
-  `board.trace_rise_c`, haslamsynth's BoardSpec field, else 10 C).
-- A segment is exempt when both its ends lie within --neck mm (default 1.0) of a pad of the same net: escapes from
-  fine-pitch pads must be narrower than the net.
-- Nets with a filled zone on them are reported as `zone` and not judged (the pour may carry the current).
-Exit status 1 when any judged net has a non-exempt segment narrower than required; 0 otherwise.
+Current per segment (`--basis branch`, the default):
+- The shape of the DC flow comes from a resistive solve of the net's routed copper
+  (haslam.route.power_copper.branch_currents) under the evaluator's DC plan (haslam.excite.dc.planned_injections,
+  driven by the board's intent file: rails, regulators, the loads its facts name), plus `--injections`
+  ({net: {"REF.PAD": A, ...}}, positive into the copper) for nets the plan does not cover.
+- The magnitude is the net's `i_max`: currents are scaled so the largest branch carries `i_max` (the plan is at
+  the typical point; the gate is a worst-case check).
+- Every segment carries at least `--stub` x i_max (default 0.1): a stub to a decoupling capacitor carries no DC but
+  ripple and transients (judging it by the net total counted VBAT's zero-current stubs as failures: FRICTION.md #65).
+- A net with no usable injections (no source and load on it) is judged by its `i_max` on every segment (`basis:
+  net`, the conservative fallback); `--basis net` does that for every net.
+Required width: IPC-2221, I = k dT^0.44 A^0.725 (A in mil^2, k 0.048 outer / 0.024 inner), 35 um copper unless the
+board's stackup says otherwise, rise `--rise` (default the netlist's board.trace_rise_c, else 10 C). A segment whose
+two ends lie within `--neck` mm of a same-net pad is exempt (fine-pitch escapes). Nets with a filled zone are
+reported as `zone` and not judged. Exit status 1 when any judged net has a non-exempt segment narrower than needed.
 """
 from __future__ import annotations
 
@@ -23,98 +33,114 @@ import argparse
 import json
 import math
 import sys
-
-import pcbnew
+from collections import defaultdict
+from pathlib import Path
 
 MIL = 0.0254           # mm
 
 
 def ipc2221_width_mm(amps, rise_c, copper_um, outer=True):
+    if amps <= 0:
+        return 0.0
     k = 0.048 if outer else 0.024
     area_mil2 = (amps / (k * rise_c ** 0.44)) ** (1 / 0.725)
     return area_mil2 / (copper_um / 1000 / MIL) * MIL
 
 
-def copper_um(board, layer):
-    try:
-        st = board.GetDesignSettings().GetStackupDescriptor()
-        for item in st.GetList():
-            if item.GetBrdLayerId() == layer and item.GetThickness() > 0:
-                return item.GetThickness() / 1000.0
-    except Exception:          # older pcbnew bindings: fall back to 1 oz
-        pass
-    return 35.0
+def _key(a, b):
+    return (round(a[0], 4), round(a[1], 4), round(b[0], 4), round(b[1], 4))
 
 
-def pad_distance_mm(pt, pads):
-    best = math.inf
-    for p in pads:
-        bb = p.GetBoundingBox()
-        dx = max(bb.GetLeft() - pt.x, 0, pt.x - bb.GetRight())
-        dy = max(bb.GetTop() - pt.y, 0, pt.y - bb.GetBottom())
-        best = min(best, math.hypot(dx, dy) / 1e6)
-    return best
+def check(board_path, netlist_path, rise=None, neck=1.0, stub=0.1, basis="branch", injections=None):
+    from shapely.geometry import Point
+    from haslam.board.kicad_file import load
+    from haslam.route import power_copper as P
 
-
-def check(board_path, netlist_path, rise=None, neck=1.0):
-    board = pcbnew.LoadBoard(board_path)
-    nl = json.load(open(netlist_path))
-    # the design's own rise (BoardSpec.trace_rise_c, written by haslamsynth) so the gate judges what the net classes
-    # were sized for; 10 C is haslamsynth's default
+    nl = json.loads(Path(netlist_path).read_text())
     rise = rise if rise is not None else float((nl.get("board") or {}).get("trace_rise_c") or 10.0)
-    currents = {n["name"]: float(n["i_max"]) for n in nl["nets"] if n.get("i_max")}
-    zone_nets = {z.GetNetname() for z in board.Zones() if not z.GetIsRuleArea() and z.GetNetname()}
-    pads = {}
-    for fp in board.GetFootprints():
-        for p in fp.Pads():
-            pads.setdefault(p.GetNetname(), []).append(p)
+    imax = {n["name"]: float(n["i_max"]) for n in nl["nets"] if n.get("i_max")}
+    pc = P.PowerCopper(board_path, {}, log=lambda *a, **k: None)
+    pads = defaultdict(list)
+    for fps in pc.sp.pads_by_fp.values():
+        for p in fps:
+            if p.kind == "pad" and isinstance(p.owner, tuple):
+                pads[p.net].append((f"{p.owner[0]}.{p.owner[1]}", p.geom, p.layers))
+    inj_all = {}
+    if basis == "branch":
+        try:
+            from haslam.excite import dc as DC
+            inj_all = DC.planned_injections(load(Path(board_path)), pc.op) or {}
+        except Exception as e:                      # no intent file, or a plan the evaluator cannot build
+            print(f"width_check: no DC plan ({type(e).__name__}: {e}); nets without --injections use i_max")
+    extra = injections or {}
+    outer = {pc.sp.cu[0], pc.sp.cu[-1]} if pc.sp.cu else set()
+    cu_um = 35.0
     out = {}
-    for t in board.GetTracks():
-        if t.GetClass() not in ("PCB_TRACK", "PCB_ARC"):
+    for net, i_net in imax.items():
+        mine = [t for t in pc.board.tracks if t.net == net]
+        if not mine:
             continue
-        net = t.GetNetname()
-        if net not in currents:
-            continue
-        layer = t.GetLayer()
-        outer = layer in (pcbnew.F_Cu, pcbnew.B_Cu)
-        need = ipc2221_width_mm(currents[net], rise, copper_um(board, layer), outer)
-        r = out.setdefault(net, {"i_max": currents[net], "need_mm": round(need, 3), "zone": net in zone_nets,
-                                 "min_mm": math.inf, "short_mm": 0.0, "exempt_mm": 0.0, "total_mm": 0.0})
-        w, length = t.GetWidth() / 1e6, t.GetLength() / 1e6
-        r["total_mm"] += length
-        r["min_mm"] = min(r["min_mm"], w)
-        if w + 1e-6 < need:
-            ends = [pad_distance_mm(t.GetStart(), pads.get(net, [])), pad_distance_mm(t.GetEnd(), pads.get(net, []))]
-            if max(ends) <= neck:
-                r["exempt_mm"] += length
-            else:
-                r["short_mm"] += length
-    fails = []
-    for net, r in out.items():
-        for k in ("min_mm", "short_mm", "exempt_mm", "total_mm"):
+        tokens = {tk for tk, _g, _l in pads[net]}
+        inj = {k: v for k, v in inj_all.items() if k in tokens}
+        inj.update({k: float(v) for k, v in (extra.get(net) or {}).items()})
+        cur, used = {}, "net"
+        if basis == "branch" and any(v > 0 for v in inj.values()) and any(v < 0 for v in inj.values()):
+            st = {}
+            P.branch_currents(net, pc.board.tracks, pc.board.vias, pads[net], pc.fills.get(net) or {}, inj, stats=st)
+            ti = st.get("track_i", [])
+            if ti:
+                peak = max(i for _ln, i in ti)
+                scale = i_net / peak if peak > 0 else 0.0
+                for ln, i in ti:
+                    c = list(ln.coords)
+                    cur[_key(c[0], c[-1])] = i * scale
+                used = "branch"
+        geoms = [g for _tk, g, _l in pads[net]]
+        r = {"i_max": i_net, "basis": used, "zone": bool(pc.fills.get(net)), "min_mm": math.inf, "short_mm": 0.0,
+             "exempt_mm": 0.0, "total_mm": 0.0, "need_max_mm": 0.0}
+        for t in mine:
+            L = math.dist(t.start, t.end)
+            i = max(cur.get(_key(t.start, t.end), cur.get(_key(t.end, t.start), 0.0)), stub * i_net) \
+                if used == "branch" else i_net
+            need = ipc2221_width_mm(i, rise, cu_um, t.layer in outer)
+            r["total_mm"] += L
+            r["min_mm"] = min(r["min_mm"], t.width)
+            r["need_max_mm"] = max(r["need_max_mm"], need)
+            if t.width + 1e-6 < need:
+                d = [min((g.distance(Point(xy)) for g in geoms), default=math.inf) for xy in (t.start, t.end)]
+                if max(d) <= neck:
+                    r["exempt_mm"] += L
+                else:
+                    r["short_mm"] += L
+        for k in ("min_mm", "short_mm", "exempt_mm", "total_mm", "need_max_mm"):
             r[k] = round(r[k], 3)
         r["verdict"] = "zone" if r["zone"] else ("fail" if r["short_mm"] > 0 else "pass")
-        if r["verdict"] == "fail":
-            fails.append(net)
-    return {"rise_c": rise, "neck_mm": neck, "nets": out, "fail": sorted(fails)}
+        out[net] = r
+    fails = sorted(n for n, r in out.items() if r["verdict"] == "fail")
+    return {"rise_c": rise, "neck_mm": neck, "stub": stub, "basis": basis, "nets": out, "fail": fails}
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("board")
     ap.add_argument("netlist")
+    ap.add_argument("--basis", choices=("branch", "net"), default="branch")
     ap.add_argument("--rise", type=float, default=None,
                     help="allowed temperature rise, C (default: the netlist's board.trace_rise_c, else 10)")
     ap.add_argument("--neck", type=float, default=1.0, help="mm from a same-net pad within which narrow is allowed")
+    ap.add_argument("--stub", type=float, default=0.1, help="minimum share of i_max any segment carries (branch)")
+    ap.add_argument("--injections", help="JSON {net: {\"REF.PAD\": A}} for nets the DC plan does not cover")
     ap.add_argument("--json")
     a = ap.parse_args(argv)
-    res = check(a.board, a.netlist, a.rise, a.neck)
+    inj = json.loads(Path(a.injections).read_text()) if a.injections else None
+    res = check(a.board, a.netlist, a.rise, a.neck, a.stub, a.basis, inj)
     if a.json:
-        json.dump(res, open(a.json, "w"), indent=1)
+        Path(a.json).write_text(json.dumps(res, indent=1))
     for net, r in sorted(res["nets"].items(), key=lambda kv: (kv[1]["verdict"] != "fail", kv[0])):
-        print(f"{r['verdict']:4} {net}: {r['i_max']:g} A needs {r['need_mm']:.2f} mm; narrowest {r['min_mm']:.3f} mm; "
-              f"{r['short_mm']:.1f} of {r['total_mm']:.1f} mm too narrow ({r['exempt_mm']:.1f} mm exempt at pads)")
-    print(f"width_check: {len(res['fail'])} net(s) too narrow (IPC-2221, rise {res['rise_c']:g} C)")
+        print(f"{r['verdict']:4} {net}: {r['i_max']:g} A ({r['basis']}), widest need {r['need_max_mm']:.2f} mm; "
+              f"narrowest {r['min_mm']:.3f} mm; {r['short_mm']:.1f} of {r['total_mm']:.1f} mm too narrow "
+              f"({r['exempt_mm']:.1f} mm exempt at pads)")
+    print(f"width_check: {len(res['fail'])} net(s) too narrow (IPC-2221, rise {res['rise_c']:g} C, basis {res['basis']})")
     return 1 if res["fail"] else 0
 
 

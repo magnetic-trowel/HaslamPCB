@@ -81,6 +81,9 @@ def attempt(design_out, board_json, wd, outline, seed, time_s, env):
     fp = Path(design_out).resolve().parent / "footprints"
     if fp.exists() and not (d / "footprints").exists():
         os.symlink(fp, d / "footprints")
+    wi = Path(design_out).resolve().parent / "width_injections.json"      # layout.sh's width gate reads it
+    if wi.exists() and not (d / "width_injections.json").exists():
+        os.symlink(wi, d / "width_injections.json")
     kpy = (env.get("HASLAM_KICAD_WRAP", "") + " python3").split()
     r = subprocess.run(kpy + [str(HERE / "sch_to_board.py"), str(out), str(board_json), "--outline", str(W), str(H)],
                        capture_output=True, text=True, env=env)

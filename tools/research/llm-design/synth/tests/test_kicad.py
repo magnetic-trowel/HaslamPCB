@@ -112,7 +112,6 @@ def test_multi_board_projects(tmp_path):
 
 
 def test_width_check_ipc2221():
-    pytest.importorskip("pcbnew")
     import importlib.util
     from pathlib import Path
     spec = importlib.util.spec_from_file_location("width_check", Path(__file__).parents[1] / "scripts/width_check.py")
@@ -122,3 +121,4 @@ def test_width_check_ipc2221():
     assert 0.25 < wc.ipc2221_width_mm(1.0, 10, 35) < 0.35
     assert 1.0 < wc.ipc2221_width_mm(3.5, 20, 35) < 1.2
     assert wc.ipc2221_width_mm(3.5, 20, 35, outer=False) > 2 * wc.ipc2221_width_mm(3.5, 20, 35)
+    assert wc.ipc2221_width_mm(0.0, 10, 35) == 0.0                   # a zero-current stub needs nothing
