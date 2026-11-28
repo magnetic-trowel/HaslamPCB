@@ -26,7 +26,7 @@ Tag `[tool]` = would be better as a command than as LLM work.
 | `HASLAM_KICAD_WRAP` unset on apt installs: layout's DRC died silently (#7, #32); KiCad libraries not installed (#6) | `setup.sh` writes it and installs the libraries | `02e163b` |
 | Gradle's parallel fetches got 429s from Maven Central (#9, #28) | one worker in the installer; CLAUDE.md fetching rule | `4e3c61f` |
 
-| haslam ignored hot loops; the placer's cell terms barely price them (#54) | haslamsynth writes hot loops as requested `near` relations; `near(requested=True)` | `14ea8a4`-series (see log #54) |
+| haslam ignored hot loops; the placer's cell terms barely price them (#54) | haslamsynth writes hot loops as requested `near` relations; `near(requested=True)` | `af417e4` |
 | Evaluator OOM at 0.0625 mm windows; DC plan injected 80 mA, so no track ran warm (#52, #56, #57) | 0.125 mm windows in layout.sh/pipeline.py; obd-solar load fact and heat/drop terms; evaluator now flags 200 K tracks (#62) | log #57, #62 |
 | Freerouting necks whole power nets (start_necked, pin ties) (#59, #60) | `power_copper` post-pass in layout.sh (partial); router fix on branch `gfix-route-width` (experiment pending) | `896a21d`, `5895488` |
 | LTC3115-1 PWM/SYNC tied low (Burst Mode) passed every gate; found by the review stage (#53) | design fixed; review is a pipeline gate | `a62d9fc` |
