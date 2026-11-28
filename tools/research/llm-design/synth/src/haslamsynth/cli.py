@@ -43,6 +43,37 @@ def cmd_jlc(a):
     return 0
 
 
+def cmd_parts_search(a):
+    from . import fetch, partsearch
+    try:
+        hits, seen = partsearch.search(a.keyword, n=a.n, min_stock=a.min_stock, basic=a.basic, package=a.package,
+                                       min_pitch=a.min_pitch, refresh=a.refresh)
+    except fetch.FetchError as e:
+        print(f"parts search failed: {e}", file=sys.stderr)
+        return 2
+    filt = [f for f, on in ((f"stock >= {a.min_stock}", a.min_stock), ("basic", a.basic),
+                            (f"package ~ /{a.package}/", a.package), (f"pitch >= {a.min_pitch} mm", a.min_pitch)) if on]
+    print(f"== {a.keyword}: {len(hits)} shown of {seen} JLC results" + (f" ({', '.join(filt)})" if filt else ""))
+    print("   LCSC | MPN | basic/ext | stock | package pitch | maker | description | datasheet")
+    for h in hits:
+        print("  " + h.line())
+    if any(h.pitch.how in ("typical", "bound", "unknown") for h in hits):
+        print("   pitch: ~ typical for that body, <= upper bound, P? unknown: read the datasheet's package drawing")
+    return 0
+
+
+def cmd_datasheet(a):
+    from . import datasheet
+    return datasheet.run(a.part, design=a.design, out=a.out, pages=a.pages, url=a.url, pdf=a.pdf,
+                         refresh=a.refresh, dpi=a.dpi)
+
+
+def cmd_fp_fetch(a):
+    from . import fpfetch
+    return fpfetch.run(a.lcsc, design=a.design, out=a.out, name=a.name, check_part=a.check_part, force=a.force,
+                       refresh=a.refresh)
+
+
 def cmd_sym(a):
     libs = SymbolLibs()
     if ":" in a.query and libs.has(a.query):
@@ -73,6 +104,9 @@ def cmd_fp(a):
     fl = FootprintLibs()
     if ":" in a.query and fl.has(a.query):
         print(f"{a.query}: pads {sorted(fl.pads(a.query), key=_nat)}")
+        if fl.legacy(a.query):
+            from .kicadlib import LEGACY_HINT
+            print(f"  {LEGACY_HINT}")
         return 0
     rx = re.compile(a.query, re.I)
     n = 0
@@ -114,6 +148,37 @@ def main(argv=None):
     j = sub.add_parser("jlc", help="look up JLCPCB/LCSC numbers for the generic passives (writes jlc.json)")
     j.add_argument("design", nargs="+")
     j.set_defaults(fn=cmd_jlc)
+    pa = sub.add_parser("parts", help="part selection: `parts search KEYWORD` (JLCPCB parts, one line per hit)")
+    psub = pa.add_subparsers(dest="parts_cmd", required=True)
+    ps = psub.add_parser("search", help="search JLCPCB parts: LCSC, MPN, basic/ext, stock, package, pitch, datasheet")
+    ps.add_argument("keyword")
+    ps.add_argument("--min-stock", type=int, default=0)
+    ps.add_argument("--basic", action="store_true", help="basic parts only (no per-order setup fee)")
+    ps.add_argument("--package", help="regex on the package name, e.g. 'TSSOP|SOIC'")
+    ps.add_argument("--min-pitch", type=float, help="drop parts whose lead pitch is known to be below this (mm)")
+    ps.add_argument("-n", type=int, default=20, help="lines to print (default 20)")
+    ps.add_argument("--refresh", action="store_true", help="ask the API again instead of the day-old cache")
+    ps.set_defaults(fn=cmd_parts_search)
+    ds = sub.add_parser("datasheet", help="fetch a datasheet once (maker URL, JLC URL, LCSC): PDF, text, page PNGs")
+    ds.add_argument("part", help="MPN or LCSC C-number")
+    ds.add_argument("--design", help="designs/<slug>: save under its datasheets/ (default ~/.cache/haslamsynth)")
+    ds.add_argument("--out", help="save into this directory instead")
+    ds.add_argument("--pages", help="render pages to PNG: '32-35', '3,7' or 'auto' (typical application, layout)")
+    ds.add_argument("--url", help="try this URL first (a mirror)")
+    ds.add_argument("--pdf", help="use this local PDF (e.g. one the user supplied); nothing is fetched")
+    ds.add_argument("--dpi", type=int, default=110)
+    ds.add_argument("--refresh", action="store_true", help="fetch again, ignoring saved and remembered results")
+    ds.set_defaults(fn=cmd_datasheet)
+    ff = sub.add_parser("fp-fetch", help="JLC/EasyEDA land pattern -> KiCad 10 footprint in custom.pretty "
+                                         "(easyeda2kicad + kicad-cli fp upgrade); no stated licence")
+    ff.add_argument("lcsc", help="LCSC C-number, e.g. C19272254")
+    ff.add_argument("--design", help="designs/<slug>: write footprints/custom.pretty/<name>.kicad_mod there")
+    ff.add_argument("--out", help="write into this .pretty directory instead")
+    ff.add_argument("--name", help="footprint name (default: EasyEDA's package name)")
+    ff.add_argument("--check-part", metavar="PARTS.PY:NAME", help="compare pads with this part card's pin numbers")
+    ff.add_argument("--force", action="store_true", help="replace an existing footprint of that name")
+    ff.add_argument("--refresh", action="store_true", help="ask EasyEDA again instead of the cache")
+    ff.set_defaults(fn=cmd_fp_fetch)
     s = sub.add_parser("sym", help="search KiCad symbols by regex, or show pins of Lib:Name")
     s.add_argument("query")
     s.add_argument("--lib")

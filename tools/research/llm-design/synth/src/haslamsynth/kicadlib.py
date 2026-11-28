@@ -245,8 +245,33 @@ class FootprintLibs:
 
     @functools.lru_cache(maxsize=None)
     def pads(self, lib_id):
-        """Set of named (electrical) pad numbers; '' (unnamed mechanical pads) excluded."""
+        """Set of named (electrical) pad numbers; '' (unnamed mechanical pads) excluded. Reads KiCad 6+
+        `(footprint ...)` and legacy KiCad 5 `(module ...)` files (unquoted pad numbers, e.g. easyeda2kicad's)."""
         p = self.path(lib_id)
         if p is None:
             raise KeyError(f"footprint {lib_id} not found under {self.root}")
-        return frozenset(n for n in re.findall(r'\(pad\s+"([^"]*)"', p.read_text()) if n)
+        return read_footprint(p)[0]
+
+    def legacy(self, lib_id):
+        """True for a legacy `(module ...)` file: KiCad still loads it, but run `kicad-cli fp upgrade`."""
+        p = self.path(lib_id)
+        return p is not None and read_footprint(p)[1] == "module"
+
+
+LEGACY_HINT = "legacy KiCad 5 format (module ...): run `kicad-cli fp upgrade --force <lib>.pretty`"
+
+
+@functools.lru_cache(maxsize=None)
+def _read_footprint(path, mtime):
+    tree = sexpr.loads(Path(path).read_text())
+    head = str(tree[0]) if tree else ""
+    if head not in ("footprint", "module"):
+        raise ValueError(f"{path}: not a footprint (starts with ({head} ...)")
+    pads = frozenset(str(x[1]) for x in sexpr.find_all(tree, "pad") if len(x) > 1 and str(x[1]))
+    return pads, head
+
+
+def read_footprint(path):
+    """(named pad numbers, 'footprint' | 'module') of a .kicad_mod file."""
+    p = Path(path)
+    return _read_footprint(str(p), p.stat().st_mtime_ns)
