@@ -144,3 +144,13 @@ def test_no_charge_path_when_the_switch_is_off():
     assert any(x.get("charge") for x in pl.loads) and not any(x.get("charge") for x in pl2.loads)
     assert any("nothing draws from it" in n for n in pl2.notes)
 
+
+def test_planned_injections_reads_the_facts_as_the_evaluator_does():
+    """The brief is built from the facts: VBAT, with no source part, is fed at J3 because the facts give its voltage,
+    and a haslam.intent/1 document is read through its facts. Without them the charge path did not exist."""
+    b = board(_charger(Q("Q1", "AO3407A", "G", "CHG", "VBAT")))
+    doc = {"schema": "haslam.intent/1", "facts": FACTS}
+    for intent in (FACTS, doc):
+        inj = DC.planned_injections(b, intent)
+        assert inj["Q1.3"] == pytest.approx(-0.6) and inj["J3.1"] == pytest.approx(-0.6)
+
