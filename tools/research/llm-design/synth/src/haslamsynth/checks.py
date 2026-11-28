@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 
 from .ir import GRADES, OFF_BOARD, THREATS, DesignError, PinRef
+from .kicadlib import LEGACY_HINT
 from .units import parse_value
 
 
@@ -567,9 +568,13 @@ class Checker:
             pads = self.fp.pads(defn.footprint)
             pins = {x.number for x in p.pins}
             missing = sorted(pins - pads, key=_natkey)
+            if getattr(self.fp, "legacy", lambda _: False)(defn.footprint):
+                self.add("lib.footprint_legacy", "warning", f"{who}: {defn.footprint} is in {LEGACY_HINT}", [p.ref])
             if missing:
+                found = (f"pads {sorted(pads, key=_natkey)}" if pads else
+                         "no named pads read from the file; check it opens in KiCad")
                 self.add("lib.pad_mismatch", "error",
-                         f"{who}: symbol pins {missing} have no pad in {defn.footprint} (pads {sorted(pads, key=_natkey)})",
+                         f"{who}: symbol pins {missing} have no pad in {defn.footprint} ({found})",
                          [p.ref])
             extra = sorted(pads - pins, key=_natkey)
             if extra:

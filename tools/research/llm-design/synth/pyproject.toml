@@ -15,6 +15,8 @@ dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+# `haslamsynth fp-fetch` (EasyEDA land patterns); easyeda2kicad is AGPL-3.0, imported as a separate library
+parts = ["easyeda2kicad>=1.0"]
 
 [project.scripts]
 haslamsynth = "haslamsynth.cli:main"

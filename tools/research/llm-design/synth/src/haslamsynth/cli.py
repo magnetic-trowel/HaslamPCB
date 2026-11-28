@@ -68,6 +68,12 @@ def cmd_datasheet(a):
                          refresh=a.refresh, dpi=a.dpi)
 
 
+def cmd_fp_fetch(a):
+    from . import fpfetch
+    return fpfetch.run(a.lcsc, design=a.design, out=a.out, name=a.name, check_part=a.check_part, force=a.force,
+                       refresh=a.refresh)
+
+
 def cmd_sym(a):
     libs = SymbolLibs()
     if ":" in a.query and libs.has(a.query):
@@ -98,6 +104,9 @@ def cmd_fp(a):
     fl = FootprintLibs()
     if ":" in a.query and fl.has(a.query):
         print(f"{a.query}: pads {sorted(fl.pads(a.query), key=_nat)}")
+        if fl.legacy(a.query):
+            from .kicadlib import LEGACY_HINT
+            print(f"  {LEGACY_HINT}")
         return 0
     rx = re.compile(a.query, re.I)
     n = 0
@@ -160,6 +169,16 @@ def main(argv=None):
     ds.add_argument("--dpi", type=int, default=110)
     ds.add_argument("--refresh", action="store_true", help="fetch again, ignoring saved and remembered results")
     ds.set_defaults(fn=cmd_datasheet)
+    ff = sub.add_parser("fp-fetch", help="JLC/EasyEDA land pattern -> KiCad 10 footprint in custom.pretty "
+                                         "(easyeda2kicad + kicad-cli fp upgrade); no stated licence")
+    ff.add_argument("lcsc", help="LCSC C-number, e.g. C19272254")
+    ff.add_argument("--design", help="designs/<slug>: write footprints/custom.pretty/<name>.kicad_mod there")
+    ff.add_argument("--out", help="write into this .pretty directory instead")
+    ff.add_argument("--name", help="footprint name (default: EasyEDA's package name)")
+    ff.add_argument("--check-part", metavar="PARTS.PY:NAME", help="compare pads with this part card's pin numbers")
+    ff.add_argument("--force", action="store_true", help="replace an existing footprint of that name")
+    ff.add_argument("--refresh", action="store_true", help="ask EasyEDA again instead of the cache")
+    ff.set_defaults(fn=cmd_fp_fetch)
     s = sub.add_parser("sym", help="search KiCad symbols by regex, or show pins of Lib:Name")
     s.add_argument("query")
     s.add_argument("--lib")
