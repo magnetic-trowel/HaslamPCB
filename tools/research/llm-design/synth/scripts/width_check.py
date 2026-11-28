@@ -3,7 +3,7 @@
 """Post-route gate: is every track of a current-carrying net wide enough for the current it carries?
 
     width_check.py BOARD.kicad_pcb NETLIST.json [--basis branch|net] [--rise C] [--neck 1.0] [--stub 0.1]
-                   [--injections FILE.json] [--json OUT]
+                   [--intent FILE] [--injections FILE.json] [--json OUT]
 
 Runs in the haslam venv (PYTHONPATH=<repo>/haslam/src, ~/.cache/haslambench/env.sh sourced: haslam reads the board
 with its own parser and uses KiCad only to export the DSN). NETLIST.json is haslamsynth's `out/netlist.json`
@@ -13,9 +13,13 @@ this gate looks at the copper that was drawn.
 
 Current per segment (`--basis branch`, the default):
 - The shape of the DC flow comes from a resistive solve of the net's routed copper
-  (haslam.route.power_copper.branch_currents) under the evaluator's DC plan (haslam.excite.dc.planned_injections,
-  driven by the board's intent file: rails, regulators, the loads its facts name), plus `--injections`
-  ({net: {"REF.PAD": A, ...}}, positive into the copper) for nets the plan does not cover.
+  (haslam.route.power_copper.branch_currents) under the evaluator's DC plan (haslam.excite.dc.planned_injections
+  with per_net: each series part's current on its pads, so a net fed through a fuse, an inductor or a sense
+  resistor balances on its own), under the operating facts of `--intent` (default: the design's
+  `<stem>.haslam_intent.json` beside the board, else the .kicad_pro's HASLAM_OPERATING): rails, regulators,
+  converters, a charger's battery, the loads its facts name. `--injections` ({net: {"REF.PAD": A, ...}}, positive
+  into the copper) replaces the plan on the nets it names (obd-solar needed one only while the plan had no
+  facts, no charger and no per-net currents: FRICTION.md #66).
 - The magnitude is the net's `i_max`: currents are scaled so the largest branch carries `i_max` (the plan is at
   the typical point; the gate is a worst-case check).
 - Every segment carries at least `--stub` x i_max (default 0.1): a stub to a decoupling capacitor carries no DC but
@@ -51,7 +55,7 @@ def _key(a, b):
     return (round(a[0], 4), round(a[1], 4), round(b[0], 4), round(b[1], 4))
 
 
-def check(board_path, netlist_path, rise=None, neck=1.0, stub=0.1, basis="branch", injections=None):
+def check(board_path, netlist_path, rise=None, neck=1.0, stub=0.1, basis="branch", injections=None, intent=None):
     from shapely.geometry import Point
     from haslam.board.kicad_file import load
     from haslam.route import power_copper as P
@@ -69,7 +73,10 @@ def check(board_path, netlist_path, rise=None, neck=1.0, stub=0.1, basis="branch
     if basis == "branch":
         try:
             from haslam.excite import dc as DC
-            inj_all = DC.planned_injections(load(Path(board_path)), pc.op) or {}
+            if intent is None:
+                beside = Path(board_path).with_suffix(".haslam_intent.json")
+                intent = json.loads(beside.read_text()) if beside.exists() else pc.op
+            inj_all = DC.planned_injections(load(Path(board_path)), intent, per_net=True) or {}
         except Exception as e:                      # no intent file, or a plan the evaluator cannot build
             print(f"width_check: no DC plan ({type(e).__name__}: {e}); nets without --injections use i_max")
     extra = injections or {}
@@ -81,8 +88,10 @@ def check(board_path, netlist_path, rise=None, neck=1.0, stub=0.1, basis="branch
         if not mine:
             continue
         tokens = {tk for tk, _g, _l in pads[net]}
-        inj = {k: v for k, v in inj_all.items() if k in tokens}
-        inj.update({k: float(v) for k, v in (extra.get(net) or {}).items()})
+        # the design's own injections replace the plan on the nets they name (added to the per-net plan, a series
+        # part's current would count twice)
+        inj = {k: float(v) for k, v in extra[net].items()} if extra.get(net) else \
+            {k: v for k, v in inj_all.items() if k in tokens}
         cur, used = {}, "net"
         if basis == "branch" and any(v > 0 for v in inj.values()) and any(v < 0 for v in inj.values()):
             st = {}
@@ -141,11 +150,14 @@ def main(argv=None):
                     help="allowed temperature rise, C (default: the netlist's board.trace_rise_c, else 10)")
     ap.add_argument("--neck", type=float, default=1.0, help="mm from a same-net pad within which narrow is allowed")
     ap.add_argument("--stub", type=float, default=0.1, help="minimum share of i_max any segment carries (branch)")
-    ap.add_argument("--injections", help="JSON {net: {\"REF.PAD\": A}} for nets the DC plan does not cover")
+    ap.add_argument("--intent", help="operating facts or haslam.intent/1 file for the DC plan (default: "
+                    "<board stem>.haslam_intent.json beside the board, else the .kicad_pro's HASLAM_OPERATING)")
+    ap.add_argument("--injections", help="JSON {net: {\"REF.PAD\": A}} replacing the DC plan on the nets it names")
     ap.add_argument("--json")
     a = ap.parse_args(argv)
     inj = json.loads(Path(a.injections).read_text()) if a.injections else None
-    res = check(a.board, a.netlist, a.rise, a.neck, a.stub, a.basis, inj)
+    it = json.loads(Path(a.intent).read_text()) if a.intent else None
+    res = check(a.board, a.netlist, a.rise, a.neck, a.stub, a.basis, inj, it)
     if a.json:
         Path(a.json).write_text(json.dumps(res, indent=1))
     for net, r in sorted(res["nets"].items(), key=lambda kv: (kv[1]["verdict"] != "fail", kv[0])):

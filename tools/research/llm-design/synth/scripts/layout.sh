@@ -59,8 +59,8 @@ fi
 $HASLAM_KICAD_WRAP python3 "$REPO/tools/research/llm-design/synth/scripts/refill.py" "$OUT" > /dev/null 2>&1 || true
 # copper actually drawn vs each net's current (a net-class width is not a rule: FRICTION.md #31); needs netlist.json
 NL=$(dirname "$IN")/netlist.json
-# judged by each segment's branch current (haslam venv); a design's width_injections.json (beside out/, or in it)
-# supplies current paths the evaluator's DC plan does not model (FRICTION.md #65-66)
+# judged by each segment's branch current (haslam venv) under the evaluator's DC plan from the design's intent file
+# (copied beside $OUT); a design's width_injections.json (beside out/, or in it) replaces the plan on the nets it names
 WI=; for f in "$(dirname "$IN")/width_injections.json" "$(dirname "$IN")/../width_injections.json"; do [ -f "$f" ] && WI=$f && break; done
 [ -f "$NL" ] && PYTHONPATH=$REPO/haslam/src "$PY" "$REPO/tools/research/llm-design/synth/scripts/width_check.py" "$OUT" "$NL" \
   ${WI:+--injections "$WI"} --json "$OUTD/eval/width.json" > "$OUTD/eval/width.txt" 2>&1 || true

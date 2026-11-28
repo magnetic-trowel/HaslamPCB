@@ -122,3 +122,26 @@ def test_width_check_ipc2221():
     assert 1.0 < wc.ipc2221_width_mm(3.5, 20, 35) < 1.2
     assert wc.ipc2221_width_mm(3.5, 20, 35, outer=False) > 2 * wc.ipc2221_width_mm(3.5, 20, 35)
     assert wc.ipc2221_width_mm(0.0, 10, 35) == 0.0                   # a zero-current stub needs nothing
+
+
+@pytest.mark.kicad
+def test_width_check_needs_no_hand_injections_on_obd_solar():
+    """obd-solar's routed seed 1 under the evaluator's DC plan from its intent file alone: every power net is judged by
+    its branch currents (the plan now covers the OBD feed, the charger into the car battery, the switch nodes and the
+    series parts), and the verdicts are those its hand-written width_injections.json gave (FRICTION.md #66)."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+    repo = Path(__file__).resolve().parents[5]
+    sys.path.insert(0, str(repo / "haslam" / "src"))
+    pytest.importorskip("haslam.excite.dc")
+    spec = importlib.util.spec_from_file_location("width_check", Path(__file__).parents[1] / "scripts/width_check.py")
+    wc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wc)
+    h = repo / "tools/research/llm-design/designs/obd-solar/handoff"
+    res = wc.check(h / "routed-s1/obd-solar.kicad_pcb", h / "unplaced/netlist.json")
+    power = ("OBD_RAW", "VBAT", "PV_RAW", "PV_IN", "CHG_OUT", "VBUS", "/USB/BB_SW1", "/USB/BB_SW2", "/CHG/SW_CHG",
+             "/CHG/CHG_CS")
+    assert {n: res["nets"][n]["basis"] for n in power} == {n: "branch" for n in power}
+    assert res["fail"] == ["/USB/BB_SW1", "/USB/BB_SW2", "CHG_OUT", "GND", "OBD_RAW", "VBAT", "VBUS"]
+    assert res["nets"]["CHG_OUT"]["short_mm"] == pytest.approx(41.7, abs=0.1)     # 73.8 judged by i_max everywhere
