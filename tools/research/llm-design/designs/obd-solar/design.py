@@ -391,6 +391,9 @@ def operating(d):
         k.cell("U301", cls, I_A=(0.05, 1.0, 2.0), vin="VBAT", vout="VBUS",
                V_V=(11.5, 12.6, 24.0) if cls == "buck" else (5.0, 12.0, 12.1),
                why="LTC3115-1 4-switch buck-boost: 12 V 1 A PD load (thermal limit) from a 12.6 V battery; 2 A at 5/9 V")
+    # loads the evaluator cannot infer: without them its DC plan drew 50 mA + 30 mA and no track ran warm
+    # (FRICTION.md #56)
+    k.part("J301", I_A=(0.05, 1.0, 2.0), why="USB-C sink: 1 A at 12 V typical PD load, 2 A at 5/9 V (REQ-4)")
     k.cable("J101", 0.5, why="OBD-II pigtail, ~0.5 m")
     k.cable("J201", 5.0, why="panel lead on the dashboard/roof, <= 5 m")
     k.cable("J301", 1.0, why="USB-C cable")
@@ -403,6 +406,11 @@ def operating(d):
     k.term("T-OS301", "hard", "overshoot.peak", where={"part": "U301"}, max="20 V",
            source="LTC3115-1 DS p.2: VIN/PVIN/PVOUT 45 V, SW <= PVIN/PVOUT + 1.5 V for < 100 ns; VIN <= 24 V",
            why="SW1 rides on PVIN <= 24 V: 45 - 24 - 0.5 V, rounded down")
+    k.term("T-HEAT", "limit", "heat.track", max="20 K", rate="5 mW_eq/K",
+           why="IPC-2221 conductor rise: net classes are sized for 10 C (BoardSpec.trace_rise_c), 20 K is the ceiling",
+           source="IPC-2221; obd-solar FRICTION.md #31")
+    k.term("T-DROP", "limit", "drop.rail", where={"rail": "VBUS"}, max="150 mV", rate="1 mW_eq/mV",
+           why="VBUS drop from U301 to J301: 3 % of 5 V (USB PD allows 5 %)", source="USB PD vSafe5V")
     k.term("T-TJ", "hard", "temp.junction", where={"part": "U*"}, max="125 C", source="LTC3115-1 DS p.2 (E/I grade 125 C)",
            why="junction rating")
 
@@ -434,6 +442,11 @@ def placement(d):
         pl.near(f(r), "U201.6", within_mm=5.0, note="MPPT node short")
     pl.near(f("R203"), u2, "close", note="CSP/BAT Kelvin")
     pl.near(f("C401"), "U401.4", within_mm=3.0)
+    # bulk caps at the converters they feed: without these the placer left C101 21 mm from U301 and C205 47 mm from
+    # R203 (physics investigation, FRICTION.md #54); requested keeps their weight where cell terms cover the parts
+    pl.near(f("C101"), "U301.17", "close", requested=True, note="input bulk at U301 PVIN (DS p.11: 47-100 uF bulk)")
+    pl.near(f("C205"), "R203", "close", requested=True, note="CN3767 output electrolytic at the sense resistor")
+    pl.near(f("C201"), "Q202", "close", requested=True, note="CN3767 input electrolytic at the switch")
 
 
 def build():
