@@ -2,34 +2,52 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Fabrication outputs of a routed board for JLCPCB (docs/topics/workflow/brief-to-board.md, S10/G12).
 
-    python fab_outputs.py ROUTED.kicad_pcb OUTDIR [--allow-open]
+    python fab_outputs.py ROUTED.kicad_pcb OUTDIR [--allow-open] [--no-review]
 
 Runs with HASLAM_KICAD_WRAP (or kicad-cli and KiCad's Python on PATH); the board's .kicad_pro/.kicad_dru beside it.
 1. Copies the board, refills its zones with KiCad (router outputs store no fills) and saves it as OUTDIR/<stem>.kicad_pcb.
-2. Gate: KiCad DRC on the filled board: 0 errors and 0 unconnected items, else no outputs (--allow-open: write
+2. Review images OUTDIR/review-top.png, review-bottom.png (review_render.py: pads, tracks, courtyards, references,
+   pours outlined), written for every board, also one that fails the gate (--no-review skips them).
+3. Gate: KiCad DRC on the filled board: 0 errors and 0 unconnected items, else no outputs (--allow-open: write
    them anyway, for a review copy; the report says so).
-3. Gerbers (copper, mask, paste, silk, Edge.Cuts) and Excellon drill files, zipped: OUTDIR/<stem>-gerbers.zip.
-4. OUTDIR/<stem>-cpl.csv (Designator, Mid X, Mid Y, Layer, Rotation) from KiCad's position file: SMD and
-   through-hole parts, DNP and board-only parts left out. Rotations are KiCad's; JLC's assembly preview applies
-   its own per-package corrections, so check every polarised part there.
-5. OUTDIR/<stem>-bom.csv (Comment, Designator, Footprint, LCSC Part #) grouped by value, footprint and LCSC
+4. Gerbers (copper, mask, paste, silk, Edge.Cuts) and Excellon drill files, zipped: OUTDIR/<stem>-gerbers.zip.
+5. OUTDIR/<stem>-cpl.csv (Designator, Mid X, Mid Y, Layer, Rotation), SMD and through-hole parts; DNP, board-only,
+   "exclude from position files" parts and those left out of the BOM (6) are not placed. The format is the one
+   JLCPCB documents for KiCad (jlcpcb.com/help/article/how-to-generate-the-bom-and-centroid-file-from-kicad: KiCad's
+   position file, mm, both sides in one file, columns renamed) and the coordinates follow its recommended plugin,
+   bennymeg/Fabrication-Toolkit (plugins/process.py): KiCad's board origin with Y negated (Y up, so Y is negative
+   on a board drawn below the origin), the same frame as the Gerbers written here (no auxiliary origin on either);
+   X is not negated on the bottom. The position is the footprint origin of an SMD part and the centre of the pads
+   of a through-hole part. Rotation: KiCad's on the top; 180 - KiCad's on the bottom (JLC reads rotations as seen
+   from above); then the per-footprint correction of haslamsynth/fab/jlc_cpl_rotations.csv (that plugin's table,
+   first matching regex on the footprint name). The table is a convention, not a measurement (JLCKicadTools'
+   table gives other values for some packages, e.g. QFN 270 and SOT-23 -90 against 90 and 180 here), so the report
+   lists every corrected part, and every polarised part (3+ pads, diodes, LEDs, electrolytics) without an entry,
+   for a check in JLC's placement preview.
+6. OUTDIR/<stem>-bom.csv (Comment, Designator, Footprint, LCSC Part #) grouped by value, footprint and LCSC
    number, from the footprints' fields; parts marked DNP, excluded from the BOM, board-only, or with an
    "Assembly" field saying they are not JLC's (a plug-in module) are left out and listed in the report.
-6. OUTDIR/fab-report.json: DRC summary, file list, BOM lines without an LCSC number, parts left out, and the
-   unique LCSC numbers that are extended parts (each one a JLC setup fee per order) or carry no JLC field.
+7. OUTDIR/fab-report.json: DRC summary, file list, BOM lines without an LCSC number, parts left out, the CPL
+   corrections and parts to check, the unique LCSC numbers that are extended parts (each one a JLC setup fee
+   per order) or carry no JLC field, and `tombstone_risk`: small two-terminal parts with asymmetric pad copper
+   (tombstone_check.py, OUTDIR/tombstone.json; reported, not gated here).
 """
 from __future__ import annotations
 
 import argparse
 import csv
 import json
+import math
 import os
+import re
 import shlex
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
 
+HERE = Path(__file__).resolve().parent
+ROT_TABLE = HERE.parent / "src" / "haslamsynth" / "fab" / "jlc_cpl_rotations.csv"
 LAYERS = "F.Cu,B.Cu,F.Paste,B.Paste,F.Silkscreen,B.Silkscreen,F.Mask,B.Mask,Edge.Cuts"
 REFILL = r'''
 import sys, pcbnew
@@ -39,8 +57,28 @@ pcbnew.SaveBoard(sys.argv[2], b)
 rows = []
 for fp in b.GetFootprints():
     f = {fld.GetName(): fld.GetText() for fld in fp.GetFields()}
+    pads = list(fp.Pads())
+    pos = fp.GetPosition()
+    # centre of the pads' box in the footprint's own frame, turned back by its rotation (exact at any angle)
+    c = pcbnew.FOOTPRINT(fp)
+    c.SetOrientationDegrees(0)
+    c.SetPosition(pcbnew.VECTOR2I(0, 0))
+    cx = cy = 0
+    if pads:
+        bb = list(c.Pads())[0].GetBoundingBox()
+        for p in c.Pads():
+            bb.Merge(p.GetBoundingBox())
+        cx, cy = bb.GetCenter().x, bb.GetCenter().y
+    import math
+    a = math.radians(fp.GetOrientationDegrees())
+    attrs = fp.GetAttributes()
     rows.append(dict(ref=fp.GetReference(), value=fp.GetValue(), fpid=fp.GetFPIDAsString(),
                      dnp=bool(fp.IsDNP()), no_bom=bool(fp.IsExcludedFromBOM()), board_only=bool(fp.IsBoardOnly()),
+                     no_pos=bool(attrs & pcbnew.FP_EXCLUDE_FROM_POS_FILES), smd=bool(attrs & pcbnew.FP_SMD),
+                     x=pcbnew.ToMM(pos.x), y=pcbnew.ToMM(pos.y), rot=fp.GetOrientationDegrees(),
+                     bottom=bool(fp.IsFlipped()), npads=len([p for p in pads if p.GetNumber()]),
+                     pcx=pcbnew.ToMM(pos.x + cx * math.cos(a) + cy * math.sin(a)),
+                     pcy=pcbnew.ToMM(pos.y - cx * math.sin(a) + cy * math.cos(a)),
                      lcsc=f.get("LCSC", ""), jlc=f.get("JLC", ""), assembly=f.get("Assembly", "")))
 import json
 print("FPJSON " + json.dumps(rows))
@@ -52,11 +90,72 @@ def tool(args, timeout=1800):
     return subprocess.run(w + args, capture_output=True, text=True, timeout=timeout)
 
 
+# ------------------------------------------------------------------------------------------------ CPL
+def load_rotations(path=ROT_TABLE):
+    """[(compiled regex, pattern, rotation, dx, dy)] in file order (first match wins)."""
+    rows = []
+    lines = [ln for ln in Path(path).read_text().splitlines() if ln.strip() and not ln.startswith("#")]
+    for r in csv.reader(lines[1:]):
+        r = [x.strip() for x in r]
+        rows.append((re.compile(r[0]), r[0], float(r[1] or 0), float(r[2] or 0) if len(r) > 2 else 0.0,
+                     float(r[3] or 0) if len(r) > 3 else 0.0))
+    return rows
+
+
+def match_rotation(fpid, table):
+    """The first table row whose regex is found in the footprint name (the library nickname is matched only when
+    the pattern names one with ':', then against the whole id; else the library name is tried last), as the
+    Fabrication Toolkit does; None without one."""
+    lib, _, name = fpid.rpartition(":")
+    for row in table:
+        if re.search(row[0], fpid if ":" in row[1] else name):
+            return row
+    for row in table if lib else []:
+        if ":" not in row[1] and re.search(row[0], lib):
+            return row
+    return None
+
+
+POLAR_REF = re.compile(r"^(D|LED|BT|Q|U|IC|VR|ZD)\d", re.I)
+POLAR_FP = re.compile(r"CP_|C_Elec|Elec|Tantal|LED|Diode|^D_|SOD|SMA|SMB|SMC|MELF", re.I)
+
+
+def polarised(ref, fpid, npads):
+    """Placement is orientation-sensitive: 3+ pads, or a diode, LED, battery, electrolytic or tantalum part."""
+    name = fpid.rpartition(":")[2]
+    return npads >= 3 or bool(POLAR_REF.match(ref)) or bool(POLAR_FP.search(name))
+
+
+def cpl_row(f, table):
+    """(Designator, Mid X, Mid Y, Layer, Rotation, record) of one footprint record (fab_outputs' REFILL rows)."""
+    x, y = (f["x"], f["y"]) if f.get("smd", True) else (f["pcx"], f["pcy"])
+    mid_x, mid_y = x, -y
+    rot = (180.0 - f["rot"]) if f["bottom"] else f["rot"]
+    m = match_rotation(f["fpid"], table)
+    rec = dict(ref=f["ref"], footprint=f["fpid"], kicad_rot=round(f["rot"] % 360, 4), side="bottom" if f["bottom"] else "top")
+    if m:
+        _, pat, corr, dx, dy = m
+        if dx or dy:                               # the table's offset is in the footprint's frame
+            a = math.radians(f["rot"])
+            if f["bottom"]:
+                dx, dy = dx * math.cos(a) + dy * math.sin(a), dx * math.sin(a) - dy * math.cos(a)
+            else:
+                dx, dy = dx * math.cos(a) - dy * math.sin(a), dx * math.sin(a) + dy * math.cos(a)
+            mid_x, mid_y = mid_x + dx, mid_y + dy
+        rot += corr
+        rec.update(pattern=pat, correction=corr, offset=[dx, dy])
+    rot %= 360.0
+    rec["cpl_rot"] = round(rot, 4)
+    return (f["ref"], f"{mid_x:.4f}mm", f"{mid_y:.4f}mm", "Bottom" if f["bottom"] else "Top", f"{round(rot, 4):g}",
+            rec, m is not None)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("board")
     ap.add_argument("outdir")
     ap.add_argument("--allow-open", action="store_true", help="write the outputs even when the DRC gate fails")
+    ap.add_argument("--no-review", action="store_true", help="no review-top.png / review-bottom.png")
     a = ap.parse_args(argv)
     src = Path(a.board).resolve()
     out = Path(a.outdir).resolve()
@@ -76,6 +175,22 @@ def main(argv=None):
         raise SystemExit("zone refill failed")
     fps = json.loads(line[7:])
     rep = dict(board=str(src), filled=str(pcb))
+    if not a.no_review:
+        sys.path.insert(0, str(HERE))
+        from review_render import render
+        try:
+            rep["review"] = [str(p) for p in render(pcb, out)]
+        except Exception as e:  # noqa: BLE001 - a review image never blocks the fab files
+            rep["review_error"] = f"{type(e).__name__}: {e}"
+            print(f"review images failed: {rep['review_error']}", file=sys.stderr)
+    # tombstoning risk (FRICTION.md #68): a warning in the report, not a gate (pipeline.py's warnings stage gates it)
+    tsj = out / "tombstone.json"
+    tool(["python3", str(HERE / "tombstone_check.py"), str(pcb), "--json", str(tsj)])
+    if tsj.exists():
+        ts = json.loads(tsj.read_text())
+        rep["tombstone_risk"] = [f"{w['ref']} ({w['size']}): {w['why']}" for w in ts["warnings"]]
+        print(f"tombstone check: {len(ts['warnings'])} of {ts['checked']} small two-terminal parts with asymmetric "
+              f"pad copper" + (f" ({', '.join(w['ref'] for w in ts['warnings'][:12])})" if ts["warnings"] else ""))
     drc = out / "drc.json"
     tool(["kicad-cli", "pcb", "drc", "--format", "json", "--severity-error", "-o", str(drc), str(pcb)])
     d = json.loads(drc.read_text())
@@ -103,11 +218,6 @@ def main(argv=None):
     with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in sorted(gd.iterdir()):
             zf.write(f, f.name)
-    pos = out / "pos.csv"
-    r3 = tool(["kicad-cli", "pcb", "export", "pos", "--format", "csv", "--units", "mm", "--side", "both",
-               "--exclude-dnp", "-o", str(pos), str(pcb)])
-    if r3.returncode:
-        raise SystemExit(f"position export failed: {r3.stderr[-500:]}")
     info = {f["ref"]: f for f in fps}
     left_out = {}
 
@@ -118,15 +228,21 @@ def main(argv=None):
         if why:
             left_out[ref] = why
         return why is not None
+    table = load_rotations()
     cpl = out / f"{stem}-cpl.csv"
-    with open(pos) as fi, open(cpl, "w", newline="") as fo:
+    corrected, unchecked = [], []
+    with open(cpl, "w", newline="") as fo:
         w = csv.writer(fo)
         w.writerow(["Designator", "Mid X", "Mid Y", "Layer", "Rotation"])
-        for row in csv.DictReader(fi):
-            if excluded(row["Ref"]):
+        for f in sorted(fps, key=lambda f: f["ref"]):
+            if excluded(f["ref"]) or f.get("no_pos"):
                 continue
-            w.writerow([row["Ref"], f"{float(row['PosX']):.4f}mm", f"{float(row['PosY']):.4f}mm",
-                        "Top" if row["Side"].lower().startswith("top") else "Bottom", f"{float(row['Rot']):g}"])
+            *row, rec, hit = cpl_row(f, table)
+            w.writerow(row)
+            if hit:
+                corrected.append(rec)
+            elif polarised(f["ref"], f["fpid"], f.get("npads", 0)):
+                unchecked.append(rec)
     groups = {}
     for f in fps:
         if excluded(f["ref"]):
@@ -146,10 +262,16 @@ def main(argv=None):
             for f in fps if f["lcsc"] and not excluded(f["ref"])}
     ext = sorted(k for k, v in kind.items() if v != "basic")
     rep.update(files=[str(z), str(cpl), str(bom)], bom_lines=len(groups), bom_without_lcsc=missing,
-               left_out=left_out, lcsc_unique=len(kind), extended_or_unknown=len(ext), extended_lcsc=ext)
+               left_out=left_out, lcsc_unique=len(kind), extended_or_unknown=len(ext), extended_lcsc=ext,
+               cpl=dict(convention="KiCad board origin, Y negated (Gerber frame); SMD at the footprint origin, "
+                                   "THT at the pads' centre; bottom rotation 180 - KiCad's; then the table correction",
+                        table=str(ROT_TABLE.name), corrected=corrected, check_in_jlc_preview=unchecked))
     (out / "fab-report.json").write_text(json.dumps(rep, indent=1))
     print(f"wrote {z.name}, {cpl.name}, {bom.name}: {len(groups)} BOM lines, {len(missing)} without an LCSC number, "
-          f"{len(left_out)} parts left out; {len(ext)} of {len(kind)} unique parts extended (or unmarked)")
+          f"{len(left_out)} parts left out; {len(ext)} of {len(kind)} unique parts extended (or unmarked); CPL: "
+          f"{len(corrected)} rotations corrected, {len(unchecked)} polarised parts without a table entry "
+          f"({', '.join(r['ref'] for r in unchecked[:12])}{' ...' if len(unchecked) > 12 else ''}): check them in "
+          f"JLC's placement preview")
     return 0
 
 

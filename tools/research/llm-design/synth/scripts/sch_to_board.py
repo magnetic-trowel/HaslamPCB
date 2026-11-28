@@ -13,11 +13,14 @@ BOARD_JSON (all lengths mm, KiCad board coordinates, y down, origin at the outli
 holes, fixed parts, seed area and keepouts are resolved by board_spec.py, and `--outline W H` overrides the outline):
   {"outline": [W, H],
    "holes": [[x, y], ...],                                  # M3 mounting holes, locked
-   "fixed": {"REF": {"x":..,"y":..,"rot":..,"side":"top"}}, # placed and locked (connectors, modules)
+   "fixed": {"REF": {"x":..,"y":..,"rot":..,"side":"top"}}, # placed and locked (connectors, modules); "face":
+                                                            # "west" instead of rot (board_spec.py)
    "zones": [{"net": "GND", "layer": "B.Cu"}, ...],         # whole-board pours
    "keepouts": [{"rect": [x0,y0,x1,y1], "layers": ["F.Cu","B.Cu"], "name": "...", "no": ["copper","vias"]}],
    "seed_area": [x0, y0, x1, y1]}                           # where unlocked parts start (a grid; the placer moves them)
-Writes OUT_DIR/<slug>.kicad_pcb and prints a JSON summary.
+Writes OUT_DIR/<slug>.kicad_pcb and prints a JSON summary. `--report` first prints, per fixed part, its courtyard
+bbox, pad 1's position, the side its mating face points to (when the footprint shows it) and its nearest board edge,
+and flags courtyards that overlap a hole's or another fixed part's (FRICTION.md #23).
 
 `--update OUT_DIR BOARD_IN BOARD_OUT` copies values and fields from the schematic onto a laid-out board (no
 geometry change; refuses when any pad's net changed).
@@ -173,7 +176,92 @@ def fab_profile(pro_path):
     return json.loads(p.read_text()) if p and p.exists() else None
 
 
-def main(out_dir, board_json, outline=None):
+def _mm_box(bb):
+    return [round(pcbnew.ToMM(v), 3) for v in (bb.GetLeft(), bb.GetTop(), bb.GetRight(), bb.GetBottom())]
+
+
+def courtyard_box(fp):
+    """The footprint's courtyard bbox (mm, board frame) on its side, or None without a courtyard."""
+    if hasattr(fp, "BuildCourtyardCaches"):
+        fp.BuildCourtyardCaches()
+    cy = fp.GetCourtyard(pcbnew.B_CrtYd if fp.IsFlipped() else pcbnew.F_CrtYd)
+    return _mm_box(cy.BBox()) if cy.OutlineCount() else None
+
+
+def face_at_rot0(fp):
+    """Which way the footprint's mating face points at rot 0, from its pad-to-courtyard gaps (board_spec.face_from_gaps),
+    with the gaps; (None, gaps) when it does not show."""
+    from board_spec import face_from_gaps
+    c = pcbnew.FOOTPRINT(fp)
+    if c.IsFlipped():
+        c.Flip(c.GetPosition(), False)
+    c.SetOrientationDegrees(0)
+    c.SetPosition(pcbnew.VECTOR2I(0, 0))
+    court, pads = courtyard_box(c), list(c.Pads())
+    if not court or not pads:
+        return None, {}
+    bb = pads[0].GetBoundingBox()
+    for p in pads[1:]:
+        bb.Merge(p.GetBoundingBox())
+    px0, py0, px1, py1 = _mm_box(bb)
+    gaps = {"north": round(py0 - court[1], 3), "south": round(court[3] - py1, 3),
+            "west": round(px0 - court[0], 3), "east": round(court[2] - px1, 3)}
+    return face_from_gaps(gaps), gaps
+
+
+def fixed_rotation(ref, fp, f):
+    """A fixed part's rotation: board.json "rot", or the one that turns its mating face to "face" (top side only)."""
+    from board_spec import DIRS, rot_for_face
+    if "face" not in f:
+        return float(f.get("rot", 0))
+    if f["face"] not in DIRS:
+        raise SystemExit(f"{ref}: face must be one of {', '.join(DIRS)}, not {f['face']!r}")
+    if f.get("side", "top") == "bottom":
+        raise SystemExit(f"{ref}: \"face\" is for top-side parts; give \"rot\" for a bottom-side part")
+    f0, gaps = (f["face_at_rot0"], None) if f.get("face_at_rot0") else face_at_rot0(fp)
+    if f0 is None:
+        raise SystemExit(f"{ref}: cannot tell which way {fp.GetFPIDAsString()} faces from its pads and courtyard "
+                         f"(pad-to-courtyard gaps at rot 0: {gaps}); give \"rot\", or \"face_at_rot0\" (the way its "
+                         "mating face points at rot 0)")
+    rot = rot_for_face(f0, f["face"])
+    if "rot" in f and (float(f["rot"]) - rot) % 360:
+        raise SystemExit(f"{ref}: rot {f['rot']} does not face {f['face']} ({fp.GetFPIDAsString()} faces {f0} at "
+                         f"rot 0, so face {f['face']} is rot {rot:g}); drop one of them")
+    return float(rot)
+
+
+def fixed_report(board, fixed, outline):
+    """Per fixed part: courtyard bbox, pad 1, rotation, the side its face points to (when the footprint shows it),
+    the nearest board edge to its courtyard and the courtyards (holes, other fixed parts) its own overlaps."""
+    from board_spec import facing
+    W, H = outline
+    fps = {fp.GetReference(): fp for fp in board.GetFootprints()}
+    boxes = {r: courtyard_box(fp) for r, fp in fps.items() if r in fixed or r.startswith("H")}
+    rows = []
+    for ref in sorted(fixed):
+        fp = fps.get(ref)
+        if fp is None:
+            continue
+        cb = boxes.get(ref)
+        pads = sorted(fp.Pads(), key=lambda p: (p.GetNumber() != "1", p.GetNumber()))
+        p1 = [round(pcbnew.ToMM(pads[0].GetPosition().x), 3), round(pcbnew.ToMM(pads[0].GetPosition().y), 3)] \
+            if pads else None
+        f0, _ = (fixed[ref]["face_at_rot0"], None) if fixed[ref].get("face_at_rot0") else face_at_rot0(fp)
+        rot = fp.GetOrientationDegrees() % 360
+        row = dict(ref=ref, footprint=fp.GetFPIDAsString(), rot=round(rot, 3), courtyard=cb,
+                   pad1=[pads[0].GetNumber()] + p1 if p1 else None,
+                   faces=facing(f0, rot) if f0 and not fp.IsFlipped() else None)
+        if cb:
+            d = {"west": cb[0], "north": cb[1], "east": W - cb[2], "south": H - cb[3]}
+            e = min(d, key=d.get)
+            row["nearest_edge"], row["edge_gap_mm"] = e, round(d[e], 3)
+            row["overlaps"] = sorted(r for r, b in boxes.items() if r != ref and b and b[0] < cb[2] and cb[0] < b[2]
+                                     and b[1] < cb[3] and cb[1] < b[3])
+        rows.append(row)
+    return rows
+
+
+def main(out_dir, board_json, outline=None, report=False):
     out_dir = Path(out_dir).resolve()
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from board_spec import resolve          # edge anchors -> absolute coordinates for this outline
@@ -228,9 +316,10 @@ def main(out_dir, board_json, outline=None):
         fps[ref] = fp
         if ref in fixed:
             f = fixed[ref]
+            rot = fixed_rotation(ref, fp, f)
             if f.get("side", "top") == "bottom":
                 fp.Flip(fp.GetPosition(), False)
-            fp.SetOrientationDegrees(float(f.get("rot", 0)))
+            fp.SetOrientationDegrees(rot)
             fp.SetPosition(pcbnew.VECTOR2I(MM(f["x"]), MM(f["y"])))
             fp.SetLocked(True)
         else:                                                   # seed grid, row by row
@@ -293,8 +382,16 @@ def main(out_dir, board_json, outline=None):
     path = out_dir / f"{slug}.kicad_pcb"
     pcbnew.SaveBoard(str(path), board)
     st = write_stackup(path, spec)
-    print(json.dumps({"board": str(path), "footprints": len(fps), "nets": len(nets), "stackup": st["source"],
-                      "fixed": sorted(fixed), "holes": len(spec.get("holes", []))}))
+    summ = {"board": str(path), "footprints": len(fps), "nets": len(nets), "stackup": st["source"],
+            "fixed": sorted(fixed), "holes": len(spec.get("holes", []))}
+    if report:                                 # what each fixed part's rot did (FRICTION.md #23)
+        summ["fixed_report"] = rows = fixed_report(board, fixed, (W, H))
+        for r in rows:
+            print(f"{r['ref']:6} rot {r['rot']:g}: courtyard {r['courtyard']}, pad {r['pad1'][0] if r['pad1'] else '-'} "
+                  f"at {r['pad1'][1:] if r['pad1'] else '-'}, faces {r['faces'] or '? (footprint does not show it)'}, "
+                  f"nearest edge {r.get('nearest_edge')} {r.get('edge_gap_mm')} mm"
+                  + (f", OVERLAPS {', '.join(r['overlaps'])}" if r.get("overlaps") else ""))
+    print(json.dumps(summ))
 
 
 def _fields(c):
@@ -365,4 +462,4 @@ if __name__ == "__main__":
     if "--outline" in sys.argv:                      # --outline W H: the size search's override of board.json
         i = sys.argv.index("--outline")
         ol = (float(sys.argv[i + 1]), float(sys.argv[i + 2]))
-    main(sys.argv[1], sys.argv[2], ol)
+    main(sys.argv[1], sys.argv[2], ol, report="--report" in sys.argv)

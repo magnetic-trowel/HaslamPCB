@@ -35,6 +35,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 RESULTS = []
@@ -232,16 +233,51 @@ def probe(board):
             rec("probe.place", "FAIL", (r.stdout + r.stderr).strip().splitlines()[-1][:160] if r.stdout + r.stderr
                 else "no output", "read the placer's report")
             return
+        total = unconnected(placed, src)
+        t0 = time.monotonic()
         r = run([sys.executable, "-m", "haslam.route.cli", "route", str(placed), str(routed), "--time", "120"],
                 timeout=1800, env=env)
+        secs = time.monotonic() - t0
         lines = [ln for ln in (r.stdout + r.stderr).splitlines() if "blocked:" in ln]
         rules = [ln for ln in lines if "congestion" not in ln and "connections the rules block" not in ln]
-        summ = next((ln for ln in lines if "connections the rules block" in ln), "no blocked summary")
-        rec("probe.route", "PASS" if not rules else "WARN", summ.split("blocked:", 1)[-1].strip()[:160]
+        summ = next((ln for ln in lines if "connections the rules block" in ln), None)
+        left = unconnected(routed, src) if routed.exists() else None
+        rec("probe.route", "PASS" if not rules else "WARN",
+            probe_line(total, left, secs, summ.split("blocked:", 1)[-1].strip()[:160] if summ else None)
             + ("".join("\n     " + ln.split("blocked:", 1)[-1].strip()[:180] for ln in rules[:8])),
             "a rule-blocked connection is a rule to fix before the campaign")
     finally:
         shutil.rmtree(wd, ignore_errors=True)
+
+
+def unconnected(board, project_board):
+    """KiCad's unconnected-item count of `board` (zones refilled) under project_board's .kicad_pro/.kicad_dru; None
+    when DRC does not run."""
+    w = wrap()
+    cli = [os.environ["HASLAM_KICAD_CLI"]] if os.environ.get("HASLAM_KICAD_CLI") else w + ["kicad-cli"]
+    with tempfile.TemporaryDirectory(dir=board.parent) as td:
+        b = Path(td) / project_board.name
+        shutil.copy2(board, b)
+        for ext in (".kicad_pro", ".kicad_dru"):
+            if project_board.with_suffix(ext).exists():
+                shutil.copy2(project_board.with_suffix(ext), b.with_suffix(ext))
+        try:
+            run(cli + ["pcb", "drc", "--format", "json", "--refill-zones", "-o", str(b.with_suffix(".json")), str(b)],
+                timeout=1800)
+            return len(json.loads(b.with_suffix(".json").read_text()).get("unconnected_items") or [])
+        except Exception:  # noqa: BLE001 - the probe line then says so
+            return None
+
+
+def probe_line(total, left, secs, blocked):
+    """'routed N/M connections in T s; blocked: ...' (FRICTION.md #25: the old line printed the diagnosis's own
+    seconds, which read like the probe's time, and no routed count). M is KiCad's unconnected count of the placed
+    board, N what routing removed from it."""
+    if total is None or left is None:
+        head = f"route ran {secs:.0f} s (connection counts unavailable: DRC did not run or no routed board)"
+    else:
+        head = f"routed {max(total - left, 0)}/{total} connections in {secs:.0f} s"
+    return head + f"; blocked: {blocked or 'nothing (no connection left open, or no diagnosis line)'}"
 
 
 def main(argv=None):

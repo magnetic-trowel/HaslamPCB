@@ -28,6 +28,7 @@ from __future__ import annotations
 import functools
 import math
 from dataclasses import dataclass
+from pathlib import Path
 
 from . import sexpr
 
@@ -250,6 +251,33 @@ def _rot(x, y, deg):
     return [(x, y), (y, -x), (-x, -y), (-y, x)][q]
 
 
+def _board_spec():
+    """synth/scripts/board_spec.py (stdlib only; sch_to_board.py runs it under KiCad's Python, where haslamsynth is
+    not importable): the one home of the connector-facing rules."""
+    import importlib.util
+    p = Path(__file__).resolve().parents[2] / "scripts" / "board_spec.py"
+    spec = importlib.util.spec_from_file_location("haslamsynth_board_spec", p)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def fixed_rot(f, pads, bbox):
+    """A board.json fixed entry's rotation: "rot", or the one turning its mating face to "face" (board_spec.py),
+    from the pads' box against the courtyard at rot 0. 0 when the footprint does not show its face (sch_to_board.py
+    refuses such an entry)."""
+    if "face" not in f or "rot" in f:
+        return float(f.get("rot", 0))
+    bs = _board_spec()
+    f0 = f.get("face_at_rot0")
+    if not f0 and pads and bbox:
+        ext = [(p.x - p.extents()[0], p.y - p.extents()[1], p.x + p.extents()[0], p.y + p.extents()[1]) for p in pads]
+        x0, y0 = min(e[0] for e in ext), min(e[1] for e in ext)
+        x1, y1 = max(e[2] for e in ext), max(e[3] for e in ext)
+        f0 = bs.face_from_gaps({"north": y0 - bbox[1], "south": bbox[3] - y1, "west": x0 - bbox[0], "east": bbox[2] - x1})
+    return float(bs.rot_for_face(f0, f["face"])) if f0 and f["face"] in bs.DIRS else 0.0
+
+
 def _placed(pads, bbox, rot, x=0.0, y=0.0):
     """(pads [(x, y, half x, half y)], courtyard box or None) of a footprint turned `rot` (quarter turns) at (x, y)."""
     out = []
@@ -365,7 +393,8 @@ class _Parts:
             if f.get("side", "top") == "bottom":       # mirrored left-right, as KiCad flips a footprint
                 pads = [Pad(q.number, -q.x, q.y, q.w, q.h, -q.rot, q.smd, q.copper) for q in pads]
                 bbox = bbox and (-bbox[2], bbox[1], -bbox[0], bbox[3])
-            return [(float(f.get("rot", 0)), *_placed(pads, bbox, float(f.get("rot", 0)), f["x"], f["y"]))]
+            rot = fixed_rot(f, pads, bbox)
+            return [(rot, *_placed(pads, bbox, rot, f["x"], f["y"]))]
         return [(r, *_placed(pads, bbox, r)) for r in (0, 90, 180, 270)]
 
     def side_of(self, ref):
