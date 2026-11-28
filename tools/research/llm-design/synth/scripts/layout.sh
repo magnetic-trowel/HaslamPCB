@@ -43,13 +43,20 @@ env HASLAM_BUDGET=work "$PY" "$REPO/tools/haslamres/restart.py" --input "$IN" --
 if [ "${HASLAM_POWER_COPPER:-1}" = 1 ] && [ -f "$OUT" ]; then
   PC=$OUTD/work/power_copper; mkdir -p "$PC"
   for e in kicad_pro kicad_dru haslam_intent.json; do [ -f "$OUTD/$STEM.$e" ] && cp "$OUTD/$STEM.$e" "$PC/$STEM.$e"; done
-  if $E -m haslam.route.power_copper "$OUT" "$PC/$STEM.kicad_pcb" --report "$OUTD/eval/power_copper.json" \
+  # default: vector copper written as zones that pour into SMD pads (no neck at small lands; THT pads keep their
+  # necks): on obd-solar seed 1 this beat track widening on VBUS (11.8 vs 15.5 mm too narrow) and DRC (3 vs 4
+  # errors). The benchmark's route tasks may not add zones (score.py), design boards may (FRICTION.md #68).
+  # HASLAM_POWER_COPPER_ARGS="" gives the widening pass instead.
+  if $E -m haslam.route.power_copper "$OUT" "$PC/$STEM.kicad_pcb" ${HASLAM_POWER_COPPER_ARGS---mode vector --vector-out zones --no-neck} \
+       --report "$OUTD/eval/power_copper.json" \
        > "$OUTD/eval/power_copper.log" 2>&1 && [ -f "$PC/$STEM.kicad_pcb" ]; then
     cp "$OUT" "$OUTD/work/$STEM.before_power_copper.kicad_pcb" && cp "$PC/$STEM.kicad_pcb" "$OUT"
   fi
 fi
 ( ulimit -v 40000000; $HASLAM_KICAD_WRAP kicad-cli pcb drc --format json --schematic-parity --refill-zones \
     -o "$OUTD/eval/drc.json" "$OUT" ) > "$OUTD/eval/drc.log" 2>&1 || true
+# fills in the file for the width gate (routers and power_copper leave zones unfilled)
+$HASLAM_KICAD_WRAP python3 "$REPO/tools/research/llm-design/synth/scripts/refill.py" "$OUT" > /dev/null 2>&1 || true
 # copper actually drawn vs each net's current (a net-class width is not a rule: FRICTION.md #31); needs netlist.json
 NL=$(dirname "$IN")/netlist.json
 # judged by each segment's branch current (haslam venv); a design's width_injections.json (beside out/, or in it)
