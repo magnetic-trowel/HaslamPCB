@@ -9,8 +9,9 @@ Architecture:
   reverse-current block -> VBAT (OBD-II pin 16, always-on battery +, via the J101 pigtail and F101).
   Q203 conducts only while U202 (TLV7031, powered from the panel) sees PV_IN > 1.022 x VBAT: at night it is off and
   draws nothing from the battery, and the CN3767 (8 uA BAT/CSP, 44 uA through M1's body diode, DS p.9) is isolated.
-  VBAT -> U301 TPS552892 4-switch buck-boost (5 / 9 / 12 V by FB resistors switched by U401) -> 15 mOhm current
-  limit (3.3 A) -> USB-C J301 VBUS. U401 STM32G071 (UCPD) runs the PD source policy and keeps U301 off (0.8 uA)
+  VBAT -> U301 LTC3115-1 buck-boost, TSSOP-20 (5 / 9 / 12 V by FB resistors switched by U401; output disconnect,
+  2.4-3.7 A inductor current limit) -> USB-C J301 VBUS. U401 STM32G071 (UCPD) runs the PD source policy and keeps U301
+  off (3 uA)
   until a sink attaches; it is fed by U402 TPS709 (1 uA Iq).
 """
 import importlib.util
@@ -79,14 +80,16 @@ def intent(d):
       verify="bench with a 12 V AGM battery")
     R("REQ-3", "Reverse-current protection", value="no battery current into the charger or panel at night or at "
       "dusk; reversed panel blocked", source="brief", verify="bench: panel removed, battery current < 3 uA")
-    R("REQ-4", "USB-C output", value="USB PD source 5 V 3 A, 9 V 3 A, 12 V 2.25 A (27 W PDP)", source="brief; 27 W "
+    R("REQ-4", "USB-C output", value="USB PD source 5 V 2 A, 9 V 2 A, 12 V 1.5 A (18 W at 12 V)", source="brief; "
+      "LTC3115-1 2 A step-down, 1.4 A at 12 V from 10 V (DS p.15, p.35); user 2026-11-28 accepted < 27 W for a 0.65 mm-"
+      "pitch part (Q-5); 18 W "
       "keeps the OBD pin-16 draw under 3 A (Q-2)", verify="PD analyser")
-    R("REQ-5", "Standby draw from the car battery", value="< 10 uA with no panel light and no USB sink",
+    R("REQ-5", "Standby draw from the car battery", value="< 15 uA with no panel light and no USB sink",
       source="brief ('almost zero standby loss')", verify="calc standby_budget; bench")
     R("REQ-6", "Do not flatten the car battery", value="USB-C output off when VBAT < 12.0 V for 10 s (engine off), "
       "firmware", source="design", verify="bench")
     d.assume("A-1", "Vehicle 12 V system: 11.5-14.8 V operating, 24 V jump start for 2 min, load dump suppressed "
-             "by the vehicle (centralised) to <= 35 V; SMBJ24A clamps the residue (VC 38.9 V < 42 V U301 abs max)")
+             "by the vehicle (centralised) to <= 35 V; SMBJ24A clamps the residue (VC 38.9 V < 45 V U301 abs max)")
     d.assume("A-2", "Flooded or AGM 12 V starter battery; the CN3767's fixed 14.8 V / 13.55 V suit both "
              "(not gel, which wants <= 14.1 V)")
     d.assume("A-3", "U401 firmware (USB PD source stack on the UCPD peripheral, stop mode with UCPD wake-up) is "
@@ -95,8 +98,8 @@ def intent(d):
                "J1962 male plug was reachable (SAE J1962 is paywalled, JLC parts have no drawing), so this revision "
                "takes an OBD-II pigtail (pin 16 -> J101.1, pins 4+5 -> J101.2). Supply a connector drawing to "
                "move to a board-mount plug?", blocking=True, default="pigtail into J101")
-    d.question("Q-2", "OBD pin 16 current: J1962 terminals and the vehicle's fuse for pin 16 vary; 27 W at the "
-               "USB-C port draws <= 2.6 A at 11.5 V. Confirm the target vehicle allows 3 A on pin 16",
+    d.question("Q-2", "OBD pin 16 current: J1962 terminals and the vehicle's fuse for pin 16 vary; 18 W at the "
+               "USB-C port draws <= 1.8 A at 11.5 V (2.5 A with charging). Confirm the vehicle allows 3 A on pin 16",
                blocking=False, default="3 A")
     d.question("Q-3", "'13-24 V' panel: the CN3767 is a buck with a fixed CV-MPPT set point (16.5 V here); a panel "
                "whose Vmp is below ~16.3 V cannot reach the 14.8 V absorb voltage. Is 13 V the panel's Vmp or its "
@@ -104,6 +107,10 @@ def intent(d):
                answer="user 2026-11-27: 13 V is the lower limit; panels are 12 V-class, Vmp ~17-18 V, Voc <= 22 V. "
                       "16.5 V set point kept: absorb needs >= 16.05 V in (calc vin_for_absorb); a hot panel "
                       "(Vmp ~-0.4 %/C) below 16.5 V charges nothing until it cools")
+    d.question("Q-5", "USB PD power rules tie the advertised PDP to the 5 V current: the LTC3115-1 gives 5 V at 2 A "
+               "(not 3 A), so the source may only qualify as a 10 W PDP, which may limit offering 9 V and 12 V. Check "
+               "USB PD 3.x Power Rules before fixing the firmware's PDO list", blocking=False,
+               default="PDOs 5 V 2 A, 9 V 2 A, 12 V 1.5 A; confirm compliance")
     d.question("Q-4", "STM32G071 low-power figures (Stop-mode current with UCPD wake-up) could not be read: the ST "
                "datasheet was unreachable from the design host. REQ-5 assumes <= 5 uA", blocking=True,
                default="verify on the ST datasheet before ordering")
@@ -112,13 +119,13 @@ def intent(d):
     d.hazard("HZ-2", "Battery back-feeds the charger or panel at night", mitigation="Q203 off unless the panel-"
              "powered comparator U202 sees PV_IN > 1.022 VBAT; R216 holds Q204 off with U202 unpowered",
              parts=["Q203", "U202", "R216"], single_fault_safe=False)
-    d.hazard("HZ-3", "Short or overload on the USB-C cable", mitigation="R302 15 mOhm: U301 constant-current loop at "
-             "3.3 A, hiccup on short (DS 7.3); F101 5 A upstream", parts=["R302", "F101"], single_fault_safe=True)
+    d.hazard("HZ-3", "Short or overload on the USB-C cable", mitigation="U301 inductor current limit 2.4-3.7 A with a "
+             "fast 160 % limit and foldback below 1.85 V out (DS p.3, p.13); F101 5 A upstream", parts=["U301", "F101"], single_fault_safe=True)
     d.hazard("HZ-4", "VBUS shorted to CC in a damaged cable (12 V on U401 PA8/PB15)", mitigation="none in this "
              "revision; a CC over-voltage protector (e.g. TCPP02) is a candidate for rev B", parts=["U401"],
              single_fault_safe=False)
     d.hazard("HZ-5", "Firmware fault leaves USB-C on with the engine off", mitigation="REQ-6 in firmware; worst case "
-             "the PD sink draws 27 W until the battery is flat: no hardware cut-off in this revision",
+             "the PD sink draws 18 W until the battery is flat: no hardware cut-off in this revision",
              parts=["U401"], single_fault_safe=False)
 
 
@@ -126,7 +133,7 @@ def obd_input(d):
     b = Blk(d, "IN", "OBD-II 12 V input: fuse, TVS, bulk", "J101 takes the OBD-II pigtail: pin 16 (battery +, "
             "always on) and pins 4/5 (chassis and signal ground).")
     b.add(P.TERM_5_08, "J101", {"1": "OBD_RAW", "2": "GND"}, notes="OBD pigtail: 1 = pin 16 (+12 V), 2 = pins 4+5")
-    b.add(P.FUSE_5A, "F101", {"1": "OBD_RAW", "2": "VBAT"}, notes="5 A: USB 27 W at 11.5 V is 2.6 A, plus charging")
+    b.add(P.FUSE_5A, "F101", {"1": "OBD_RAW", "2": "VBAT"}, notes="5 A: USB 18 W at 11.5 V is 1.8 A, plus charging")
     b.add(P.SMBJ24A, "D101", {"1": "VBAT", "2": "GND"}, notes="surge clamp; a reversed battery forward-biases it -> F101")
     b.add(P.C_BULK, "C101", {"1": "VBAT", "2": "GND"}, notes="bulk for U301 against the pigtail inductance")
     b.C("C102", "10uF", 50, "VBAT", "GND", pkg="1206", diel="X5R", note="U301 VIN")
@@ -210,61 +217,63 @@ def reverse_block(d):
 
 
 def usb_power(d):
-    b = Blk(d, "USB", "TPS552892 buck-boost 5/9/12 V to USB-C, current limit, VBUS discharge",
-            "VOUT = 1.2 V x (1 + 100 k / RFB_BOT): 31.6 k -> 5.00 V; || 30.1 k (Q302) -> 8.98 V; || 30.1 k || 40.2 k "
-            "(Q302+Q303) -> 11.97 V. fsw 400 kHz (49.9 k), ILIM 50 mV / 15 mOhm = 3.3 A, Rc 10 k, Cc 8.2 nF.",
-            nets=[("BB_SW1", (-0.7, 24.3), "switching", {"i_max": 4.0, "i_peak": 5.5}),
-                  ("BB_SW2", (-0.7, 13.5), "switching", {"i_max": 4.0, "i_peak": 5.5}),
-                  ("BB_VCC", (0, 5.45), "power"), ("BB_FB", (0, 1.3), "analog"), ("BB_COMP", (0, 1.5), "analog"),
-                  ("BB_CZ", (0, 1.5), "analog"), ("BB_FSW", (0, 1.1), "analog"), ("BB_CDC", (0, 1.1), "analog"),
-                  ("FB9", (0, 1.3), "analog"), ("FB12", (0, 1.3), "analog"), ("DIS_D", (0, 13), "signal")])
-    d.domain("BST1", ref="USB/BB_SW1", kind="elv", description="TPS552892 BOOT1 rides on SW1")
-    d.domain("BST2", ref="USB/BB_SW2", kind="elv", description="TPS552892 BOOT2 rides on SW2")
-    b.b.net("BB_BOOT1", v=(0, 5.45), kind="signal", domain="BST1")
-    b.b.net("BB_BOOT2", v=(0, 5.45), kind="signal", domain="BST2")
-    u = b.add(P.TPS552892, "U301", {"VIN": "VBAT", "EN": "BB_EN", "MODE": "GND", "PG": "BB_PG", "CC": "BB_CC",
-                                    "DITH": "GND", "FSW": "BB_FSW", "SW1": "BB_SW1", "PGND": "GND", "SW2": "BB_SW2",
-                                    "VOUT": "BB_VOUT", "ISP": "BB_VOUT", "ISN": "VBUS", "FB": "BB_FB",
-                                    "COMP": "BB_COMP", "CDC": "BB_CDC", "AGND": "GND", "VCC": "BB_VCC",
-                                    "BOOT1": "BB_BOOT1", "BOOT2": "BB_BOOT2"},
-              nc=["EXTVCC"], nc_reason="floating: internal LDO for VCC (DS Table 5-1)",
-              notes="MODE = GND: auto PFM at light load; DITH = GND: no dithering; PG/CC to U401 (internal pull-ups, "
-                    "enabled only while U301 runs, so no standby current)")
-    b.R("R301", 49.9e3, "BB_FSW", "GND", note="fsw = 400 kHz (DS 8.2.2.1)")
-    b.R("R303", 10e3, "BB_COMP", "BB_CZ", note="Rc (DS Eq. 24, fc 15 kHz, 40 uF effective)")
-    b.C("C302", "8.2nF", 16, "BB_CZ", "GND", note="Cc (DS Eq. 25)")
-    b.R("R304", 100e3, "BB_CDC", "GND", note="cable comp: +0.15 V at 3.3 A (DS Eq. 7)")
-    b.C("C303", "10uF", 25, "BB_VCC", "GND", pkg="0805", diel="X5R", note="VCC > 4.7 uF (DS Table 5-1)",
-        fields={"Ceff": "~6 uF at 5.2 V (X5R 0805 25 V, typical vendor curve) [S]"})
-    b.C("C304", "100nF", 16, "BB_BOOT1", "BB_SW1", note="BOOT1 0.1 uF (DS Table 5-1)", v_across=5.5)
-    b.C("C305", "100nF", 16, "BB_BOOT2", "BB_SW2", note="BOOT2 0.1 uF", v_across=5.5)
-    b.add(P.L_BB, "L301", {"1": "BB_SW1", "2": "BB_SW2"}, notes="4.7 uH (DS 6.3 nominal)")
-    b.C("C306", "100nF", 50, "VBAT", "GND", note="VIN HF at the pin")
-    for ref in ("C307", "C308", "C309", "C310"):
-        b.C(ref, "22uF", 25, "BB_VOUT", "GND", pkg="1206", diel="X5R", note="COUT: ~40 uF effective at 12 V",
+    b = Blk(d, "USB", "LTC3115-1 buck-boost 5/9/12 V to USB-C, VBUS discharge",
+            "Values from LTC3115-1 DS p.35 (12 V 1 MHz): L 10 uH, RT 35.7 k, RTOP 1 M, CFF 33 pF + RFF 10 k, comp "
+            "40.2 k + 820 pF VC-FB. VOUT = 1.0 V x (1 + 1 M / RBOT): 249 k -> 5.02 V; || 249 k (Q302) -> 9.03 V; "
+            "|| 249 k || 340 k (Q302+Q303) -> 11.97 V. Overload: the 2.4-3.7 A inductor current limit (DS p.3); the "
+            "IC disconnects its output in shutdown (DS p.1).",
+            # SW1/SW2 DC ranges from DS p.2 Abs Max (-0.3 V to PVIN/PVOUT + 0.3 V; the < 100 ns ring to 1.5 V is the
+            # hard overshoot term T-OS301, not a wider interval): PVIN <= 24 V, PVOUT <= 12.1 V
+            nets=[("BB_SW1", (-0.3, 24.3), "switching", {"i_max": 3.0, "i_peak": 3.7}),
+                  ("BB_SW2", (-0.3, 12.4), "switching", {"i_max": 3.0, "i_peak": 3.7}),
+                  ("BB_VCC", (0, 5.5), "power"), ("BB_FB", (0, 1.1), "analog"), ("BB_VC", (0, 2.5), "analog"),
+                  ("BB_CZ", (0, 2.5), "analog"), ("BB_RT", (0, 1.3), "analog"), ("BB_FF", (0, 13), "analog"),
+                  ("FB9", (0, 1.1), "analog"), ("FB12", (0, 1.1), "analog"), ("DIS_D", (0, 13), "signal")])
+    d.domain("BST1", ref="USB/BB_SW1", kind="elv", description="LTC3115-1 BST1 rides on SW1")
+    d.domain("BST2", ref="USB/BB_SW2", kind="elv", description="LTC3115-1 BST2 rides on SW2")
+    b.b.net("BB_BOOT1", v=(0, 5.0), kind="signal", domain="BST1")  # PVCC-charged, < 6 V abs (DS p.2)
+    b.b.net("BB_BOOT2", v=(0, 5.0), kind="signal", domain="BST2")
+    u = b.add(P.LTC3115, "U301", {"PVIN": "VBAT", "VIN": "VBAT", "RUN": "BB_EN", "PWM": "GND", "RT": "BB_RT",
+                                  "SW1": "BB_SW1", "SW2": "BB_SW2", "PVOUT": "VBUS", "FB": "BB_FB", "VC": "BB_VC",
+                                  "VCC": "BB_VCC", "PVCC": "BB_VCC", "BST1": "BB_BOOT1", "BST2": "BB_BOOT2",
+                                  "PGND1": "GND", "PGND2": "GND", "PGND3": "GND", "PGND4": "GND", "EP": "GND",
+                                  "GND1": "GND", "GND2": "GND"},
+              notes="RUN from U401 (1.21 V threshold; RUN <= VIN + 0.3 V: 3.3 V logic is fine); PWM/SYNC = GND: Burst "
+                    "Mode at light load (DS p.12); VCC and PVCC tied (DS p.11)")
+    b.R("R301", 35.7e3, "BB_RT", "GND", note="1 MHz (DS p.3, p.35)")
+    b.R("R303", 40.2e3, "BB_VC", "BB_CZ", note="RFB (DS p.35)")
+    b.C("C302", "820pF", 25, "BB_CZ", "BB_FB", diel="C0G", note="CFB (DS p.35), VC to FB")
+    b.C("C303", "4.7uF", 10, "BB_VCC", "GND", pkg="0805", diel="X5R", note="VCC >= 4.7 uF (DS p.11)",
+        fields={"Ceff": "~3 uF at 3.3 V [S]; DS asks 4.7 uF or larger nominal"})
+    b.C("C304", "100nF", 16, "BB_BOOT1", "BB_SW1", note="BST1 0.1 uF (DS p.11)", v_across=5.0)
+    b.C("C305", "100nF", 16, "BB_BOOT2", "BB_SW2", note="BST2 0.1 uF", v_across=5.0)
+    b.add(P.L_BB, "L301", {"1": "BB_SW1", "2": "BB_SW2"}, notes="10 uH (DS p.35)")
+    b.C("C306", "100nF", 50, "VBAT", "GND", note="VIN pin 0.1 uF (DS p.11)")
+    for ref in ("C307", "C308"):
+        b.C(ref, "22uF", 25, "VBUS", "GND", pkg="1206", diel="X5R", note="PVOUT >= 10 uF low ESR (DS p.11)",
             fields={"Ceff": "~9 uF at 12 V (Samsung CL31A226KAHNNNE curve, typical) [S]"})
-    b.C("C311", "100nF", 25, "BB_VOUT", "GND", note="VOUT HF at the pin")
-    b.add(P.R_CS_BB, "R302", {"1": "BB_VOUT", "2": "VBUS"}, v_across=0.06, p_diss=0.17,
-          notes="output current limit 50 mV / 15 mOhm = 3.3 A (DS Eq. 18)")
-    b.R("R305", 100e3, "BB_VOUT", "BB_FB", note="RFB_UP 100 k (DS 7.3.12 recommends 100 k)")
-    b.R("R306", 31.6e3, "BB_FB", "GND", note="5.00 V")
-    b.R("R307", 30.1e3, "BB_FB", "FB9")
-    b.add(P.N2N7002, "Q302", {"D": "FB9", "S": "GND", "G": "VSEL9"}, i_through=0.001, notes="9 V select")
-    b.R("R308", 40.2e3, "BB_FB", "FB12")
-    b.add(P.N2N7002, "Q303", {"D": "FB12", "S": "GND", "G": "VSEL12"}, i_through=0.001, notes="12 V select (with Q302)")
+    b.C("C311", "100nF", 25, "VBUS", "GND", note="PVOUT HF at the pin")
+    b.R("R305", 1e6, "VBUS", "BB_FB", note="RTOP 1 M (DS p.35)")
+    b.C("C309", "33pF", 50, "VBUS", "BB_FF", diel="C0G", note="CFF (DS p.35)")
+    b.R("R304", 10e3, "BB_FF", "BB_FB", note="RFF (DS p.35)")
+    b.R("R306", 249e3, "BB_FB", "GND", note="5.02 V")
+    b.R("R307", 249e3, "BB_FB", "FB9")
+    b.add(P.N2N7002, "Q302", {"D": "FB9", "S": "GND", "G": "VSEL9"}, notes="9 V select")
+    b.R("R308", 340e3, "BB_FB", "FB12")
+    b.add(P.N2N7002, "Q303", {"D": "FB12", "S": "GND", "G": "VSEL12"}, notes="12 V select (with Q302)")
     b.R("R309", 1e6, "VSEL9", "GND", note="5 V default with U401 in reset")
     b.R("R310", 1e6, "VSEL12", "GND")
-    b.R("R311", 1e6, "BB_EN", "GND", note="U301 off (0.8 uA) by default")
-    b.add(P.SMAJ15A, "D301", {"1": "VBUS", "2": "GND"}, notes="VBUS clamp, VC 24.4 V < 25 V abs max")
+    b.R("R311", 1e6, "BB_EN", "GND", note="U301 off (3 uA) by default")
+    b.add(P.SMAJ15A, "D301", {"1": "VBUS", "2": "GND"}, notes="VBUS clamp")
     b.C("C312", "1uF", 25, "VBUS", "GND", note="at the connector", fields={"Ceff": "~0.5 uF at 12 V [S]"})
-    b.R("R312", 470, "VBUS", "DIS_D", pkg="1206", p_diss=0.01, note="average: 6 mJ per detach; VBUS discharge: 88 uF x 470 Ohm = 41 ms (tSafe0V 650 ms)")
-    b.add(P.AO3400A, "Q304", {"D": "DIS_D", "S": "GND", "G": "VBUS_DIS"}, i_through=0.03)
+    b.R("R312", 470, "VBUS", "DIS_D", pkg="1206", p_diss=0.01,
+        note="average: 6 mJ per detach; VBUS discharge: 45 uF x 470 Ohm = 21 ms (tSafe0V 650 ms)")
+    b.add(P.AO3400A, "Q304", {"D": "DIS_D", "S": "GND", "G": "VBUS_DIS"})
     b.R("R313", 1e6, "VBUS_DIS", "GND")
     b.R("R314", 100e3, "VBUS", "VBUS_SNS", note="VBUS sense /11")
     b.R("R315", 10e3, "VBUS_SNS", "GND")
     b.add(P.USB_C, "J301", {"A9": "VBUS", "B9": "VBUS", "A12": "GND", "B12": "GND", "SH": "GND", "A5": "CC1",
-                            "B5": "CC2"},
-          notes="USB-C power-only receptacle, east edge; VBUS/GND split over two contacts each (3.3 A limit, 3 A PDO)")
+                            "B5": "CC2"}, notes="USB-C power-only receptacle, east edge")
     return u
 
 
@@ -275,9 +284,9 @@ def control(d):
             nets=[("LDO_IN", (0, 24), "power"), ("NRST", (0, 3.4), "signal"), ("SWDIO", (0, 3.4), "signal"),
                   ("SWCLK", (0, 3.4), "signal")])
     u = b.add(P.STM32G071, "U401", {"4": "+3V3", "5": "GND", "6": "NRST", "7": "VBAT_SNS", "8": "VBUS_SNS",
-                                    "9": "BB_EN", "10": "VSEL9", "11": "VSEL12", "12": "VBUS_DIS", "13": "BB_PG",
-                                    "14": "BB_CC", "17": "CC2", "18": "CC1", "24": "SWDIO", "25": "SWCLK"},
-              nc=["1", "2", "3", "15", "16", "19", "20", "21", "22", "23", "26", "27", "28", "29", "30", "31", "32"],
+                                    "9": "BB_EN", "10": "VSEL9", "11": "VSEL12", "12": "VBUS_DIS",
+                                    "17": "CC2", "18": "CC1", "24": "SWDIO", "25": "SWCLK"},
+              nc=["1", "2", "3", "13", "14", "15", "16", "19", "20", "21", "22", "23", "26", "27", "28", "29", "30", "31", "32"],
               nc_reason="unused GPIO (analog mode in firmware); DBCC1/DBCC2 (19, 21) left open: a source must not "
                         "present the dead-battery Rd",
               notes="UCPD1: CC1 = PA8, CC2 = PB15")
@@ -311,10 +320,9 @@ def nets(d):
     g(d, "VBAT", (0, 24), "power", 3.5, v_typ=(11.5, 12.6, 14.8))
     g(d, "PV_IN", (0, 25), "power", 0.8, v_typ=(13.0, 16.5, 24.0))
     g(d, "CHG_OUT", (0, 16), "power", 0.8)
-    g(d, "BB_VOUT", (0, 13), "power", 3.3, v_typ=(5.0, 12.0, 12.2))
-    d.net("VBUS", domain="LV", v=(0, 13), kind="power", i_max=3.3, external=True, threats=("overcurrent", "esd"))
+    d.net("VBUS", domain="LV", v=(0, 13), kind="power", i_max=2.0, external=True, v_typ=(5.0, 12.0, 12.1), threats=("overcurrent", "esd"))
     g(d, "+3V3", (0, 3.4), "power", 0.05)
-    for nm in ("BB_EN", "BB_PG", "BB_CC", "VSEL9", "VSEL12", "VBUS_DIS"):
+    for nm in ("BB_EN", "VSEL9", "VSEL12", "VBUS_DIS"):
         g(d, nm, (0, 3.4), "signal")
     g(d, "VBAT_SNS", (0, 2.5), "analog")
     g(d, "VBUS_SNS", (0, 1.3), "analog")
@@ -333,8 +341,8 @@ def waivers(d):
       "protector for rev B")
     w("rating.voltage", r"F101 ", "Interval sum overstates it: an open fuse sees OBD_RAW - VBAT <= 24 V (VBAT ~0 V), "
       "and a reversed battery (-14 V) is clamped on the VBAT side by D101 forward: <= 14.7 V; 32 V rating")
-    w("protect.threat", r"VBUS declares threat 'overcurrent'", "U301's ISP/ISN constant-current loop limits VBUS to "
-      "3.3 A and hiccups on a short (DS 7.3); F101 backs it up on the input")
+    w("protect.threat", r"VBUS declares threat 'overcurrent'", "U301's inductor current limit (2.4-3.7 A, fast limit "
+      "at 160 %, foldback below 1.85 V out, LTC3115-1 DS p.3/p.13) limits VBUS; F101 backs it up on the input")
     w("protect.entry_fuse", r"VBUS", "VBUS is an output; U301 current-limits it (as the overcurrent waiver)")
 
 
@@ -353,20 +361,16 @@ def calcs(d):
       note="below the MPPT set point: Q203 stays on through absorb")
     c("qb_vgs_jump", 24 / 2, "V", "|Vgs| of Q203 at a 24 V jump start", limit=20)
     c("q201_vgs_24", 24 * 4.7 / 12.9, "V", "|Vgs| = VPV R201/(R201+R202)", limit=20)
-    for name, rb in (("vout_5", 31.6e3), ("vout_9", 1 / (1 / 31.6e3 + 1 / 30.1e3)),
-                     ("vout_12", 1 / (1 / 31.6e3 + 1 / 30.1e3 + 1 / 40.2e3))):
-        c(name, 1.2 * (1 + 100e3 / rb), "V", "1.2 (1 + 100 k / RFB_BOT) (DS Eq. 8)")
-    c("vout_12_err", abs(1.2 * (1 + 100e3 / (1 / (1 / 31.6e3 + 1 / 30.1e3 + 1 / 40.2e3))) - 12) / 12 * 100, "%",
-      "USB PD +/-5 %", limit=5)
-    c("i_limit", 0.050 / 0.015, "A", "VSNS / RSNS (DS Eq. 18)", limit=3.0, op=">=")
-    c("i_obd_max", 27 / 0.92 / 11.5, "A", "27 W PDP at 92 % from 11.5 V", limit=5 * 0.75)
-    c("rc_comp", 2 * 3.1416 * 12 * 0.055 * 40e-6 * 15e3 / (190e-6 * 1.2) / 1e3, "kOhm",
-      "2 pi VOUT RSENSE COUT fc / (GEA VREF) (DS Eq. 24), 12 V, fc 15 kHz")
-    c("f_rhpz_12v", 4 * (10.5 / 12) ** 2 / (2 * 3.1416 * 4.7e-6) / 1e3, "kHz", "RLOAD (1-D)^2 / (2 pi L), 10.5 V in",
-      limit=5 * 15, op=">=", note="fc 15 kHz <= fRHPZ / 5")
-    standby = 0.0 + 1.1 + 1.1 + 1.0 + 0.8 + 5.0 + 0.5
-    c("standby_budget", standby, "uA", "R214/R215 1.1 + R401/R402 1.1 + TPS709 1.0 + TPS552892 ISD 0.8 + STM32 stop "
-      "5 (assumed, Q-4) + leakage of Q203, D101, D401, D301, C101 0.5", limit=10)
+    for name, rb in (("vout_5", 249e3), ("vout_9", 1 / (2 / 249e3)), ("vout_12", 1 / (2 / 249e3 + 1 / 340e3))):
+        c(name, 1.0 * (1 + 1e6 / rb), "V", "1.000 (1 + 1 M / RBOT) (LTC3115-1 DS p.3 FB)")
+    c("vout_12_err", abs(1.0 * (1 + 1e6 / (1 / (2 / 249e3 + 1 / 340e3))) - 12) / 12 * 100, "%", "USB PD +/-5 %", limit=5)
+    c("i_obd_max", 18 / 0.90 / 11.5, "A", "18 W at 90 % from 11.5 V", limit=5 * 0.75)
+    c("u301_loss_12v", 18 * (1 / 0.92 - 1), "W", "18 W at 92 % (DS p.35 curve, 12 V in, 1.5 A)")
+    c("u301_tj_rise", 18 * (1 / 0.92 - 1) * 0.7 * 38, "C", "70 % of the loss in the IC x theta-JA 38 C/W (FE, DS p.2)",
+      limit=125 - 70, note="ambient 70 C (dashboard)")
+    standby = 0.0 + 1.1 + 1.1 + 1.0 + 3.0 + 5.0 + 0.5
+    c("standby_budget", standby, "uA", "R214/R215 1.1 + R401/R402 1.1 + TPS709 1.0 + LTC3115-1 shutdown 3 (10 max) + STM32 stop "
+      "5 (assumed, Q-4) + leakage of Q203, D101, D401, D301, C101 0.5", limit=15)
     c("ldo_in_clamp", (38.9 - 25.65) / 1e3 * 1e3, "mA", "D401 current with D101 clamping at 38.9 V, Vz min", limit=17.8,
       note="BZT52C27 500 mW / 28 V")
 
@@ -375,28 +379,28 @@ def operating(d):
     k = d.haslam
     k.net("CHG_OUT", 13.5, range_V=(11.5, 14.8), source="U201", from_="PV_IN", kind="switching", eta=(0.85, 0.92),
           why="CN3767 non-synchronous buck, Schottky freewheel at 0.67 A")
-    k.net("BB_VOUT", 12.0, range_V=(5.0, 12.2), source="U301", from_="VBAT", kind="switching", eta=(0.88, 0.96),
-          why="TPS552892 96 % at 12 V -> 20 V, 3 A (DS p.1); 5/9/12 V PD levels")
+    k.net("VBUS", 12.0, range_V=(5.0, 12.1), source="U301", from_="VBAT", kind="switching", eta=(0.85, 0.94),
+          why="LTC3115-1 PWM efficiency 90-93 % at 0.3-1.5 A, 12 V in (DS p.35); 5/9/12 V PD levels")
     k.net("+3V3", 3.3, source="U402", from_="VBAT", kind="linear", eta=(0.2, 0.3), why="TPS709 LDO")
     k.cell("U201", "buck", I_A=(0.01, 0.6, 0.75), vin="PV_IN", vout="CHG_OUT", V_V=(13.0, 16.5, 24.0),
            why="CN3767 buck: panel at the 16.5 V MPPT point, 0.67 A CC, up to 24 V Voc at float")
     for cls in ("buck", "boost"):
-        k.cell("U301", cls, I_A=(0.05, 2.25, 3.3), vin="VBAT", vout="BB_VOUT",
-               V_V=(11.5, 12.6, 27.0) if cls == "buck" else (5.0, 12.0, 12.2),
-               why="TPS552892 4-switch buck-boost: 12 V 2.25 A typical PD load from a 12.6 V battery; 3.3 A limit")
+        k.cell("U301", cls, I_A=(0.05, 1.5, 2.0), vin="VBAT", vout="VBUS",
+               V_V=(11.5, 12.6, 24.0) if cls == "buck" else (5.0, 12.0, 12.1),
+               why="LTC3115-1 4-switch buck-boost: 12 V 1.5 A typical PD load from a 12.6 V battery; 2 A max")
     k.cable("J101", 0.5, why="OBD-II pigtail, ~0.5 m")
     k.cable("J201", 5.0, why="panel lead on the dashboard/roof, <= 5 m")
     k.cable("J301", 1.0, why="USB-C cable")
     k.term("T-FB", "limit", "pickup.peak", where={"net": "USB/BB_FB"}, max="12 mV", rate="2 mW_eq/mV",
-           why="1 % of the 1.2 V reference = 120 mV at 12 V out; PD allows 5 %", source="TPS552892 DS VREF")
+           why="1 % of the 1.0 V reference = 120 mV at 12 V out; PD allows 5 %", source="LTC3115-1 DS p.3 FB")
     k.term("T-MPPT", "limit", "pickup.peak", where={"net": "CHG/MPPT"}, max="12 mV", rate="1 mW_eq/mV",
            why="1 % of the 1.205 V MPPT reference = 165 mV on the panel", source="CN3767 DS p.4")
     k.term("T-OS201", "hard", "overshoot.peak", where={"part": "U201"}, max="7.5 V",
            source="CN3767 DS p.3 VCC abs max 33 V; PV_IN <= 25 V", why="33 - 25 - 0.5 V margin")
-    k.term("T-OS301", "hard", "overshoot.peak", where={"part": "U301"}, max="12 V",
-           source="TPS552892 DS 6.1: SW2/VOUT 25 V, VOUT <= 12.2 V; SW1 42 V with VIN <= 27 V",
-           why="boost leg 25 - 12.2 - 0.5 = 12.3 V is the tighter")
-    k.term("T-TJ", "hard", "temp.junction", where={"part": "U*"}, max="125 C", source="TPS552892 DS 6.3",
+    k.term("T-OS301", "hard", "overshoot.peak", where={"part": "U301"}, max="20 V",
+           source="LTC3115-1 DS p.2: VIN/PVIN/PVOUT 45 V, SW <= PVIN/PVOUT + 1.5 V for < 100 ns; VIN <= 24 V",
+           why="SW1 rides on PVIN <= 24 V: 45 - 24 - 0.5 V, rounded down")
+    k.term("T-TJ", "hard", "temp.junction", where={"part": "U*"}, max="125 C", source="LTC3115-1 DS p.2 (E/I grade 125 C)",
            why="junction rating")
 
 
@@ -410,14 +414,14 @@ def board(d):
 def placement(d):
     pl, f = d.place, d.find_part
     u3 = f("U301")
-    pl.hot_loop([u3["VIN"], f("C306")["1"], f("C306")["2"], u3["PGND"]])
-    pl.hot_loop([u3["VOUT"], f("C311")["1"], f("C311")["2"], u3["PGND"]])
-    pl.near(f("L301"), u3, "tight", note="SW1/SW2 short")
+    pl.hot_loop([u3["PVIN"], f("C306")["1"], f("C306")["2"], u3["PGND1"]])
+    pl.hot_loop([u3["PVOUT"], f("C311")["1"], f("C311")["2"], u3["PGND4"]])
+    pl.near(f("L301"), u3, "tight", note="SW1/SW2 short (DS Fig. 17: inductor over the SW pins)")
     pl.near(f("C304"), u3, "tight")
     pl.near(f("C305"), u3, "tight")
-    pl.near(f("C303"), "U301.18", within_mm=3.0, note="VCC cap at the pin (assumed 3 mm)")
-    for r in ("R305", "R306", "R307", "R308", "R303", "C302"):
-        pl.near(f(r), "U301.14", within_mm=6.0, note="FB/COMP short (assumed 6 mm)")
+    pl.near(f("C303"), "U301.12", within_mm=3.0, note="VCC cap at the pin (DS p.11)")
+    for r in ("R305", "R306", "R307", "R308", "R303", "C302", "R304", "C309"):
+        pl.near(f(r), "U301.8", within_mm=6.0, note="FB/VC short, away from SW (DS p.11, Fig. 17)")
     u2 = f("U201")
     pl.near(f("Q202"), u2, "close", note="DRV gate loop")
     pl.near(f("C204"), u2, "tight")
@@ -431,7 +435,7 @@ def placement(d):
 
 def build():
     d = Design("obd-solar", title="OBD-II solar trickle charger with USB-C PD",
-               description="CN3767 CV-MPPT lead-acid charger with a comparator-gated reverse block, TPS552892 "
+               description="CN3767 CV-MPPT lead-acid charger with a comparator-gated reverse block, LTC3115-1 "
                            "buck-boost USB-C PD 5/9/12 V source run by an STM32G071",
                revision="A", author="haslamsynth design agent", brief=BRIEF, ambient_c=(-30, 70))
     nets(d)

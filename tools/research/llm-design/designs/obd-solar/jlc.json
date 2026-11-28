@@ -119,6 +119,16 @@
   "spec": "1206",
   "stock": 3639378
  },
+ "C|33pF|0603|50V|C0G": {
+  "at": "2026-11-28",
+  "basic": true,
+  "describe": "33pF 50V C0G \u00b15% 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C1663",
+  "model": "CL10C330JB8NNNC",
+  "query": "33pF 0603",
+  "spec": "0603",
+  "stock": 1564278
+ },
  "C|4.7uF|0805|10V|X5R": {
   "at": "2026-11-27",
   "basic": true,
@@ -138,6 +148,16 @@
   "query": "8.2nF 0603",
   "spec": "0603",
   "stock": 62588
+ },
+ "C|820pF|0603|25V|C0G": {
+  "at": "2026-11-28",
+  "basic": false,
+  "describe": "50V 820pF NP0 \u00b15% 0603 Multilayer Ceramic Capacitors MLCC - SMD/SMT ROHS",
+  "lcsc": "C107057",
+  "model": "CC0603JRNPO9BN821",
+  "query": "820pF 0603",
+  "spec": "0603",
+  "stock": 80509
  },
  "R|1.27M|0603|1%": {
   "at": "2026-11-27",
@@ -209,6 +229,16 @@
   "spec": "0603",
   "stock": 36397114
  },
+ "R|249k|0603|1%": {
+  "at": "2026-11-28",
+  "basic": false,
+  "describe": "-55\u2103~+155\u2103 100mW 249k\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C2933177",
+  "model": "FRC0603F2493TS",
+  "query": "249k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 524729
+ },
  "R|30.1k|0603|1%": {
   "at": "2026-11-27",
   "basic": false,
@@ -228,6 +258,26 @@
   "query": "31.6k\u03a9 0603 1%",
   "spec": "0603",
   "stock": 201781
+ },
+ "R|340k|0603|1%": {
+  "at": "2026-11-28",
+  "basic": false,
+  "describe": "-55\u2103~+155\u2103 100mW 340k\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C2933203",
+  "model": "FRC0603F3403TS",
+  "query": "340k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 48622
+ },
+ "R|35.7k|0603|1%": {
+  "at": "2026-11-28",
+  "basic": false,
+  "describe": "-55\u2103~+155\u2103 100mW 35.7k\u03a9 75V Thick Film Resistor \u00b11% \u00b1100ppm/\u2103 0603 Chip Resistor - Surface Mount ROHS",
+  "lcsc": "C2933207",
+  "model": "FRC0603F3572TS",
+  "query": "35.7k\u03a9 0603 1%",
+  "spec": "0603",
+  "stock": 143103
  },
  "R|4.7M|0603|1%": {
   "at": "2026-11-27",
