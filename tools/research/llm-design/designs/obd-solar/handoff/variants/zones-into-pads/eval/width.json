@@ -1,0 +1,161 @@
+{
+ "rise_c": 10.0,
+ "neck_mm": 1.0,
+ "stub": 0.1,
+ "basis": "branch",
+ "nets": {
+  "GND": {
+   "i_max": 4.0,
+   "basis": "branch",
+   "zone": true,
+   "min_mm": 0.127,
+   "short_mm": 3.759,
+   "exempt_mm": 2.091,
+   "poured_mm": 0.0,
+   "total_mm": 116.693,
+   "need_max_mm": 2.033,
+   "verdict": "fail"
+  },
+  "OBD_RAW": {
+   "i_max": 3.5,
+   "basis": "branch",
+   "zone": false,
+   "min_mm": 0.127,
+   "short_mm": 8.644,
+   "exempt_mm": 2.212,
+   "poured_mm": 0.0,
+   "total_mm": 12.103,
+   "need_max_mm": 1.691,
+   "verdict": "fail"
+  },
+  "PV_RAW": {
+   "i_max": 0.8,
+   "basis": "net",
+   "zone": false,
+   "min_mm": 0.25,
+   "short_mm": 0.0,
+   "exempt_mm": 0.0,
+   "poured_mm": 0.0,
+   "total_mm": 12.396,
+   "need_max_mm": 0.221,
+   "verdict": "pass"
+  },
+  "VBAT": {
+   "i_max": 3.5,
+   "basis": "branch",
+   "zone": true,
+   "min_mm": 0.127,
+   "short_mm": 65.181,
+   "exempt_mm": 5.372,
+   "poured_mm": 0.0,
+   "total_mm": 194.515,
+   "need_max_mm": 1.691,
+   "verdict": "fail"
+  },
+  "PV_IN": {
+   "i_max": 0.8,
+   "basis": "branch",
+   "zone": true,
+   "min_mm": 0.127,
+   "short_mm": 0.0,
+   "exempt_mm": 0.0,
+   "poured_mm": 0.0,
+   "total_mm": 99.763,
+   "need_max_mm": 0.221,
+   "verdict": "pass"
+  },
+  "CHG_OUT": {
+   "i_max": 0.8,
+   "basis": "branch",
+   "zone": true,
+   "min_mm": 0.127,
+   "short_mm": 8.283,
+   "exempt_mm": 2.852,
+   "poured_mm": 0.0,
+   "total_mm": 83.236,
+   "need_max_mm": 0.221,
+   "verdict": "fail"
+  },
+  "VBUS": {
+   "i_max": 2.0,
+   "basis": "branch",
+   "zone": true,
+   "min_mm": 0.127,
+   "short_mm": 11.786,
+   "exempt_mm": 5.303,
+   "poured_mm": 0.0,
+   "total_mm": 93.118,
+   "need_max_mm": 0.781,
+   "verdict": "fail"
+  },
+  "+3V3": {
+   "i_max": 0.05,
+   "basis": "branch",
+   "zone": true,
+   "min_mm": 0.25,
+   "short_mm": 0.0,
+   "exempt_mm": 0.0,
+   "poured_mm": 0.0,
+   "total_mm": 58.138,
+   "need_max_mm": 0.005,
+   "verdict": "pass"
+  },
+  "/CHG/SW_CHG": {
+   "i_max": 0.9,
+   "basis": "net",
+   "zone": false,
+   "min_mm": 0.3,
+   "short_mm": 0.0,
+   "exempt_mm": 0.0,
+   "poured_mm": 0.0,
+   "total_mm": 8.204,
+   "need_max_mm": 0.26,
+   "verdict": "pass"
+  },
+  "/CHG/CHG_CS": {
+   "i_max": 0.9,
+   "basis": "net",
+   "zone": true,
+   "min_mm": 0.3,
+   "short_mm": 0.0,
+   "exempt_mm": 0.0,
+   "poured_mm": 0.0,
+   "total_mm": 49.544,
+   "need_max_mm": 0.26,
+   "verdict": "pass"
+  },
+  "/USB/BB_SW1": {
+   "i_max": 3.0,
+   "basis": "branch",
+   "zone": false,
+   "min_mm": 0.127,
+   "short_mm": 6.849,
+   "exempt_mm": 3.421,
+   "poured_mm": 0.0,
+   "total_mm": 10.861,
+   "need_max_mm": 1.367,
+   "verdict": "fail"
+  },
+  "/USB/BB_SW2": {
+   "i_max": 3.0,
+   "basis": "branch",
+   "zone": false,
+   "min_mm": 0.127,
+   "short_mm": 25.767,
+   "exempt_mm": 1.139,
+   "poured_mm": 0.0,
+   "total_mm": 39.858,
+   "need_max_mm": 1.367,
+   "verdict": "fail"
+  }
+ },
+ "fail": [
+  "/USB/BB_SW1",
+  "/USB/BB_SW2",
+  "CHG_OUT",
+  "GND",
+  "OBD_RAW",
+  "VBAT",
+  "VBUS"
+ ]
+}

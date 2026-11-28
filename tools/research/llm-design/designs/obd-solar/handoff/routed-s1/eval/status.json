@@ -1,0 +1,1590 @@
+{
+ "schema": "haslam.status/1",
+ "observedGeneration": 1,
+ "board": "/home/user/haslampcb/haslam-work/obd-solar/pipeline/layout/s1/obd-solar.kicad_pcb",
+ "complete": true,
+ "currency": "mW_eq",
+ "defaults": "neutral/1",
+ "terms": [
+  {
+   "id": "T-FB",
+   "tier": "limit",
+   "obs": "pickup.peak",
+   "where": {
+    "net": "/USB/BB_FB"
+   },
+   "matched": 4,
+   "agg": "worst",
+   "why": "1 % of the 1.0 V reference = 120 mV at 12 V out; PD allows 5 %",
+   "source": "LTC3115-1 DS p.3 FB",
+   "value": "258.7 mV",
+   "dominant": "victim:feedback:U301.8 <- cell:cell:boost:U301",
+   "rests_on": [
+    "cell:boost:U301 t_i_s 1e-09..1e-08 s"
+   ],
+   "limit": "max 12 mV",
+   "met": false,
+   "margin": "-246.7 mV",
+   "contribution": 585.3067,
+   "share": 0.174
+  },
+  {
+   "id": "T-MPPT",
+   "tier": "limit",
+   "obs": "pickup.peak",
+   "where": {
+    "net": "/CHG/MPPT"
+   },
+   "matched": 4,
+   "agg": "worst",
+   "why": "1 % of the 1.205 V MPPT reference = 165 mV on the panel",
+   "source": "CN3767 DS p.4",
+   "value": "1.413 mV",
+   "dominant": "victim:analog:U201.6 <- cell:cell:buck:U201",
+   "rests_on": [
+    "cell:buck:U201 t_i_s 1e-09..1e-08 s"
+   ],
+   "limit": "max 12 mV",
+   "met": true,
+   "margin": "10.59 mV",
+   "contribution": 0.0,
+   "share": 0.0
+  },
+  {
+   "id": "T-OS201",
+   "tier": "hard",
+   "obs": "overshoot.peak",
+   "where": {
+    "part": "U201"
+   },
+   "matched": 0,
+   "agg": "worst",
+   "why": "33 - 25 - 0.5 V margin",
+   "source": "CN3767 DS p.3 VCC abs max 33 V; PV_IN <= 25 V",
+   "note": "matched no observation on this board"
+  },
+  {
+   "id": "T-OS301",
+   "tier": "hard",
+   "obs": "overshoot.peak",
+   "where": {
+    "part": "U301"
+   },
+   "matched": 2,
+   "agg": "worst",
+   "why": "SW1 rides on PVIN <= 24 V: 45 - 24 - 0.5 V, rounded down",
+   "source": "LTC3115-1 DS p.2: VIN/PVIN/PVOUT 45 V, SW <= PVIN/PVOUT + 1.5 V for < 100 ns; VIN <= 24 V",
+   "value": "15.33 V",
+   "dominant": "overshoot:cell:buck:U301 <- cell:cell:buck:U301",
+   "rests_on": [
+    "cell:buck:U301 t_i_s 1e-09..1e-08 s"
+   ],
+   "limit": "max 20 V",
+   "met": true,
+   "margin": "4.669 V",
+   "hard": 0.0
+  },
+  {
+   "id": "T-HEAT",
+   "tier": "limit",
+   "obs": "heat.track",
+   "where": null,
+   "matched": 1,
+   "agg": "worst",
+   "why": "IPC-2221 conductor rise: net classes are sized for 10 C (BoardSpec.trace_rise_c), 20 K is the ceiling",
+   "source": "IPC-2221; obd-solar FRICTION.md #31",
+   "value": "199.6 K",
+   "dominant": "temperature rise of the hottest track (worst corner: VBAT on F.Cu, 0.127 mm)",
+   "rests_on": [],
+   "limit": "max 20 K",
+   "met": false,
+   "margin": "-179.6 K",
+   "contribution": 898.1044,
+   "share": 0.267
+  },
+  {
+   "id": "T-DROP",
+   "tier": "limit",
+   "obs": "drop.rail",
+   "where": {
+    "rail": "VBUS"
+   },
+   "matched": 1,
+   "agg": "worst",
+   "why": "VBUS drop from U301 to J301: 3 % of 5 V (USB PD allows 5 %)",
+   "source": "USB PD vSafe5V",
+   "value": "265.9 mV",
+   "dominant": "DC drop from VBUS's source to J301 (copper at its temperature)",
+   "rests_on": [],
+   "limit": "max 150 mV",
+   "met": false,
+   "margin": "-115.9 mV",
+   "contribution": 115.8559,
+   "share": 0.034
+  },
+  {
+   "id": "T-TJ",
+   "tier": "hard",
+   "obs": "temp.junction",
+   "where": {
+    "part": "U*"
+   },
+   "matched": 3,
+   "agg": "worst",
+   "why": "junction rating",
+   "source": "LTC3115-1 DS p.2 (E/I grade 125 C)",
+   "value": "185 C",
+   "dominant": "junction temperature of U301",
+   "rests_on": [],
+   "limit": "max 125 C",
+   "met": false,
+   "margin": "-59.96 C",
+   "hard": 0.479704
+  },
+  {
+   "id": "D1",
+   "tier": "cost",
+   "obs": "loss.copper",
+   "where": null,
+   "matched": 1,
+   "agg": "cvar20",
+   "why": "neutral/1: energy needs no assumed bound; every other quantity waits for intent",
+   "source": null,
+   "value": "1.758 W",
+   "dominant": "copper dissipation (DC) (copper at its temperature)",
+   "rests_on": [],
+   "contribution": 1758.3534,
+   "share": 0.523
+  },
+  {
+   "id": "D1ac",
+   "tier": "cost",
+   "obs": "loss.copper_ac",
+   "where": null,
+   "matched": 3,
+   "agg": "cvar20",
+   "why": "neutral/1: AC copper loss is copper loss, priced as D1",
+   "source": null,
+   "value": "5.975 mW",
+   "dominant": "inductor ripple copper loss of cell:cell:buck:U301: dI 0.057 A p-p (L 10 uH) through the board's copper, R_eff 198 mOhm at f_sw (skin)",
+   "rests_on": [
+    "cell:buck:U301 t_i_s 1e-09..1e-08 s"
+   ],
+   "contribution": 5.9746,
+   "share": 0.002
+  }
+ ],
+ "unclaimed": [
+  {
+   "obs": "supply.peak",
+   "label": "supply:U301:VBAT <- cell:cell:buck:U301",
+   "worst": "6.3 V",
+   "reference": "630 mV",
+   "ratio": 10.0,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); VBAT = 12.6 V",
+   "implausible": "13.9 V of copper noise on VBAT exceeds 50% of its 12.6 V rail: beyond first-order pricing, and no working board shows it (is the net a rail?)"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:sense:U201.7 <- cell:cell:buck:U301",
+   "worst": "958.3 mV",
+   "reference": "1 mV",
+   "ratio": 958.339,
+   "basis": "1 mV on a sense line"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:sense:U201.8 <- cell:cell:buck:U301",
+   "worst": "882.1 mV",
+   "reference": "1 mV",
+   "ratio": 882.086,
+   "basis": "1 mV on a sense line"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:sense:U201.8 <- cell:cell:buck:U201",
+   "worst": "505.8 mV",
+   "reference": "1 mV",
+   "ratio": 505.845,
+   "basis": "1 mV on a sense line"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:sense:U201.7 <- cell:cell:buck:U201",
+   "worst": "500.2 mV",
+   "reference": "1 mV",
+   "ratio": 500.163,
+   "basis": "1 mV on a sense line"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U401.7 <- core:U401:+3V3",
+   "worst": "342.7 mV",
+   "reference": "1 mV",
+   "ratio": 342.719,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U202.4 <- cell:cell:buck:U201",
+   "worst": "121.4 mV",
+   "reference": "1 mV",
+   "ratio": 121.399,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U202.3 <- cell:cell:buck:U201",
+   "worst": "111.8 mV",
+   "reference": "1 mV",
+   "ratio": 111.759,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U401.7 <- cell:cell:buck:U301",
+   "worst": "103.9 mV",
+   "reference": "1 mV",
+   "ratio": 103.867,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U202.4 <- cell:cell:buck:U301",
+   "worst": "82.49 mV",
+   "reference": "1 mV",
+   "ratio": 82.486,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U202.3 <- cell:cell:buck:U301",
+   "worst": "78.49 mV",
+   "reference": "1 mV",
+   "ratio": 78.492,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:sense:U201.7 <- cell:cell:boost:U301",
+   "worst": "53.25 mV",
+   "reference": "1 mV",
+   "ratio": 53.251,
+   "basis": "1 mV on a sense line"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:sense:U201.8 <- cell:cell:boost:U301",
+   "worst": "47.92 mV",
+   "reference": "1 mV",
+   "ratio": 47.923,
+   "basis": "1 mV on a sense line"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U401.7 <- cell:cell:buck:U201",
+   "worst": "38 mV",
+   "reference": "1 mV",
+   "ratio": 37.997,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U401.8 <- core:U401:+3V3",
+   "worst": "23.58 mV",
+   "reference": "1 mV",
+   "ratio": 23.582,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U401.8 <- cell:cell:buck:U301",
+   "worst": "18.91 mV",
+   "reference": "1 mV",
+   "ratio": 18.91,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U401.7 <- cell:cell:boost:U301",
+   "worst": "8.866 mV",
+   "reference": "1 mV",
+   "ratio": 8.866,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U401.8 <- cell:cell:boost:U301",
+   "worst": "7.65 mV",
+   "reference": "1 mV",
+   "ratio": 7.65,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U401.8 <- cell:cell:buck:U201",
+   "worst": "6.8 mV",
+   "reference": "1 mV",
+   "ratio": 6.8,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U401:+3V3 <- core:U401:+3V3",
+   "worst": "746.6 mV",
+   "reference": "165 mV",
+   "ratio": 4.525,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); +3V3 = 3.3 V"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:sense:U201.7 <- core:U401:+3V3",
+   "worst": "4.041 mV",
+   "reference": "1 mV",
+   "ratio": 4.041,
+   "basis": "1 mV on a sense line"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:sense:U201.8 <- core:U401:+3V3",
+   "worst": "3.805 mV",
+   "reference": "1 mV",
+   "ratio": 3.805,
+   "basis": "1 mV on a sense line"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U402.2 <- cell:cell:buck:U201",
+   "worst": "3.749 mV",
+   "reference": "1 mV",
+   "ratio": 3.749,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U202.4 <- cell:cell:boost:U301",
+   "worst": "3.397 mV",
+   "reference": "1 mV",
+   "ratio": 3.397,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U202.3 <- cell:cell:boost:U301",
+   "worst": "3.305 mV",
+   "reference": "1 mV",
+   "ratio": 3.305,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U301:/USB/BB_VCC <- cell:cell:buck:U301",
+   "worst": "491.2 mV",
+   "reference": "165 mV",
+   "ratio": 2.977,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); /USB/BB_VCC = 3.3 V"
+  },
+  {
+   "obs": "emission.cable_E",
+   "label": "cable emission at 10 m via J101-J301 (1 m) <- cell:cell:buck:U301",
+   "worst": "56.34 dBuV/m",
+   "reference": "30 dBuV/m",
+   "ratio": 1.878,
+   "basis": "CISPR 32 class B, 30-230 MHz, 10 m"
+  },
+  {
+   "obs": "emission.cable_E",
+   "label": "cable emission at 10 m via J201-J301 (5 m) <- cell:cell:buck:U301",
+   "worst": "53.3 dBuV/m",
+   "reference": "30 dBuV/m",
+   "ratio": 1.777,
+   "basis": "CISPR 32 class B, 30-230 MHz, 10 m"
+  },
+  {
+   "obs": "emission.cable_E",
+   "label": "cable emission at 10 m via J101-J301 (1 m) <- cell:cell:boost:U301",
+   "worst": "47.54 dBuV/m",
+   "reference": "30 dBuV/m",
+   "ratio": 1.585,
+   "basis": "CISPR 32 class B, 30-230 MHz, 10 m"
+  },
+  {
+   "obs": "emission.cable_E",
+   "label": "cable emission at 10 m via J201-J301 (5 m) <- cell:cell:boost:U301",
+   "worst": "46.75 dBuV/m",
+   "reference": "30 dBuV/m",
+   "ratio": 1.558,
+   "basis": "CISPR 32 class B, 30-230 MHz, 10 m"
+  },
+  {
+   "obs": "emission.cable_E",
+   "label": "cable emission at 10 m via J101-J201 (5 m) <- cell:cell:buck:U301",
+   "worst": "45.88 dBuV/m",
+   "reference": "30 dBuV/m",
+   "ratio": 1.529,
+   "basis": "CISPR 32 class B, 30-230 MHz, 10 m"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U301:VBAT <- cell:cell:buck:U201",
+   "worst": "877.4 mV",
+   "reference": "630 mV",
+   "ratio": 1.393,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); VBAT = 12.6 V"
+  },
+  {
+   "obs": "emission.cable_E",
+   "label": "cable emission at 10 m via J201-J301 (5 m) <- cell:cell:buck:U201",
+   "worst": "41.8 dBuV/m",
+   "reference": "30 dBuV/m",
+   "ratio": 1.393,
+   "basis": "CISPR 32 class B, 30-230 MHz, 10 m"
+  },
+  {
+   "obs": "emission.cable_E",
+   "label": "cable emission at 10 m via J101-J301 (1 m) <- cell:cell:buck:U201",
+   "worst": "41.02 dBuV/m",
+   "reference": "30 dBuV/m",
+   "ratio": 1.367,
+   "basis": "CISPR 32 class B, 30-230 MHz, 10 m"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of F101",
+   "worst": "98.94 C",
+   "reference": "85 C",
+   "ratio": 1.164,
+   "basis": "fuse class rating"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U301:/USB/BB_VCC <- cell:cell:boost:U301",
+   "worst": "176.1 mV",
+   "reference": "165 mV",
+   "ratio": 1.067,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); /USB/BB_VCC = 3.3 V"
+  },
+  {
+   "obs": "emission.cable_E",
+   "label": "cable emission at 10 m via J101-J301 (1 m) <- core:U401:+3V3",
+   "worst": "28.61 dBuV/m",
+   "reference": "30 dBuV/m",
+   "ratio": 0.954,
+   "basis": "CISPR 32 class B, 30-230 MHz, 10 m"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U401:+3V3 <- cell:cell:buck:U301",
+   "worst": "155.8 mV",
+   "reference": "165 mV",
+   "ratio": 0.944,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); +3V3 = 3.3 V"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R301",
+   "worst": "113.8 C",
+   "reference": "125 C",
+   "ratio": 0.91,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R307",
+   "worst": "112.4 C",
+   "reference": "125 C",
+   "ratio": 0.899,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "emission.cable_E",
+   "label": "cable emission at 10 m via J101-J201 (5 m) <- cell:cell:boost:U301",
+   "worst": "26.76 dBuV/m",
+   "reference": "30 dBuV/m",
+   "ratio": 0.892,
+   "basis": "CISPR 32 class B, 30-230 MHz, 10 m"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U201:PV_IN <- cell:cell:buck:U201",
+   "worst": "734.5 mV",
+   "reference": "825 mV",
+   "ratio": 0.89,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); PV_IN = 16.5 V"
+  },
+  {
+   "obs": "emission.cable_E",
+   "label": "cable emission at 10 m via J201-J301 (5 m) <- core:U401:+3V3",
+   "worst": "26.65 dBuV/m",
+   "reference": "30 dBuV/m",
+   "ratio": 0.888,
+   "basis": "CISPR 32 class B, 30-230 MHz, 10 m"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of L301",
+   "worst": "110.7 C",
+   "reference": "125 C",
+   "ratio": 0.886,
+   "basis": "inductor class rating"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U402.2 <- cell:cell:boost:U301",
+   "worst": "880.2 \u00b5V",
+   "reference": "1 mV",
+   "ratio": 0.88,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R311",
+   "worst": "109 C",
+   "reference": "125 C",
+   "ratio": 0.872,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R304",
+   "worst": "108.1 C",
+   "reference": "125 C",
+   "ratio": 0.865,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R305",
+   "worst": "108 C",
+   "reference": "125 C",
+   "ratio": 0.864,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R308",
+   "worst": "108.1 C",
+   "reference": "125 C",
+   "ratio": 0.864,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R306",
+   "worst": "102.5 C",
+   "reference": "125 C",
+   "ratio": 0.82,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U402.2 <- cell:cell:buck:U301",
+   "worst": "813.4 \u00b5V",
+   "reference": "1 mV",
+   "ratio": 0.813,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R309",
+   "worst": "99.66 C",
+   "reference": "125 C",
+   "ratio": 0.797,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R310",
+   "worst": "95.6 C",
+   "reference": "125 C",
+   "ratio": 0.765,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R312",
+   "worst": "92.28 C",
+   "reference": "125 C",
+   "ratio": 0.738,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R313",
+   "worst": "90.74 C",
+   "reference": "125 C",
+   "ratio": 0.726,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R216",
+   "worst": "90.31 C",
+   "reference": "125 C",
+   "ratio": 0.722,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R401",
+   "worst": "89.89 C",
+   "reference": "125 C",
+   "ratio": 0.719,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R314",
+   "worst": "89.81 C",
+   "reference": "125 C",
+   "ratio": 0.719,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R402",
+   "worst": "88.27 C",
+   "reference": "125 C",
+   "ratio": 0.706,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R209",
+   "worst": "88.28 C",
+   "reference": "125 C",
+   "ratio": 0.706,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R211",
+   "worst": "87.83 C",
+   "reference": "125 C",
+   "ratio": 0.703,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R315",
+   "worst": "87.8 C",
+   "reference": "125 C",
+   "ratio": 0.702,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R403",
+   "worst": "87.6 C",
+   "reference": "125 C",
+   "ratio": 0.701,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R212",
+   "worst": "86.8 C",
+   "reference": "125 C",
+   "ratio": 0.694,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R210",
+   "worst": "86.69 C",
+   "reference": "125 C",
+   "ratio": 0.694,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R213",
+   "worst": "85.86 C",
+   "reference": "125 C",
+   "ratio": 0.687,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "emission.cable_E",
+   "label": "cable emission at 10 m via J101-J201 (5 m) <- cell:cell:buck:U201",
+   "worst": "20.5 dBuV/m",
+   "reference": "30 dBuV/m",
+   "ratio": 0.683,
+   "basis": "CISPR 32 class B, 30-230 MHz, 10 m"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R208",
+   "worst": "84.77 C",
+   "reference": "125 C",
+   "ratio": 0.678,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U301:VBAT <- cell:cell:boost:U301",
+   "worst": "425.8 mV",
+   "reference": "630 mV",
+   "ratio": 0.676,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); VBAT = 12.6 V"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R207",
+   "worst": "84.4 C",
+   "reference": "125 C",
+   "ratio": 0.675,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R214",
+   "worst": "84.02 C",
+   "reference": "125 C",
+   "ratio": 0.672,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R215",
+   "worst": "83.74 C",
+   "reference": "125 C",
+   "ratio": 0.67,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R201",
+   "worst": "83.63 C",
+   "reference": "125 C",
+   "ratio": 0.669,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R202",
+   "worst": "83.39 C",
+   "reference": "125 C",
+   "ratio": 0.667,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R203",
+   "worst": "81.85 C",
+   "reference": "125 C",
+   "ratio": 0.655,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R205",
+   "worst": "81 C",
+   "reference": "125 C",
+   "ratio": 0.648,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of R204",
+   "worst": "80.83 C",
+   "reference": "125 C",
+   "ratio": 0.647,
+   "basis": "resistor class rating"
+  },
+  {
+   "obs": "temp.junction",
+   "label": "junction temperature of L201",
+   "worst": "80.18 C",
+   "reference": "125 C",
+   "ratio": 0.641,
+   "basis": "inductor class rating"
+  },
+  {
+   "obs": "overshoot.peak",
+   "label": "overshoot:cell:buck:U201 <- cell:cell:buck:U201",
+   "worst": "6.787 V",
+   "reference": "11.55 V",
+   "ratio": 0.588,
+   "basis": "peak <= 0.85 x V_abs (33 V, the switch's rating) on a 16.5 V bus; rating from facts parts.U201.v_sw_max_V (CN3767 DS p.4: fosc 240-360 kHz (300 typ); VCC abs max 33 V)"
+  },
+  {
+   "obs": "emission.cable_E",
+   "label": "cable emission at 10 m via J101-J201 (5 m) <- core:U401:+3V3",
+   "worst": "14.75 dBuV/m",
+   "reference": "30 dBuV/m",
+   "ratio": 0.492,
+   "basis": "CISPR 32 class B, 30-230 MHz, 10 m"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U402.2 <- core:U401:+3V3",
+   "worst": "425.7 \u00b5V",
+   "reference": "1 mV",
+   "ratio": 0.426,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U401:+3V3 <- cell:cell:buck:U201",
+   "worst": "62.57 mV",
+   "reference": "165 mV",
+   "ratio": 0.379,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); +3V3 = 3.3 V"
+  },
+  {
+   "obs": "drop.rail",
+   "label": "DC drop from +3V3's source to U401 (copper at its temperature)",
+   "worst": "20.56 mV",
+   "reference": "66 mV",
+   "ratio": 0.311,
+   "basis": "2% of the rail's voltage"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U202.4 <- core:U401:+3V3",
+   "worst": "285.3 \u00b5V",
+   "reference": "1 mV",
+   "ratio": 0.285,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "pickup.peak",
+   "label": "victim:analog:U202.3 <- core:U401:+3V3",
+   "worst": "264.6 \u00b5V",
+   "reference": "1 mV",
+   "ratio": 0.265,
+   "basis": "1 mV at an analog input"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U202:/BLK/CMP_VCC <- cell:cell:buck:U201",
+   "worst": "8.21 mV",
+   "reference": "33 mV",
+   "ratio": 0.249,
+   "basis": "1% of the rail: analog supply rejection budget; /BLK/CMP_VCC = 3.3 V"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U202:/BLK/CMP_VCC <- cell:cell:buck:U301",
+   "worst": "7.391 mV",
+   "reference": "33 mV",
+   "ratio": 0.224,
+   "basis": "1% of the rail: analog supply rejection budget; /BLK/CMP_VCC = 3.3 V"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U201:PV_IN <- cell:cell:buck:U301",
+   "worst": "173.4 mV",
+   "reference": "825 mV",
+   "ratio": 0.21,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); PV_IN = 16.5 V"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U401:+3V3 <- cell:cell:boost:U301",
+   "worst": "6.037 mV",
+   "reference": "165 mV",
+   "ratio": 0.037,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); +3V3 = 3.3 V"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U202:/BLK/CMP_VCC <- cell:cell:boost:U301",
+   "worst": "526.6 \u00b5V",
+   "reference": "33 mV",
+   "ratio": 0.016,
+   "basis": "1% of the rail: analog supply rejection budget; /BLK/CMP_VCC = 3.3 V"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U301:/USB/BB_VCC <- cell:cell:buck:U201",
+   "worst": "2.49 mV",
+   "reference": "165 mV",
+   "ratio": 0.015,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); /USB/BB_VCC = 3.3 V"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U301:VBAT <- core:U401:+3V3",
+   "worst": "5.545 mV",
+   "reference": "630 mV",
+   "ratio": 0.009,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); VBAT = 12.6 V"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U201:PV_IN <- cell:cell:boost:U301",
+   "worst": "5.009 mV",
+   "reference": "825 mV",
+   "ratio": 0.006,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); PV_IN = 16.5 V"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U201:PV_IN <- core:U401:+3V3",
+   "worst": "3.077 mV",
+   "reference": "825 mV",
+   "ratio": 0.004,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); PV_IN = 16.5 V"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U301:/USB/BB_VCC <- core:U401:+3V3",
+   "worst": "82.93 \u00b5V",
+   "reference": "165 mV",
+   "ratio": 0.001,
+   "basis": "5% of the rail: half a CMOS noise margin (JESD8 V_IL/V_IH 30/70%); /USB/BB_VCC = 3.3 V"
+  },
+  {
+   "obs": "supply.peak",
+   "label": "supply:U202:/BLK/CMP_VCC <- core:U401:+3V3",
+   "worst": "39.78 \u00b5V",
+   "reference": "33 mV",
+   "ratio": 0.001,
+   "basis": "1% of the rail: analog supply rejection budget; /BLK/CMP_VCC = 3.3 V"
+  },
+  {
+   "obs": "loss.loop",
+   "label": "hot-loop loss of cell:cell:buck:U201: 1/2 L_loop I_pk^2 f_sw at turn-off, L_loop 21.7 nH (copper)",
+   "worst": "1.918 mW",
+   "reference": null,
+   "ratio": null,
+   "basis": "none: a loss is priced, not bounded"
+  },
+  {
+   "obs": "loss.loop_ac",
+   "label": "hot-loop AC conduction loss of cell:cell:buck:U201: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and proximity crowding, R_loop 70.5 mOhm at f_sw, 66 at 5 f_sw (cell window)",
+   "worst": "3.89 mW",
+   "reference": null,
+   "ratio": null,
+   "basis": "none: a loss is priced, not bounded"
+  },
+  {
+   "obs": "cable_cm.v",
+   "label": "cm:J101-J201 <- cell:cell:buck:U201",
+   "worst": "132.4 \u00b5V",
+   "reference": null,
+   "ratio": null,
+   "basis": "CISPR 32 class B (30 dBuV/m at 10 m, 30-230 MHz) radiated by 1 m of cable, E = 1.26e-6 f l I / r (Ott, EMC Engineering, eq. 12-7) capped at the resonant cable's 2 x 60 I / r, cable common-mode impedance 150 ohm: V_lim(f) = 3.8e4 / f V per harmonic to 95 MHz, 0.40 mV above (haslam.physics.criteria.cable_v_lim) (the limit as a voltage at f: cable_v_lim(f), for 1 m of cable)"
+  },
+  {
+   "obs": "cable_cm.v",
+   "label": "cm:J101-J301 <- cell:cell:buck:U201",
+   "worst": "1.406 mV",
+   "reference": null,
+   "ratio": null,
+   "basis": "CISPR 32 class B (30 dBuV/m at 10 m, 30-230 MHz) radiated by 1 m of cable, E = 1.26e-6 f l I / r (Ott, EMC Engineering, eq. 12-7) capped at the resonant cable's 2 x 60 I / r, cable common-mode impedance 150 ohm: V_lim(f) = 3.8e4 / f V per harmonic to 95 MHz, 0.40 mV above (haslam.physics.criteria.cable_v_lim) (the limit as a voltage at f: cable_v_lim(f), for 1 m of cable)"
+  },
+  {
+   "obs": "cable_cm.v",
+   "label": "cm:J201-J301 <- cell:cell:buck:U201",
+   "worst": "1.538 mV",
+   "reference": null,
+   "ratio": null,
+   "basis": "CISPR 32 class B (30 dBuV/m at 10 m, 30-230 MHz) radiated by 1 m of cable, E = 1.26e-6 f l I / r (Ott, EMC Engineering, eq. 12-7) capped at the resonant cable's 2 x 60 I / r, cable common-mode impedance 150 ohm: V_lim(f) = 3.8e4 / f V per harmonic to 95 MHz, 0.40 mV above (haslam.physics.criteria.cable_v_lim) (the limit as a voltage at f: cable_v_lim(f), for 1 m of cable)"
+  },
+  {
+   "obs": "loss.loop",
+   "label": "hot-loop loss of cell:cell:buck:U301: 1/2 L_loop I_pk^2 f_sw at turn-off, L_loop 18.5 nH (copper)",
+   "worst": "37.83 mW",
+   "reference": null,
+   "ratio": null,
+   "basis": "none: a loss is priced, not bounded"
+  },
+  {
+   "obs": "loss.loop_ac",
+   "label": "hot-loop AC conduction loss of cell:cell:buck:U301: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and proximity crowding, R_loop 188 mOhm at f_sw, 118 at 5 f_sw (cell window)",
+   "worst": "77.73 mW",
+   "reference": null,
+   "ratio": null,
+   "basis": "none: a loss is priced, not bounded"
+  },
+  {
+   "obs": "cable_cm.v",
+   "label": "cm:J101-J201 <- cell:cell:buck:U301",
+   "worst": "2.46 mV",
+   "reference": null,
+   "ratio": null,
+   "basis": "CISPR 32 class B (30 dBuV/m at 10 m, 30-230 MHz) radiated by 1 m of cable, E = 1.26e-6 f l I / r (Ott, EMC Engineering, eq. 12-7) capped at the resonant cable's 2 x 60 I / r, cable common-mode impedance 150 ohm: V_lim(f) = 3.8e4 / f V per harmonic to 95 MHz, 0.40 mV above (haslam.physics.criteria.cable_v_lim) (the limit as a voltage at f: cable_v_lim(f), for 1 m of cable)"
+  },
+  {
+   "obs": "cable_cm.v",
+   "label": "cm:J101-J301 <- cell:cell:buck:U301",
+   "worst": "8.242 mV",
+   "reference": null,
+   "ratio": null,
+   "basis": "CISPR 32 class B (30 dBuV/m at 10 m, 30-230 MHz) radiated by 1 m of cable, E = 1.26e-6 f l I / r (Ott, EMC Engineering, eq. 12-7) capped at the resonant cable's 2 x 60 I / r, cable common-mode impedance 150 ohm: V_lim(f) = 3.8e4 / f V per harmonic to 95 MHz, 0.40 mV above (haslam.physics.criteria.cable_v_lim) (the limit as a voltage at f: cable_v_lim(f), for 1 m of cable)"
+  },
+  {
+   "obs": "cable_cm.v",
+   "label": "cm:J201-J301 <- cell:cell:buck:U301",
+   "worst": "5.782 mV",
+   "reference": null,
+   "ratio": null,
+   "basis": "CISPR 32 class B (30 dBuV/m at 10 m, 30-230 MHz) radiated by 1 m of cable, E = 1.26e-6 f l I / r (Ott, EMC Engineering, eq. 12-7) capped at the resonant cable's 2 x 60 I / r, cable common-mode impedance 150 ohm: V_lim(f) = 3.8e4 / f V per harmonic to 95 MHz, 0.40 mV above (haslam.physics.criteria.cable_v_lim) (the limit as a voltage at f: cable_v_lim(f), for 1 m of cable)"
+  },
+  {
+   "obs": "loss.loop",
+   "label": "hot-loop loss of cell:cell:boost:U301: 1/2 L_loop I_pk^2 f_sw at turn-off, L_loop 3.81 nH (copper)",
+   "worst": "8.486 mW",
+   "reference": null,
+   "ratio": null,
+   "basis": "none: a loss is priced, not bounded"
+  },
+  {
+   "obs": "loss.loop_ac",
+   "label": "hot-loop AC conduction loss of cell:cell:boost:U301: sum over harmonics of I_n^2 R_loop(n f_sw) with skin and proximity crowding, R_loop 51.3 mOhm at f_sw, 57.1 at 5 f_sw (cell window)",
+   "worst": "39.87 mW",
+   "reference": null,
+   "ratio": null,
+   "basis": "none: a loss is priced, not bounded"
+  },
+  {
+   "obs": "cable_cm.v",
+   "label": "cm:J101-J201 <- cell:cell:boost:U301",
+   "worst": "272.3 \u00b5V",
+   "reference": null,
+   "ratio": null,
+   "basis": "CISPR 32 class B (30 dBuV/m at 10 m, 30-230 MHz) radiated by 1 m of cable, E = 1.26e-6 f l I / r (Ott, EMC Engineering, eq. 12-7) capped at the resonant cable's 2 x 60 I / r, cable common-mode impedance 150 ohm: V_lim(f) = 3.8e4 / f V per harmonic to 95 MHz, 0.40 mV above (haslam.physics.criteria.cable_v_lim) (the limit as a voltage at f: cable_v_lim(f), for 1 m of cable)"
+  },
+  {
+   "obs": "cable_cm.v",
+   "label": "cm:J101-J301 <- cell:cell:boost:U301",
+   "worst": "2.992 mV",
+   "reference": null,
+   "ratio": null,
+   "basis": "CISPR 32 class B (30 dBuV/m at 10 m, 30-230 MHz) radiated by 1 m of cable, E = 1.26e-6 f l I / r (Ott, EMC Engineering, eq. 12-7) capped at the resonant cable's 2 x 60 I / r, cable common-mode impedance 150 ohm: V_lim(f) = 3.8e4 / f V per harmonic to 95 MHz, 0.40 mV above (haslam.physics.criteria.cable_v_lim) (the limit as a voltage at f: cable_v_lim(f), for 1 m of cable)"
+  },
+  {
+   "obs": "cable_cm.v",
+   "label": "cm:J201-J301 <- cell:cell:boost:U301",
+   "worst": "2.72 mV",
+   "reference": null,
+   "ratio": null,
+   "basis": "CISPR 32 class B (30 dBuV/m at 10 m, 30-230 MHz) radiated by 1 m of cable, E = 1.26e-6 f l I / r (Ott, EMC Engineering, eq. 12-7) capped at the resonant cable's 2 x 60 I / r, cable common-mode impedance 150 ohm: V_lim(f) = 3.8e4 / f V per harmonic to 95 MHz, 0.40 mV above (haslam.physics.criteria.cable_v_lim) (the limit as a voltage at f: cable_v_lim(f), for 1 m of cable)"
+  },
+  {
+   "obs": "cable_cm.v",
+   "label": "cm:J101-J201 <- core:U401:+3V3",
+   "worst": "68.27 \u00b5V",
+   "reference": null,
+   "ratio": null,
+   "basis": "CISPR 32 class B (30 dBuV/m at 10 m, 30-230 MHz) radiated by 1 m of cable, E = 1.26e-6 f l I / r (Ott, EMC Engineering, eq. 12-7) capped at the resonant cable's 2 x 60 I / r, cable common-mode impedance 150 ohm: V_lim(f) = 3.8e4 / f V per harmonic to 95 MHz, 0.40 mV above (haslam.physics.criteria.cable_v_lim) (the limit as a voltage at f: cable_v_lim(f), for 1 m of cable)"
+  },
+  {
+   "obs": "cable_cm.v",
+   "label": "cm:J101-J301 <- core:U401:+3V3",
+   "worst": "337 \u00b5V",
+   "reference": null,
+   "ratio": null,
+   "basis": "CISPR 32 class B (30 dBuV/m at 10 m, 30-230 MHz) radiated by 1 m of cable, E = 1.26e-6 f l I / r (Ott, EMC Engineering, eq. 12-7) capped at the resonant cable's 2 x 60 I / r, cable common-mode impedance 150 ohm: V_lim(f) = 3.8e4 / f V per harmonic to 95 MHz, 0.40 mV above (haslam.physics.criteria.cable_v_lim) (the limit as a voltage at f: cable_v_lim(f), for 1 m of cable)"
+  },
+  {
+   "obs": "cable_cm.v",
+   "label": "cm:J201-J301 <- core:U401:+3V3",
+   "worst": "268.7 \u00b5V",
+   "reference": null,
+   "ratio": null,
+   "basis": "CISPR 32 class B (30 dBuV/m at 10 m, 30-230 MHz) radiated by 1 m of cable, E = 1.26e-6 f l I / r (Ott, EMC Engineering, eq. 12-7) capped at the resonant cable's 2 x 60 I / r, cable common-mode impedance 150 ohm: V_lim(f) = 3.8e4 / f V per harmonic to 95 MHz, 0.40 mV above (haslam.physics.criteria.cable_v_lim) (the limit as a voltage at f: cable_v_lim(f), for 1 m of cable)"
+  },
+  {
+   "obs": "loss.swnode",
+   "label": "switch-node capacitance loss of cell:cell:buck:U201: 1/2 C_sw V^2 f_sw, C_sw 1.79 pF (copper)",
+   "worst": "155.1 \u00b5W",
+   "reference": null,
+   "ratio": null,
+   "basis": "none: a loss is priced, not bounded"
+  },
+  {
+   "obs": "loss.swnode",
+   "label": "switch-node capacitance loss of cell:cell:buck:U301: 1/2 C_sw V^2 f_sw, C_sw 1.78 pF (copper)",
+   "worst": "511.4 \u00b5W",
+   "reference": null,
+   "ratio": null,
+   "basis": "none: a loss is priced, not bounded"
+  },
+  {
+   "obs": "loss.swnode",
+   "label": "switch-node capacitance loss of cell:cell:boost:U301: 1/2 C_sw V^2 f_sw, C_sw 3.94 pF (copper)",
+   "worst": "288.3 \u00b5W",
+   "reference": null,
+   "ratio": null,
+   "basis": "none: a loss is priced, not bounded"
+  },
+  {
+   "obs": "loss.part",
+   "label": "dissipation of U201 (switching, conduction, rectification, linear drop)",
+   "worst": "165 mW",
+   "reference": null,
+   "ratio": null,
+   "basis": "none: a loss is priced, not bounded"
+  },
+  {
+   "obs": "loss.part",
+   "label": "dissipation of U301 (switching, conduction, rectification, linear drop)",
+   "worst": "2.118 W",
+   "reference": null,
+   "ratio": null,
+   "basis": "none: a loss is priced, not bounded"
+  }
+ ],
+ "questions": [
+  {
+   "id": "Q-cell:buck:U201-t_i_s",
+   "ask": "cell:buck:U201 t_i_s: is it known? (assumed 1e-09..1e-08 s; current commutation time of a integrated switch (class range); no datasheet valu)",
+   "schema": {
+    "type": "number"
+   }
+  },
+  {
+   "id": "Q-cell:buck:U301-t_i_s",
+   "ask": "cell:buck:U301 t_i_s: is it known? (assumed 1e-09..1e-08 s; current commutation time of a integrated switch (class range); no datasheet valu)",
+   "schema": {
+    "type": "number"
+   }
+  },
+  {
+   "id": "Q-cell:boost:U301-t_i_s",
+   "ask": "cell:boost:U301 t_i_s: is it known? (assumed 1e-09..1e-08 s; current commutation time of a integrated switch (class range); no datasheet valu)",
+   "schema": {
+    "type": "number"
+   }
+  },
+  {
+   "id": "Q-core:U401:+3V3-I_A",
+   "ask": "core:U401:+3V3 I_A: is it known? (assumed 0.0167..0.15 A; core current, class value x/3)",
+   "schema": {
+    "type": "number"
+   }
+  },
+  {
+   "id": "Q-core:U401:+3V3-t_i_s",
+   "ask": "core:U401:+3V3 t_i_s: is it known? (assumed 5e-10..3e-09 s; core edge, class value /2 .. x3)",
+   "schema": {
+    "type": "number"
+   }
+  },
+  {
+   "id": "Q-core:U401:+3V3-f_sw_Hz",
+   "ask": "core:U401:+3V3 f_sw_Hz: is it known? (assumed 2.5e+07..1e+08 Hz; core repetition, class value)",
+   "schema": {
+    "type": "number"
+   }
+  },
+  {
+   "id": "Q-dc:U401@+3V3-I_A",
+   "ask": "dc:U401@+3V3 I_A: is it known? (assumed 0.0167..0.15 A; ic load current by class (E5) x/3 .. x3)",
+   "schema": {
+    "type": "number"
+   }
+  },
+  {
+   "id": "Q-heat-h_W_m2K",
+   "ask": "heat h_W_m2K: is it known? (assumed 8..20 W/m^2/K; still-air cooling of the board's faces, convection plus radiation (haslam.materi)",
+   "schema": {
+    "type": "number"
+   }
+  }
+ ],
+ "sections": [
+  "cell:boost:U301",
+  "cell:buck:U201",
+  "cell:buck:U301",
+  "chain:J101:1",
+  "chain:J301:A5",
+  "chain:J301:A9",
+  "chain:J301:B5",
+  "chain:J301:B9",
+  "chain:J301:SH",
+  "chain:J401:1",
+  "chain:J401:2",
+  "chain:J401:3",
+  "chain:J401:4",
+  "decap:U201:PV_IN:regulator_input",
+  "decap:U202:CMP_VCC",
+  "decap:U301:BB_VCC:bypass",
+  "decap:U401:+3V3",
+  "decap:U402:+3V3:regulator_output",
+  "decap:U402:LDO_IN:regulator_input",
+  "heat:Q203",
+  "heat:U201",
+  "heat:U301",
+  "path:Q203",
+  "tvictim:C101",
+  "tvictim:C201",
+  "tvictim:C205",
+  "victim:analog:LDO_IN",
+  "victim:divider:CMP_INN",
+  "victim:divider:CMP_INP",
+  "victim:divider:MPPT",
+  "victim:divider:VBAT_SNS",
+  "victim:divider:VBUS_SNS",
+  "victim:feedback:COMP_Z",
+  "victim:feedback:FB12",
+  "victim:feedback:FB9",
+  "victim:feedback:U301:8",
+  "victim:sense:R203"
+ ],
+ "not_computed": [],
+ "stackup": {
+  "source": "file",
+  "gaps_mm": [
+   1.51
+  ]
+ },
+ "tiers": {
+  "hard": 0.479704,
+  "limit": 1599.267,
+  "cost": 1764.328
+ },
+ "incomplete_terms": [],
+ "assumed_limits": [],
+ "implausible": [
+  {
+   "label": "supply:U301:VBAT <- cell:cell:buck:U301",
+   "id": "supply.peak",
+   "capped_at": 6.3,
+   "worst": 6.3,
+   "why": "13.9 V of copper noise on VBAT exceeds 50% of its 12.6 V rail: beyond first-order pricing, and no working board shows it (is the net a rail?)"
+  }
+ ],
+ "open_cells": [],
+ "cells": [
+  {
+   "cell": "cell:buck:U201",
+   "source": "cell:cell:buck:U201",
+   "state": "ok",
+   "L_loop_nH": 23.0175,
+   "R_loop_mohm": 70.5098,
+   "R_harmonics": [
+    {
+     "n": 1,
+     "f_MHz": 0.3,
+     "R_mohm": 70.5098
+    },
+    {
+     "n": 3,
+     "f_MHz": 0.9,
+     "R_mohm": 61.2377
+    },
+    {
+     "n": 5,
+     "f_MHz": 1.5,
+     "R_mohm": 66.0337
+    }
+   ],
+   "overshoot_V": {
+    "typ": 5.0107,
+    "worst": 7.1828
+   },
+   "global": {
+    "pitch": 0.25,
+    "L_loop_nH": 21.7498,
+    "R_loop_mohm": 70.9949
+   }
+  },
+  {
+   "cell": "cell:buck:U301",
+   "source": "cell:cell:buck:U301",
+   "state": "ok",
+   "L_loop_nH": 19.019,
+   "R_loop_mohm": 187.7289,
+   "R_harmonics": [
+    {
+     "n": 1,
+     "f_MHz": 1.0,
+     "R_mohm": 187.7289
+    },
+    {
+     "n": 3,
+     "f_MHz": 3.0,
+     "R_mohm": 398.2169
+    },
+    {
+     "n": 5,
+     "f_MHz": 5.0,
+     "R_mohm": 117.695
+    }
+   ],
+   "overshoot_V": {
+    "typ": 6.2128,
+    "worst": 15.778
+   },
+   "global": {
+    "pitch": 0.25,
+    "L_loop_nH": 18.4796,
+    "R_loop_mohm": 188.3081
+   }
+  },
+  {
+   "cell": "cell:boost:U301",
+   "source": "cell:cell:boost:U301",
+   "state": "ok",
+   "L_loop_nH": 4.0078,
+   "R_loop_mohm": 51.3237,
+   "R_harmonics": [
+    {
+     "n": 1,
+     "f_MHz": 1.0,
+     "R_mohm": 51.3237
+    },
+    {
+     "n": 3,
+     "f_MHz": 3.0,
+     "R_mohm": 53.0057
+    },
+    {
+     "n": 5,
+     "f_MHz": 5.0,
+     "R_mohm": 57.0986
+    }
+   ],
+   "overshoot_V": {
+    "typ": 1.3143,
+    "worst": 3.4262
+   },
+   "global": {
+    "pitch": 0.25,
+    "L_loop_nH": 3.812,
+    "R_loop_mohm": 49.6053
+   }
+  }
+ ],
+ "intent": {
+  "path": "/home/user/haslampcb/haslam-work/obd-solar/pipeline/layout/s1/obd-solar.haslam_intent.json",
+  "source": "--intent"
+ },
+ "advice": [
+  {
+   "kind": "node.shunt_c",
+   "key": "node.shunt_c:U401.4",
+   "observer": "supply:U401:+3V3",
+   "mechanism": "supply:U401:+3V3: the node's impedance at the edge band is 0.428 Ohm (100 MHz); copper noise divides into it",
+   "remedy": "add a 47nF decoupling capacitor from U401.4 to U401.5, pads at the pins (no copper between them and the IC); U401.5 is the quietest of 2 return pads tried",
+   "return_pads": [
+    {
+     "pad": "U401.5",
+     "dist_mm": 0.8,
+     "C": "47nF",
+     "total": 3363.595,
+     "terms": "no priced term moves"
+    },
+    {
+     "pad": "C401.2",
+     "dist_mm": 2.17,
+     "C": "22nF",
+     "total": 3363.595,
+     "terms": "no priced term moves"
+    }
+   ],
+   "return_note": "the return pad matters: U401.5 (0.8 mm): no priced term moves at 47nF; C401.2 (2.2 mm): no priced term moves at 22nF",
+   "curve": [
+    {
+     "C": "1nF",
+     "value": "1nF",
+     "total": 3363.595
+    },
+    {
+     "C": "2.2nF",
+     "value": "2.2nF",
+     "total": 3363.595
+    },
+    {
+     "C": "4.7nF",
+     "value": "4.7nF",
+     "total": 3363.595
+    },
+    {
+     "C": "10nF",
+     "value": "10nF",
+     "total": 3363.595
+    },
+    {
+     "C": "22nF",
+     "value": "22nF",
+     "total": 3363.595
+    },
+    {
+     "C": "47nF",
+     "value": "47nF",
+     "total": 3363.595
+    },
+    {
+     "C": "100nF",
+     "value": "100nF",
+     "total": 3363.595
+    },
+    {
+     "C": "220nF",
+     "value": "220nF",
+     "total": 3363.595
+    },
+    {
+     "C": "470nF",
+     "value": "470nF",
+     "total": 3363.595
+    },
+    {
+     "C": "1uF",
+     "value": "1uF",
+     "total": 3363.595
+    },
+    {
+     "C": "2.2uF",
+     "value": "2.2uF",
+     "total": 3363.595
+    },
+    {
+     "C": "4.7uF",
+     "value": "4.7uF",
+     "total": 3363.595
+    },
+    {
+     "C": "10uF",
+     "value": "10uF",
+     "total": 3363.595
+    }
+   ],
+   "edit": [
+    "add:C:U401.4:U401.5:47nF"
+   ],
+   "confidence": {
+    "level": "needs-solve",
+    "coverage": 1.0,
+    "carried": 2.348,
+    "basis": "the edited part carries 235% of an aggressor's current: the copper's potentials change with it, so the first-order estimate does not hold; `solve` re-solves it"
+   },
+   "decide": {
+    "question": "is there room for 47nF at U401.4/U401.5, and is its rail's start-up and inrush unaffected?",
+    "by": "llm"
+   },
+   "applies": "llm (schematic: a part added)",
+   "verify": "python -m haslam.excite.evaluate BOARD --edit add:C:U401.4:U401.5:47nF --intent INTENT",
+   "bound": {
+    "max_gain": 0,
+    "basis": "first-order (not valid here)"
+   },
+   "solve": {
+    "edits": [
+     "add:C:U401.4:U401.5:47nF"
+    ],
+    "sources": null
+   },
+   "risks": [
+    "the added or moved part has no copper of its own in the estimate (pads at the pins): a layout with the part placed adds a residual; hold it with a relation and re-evaluate"
+   ],
+   "id": "A1",
+   "options": [
+    {
+     "form": "design",
+     "edit": [
+      "add:C:U401.4:U401.5:47nF"
+     ],
+     "values": [
+      "1nF",
+      "2.2nF",
+      "4.7nF",
+      "10nF",
+      "22nF",
+      "47nF",
+      "100nF",
+      "220nF",
+      "470nF",
+      "1uF",
+      "2.2uF",
+      "4.7uF",
+      "10uF"
+     ]
+    },
+    {
+     "form": "decline"
+    }
+   ]
+  },
+  {
+   "kind": "datasheet.check",
+   "key": "datasheet.check:cout:U301:VBUS",
+   "source": "U301",
+   "mechanism": "U301's output VBUS at 12 V: 4 capacitor(s) within 15 mm of its pins, 14.62uF effective by haslam's DC-bias model (C312 1uF 25.0V X7R 0603 -> 475.6nF (2.7 mm), C307 22uF 25.0V X5R 1206 -> 7.033uF (3.7 mm), C308 22uF 25.0V X5R 1206 -> 7.033uF (5.7 mm), C311 100nF 25.0V X7R 0603 -> 80.2nF (15.0 mm))",
+   "rows": [
+    {
+     "part": "C312",
+     "nominal": "1uF",
+     "size": "0603",
+     "dielectric": "X7R",
+     "rated_V": 25.0,
+     "at_V": 12.0,
+     "effective": "475.6nF",
+     "factor": 0.476,
+     "dist_mm": 2.7
+    },
+    {
+     "part": "C307",
+     "nominal": "22uF",
+     "size": "1206",
+     "dielectric": "X5R",
+     "rated_V": 25.0,
+     "at_V": 12.0,
+     "effective": "7.033uF",
+     "factor": 0.32,
+     "dist_mm": 3.7
+    },
+    {
+     "part": "C308",
+     "nominal": "22uF",
+     "size": "1206",
+     "dielectric": "X5R",
+     "rated_V": 25.0,
+     "at_V": 12.0,
+     "effective": "7.033uF",
+     "factor": 0.32,
+     "dist_mm": 5.7
+    },
+    {
+     "part": "C311",
+     "nominal": "100nF",
+     "size": "0603",
+     "dielectric": "X7R",
+     "rated_V": 25.0,
+     "at_V": 12.0,
+     "effective": "80.2nF",
+     "factor": 0.802,
+     "dist_mm": 15.0
+    }
+   ],
+   "confidence": {
+    "level": "estimate",
+    "basis": "haslam.excite.models.mlcc_bias_factor, a field-strength proxy (V sqrt(C/volume)); the vendor's DC-bias curve for the part number decides"
+   },
+   "applies": "llm (schematic: values or parts)",
+   "remedy": "answer: the minimum effective output capacitance U301's datasheet requires at 12 V (and in which mode)",
+   "decide": {
+    "by": "llm",
+    "question": "what effective output capacitance does U301's datasheet require at 12 V? haslam counts 14.62uF after DC bias",
+    "needs": [
+     {
+      "field": "facts.parts.U301.cout_min_eff_F",
+      "ask": "U301's minimum effective output capacitance at 12 V (datasheet table or formula)",
+      "unit": "F"
+     }
+    ]
+   },
+   "risks": [
+    "the effective capacitance is a model of DC-bias loss, not the part's curve; temperature and ageing lower it further"
+   ],
+   "id": "A2",
+   "options": [
+    {
+     "form": "fact",
+     "fields": [
+      "facts.parts.U301.cout_min_eff_F"
+     ]
+    },
+    {
+     "form": "decline"
+    }
+   ]
+  }
+ ]
+}

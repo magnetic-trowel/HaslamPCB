@@ -1,0 +1,4728 @@
+{
+ "design": "obd-solar",
+ "parts": [
+  {
+   "ref": "J101",
+   "block": "IN",
+   "board": "main",
+   "name": "J1",
+   "value": "KF128-5.08-2P-AA",
+   "mpn": "KF128-5.08-2P-AA",
+   "manufacturer": "Cixi Kefa",
+   "footprint": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2-5.08_1x02_P5.08mm_Horizontal",
+   "category": "connector",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "Pin_1",
+     "type": "passive",
+     "net": "OBD_RAW",
+     "nc": false
+    },
+    "2": {
+     "name": "Pin_2",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "F101",
+   "block": "IN",
+   "board": "main",
+   "name": "F1",
+   "value": "5A",
+   "mpn": "0466005.NRHF",
+   "manufacturer": "Littelfuse",
+   "footprint": "Fuse:Fuse_1206_3216Metric",
+   "category": "fuse",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "OBD_RAW",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "D101",
+   "block": "IN",
+   "board": "main",
+   "name": "D1",
+   "value": "SMBJ24A",
+   "mpn": "SMBJ24A",
+   "manufacturer": "Littelfuse",
+   "footprint": "Diode_SMD:D_SMB",
+   "category": "tvs",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "K",
+     "type": "passive",
+     "net": "VBAT",
+     "nc": false
+    },
+    "2": {
+     "name": "A",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C101",
+   "block": "IN",
+   "board": "main",
+   "name": "C1",
+   "value": "100uF",
+   "mpn": "BXJ 35V100 8*10",
+   "manufacturer": "Lelon",
+   "footprint": "Capacitor_SMD:CP_Elec_8x10",
+   "category": "capacitor_electrolytic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C102",
+   "block": "IN",
+   "board": "main",
+   "name": "C2",
+   "value": "10uF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_1206_3216Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C103",
+   "block": "IN",
+   "board": "main",
+   "name": "C3",
+   "value": "10uF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_1206_3216Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C104",
+   "block": "IN",
+   "board": "main",
+   "name": "C4",
+   "value": "100nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "J201",
+   "block": "CHG",
+   "board": "main",
+   "name": "J1",
+   "value": "KF128-5.08-2P-AA",
+   "mpn": "KF128-5.08-2P-AA",
+   "manufacturer": "Cixi Kefa",
+   "footprint": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2-5.08_1x02_P5.08mm_Horizontal",
+   "category": "connector",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "Pin_1",
+     "type": "passive",
+     "net": "PV_RAW",
+     "nc": false
+    },
+    "2": {
+     "name": "Pin_2",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "Q201",
+   "block": "CHG",
+   "board": "main",
+   "name": "Q1",
+   "value": "AO3407A",
+   "mpn": "AO3407A",
+   "manufacturer": "Alpha & Omega",
+   "footprint": "Package_TO_SOT_SMD:SOT-23",
+   "category": "mosfet",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "3": {
+     "name": "D",
+     "type": "passive",
+     "net": "PV_RAW",
+     "nc": false
+    },
+    "1": {
+     "name": "G",
+     "type": "input",
+     "net": "/CHG/PV_G",
+     "nc": false
+    },
+    "2": {
+     "name": "S",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R201",
+   "block": "CHG",
+   "board": "main",
+   "name": "R1",
+   "value": "4.7M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/CHG/PV_G",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R202",
+   "block": "CHG",
+   "board": "main",
+   "name": "R2",
+   "value": "8.2M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/CHG/PV_G",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "D201",
+   "block": "CHG",
+   "board": "main",
+   "name": "D1",
+   "value": "SMAJ26A",
+   "mpn": "SMAJ26A",
+   "manufacturer": "Littelfuse",
+   "footprint": "Diode_SMD:D_SMA",
+   "category": "tvs",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "K",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    },
+    "2": {
+     "name": "A",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C201",
+   "block": "CHG",
+   "board": "main",
+   "name": "C1",
+   "value": "100uF",
+   "mpn": "BXJ 35V100 8*10",
+   "manufacturer": "Lelon",
+   "footprint": "Capacitor_SMD:CP_Elec_8x10",
+   "category": "capacitor_electrolytic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C202",
+   "block": "CHG",
+   "board": "main",
+   "name": "C2",
+   "value": "10uF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_1206_3216Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C203",
+   "block": "CHG",
+   "board": "main",
+   "name": "C3",
+   "value": "100nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "U201",
+   "block": "CHG",
+   "board": "main",
+   "name": "U1",
+   "value": "CN3767",
+   "mpn": "CN3767",
+   "manufacturer": "Consonance",
+   "footprint": "Package_SO:SSOP-10_3.9x4.9mm_P1.00mm",
+   "category": "ic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "VG",
+     "type": "power_out",
+     "net": "/CHG/VG_CHG",
+     "nc": false
+    },
+    "2": {
+     "name": "GND",
+     "type": "power_in",
+     "net": "GND",
+     "nc": false
+    },
+    "3": {
+     "name": "CHRG",
+     "type": "open_collector",
+     "net": "/CHG/CHRG_N",
+     "nc": false
+    },
+    "4": {
+     "name": "DONE",
+     "type": "open_collector",
+     "net": "/CHG/DONE_N",
+     "nc": false
+    },
+    "5": {
+     "name": "COM",
+     "type": "passive",
+     "net": "/CHG/COMP_RC",
+     "nc": false
+    },
+    "6": {
+     "name": "MPPT",
+     "type": "input",
+     "net": "/CHG/MPPT",
+     "nc": false
+    },
+    "7": {
+     "name": "BAT",
+     "type": "input",
+     "net": "CHG_OUT",
+     "nc": false
+    },
+    "8": {
+     "name": "CSP",
+     "type": "input",
+     "net": "/CHG/CHG_CS",
+     "nc": false
+    },
+    "9": {
+     "name": "VCC",
+     "type": "power_in",
+     "net": "PV_IN",
+     "nc": false
+    },
+    "10": {
+     "name": "DRV",
+     "type": "output",
+     "net": "/CHG/DRV",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C204",
+   "block": "CHG",
+   "board": "main",
+   "name": "C4",
+   "value": "100nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/CHG/VG_CHG",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "Q202",
+   "block": "CHG",
+   "board": "main",
+   "name": "Q2",
+   "value": "AO3407A",
+   "mpn": "AO3407A",
+   "manufacturer": "Alpha & Omega",
+   "footprint": "Package_TO_SOT_SMD:SOT-23",
+   "category": "mosfet",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "3": {
+     "name": "D",
+     "type": "passive",
+     "net": "/CHG/SW_CHG",
+     "nc": false
+    },
+    "1": {
+     "name": "G",
+     "type": "input",
+     "net": "/CHG/DRV",
+     "nc": false
+    },
+    "2": {
+     "name": "S",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "D202",
+   "block": "CHG",
+   "board": "main",
+   "name": "D2",
+   "value": "SS34",
+   "mpn": "SS34",
+   "manufacturer": "MDD",
+   "footprint": "Diode_SMD:D_SMA",
+   "category": "diode",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "K",
+     "type": "passive",
+     "net": "/CHG/SW_CHG",
+     "nc": false
+    },
+    "2": {
+     "name": "A",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "L201",
+   "block": "CHG",
+   "board": "main",
+   "name": "L1",
+   "value": "47uH",
+   "mpn": "SWPA8040S470MT",
+   "manufacturer": "Sunlord",
+   "footprint": "Inductor_SMD:L_Sunlord_SWPA8040S",
+   "category": "inductor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "1",
+     "type": "passive",
+     "net": "/CHG/SW_CHG",
+     "nc": false
+    },
+    "2": {
+     "name": "2",
+     "type": "passive",
+     "net": "/CHG/CHG_CS",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R203",
+   "block": "CHG",
+   "board": "main",
+   "name": "R3",
+   "value": "0.18",
+   "mpn": "RTT06R180FTP",
+   "manufacturer": "Ralec",
+   "footprint": "Resistor_SMD:R_1206_3216Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": 0.08,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/CHG/CHG_CS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "CHG_OUT",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C205",
+   "block": "CHG",
+   "board": "main",
+   "name": "C5",
+   "value": "100uF",
+   "mpn": "BXJ 35V100 8*10",
+   "manufacturer": "Lelon",
+   "footprint": "Capacitor_SMD:CP_Elec_8x10",
+   "category": "capacitor_electrolytic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "CHG_OUT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C206",
+   "block": "CHG",
+   "board": "main",
+   "name": "C6",
+   "value": "10uF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_1206_3216Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "CHG_OUT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R204",
+   "block": "CHG",
+   "board": "main",
+   "name": "R4",
+   "value": "1.27M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/CHG/MPPT",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R205",
+   "block": "CHG",
+   "board": "main",
+   "name": "R5",
+   "value": "100k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/CHG/MPPT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R206",
+   "block": "CHG",
+   "board": "main",
+   "name": "R6",
+   "value": "120",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": 0.001,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/CHG/COMP_RC",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/CHG/COMP_Z",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C207",
+   "block": "CHG",
+   "board": "main",
+   "name": "C7",
+   "value": "220nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/CHG/COMP_Z",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R207",
+   "block": "CHG",
+   "board": "main",
+   "name": "R7",
+   "value": "10k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/CHG/LEDR_A",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "D203",
+   "block": "CHG",
+   "board": "main",
+   "name": "D3",
+   "value": "red",
+   "mpn": "KT-0603R",
+   "manufacturer": null,
+   "footprint": "LED_SMD:LED_0603_1608Metric",
+   "category": "led",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "K",
+     "type": "passive",
+     "net": "/CHG/CHRG_N",
+     "nc": false
+    },
+    "2": {
+     "name": "A",
+     "type": "passive",
+     "net": "/CHG/LEDR_A",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R208",
+   "block": "CHG",
+   "board": "main",
+   "name": "R8",
+   "value": "10k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/CHG/LEDG_A",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "D204",
+   "block": "CHG",
+   "board": "main",
+   "name": "D4",
+   "value": "green",
+   "mpn": "KT-0603G",
+   "manufacturer": null,
+   "footprint": "LED_SMD:LED_0603_1608Metric",
+   "category": "led",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "K",
+     "type": "passive",
+     "net": "/CHG/DONE_N",
+     "nc": false
+    },
+    "2": {
+     "name": "A",
+     "type": "passive",
+     "net": "/CHG/LEDG_A",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "Q203",
+   "block": "BLK",
+   "board": "main",
+   "name": "Q1",
+   "value": "AO3407A",
+   "mpn": "AO3407A",
+   "manufacturer": "Alpha & Omega",
+   "footprint": "Package_TO_SOT_SMD:SOT-23",
+   "category": "mosfet",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "3": {
+     "name": "D",
+     "type": "passive",
+     "net": "CHG_OUT",
+     "nc": false
+    },
+    "1": {
+     "name": "G",
+     "type": "input",
+     "net": "/BLK/QB_G",
+     "nc": false
+    },
+    "2": {
+     "name": "S",
+     "type": "passive",
+     "net": "VBAT",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R209",
+   "block": "BLK",
+   "board": "main",
+   "name": "R1",
+   "value": "1M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/BLK/QB_G",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R210",
+   "block": "BLK",
+   "board": "main",
+   "name": "R2",
+   "value": "1M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/BLK/QB_G",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/BLK/QB_PD",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "Q204",
+   "block": "BLK",
+   "board": "main",
+   "name": "Q2",
+   "value": "2N7002",
+   "mpn": "2N7002",
+   "manufacturer": "Jiangsu Changjing",
+   "footprint": "Package_TO_SOT_SMD:SOT-23",
+   "category": "mosfet",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "3": {
+     "name": "D",
+     "type": "passive",
+     "net": "/BLK/QB_PD",
+     "nc": false
+    },
+    "1": {
+     "name": "G",
+     "type": "input",
+     "net": "/BLK/CMP_OUT",
+     "nc": false
+    },
+    "2": {
+     "name": "S",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R216",
+   "block": "BLK",
+   "board": "main",
+   "name": "R3",
+   "value": "1M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/BLK/CMP_OUT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "U202",
+   "block": "BLK",
+   "board": "main",
+   "name": "U1",
+   "value": "TLV7031DBVR",
+   "mpn": "TLV7031DBVR",
+   "manufacturer": "Texas Instruments",
+   "footprint": "Package_TO_SOT_SMD:SOT-23-5",
+   "category": "ic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "OUT",
+     "type": "output",
+     "net": "/BLK/CMP_OUT",
+     "nc": false
+    },
+    "2": {
+     "name": "V-",
+     "type": "power_in",
+     "net": "GND",
+     "nc": false
+    },
+    "3": {
+     "name": "IN+",
+     "type": "input",
+     "net": "/BLK/CMP_INP",
+     "nc": false
+    },
+    "4": {
+     "name": "IN-",
+     "type": "input",
+     "net": "/BLK/CMP_INN",
+     "nc": false
+    },
+    "5": {
+     "name": "V+",
+     "type": "power_in",
+     "net": "/BLK/CMP_VCC",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R211",
+   "block": "BLK",
+   "board": "main",
+   "name": "R4",
+   "value": "100k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/BLK/CMP_VCC",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "D205",
+   "block": "BLK",
+   "board": "main",
+   "name": "D1",
+   "value": "BZT52C5V6",
+   "mpn": "BZT52C5V6",
+   "manufacturer": null,
+   "footprint": "Diode_SMD:D_SOD-123",
+   "category": "diode",
+   "dnp": false,
+   "p_diss": 0.0015,
+   "pins": {
+    "1": {
+     "name": "K",
+     "type": "passive",
+     "net": "/BLK/CMP_VCC",
+     "nc": false
+    },
+    "2": {
+     "name": "A",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C208",
+   "block": "BLK",
+   "board": "main",
+   "name": "C1",
+   "value": "100nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/BLK/CMP_VCC",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R212",
+   "block": "BLK",
+   "board": "main",
+   "name": "R5",
+   "value": "10M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "PV_IN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/BLK/CMP_INP",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R213",
+   "block": "BLK",
+   "board": "main",
+   "name": "R6",
+   "value": "976k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/BLK/CMP_INP",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R214",
+   "block": "BLK",
+   "board": "main",
+   "name": "R7",
+   "value": "10M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/BLK/CMP_INN",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R215",
+   "block": "BLK",
+   "board": "main",
+   "name": "R8",
+   "value": "1M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/BLK/CMP_INN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C209",
+   "block": "BLK",
+   "board": "main",
+   "name": "C2",
+   "value": "10nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/BLK/CMP_INP",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C210",
+   "block": "BLK",
+   "board": "main",
+   "name": "C3",
+   "value": "10nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/BLK/CMP_INN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "U301",
+   "block": "USB",
+   "board": "main",
+   "name": "U1",
+   "value": "LTC3115EFE-1#PBF",
+   "mpn": "LTC3115EFE-1#PBF",
+   "manufacturer": "Analog Devices",
+   "footprint": "custom:LTC_FE20_EP2.74x4.95",
+   "category": "ic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "PGND1",
+     "type": "power_in",
+     "net": "GND",
+     "nc": false
+    },
+    "2": {
+     "name": "RUN",
+     "type": "input",
+     "net": "BB_EN",
+     "nc": false
+    },
+    "3": {
+     "name": "SW2",
+     "type": "passive",
+     "net": "/USB/BB_SW2",
+     "nc": false
+    },
+    "4": {
+     "name": "PVOUT",
+     "type": "power_out",
+     "net": "VBUS",
+     "nc": false
+    },
+    "5": {
+     "name": "GND1",
+     "type": "power_in",
+     "net": "GND",
+     "nc": false
+    },
+    "6": {
+     "name": "GND2",
+     "type": "power_in",
+     "net": "GND",
+     "nc": false
+    },
+    "7": {
+     "name": "VC",
+     "type": "passive",
+     "net": "/USB/BB_VC",
+     "nc": false
+    },
+    "8": {
+     "name": "FB",
+     "type": "input",
+     "net": "/USB/BB_FB",
+     "nc": false
+    },
+    "9": {
+     "name": "RT",
+     "type": "passive",
+     "net": "/USB/BB_RT",
+     "nc": false
+    },
+    "10": {
+     "name": "PGND2",
+     "type": "power_in",
+     "net": "GND",
+     "nc": false
+    },
+    "11": {
+     "name": "PGND3",
+     "type": "power_in",
+     "net": "GND",
+     "nc": false
+    },
+    "12": {
+     "name": "VCC",
+     "type": "power_in",
+     "net": "/USB/BB_VCC",
+     "nc": false
+    },
+    "13": {
+     "name": "VIN",
+     "type": "power_in",
+     "net": "VBAT",
+     "nc": false
+    },
+    "14": {
+     "name": "PVCC",
+     "type": "power_out",
+     "net": "/USB/BB_VCC",
+     "nc": false
+    },
+    "15": {
+     "name": "BST2",
+     "type": "passive",
+     "net": "/USB/BB_BOOT2",
+     "nc": false
+    },
+    "16": {
+     "name": "BST1",
+     "type": "passive",
+     "net": "/USB/BB_BOOT1",
+     "nc": false
+    },
+    "17": {
+     "name": "PVIN",
+     "type": "power_in",
+     "net": "VBAT",
+     "nc": false
+    },
+    "18": {
+     "name": "SW1",
+     "type": "passive",
+     "net": "/USB/BB_SW1",
+     "nc": false
+    },
+    "19": {
+     "name": "PWM",
+     "type": "input",
+     "net": "BB_MODE",
+     "nc": false
+    },
+    "20": {
+     "name": "PGND4",
+     "type": "power_in",
+     "net": "GND",
+     "nc": false
+    },
+    "21": {
+     "name": "EP",
+     "type": "power_in",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R301",
+   "block": "USB",
+   "board": "main",
+   "name": "R1",
+   "value": "35.7k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_RT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R303",
+   "block": "USB",
+   "board": "main",
+   "name": "R2",
+   "value": "40.2k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_VC",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_CZ",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C302",
+   "block": "USB",
+   "board": "main",
+   "name": "C1",
+   "value": "820pF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_CZ",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_FB",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C303",
+   "block": "USB",
+   "board": "main",
+   "name": "C2",
+   "value": "4.7uF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0805_2012Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_VCC",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C304",
+   "block": "USB",
+   "board": "main",
+   "name": "C3",
+   "value": "100nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_BOOT1",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_SW1",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C305",
+   "block": "USB",
+   "board": "main",
+   "name": "C4",
+   "value": "100nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_BOOT2",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_SW2",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "L301",
+   "block": "USB",
+   "board": "main",
+   "name": "L1",
+   "value": "10uH",
+   "mpn": "SWPA8040S100MT",
+   "manufacturer": "Sunlord",
+   "footprint": "Inductor_SMD:L_Sunlord_SWPA8040S",
+   "category": "inductor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "1",
+     "type": "passive",
+     "net": "/USB/BB_SW1",
+     "nc": false
+    },
+    "2": {
+     "name": "2",
+     "type": "passive",
+     "net": "/USB/BB_SW2",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C306",
+   "block": "USB",
+   "board": "main",
+   "name": "C5",
+   "value": "100nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C307",
+   "block": "USB",
+   "board": "main",
+   "name": "C6",
+   "value": "22uF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_1206_3216Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBUS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C308",
+   "block": "USB",
+   "board": "main",
+   "name": "C7",
+   "value": "22uF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_1206_3216Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBUS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C311",
+   "block": "USB",
+   "board": "main",
+   "name": "C8",
+   "value": "100nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBUS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R305",
+   "block": "USB",
+   "board": "main",
+   "name": "R3",
+   "value": "1M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBUS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_FB",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C309",
+   "block": "USB",
+   "board": "main",
+   "name": "C9",
+   "value": "33pF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBUS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_FF",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R304",
+   "block": "USB",
+   "board": "main",
+   "name": "R4",
+   "value": "10k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_FF",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_FB",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R306",
+   "block": "USB",
+   "board": "main",
+   "name": "R5",
+   "value": "249k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_FB",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R307",
+   "block": "USB",
+   "board": "main",
+   "name": "R6",
+   "value": "249k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_FB",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/FB9",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "Q302",
+   "block": "USB",
+   "board": "main",
+   "name": "Q1",
+   "value": "2N7002",
+   "mpn": "2N7002",
+   "manufacturer": "Jiangsu Changjing",
+   "footprint": "Package_TO_SOT_SMD:SOT-23",
+   "category": "mosfet",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "3": {
+     "name": "D",
+     "type": "passive",
+     "net": "/USB/FB9",
+     "nc": false
+    },
+    "1": {
+     "name": "G",
+     "type": "input",
+     "net": "VSEL9",
+     "nc": false
+    },
+    "2": {
+     "name": "S",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R308",
+   "block": "USB",
+   "board": "main",
+   "name": "R7",
+   "value": "340k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/BB_FB",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/FB12",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "Q303",
+   "block": "USB",
+   "board": "main",
+   "name": "Q2",
+   "value": "2N7002",
+   "mpn": "2N7002",
+   "manufacturer": "Jiangsu Changjing",
+   "footprint": "Package_TO_SOT_SMD:SOT-23",
+   "category": "mosfet",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "3": {
+     "name": "D",
+     "type": "passive",
+     "net": "/USB/FB12",
+     "nc": false
+    },
+    "1": {
+     "name": "G",
+     "type": "input",
+     "net": "VSEL12",
+     "nc": false
+    },
+    "2": {
+     "name": "S",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R309",
+   "block": "USB",
+   "board": "main",
+   "name": "R8",
+   "value": "1M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VSEL9",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R310",
+   "block": "USB",
+   "board": "main",
+   "name": "R9",
+   "value": "1M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VSEL12",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R311",
+   "block": "USB",
+   "board": "main",
+   "name": "R10",
+   "value": "1M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "BB_EN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R316",
+   "block": "USB",
+   "board": "main",
+   "name": "R11",
+   "value": "1M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "BB_MODE",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "D301",
+   "block": "USB",
+   "board": "main",
+   "name": "D1",
+   "value": "SMAJ15A",
+   "mpn": "SMAJ15A",
+   "manufacturer": "Littelfuse",
+   "footprint": "Diode_SMD:D_SMA",
+   "category": "tvs",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "K",
+     "type": "passive",
+     "net": "VBUS",
+     "nc": false
+    },
+    "2": {
+     "name": "A",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C312",
+   "block": "USB",
+   "board": "main",
+   "name": "C10",
+   "value": "1uF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBUS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R312",
+   "block": "USB",
+   "board": "main",
+   "name": "R12",
+   "value": "470",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_1206_3216Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": 0.01,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBUS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/USB/DIS_D",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "Q304",
+   "block": "USB",
+   "board": "main",
+   "name": "Q3",
+   "value": "AO3400A",
+   "mpn": "AO3400A",
+   "manufacturer": "Alpha & Omega",
+   "footprint": "Package_TO_SOT_SMD:SOT-23",
+   "category": "mosfet",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "3": {
+     "name": "D",
+     "type": "passive",
+     "net": "/USB/DIS_D",
+     "nc": false
+    },
+    "1": {
+     "name": "G",
+     "type": "input",
+     "net": "VBUS_DIS",
+     "nc": false
+    },
+    "2": {
+     "name": "S",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R313",
+   "block": "USB",
+   "board": "main",
+   "name": "R13",
+   "value": "1M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBUS_DIS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R314",
+   "block": "USB",
+   "board": "main",
+   "name": "R14",
+   "value": "100k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBUS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "VBUS_SNS",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R315",
+   "block": "USB",
+   "board": "main",
+   "name": "R15",
+   "value": "10k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBUS_SNS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "J301",
+   "block": "USB",
+   "board": "main",
+   "name": "J1",
+   "value": "USB4125-GF-A",
+   "mpn": "USB4125-GF-A",
+   "manufacturer": "GCT",
+   "footprint": "Connector_USB:USB_C_Receptacle_GCT_USB4125-xx-x_6P_TopMnt_Horizontal",
+   "category": "connector",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "A5": {
+     "name": "CC1",
+     "type": "bidirectional",
+     "net": "CC1",
+     "nc": false
+    },
+    "A9": {
+     "name": "VBUS",
+     "type": "passive",
+     "net": "VBUS",
+     "nc": false
+    },
+    "A12": {
+     "name": "GND",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    },
+    "B5": {
+     "name": "CC2",
+     "type": "bidirectional",
+     "net": "CC2",
+     "nc": false
+    },
+    "B9": {
+     "name": "VBUS",
+     "type": "passive",
+     "net": "VBUS",
+     "nc": false
+    },
+    "B12": {
+     "name": "GND",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    },
+    "SH": {
+     "name": "SHIELD",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "U401",
+   "block": "CTL",
+   "board": "main",
+   "name": "U1",
+   "value": "STM32G071KBT6",
+   "mpn": "STM32G071KBT6",
+   "manufacturer": "STMicroelectronics",
+   "footprint": "Package_QFP:LQFP-32_7x7mm_P0.8mm",
+   "category": "ic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "PB9",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "2": {
+     "name": "PC14",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "3": {
+     "name": "PC15",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "4": {
+     "name": "VDD",
+     "type": "power_in",
+     "net": "+3V3",
+     "nc": false
+    },
+    "5": {
+     "name": "VSS",
+     "type": "power_in",
+     "net": "GND",
+     "nc": false
+    },
+    "6": {
+     "name": "PF2",
+     "type": "bidirectional",
+     "net": "/CTL/NRST",
+     "nc": false
+    },
+    "7": {
+     "name": "PA0",
+     "type": "bidirectional",
+     "net": "VBAT_SNS",
+     "nc": false
+    },
+    "8": {
+     "name": "PA1",
+     "type": "bidirectional",
+     "net": "VBUS_SNS",
+     "nc": false
+    },
+    "9": {
+     "name": "PA2",
+     "type": "bidirectional",
+     "net": "BB_EN",
+     "nc": false
+    },
+    "10": {
+     "name": "PA3",
+     "type": "bidirectional",
+     "net": "VSEL9",
+     "nc": false
+    },
+    "11": {
+     "name": "PA4",
+     "type": "bidirectional",
+     "net": "VSEL12",
+     "nc": false
+    },
+    "12": {
+     "name": "PA5",
+     "type": "bidirectional",
+     "net": "VBUS_DIS",
+     "nc": false
+    },
+    "13": {
+     "name": "PA6",
+     "type": "bidirectional",
+     "net": "BB_MODE",
+     "nc": false
+    },
+    "14": {
+     "name": "PA7",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "15": {
+     "name": "PB0",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "16": {
+     "name": "PB1",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "17": {
+     "name": "PB15",
+     "type": "bidirectional",
+     "net": "CC2",
+     "nc": false
+    },
+    "18": {
+     "name": "PA8",
+     "type": "bidirectional",
+     "net": "CC1",
+     "nc": false
+    },
+    "19": {
+     "name": "PA9/UCPD1_DBCC1",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "20": {
+     "name": "PC6",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "21": {
+     "name": "PA10/UCPD1_DBCC2",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "22": {
+     "name": "PA9/PA11",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "23": {
+     "name": "PA10/PA12",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "24": {
+     "name": "PA13",
+     "type": "bidirectional",
+     "net": "/CTL/SWDIO",
+     "nc": false
+    },
+    "25": {
+     "name": "PA14",
+     "type": "bidirectional",
+     "net": "/CTL/SWCLK",
+     "nc": false
+    },
+    "26": {
+     "name": "PD0",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "27": {
+     "name": "PD1",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "28": {
+     "name": "PD2",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "29": {
+     "name": "PD3",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "30": {
+     "name": "PB6",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "31": {
+     "name": "PB7",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    },
+    "32": {
+     "name": "PB8",
+     "type": "bidirectional",
+     "net": null,
+     "nc": true
+    }
+   }
+  },
+  {
+   "ref": "C401",
+   "block": "CTL",
+   "board": "main",
+   "name": "C1",
+   "value": "100nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "+3V3",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C402",
+   "block": "CTL",
+   "board": "main",
+   "name": "C2",
+   "value": "4.7uF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0805_2012Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "+3V3",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C403",
+   "block": "CTL",
+   "board": "main",
+   "name": "C3",
+   "value": "100nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/CTL/NRST",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R401",
+   "block": "CTL",
+   "board": "main",
+   "name": "R1",
+   "value": "10M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT_SNS",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R402",
+   "block": "CTL",
+   "board": "main",
+   "name": "R2",
+   "value": "1M",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT_SNS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C404",
+   "block": "CTL",
+   "board": "main",
+   "name": "C4",
+   "value": "100nF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT_SNS",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "R403",
+   "block": "CTL",
+   "board": "main",
+   "name": "R3",
+   "value": "1k",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Resistor_SMD:R_0603_1608Metric",
+   "category": "resistor",
+   "dnp": false,
+   "p_diss": 0.025,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "VBAT",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "/CTL/LDO_IN",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "D401",
+   "block": "CTL",
+   "board": "main",
+   "name": "D1",
+   "value": "BZT52C27",
+   "mpn": "BZT52C27",
+   "manufacturer": null,
+   "footprint": "Diode_SMD:D_SOD-123",
+   "category": "diode",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "K",
+     "type": "passive",
+     "net": "/CTL/LDO_IN",
+     "nc": false
+    },
+    "2": {
+     "name": "A",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "C405",
+   "block": "CTL",
+   "board": "main",
+   "name": "C5",
+   "value": "1uF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0603_1608Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "/CTL/LDO_IN",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "U402",
+   "block": "CTL",
+   "board": "main",
+   "name": "U2",
+   "value": "TPS709B33DBVR",
+   "mpn": "TPS709B33DBVR",
+   "manufacturer": "Texas Instruments",
+   "footprint": "Package_TO_SOT_SMD:SOT-23-5",
+   "category": "ic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "GND",
+     "type": "power_in",
+     "net": "GND",
+     "nc": false
+    },
+    "2": {
+     "name": "IN",
+     "type": "power_in",
+     "net": "/CTL/LDO_IN",
+     "nc": false
+    },
+    "3": {
+     "name": "OUT",
+     "type": "power_out",
+     "net": "+3V3",
+     "nc": false
+    },
+    "4": {
+     "name": "NC",
+     "type": "no_connect",
+     "net": null,
+     "nc": true
+    },
+    "5": {
+     "name": "EN",
+     "type": "input",
+     "net": null,
+     "nc": true
+    }
+   }
+  },
+  {
+   "ref": "C406",
+   "block": "CTL",
+   "board": "main",
+   "name": "C6",
+   "value": "2.2uF",
+   "mpn": null,
+   "manufacturer": null,
+   "footprint": "Capacitor_SMD:C_0805_2012Metric",
+   "category": "capacitor_ceramic",
+   "dnp": false,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "",
+     "type": "passive",
+     "net": "+3V3",
+     "nc": false
+    },
+    "2": {
+     "name": "",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  },
+  {
+   "ref": "J401",
+   "block": "CTL",
+   "board": "main",
+   "name": "J1",
+   "value": "DNP",
+   "mpn": "DNP",
+   "manufacturer": null,
+   "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical",
+   "category": "connector",
+   "dnp": true,
+   "p_diss": null,
+   "pins": {
+    "1": {
+     "name": "Pin_1",
+     "type": "passive",
+     "net": "+3V3",
+     "nc": false
+    },
+    "2": {
+     "name": "Pin_2",
+     "type": "passive",
+     "net": "/CTL/SWDIO",
+     "nc": false
+    },
+    "3": {
+     "name": "Pin_3",
+     "type": "passive",
+     "net": "/CTL/SWCLK",
+     "nc": false
+    },
+    "4": {
+     "name": "Pin_4",
+     "type": "passive",
+     "net": "/CTL/NRST",
+     "nc": false
+    },
+    "5": {
+     "name": "Pin_5",
+     "type": "passive",
+     "net": "GND",
+     "nc": false
+    }
+   }
+  }
+ ],
+ "nets": [
+  {
+   "name": "GND",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    0.0
+   ],
+   "kind": "ground",
+   "i_max": 4,
+   "external": false,
+   "nodes": [
+    [
+     "C101",
+     "2"
+    ],
+    [
+     "C102",
+     "2"
+    ],
+    [
+     "C103",
+     "2"
+    ],
+    [
+     "C104",
+     "2"
+    ],
+    [
+     "C201",
+     "2"
+    ],
+    [
+     "C202",
+     "2"
+    ],
+    [
+     "C203",
+     "2"
+    ],
+    [
+     "C205",
+     "2"
+    ],
+    [
+     "C206",
+     "2"
+    ],
+    [
+     "C207",
+     "2"
+    ],
+    [
+     "C208",
+     "2"
+    ],
+    [
+     "C209",
+     "2"
+    ],
+    [
+     "C210",
+     "2"
+    ],
+    [
+     "C303",
+     "2"
+    ],
+    [
+     "C306",
+     "2"
+    ],
+    [
+     "C307",
+     "2"
+    ],
+    [
+     "C308",
+     "2"
+    ],
+    [
+     "C311",
+     "2"
+    ],
+    [
+     "C312",
+     "2"
+    ],
+    [
+     "C401",
+     "2"
+    ],
+    [
+     "C402",
+     "2"
+    ],
+    [
+     "C403",
+     "2"
+    ],
+    [
+     "C404",
+     "2"
+    ],
+    [
+     "C405",
+     "2"
+    ],
+    [
+     "C406",
+     "2"
+    ],
+    [
+     "D101",
+     "2"
+    ],
+    [
+     "D201",
+     "2"
+    ],
+    [
+     "D202",
+     "2"
+    ],
+    [
+     "D205",
+     "2"
+    ],
+    [
+     "D301",
+     "2"
+    ],
+    [
+     "D401",
+     "2"
+    ],
+    [
+     "J101",
+     "2"
+    ],
+    [
+     "J201",
+     "2"
+    ],
+    [
+     "J301",
+     "A12"
+    ],
+    [
+     "J301",
+     "B12"
+    ],
+    [
+     "J301",
+     "SH"
+    ],
+    [
+     "J401",
+     "5"
+    ],
+    [
+     "Q204",
+     "2"
+    ],
+    [
+     "Q302",
+     "2"
+    ],
+    [
+     "Q303",
+     "2"
+    ],
+    [
+     "Q304",
+     "2"
+    ],
+    [
+     "R202",
+     "2"
+    ],
+    [
+     "R205",
+     "2"
+    ],
+    [
+     "R213",
+     "2"
+    ],
+    [
+     "R215",
+     "2"
+    ],
+    [
+     "R216",
+     "2"
+    ],
+    [
+     "R301",
+     "2"
+    ],
+    [
+     "R306",
+     "2"
+    ],
+    [
+     "R309",
+     "2"
+    ],
+    [
+     "R310",
+     "2"
+    ],
+    [
+     "R311",
+     "2"
+    ],
+    [
+     "R313",
+     "2"
+    ],
+    [
+     "R315",
+     "2"
+    ],
+    [
+     "R316",
+     "2"
+    ],
+    [
+     "R402",
+     "2"
+    ],
+    [
+     "U201",
+     "2"
+    ],
+    [
+     "U202",
+     "2"
+    ],
+    [
+     "U301",
+     "1"
+    ],
+    [
+     "U301",
+     "10"
+    ],
+    [
+     "U301",
+     "11"
+    ],
+    [
+     "U301",
+     "20"
+    ],
+    [
+     "U301",
+     "21"
+    ],
+    [
+     "U301",
+     "5"
+    ],
+    [
+     "U301",
+     "6"
+    ],
+    [
+     "U401",
+     "5"
+    ],
+    [
+     "U402",
+     "1"
+    ]
+   ]
+  },
+  {
+   "name": "OBD_RAW",
+   "domain": "OBDRAW",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    -14.0,
+    27.0
+   ],
+   "kind": "high_current",
+   "i_max": 3.5,
+   "external": true,
+   "nodes": [
+    [
+     "F101",
+     "1"
+    ],
+    [
+     "J101",
+     "1"
+    ]
+   ]
+  },
+  {
+   "name": "PV_RAW",
+   "domain": "PVRAW",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    -25.0,
+    25.0
+   ],
+   "kind": "power",
+   "i_max": 0.8,
+   "external": true,
+   "nodes": [
+    [
+     "J201",
+     "1"
+    ],
+    [
+     "Q201",
+     "3"
+    ]
+   ]
+  },
+  {
+   "name": "VBAT",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    24.0
+   ],
+   "kind": "power",
+   "i_max": 3.5,
+   "external": false,
+   "nodes": [
+    [
+     "C101",
+     "1"
+    ],
+    [
+     "C102",
+     "1"
+    ],
+    [
+     "C103",
+     "1"
+    ],
+    [
+     "C104",
+     "1"
+    ],
+    [
+     "C306",
+     "1"
+    ],
+    [
+     "D101",
+     "1"
+    ],
+    [
+     "F101",
+     "2"
+    ],
+    [
+     "Q203",
+     "2"
+    ],
+    [
+     "R209",
+     "1"
+    ],
+    [
+     "R214",
+     "1"
+    ],
+    [
+     "R401",
+     "1"
+    ],
+    [
+     "R403",
+     "1"
+    ],
+    [
+     "U301",
+     "13"
+    ],
+    [
+     "U301",
+     "17"
+    ]
+   ]
+  },
+  {
+   "name": "PV_IN",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    25.0
+   ],
+   "kind": "power",
+   "i_max": 0.8,
+   "external": false,
+   "nodes": [
+    [
+     "C201",
+     "1"
+    ],
+    [
+     "C202",
+     "1"
+    ],
+    [
+     "C203",
+     "1"
+    ],
+    [
+     "C204",
+     "2"
+    ],
+    [
+     "D201",
+     "1"
+    ],
+    [
+     "Q201",
+     "2"
+    ],
+    [
+     "Q202",
+     "2"
+    ],
+    [
+     "R201",
+     "1"
+    ],
+    [
+     "R204",
+     "1"
+    ],
+    [
+     "R207",
+     "1"
+    ],
+    [
+     "R208",
+     "1"
+    ],
+    [
+     "R211",
+     "1"
+    ],
+    [
+     "R212",
+     "1"
+    ],
+    [
+     "U201",
+     "9"
+    ]
+   ]
+  },
+  {
+   "name": "CHG_OUT",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    16.0
+   ],
+   "kind": "power",
+   "i_max": 0.8,
+   "external": false,
+   "nodes": [
+    [
+     "C205",
+     "1"
+    ],
+    [
+     "C206",
+     "1"
+    ],
+    [
+     "Q203",
+     "3"
+    ],
+    [
+     "R203",
+     "2"
+    ],
+    [
+     "U201",
+     "7"
+    ]
+   ]
+  },
+  {
+   "name": "VBUS",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    13.0
+   ],
+   "kind": "power",
+   "i_max": 2.0,
+   "external": true,
+   "nodes": [
+    [
+     "C307",
+     "1"
+    ],
+    [
+     "C308",
+     "1"
+    ],
+    [
+     "C309",
+     "1"
+    ],
+    [
+     "C311",
+     "1"
+    ],
+    [
+     "C312",
+     "1"
+    ],
+    [
+     "D301",
+     "1"
+    ],
+    [
+     "J301",
+     "A9"
+    ],
+    [
+     "J301",
+     "B9"
+    ],
+    [
+     "R305",
+     "1"
+    ],
+    [
+     "R312",
+     "1"
+    ],
+    [
+     "R314",
+     "1"
+    ],
+    [
+     "U301",
+     "4"
+    ]
+   ]
+  },
+  {
+   "name": "+3V3",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    3.4
+   ],
+   "kind": "power",
+   "i_max": 0.05,
+   "external": false,
+   "nodes": [
+    [
+     "C401",
+     "1"
+    ],
+    [
+     "C402",
+     "1"
+    ],
+    [
+     "C406",
+     "1"
+    ],
+    [
+     "J401",
+     "1"
+    ],
+    [
+     "U401",
+     "4"
+    ],
+    [
+     "U402",
+     "3"
+    ]
+   ]
+  },
+  {
+   "name": "BB_EN",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    3.4
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "R311",
+     "1"
+    ],
+    [
+     "U301",
+     "2"
+    ],
+    [
+     "U401",
+     "9"
+    ]
+   ]
+  },
+  {
+   "name": "BB_MODE",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    3.4
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "R316",
+     "1"
+    ],
+    [
+     "U301",
+     "19"
+    ],
+    [
+     "U401",
+     "13"
+    ]
+   ]
+  },
+  {
+   "name": "VSEL9",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    3.4
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "Q302",
+     "1"
+    ],
+    [
+     "R309",
+     "1"
+    ],
+    [
+     "U401",
+     "10"
+    ]
+   ]
+  },
+  {
+   "name": "VSEL12",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    3.4
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "Q303",
+     "1"
+    ],
+    [
+     "R310",
+     "1"
+    ],
+    [
+     "U401",
+     "11"
+    ]
+   ]
+  },
+  {
+   "name": "VBUS_DIS",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    3.4
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "Q304",
+     "1"
+    ],
+    [
+     "R313",
+     "1"
+    ],
+    [
+     "U401",
+     "12"
+    ]
+   ]
+  },
+  {
+   "name": "VBAT_SNS",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    2.5
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C404",
+     "1"
+    ],
+    [
+     "R401",
+     "2"
+    ],
+    [
+     "R402",
+     "1"
+    ],
+    [
+     "U401",
+     "7"
+    ]
+   ]
+  },
+  {
+   "name": "VBUS_SNS",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    1.3
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "R314",
+     "2"
+    ],
+    [
+     "R315",
+     "1"
+    ],
+    [
+     "U401",
+     "8"
+    ]
+   ]
+  },
+  {
+   "name": "CC1",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    5.5
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": true,
+   "nodes": [
+    [
+     "J301",
+     "A5"
+    ],
+    [
+     "U401",
+     "18"
+    ]
+   ]
+  },
+  {
+   "name": "CC2",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    5.5
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": true,
+   "nodes": [
+    [
+     "J301",
+     "B5"
+    ],
+    [
+     "U401",
+     "17"
+    ]
+   ]
+  },
+  {
+   "name": "/CHG/SW_CHG",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    -0.7,
+    25.5
+   ],
+   "kind": "switching",
+   "i_max": 0.9,
+   "external": false,
+   "nodes": [
+    [
+     "D202",
+     "1"
+    ],
+    [
+     "L201",
+     "1"
+    ],
+    [
+     "Q202",
+     "3"
+    ]
+   ]
+  },
+  {
+   "name": "/CHG/CHG_CS",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    16.0
+   ],
+   "kind": "power",
+   "i_max": 0.9,
+   "external": false,
+   "nodes": [
+    [
+     "L201",
+     "2"
+    ],
+    [
+     "R203",
+     "1"
+    ],
+    [
+     "U201",
+     "8"
+    ]
+   ]
+  },
+  {
+   "name": "/CHG/MPPT",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    2.1
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "R204",
+     "2"
+    ],
+    [
+     "R205",
+     "1"
+    ],
+    [
+     "U201",
+     "6"
+    ]
+   ]
+  },
+  {
+   "name": "/CHG/COMP_RC",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    3.0
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "R206",
+     "1"
+    ],
+    [
+     "U201",
+     "5"
+    ]
+   ]
+  },
+  {
+   "name": "/CHG/LEDR_A",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    25.0
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "D203",
+     "2"
+    ],
+    [
+     "R207",
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "/CHG/LEDG_A",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    25.0
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "D204",
+     "2"
+    ],
+    [
+     "R208",
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "/CHG/CHRG_N",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    25.0
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "D203",
+     "1"
+    ],
+    [
+     "U201",
+     "3"
+    ]
+   ]
+  },
+  {
+   "name": "/CHG/DONE_N",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    25.0
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "D204",
+     "1"
+    ],
+    [
+     "U201",
+     "4"
+    ]
+   ]
+  },
+  {
+   "name": "/CHG/PV_G",
+   "domain": "QGPV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    -9.0,
+    0.0
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "Q201",
+     "1"
+    ],
+    [
+     "R201",
+     "2"
+    ],
+    [
+     "R202",
+     "1"
+    ]
+   ]
+  },
+  {
+   "name": "/CHG/VG_CHG",
+   "domain": "QGCHG",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    -8.0,
+    0.0
+   ],
+   "kind": "power",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C204",
+     "1"
+    ],
+    [
+     "U201",
+     "1"
+    ]
+   ]
+  },
+  {
+   "name": "/CHG/DRV",
+   "domain": "QGCHG",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    -8.0,
+    0.0
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "Q202",
+     "1"
+    ],
+    [
+     "U201",
+     "10"
+    ]
+   ]
+  },
+  {
+   "name": "/CHG/COMP_Z",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    3.0
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C207",
+     "1"
+    ],
+    [
+     "R206",
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "/BLK/CMP_VCC",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    6.0
+   ],
+   "kind": "power",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C208",
+     "1"
+    ],
+    [
+     "D205",
+     "1"
+    ],
+    [
+     "R211",
+     "2"
+    ],
+    [
+     "U202",
+     "5"
+    ]
+   ]
+  },
+  {
+   "name": "/BLK/CMP_INP",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    2.3
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C209",
+     "1"
+    ],
+    [
+     "R212",
+     "2"
+    ],
+    [
+     "R213",
+     "1"
+    ],
+    [
+     "U202",
+     "3"
+    ]
+   ]
+  },
+  {
+   "name": "/BLK/CMP_INN",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    2.5
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C210",
+     "1"
+    ],
+    [
+     "R214",
+     "2"
+    ],
+    [
+     "R215",
+     "1"
+    ],
+    [
+     "U202",
+     "4"
+    ]
+   ]
+  },
+  {
+   "name": "/BLK/CMP_OUT",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    6.0
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "Q204",
+     "1"
+    ],
+    [
+     "R216",
+     "1"
+    ],
+    [
+     "U202",
+     "1"
+    ]
+   ]
+  },
+  {
+   "name": "/BLK/QB_PD",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    24.0
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "Q204",
+     "3"
+    ],
+    [
+     "R210",
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "/BLK/QB_G",
+   "domain": "QGB",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    -13.5,
+    0.0
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "Q203",
+     "1"
+    ],
+    [
+     "R209",
+     "2"
+    ],
+    [
+     "R210",
+     "1"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/BB_SW1",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    -0.3,
+    24.3
+   ],
+   "kind": "switching",
+   "i_max": 3.0,
+   "external": false,
+   "nodes": [
+    [
+     "C304",
+     "2"
+    ],
+    [
+     "L301",
+     "1"
+    ],
+    [
+     "U301",
+     "18"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/BB_SW2",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    -0.3,
+    12.4
+   ],
+   "kind": "switching",
+   "i_max": 3.0,
+   "external": false,
+   "nodes": [
+    [
+     "C305",
+     "2"
+    ],
+    [
+     "L301",
+     "2"
+    ],
+    [
+     "U301",
+     "3"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/BB_VCC",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    5.5
+   ],
+   "kind": "power",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C303",
+     "1"
+    ],
+    [
+     "U301",
+     "12"
+    ],
+    [
+     "U301",
+     "14"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/BB_FB",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    1.1
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C302",
+     "2"
+    ],
+    [
+     "R304",
+     "2"
+    ],
+    [
+     "R305",
+     "2"
+    ],
+    [
+     "R306",
+     "1"
+    ],
+    [
+     "R307",
+     "1"
+    ],
+    [
+     "R308",
+     "1"
+    ],
+    [
+     "U301",
+     "8"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/BB_VC",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    2.5
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "R303",
+     "1"
+    ],
+    [
+     "U301",
+     "7"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/BB_CZ",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    2.5
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C302",
+     "1"
+    ],
+    [
+     "R303",
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/BB_RT",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    1.3
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "R301",
+     "1"
+    ],
+    [
+     "U301",
+     "9"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/BB_FF",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    13.0
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C309",
+     "2"
+    ],
+    [
+     "R304",
+     "1"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/FB9",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    1.1
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "Q302",
+     "3"
+    ],
+    [
+     "R307",
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/FB12",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    1.1
+   ],
+   "kind": "analog",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "Q303",
+     "3"
+    ],
+    [
+     "R308",
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/DIS_D",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    13.0
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "Q304",
+     "3"
+    ],
+    [
+     "R312",
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/BB_BOOT1",
+   "domain": "BST1",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    5.0
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C304",
+     "1"
+    ],
+    [
+     "U301",
+     "16"
+    ]
+   ]
+  },
+  {
+   "name": "/USB/BB_BOOT2",
+   "domain": "BST2",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    5.0
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C305",
+     "1"
+    ],
+    [
+     "U301",
+     "15"
+    ]
+   ]
+  },
+  {
+   "name": "/CTL/LDO_IN",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    24.0
+   ],
+   "kind": "power",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C405",
+     "1"
+    ],
+    [
+     "D401",
+     "1"
+    ],
+    [
+     "R403",
+     "2"
+    ],
+    [
+     "U402",
+     "2"
+    ]
+   ]
+  },
+  {
+   "name": "/CTL/NRST",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    3.4
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "C403",
+     "1"
+    ],
+    [
+     "J401",
+     "4"
+    ],
+    [
+     "U401",
+     "6"
+    ]
+   ]
+  },
+  {
+   "name": "/CTL/SWDIO",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    3.4
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "J401",
+     "2"
+    ],
+    [
+     "U401",
+     "24"
+    ]
+   ]
+  },
+  {
+   "name": "/CTL/SWCLK",
+   "domain": "LV",
+   "boards": [
+    "main"
+   ],
+   "v": [
+    0.0,
+    3.4
+   ],
+   "kind": "signal",
+   "i_max": null,
+   "external": false,
+   "nodes": [
+    [
+     "J401",
+     "3"
+    ],
+    [
+     "U401",
+     "25"
+    ]
+   ]
+  }
+ ],
+ "board": {
+  "copper_oz": 1.0,
+  "trace_rise_c": 10.0
+ }
+}

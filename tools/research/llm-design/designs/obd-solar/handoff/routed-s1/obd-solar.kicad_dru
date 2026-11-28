@@ -1,0 +1,155 @@
+(version 1)
+
+# fab profile jlc-2layer-1oz: https://jlcpcb.com/capabilities/pcb-capabilities (read 2026-11-28)
+(rule "FAB:pth_annular_width"
+  (condition "A.Type == 'Pad' && A.isPlated()")
+  (constraint annular_width (min 0.18mm)))
+(rule "FAB:pad_hole_to_hole"
+  (condition "A.Type == 'Pad' && B.Type == 'Pad'")
+  (constraint hole_to_hole (min 0.45mm)))
+(rule "FAB:pth_hole_clearance"
+  (condition "A.Type == 'Pad' && A.isPlated()")
+  (constraint hole_clearance (min 0.28mm)))
+
+
+# functional spacing /BLK/CMP_OUT to PV_RAW: worst 31 V, IPC-2221B B2
+(rule "IR:functional./BLK/CMP_OUT.0.6mm"
+  (condition "(A.NetName == '/BLK/CMP_OUT' && (B.NetName == 'PV_RAW')) || (B.NetName == '/BLK/CMP_OUT' && (A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /BLK/CMP_VCC to PV_RAW: worst 31 V, IPC-2221B B2
+(rule "IR:functional./BLK/CMP_VCC.0.6mm"
+  (condition "(A.NetName == '/BLK/CMP_VCC' && (B.NetName == 'PV_RAW')) || (B.NetName == '/BLK/CMP_VCC' && (A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /BLK/QB_G to /BLK/QB_PD, /CHG/CHRG_N, /CHG/DONE_N, /CHG/DRV, /CHG/LEDG_A, /CHG/LEDR_A, /CHG/PV_G, /CHG/SW_CHG, /CHG/VG_CHG, /CTL/LDO_IN, /USB/BB_BOOT1, /USB/BB_BOOT2, /USB/BB_SW1, OBD_RAW, PV_IN, PV_RAW: worst 49 V, IPC-2221B B2
+(rule "IR:functional./BLK/QB_G.0.6mm"
+  (condition "(A.NetName == '/BLK/QB_G' && (B.NetName == '/BLK/QB_PD' || B.NetName == '/CHG/CHRG_N' || B.NetName == '/CHG/DONE_N' || B.NetName == '/CHG/DRV' || B.NetName == '/CHG/LEDG_A' || B.NetName == '/CHG/LEDR_A' || B.NetName == '/CHG/PV_G' || B.NetName == '/CHG/SW_CHG' || B.NetName == '/CHG/VG_CHG' || B.NetName == '/CTL/LDO_IN' || B.NetName == '/USB/BB_BOOT1' || B.NetName == '/USB/BB_BOOT2' || B.NetName == '/USB/BB_SW1' || B.NetName == 'OBD_RAW' || B.NetName == 'PV_IN' || B.NetName == 'PV_RAW')) || (B.NetName == '/BLK/QB_G' && (A.NetName == '/BLK/QB_PD' || A.NetName == '/CHG/CHRG_N' || A.NetName == '/CHG/DONE_N' || A.NetName == '/CHG/DRV' || A.NetName == '/CHG/LEDG_A' || A.NetName == '/CHG/LEDR_A' || A.NetName == '/CHG/PV_G' || A.NetName == '/CHG/SW_CHG' || A.NetName == '/CHG/VG_CHG' || A.NetName == '/CTL/LDO_IN' || A.NetName == '/USB/BB_BOOT1' || A.NetName == '/USB/BB_BOOT2' || A.NetName == '/USB/BB_SW1' || A.NetName == 'OBD_RAW' || A.NetName == 'PV_IN' || A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /BLK/QB_PD to /CHG/DRV, /CHG/PV_G, /CHG/VG_CHG, OBD_RAW, PV_RAW: worst 49 V, IPC-2221B B2
+(rule "IR:functional./BLK/QB_PD.0.6mm"
+  (condition "(A.NetName == '/BLK/QB_PD' && (B.NetName == '/CHG/DRV' || B.NetName == '/CHG/PV_G' || B.NetName == '/CHG/VG_CHG' || B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW')) || (B.NetName == '/BLK/QB_PD' && (A.NetName == '/CHG/DRV' || A.NetName == '/CHG/PV_G' || A.NetName == '/CHG/VG_CHG' || A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /CHG/CHG_CS to PV_RAW: worst 41 V, IPC-2221B B2
+(rule "IR:functional./CHG/CHG_CS.0.6mm"
+  (condition "(A.NetName == '/CHG/CHG_CS' && (B.NetName == 'PV_RAW')) || (B.NetName == '/CHG/CHG_CS' && (A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /CHG/CHRG_N to /CHG/DRV, /CHG/PV_G, /CHG/VG_CHG, OBD_RAW, PV_RAW: worst 50 V, IPC-2221B B2
+(rule "IR:functional./CHG/CHRG_N.0.6mm"
+  (condition "(A.NetName == '/CHG/CHRG_N' && (B.NetName == '/CHG/DRV' || B.NetName == '/CHG/PV_G' || B.NetName == '/CHG/VG_CHG' || B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW')) || (B.NetName == '/CHG/CHRG_N' && (A.NetName == '/CHG/DRV' || A.NetName == '/CHG/PV_G' || A.NetName == '/CHG/VG_CHG' || A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /CHG/DONE_N to /CHG/DRV, /CHG/PV_G, /CHG/VG_CHG, OBD_RAW, PV_RAW: worst 50 V, IPC-2221B B2
+(rule "IR:functional./CHG/DONE_N.0.6mm"
+  (condition "(A.NetName == '/CHG/DONE_N' && (B.NetName == '/CHG/DRV' || B.NetName == '/CHG/PV_G' || B.NetName == '/CHG/VG_CHG' || B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW')) || (B.NetName == '/CHG/DONE_N' && (A.NetName == '/CHG/DRV' || A.NetName == '/CHG/PV_G' || A.NetName == '/CHG/VG_CHG' || A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /CHG/DRV to /CHG/LEDG_A, /CHG/LEDR_A, /CHG/SW_CHG, /CTL/LDO_IN, /USB/BB_BOOT1, /USB/BB_SW1, OBD_RAW, PV_RAW, VBAT: worst 50 V, IPC-2221B B2
+(rule "IR:functional./CHG/DRV.0.6mm"
+  (condition "(A.NetName == '/CHG/DRV' && (B.NetName == '/CHG/LEDG_A' || B.NetName == '/CHG/LEDR_A' || B.NetName == '/CHG/SW_CHG' || B.NetName == '/CTL/LDO_IN' || B.NetName == '/USB/BB_BOOT1' || B.NetName == '/USB/BB_SW1' || B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW' || B.NetName == 'VBAT')) || (B.NetName == '/CHG/DRV' && (A.NetName == '/CHG/LEDG_A' || A.NetName == '/CHG/LEDR_A' || A.NetName == '/CHG/SW_CHG' || A.NetName == '/CTL/LDO_IN' || A.NetName == '/USB/BB_BOOT1' || A.NetName == '/USB/BB_SW1' || A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW' || A.NetName == 'VBAT'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /CHG/LEDG_A to /CHG/PV_G, /CHG/VG_CHG, OBD_RAW, PV_RAW: worst 50 V, IPC-2221B B2
+(rule "IR:functional./CHG/LEDG_A.0.6mm"
+  (condition "(A.NetName == '/CHG/LEDG_A' && (B.NetName == '/CHG/PV_G' || B.NetName == '/CHG/VG_CHG' || B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW')) || (B.NetName == '/CHG/LEDG_A' && (A.NetName == '/CHG/PV_G' || A.NetName == '/CHG/VG_CHG' || A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /CHG/LEDR_A to /CHG/PV_G, /CHG/VG_CHG, OBD_RAW, PV_RAW: worst 50 V, IPC-2221B B2
+(rule "IR:functional./CHG/LEDR_A.0.6mm"
+  (condition "(A.NetName == '/CHG/LEDR_A' && (B.NetName == '/CHG/PV_G' || B.NetName == '/CHG/VG_CHG' || B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW')) || (B.NetName == '/CHG/LEDR_A' && (A.NetName == '/CHG/PV_G' || A.NetName == '/CHG/VG_CHG' || A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /CHG/PV_G to /CHG/SW_CHG, /CTL/LDO_IN, /USB/BB_BOOT1, /USB/BB_SW1, OBD_RAW, PV_RAW, VBAT: worst 50 V, IPC-2221B B2
+(rule "IR:functional./CHG/PV_G.0.6mm"
+  (condition "(A.NetName == '/CHG/PV_G' && (B.NetName == '/CHG/SW_CHG' || B.NetName == '/CTL/LDO_IN' || B.NetName == '/USB/BB_BOOT1' || B.NetName == '/USB/BB_SW1' || B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW' || B.NetName == 'VBAT')) || (B.NetName == '/CHG/PV_G' && (A.NetName == '/CHG/SW_CHG' || A.NetName == '/CTL/LDO_IN' || A.NetName == '/USB/BB_BOOT1' || A.NetName == '/USB/BB_SW1' || A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW' || A.NetName == 'VBAT'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /CHG/SW_CHG to /CHG/VG_CHG, OBD_RAW, PV_RAW: worst 50.5 V, IPC-2221B B2
+(rule "IR:functional./CHG/SW_CHG.0.6mm"
+  (condition "(A.NetName == '/CHG/SW_CHG' && (B.NetName == '/CHG/VG_CHG' || B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW')) || (B.NetName == '/CHG/SW_CHG' && (A.NetName == '/CHG/VG_CHG' || A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /CHG/VG_CHG to /CTL/LDO_IN, /USB/BB_BOOT1, /USB/BB_SW1, OBD_RAW, PV_RAW, VBAT: worst 50 V, IPC-2221B B2
+(rule "IR:functional./CHG/VG_CHG.0.6mm"
+  (condition "(A.NetName == '/CHG/VG_CHG' && (B.NetName == '/CTL/LDO_IN' || B.NetName == '/USB/BB_BOOT1' || B.NetName == '/USB/BB_SW1' || B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW' || B.NetName == 'VBAT')) || (B.NetName == '/CHG/VG_CHG' && (A.NetName == '/CTL/LDO_IN' || A.NetName == '/USB/BB_BOOT1' || A.NetName == '/USB/BB_SW1' || A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW' || A.NetName == 'VBAT'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /CTL/LDO_IN to OBD_RAW, PV_RAW: worst 49 V, IPC-2221B B2
+(rule "IR:functional./CTL/LDO_IN.0.6mm"
+  (condition "(A.NetName == '/CTL/LDO_IN' && (B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW')) || (B.NetName == '/CTL/LDO_IN' && (A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /USB/BB_BOOT1 to OBD_RAW, PV_RAW: worst 54.3 V, IPC-2221B B2
+(rule "IR:functional./USB/BB_BOOT1.0.6mm"
+  (condition "(A.NetName == '/USB/BB_BOOT1' && (B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW')) || (B.NetName == '/USB/BB_BOOT1' && (A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /USB/BB_BOOT2 to OBD_RAW, PV_RAW: worst 42.4 V, IPC-2221B B2
+(rule "IR:functional./USB/BB_BOOT2.0.6mm"
+  (condition "(A.NetName == '/USB/BB_BOOT2' && (B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW')) || (B.NetName == '/USB/BB_BOOT2' && (A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /USB/BB_FF to PV_RAW: worst 38 V, IPC-2221B B2
+(rule "IR:functional./USB/BB_FF.0.6mm"
+  (condition "(A.NetName == '/USB/BB_FF' && (B.NetName == 'PV_RAW')) || (B.NetName == '/USB/BB_FF' && (A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /USB/BB_SW1 to OBD_RAW, PV_RAW: worst 49.3 V, IPC-2221B B2
+(rule "IR:functional./USB/BB_SW1.0.6mm"
+  (condition "(A.NetName == '/USB/BB_SW1' && (B.NetName == 'OBD_RAW' || B.NetName == 'PV_RAW')) || (B.NetName == '/USB/BB_SW1' && (A.NetName == 'OBD_RAW' || A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /USB/BB_SW2 to PV_RAW: worst 37.4 V, IPC-2221B B2
+(rule "IR:functional./USB/BB_SW2.0.6mm"
+  (condition "(A.NetName == '/USB/BB_SW2' && (B.NetName == 'PV_RAW')) || (B.NetName == '/USB/BB_SW2' && (A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /USB/BB_VCC to PV_RAW: worst 30.5 V, IPC-2221B B2
+(rule "IR:functional./USB/BB_VCC.0.6mm"
+  (condition "(A.NetName == '/USB/BB_VCC' && (B.NetName == 'PV_RAW')) || (B.NetName == '/USB/BB_VCC' && (A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing /USB/DIS_D to PV_RAW: worst 38 V, IPC-2221B B2
+(rule "IR:functional./USB/DIS_D.0.6mm"
+  (condition "(A.NetName == '/USB/DIS_D' && (B.NetName == 'PV_RAW')) || (B.NetName == '/USB/DIS_D' && (A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing CC1 to PV_RAW: worst 30.5 V, IPC-2221B B2
+(rule "IR:functional.CC1.0.6mm"
+  (condition "(A.NetName == 'CC1' && (B.NetName == 'PV_RAW')) || (B.NetName == 'CC1' && (A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing CC2 to PV_RAW: worst 30.5 V, IPC-2221B B2
+(rule "IR:functional.CC2.0.6mm"
+  (condition "(A.NetName == 'CC2' && (B.NetName == 'PV_RAW')) || (B.NetName == 'CC2' && (A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing CHG_OUT to PV_RAW: worst 41 V, IPC-2221B B2
+(rule "IR:functional.CHG_OUT.0.6mm"
+  (condition "(A.NetName == 'CHG_OUT' && (B.NetName == 'PV_RAW')) || (B.NetName == 'CHG_OUT' && (A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing OBD_RAW to PV_IN, PV_RAW, VBAT: worst 52 V, IPC-2221B B2
+(rule "IR:functional.OBD_RAW.0.6mm"
+  (condition "(A.NetName == 'OBD_RAW' && (B.NetName == 'PV_IN' || B.NetName == 'PV_RAW' || B.NetName == 'VBAT')) || (B.NetName == 'OBD_RAW' && (A.NetName == 'PV_IN' || A.NetName == 'PV_RAW' || A.NetName == 'VBAT'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing PV_IN to PV_RAW: worst 50 V, IPC-2221B B2
+(rule "IR:functional.PV_IN.0.6mm"
+  (condition "(A.NetName == 'PV_IN' && (B.NetName == 'PV_RAW')) || (B.NetName == 'PV_IN' && (A.NetName == 'PV_RAW'))")
+  (constraint clearance (min 0.6mm)))
+
+# functional spacing PV_RAW to VBAT, VBUS: worst 49 V, IPC-2221B B2
+(rule "IR:functional.PV_RAW.0.6mm"
+  (condition "(A.NetName == 'PV_RAW' && (B.NetName == 'VBAT' || B.NetName == 'VBUS')) || (B.NetName == 'PV_RAW' && (A.NetName == 'VBAT' || A.NetName == 'VBUS'))")
+  (constraint clearance (min 0.6mm)))
+
+# pads of one part that bridges spaced domains: J101, F101, J201, Q201, R201, R202, U201, C204, Q202, Q203, R209, R210
+# (its package sets that spacing; package creepage is checked against the barrier)
+(rule "IR:bridging_parts.1"
+  (condition "(A.memberOfFootprint('J101') && B.memberOfFootprint('J101')) || (A.memberOfFootprint('F101') && B.memberOfFootprint('F101')) || (A.memberOfFootprint('J201') && B.memberOfFootprint('J201')) || (A.memberOfFootprint('Q201') && B.memberOfFootprint('Q201')) || (A.memberOfFootprint('R201') && B.memberOfFootprint('R201')) || (A.memberOfFootprint('R202') && B.memberOfFootprint('R202')) || (A.memberOfFootprint('U201') && B.memberOfFootprint('U201')) || (A.memberOfFootprint('C204') && B.memberOfFootprint('C204')) || (A.memberOfFootprint('Q202') && B.memberOfFootprint('Q202')) || (A.memberOfFootprint('Q203') && B.memberOfFootprint('Q203')) || (A.memberOfFootprint('R209') && B.memberOfFootprint('R209')) || (A.memberOfFootprint('R210') && B.memberOfFootprint('R210'))")
+  (constraint clearance (min 0mm))
+  (constraint creepage (min 0mm)))

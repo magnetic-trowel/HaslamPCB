@@ -56,3 +56,11 @@ path = ["bench/suites/pcbworld-d3a-test.txt", "bench/suites/pcbworld-d3b-test.tx
 precedence = "override"
 SPDX-FileCopyrightText = ["2026, LG Management Development Institute Co., Ltd. (LG AI Research)", "2026 HaslamPCB contributors"]
 SPDX-License-Identifier = "BSD-3-Clause"
+
+# obd-solar handoff package: this project's own design files (boards, project, rules, intent, evaluations), generated
+# on branch obd-solar-e2e; the custom footprint they use carries its own annotation above.
+[[annotations]]
+path = "tools/research/llm-design/designs/obd-solar/handoff/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 HaslamPCB contributors"
+SPDX-License-Identifier = "GPL-3.0-or-later"

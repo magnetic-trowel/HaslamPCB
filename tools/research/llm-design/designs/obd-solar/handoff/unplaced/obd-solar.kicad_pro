@@ -1,0 +1,365 @@
+{
+  "board": {
+    "design_settings": {
+      "defaults": {},
+      "diff_pair_dimensions": [],
+      "drc_exclusions": [],
+      "rules": {
+        "min_track_width": 0.127,
+        "min_clearance": 0.15,
+        "min_via_diameter": 0.5,
+        "min_via_annular_width": 0.1,
+        "min_through_hole_diameter": 0.3,
+        "min_hole_to_hole": 0.25,
+        "min_hole_clearance": 0.2,
+        "min_copper_edge_clearance": 0.3,
+        "min_silk_clearance": 0.15,
+        "min_text_height": 1.0,
+        "min_text_thickness": 0.15
+      },
+      "track_widths": [],
+      "via_dimensions": []
+    }
+  },
+  "boards": [],
+  "libraries": {
+    "pinned_footprint_libs": [],
+    "pinned_symbol_libs": []
+  },
+  "meta": {
+    "filename": "obd-solar.kicad_pro",
+    "version": 3
+  },
+  "net_settings": {
+    "classes": [
+      {
+        "name": "Default",
+        "clearance": 0.15,
+        "track_width": 0.25,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "priority": 2147483647
+      },
+      {
+        "name": "BST1",
+        "clearance": 0.15,
+        "track_width": 0.25,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "priority": 0
+      },
+      {
+        "name": "BST2",
+        "clearance": 0.15,
+        "track_width": 0.25,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "priority": 1
+      },
+      {
+        "name": "LV",
+        "clearance": 0.15,
+        "track_width": 0.25,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "priority": 2
+      },
+      {
+        "name": "LV_1A",
+        "clearance": 0.15,
+        "track_width": 0.3,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "priority": 3
+      },
+      {
+        "name": "LV_2A",
+        "clearance": 0.15,
+        "track_width": 0.8,
+        "via_diameter": 0.94,
+        "via_drill": 0.32,
+        "priority": 4
+      },
+      {
+        "name": "LV_3A",
+        "clearance": 0.15,
+        "track_width": 1.4,
+        "via_diameter": 1.42,
+        "via_drill": 0.56,
+        "priority": 5
+      },
+      {
+        "name": "LV_5A",
+        "clearance": 0.15,
+        "track_width": 2.05,
+        "via_diameter": 1.94,
+        "via_drill": 0.82,
+        "priority": 6
+      },
+      {
+        "name": "OBDRAW_5A",
+        "clearance": 0.15,
+        "track_width": 1.7,
+        "via_diameter": 1.66,
+        "via_drill": 0.68,
+        "priority": 7
+      },
+      {
+        "name": "PVRAW_1A",
+        "clearance": 0.15,
+        "track_width": 0.25,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "priority": 8
+      },
+      {
+        "name": "QGB",
+        "clearance": 0.15,
+        "track_width": 0.25,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "priority": 9
+      },
+      {
+        "name": "QGCHG",
+        "clearance": 0.15,
+        "track_width": 0.25,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "priority": 10
+      },
+      {
+        "name": "QGPV",
+        "clearance": 0.15,
+        "track_width": 0.25,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "priority": 11
+      }
+    ],
+    "meta": {
+      "version": 4
+    },
+    "netclass_patterns": [
+      {
+        "netclass": "LV",
+        "pattern": "+3V3"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/BLK/CMP_INN"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/BLK/CMP_INP"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/BLK/CMP_OUT"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/BLK/CMP_VCC"
+      },
+      {
+        "netclass": "QGB",
+        "pattern": "/BLK/QB_G"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/BLK/QB_PD"
+      },
+      {
+        "netclass": "LV_1A",
+        "pattern": "/CHG/CHG_CS"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/CHG/CHRG_N"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/CHG/COMP_RC"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/CHG/COMP_Z"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/CHG/DONE_N"
+      },
+      {
+        "netclass": "QGCHG",
+        "pattern": "/CHG/DRV"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/CHG/LEDG_A"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/CHG/LEDR_A"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/CHG/MPPT"
+      },
+      {
+        "netclass": "QGPV",
+        "pattern": "/CHG/PV_G"
+      },
+      {
+        "netclass": "LV_1A",
+        "pattern": "/CHG/SW_CHG"
+      },
+      {
+        "netclass": "QGCHG",
+        "pattern": "/CHG/VG_CHG"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/CTL/LDO_IN"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/CTL/NRST"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/CTL/SWCLK"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/CTL/SWDIO"
+      },
+      {
+        "netclass": "BST1",
+        "pattern": "/USB/BB_BOOT1"
+      },
+      {
+        "netclass": "BST2",
+        "pattern": "/USB/BB_BOOT2"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/USB/BB_CZ"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/USB/BB_FB"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/USB/BB_FF"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/USB/BB_RT"
+      },
+      {
+        "netclass": "LV_3A",
+        "pattern": "/USB/BB_SW1"
+      },
+      {
+        "netclass": "LV_3A",
+        "pattern": "/USB/BB_SW2"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/USB/BB_VC"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/USB/BB_VCC"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/USB/DIS_D"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/USB/FB12"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "/USB/FB9"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "BB_EN"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "BB_MODE"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "CC1"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "CC2"
+      },
+      {
+        "netclass": "LV_1A",
+        "pattern": "CHG_OUT"
+      },
+      {
+        "netclass": "LV_5A",
+        "pattern": "GND"
+      },
+      {
+        "netclass": "OBDRAW_5A",
+        "pattern": "OBD_RAW"
+      },
+      {
+        "netclass": "LV_1A",
+        "pattern": "PV_IN"
+      },
+      {
+        "netclass": "PVRAW_1A",
+        "pattern": "PV_RAW"
+      },
+      {
+        "netclass": "LV_5A",
+        "pattern": "VBAT"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "VBAT_SNS"
+      },
+      {
+        "netclass": "LV_2A",
+        "pattern": "VBUS"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "VBUS_DIS"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "VBUS_SNS"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "VSEL12"
+      },
+      {
+        "netclass": "LV",
+        "pattern": "VSEL9"
+      }
+    ]
+  },
+  "pcbnew": {
+    "page_layout_descr_file": ""
+  },
+  "schematic": {
+    "legacy_lib_dir": "",
+    "legacy_lib_list": []
+  },
+  "sheets": [],
+  "text_variables": {
+    "FAB_PROFILE": "jlc-2layer-1oz"
+  }
+}
