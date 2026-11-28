@@ -225,7 +225,8 @@ def st_review(c, a):
     rv = c.dd / "REVIEW.md"
     ok = rv.exists() and rv.stat().st_mtime >= max((c.dd / f).stat().st_mtime for f in ("design.py", "parts.py"))
     return c.record("review", ok, "REVIEW.md is current" if ok else
-                    "write REVIEW.md: an independent review of design.py/parts.py (newer than both)")
+                    "write REVIEW.md: an independent review of design.py/parts.py (newer than both), following "
+                    "docs/topics/workflow/design-review-checklist.md")
 
 
 def st_fab(c, a):

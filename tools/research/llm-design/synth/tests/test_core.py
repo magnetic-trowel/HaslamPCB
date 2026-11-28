@@ -740,3 +740,22 @@ def test_standby_budget_sums_dividers_and_declared_currents():
 def test_standby_undeclared_ic():
     f = run(standby_design(u_off=None))
     assert sorted(x.objects[0] for x in f if x.check == "standby.undeclared") == ["D1", "U1"]
+
+
+def test_stale_mention_after_part_swap(tmp_path):
+    """FRICTION #43/#53: after TPS552892 -> LTC3115-1, notes and calcs that still name the old part are listed."""
+    import json as _json
+    from haslamsynth.build import MPN_HISTORY, stale_mentions
+    d = Design("swap")
+    b = d.block("x")
+    b.add(PartDef(mpn="LTC3115EFE-1#PBF", category="ic", footprint="fp", pins=[PinDef(1, "A")]), "U1")
+    (tmp_path / "design.py").write_text('c("u_loss", 1.2, "W", "TPS552892 at 27 W")\nc("ok", 1, "", "LTC3115-1 DS p.35")\n')
+    (tmp_path / "DESIGN.md").write_text("The first revision used a TPS552892.\n")
+    out = tmp_path / "out"
+    out.mkdir()
+    assert stale_mentions(d, tmp_path, out) == []                        # no history yet: nothing to compare
+    assert "LTC3115EFE-1#PBF" in _json.loads((out / MPN_HISTORY).read_text())
+    (out / MPN_HISTORY).write_text(_json.dumps(["TPS552892RYQR", "LTC3115EFE-1#PBF"]))
+    f = stale_mentions(d, tmp_path, out)
+    assert sorted(x.message.split(" names")[0] for x in f) == ["DESIGN.md:1", "design.py:1"]
+    assert all(x.check == "part.stale_mention" and x.severity == "warning" for x in f)

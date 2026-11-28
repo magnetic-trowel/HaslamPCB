@@ -254,6 +254,7 @@ converter output and the pack it charges) belongs to one root: model the worst c
 | `domain.crossing`, `barrier.*` | error | non-isolating parts across roots; isolation grade, withstand, working voltage, package creepage |
 | `lib.*` | error/warn | missing symbols/footprints, symbol pins without pads, hidden power pins |
 | `part.no_datasheet`, `part.no_provenance`, `bom.*` | warn/error | unsourced facts, missing MPN, NRND/obsolete |
+| `part.stale_mention` | warning | a line of design.py or DESIGN.md naming an MPN an earlier build used and no part uses now (a part swap not re-reviewed; history in `out/mpn_history.json`; [design review checklist](../../../../docs/topics/workflow/design-review-checklist.md#s-after-a-part-swap)) |
 | `protect.threat`, `protect.entry_fuse` | error/warn | external wires without the protector their threat needs |
 | `standby.budget`, `standby.undeclared` | error/warn/info | off-state current from always-on nets over its budget (typical: error, max: warning); parts on them with no `i_off` |
 | `calc.limit`, `hazard.*`, `intent.blocking_question`, `place.*` | error/warn/info | design calculations, hazard mitigations, open questions, relation sanity |
