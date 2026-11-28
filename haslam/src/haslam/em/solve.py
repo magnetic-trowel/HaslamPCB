@@ -225,6 +225,21 @@ class Operator:
         return out[:, 0] if one else out
 
 
+
+def splu_node_system(Sn):
+    """SuperLU of a preconditioner's node system Sn (structurally symmetric: a symmetric ordering with diagonal pivots,
+    threshold 0.1, fills 2.9x less than COLAMD, factors 4-6x and solves ~2x faster at equal residuals).
+
+    Out of memory, an allocation inside SuperLU's gstrf fails and scipy reports "gstrf was called with invalid
+    arguments" (a SystemError), not a MemoryError: obd-solar's U301 cell window (978k nodes) factored at 14.6 GB and
+    failed so under a 14 GB limit. It is raised as the MemoryError it is, so callers that fall back on memory can."""
+    try:
+        return sla.splu(Sn, permc_spec="MMD_AT_PLUS_A", options=dict(SymmetricMode=True, DiagPivotThresh=0.1))
+    except SystemError as e:
+        if "gstrf" not in str(e):
+            raise
+        raise MemoryError(f"SuperLU factorization of {Sn.shape[0]} nodes failed ({e}): out of memory") from e
+
 class System:
     """The saddle-point system of one frequency, its preconditioner and its solves."""
 
@@ -322,7 +337,7 @@ class System:
         t = time.time()
         # Sn is structurally symmetric: a symmetric ordering with diagonal pivots (threshold 0.1) fills
         # 2.9x less than COLAMD, factors 4-6x and solves ~2x faster at equal residuals
-        self.lu = sla.splu(Sn, permc_spec="MMD_AT_PLUS_A", options=dict(SymmetricMode=True, DiagPivotThresh=0.1))
+        self.lu = splu_node_system(Sn)
         self.t_factor = time.time() - t
         budget.charge("em_factor", self.lu.L.nnz + self.lu.U.nnz)    # units: nonzeros of the Schur complement's LU
 

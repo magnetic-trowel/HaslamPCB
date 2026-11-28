@@ -568,3 +568,19 @@ def test_the_cells_leave_no_window_kernels_in_the_operator_cache(tmp):
     before = set(ES.Operator._cache)
     evaluate(str(p), pitch=0.25, fills=plane_fills(), log=lambda *a: None, dc=False, cell_pitch=0.125)
     assert {round(k[2] * 1e3, 6) for k in set(ES.Operator._cache) - before} <= {0.25}
+
+
+
+def test_superlu_out_of_memory_is_a_memory_error(monkeypatch):
+    """scipy's SuperLU reports a failed allocation inside gstrf as 'gstrf was called with invalid arguments'."""
+    import scipy.sparse as sp
+    from haslam.em import solve as ES
+
+    def oom(*a, **k):
+        raise SystemError("gstrf was called with invalid arguments")
+    monkeypatch.setattr(ES.sla, "splu", oom)
+    with pytest.raises(MemoryError, match="out of memory"):
+        ES.splu_node_system(sp.identity(4, format="csc", dtype=complex))
+    monkeypatch.setattr(ES.sla, "splu", lambda *a, **k: (_ for _ in ()).throw(SystemError("something else")))
+    with pytest.raises(SystemError):
+        ES.splu_node_system(sp.identity(4, format="csc", dtype=complex))
