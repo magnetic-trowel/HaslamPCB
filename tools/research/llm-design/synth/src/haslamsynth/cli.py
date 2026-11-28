@@ -43,6 +43,25 @@ def cmd_jlc(a):
     return 0
 
 
+def cmd_parts_search(a):
+    from . import fetch, partsearch
+    try:
+        hits, seen = partsearch.search(a.keyword, n=a.n, min_stock=a.min_stock, basic=a.basic, package=a.package,
+                                       min_pitch=a.min_pitch, refresh=a.refresh)
+    except fetch.FetchError as e:
+        print(f"parts search failed: {e}", file=sys.stderr)
+        return 2
+    filt = [f for f, on in ((f"stock >= {a.min_stock}", a.min_stock), ("basic", a.basic),
+                            (f"package ~ /{a.package}/", a.package), (f"pitch >= {a.min_pitch} mm", a.min_pitch)) if on]
+    print(f"== {a.keyword}: {len(hits)} shown of {seen} JLC results" + (f" ({', '.join(filt)})" if filt else ""))
+    print("   LCSC | MPN | basic/ext | stock | package pitch | maker | description | datasheet")
+    for h in hits:
+        print("  " + h.line())
+    if any(h.pitch.how in ("typical", "bound", "unknown") for h in hits):
+        print("   pitch: ~ typical for that body, <= upper bound, P? unknown: read the datasheet's package drawing")
+    return 0
+
+
 def cmd_sym(a):
     libs = SymbolLibs()
     if ":" in a.query and libs.has(a.query):
@@ -114,6 +133,17 @@ def main(argv=None):
     j = sub.add_parser("jlc", help="look up JLCPCB/LCSC numbers for the generic passives (writes jlc.json)")
     j.add_argument("design", nargs="+")
     j.set_defaults(fn=cmd_jlc)
+    pa = sub.add_parser("parts", help="part selection: `parts search KEYWORD` (JLCPCB parts, one line per hit)")
+    psub = pa.add_subparsers(dest="parts_cmd", required=True)
+    ps = psub.add_parser("search", help="search JLCPCB parts: LCSC, MPN, basic/ext, stock, package, pitch, datasheet")
+    ps.add_argument("keyword")
+    ps.add_argument("--min-stock", type=int, default=0)
+    ps.add_argument("--basic", action="store_true", help="basic parts only (no per-order setup fee)")
+    ps.add_argument("--package", help="regex on the package name, e.g. 'TSSOP|SOIC'")
+    ps.add_argument("--min-pitch", type=float, help="drop parts whose lead pitch is known to be below this (mm)")
+    ps.add_argument("-n", type=int, default=20, help="lines to print (default 20)")
+    ps.add_argument("--refresh", action="store_true", help="ask the API again instead of the day-old cache")
+    ps.set_defaults(fn=cmd_parts_search)
     s = sub.add_parser("sym", help="search KiCad symbols by regex, or show pins of Lib:Name")
     s.add_argument("query")
     s.add_argument("--lib")
