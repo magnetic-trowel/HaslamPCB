@@ -154,3 +154,35 @@ def test_planned_injections_reads_the_facts_as_the_evaluator_does():
         inj = DC.planned_injections(b, intent)
         assert inj["Q1.3"] == pytest.approx(-0.6) and inj["J3.1"] == pytest.approx(-0.6)
 
+
+def test_per_net_injections_put_a_series_parts_current_on_its_pads():
+    """A fuse F1 from the input J1 to VIN, a sense resistor R3 to the load's rail, a 100k/100k divider on VIN: per net,
+    every net balances, the fuse and shunt carry the whole load current, the divider its few microamperes."""
+    from haslam.excite.circuit import Elem
+    pads = {"J1": [("1", "RAW", "", ""), ("2", "GND", "", "")], "F1": [("1", "RAW", "", ""), ("2", "VIN", "", "")],
+            "R3": [("1", "VIN", "", ""), ("2", "OUT", "", "")], "U1": [("1", "OUT", "", ""), ("2", "GND", "", "")],
+            "R1": [("1", "VIN", "", ""), ("2", "MID", "", "")], "R2": [("1", "MID", "", ""), ("2", "GND", "", "")]}
+
+    def el(name, kind, r, pa, pb):
+        return Elem(name=name, a=pa, b=pb, z=lambda w, r=r: r, pa=pa, pb=pb, kind=kind)
+    elems = [el("F1", "R", 0.01, "F1.1", "F1.2"), el("R3", "R", 0.1, "R3.1", "R3.2"),
+             el("R1", "R", 1e5, "R1.1", "R1.2"), el("R2", "R", 1e5, "R2.1", "R2.2")]
+    inj = {"J1.1": 1.0, "J1.2": -1.0, "U1.1": -1.0, "U1.2": 1.0}
+    out, notes = DC.element_terminals(pads, elems, inj)
+    assert notes == []
+    net_at = {f"{r}.{n}": net for r, pp in pads.items() for n, net, _, _ in pp}
+    for net in set(net_at.values()):
+        assert sum(a for t, a in out.items() if net_at[t] == net) == pytest.approx(0.0, abs=1e-12)
+    assert out["F1.1"] == pytest.approx(-1.0) and out["F1.2"] == pytest.approx(1.0)
+    assert out["R3.1"] == pytest.approx(-1.0, rel=1e-4) and out["R3.2"] == pytest.approx(1.0, rel=1e-4)
+    assert abs(out.get("R1.1", 0.0)) < 1e-6                        # the divider: microamperes at most
+
+
+def test_per_net_injections_of_a_real_plan_balance_net_by_net():
+    b = board(_charger(Q("Q1", "AO3407A", "G", "CHG", "VBAT")))
+    inj = DC.planned_injections(b, FACTS, per_net=True)
+    net_at = {f"{f.ref}.{p.number}": p.net for f in b.footprints for p in f.pads}
+    for net in set(net_at.values()):
+        assert sum(a for t, a in inj.items() if net_at.get(t) == net) == pytest.approx(0.0, abs=1e-9)
+    # the buck's current reaches CHG through its inductor L1, which the per-pad plan never named
+    assert inj["L1.2"] == pytest.approx(0.6)

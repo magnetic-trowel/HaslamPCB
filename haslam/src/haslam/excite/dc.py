@@ -1309,11 +1309,90 @@ def imbalance(pl, inj, lost=()):
     return out
 
 
-def planned_injections(board, intent, brief=None, heat=None):
+def element_terminals(pads, elems, inj):
+    """{pad: A}: injections with the current through each part the copper model conducts through at DC (DC_KINDS: a
+    fuse, an inductor, a sense resistor, a forward diode, a divider) put on its two pads, so that every net balances
+    on its own. A caller that solves one net's copper at a time (power copper's branch currents, synth's width gate)
+    then sees where a series part's current enters and leaves the net: obd-solar's CHG_OUT took the charger's current
+    from R203 and its OBD_RAW the battery's through F101, which the per-pad injections never named, so the gate fell
+    back to the net's i_max everywhere (and the design wrote width_injections.json by hand).
+
+    How: each piece of nets the elements join is solved as a lumped resistor network (one node per net, each element
+    its DC resistance |z(0)|, the nets' summed injections as sources); an element's current is its voltage over its
+    resistance. Exact for a chain of series parts; where parts join nets in parallel or in a loop (a divider beside a
+    fuse) the current splits by their conductances, as in the copper (each net taken as one node: its own copper's
+    resistance is the caller's to solve). Returns (injections, [notes])."""
+    net_at = {f"{ref}.{n}": net for ref, pp in pads.items() for n, net, _, _ in pp}
+    edges = []
+    for e in elems:
+        a, b = net_at.get(e.pa), net_at.get(e.pb)
+        if e.kind not in DC_KINDS or not a or not b or a == b:
+            continue
+        try:
+            r = abs(complex(e.z(0.0))) if callable(getattr(e, "z", None)) else 0.0
+        except (TypeError, ValueError, ZeroDivisionError):
+            r = 0.0
+        edges.append((e, a, b, max(r, 1e-6)))       # a short (0 ohm link, jumper) as 1 uOhm
+    tot = {}
+    for t, a in inj.items():
+        if t in net_at:
+            tot[net_at[t]] = tot.get(net_at[t], 0.0) + a
+    par = {}
+
+    def root(x):
+        while par.get(x, x) != x:
+            x = par[x]
+        return x
+    for _, a, b, _ in edges:
+        ra, rb = root(a), root(b)
+        if ra != rb:
+            par[max(ra, rb)] = min(ra, rb)
+    comps = {}
+    for _, a, b, _ in edges:
+        comps.setdefault(root(a), set()).update((a, b))
+    out, notes = dict(inj), []
+    for k in sorted(comps):
+        nodes = sorted(comps[k])
+        if not any(abs(tot.get(n, 0.0)) > 0 for n in nodes):
+            continue
+        ix = {n: i for i, n in enumerate(nodes)}
+        G = np.zeros((len(nodes), len(nodes)))
+        es = [x for x in edges if x[1] in ix]
+        for _, a, b, r in es:
+            g = 1.0 / r
+            G[ix[a], ix[a]] += g
+            G[ix[b], ix[b]] += g
+            G[ix[a], ix[b]] -= g
+            G[ix[b], ix[a]] -= g
+        rhs = np.array([tot.get(n, 0.0) for n in nodes])
+        big = float(np.max(np.abs(rhs)))
+        if abs(float(rhs.sum())) > 1e-6 * max(big, 1e-12):
+            # the piece's injections do not balance (current leaves through a part the copper does not conduct,
+            # off the board): its elements' currents are not determined, so nothing is added
+            notes.append(f"{nodes[0]} (+{len(nodes) - 1} nets): injections sum to {rhs.sum():+.3g} A; not split")
+            continue
+        # one node held at 0 V (the network is floating): the rest solve exactly
+        v = np.zeros(len(nodes))
+        if len(nodes) > 1:
+            v[1:] = np.linalg.solve(G[1:, 1:], rhs[1:])
+        for e, a, b, r in es:
+            i_ab = (v[ix[a]] - v[ix[b]]) / r           # through the element from a's pad to b's
+            if abs(i_ab) <= 1e-12 * max(big, 1e-12):
+                continue
+            pa, pb = (e.pa, e.pb) if net_at[e.pa] == a else (e.pb, e.pa)
+            out[pa] = out.get(pa, 0.0) - i_ab
+            out[pb] = out.get(pb, 0.0) + i_ab
+    return {t: a for t, a in out.items() if a}, notes
+
+
+def planned_injections(board, intent, brief=None, heat=None, sources=None, per_net=False):
     """{"REF.NUM": A} of the DC power flow at the typical point of every parameter, from the plan the
     physics evaluator scores (haslam.excite.evaluate: rails, feeds, regulators, loads and their currents
     under the operating facts `intent`), positive into the copper; {} when the plan has no rail with a
-    source and a load. For callers outside the evaluator (power copper's THT neck); no field solve.
+    source and a load. For callers outside the evaluator (power copper's THT neck); no field solve. `sources`: a dict
+    filled with {"REF.NUM": set of the sources ("intent", "part_table", "prior") of the load currents at that pad},
+    so a caller can tell a stated current from a class prior. per_net: also the current through each series part
+    the copper model conducts through, on its pads (element_terminals), so that every net balances on its own.
 
     The brief is built as the evaluator builds it (haslam.excite.evaluate.evaluate): from the operating facts (a
     haslam.intent/1 document's `facts`), with inverting cells. Built from the board
@@ -1356,6 +1435,13 @@ def planned_injections(board, intent, brief=None, heat=None):
     bad = imbalance(pl, inj, lost)
     if bad:
         raise ValueError(f"the DC plan's current does not balance: {'; '.join(bad[:4])}")
+    if per_net:
+        inj, _ = element_terminals(pl.pads, bd.circuit.elems, inj)
+    if sources is not None:
+        src_of = {(p.subject, p.name): p.source for p in pl.params}
+        for ld in pl.loads:
+            for t in list(ld.get("sup") or []) + list(ld.get("gnd") or []):
+                sources.setdefault(t, set()).add(src_of.get(ld.get("key"), "prior"))
     return {k: float(v) for k, v in inj.items() if v}
 
 
