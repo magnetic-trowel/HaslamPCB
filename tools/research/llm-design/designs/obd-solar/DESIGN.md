@@ -21,7 +21,7 @@ stop-mode current unverified); U401 needs USB-PD source firmware; not reviewed, 
 
 | Path | Parts | Key numbers (source) |
 |---|---|---|
-| OBD-II pin 16 / pins 4+5 -> J101 (pigtail) -> F101 5 A -> VBAT | SMBJ24A clamp, 100 uF bulk | VRWM 24 V (jump start), VC 38.9 V < 42 V U301 abs max |
+| OBD-II pin 16 / pins 4+5 -> J101 (pigtail) -> F101 5 A -> VBAT | SMBJ24A clamp, 100 uF bulk | VRWM 24 V (jump start), VC 38.9 V < 45 V U301 abs max |
 | Panel J201 -> Q201 reverse-polarity PMOS -> PV_IN | AO3407A, Vgs = -0.36 VPV | 52 mOhm: 19 mW at 0.6 A |
 | PV_IN -> CN3767 buck -> CHG_OUT | Q202 AO3407A, D202 SS34, L201 47 uH, R203 0.18 Ohm | trickle 17.5 %, CC 0.67 A, absorb 14.8 V to 38 % (0.25 A), float 13.55 V, recharge < 12.42 V (DS p.4-6); CV-MPPT 16.5 V |
 | CHG_OUT -> Q203 PMOS -> VBAT | U202 TLV7031 from the panel, Q204, R209/R210 | on when PV_IN > 1.022 VBAT; off (0 A) with no light |
