@@ -1,9 +1,0 @@
-{
-  "_note": "DC current paths width_check.py solves for nets the evaluator's DC plan does not cover (it models neither the OBD feed nor the charger: FRICTION.md #56, #66). Positive into the copper; only the shape matters (the gate scales to each net's i_max).",
-  "OBD_RAW": {"J101.1": 1.0, "F101.1": -1.0},
-  "VBAT": {"F101.2": 1.0, "U301.17": -0.95, "U301.13": -0.05},
-  "PV_IN": {"Q201.2": 1.0, "Q202.2": -0.99, "U201.9": -0.01},
-  "CHG_OUT": {"R203.2": 1.0, "Q203.3": -1.0},
-  "/USB/BB_SW1": {"U301.18": 1.0, "L301.1": -1.0},
-  "/USB/BB_SW2": {"L301.2": 1.0, "U301.3": -1.0}
-}

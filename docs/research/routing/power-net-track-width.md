@@ -100,12 +100,15 @@ Keys: track width, power net width, neck, neck-down, neck_width_um, start_necked
 
 1. `synth/scripts/width_check.py` (post-route gate, run by `layout.sh` and required by `pipeline.py`): IPC-2221 need per segment
    from the segment's **branch current** (resistive solve of the routed copper, `power_copper.branch_currents`, under the
-   evaluator's DC plan plus a design's `width_injections.json`), scaled so the largest branch carries the net's `i_max`, with a
+   evaluator's DC plan from the design's intent file, per net: `planned_injections(per_net=True)`), scaled so the largest branch carries the net's `i_max`, with a
    10 % floor for stubs; segments within 1 mm of a same-net pad are exempt; segments >= 90 % under a same-net fill count as
    poured. `--basis net` judges every segment by `i_max`.
 2. The evaluator modelled width correctly but its DC plan injected 50 mA + 30 mA (no load facts), so 0.127 mm on a 3.5 A net
    read 0 K; with `parts.J301.I_A` the track reads 120 K, and a `heat.track` term prices it. Its DC plan covers neither a charger
-   into an external battery nor converter inputs, so obd-solar supplies injections by hand.
+   into an external battery nor converter inputs, so obd-solar supplied injections by hand. Branch `synth/dc-defaults` (from
+   `physics/dc-plan-cells`): an unstated export alone on a converter's rail takes the converter's stated current, a charger
+   with no load charges the external source one series part away, and the gate's plan has the facts and per-net
+   series-part currents; the hand file is gone and the verdicts are unchanged (FRICTION.md #73).
 3. Cell-window solves at 0.0625 mm needed > 8.5 GB on a spread cell (OOM kill at 13.2 GB); `--cell-pitch 0.125` took 84 s, 3 GB.
 
 ## W7. Changes made and pending

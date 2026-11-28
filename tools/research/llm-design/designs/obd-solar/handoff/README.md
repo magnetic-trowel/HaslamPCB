@@ -6,7 +6,7 @@ Scope: every file needed to study obd-solar's power-net track widths without reb
 [docs/research/routing/power-net-track-width.md](../../../../../../docs/research/routing/power-net-track-width.md); the
 run's friction log is [../FRICTION.md](../FRICTION.md); the circuit is [../design.py](../design.py) and
 [../parts.py](../parts.py) (explained in [../DESIGN.md](../DESIGN.md), reviewed in [../REVIEW.md](../REVIEW.md)).
-Keys: obd-solar handoff, board package, routed board, width_injections, width_check, reproduction
+Keys: obd-solar handoff, board package, routed board, width_check, reproduction
 
 These boards are this project's own design (GPL-3.0-or-later, like the rest of `designs/`), not corpus boards, so they
 may be committed. Generated on branch `obd-solar-e2e` with KiCad 10.0.8 and the Freerouting fork pinned at 06d2686.
@@ -27,8 +27,9 @@ may be committed. Generated on branch `obd-solar-e2e` with KiCad 10.0.8 and the 
 | `variants/widen/` | `routed-s1` after `power_copper` (widen mode): VBAT 68.2 / VBUS 15.5 / CHG_OUT 11.2 mm too narrow, DRC 4 | `haslam.route.power_copper` |
 | `variants/zones-into-pads/` | after `power_copper --mode vector --vector-out zones --no-neck` (67 zones pour into SMD pads): 65.2 / 11.8 / 8.3 mm, DRC 3 | same |
 
-`../width_injections.json` gives the DC current paths the evaluator's plan does not model (OBD feed, VBAT, PV_IN, CHG_OUT,
-switch nodes); `width_check.py` needs it for branch-current judging of those nets.
+`width_check.py` takes every net's DC current paths from the evaluator's plan under the intent file beside the board (the
+hand-written `width_injections.json` it once needed for the OBD feed, VBAT, PV_IN, CHG_OUT and the switch nodes was removed
+once the plan covered them: FRICTION.md #73).
 
 ## Reproduce
 
@@ -36,7 +37,7 @@ From the repo root, in the haslam venv with `~/.cache/haslambench/env.sh` source
 
 ```bash
 H=tools/research/llm-design/designs/obd-solar/handoff
-python tools/research/llm-design/synth/scripts/width_check.py $H/routed-s1/obd-solar.kicad_pcb $H/unplaced/netlist.json --injections tools/research/llm-design/designs/obd-solar/width_injections.json
+python tools/research/llm-design/synth/scripts/width_check.py $H/routed-s1/obd-solar.kicad_pcb $H/unplaced/netlist.json
 ```
 
 ```bash
